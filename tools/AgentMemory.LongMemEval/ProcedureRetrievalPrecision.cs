@@ -43,6 +43,7 @@ public sealed record ProcedureRetrievalPrecision(
     int CorrectAtOne,
     int WrongAtOne,
     int Abstained,
+    int Missed,
     double MeanReciprocalRank)
 {
     /// <summary>Share of tasks whose best-ranked procedure was a correct one.</summary>
@@ -58,8 +59,36 @@ public sealed record ProcedureRetrievalPrecision(
     /// </remarks>
     public double WrongProcedureRate => Total == 0 ? 0d : (double)WrongAtOne / Total;
 
-    /// <summary>Share of tasks where nothing was returned — slower, and safe.</summary>
+    /// <summary>
+    /// Share of tasks where nothing was returned <b>and nothing applied</b> — the correct call.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This used to count every empty retrieval, and that was wrong.</b> Returning nothing when a
+    /// procedure DID apply is a miss, not caution — but it was scored here, in the column the
+    /// documentation calls "not a failure". A retriever tuned to a threshold so high that it finds
+    /// nothing would have scored a perfect wrong-procedure rate and a near-perfect abstention rate,
+    /// i.e. maximally safe rather than useless.
+    /// </para>
+    /// <para>
+    /// Found by building the first consumer for this instrument (26.2). It was invisible while the
+    /// only caller was a unit test that supplied its own expectations.
+    /// </para>
+    /// </remarks>
     public double AbstentionRate => Total == 0 ? 0d : (double)Abstained / Total;
+
+    /// <summary>
+    /// Share of tasks where a procedure applied and nothing was returned — a failure, and a
+    /// <i>safe</i> one.
+    /// </summary>
+    /// <remarks>
+    /// Reported separately from both <see cref="WrongProcedureRate"/> and
+    /// <see cref="AbstentionRate"/>, because it is neither. An agent that retrieves nothing
+    /// investigates from scratch: it pays the discovery cost it should not have had to pay, but it
+    /// does not act on a plan built for another task. Folding it into either neighbour loses exactly
+    /// the distinction this instrument exists to preserve.
+    /// </remarks>
+    public double MissRate => Total == 0 ? 0d : (double)Missed / Total;
 
     /// <summary>
     /// Share of the tasks it <i>chose to answer</i> that it answered correctly.
@@ -82,13 +111,17 @@ public sealed record ProcedureRetrievalPrecision(
         var correct = 0;
         var wrong = 0;
         var abstained = 0;
+        var missed = 0;
         var reciprocalRankTotal = 0d;
 
         foreach (var item in cases)
         {
             if (item.RetrievedProcedureIds.Count == 0)
             {
-                abstained++;
+                // Staying quiet is only the right call when nothing applied. Otherwise it is a miss:
+                // safe, but a failure, and counted as one.
+                if (item.CorrectProcedureIds.Count == 0) abstained++;
+                else missed++;
                 continue;
             }
 
@@ -113,6 +146,7 @@ public sealed record ProcedureRetrievalPrecision(
             correct,
             wrong,
             abstained,
+            missed,
             cases.Count == 0 ? 0d : reciprocalRankTotal / cases.Count);
     }
 }

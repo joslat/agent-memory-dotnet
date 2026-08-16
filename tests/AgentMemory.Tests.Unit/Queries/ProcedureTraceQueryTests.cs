@@ -15,6 +15,13 @@ namespace AgentMemory.Tests.Unit.Queries;
 /// </remarks>
 public sealed class ProcedureTraceQueryTests
 {
+    // The comparisons are wrapped in toLower(...) since 26.2. PromoteAsync used to write
+    // kind.ToString() -- "Procedure" -- while every filter here compared against lowercase
+    // "procedure", so promotion silently never took effect: a promoted trace was invisible to
+    // proceduresOnly recall AND was never exempt from the retention prune these tests cover.
+    // The write is fixed; normalising on read rescues traces already stored with the wrong case
+    // without requiring a migration.
+
     [Fact]
     public void TheSearchIsUnchangedWhenNoProcedureFilterIsRequested()
     {
@@ -31,7 +38,7 @@ public sealed class ProcedureTraceQueryTests
     {
         var cypher = ReasoningQueries.SearchByTaskVector(false, true, true, 60, proceduresOnly: true);
 
-        cypher.Should().Contain("coalesce(node.trace_kind, 'episode') = 'procedure'");
+        cypher.Should().Contain("toLower(coalesce(node.trace_kind, 'episode')) = 'procedure'");
     }
 
     [Fact]
@@ -39,7 +46,7 @@ public sealed class ProcedureTraceQueryTests
     {
         var cypher = ReasoningQueries.SearchByTaskVector(false, true, true, 60, proceduresOnly: false);
 
-        cypher.Should().Contain("coalesce(node.trace_kind, 'episode') <> 'procedure'");
+        cypher.Should().Contain("toLower(coalesce(node.trace_kind, 'episode')) <> 'procedure'");
     }
 
     [Fact]
@@ -54,7 +61,7 @@ public sealed class ProcedureTraceQueryTests
                      ReasoningQueries.SearchByTaskVector(false, false, true, 60, proceduresOnly: false),
                  })
         {
-            cypher.Should().Contain("coalesce(node.trace_kind, 'episode')");
+            cypher.Should().Contain("toLower(coalesce(node.trace_kind, 'episode'))");
         }
     }
 
@@ -68,7 +75,7 @@ public sealed class ProcedureTraceQueryTests
         // undone by recency and the capability does not exist.
         var cypher = ReasoningQueries.PruneSessionTraces(ownerIsShared);
 
-        cypher.Should().Contain("coalesce(t.trace_kind, 'episode') <> 'procedure'");
+        cypher.Should().Contain("toLower(coalesce(t.trace_kind, 'episode')) <> 'procedure'");
     }
 
     [Theory]
@@ -92,7 +99,7 @@ public sealed class ProcedureTraceQueryTests
         // unbounded one -- a retention cap that silently stops capping.
         var cypher = ReasoningQueries.PruneSessionTraces(false);
 
-        cypher.Should().Contain("coalesce(t.trace_kind, 'episode')");
+        cypher.Should().Contain("toLower(coalesce(t.trace_kind, 'episode'))");
         cypher.Should().NotContain("t.trace_kind = 'episode'");
     }
 }

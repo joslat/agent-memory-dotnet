@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -23,6 +23,9 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IClock _clock;
     private readonly MemoryOptions _options;
     private readonly IWritableMemoryRankingContext? _rankingContext;
+    private readonly IReadOnlyList<IMemoryReranker> _rerankers;
+    private readonly Projection.MemoryContextProjector _projector;
+    private readonly IWorkingMemoryService? _workingMemory;
     private readonly IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> _truncationStrategies;
     private readonly ILogger<MemoryContextAssembler> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
@@ -65,7 +68,10 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         ILogger<MemoryContextAssembler> logger,
         IMemoryIsolationPolicy isolationPolicy,
         IWritableMemoryRankingContext? rankingContext,
-        IEnumerable<ITruncationStrategy>? truncationStrategies)
+        IEnumerable<ITruncationStrategy>? truncationStrategies,
+        IEnumerable<IMemoryReranker>? rerankers = null,
+        IEnumerable<Projection.IProjectionFeature>? projectionFeatures = null,
+        IWorkingMemoryService? workingMemory = null)
     {
         _shortTerm = shortTerm;
         _longTerm = longTerm;
@@ -75,10 +81,78 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         _clock = clock;
         _options = options.Value;
         _rankingContext = rankingContext;
+        // 17.4b. Materialised once: each reranker owns an IsEnabled gate reading MemoryOptions, and
+        // both ship false, so an ordinary recall pays one enumeration of an empty-or-disabled list.
+        _rerankers = rerankers?.ToArray() ?? [];
+        // 30.2. Same shape as the rerankers above and for the same reason: registered unconditionally,
+        // each owning its own IsEnabled gate, all flags off by default. Null (the non-DI ctor) means no
+        // projection is possible at all, which is the byte-identical path.
+        _projector = new Projection.MemoryContextProjector(projectionFeatures ?? []);
+        _workingMemory = workingMemory;
         _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
         _isolationPolicy = isolationPolicy;
     }
+
+    /// <summary>
+    /// The projection options in force: the request's when it set them, otherwise the application's.
+    /// </summary>
+    /// <remarks>
+    /// The 25.2 inheritance pattern applied one level down. Reference equality against the singleton is
+    /// precisely "the caller left this alone", and because <c>MemoryOptions.Projection</c> also defaults
+    /// to that same instance, an unconfigured application resolves to the all-off default and nothing
+    /// changes.
+    /// </remarks>
+    /// <remarks>
+    /// Takes the requested value rather than the whole <see cref="RecallOptions"/> so that BOTH recall
+    /// paths read <c>recallOpts.Projection</c> at their own call site. That is not cosmetic: the as-of
+    /// divergence guard establishes "does this path honour this option" by reading the source, and a
+    /// helper that hid the reference would report a divergence that does not exist — or, far worse,
+    /// would hide a real one later.
+    /// </remarks>
+    private MemoryProjectionOptions ResolveProjectionOptions(MemoryProjectionOptions requested) =>
+        ReferenceEquals(requested, MemoryProjectionOptions.Default)
+            ? _options.Projection
+            : requested;
+
+    /// <summary>
+    /// Runs projection over the post-budget context, or returns null when nothing is enabled.
+    /// </summary>
+    /// <remarks>
+    /// Called after truncation on purpose: the two read-performing features then pay only for items
+    /// that actually reached the prompt, rather than for everything retrieval happened to return.
+    /// </remarks>
+    private Task<ProjectedContext?> ProjectAsync(
+        MemoryProjectionOptions projectionOpts,
+        MemoryScope? scope,
+        IReadOnlyList<Entity> entities,
+        IReadOnlyList<Fact> facts,
+        IReadOnlyList<Preference> preferences,
+        IReadOnlyList<ReasoningTrace> traces,
+        IReadOnlyList<Message> recentMessages,
+        IReadOnlyList<Message> relevantMessages,
+        IReadOnlyList<(Entity Entity, double Score)> entityScores,
+        IReadOnlyList<(Fact Fact, double Score)> factScores,
+        IReadOnlyList<(Preference Preference, double Score)> preferenceScores,
+        IReadOnlyList<(ReasoningTrace Trace, double Score)> traceScores,
+        CancellationToken cancellationToken) =>
+        _projector.ProjectAsync(
+            new Projection.ProjectionState
+            {
+                Options = projectionOpts,
+                Scope = scope,
+                Entities = entities,
+                Facts = facts,
+                Preferences = preferences,
+                Traces = traces,
+                RecentMessages = recentMessages,
+                RelevantMessages = relevantMessages,
+                EntityScores = entityScores,
+                FactScores = factScores,
+                PreferenceScores = preferenceScores,
+                TraceScores = traceScores,
+            },
+            cancellationToken);
 
     // Start from the four built-in strategies (so the OldestFirst fallback is always available even when
     // DI passes an empty enumerable), then let any injected strategy override the default for its key.
@@ -98,6 +172,108 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 map[strategy.Strategy] = strategy;
 
         return map;
+    }
+
+    /// <summary>
+    /// Drops the no-direct-match block for one section, when a tombstone will speak for it instead.
+    /// </summary>
+    /// <remarks>
+    /// Returns the projection unchanged when there is nothing to drop, including the common case of no
+    /// projection at all — so with legible forgetting off this is never reached, and with it on but no
+    /// projection features enabled it is a no-op.
+    /// </remarks>
+    private static ProjectedContext? SuppressNoDirectMatch(
+        ProjectedContext? projection, string sectionKey)
+    {
+        if (projection is null || projection.Blocks.Count == 0) return projection;
+
+        var kept = projection.Blocks
+            .Where(block => !(block.Kind == ProjectedBlockKind.NoDirectMatch
+                              && string.Equals(block.SectionKey, sectionKey, StringComparison.Ordinal)))
+            .ToArray();
+
+        if (kept.Length == projection.Blocks.Count) return projection;
+
+        // A projection whose only content was that one block becomes null, not an empty shell: null is
+        // what every surface already treats as "take the pre-projection path".
+        return kept.Length == 0 && projection.Annotations.Count == 0 && projection.SectionOrder.Count == 0
+            ? null
+            : projection with { Blocks = kept };
+    }
+
+    /// <summary>
+    /// Asks what the system used to know about this, when it turns out to know nothing (30.8).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Three gates, and each one is load-bearing.</b> The flag, because this is off by default and
+    /// off must cost nothing. A query embedding, because a turn narrowed to skip embedding must not
+    /// have one reintroduced by a diagnostic — that would undo the embedding-gating saving outright.
+    /// And <b>thinness</b>: the probe runs only when the fact section came back empty from a search
+    /// that actually ran. A recall that answered the question has nothing to apologise for, and a
+    /// section that was never searched has not established an absence.
+    /// </para>
+    /// <para>
+    /// <b>One summary, not a list.</b> Aggregating to the single dominant subject is what keeps this a
+    /// stated absence rather than a second retrieval channel: "I no longer have details on X" is
+    /// actionable, while three competing half-forgotten topics is just noise about noise.
+    /// </para>
+    /// <para>
+    /// Failures degrade to silence. A probe that cannot run leaves the answer exactly as it would have
+    /// been without the feature, which is the correct failure direction for a meta-memory surface.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<ForgottenTopicSummary>> ProbeForgottenAsync(
+        RecallOptions recallOpts,
+        float[]? queryEmbedding,
+        IReadOnlyList<Fact> facts,
+        MemoryScope? scope,
+        double minScore,
+        CancellationToken cancellationToken)
+    {
+        if (!recallOpts.LegibleForgetting) return Array.Empty<ForgottenTopicSummary>();
+        if (queryEmbedding is not { Length: > 0 }) return Array.Empty<ForgottenTopicSummary>();
+        // The thinness trigger. Searched-and-found-nothing, not merely found-nothing: a recall whose
+        // fact budget was zero never asked, and never asking is not the same as an absence.
+        if (facts.Count > 0 || recallOpts.MaxFacts <= 0) return Array.Empty<ForgottenTopicSummary>();
+
+        try
+        {
+            var decayed = await _longTerm.SearchDecayedFactsAsync(
+                queryEmbedding, recallOpts.TombstoneProbeTopK, minScore, scope, cancellationToken)
+                .ConfigureAwait(false);
+            if (decayed.Count == 0) return Array.Empty<ForgottenTopicSummary>();
+
+            // Grouped case-insensitively, the way the graph groups: two spellings of one subject are
+            // one topic, and reporting them as two would overstate how much was lost.
+            var dominant = decayed
+                .Where(f => !string.IsNullOrWhiteSpace(f.Subject))
+                .GroupBy(f => f.Subject, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(g => g.Count())
+                .ThenBy(g => g.Key, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (dominant is null) return Array.Empty<ForgottenTopicSummary>();
+
+            return
+            [
+                new ForgottenTopicSummary
+                {
+                    Topic = dominant.Key,
+                    Count = dominant.Count(),
+                    OldestUtc = dominant.Min(f => f.CreatedAtUtc),
+                    AgedOutUtc = dominant.Max(f => f.InvalidatedAtUtc),
+                },
+            ];
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Forgotten-topic probe failed; the recall is unaffected.");
+            return Array.Empty<ForgottenTopicSummary>();
+        }
     }
 
     /// <summary>
@@ -158,7 +334,27 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     {
         _logger.LogDebug("Assembling memory context for session {SessionId}", request.SessionId);
 
-        var recallOpts = request.Options;
+        // 25.2. `MemoryOptions.Recall` is the APPLICATION's default; `RecallOptions.Default` is the
+        // library's. A caller who did not set RecallRequest.Options gets the former, not the latter.
+        //
+        // Without this the configured value was read by almost nobody: RecallRequest.Options defaults
+        // to the static RecallOptions.Default singleton, so a host that tuned recall depth or
+        // similarity through MemoryOptions saw no effect on any direct RecallAsync call -- the option
+        // bound, validated, and changed nothing.
+        //
+        // Reference equality is exactly the right test: RecallOptions.Default is a singleton, so this
+        // is true precisely when the caller left the property alone. And it is a no-op for anyone who
+        // has not configured anything, because MemoryOptions.Recall itself defaults to that same
+        // instance -- so the unconfigured path stays byte-identical.
+        var recallOpts = ReferenceEquals(request.Options, RecallOptions.Default)
+            ? _options.Recall
+            : request.Options;
+        var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
+        // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER
+        // abstains -- every threshold from 0.00 to 0.86 behaves identically, a measured dead zone --
+        // and an agent handed a confident wrong procedure executes it where one handed nothing
+        // investigates. Null (the default) resolves to MinSimilarityScore, so this is byte-identical.
+        var traceMinScore = recallOpts.EffectiveTraceMinScore;
         var minScore = recallOpts.MinSimilarityScore;
         var blendMode = recallOpts.BlendMode;
 
@@ -214,6 +410,21 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<Preference> preferences = Array.Empty<Preference>();
         IReadOnlyList<Fact> facts = Array.Empty<Fact>();
         IReadOnlyList<ReasoningTrace> traces = Array.Empty<ReasoningTrace>();
+        // 30.7. Hoisted to this scope for the same reason every sibling above it is: the retrieval is
+        // started inside the has-embedding branch, and the result is read after it. Firing itself needs
+        // no embedding -- it is a time predicate -- but it is dispatched alongside the searches so it
+        // shares their concurrency rather than adding a serial round trip.
+        var fireProspective = false;
+        var prospective = ProspectiveDueResult.Empty;
+        // 30.8. Populated only on a thin recall with the flag on — see ProbeForgottenAsync.
+        IReadOnlyList<ForgottenTopicSummary> forgottenTopics = Array.Empty<ForgottenTopicSummary>();
+        // The embedding the searches ACTUALLY used, which is not always request.QueryEmbedding — a
+        // caller may supply none and have one generated. Kept separate from rerankEmbedding, which
+        // deliberately holds only the caller-supplied vector.
+        float[]? effectiveQueryEmbedding = null;
+        // Hoisted for the reranker context (17.4b): NodeDistanceReranker finds its centroid entity by
+        // the SAME query embedding, so handing it null would leave it enabled and inert.
+        float[]? rerankEmbedding = request.QueryEmbedding;
         // Retrieval scores per section, populated only on the diagnostics path below. Empty — never a
         // placeholder score — for any section whose provider could not supply one, so a reader can tell
         // "retrieved weakly" apart from "not ranked at all".
@@ -268,6 +479,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // searches rather than issue zero-dimension vector queries (which the index rejects).
             bool hasEmbedding = queryEmbedding is { Length: > 0 };
             vectorSearchRan = hasEmbedding;
+            effectiveQueryEmbedding = queryEmbedding;
             static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
 
             // Every long-term/reasoning search below is ranked by the vector index and the service layer
@@ -276,8 +488,16 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // and WITHOUT a second query. Null when diagnostics are off (the default) or when a custom
             // service implementation does not expose the contract, and every call below is then the
             // pre-existing one — same query, same allocations, same behaviour.
-            var scoredLongTerm = recallOpts.IncludeDiagnostics ? _longTerm as IScoredLongTermSearch : null;
-            var scoredReasoning = recallOpts.IncludeDiagnostics ? _reasoning as IScoredTraceSearch : null;
+            //
+            // 30.2 widens the gate, not the query. Match-quality projection needs the same scores
+            // diagnostics needs, and the scored overloads are the SAME Cypher returning the score
+            // column the unscored path discards -- same round trips, same allocations. The PUBLIC
+            // RankedItems/Diagnostics population below stays gated on IncludeDiagnostics exactly as
+            // before, so no existing consumer's payload changes; projection reads the in-scope scored
+            // tuples directly.
+            var needsScores = recallOpts.IncludeDiagnostics || projectionOpts.AnnotateMatchQuality;
+            var scoredLongTerm = needsScores ? _longTerm as IScoredLongTermSearch : null;
+            var scoredReasoning = needsScores ? _reasoning as IScoredTraceSearch : null;
 
             // Recent messages need no embedding; the rest are semantic and are gated on hasEmbedding. Each
             // is also gated on its own MaxX > 0 (#88): a task-aware recall policy that excludes a category
@@ -384,6 +604,29 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                                 scope, cancellationToken))
                 : Empty<Fact>();
 
+            // 30.7. Gated on BOTH the flag and ValidTimeMode.Current: firing reads a fact's valid-time
+            // window, and a recall that is ignoring valid time has no window to read. Off ⇒ the task is
+            // a completed empty result, so the section array below and every await on it are unchanged.
+            //
+            // `since` is the lookback, clamped by construction. There is no checkpoint store to consult
+            // here -- the delta checkpoint is a caller-held token living in the MAF session state bag
+            // (30.5), which the assembler cannot see -- so the stateless lookback is not a fallback, it
+            // is the whole mechanism at this layer. That is a deliberate narrowing of the design, which
+            // assumed a registered checkpoint store; a host that wants checkpoint-anchored firing has
+            // the delta block for exactly that, and firing stays a pure function of the clock.
+            fireProspective =
+                recallOpts.ProspectiveFiring && recallOpts.ValidTime == ValidTimeMode.Current;
+            var dueTask = fireProspective
+                ? TimedAsync("memory.recall.due",
+                    () => _longTerm.GetDueFactsAsync(
+                        _clock.UtcNow - recallOpts.DueLookback,
+                        _clock.UtcNow,
+                        recallOpts.ExpiringWindow,
+                        recallOpts.MaxDueItems,
+                        scope,
+                        cancellationToken))
+                : Task.FromResult(ProspectiveDueResult.Empty);
+
             var tracesTask = searchTraces && scoredReasoning is null
                 ? TimedAsync("memory.recall.traces",
                     () => _reasoning.SearchSimilarTracesAsync(
@@ -394,13 +637,13 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                         // it as a failure, so imitating reasoning that did not work is worse than
                         // recalling nothing. Default stays null - today's behaviour - until measured.
                         recallOpts.SuccessfulTracesOnly,
-                        recallOpts.MaxTraces, minScore, scope, cancellationToken))
+                        recallOpts.MaxTraces, traceMinScore, scope, cancellationToken))
                 : Empty<ReasoningTrace>();
             var tracesScoredTask = searchTraces && scoredReasoning is not null
                 ? TimedAsync("memory.recall.traces",
                     () => scoredReasoning!.SearchSimilarTracesWithScoresAsync(
                         queryEmbedding, recallOpts.SuccessfulTracesOnly,
-                        recallOpts.MaxTraces, minScore, scope, cancellationToken))
+                        recallOpts.MaxTraces, traceMinScore, scope, cancellationToken))
                 : null;
 
             if (overrideRanking) _rankingContext!.Current = null;
@@ -492,7 +735,41 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 traceScores = await tracesScoredTask.ConfigureAwait(false);
                 traces = traceScores.Select(static scored => scored.Trace).ToArray();
             }
+
+            // 30.7. Awaited outside the section array on purpose: firing has its own budget and must
+            // not be dropped by the latency-budget sweep that replaces unfinished sections with
+            // empties. A dropped reminder is silence, and silence here is indistinguishable from
+            // "nothing was due" -- the one confusion this feature cannot afford.
+            prospective = await dueTask.ConfigureAwait(false);
         }
+
+        if (!prospective.IsEmpty)
+        {
+            // De-dup: a fact that is BOTH relevant and newly due renders only as due. Rendering it twice
+            // would spend the budget twice on one fact and, worse, make the reminder look like a
+            // coincidence of the query rather than something volunteered.
+            var dueIds = prospective.Due.Select(f => f.FactId)
+                .Concat(prospective.Expiring.Select(f => f.FactId))
+                .ToHashSet(StringComparer.Ordinal);
+            if (dueIds.Count > 0 && facts.Count > 0)
+            {
+                var kept = facts.Where(f => !dueIds.Contains(f.FactId)).ToArray();
+                if (kept.Length != facts.Count)
+                {
+                    facts = kept;
+                    // The scored set is filtered in lockstep: a score left behind for a fact no longer
+                    // in Items is a ranked item pointing at nothing, which the projection layer reads.
+                    factScores = factScores.Where(s => !dueIds.Contains(s.Fact.FactId)).ToArray();
+                }
+            }
+        }
+
+        // 30.8. Runs AFTER the fact section resolves, because its trigger is what that section came
+        // back with. One extra query, only on a thin recall, only with the flag on -- a well-answered
+        // turn pays nothing at all.
+        forgottenTopics = await ProbeForgottenAsync(
+            recallOpts, effectiveQueryEmbedding, facts, scope, minScore, cancellationToken)
+            .ConfigureAwait(false);
 
         if (graphRagTask != null)
             await graphRagTask.ConfigureAwait(false);
@@ -551,10 +828,55 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             traceRanked = BuildRankedItems(traces, traceScores, static t => t.TraceId);
         }
 
+        // 17.4b. Reranking (R6 node-distance, R7 mention-frequency). Applied to FACTS, the section both
+        // shipped rerankers were written for. The candidate list is rebuilt here rather than reused
+        // from the diagnostics block above, because diagnostics are opt-in: depending on them would
+        // make reordering happen only for callers who had asked to be told about it.
+        if (facts.Count > 1 && _rerankers.Any(reranker => reranker.IsEnabled))
+        {
+            var rerankCandidates = BuildRankedItems(facts, factScores, static f => f.FactId);
+            if (rerankCandidates.Count == facts.Count)
+            {
+                facts = await RerankSectionAsync(
+                    facts, rerankCandidates,
+                    new MemoryRerankContext(request.Query, rerankEmbedding, scope, MemoryItemKind.Fact),
+                    static f => f.FactId, cancellationToken).ConfigureAwait(false);
+                if (recallOpts.IncludeDiagnostics)
+                    factRanked = BuildRankedItems(facts, factScores, static f => f.FactId);
+            }
+        }
+
+        // 30.4. The deterministic tier: a point-read by owner, not a vector competition, so it cannot
+        // be starved the way the sections above measurably are (an owner's own facts inside the global
+        // top-60 averaged 7, minimum 1; one real question retrieved ZERO from a graph holding 504 of
+        // its own). Null unless the tier is enabled AND the recall resolved to a concrete owner.
+        var workingMemory = _workingMemory is not null && !string.IsNullOrWhiteSpace(scope?.OwnerId)
+            ? await _workingMemory.GetAsync(scope!.OwnerId!, cancellationToken).ConfigureAwait(false)
+            : null;
+
+        // 30.2. After truncation AND after reranking, so projection describes exactly the items that
+        // reach the prompt in the order they will be rendered. Null unless a feature is enabled.
+        var projection = await ProjectAsync(
+            projectionOpts, scope, entities, facts, preferences, traces,
+            recentMessages, relevantMessages,
+            entityScores, factScores, preferenceScores, traceScores,
+            cancellationToken).ConfigureAwait(false);
+
+        // 30.8 precedence. A tombstone and a no-direct-match line make overlapping claims about the
+        // same empty section, and the tombstone is strictly the more informative: "nothing closely
+        // matched" versus "I knew things about X and let them go". Rendering both says it twice and
+        // then disagrees with itself about how much is known. Resolved HERE, once, rather than in each
+        // surface that renders them.
+        if (forgottenTopics.Count > 0)
+            projection = SuppressNoDirectMatch(projection, Projection.ProjectionSectionKeys.Facts);
+
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
+            Projection = projection,
+            WorkingMemoryBlock = workingMemory?.Text,
+            WorkingMemoryBuiltAtUtc = workingMemory?.BuiltAtUtc,
             RecentMessages = new MemoryContextSection<Message>
             {
                 Items = recentMessages,
@@ -609,6 +931,25 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                         recallOpts.MaxTraces, traces, traceRanked, minScore, droppedTraces)
                     : null
             },
+            // 30.7. Diagnosed as SEARCHED only when firing actually ran, so a host whose custom
+            // ILongTermMemoryService silently hits the DIM's empty default sees "never searched" rather
+            // than "nothing was due". Those are opposite conclusions, and the shipped-but-unreachable
+            // trap is precisely that they look identical from outside.
+            DueFacts = new MemoryContextSection<Fact>
+            {
+                Items = prospective.Due,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(fireProspective, recallOpts.MaxDueItems, prospective.Due, [], minScore)
+                    : null
+            },
+            ExpiringFacts = new MemoryContextSection<Fact>
+            {
+                Items = prospective.Expiring,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(fireProspective, recallOpts.MaxDueItems, prospective.Expiring, [], minScore)
+                    : null
+            },
+            ForgottenTopics = forgottenTopics,
             GraphRagContext = graphRagContext,
             GraphRagItems = graphRagItems,
             ResolvedQueryRelations = resolvedQueryRelations,
@@ -644,7 +985,27 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             "Assembling bitemporal memory context for session {SessionId} validAsOf {ValidAsOf} systemAsOf {SystemAsOf}",
             request.SessionId, validAsOf, systemAsOf);
 
-        var recallOpts = request.Options;
+        // 25.2. `MemoryOptions.Recall` is the APPLICATION's default; `RecallOptions.Default` is the
+        // library's. A caller who did not set RecallRequest.Options gets the former, not the latter.
+        //
+        // Without this the configured value was read by almost nobody: RecallRequest.Options defaults
+        // to the static RecallOptions.Default singleton, so a host that tuned recall depth or
+        // similarity through MemoryOptions saw no effect on any direct RecallAsync call -- the option
+        // bound, validated, and changed nothing.
+        //
+        // Reference equality is exactly the right test: RecallOptions.Default is a singleton, so this
+        // is true precisely when the caller left the property alone. And it is a no-op for anyone who
+        // has not configured anything, because MemoryOptions.Recall itself defaults to that same
+        // instance -- so the unconfigured path stays byte-identical.
+        var recallOpts = ReferenceEquals(request.Options, RecallOptions.Default)
+            ? _options.Recall
+            : request.Options;
+        var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
+        // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER
+        // abstains -- every threshold from 0.00 to 0.86 behaves identically, a measured dead zone --
+        // and an agent handed a confident wrong procedure executes it where one handed nothing
+        // investigates. Null (the default) resolves to MinSimilarityScore, so this is byte-identical.
+        var traceMinScore = recallOpts.EffectiveTraceMinScore;
         var minScore = recallOpts.MinSimilarityScore;
 
         // R1 (IC5): scope temporal recall to the requesting owner, identically to the live path --
@@ -681,12 +1042,25 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         // second code path — an instrument wired into only one of the two recall paths would report a
         // point-in-time recall as unscored when it merely went the other way. Null when diagnostics are
         // off (the default), and every call below is then the pre-existing one.
-        var scoredLongTerm = recallOpts.IncludeDiagnostics ? _longTerm as IScoredLongTermSearch : null;
-        var scoredReasoning = recallOpts.IncludeDiagnostics ? _reasoning as IScoredTraceSearch : null;
+        // 30.2 widens it here too, for the same reason the elision above is asserted rather than
+        // trusted: a projection wired into only one of the two recall paths would silently produce an
+        // unprojected context for every as-of recall, and these paths have already diverged once.
+        var needsScores = recallOpts.IncludeDiagnostics || projectionOpts.AnnotateMatchQuality;
+        var scoredLongTerm = needsScores ? _longTerm as IScoredLongTermSearch : null;
+        var scoredReasoning = needsScores ? _reasoning as IScoredTraceSearch : null;
         bool searchEntities = hasEmbedding && recallOpts.MaxEntities > 0;
         bool searchPreferences = hasEmbedding && recallOpts.MaxPreferences > 0;
         bool searchFacts = hasEmbedding && recallOpts.MaxFacts > 0;
         bool searchTraces = hasEmbedding && recallOpts.MaxTraces > 0;
+
+        // 25.5. The same per-request ranking intent the live path applies (D3). Without it, an as-of
+        // recall asking for `latest` or `analog` intent was silently ranked by the default policy --
+        // the option was accepted, and the only difference between the two paths was that one obeyed
+        // it. Identical mechanics to the live path: the repositories read the ambient context
+        // synchronously while each task is CREATED, before its first await, so it is reset immediately
+        // after creation and there is no await in the region for it to leak past.
+        bool overrideRanking = _rankingContext is not null && recallOpts.Intent != RankingIntent.Default;
+        if (overrideRanking) _rankingContext!.Current = _options.Ranking.ForIntent(recallOpts.Intent);
 
         var entitiesTask = searchEntities && scoredLongTerm is null
             ? _longTerm.SearchEntitiesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken)
@@ -718,12 +1092,15 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // `node.started_at <= datetime($asOf)`, and returns the trace's present-time success on the
             // row either way — so filtering on it reveals nothing the result did not already carry.
             // Default is null, so unset behaviour here is byte-for-byte what it was.
-            ? _reasoning.SearchSimilarTracesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, minScore, scope, cancellationToken)
+            ? _reasoning.SearchSimilarTracesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, traceMinScore, scope, cancellationToken)
             : Empty<ReasoningTrace>();
         var tracesScoredTask = searchTraces && scoredReasoning is not null
             ? scoredReasoning!.SearchSimilarTracesAsOfWithScoresAsync(
-                queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, minScore, scope, cancellationToken)
+                queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, traceMinScore, scope, cancellationToken)
             : null;
+
+        // Reset before the first await, exactly as the live path does.
+        if (overrideRanking) _rankingContext!.Current = null;
 
         await Task.WhenAll(
             recentTask,
@@ -820,10 +1197,20 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             traceRanked = BuildRankedItems(traces, traceScores, static t => t.TraceId);
         }
 
+        // 30.2, post-budget, mirroring the live path. This path assembles no relevant-messages section
+        // at all (it passes Array.Empty to the budget above), so projection is told that honestly rather
+        // than being handed the recent list twice.
+        var projection = await ProjectAsync(
+            projectionOpts, scope, entities, facts, preferences, traces,
+            recentMessages, Array.Empty<Message>(),
+            entityScores, factScores, preferenceScores, traceScores,
+            cancellationToken).ConfigureAwait(false);
+
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
+            Projection = projection,
             RecentMessages = new MemoryContextSection<Message>
             {
                 Items = recentMessages,
@@ -966,6 +1353,74 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         var messages = await _shortTerm.SearchMessagesAsync(
             sessionId, queryEmbedding, limit, minScore, cancellationToken).ConfigureAwait(false);
         return new RelevantMessageSearchResult(messages, Array.Empty<(Message, double)>());
+    }
+
+    /// <summary>
+    /// Runs every enabled reranker over a section and reorders its items to match (17.4b).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A reranker that throws must not fail the recall.</b> A degraded order is recoverable; a lost
+    /// recall is not. Each is isolated so one bad implementation cannot cost a host its memory, and
+    /// the failure is logged rather than swallowed.
+    /// </para>
+    /// <para>
+    /// <b>Reorder-only is enforced, not trusted.</b> The interface says a reranker returns the same set
+    /// permuted, and notes that adding or dropping candidates "is not supported and not checked for
+    /// cheaply, so it would corrupt the section's diagnostics silently". It is checked here: a result
+    /// whose ids are not exactly the input's is discarded and the provider order kept.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<T>> RerankSectionAsync<T>(
+        IReadOnlyList<T> items,
+        IReadOnlyList<MemoryContextRankedItem> candidates,
+        MemoryRerankContext context,
+        Func<T, string> idOf,
+        CancellationToken cancellationToken)
+    {
+        var order = candidates;
+        foreach (var reranker in _rerankers)
+        {
+            if (!reranker.IsEnabled) continue;
+            try
+            {
+                var reordered = await reranker.RerankAsync(order, context, cancellationToken)
+                    .ConfigureAwait(false);
+                if (reordered.Count == order.Count &&
+                    reordered.Select(item => item.ItemId).ToHashSet(StringComparer.Ordinal)
+                        .SetEquals(order.Select(item => item.ItemId)))
+                {
+                    order = reordered;
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Reranker {Reranker} returned a different candidate set; keeping provider order.",
+                        reranker.GetType().Name);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(
+                    exception, "Reranker {Reranker} failed; keeping provider order.",
+                    reranker.GetType().Name);
+            }
+        }
+
+        if (ReferenceEquals(order, candidates)) return items;
+
+        var byId = items.ToDictionary(idOf, StringComparer.Ordinal);
+        var result = new List<T>(items.Count);
+        foreach (var ranked in order)
+        {
+            if (byId.TryGetValue(ranked.ItemId, out var item)) result.Add(item);
+        }
+
+        return result.Count == items.Count ? result : items;
     }
 
     /// <summary>

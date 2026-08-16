@@ -23,6 +23,14 @@ internal sealed class MemoryService : IMemoryService
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IMemoryDecayService? _decayService;
     private readonly IConversationRepository? _conversationRepository;
+    // Optional only for SemVer: this is a public constructor, and a required parameter would break every
+    // host that builds a MemoryService by hand. DI always supplies it (ServiceCollectionExtensions
+    // registers IMemoryIsolationPolicy unconditionally); DeltaRecallReachabilityTests asserts that.
+    private readonly IMemoryIsolationPolicy? _isolationPolicy;
+    // 30.12. Optional for the same SemVer reason as the policy above: a public constructor cannot gain
+    // a required parameter. Null means the queue is unavailable and recall falls back to the inline or
+    // deferred path, which is what every host had before.
+    private readonly IMemoryAccessTracker? _accessTracker;
     private readonly MemoryOptions _options;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -44,7 +52,9 @@ internal sealed class MemoryService : IMemoryService
         IIdGenerator idGenerator,
         ILogger<MemoryService> logger,
         IMemoryDecayService? decayService = null,
-        IConversationRepository? conversationRepository = null)
+        IConversationRepository? conversationRepository = null,
+        IMemoryIsolationPolicy? isolationPolicy = null,
+        IMemoryAccessTracker? accessTracker = null)
     {
         ArgumentNullException.ThrowIfNull(shortTerm);
         ArgumentNullException.ThrowIfNull(assembler);
@@ -71,6 +81,8 @@ internal sealed class MemoryService : IMemoryService
         _logger = logger;
         _decayService = decayService;
         _conversationRepository = conversationRepository;
+        _isolationPolicy = isolationPolicy;
+        _accessTracker = accessTracker;
     }
 
     /// <inheritdoc/>
@@ -91,16 +103,29 @@ internal sealed class MemoryService : IMemoryService
         // conversational turn could reach RecallAsOfAsync at all. Resolution is deterministic and
         // biased hard toward returning null -- see TemporalQueryParser -- so the ordinary turn takes
         // exactly the path it always did.
+        // The reference instant is the CALLER'S now when it supplies one. "Ten days ago" is measured
+        // from when the turn was spoken, and for a replayed or backfilled transcript that is not
+        // wall-clock -- resolving against the wrong now binds the query to a window the corpus cannot
+        // contain, which returns nothing and reads as the feature not working.
+        var temporalReference = request.TemporalReferenceTime ?? _clock.UtcNow;
         if (_options.ResolveTemporalQueries
-            && TemporalQueryParser.Resolve(request.Query, _clock.UtcNow) is { } asOf)
+            && TemporalQueryParser.Resolve(request.Query, temporalReference) is { } asOf)
         {
             activity?.SetTag("memory.recall.resolved_as_of", asOf.ToString("O"));
             _logger.LogDebug(
                 "Query names a past time ({AsOf}); recalling bitemporally instead of against now.", asOf);
-            // Both clocks: the question is "what did I think then", which is what was true then AS
-            // known then. Passing only the valid clock would answer with today's corrections applied
-            // to the past -- a different question, and a subtly misleading one.
-            return await RecallAsOfCoreAsync(request, asOf, asOf, cancellationToken).ConfigureAwait(false);
+            // WHICH clocks is a real choice and the two mistakes are not symmetric. "What did I buy ten
+            // days ago" asks about the world then using everything known now; "what did I think back in
+            // March" asks about belief then. The parser cannot separate them, so the default is the
+            // survivable error: applying today's corrections to a past question is usually wanted,
+            // whereas binding the transaction clock excludes every row created after the instant -- and
+            // created_at is INGESTION time on any host that imported its history, so that host recalls
+            // an empty context, silently, for every past question. Belief reconstruction is opt-in.
+            var systemAsOf = _options.TemporalQueryClocks == TemporalQueryClocks.ValidAndTransactionTime
+                ? asOf
+                : temporalReference;
+            return await RecallAsOfCoreAsync(request, asOf, systemAsOf, cancellationToken, resolvedFromQuery: asOf)
+                .ConfigureAwait(false);
         }
 
         var context = await _assembler.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
@@ -109,7 +134,14 @@ internal sealed class MemoryService : IMemoryService
         // cancellation are observed; the method itself is resilient and logs internally.
         if (_decayService is not null)
         {
-            if (_options.DeferAccessTracking)
+            // 30.12. The queue wins when both are set: it is the same optimisation done safely, and a
+            // host that turned on the older option and then adopted this one should get the safe path
+            // rather than two writers racing over the same stamps.
+            if (_options.UseAccessTrackingQueue && _accessTracker is not null)
+            {
+                _accessTracker.Track(CollectAccessedNodes(context));
+            }
+            else if (_options.DeferAccessTracking)
             {
                 // 2.4. Bookkeeping the caller is not waiting for: it feeds decay and retention, and
                 // nothing in the returned context depends on it.
@@ -143,7 +175,17 @@ internal sealed class MemoryService : IMemoryService
             + context.RelevantEntities.Items.Count
             + context.RelevantPreferences.Items.Count
             + context.RelevantFacts.Items.Count
-            + context.SimilarTraces.Items.Count;
+            + context.SimilarTraces.Items.Count
+            // 30.7. Counted, because the formatter's zero-items early return reads this: a recall whose
+            // ONLY content is a volunteered reminder would otherwise render nothing at all, which is
+            // exactly the shape of the procedural-tier defect -- a section populated, counted nowhere,
+            // and invisible on the surface that renders it.
+            + context.DueFacts.Items.Count
+            + context.ExpiringFacts.Items.Count
+            // 30.8, same reason: a recall whose only content is "I used to know things about X"
+            // would otherwise hit the formatter's zero-items early return and render nothing -- which
+            // is precisely the recall where saying so matters most.
+            + context.ForgottenTopics.Count;
 
         int estimatedChars =
             context.RecentMessages.Items.Sum(m => m.Content.Length)
@@ -198,13 +240,20 @@ internal sealed class MemoryService : IMemoryService
         RecallRequest request,
         DateTimeOffset validAsOf,
         DateTimeOffset systemAsOf,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTimeOffset? resolvedFromQuery = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug(
             "Recalling memory for session {SessionId} validAsOf {ValidAsOf} systemAsOf {SystemAsOf}",
             request.SessionId, validAsOf, systemAsOf);
         var context = await _assembler.AssembleContextAsOfAsync(request, validAsOf, systemAsOf, cancellationToken).ConfigureAwait(false);
+
+        // Stamped only on the auto-routed path, so a caller can tell "the parser fired" from "I asked
+        // for a date". Without that distinction, enabling query-time resolution and observing nothing
+        // is indistinguishable from it never having been reached.
+        if (resolvedFromQuery is { } resolved)
+            context = context with { ResolvedTemporalAsOf = resolved };
 
         // Count every populated section so TotalItemsRetrieved matches the documented "across all sections"
         // contract and the live RecallAsync path. SimilarTraces is populated on the as-of path too, so it
@@ -534,6 +583,34 @@ internal sealed class MemoryService : IMemoryService
         return false;
     }
 
+    /// <summary>
+    /// The entity/fact/preference ids one recall touched (30.12).
+    /// </summary>
+    /// <remarks>
+    /// Extracted so the queued path and the inline path build the identical list from the identical
+    /// sections. Two copies of "which nodes did this recall touch" is how one path quietly stops
+    /// counting a section the other still counts, and the symptom would be a decay curve that differs by
+    /// which flag a host set.
+    /// </remarks>
+    private static List<(string NodeId, MemoryNodeKind NodeKind)> CollectAccessedNodes(MemoryContext context)
+    {
+        var nodes = new List<(string NodeId, MemoryNodeKind NodeKind)>(
+            context.RelevantEntities.Items.Count
+            + context.RelevantFacts.Items.Count
+            + context.RelevantPreferences.Items.Count);
+
+        foreach (var entity in context.RelevantEntities.Items)
+            nodes.Add((entity.EntityId, MemoryNodeKind.Entity));
+
+        foreach (var fact in context.RelevantFacts.Items)
+            nodes.Add((fact.FactId, MemoryNodeKind.Fact));
+
+        foreach (var pref in context.RelevantPreferences.Items)
+            nodes.Add((pref.PreferenceId, MemoryNodeKind.Preference));
+
+        return nodes;
+    }
+
     private async Task UpdateAccessTimestampsAsync(MemoryContext context, CancellationToken cancellationToken)
     {
         // Spanned separately from the rest of recall because this is a WRITE burst on the pre-model read
@@ -548,19 +625,7 @@ internal sealed class MemoryService : IMemoryService
             // transaction — measured at 25 write transactions per default recall, all awaited before the
             // model was invoked. The batch API is a default interface method that falls back to exactly
             // that loop, so an implementation which cannot batch is unaffected.
-            var nodes = new List<(string NodeId, MemoryNodeKind NodeKind)>(
-                context.RelevantEntities.Items.Count
-                + context.RelevantFacts.Items.Count
-                + context.RelevantPreferences.Items.Count);
-
-            foreach (var entity in context.RelevantEntities.Items)
-                nodes.Add((entity.EntityId, MemoryNodeKind.Entity));
-
-            foreach (var fact in context.RelevantFacts.Items)
-                nodes.Add((fact.FactId, MemoryNodeKind.Fact));
-
-            foreach (var pref in context.RelevantPreferences.Items)
-                nodes.Add((pref.PreferenceId, MemoryNodeKind.Preference));
+            var nodes = CollectAccessedNodes(context);
 
             activity?.SetTag("memory.access_tracking.items", nodes.Count);
 
@@ -575,5 +640,107 @@ internal sealed class MemoryService : IMemoryService
         {
             _logger.LogWarning(ex, "Failed to update access timestamps for recalled memories");
         }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>The upper bound is read from the clock ONCE</b> and passed to all three repositories, then
+    /// handed back as <c>TakenAtUtc</c>. That is what makes consecutive deltas partition time exactly:
+    /// a write landing during the read with <c>created_at &gt; until</c> falls into the NEXT delta
+    /// rather than being lost to read skew. Reading the clock per repository would open a gap between
+    /// them that nothing could later reconstruct.
+    /// </para>
+    /// <para>
+    /// A future checkpoint is caller error, not an empty delta -- returning "nothing changed" for a
+    /// nonsensical window is the reassuring-fabrication failure again.
+    /// </para>
+    /// </remarks>
+    public async Task<MemoryDelta> RecallChangedSinceAsync(
+        MemoryDeltaRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var until = _clock.UtcNow;
+        if (request.Since >= until)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request),
+                $"Delta window start {request.Since:O} is not before now ({until:O}). A future or "
+                + "present checkpoint is a caller error, not an empty delta.");
+        }
+
+        // A delta reads the repositories directly, so it must resolve its own scope -- the assembler,
+        // which does this for every other read, is not in the path. Passing request.Scope straight
+        // through would hand a caller who supplied only a UserId an unfiltered, cross-owner answer: the
+        // ClearSession owner-leak (#56) in a new place.
+        var scope = ResolveDeltaScope(request);
+
+        var cap = request.MaxItemsPerSection;
+        var factsTask = _factRepository.ListChangedInWindowAsync(
+            request.Since, until, scope, cap, cancellationToken);
+        var preferencesTask = _preferenceRepository.ListChangedInWindowAsync(
+            request.Since, until, scope, cap, cancellationToken);
+        var entitiesTask = _entityRepository.ListCreatedInWindowAsync(
+            request.Since, until, scope, cap, cancellationToken);
+
+        var facts = await factsTask.ConfigureAwait(false);
+        var preferences = await preferencesTask.ConfigureAwait(false);
+        var entities = await entitiesTask.ConfigureAwait(false);
+
+        // Truncation is REPORTED, never silent: a caller told nothing would believe they had seen
+        // every change in the window.
+        var truncated = new List<string>();
+        void Note(string name, int count) { if (count >= cap) truncated.Add(name); }
+        Note(nameof(MemoryDelta.NewFacts), facts.NewFacts.Count);
+        Note(nameof(MemoryDelta.SupersededPairs), facts.SupersededPairs.Count);
+        Note(nameof(MemoryDelta.InvalidatedFacts), facts.InvalidatedFacts.Count);
+        Note(nameof(MemoryDelta.ExpiredValidity), facts.ExpiredValidity.Count);
+        Note(nameof(MemoryDelta.NewlyDueProspective), facts.NewlyDueProspective.Count);
+        Note(nameof(MemoryDelta.NewPreferences), preferences.NewPreferences.Count);
+        Note(nameof(MemoryDelta.SupersededPreferences), preferences.SupersededPreferences.Count);
+        Note(nameof(MemoryDelta.NewEntities), entities.Count);
+
+        return new MemoryDelta
+        {
+            Since = request.Since,
+            TakenAtUtc = until,
+            NewFacts = facts.NewFacts,
+            SupersededPairs = facts.SupersededPairs,
+            InvalidatedFacts = facts.InvalidatedFacts,
+            ExpiredValidity = facts.ExpiredValidity,
+            NewlyDueProspective = facts.NewlyDueProspective,
+            NewPreferences = preferences.NewPreferences,
+            SupersededPreferences = preferences.SupersededPreferences,
+            NewEntities = entities,
+            TruncatedSections = truncated,
+        };
+    }
+
+    /// <summary>
+    /// Resolves the owner scope a delta read runs under.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Delegates to <see cref="IMemoryIsolationPolicy"/> when one was supplied — that is the only path
+    /// that enforces <see cref="MemoryIsolationMode.StrictMultiTenant"/>, and it is the path every
+    /// DI-built host takes.
+    /// </para>
+    /// <para>
+    /// The fallback exists solely for a hand-constructed <see cref="MemoryService"/> and reproduces what
+    /// the default policy does in single-tenant mode: an explicit scope wins, else the owner, else
+    /// global. It deliberately does <b>not</b> silently pass a null scope through to the repositories.
+    /// </para>
+    /// </remarks>
+    private MemoryScope ResolveDeltaScope(MemoryDeltaRequest request)
+    {
+        if (_isolationPolicy is not null)
+        {
+            return _isolationPolicy.ResolveReadScope(
+                request.Scope, request.UserId, nameof(RecallChangedSinceAsync), MemoryOperationAccess.Tenant);
+        }
+
+        return request.Scope
+            ?? (string.IsNullOrEmpty(request.UserId) ? MemoryScope.Global : MemoryScope.For(request.UserId));
     }
 }

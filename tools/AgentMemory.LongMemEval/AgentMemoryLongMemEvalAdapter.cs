@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Text;
 using AgentEval.Core;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Core.Services.Projection;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using Microsoft.Extensions.AI;
@@ -23,6 +24,20 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     internal const string SystemPrompt =
         "Answer the question using only the retrieved memory below. " +
         "Be concise and do not claim information that is absent from memory.";
+
+    /// <summary>
+    /// The answer text of a response, with quote-forcing unwrapped when it was used (30.11).
+    /// </summary>
+    /// <remarks>
+    /// Unwrapping happens here, before voting, so votes cluster on the ANSWER rather than on the whole
+    /// two-line response — otherwise two votes agreeing on the answer while citing different quotes
+    /// would be counted as a disagreement, and the two features would fight each other.
+    /// </remarks>
+    private string AnswerTextOf(ChatResponse response)
+    {
+        var text = response.Text ?? string.Empty;
+        return _options.QuoteForcing ? LongMemEvalQuoteForcing.Parse(text).Answer : text;
+    }
 
     private readonly IMemoryService _memory;
     private readonly IChatClient _chatClient;
@@ -624,8 +639,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     .ReadGoldCoverageAsync(ownerId, goldSourceMessageIds, cancellationToken)
                     .ConfigureAwait(false);
 
+                // MatchesSealed, not Equals: the sealed snapshot cannot carry counters that were
+                // added after it was written, and comparing them makes every pre-6.5 corpus fail.
                 if (preparedQuestion is not null &&
-                    !Equals(graphSnapshot, preparedQuestion.GraphSnapshot))
+                    !graphSnapshot.MatchesSealed(preparedQuestion.GraphSnapshot))
                 {
                     RecordTelemetry(
                         questionNumber,
@@ -667,11 +684,18 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         var requestedMessages = _options.ExcludeSyntheticFormatterMessages
             ? budget.Messages * _options.SyntheticExclusionCandidateMultiplier
             : budget.Messages;
+        // 27.4. The retrieval query, which until now was always the question verbatim. The formulator
+        // counts how many queries it actually changed; an arm that changed too few voids rather than
+        // reporting "no difference" about a mechanism that mostly did not run.
+        var retrievalQuery = _options.QueryFormulator is null
+            ? prompt
+            : await _options.QueryFormulator.DeriveAsync(prompt, cancellationToken).ConfigureAwait(false);
+
         var recallRequest = new RecallRequest
         {
             SessionId = sessionId,
             UserId = ownerId,
-            Query = prompt,
+            Query = retrievalQuery,
             Options = new RecallOptions
             {
                 MaxRecentMessages = 0,
@@ -693,6 +717,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 IncludeDiagnostics = evidenceQuestion is not null
             }
         };
+
         RecallResult recall;
         try
         {
@@ -862,7 +887,12 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     originsByMessageId,
                     _options.EvidenceDetail,
                     answerPrompt.Length,
-                    budget.Messages);
+                    budget.Messages,
+                    // 22.3. The structured arm's provenance, which is what makes gold-session
+                    // coverage observable without a message budget. Passing it is the difference
+                    // between a metric and a null: before this, GoldSessionRecallAtK was null on
+                    // 1,476 of 1,476 structured question-records.
+                    StructuredSourceMessageIds(recall.Context));
                 if (_options.EvidenceDetail != LongMemEvalEvidenceDetail.None)
                 {
                     normalizedEvidence = LongMemEvalAgentEvalEvidence.Build(
@@ -886,18 +916,67 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         }
 
         ChatResponse response;
+        // 30.11. Null unless voting ran, so an unvoted run's report is byte-identical.
+        AnswerVoteResult? voteResult = null;
         try
         {
+            // 30.11 quote-forcing. Built from SystemPrompt rather than replacing it, so the two cannot
+            // drift; identical to the historical prompt when off.
+            var systemPrompt = _options.QuoteForcing
+                ? LongMemEvalQuoteForcing.SystemPrompt(SystemPrompt)
+                : SystemPrompt;
+
+            // Distinct seeds per vote, derived from the one recorded base. With AnswerVotes = 1 (the
+            // default) this is a single-element list holding exactly the historical seed value, so the
+            // call below is byte-for-byte what it always was.
+            var seeds = LongMemEvalAnswerVote.SeedsFor(_options.AnswerSeed, Math.Max(1, _options.AnswerVotes));
+
+            Task<ChatResponse> AskAsync(int? seed) => LongMemEvalRuntime.ExecuteStageAsync(
+                "answer",
+                () => _chatClient.GetResponseAsync(
+                    [
+                        new ChatMessage(ChatRole.System, systemPrompt),
+                        new ChatMessage(ChatRole.User, answerPrompt)
+                    ],
+                    // Temperature is deliberately never set: this deployment refuses any value but its
+                    // default, so passing one would fail the run rather than pin the model.
+                    seed is null ? null : new ChatOptions { Seed = seed },
+                    cancellationToken));
+
             response = await timings.MeasureAsync(
                 LongMemEvalStage.Answer,
-                () => LongMemEvalRuntime.ExecuteStageAsync(
-                    "answer",
-                    () => _chatClient.GetResponseAsync(
-                        [
-                            new ChatMessage(ChatRole.System, SystemPrompt),
-                            new ChatMessage(ChatRole.User, answerPrompt)
-                        ],
-                        cancellationToken: cancellationToken))).ConfigureAwait(false);
+                async () =>
+                {
+                    var first = await AskAsync(seeds[0]).ConfigureAwait(false);
+                    if (seeds.Count == 1)
+                    {
+                        // Quote-forcing still has to be unwrapped on the single-vote path, or the judge
+                        // reads the two-line envelope and scores the format instead of the answer. With
+                        // quote-forcing off this returns the response object untouched, which is the
+                        // byte-identical historical path.
+                        return _options.QuoteForcing
+                            ? new ChatResponse(new ChatMessage(ChatRole.Assistant, AnswerTextOf(first)))
+                            {
+                                Usage = first.Usage,
+                            }
+                            : first;
+                    }
+
+                    // Sequential, not concurrent: these are the most expensive calls in the run and the
+                    // deployment is rate-limited, so a burst buys latency at the cost of throttling the
+                    // whole run.
+                    var texts = new List<string> { AnswerTextOf(first) };
+                    for (var index = 1; index < seeds.Count; index++)
+                        texts.Add(AnswerTextOf(await AskAsync(seeds[index]).ConfigureAwait(false)));
+
+                    voteResult = LongMemEvalAnswerVote.Aggregate(texts);
+                    // The winner is returned in the FIRST response's envelope so usage/telemetry keep
+                    // their existing shape; only the text is the vote's.
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant, voteResult.Answer))
+                    {
+                        Usage = first.Usage,
+                    };
+                }).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -1465,6 +1544,28 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             : message.TimestampUtc.ToString("O");
     }
 
+    /// <summary>
+    /// Every source message id reachable through the retrieved structured items (22.3).
+    /// </summary>
+    /// <remarks>
+    /// Entities, facts and preferences all carry <c>SourceMessageIds</c>, so a structured recall can
+    /// be attributed back to the sessions it actually drew on even though it retrieved no raw
+    /// messages. Without this the harness could not see coverage on the arm the project ships, which
+    /// is the one metric the completeness sweep showed to be worth eighty points.
+    /// </remarks>
+    internal static IReadOnlyCollection<string> StructuredSourceMessageIds(MemoryContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entity in context.RelevantEntities.Items)
+            foreach (var id in entity.SourceMessageIds) ids.Add(id);
+        foreach (var fact in context.RelevantFacts.Items)
+            foreach (var id in fact.SourceMessageIds) ids.Add(id);
+        foreach (var preference in context.RelevantPreferences.Items)
+            foreach (var id in preference.SourceMessageIds) ids.Add(id);
+        return ids;
+    }
+
     internal static string BuildAnswerPrompt(
         IEnumerable<(string Role, string Timestamp, string Content)> recalled,
         string question,
@@ -1515,48 +1616,69 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             };
         }
 
+        // 30.2. The third render surface. Every helper below is an identity when Projection is null --
+        // which is the state every sealed measurement in the archive was taken under, so the off-state
+        // prompt stays byte-for-byte what it was.
+        var projection = context.Projection;
+
+        void AppendSection(string sectionKey, IEnumerable<string> lines)
+        {
+            if (ProjectionRenderer.SectionPreamble(sectionKey, projection) is { Length: > 0 } preamble)
+                builderPreamble(preamble);
+            foreach (var line in lines) builderLine(line);
+        }
+
         var builder = new StringBuilder("Retrieved memory:\n");
+        void builderLine(string line) => builder.AppendLine(line);
+        void builderPreamble(string text) => builder.Append("[note] ").AppendLine(text);
+
         foreach (var message in context.RelevantMessages.Items)
             AppendMessage(builder, message.Role, DisplayTimestamp(message), message.Content);
-        foreach (var entity in context.RelevantEntities.Items)
+
+        AppendSection("entities", context.RelevantEntities.Items.Select(entity =>
         {
-            builder.Append("[entity");
+            var line = new StringBuilder("[entity");
             if (SourceDates(entity.SourceMessageIds) is { Length: > 0 } entityDates)
-                builder.Append(" @ ").Append(entityDates);
-            builder.Append("] ").Append(entity.Name).Append(" (").Append(entity.Type).Append(')');
+                line.Append(" @ ").Append(entityDates);
+            line.Append("] ").Append(entity.Name).Append(" (").Append(entity.Type).Append(')');
             if (!string.IsNullOrWhiteSpace(entity.Description))
-                builder.Append(": ").Append(entity.Description);
-            builder.AppendLine();
-        }
-        foreach (var fact in context.RelevantFacts.Items)
+                line.Append(": ").Append(entity.Description);
+            return ProjectionRenderer.AnnotateLine(line.ToString(), entity.EntityId, projection);
+        }));
+
+        AppendSection("facts",
+            ProjectionRenderer.Reorder("facts", context.RelevantFacts.Items, f => f.FactId, projection)
+                .Select(fact =>
+                {
+                    var line = new StringBuilder("[fact");
+                    if (SourceDates(fact.SourceMessageIds) is { Length: > 0 } factDates)
+                        line.Append(" @ ").Append(factDates);
+                    line.Append("] ")
+                        .Append(fact.Subject).Append(' ')
+                        .Append(fact.Predicate).Append(' ')
+                        .Append(fact.Object);
+                    if (fact.ValidFrom is not null || fact.ValidUntil is not null)
+                    {
+                        line.Append(" [valid ")
+                            .Append(fact.ValidFrom?.ToString("O") ?? "?")
+                            .Append(" to ")
+                            .Append(fact.ValidUntil?.ToString("O") ?? "?")
+                            .Append(']');
+                    }
+                    return ProjectionRenderer.AnnotateLine(line.ToString(), fact.FactId, projection);
+                }));
+
+        AppendSection("preferences", context.RelevantPreferences.Items.Select(preference =>
         {
-            builder.Append("[fact");
-            if (SourceDates(fact.SourceMessageIds) is { Length: > 0 } factDates)
-                builder.Append(" @ ").Append(factDates);
-            builder.Append("] ")
-                .Append(fact.Subject).Append(' ')
-                .Append(fact.Predicate).Append(' ')
-                .Append(fact.Object);
-            if (fact.ValidFrom is not null || fact.ValidUntil is not null)
-            {
-                builder.Append(" [valid ")
-                    .Append(fact.ValidFrom?.ToString("O") ?? "?")
-                    .Append(" to ")
-                    .Append(fact.ValidUntil?.ToString("O") ?? "?")
-                    .Append(']');
-            }
-            builder.AppendLine();
-        }
-        foreach (var preference in context.RelevantPreferences.Items)
-        {
-            builder.Append("[preference");
+            var line = new StringBuilder("[preference");
             if (SourceDates(preference.SourceMessageIds) is { Length: > 0 } preferenceDates)
-                builder.Append(" @ ").Append(preferenceDates);
-            builder.Append("] ").Append(preference.PreferenceText);
+                line.Append(" @ ").Append(preferenceDates);
+            line.Append("] ").Append(preference.PreferenceText);
             if (!string.IsNullOrWhiteSpace(preference.Context))
-                builder.Append(" (").Append(preference.Context).Append(')');
-            builder.AppendLine();
-        }
+                line.Append(" (").Append(preference.Context).Append(')');
+            return ProjectionRenderer.AnnotateLine(line.ToString(), preference.PreferenceId, projection);
+        }));
+
         if (!string.IsNullOrWhiteSpace(context.GraphRagContext))
             builder.Append("[graphrag]\n").AppendLine(context.GraphRagContext);
         return AppendQuestion(builder, question, currentDate);
@@ -1644,6 +1766,66 @@ public sealed record LongMemEvalAdapterOptions
     public bool PreparedMemory { get; init; }
 
     public LongMemEvalPreparedState? PreparedState { get; init; }
+
+    /// <summary>
+    /// 27.2. Seed applied to the <b>answer</b> call. Null (the default) reproduces the historical
+    /// behaviour exactly: no <see cref="ChatOptions"/> at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Measured, not assumed.</b> <c>--probe-answer-determinism</c> re-issued one identical answer
+    /// call many times on this deployment: the baseline returned <b>19 distinct texts in 24 calls</b>,
+    /// and the same calls with a seed returned <b>8</b>. Reproduced on a second, independent run
+    /// (8-of-8 distinct falling to 3-of-8). The provider honours the seed without guaranteeing it.
+    /// </para>
+    /// <para>
+    /// <b>Temperature is not an option here, and that is a provider fact rather than a choice.</b> The
+    /// same probe had <c>temperature: 0</c> refused outright — <i>"does not support 0 with this model.
+    /// Only the default (1) value is supported"</i>. The answer model therefore samples at temperature
+    /// 1 no matter what, which is the mechanism behind 13 of 14 verdict flips occurring under
+    /// byte-identical retrieval.
+    /// </para>
+    /// <para>
+    /// <b>Opt-in on purpose.</b> Every sealed measurement in this project was taken with no seed;
+    /// defaulting this on would silently make new runs incomparable with the entire archive. Runs that
+    /// set it echo it into the report, so a run is self-describing either way. Setting it narrows the
+    /// noise band — it does <b>not</b> license calling a run reproducible.
+    /// </para>
+    /// </remarks>
+    public int? AnswerSeed { get; init; }
+
+    /// <summary>
+    /// 30.11. How many answers to sample per question before voting. Default 1 — one call, no voting,
+    /// byte-identical to every archived run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Votes get distinct seeds derived from <see cref="AnswerSeed"/>, so a run stays reproducible from
+    /// one recorded number. The pre-registered primary claim is that the <b>band narrows</b> across
+    /// repeat runs, not that point accuracy rises: with a measured 14-point spread between two identical
+    /// accepted runs, a point comparison on n=50 is noise wearing a decimal.
+    /// </para>
+    /// <para>
+    /// Costs N× the answer calls. Judge calls are unchanged — only the winner is judged.
+    /// </para>
+    /// </remarks>
+    public int AnswerVotes { get; init; } = 1;
+
+    /// <summary>
+    /// 30.11. Requires the model to quote its supporting evidence before answering. Default off.
+    /// </summary>
+    /// <remarks>
+    /// Composes with voting: voting reduces variance in what the model says, quote-forcing constrains
+    /// what it may say by making it name the retrieved line first. <c>EVIDENCE: NONE FOUND</c> is an
+    /// explicit escape, because the alternative to admitting absence is inventing presence.
+    /// </remarks>
+    public bool QuoteForcing { get; init; }
+
+    /// <summary>
+    /// 27.4. Derives the RETRIEVAL query from the question. Null (the default) retrieves with the
+    /// question verbatim, which is what ships and what every sealed measurement used.
+    /// </summary>
+    internal LongMemEvalQueryFormulator? QueryFormulator { get; init; }
 
     internal bool PreparationOnly { get; init; }
 

@@ -22,6 +22,20 @@ var embeddingDimensions = int.TryParse(builder.Configuration["EmbeddingDimension
     ? configuredDims
     : 1536;
 
+// 30.14 / gate G5. The schema extensions this bridge run activates, as `--extensions arithmetic,delta-recall`
+// (or Neo4j:Extensions / an env var — CreateBuilder(args) binds all three).
+//
+// This surface is what makes the Gold-under-extension gate RUNNABLE at all. The claim every extension
+// design makes is that enabling it leaves the 178 upstream-parity cases untouched (R2 write-path
+// isolation, R3 base-read neutrality). Until now that claim could only be asserted, because no bridge
+// run could be configured with an extension on. With this, the gate is a same-build A/B: one run all
+// off (the void witness), one run with the extension on, results diffed. Any difference is a real
+// violation and the extension does not ship.
+//
+// Empty is the default and stays the base CI leg: 178/178 with everything off.
+var extensionIds = (builder.Configuration["extensions"] ?? builder.Configuration["Neo4j:Extensions"] ?? string.Empty)
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
 // Default listen URL http://localhost:3001 — but let an explicit ASPNETCORE_URLS (env var or any other
 // config source, e.g. appsettings/--urls) win rather than clobbering it.
 var explicitUrlsConfigured =
@@ -42,7 +56,15 @@ builder.Services.AddNeo4jAgentMemory(
         o.Password = neo4jPassword;
         o.Database = neo4jDatabase;
         o.EmbeddingDimensions = embeddingDimensions;
+        foreach (var id in extensionIds)
+            o.Extensions.Add(id);
     });
+
+// Printed, not silent. A gate run whose treatment arm was actually the control is the single most
+// expensive way to get a wrong answer here, and the line above scrolls past in a CI log.
+Console.WriteLine(extensionIds.Length == 0
+    ? "tck-bridge: schema extensions OFF (base parity run)."
+    : $"tck-bridge: schema extensions ON: {string.Join(", ", extensionIds)}.");
 
 // Register the deterministic StubEmbeddingGenerator as a FALLBACK (TryAdd, matching
 // tools/AgentMemory.Cli): a host running the bridge against a real environment can supply its own

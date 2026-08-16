@@ -81,8 +81,16 @@ internal static class DecayQueries
         // also purge already-invalidated nodes when an operator opts into a hard purge.
         var notInvalidated = nonDestructive ? " AND " + a + ".invalidated_at IS NULL" : string.Empty;
         // Soft-invalidate (keep, recoverable, auditable) vs hard DETACH DELETE (storage reclamation / GDPR).
+        //
+        // 30.8. The soft branch also stamps WHY. `invalidated_at` alone cannot distinguish a fact that
+        // decayed from one that was contradicted, and those need opposite treatment on read: a
+        // superseded fact was replaced by something better, while a decayed one is knowledge the system
+        // simply let go of -- the only kind that can honestly be reported as "I used to know this".
+        // coalesce preserves a reason already stamped; the destructive branch is untouched, because a
+        // deleted node has no reason to carry.
         var action = nonDestructive
-            ? "SET " + a + ".invalidated_at = datetime($now)"
+            ? "SET " + a + ".invalidated_at = datetime($now), "
+                + a + ".invalidated_reason = coalesce(" + a + ".invalidated_reason, 'decay')"
             : "DETACH DELETE " + a;
         // daysSince is total elapsed days as a float, computed from the epoch-millis delta. We deliberately
         // avoid duration.between(...).days, which returns only the *days component* of a normalized

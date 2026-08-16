@@ -12,7 +12,7 @@
     <!-- `perf` only. Safe to carry here because this project is IsPackable=false operator tooling: the
          release packs src/*/*.csproj only, so Testcontainers never reaches a published package. Docker is
          required to RUN `perf`, not to build or run any other verb. -->
-    <PackageReference Include="Testcontainers.Neo4j" Version="4.11.0" />
+    <PackageReference Include="Testcontainers.Neo4j" Version="4.14.0" />
   </ItemGroup>
 
   <ItemGroup>

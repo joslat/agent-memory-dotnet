@@ -67,7 +67,11 @@ internal static class McpHostProgram
             neo4j.Password = options.Neo4jPassword;
             neo4j.Database = options.Neo4jDatabase;
         });
-        builder.Services.AddAgentMemoryCore(_ => { });
+        // 25.4. Was `AddAgentMemoryCore(_ => { })` -- an empty configure lambda, so every MCP server
+        // ran on stock memory defaults with no way for an operator to change recall depth, similarity
+        // threshold, reranking or temporal resolution. The empty body was not laziness: until 25.1 made
+        // the scalar options settable, no other body would have compiled.
+        builder.Services.AddAgentMemoryCore(options.Memory);
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
         builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(

@@ -38,26 +38,103 @@ namespace AgentMemory.LongMemEval;
 /// </remarks>
 internal static class LongMemEvalExtractionCompareProgram
 {
+    /// <summary>
+    /// The verb's command line, parsed as a value so it can be tested without spending a run.
+    /// </summary>
+    /// <remarks>
+    /// Extracted from <see cref="RunAsync"/> in 30.6. Every flag on this verb used to be read inline,
+    /// between the dataset load and the first network call, which meant the only way to find out whether
+    /// a flag was honoured was to pay for a run and read the artifact afterwards. That is precisely how
+    /// <c>--extraction-seed</c> managed to be accepted-and-ignored for as long as it was.
+    /// </remarks>
+    internal sealed record CompareOptions
+    {
+        public required string DatasetPath { get; init; }
+        public int Units { get; init; }
+        public int TurnsPerUnit { get; init; }
+        public bool Repeat { get; init; }
+        public bool VocabularyAb { get; init; }
+        public bool UsePredicateVocabulary { get; init; }
+        public int? ExtractionSeed { get; init; }
+        public int Seed { get; init; }
+        public string? OutputOverride { get; init; }
+    }
+
+    internal static CompareOptions ParseOptions(string[] args)
+    {
+        var options = new CompareOptions
+        {
+            DatasetPath = Value(args, "--dataset")
+                ?? throw new ArgumentException("--dataset <longmemeval_s_cleaned.json> is required."),
+            Units = int.TryParse(Value(args, "--units"), out var parsed) ? parsed : 10,
+            // A question's full history spans many sessions and can exceed 400 messages, which is
+            // neither how extraction runs in production (it works per session) nor something a single
+            // prompt can hold. Capping turns keeps each unit session-sized and, more importantly, keeps
+            // the arms comparable - all receive byte-identical input.
+            TurnsPerUnit = int.TryParse(Value(args, "--turns"), out var parsedTurns) ? parsedTurns : 15,
+            // --repeat runs ONE arm twice over identical input and reports how much it agrees with
+            // itself. That self-agreement is the baseline every cross-extractor Jaccard in this plan
+            // should have been read against, and it is the only way to tell whether --extraction-seed
+            // actually buys reproducibility on this deployment.
+            Repeat = args.Contains("--repeat", StringComparer.Ordinal),
+            // 30.6 sub-step 0. --vocabulary-ab runs ONE extractor arm twice over identical input, once
+            // with UsePredicateVocabulary off and once on. That between-arm number is only interpretable
+            // against the SAME arm's --repeat self-agreement, which is why both live on this verb.
+            VocabularyAb = args.Contains("--vocabulary-ab", StringComparer.Ordinal),
+            UsePredicateVocabulary = args.Contains("--use-predicate-vocabulary", StringComparer.Ordinal),
+            ExtractionSeed = int.TryParse(Value(args, "--extraction-seed"), out var parsedExtraction)
+                ? parsedExtraction : null,
+            Seed = int.TryParse(Value(args, "--seed"), out var parsedSeed) ? parsedSeed : 42,
+            OutputOverride = Value(args, "--output"),
+        };
+
+        if (options.Repeat && options.VocabularyAb)
+        {
+            throw new ArgumentException(
+                "--repeat and --vocabulary-ab measure different things (self-agreement vs. between-arm "
+                + "agreement). Run them separately.");
+        }
+
+        return options;
+    }
+
+    /// <summary>Where the report lands, which depends on which of the three modes is running.</summary>
+    internal static string ResolveOutputPath(CompareOptions options, DateTimeOffset now)
+    {
+        if (options.OutputOverride is not null) return options.OutputOverride;
+
+        var stamp = now.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
+        var prefix = options switch
+        {
+            { Repeat: true } => "extraction-self-agreement",
+            { VocabularyAb: true } => "predicate-vocabulary-ab",
+            _ => "extraction-compare",
+        };
+        return $"artifacts/evaluation/{prefix}-{stamp}.json";
+    }
+
     internal static async Task<int> RunAsync(string[] args)
     {
-        var datasetPath = Value(args, "--dataset")
-            ?? throw new ArgumentException("--dataset <longmemeval_s_cleaned.json> is required.");
-        var units = int.TryParse(Value(args, "--units"), out var parsed) ? parsed : 10;
-        // A question's full history spans many sessions and can exceed 400 messages, which is neither
-        // how extraction runs in production (it works per session) nor something a single prompt can
-        // hold. Capping turns keeps each unit session-sized and, more importantly, keeps the two arms
-        // comparable - both receive byte-identical input.
-        var turns = int.TryParse(Value(args, "--turns"), out var parsedTurns) ? parsedTurns : 15;
-        // --repeat runs ONE arm twice over identical input and reports how much it agrees with
-        // itself. That self-agreement is the baseline every cross-extractor Jaccard in this plan
-        // should have been read against, and it is the only way to tell whether --extraction-seed
-        // actually buys reproducibility on this deployment.
-        var repeat = args.Contains("--repeat", StringComparer.Ordinal);
-        var extractionSeed = int.TryParse(Value(args, "--extraction-seed"), out var parsedExtraction)
-            ? (int?)parsedExtraction : null;
-        var seed = int.TryParse(Value(args, "--seed"), out var parsedSeed) ? parsedSeed : 42;
-        var output = Value(args, "--output")
-            ?? $"artifacts/evaluation/extraction-compare-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}.json";
+        CompareOptions parsedOptions;
+        try
+        {
+            parsedOptions = ParseOptions(args);
+        }
+        catch (ArgumentException exception)
+        {
+            Console.Error.WriteLine($"extraction-compare: {exception.Message}");
+            return 1;
+        }
+
+        var datasetPath = parsedOptions.DatasetPath;
+        var units = parsedOptions.Units;
+        var turns = parsedOptions.TurnsPerUnit;
+        var repeat = parsedOptions.Repeat;
+        var vocabularyAb = parsedOptions.VocabularyAb;
+        var usePredicateVocabulary = parsedOptions.UsePredicateVocabulary;
+        var extractionSeed = parsedOptions.ExtractionSeed;
+        var seed = parsedOptions.Seed;
+        var output = ResolveOutputPath(parsedOptions, DateTimeOffset.UtcNow);
 
         var endpoint = Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT");
         var apiKey = Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY");
@@ -86,19 +163,133 @@ internal static class LongMemEvalExtractionCompareProgram
 
         if (repeat)
         {
+            // 30.1. Which extractor is repeated matters and used to be unaskable: this arm was pinned
+            // to PerKind, while every recorded quality number in the archive came from the
+            // multi-session batch path. A seed that pins one says nothing about the other, so the arm
+            // is now selectable and RECORDED. Default stays PerKind, so prior invocations mean what
+            // they meant.
+            var arm = ParseArm(Value(args, "--arm"));
             var first = await RunPathAsync(
-                "run-1", slices, chatClient, extractionDeployment, Arm.PerKind, extractionSeed)
+                "run-1", slices, chatClient, extractionDeployment, arm, extractionSeed,
+                usePredicateVocabulary)
                 .ConfigureAwait(false);
             var second = await RunPathAsync(
-                "run-2", slices, chatClient, extractionDeployment, Arm.PerKind, extractionSeed)
+                "run-2", slices, chatClient, extractionDeployment, arm, extractionSeed,
+                usePredicateVocabulary)
                 .ConfigureAwait(false);
             var selfJaccard = Jaccard(first, second);
             Console.WriteLine(
-                $"SELF-AGREEMENT (extraction seed={(extractionSeed?.ToString() ?? "none")}): "
+                $"SELF-AGREEMENT (arm={arm}, extraction seed={(extractionSeed?.ToString() ?? "none")}): "
                 + $"run-1 {first.Facts.Count} facts, run-2 {second.Facts.Count} facts, "
                 + $"Jaccard={selfJaccard:F3}");
             Console.WriteLine(
                 "  Reference: three cold builds of one configuration agreed at Jaccard 0.17.");
+
+            // 30.1 acceptance: the overlap number is recorded EITHER WAY. A seed that turns out to do
+            // nothing on this deployment is a measured property of the provider, and a result that
+            // only ever existed in a console scrollback is a result nobody can cite later.
+            var repeatReport = new SelfAgreementReport
+            {
+                GeneratedAtUtc = DateTimeOffset.UtcNow,
+                Dataset = Path.GetFileName(datasetPath),
+                Units = slices.Count,
+                Seed = seed,
+                TurnsPerUnit = turns,
+                Arm = arm.ToString(),
+                ExtractionSeed = extractionSeed,
+                UsePredicateVocabulary = usePredicateVocabulary,
+                Run1 = Summarise(first),
+                Run2 = Summarise(second),
+                SelfJaccard = selfJaccard,
+                SharedFactTriples = SharedTriples(first, second),
+                UnionFactTriples = UnionTriples(first, second),
+                UnseededColdBuildReference = 0.17,
+            };
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+            await File.WriteAllTextAsync(
+                output,
+                JsonSerializer.Serialize(
+                    repeatReport, new JsonSerializerOptions { WriteIndented = true }))
+                .ConfigureAwait(false);
+            Console.WriteLine($"extraction-compare: wrote {output}");
+            return 0;
+        }
+
+        if (vocabularyAb)
+        {
+            // 30.6 sub-step 0, corrected. The A/B the plan originally scheduled as a "same-build
+            // control" cannot be one: UsePredicateVocabulary changes the extraction PROMPT, so the two
+            // arms are two different ingestions and a same-build control is a contradiction in terms.
+            // Two cold builds of ONE unchanged configuration agree at Jaccard [0.133, 0.137] -- ~86% of
+            // triples differ when nothing changed -- so a two-build A/B reads a treatment effect
+            // against a noise floor larger than any plausible effect. Here both arms see byte-identical
+            // input in one process: no Neo4j, no judge, no answer model, no build noise.
+            var arm = ParseArm(Value(args, "--arm"));
+            var off = await RunPathAsync(
+                "vocabulary-off", slices, chatClient, extractionDeployment, arm, extractionSeed,
+                usePredicateVocabulary: false)
+                .ConfigureAwait(false);
+            var on = await RunPathAsync(
+                "vocabulary-on", slices, chatClient, extractionDeployment, arm, extractionSeed,
+                usePredicateVocabulary: true)
+                .ConfigureAwait(false);
+
+            var vocabularyReport = new PredicateVocabularyAbReport
+            {
+                GeneratedAtUtc = DateTimeOffset.UtcNow,
+                Dataset = Path.GetFileName(datasetPath),
+                Units = slices.Count,
+                Seed = seed,
+                TurnsPerUnit = turns,
+                Arm = arm.ToString(),
+                ExtractionSeed = extractionSeed,
+                VocabularyOff = Summarise(off),
+                VocabularyOn = Summarise(on),
+                BetweenArmFactTripleJaccard = Jaccard(off, on),
+                SharedFactTriples = SharedTriples(off, on),
+                UnionFactTriples = UnionTriples(off, on),
+                // THE measurement this whole sub-step exists for. 421 distinct predicates over ~700
+                // facts is what makes categorical aggregation structurally impossible: counting
+                // requires two facts to agree they are instances of the same predicate. The
+                // fragmentation ratio, not the Jaccard, is what decides whether arithmetic memory has a
+                // substrate to work on.
+                DistinctPredicatesOff = DistinctPredicates(off),
+                DistinctPredicatesOn = DistinctPredicates(on),
+                PredicateFragmentationOff = Fragmentation(off),
+                PredicateFragmentationOn = Fragmentation(on),
+                SharedPredicates = SharedPredicateCount(off, on),
+                // Filled in by the operator from a matching --repeat run on the SAME arm. Left null
+                // rather than guessed: a between-arm number read against an assumed baseline is how a
+                // noise floor gets mistaken for an effect, which is the exact error this verb corrects.
+                SameArmSelfAgreementReference = null,
+            };
+
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+            await File.WriteAllTextAsync(
+                output,
+                JsonSerializer.Serialize(
+                    vocabularyReport, new JsonSerializerOptions { WriteIndented = true }))
+                .ConfigureAwait(false);
+
+            Console.WriteLine(
+                $"PREDICATE-VOCABULARY A/B (arm={arm}, extraction seed="
+                + $"{(extractionSeed?.ToString() ?? "none")}):");
+            Console.WriteLine(
+                $"  off: {off.Facts.Count} facts, {vocabularyReport.DistinctPredicatesOff} distinct predicates, "
+                + $"fragmentation {vocabularyReport.PredicateFragmentationOff:F3}");
+            Console.WriteLine(
+                $"  on : {on.Facts.Count} facts, {vocabularyReport.DistinctPredicatesOn} distinct predicates, "
+                + $"fragmentation {vocabularyReport.PredicateFragmentationOn:F3}");
+            Console.WriteLine(
+                $"  between-arm triple Jaccard: {vocabularyReport.BetweenArmFactTripleJaccard:F3} "
+                + $"(shared {vocabularyReport.SharedFactTriples} of {vocabularyReport.UnionFactTriples})");
+            Console.WriteLine(
+                "  READ THIS AGAINST a --repeat run on the SAME arm. A between-arm Jaccard at or above "
+                + "the same-arm self-agreement means the flag changed nothing measurable.");
+            Console.WriteLine(
+                "  Arithmetic memory's V1 void witness fires at fragmentation > 0.5 -- above that, "
+                + "counting is structurally impossible and no operator result is interpretable.");
+            Console.WriteLine($"extraction-compare: wrote {output}");
             return 0;
         }
 
@@ -141,7 +332,8 @@ internal static class LongMemEvalExtractionCompareProgram
         IChatClient chatClient,
         string deployment,
         Arm arm,
-        int? seed = null)
+        int? seed = null,
+        bool usePredicateVocabulary = false)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -158,6 +350,14 @@ internal static class LongMemEvalExtractionCompareProgram
             options.UseUnifiedExtraction = arm != Arm.PerKind;
             options.UseMultiSessionBatchExtraction = arm == Arm.Batch;
             options.Seed = seed;
+            // 30.6 sub-step 0. This flag was settable in options and unreachable from this verb, which
+            // made the predicate-vocabulary A/B unrunnable on the ONE instrument that can measure it
+            // honestly: it diffs what two configurations extract from byte-identical input, so there is
+            // no corpus-build noise floor to fight. The two-cold-build alternative reads a treatment
+            // effect against a noise floor larger than any plausible effect -- 30.1 measured unchanged
+            // configurations agreeing at Jaccard [0.133, 0.137], i.e. ~86% of triples differ when
+            // NOTHING changed.
+            options.UsePredicateVocabulary = usePredicateVocabulary;
         });
         var provider = services.BuildServiceProvider();
 
@@ -257,6 +457,46 @@ internal static class LongMemEvalExtractionCompareProgram
         var union = a.Union(b, StringComparer.Ordinal).Count();
         return union == 0 ? 0 : (double)a.Intersect(b, StringComparer.Ordinal).Count() / union;
     }
+
+    private static int SharedTriples(PathResult left, PathResult right) =>
+        left.Facts.Select(TripleKey).ToHashSet(StringComparer.Ordinal)
+            .Intersect(right.Facts.Select(TripleKey), StringComparer.Ordinal).Count();
+
+    private static int UnionTriples(PathResult left, PathResult right) =>
+        left.Facts.Select(TripleKey).ToHashSet(StringComparer.Ordinal)
+            .Union(right.Facts.Select(TripleKey), StringComparer.Ordinal).Count();
+
+    /// <summary>Distinct predicate spellings, compared the way the graph compares them.</summary>
+    /// <remarks>
+    /// Case-insensitive, because the write path canonicalises: two spellings differing only in case are
+    /// ONE predicate in the graph, and counting them as two would overstate fragmentation — inventing
+    /// the very problem this measurement exists to detect.
+    /// </remarks>
+    private static int DistinctPredicates(PathResult path) =>
+        path.Facts.Select(f => f.Predicate).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+
+    /// <summary>Distinct predicates per fact. Arithmetic memory's V1 void witness fires above 0.5.</summary>
+    /// <remarks>
+    /// The ratio, not the count, is the meaningful figure: 421 predicates over 700 facts (0.60) means
+    /// most predicates are used once, so no two facts ever agree they are instances of the same thing,
+    /// so nothing can be counted. The same 421 over 7000 facts would be fine.
+    /// </remarks>
+    private static double Fragmentation(PathResult path) =>
+        path.Facts.Count == 0 ? 0 : (double)DistinctPredicates(path) / path.Facts.Count;
+
+    private static int SharedPredicateCount(PathResult left, PathResult right) =>
+        left.Facts.Select(f => f.Predicate).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            .Intersect(right.Facts.Select(f => f.Predicate), StringComparer.OrdinalIgnoreCase).Count();
+
+    /// <summary>Parses <c>--arm per-kind|unified|batch</c>; absent keeps the historical PerKind.</summary>
+    private static Arm ParseArm(string? value) => (value ?? "per-kind").ToLowerInvariant() switch
+    {
+        "per-kind" or "perkind" or "" => Arm.PerKind,
+        "unified" => Arm.Unified,
+        "batch" or "multi-session-batch" => Arm.Batch,
+        var other => throw new ArgumentException(
+            $"--arm must be per-kind, unified or batch; got '{other}'."),
+    };
 
     private enum Arm
     {
@@ -376,6 +616,117 @@ internal static class LongMemEvalExtractionCompareProgram
         public string[] DistinctEntityTypes { get; init; } = [];
         public double MeanFactConfidence { get; init; }
         public int DistinctFactConfidences { get; init; }
+    }
+
+    /// <summary>
+    /// 30.1. One arm run twice over byte-identical input: how much an extractor agrees with itself.
+    /// </summary>
+    /// <remarks>
+    /// This is the reference every cross-extractor Jaccard should have been read against, and the only
+    /// instrument that can say whether a seed buys reproducibility on the deployment in use. Written to
+    /// disk whatever the answer — "the seed did nothing here" is a measured property of the provider,
+    /// and the pre-registered rule (seeded must beat unseeded by ≥3× or the seed is declared
+    /// ineffective) needs both numbers on record to be decidable at all.
+    /// </remarks>
+    internal sealed record SelfAgreementReport
+    {
+        public DateTimeOffset GeneratedAtUtc { get; init; }
+        public string Dataset { get; init; } = string.Empty;
+        public int Units { get; init; }
+        public int Seed { get; init; }
+        public int TurnsPerUnit { get; init; }
+
+        /// <summary>Which extractor was repeated. Not decoration: the three are different code.</summary>
+        public string Arm { get; init; } = string.Empty;
+
+        /// <summary>The extraction sampling seed, or null for the unseeded control.</summary>
+        public int? ExtractionSeed { get; init; }
+
+        /// <summary>
+        /// Whether both runs used the predicate vocabulary. Recorded because a self-agreement number is
+        /// only a baseline for the arm it was taken in: the vocabulary lengthens the prompt and changes
+        /// what the model emits, so its self-agreement is not assumed to equal the plain arm's.
+        /// </summary>
+        public bool UsePredicateVocabulary { get; init; }
+
+        public required PathSummary Run1 { get; init; }
+        public required PathSummary Run2 { get; init; }
+        public double SelfJaccard { get; init; }
+        public int SharedFactTriples { get; init; }
+        public int UnionFactTriples { get; init; }
+
+        /// <summary>
+        /// Three cold builds of one configuration agreed at Jaccard 0.17 (7.5% common to all three).
+        /// Carried here as context, NOT as the control: it is a different arm through a different
+        /// pipeline. The same-build unseeded repeat is the control this number must be read against.
+        /// </summary>
+        public double UnseededColdBuildReference { get; init; }
+    }
+
+    /// <summary>
+    /// 30.6 sub-step 0. One arm run twice over byte-identical input, once with the predicate vocabulary
+    /// off and once on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The plan originally scheduled this as a "same-build control", which is not achievable:
+    /// <c>UsePredicateVocabulary</c> changes the extraction <b>prompt</b>, so the two arms are two
+    /// different ingestions. Two cold builds of one <i>unchanged</i> configuration agree at Jaccard
+    /// [0.133, 0.137] — about 86% of triples differ when nothing changed — so a two-build A/B would read
+    /// a treatment effect against a noise floor larger than any plausible effect, and seeding does not
+    /// rescue it (seeded reaches only [0.264, 0.270]).
+    /// </para>
+    /// <para>
+    /// <b>The headline is <see cref="PredicateFragmentationOn"/>, not the Jaccard.</b> Arithmetic memory
+    /// hard-depends on two facts being able to agree they are instances of the same predicate; 421
+    /// distinct predicates over ~700 facts means they cannot, and no aggregation result taken on such a
+    /// corpus is interpretable. That is the feature's V1 void witness, and this report is what decides it.
+    /// </para>
+    /// </remarks>
+    internal sealed record PredicateVocabularyAbReport
+    {
+        public DateTimeOffset GeneratedAtUtc { get; init; }
+        public string Dataset { get; init; } = string.Empty;
+        public int Units { get; init; }
+        public int Seed { get; init; }
+        public int TurnsPerUnit { get; init; }
+
+        /// <summary>Which extractor both arms ran through. The three are different code.</summary>
+        public string Arm { get; init; } = string.Empty;
+
+        public int? ExtractionSeed { get; init; }
+
+        public required PathSummary VocabularyOff { get; init; }
+        public required PathSummary VocabularyOn { get; init; }
+
+        public double BetweenArmFactTripleJaccard { get; init; }
+        public int SharedFactTriples { get; init; }
+        public int UnionFactTriples { get; init; }
+
+        public int DistinctPredicatesOff { get; init; }
+        public int DistinctPredicatesOn { get; init; }
+
+        /// <summary>Distinct predicates per fact, off arm.</summary>
+        public double PredicateFragmentationOff { get; init; }
+
+        /// <summary>
+        /// Distinct predicates per fact, on arm. <b>Above 0.5 the arithmetic-memory V1 void witness
+        /// fires</b> and no operator result taken on this corpus can be reported.
+        /// </summary>
+        public double PredicateFragmentationOn { get; init; }
+
+        public int SharedPredicates { get; init; }
+
+        /// <summary>
+        /// The same arm's <c>--repeat</c> self-agreement, filled in by the operator from a matching run.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately <see langword="null"/> rather than guessed or defaulted. A between-arm number
+        /// read against an assumed baseline is exactly how a noise floor gets mistaken for an effect —
+        /// the error this whole verb exists to correct — so the field stays empty until a real
+        /// measurement fills it.
+        /// </remarks>
+        public double? SameArmSelfAgreementReference { get; init; }
     }
 
     internal sealed record ComparisonReport

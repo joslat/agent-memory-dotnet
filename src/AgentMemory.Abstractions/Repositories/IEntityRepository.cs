@@ -204,4 +204,17 @@ public interface IEntityRepository
         double minScore = 0.0,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
+    /// <summary>Entities created in the half-open window <c>(since, until]</c>.</summary>
+    /// <remarks>
+    /// Entities have no supersession or invalidation semantics on this path, so creation is the only
+    /// change there is to report. Throws by default, as the sibling delta members do.
+    /// </remarks>
+    Task<IReadOnlyList<Entity>> ListCreatedInWindowAsync(
+        DateTimeOffset since,
+        DateTimeOffset until,
+        MemoryScope? scope,
+        int maxPerBucket,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "This IEntityRepository implementation does not support delta recall.");
 }

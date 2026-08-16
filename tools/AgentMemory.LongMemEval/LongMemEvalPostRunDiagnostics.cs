@@ -401,7 +401,12 @@ internal static class LongMemEvalPostRunDiagnostics
         return token.Length == 0 ? "<non-letter>" : token[..Math.Min(token.Length, 24)];
     }
 
-    private static async Task<LongMemEvalOracleResult> RunOracleAsync(
+    /// <remarks>
+    /// Internal rather than private so the decomposed-oracle comparison uses <b>this</b> code as its
+    /// control. A reimplemented monolithic arm would drift from the one every archived attribution was
+    /// produced by, and the comparison would then be measuring two differences at once.
+    /// </remarks>
+    internal static async Task<LongMemEvalOracleResult> RunOracleAsync(
         IChatClient chatClient,
         LongMemEvalJudge judge,
         LongMemEvalEvidenceQuestion indexed,

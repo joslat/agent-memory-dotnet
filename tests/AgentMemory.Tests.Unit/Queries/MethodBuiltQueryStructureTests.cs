@@ -49,15 +49,36 @@ public sealed class MethodBuiltQueryStructureTests
     [MemberData(nameof(AllMethodBuiltQueries))]
     public void ReferencesOnlyKnownNodeLabels(string name, string cypher)
     {
-        // The label immediately after a "(alias:" must be one of the known long-term labels.
+        // Matched in NODE position specifically -- "(" then an optional alias, then ":Label" -- rather
+        // than by scanning for every ":Name" and excusing the ones that turn out to be relationship
+        // types. The old form kept a hand-written skip list containing exactly one entry, so the first
+        // builder to emit a second relationship type failed this test for a reason that had nothing to
+        // do with node labels. A guard that enumerates its own exceptions by hand grades whatever it
+        // was born knowing about.
         var known = new HashSet<string> { "Fact", "Entity", "Preference" };
-        var matches = System.Text.RegularExpressions.Regex.Matches(cypher, @":(?<label>[A-Z][A-Za-z_]+)");
+        var matches = System.Text.RegularExpressions.Regex.Matches(
+            cypher, @"\(\s*[A-Za-z_][A-Za-z0-9_]*\s*:(?<label>[A-Z][A-Za-z_]+)|\(\s*:(?<label2>[A-Z][A-Za-z_]+)");
         foreach (System.Text.RegularExpressions.Match m in matches)
         {
-            var label = m.Groups["label"].Value;
-            // Skip relationship types (these builders only emit SUPERSEDED_BY).
-            if (label == "SUPERSEDED_BY") continue;
+            var label = m.Groups["label"].Success ? m.Groups["label"].Value : m.Groups["label2"].Value;
             known.Should().Contain(label, $"{name} references an unknown node label :{label}");
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(AllMethodBuiltQueries))]
+    public void ReferencesOnlyKnownRelationshipTypes(string name, string cypher)
+    {
+        // The other half, which the old single-test form could not express: a relationship type is
+        // matched in RELATIONSHIP position, "[" then an optional alias, then ":TYPE". A typo here binds
+        // nothing and fails silently -- the supersede cascade would simply never fire.
+        var known = new HashSet<string> { "SUPERSEDED_BY", "DERIVED_FROM" };
+        var matches = System.Text.RegularExpressions.Regex.Matches(
+            cypher, @"\[\s*[A-Za-z_][A-Za-z0-9_]*\s*:(?<type>[A-Z][A-Z_]+)|\[\s*:(?<type2>[A-Z][A-Z_]+)");
+        foreach (System.Text.RegularExpressions.Match m in matches)
+        {
+            var type = m.Groups["type"].Success ? m.Groups["type"].Value : m.Groups["type2"].Value;
+            known.Should().Contain(type, $"{name} references an unknown relationship type :{type}");
         }
     }
 

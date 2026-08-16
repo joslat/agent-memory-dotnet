@@ -44,9 +44,40 @@ internal static class LongMemEvalAnswerPresence
 
     internal static LongMemEvalAnswerPresenceResult Evaluate(
         string? goldAnswer,
-        IReadOnlyCollection<string> storedMemoryText)
+        IReadOnlyCollection<string> storedMemoryText) =>
+        Evaluate(goldAnswer, storedMemoryText, derivedMemoryText: []);
+
+    /// <summary>
+    /// The gate, with derived (computed) memory supplied separately (30.6).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A gold answer whose distinctive tokens are all numeric has always been reported
+    /// <b>uncheckable</b>, not absent — "17 fish total" is the sum of counts held separately, so the
+    /// numeral itself was never written and token overlap cannot find it. That was the honest answer
+    /// while nothing computed such values. Arithmetic memory changes what is true, not what the gate
+    /// is willing to claim.
+    /// </para>
+    /// <para>
+    /// <b>Derived text is checked separately and only for numeric answers, and that separation is the
+    /// point.</b> Folding derived facts into the ordinary memory corpus would let an aggregate satisfy
+    /// a <i>non</i>-numeric answer by coincidence — an enumeration listing "Lisbon; Paris; Rome" would
+    /// start covering tokens the gate is supposed to find in extracted memory — and the floor would
+    /// quietly rise for reasons unrelated to the feature being measured. A floor that moves when you
+    /// are not looking at it is not a floor.
+    /// </para>
+    /// <para>
+    /// With no derived facts the behaviour is <b>exactly</b> what it was: uncheckable, so every archived
+    /// number stays comparable.
+    /// </para>
+    /// </remarks>
+    internal static LongMemEvalAnswerPresenceResult Evaluate(
+        string? goldAnswer,
+        IReadOnlyCollection<string> storedMemoryText,
+        IReadOnlyCollection<string> derivedMemoryText)
     {
         ArgumentNullException.ThrowIfNull(storedMemoryText);
+        ArgumentNullException.ThrowIfNull(derivedMemoryText);
 
         var answerTokens = Tokenize(goldAnswer)
             .Where(token => !Stopwords.Contains(token))
@@ -80,7 +111,32 @@ internal static class LongMemEvalAnswerPresence
         // Uncheckable, not absent. The distinction already exists here precisely so that "we cannot
         // tell" never becomes "it is missing", which is what turns a floor into a false alarm.
         if (answerTokens.All(IsNumeric))
-            return new LongMemEvalAnswerPresenceResult(false, false, [], 0);
+        {
+            // 30.6. A numeric answer becomes checkable ONLY against derived facts, and only when some
+            // exist. No derived facts ⇒ the pre-30.6 answer, byte for byte.
+            if (derivedMemoryText.Count == 0)
+                return new LongMemEvalAnswerPresenceResult(false, false, [], 0);
+
+            var derivedTokens = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var text in derivedMemoryText)
+                foreach (var token in Tokenize(text))
+                    derivedTokens.Add(token);
+
+            var derivedMatched = answerTokens.Where(derivedTokens.Contains).ToArray();
+            var derivedCoverage = (double)derivedMatched.Length / answerTokens.Length;
+
+            // Checkable only when a derived fact ACTUALLY carries the value. Declaring a question
+            // checkable-and-absent because the accountant happened to write something unrelated would
+            // convert the feature's own silence into a scored failure, which is a worse instrument than
+            // the honest "we cannot tell" it replaced.
+            return derivedMatched.Length > 0
+                ? new LongMemEvalAnswerPresenceResult(
+                    Checkable: true,
+                    Present: derivedCoverage >= PresenceThreshold,
+                    MatchedTokens: derivedMatched,
+                    Coverage: derivedCoverage)
+                : new LongMemEvalAnswerPresenceResult(false, false, [], 0);
+        }
 
         return new LongMemEvalAnswerPresenceResult(
             Checkable: true,

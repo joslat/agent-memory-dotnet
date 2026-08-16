@@ -78,8 +78,11 @@ internal sealed partial class CompositeEntityResolver
         MemoryScope? scope,
         CancellationToken cancellationToken)
     {
-        // Candidate reads stay owner-scoped. Type-strict=false retains the historical best-effort
-        // GetByType behavior because the repository has no unfiltered GetAll contract.
+        // Candidate reads stay owner-scoped. This loads the SAME-TYPE candidates only; the non-strict
+        // widening lives in GetCandidatesAsync and is deliberately outside this cache, which is keyed by
+        // type. (An earlier note here said type-strict=false was unimplementable "because the repository
+        // has no unfiltered GetAll contract" -- true, but the wrong contract to want: the widening is
+        // bounded by name, not unbounded over the graph.)
         return await _entityRepository.GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
     }
 

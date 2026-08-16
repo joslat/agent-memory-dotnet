@@ -1,0 +1,7 @@
+# Prototype run artifacts. The spike host writes these when driven by hand; they are per-run noise
+# and say nothing a committed file should.
+*.log
+*.err
+bin/
+obj/
+__pycache__/

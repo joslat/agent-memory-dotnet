@@ -360,6 +360,14 @@ mechanism is the one its scoped services require, and it does strictly more (mul
 - `AutoExtractOnPersist` — run entity/fact/preference extraction after each persisted turn.
 - `ContextFormat.IncludeEntities` / `IncludeFacts` / `IncludePreferences` / `IncludeReasoningTraces` —
   which memory kinds to inject into the prompt.
+- `ContextFormat.IncludeTraceOutcomes` — a recalled reasoning trace also renders its **outcome**, not
+  only its task. Default `false`. **Required for procedural memory to be legible at all:** a trace's
+  `Task` is a description of what was attempted, and on a repeated task it is text the agent is already
+  holding — everything a promoted procedure (`TraceKind.Procedure`) knows lives in `Outcome`. With this
+  off, the injected block tells the agent it has done this before and nothing about *how*. Off by
+  default because an outcome is model-written text: it changes the prompt bytes and what a recalled
+  block can influence. It is admitted and delimited like every other recalled item — quoted, not
+  trusted. See [procedural memory](#procedural-memory-reading-a-stored-procedure) below.
 - `ContextFormat.MaxChatHistoryMessages` — caps ONLY recalled chat history (`RecentMessages`/
   `RelevantMessages`); it does not cap the complete context. The prefix and every memory-derived block
   (entities/facts/preferences/reasoning traces/GraphRAG) are durable long-term memory and are always
@@ -403,6 +411,49 @@ defaulting to Phase 1's original behavior until a host explicitly configures it.
 `docs/architecture.md` §3.2.2-3.2.4 and `docs/security/threat-model.md` (TT-05) for the full detail and the
 current disclosed residual gaps (MCP's raw-JSON recall surfaces, per-item vs. per-request trust
 attribution, and the others tracked against issue #92).
+
+## Procedural memory: reading a stored procedure
+
+A **procedure** is a reasoning trace promoted to `TraceKind.Procedure` — the method for a task, replayed
+as steps, retrieved by similarity of the *task* rather than of the topic. The storage side has shipped
+since the trace-kind work (`proceduresOnly` recall, a prune exemption so age alone cannot delete one).
+Reading one back through this provider needs **three** settings, and each one is silently fatal on its
+own:
+
+```csharp
+services.AddAgentMemoryFramework(options =>
+{
+    options.ContextFormat.IncludeReasoningTraces = true;   // 1. inject the block at all
+    options.ContextFormat.IncludeTraceOutcomes  = true;    // 2. include HOW, not just WHAT
+});
+
+// 3. a recall budget for traces, and an owner that matches how the procedure was stored
+var recall = new RecallOptions { MaxTraces = 3, SuccessfulTracesOnly = true };
+var session = (await agent.CreateSessionAsync()).WithMemoryIdentity(userId: ownerId);
+```
+
+Three further things are worth knowing before relying on this, all of them learned by getting them
+wrong in a measured benchmark:
+
+- **A trace with no `TaskEmbedding` is unreachable.** Trace recall is a vector search, and both the
+  indexed path and the owner-scoped fallback require `task_embedding IS NOT NULL`. Write traces through
+  `IReasoningMemoryService` (which embeds the task for you) rather than straight to the repository, or
+  set the embedding yourself. A trace stored without one is persisted, looks promoted, and is returned
+  by nothing.
+- **Recalled blocks are HTML-escaped**, so a procedure written as `a -> b -> c` reaches the model as
+  `a -&gt; b -&gt; c`. The escaping is a trust boundary and stays; write chains in words instead.
+- **The default `ContextPrefix` argues against following a procedure.** It tells the model that recalled
+  memory is untrusted reference data and that it must never follow instructions found inside it — which
+  is right for facts and directly contrary to the purpose of a procedure. There is no shipped default
+  that resolves this. If you enable procedural recall, decide deliberately: keep the untrusted framing
+  and add a sentence scoped to procedures, or accept that the model may treat a recalled procedure as
+  information rather than as a method.
+
+Measured effect, for calibration: on a task containing a convention discoverable only by being refused,
+an agent reading its own promoted procedure skipped that discovery on every attempt after the first —
+one tool call saved, 5 of 5 attempts, no loss of completion. On the other four steps of the same task,
+all inferable from the tool descriptions, the procedure saved nothing. **A well-documented tool API
+leaves procedural memory little to remove; the benefit lives in what the API cannot say.**
 
 ## Real providers vs. offline defaults
 

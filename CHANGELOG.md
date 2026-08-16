@@ -6,7 +6,390 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **⚠️ `agent-memory-mcp` now targets .NET 10.** The MCP server ships as a `DotnetTool`, so its target
+  framework determines which runtime you must have installed to run it. **Installing or updating this
+  tool now requires the .NET 10 runtime.** The library packages are unaffected — they continue to
+  multi-target `net10.0;net9.0;net8.0`, so consuming `AgentMemory.*` from a .NET 8 or .NET 9
+  application is unchanged.
+
+  Every other app, tool, test and sample in the repository moved to `net10.0` at the same time. The
+  MCP host could not be held back: `AgentMemory.Tests.Unit` references it, and a `net10.0` project
+  cannot reference a `net9.0` one.
+
+  Two things surfaced during the move and are worth knowing:
+
+  - **Three known-vulnerable transitive packages** appeared under .NET 10's dependency resolution that
+    .NET 9 never pulled: `SSH.NET` 2025.1.0 (GHSA-q939-rpr3-3284), `Microsoft.Bcl.Memory` 9.0.4
+    (GHSA-73j8-2gch-69rq) and `MessagePack` 2.5.192. All are fixed — `Testcontainers.Neo4j` bumped
+    4.11.0 → 4.14.0, the other two pinned at patched versions rather than suppressed. None reached a
+    shipped package; all were in tools, tests and a sample.
+  - **No performance claim is made.** The hermetic perf harness gates on query counts, which are
+    runtime-independent, and two runs of identical code on the same machine differed by 12 points on
+    total wall time. The migration is verified not to have changed query behaviour; it is not verified
+    to be faster.
+
 ### Added
+
+- **Access tracking off the recall path, safely (`MemoryOptions.UseAccessTrackingQueue`).** Off by
+  default. Access stamps feed decay and retention; nothing in a returned context depends on them, so a
+  caller blocked on the write is blocked on nothing — at shipped defaults that was up to 25 write
+  transactions before the model was even invoked.
+
+  `DeferAccessTracking` already made the write fire-and-forget, and **its own documentation admits the
+  flaw**: the write starts inside the request scope, so a host that disposes that scope on response
+  completion can dispose the repository under an in-flight write, surfacing as an
+  `ObjectDisposedException` in a log nobody reads while access tracking silently stops. This is the same
+  optimisation done safely — a **singleton** channel owned by the root container, drained by one
+  long-running consumer that takes a fresh scope per batch, so the write outlives the request by
+  construction. It supersedes `DeferAccessTracking` where both are set.
+
+  Bounded and drop-on-full: an unbounded queue turns a slow database into unbounded memory, and a
+  blocking one puts the latency straight back. Dropping is right for this payload specifically — a lost
+  stamp ages one memory's retention marginally against a 30-day half-life — and drops are **counted and
+  logged**. It drains on dispose, which is what makes "audit rows equal at end of run" checkable.
+
+  Two defects were found in the first draft by its own tests and are worth recording, because both
+  would have shipped looking correct:
+
+  - Under `BoundedChannelFullMode.DropWrite`, `TryWrite` returns **true** and discards the item, so the
+    drop counter keyed on its return value counted zero forever while the queue silently threw work
+    away — precisely the "quietly discarding its input" failure the class comment warns against. Now
+    counted through the channel's `itemDropped` callback.
+  - A singleton implementing only `IAsyncDisposable` makes `ServiceProvider.Dispose()` *throw*, breaking
+    every host that disposes its container synchronously. It now implements both.
+
+- **Self-consistency voting and quote-forcing in the evaluation harness** (`--answer-votes`,
+  `--quote-forcing`). Defaults are one unvoted, unforced answer call — byte-identical to every archived
+  run. The pre-registered primary claim is that the **band narrows** across repeat runs, not that point
+  accuracy rises: with a measured 14-point spread between two identical accepted runs, a point
+  comparison on n=50 is noise wearing a decimal.
+
+  Votes get distinct seeds derived from `--answer-seed`, so a run stays reproducible from one recorded
+  number. Clustering is deliberately conservative — case, whitespace, trailing punctuation, nothing more
+  — because stripping articles or stemming would merge answers a judge scores differently, turning a
+  real disagreement into an invented consensus. A three-way split is *reported* rather than resolved,
+  since spending an LLM tiebreak costs money and must not be decided implicitly inside an aggregation
+  helper.
+
+  Quote-forcing asks for `EVIDENCE: "<verbatim quote>"` (or `EVIDENCE: NONE FOUND`) before the answer,
+  and an unformatted response keeps its answer with the miss recorded — discarding it would convert a
+  formatting failure into a scored memory failure. The two compose: votes cluster on the *answer*, not
+  the two-line envelope, or agreeing answers citing different quotes would count as disagreement.
+
+  **The void witness here is a live outcome, not a formality.** Proposal F assumed the provider's forced
+  temperature 1.0 is the sampler; 30.1 then measured that seeding *halves* answer variance on this
+  deployment. If votes are byte-identical on >80% of questions, the sampler is not sampling — that is a
+  measured provider property, and the pre-registered response is to record it and stop.
+
+- **Legible forgetting — a stated absence (`RecallOptions.LegibleForgetting`).** Off by default.
+  Forgetting already worked and was **invisible**: decay pruned, recall returned less, and the agent
+  answered as though it had never known — indistinguishable, to the person asking, from never having
+  been told. A memory system whose gaps all look like the same gap cannot be corrected by its user,
+  because they do not know there is anything to re-supply.
+
+  On a recall whose fact section comes back **empty from a search that actually ran**, one extra
+  vector probe asks what the system used to know about this and has let go. What surfaces is a
+  `ForgottenTopicSummary` — topic, count, dates — and never the forgotten content, because rendering
+  that would undo the forgetting outright: the decayed values would be back in the prompt, occupying
+  budget, being answered from.
+
+  **The partition is `invalidated_reason`, a new property the prune stamps.** `invalidated_at` alone
+  cannot tell a fact that *decayed* from one that was *contradicted*, and reporting the second as
+  forgotten is wrong in the most damaging direction — the system did not forget it, it **replaced** it,
+  and the replacement is live and should be answering the question. Supersession deliberately stamps no
+  reason; the null is the partition. Facts invalidated before this shipped have an unknowable reason
+  and are simply never reported — a disclosed start-at-deployment limit rather than a backfilled guess.
+
+  **Zero parity cost, zero new schema, zero migration.** The probe reuses `fact_embedding_idx`, which
+  already contains these nodes: soft-invalidation keeps the embedding, and every live query filters
+  them out afterwards. This inverts that filter.
+
+  Three gates, each load-bearing: the flag; an existing query embedding, so a turn narrowed to skip
+  embedding does not have one reintroduced by a diagnostic; and **thinness** — a recall that answered
+  the question has nothing to apologise for, and a section that was never searched has not established
+  an absence. It applies the **same** similarity floor a live search would: a tombstone clearing a
+  looser bar is a confident claim about having forgotten something on an unrelated topic, which invites
+  the user to re-supply information they never gave. No escalation ladder either: if the global top-K
+  starves, the tombstone silently does not render, which is the correct failure direction for a surface
+  whose entire job is honesty about absence.
+
+  Precedence is resolved once, in the assembler: a tombstone suppresses the projection layer's
+  no-direct-match line for the same section, since the two make overlapping claims and rendering both
+  would say it twice and then disagree about how much is known.
+
+  Like firing, it is deliberately absent from the as-of recall path, and the reason is recorded in
+  `AsOfRecallDivergenceTests`: a tombstone is a statement about the **present** state of memory, and at
+  the as-of instant those facts may still have been live.
+
+- **Prospective firing — memory that volunteers (`RecallOptions.ProspectiveFiring`).** Off by default.
+  Every other retrieval channel is *reactive*: it answers the question in front of it. A reminder is
+  off-topic by definition — nobody asks "is there anything I should know?" — so a similarity-scored
+  channel can never surface one. Firing selects by **time alone**: no query embedding, no similarity
+  floor, and that absence is the specification rather than an optimisation.
+
+  Two sections, deliberately not merged: `DueFacts` (validity just opened) and `ExpiringFacts`
+  (validity closes within `ExpiringWindow`). They are different claims, and a reader who has to infer
+  which from the dates is a reader who skips the block. Both render **before** everything the query
+  asked for, on both surfaces — the point of volunteering is prominence, and a reminder placed after
+  the relevance-ranked answer to a different question has been delivered without being received.
+
+  **Gated twice.** The flag, and `ValidTime == Current`: firing reads a fact's valid-time window, and a
+  recall that is ignoring valid time has no window to read — surfacing facts by a clock the rest of
+  that recall deliberately ignores would make the two halves disagree with no way for the reader to
+  tell. Its own budget (`MaxDueItems`, default 5) rather than competing with `MaxFacts`, because a
+  reminder that loses a budget contest to a relevance-ranked fact has already failed at the one thing
+  it exists to do. A fact that is both relevant and due renders **only** as due.
+
+  **Zero parity cost and zero new schema**: it reads `valid_from`/`valid_until`, which already exist,
+  and is served by the range indexes the `delta-recall` extension creates over the same clocks. Without
+  that extension the query is still correct, just planned as an owner seek plus a filter — a disclosed
+  cost, not a hidden one.
+
+  The counter this feature would be withdrawn over is **premature surfacing**: a not-yet-valid fact in
+  assembled context is a confident statement about a world that does not exist yet. It has a dedicated
+  live-graph test, verified to be the only failure when the upper window bound is removed.
+
+  Firing changes *when* a fact surfaces, never its trust: due facts go through the same delimiter and
+  the same per-item admission check as every other recalled category.
+
+  The as-of recall path deliberately does **not** fire, and that decision is now recorded in
+  `AsOfRecallDivergenceTests` — the guard caught the omission before it could become a discovery. An
+  as-of recall reconstructs what was known at a past instant; splicing present-tense urgency into a
+  historical reconstruction would be actively misleading about which world the answer describes.
+
+- **Arithmetic memory — the session accountant (`ExtractionOptions.DerivedMemory`).** Off by default.
+  16% of LongMemEval questions have a **derived** answer: a count, a difference, a latest-of-chain, a
+  duration, a list. The store holds `800` and `50`; the answer is `750`, and nothing ever wrote it
+  down. Every retrieval-side idea in this project died against a saturated coverage ceiling; what
+  remains alive is the class of answers retrieval structurally *cannot* produce, because they are
+  properties of a **set** and retrieval returns a sample of it.
+
+  A deterministic post-persistence pass materialises aggregates for the `(subject, predicate, owner)`
+  groups each extraction batch touched. **LLM-free by design**: answer-time decomposition died 0/29 on
+  perfect context and the answer model is the noisiest component in the stack, so arithmetic moves from
+  a stochastic reader to a deterministic writer. Six operators — Count, Delta, Latest, SetEnumeration
+  on by default; **Sum and Duration deliberately off**, the first because summing non-additive
+  quantities is arithmetically perfect and semantically nonsense (so it takes an explicit predicate
+  allowlist), the second because the current corpus stamps `UnixEpoch + counter` and durations computed
+  there are fiction with a plausible shape.
+
+  Every operator **refuses** rather than guesses: a group containing one unparsable object loses its
+  numeric operators entirely, because the change between two values that happened to be readable is not
+  the change over the chain. Nothing aggregates a single fact. The number parser — the only
+  hallucination surface in the feature — strips a currency symbol and thousands separators and then
+  defers to `decimal.TryParse`; it does not attempt "twice a week", "a couple" or "about 800".
+
+  Each aggregate renders its arithmetic inline — `17 — derived: 12 (a1) + 5 (b2)` — so the model can
+  **check** it. A derived number presented bare is a claim; presented with its inputs it is an argument.
+
+  **The staleness cascade is the safety property of the whole feature, and it is same-statement.** A
+  derived `750` whose input `800` was superseded is a manufactured confident-wrong answer — stored,
+  embedded, recallable, wearing provenance that makes it look verified. `Supersede` and `Invalidate`
+  now invalidate dependent aggregates in the same Cypher statement that retracts the input, and the
+  cascade is **unconditional**: switching the accountant off must not freeze every aggregate it ever
+  wrote into permanent truth.
+
+  Ships as the `arithmetic` schema extension — one `DERIVED_FROM` relationship type and five documented
+  properties on `:Fact`, **zero labels**. See [`docs/extensions/arithmetic.md`](docs/extensions/arithmetic.md)
+  for why the edge earns its allowlist entry over the two parity-free alternatives.
+
+  The marker property is `fact_kind`, **not** `kind`. Upstream already has a `kind` property meaning
+  "audit-node discriminator", and overloading a name whose meaning another implementation owns is the
+  changed-semantics hazard a parity check cannot catch — it compares names, not meanings. The
+  `procedural` extension chose `trace_kind` over `kind` for exactly this reason; this one used `kind`
+  anyway on its first draft, and the parity verifier rejected it as *"upstream caught up to .NET
+  superset"*.
+
+  Two binding guards from the TCK audit, both enforced structurally:
+
+  - **G1 — the cascade is cardinality-safe.** `OPTIONAL MATCH` plus `WITH DISTINCT` on both sides, so a
+    fact with N dependants does not multiply the row its caller counts, and a store with no derived
+    facts behaves exactly as before.
+  - **G2 — the fact upsert cannot merge into a derived node.** Enforced by *omission*: a derived fact
+    carries no merge-key quadruple at all, so MERGE and `FindByTriple` cannot reach it. A user restating
+    a number would otherwise land on an aggregate, overwriting its value while leaving its
+    `DERIVED_FROM` edges and derivation string intact.
+
+  Also in this change:
+
+  - `--extraction-compare --vocabulary-ab` measures the predicate-vocabulary prerequisite this feature
+    hard-depends on (aggregation needs two facts to agree they are instances of the same predicate;
+    421 distinct predicates over ~700 facts means they never do). It runs both arms **in one process
+    over byte-identical input** — the two-cold-build A/B the plan originally scheduled is not
+    achievable, because the flag changes the extraction prompt and two builds of one *unchanged*
+    configuration already disagree on ~86% of triples.
+  - `MethodBuiltQueryStructureTests` matched labels by scanning for every `:Name` and excusing
+    relationship types from a hand-written list containing exactly one entry. It now matches node
+    labels and relationship types in their own syntactic positions, and checks both.
+
+- **Delta recall — "what changed since I last looked?" (`IMemoryRecall.RecallChangedSinceAsync`).**
+  Off by default at the adapter (`AgentFrameworkOptions.InjectDeltaOnSessionResume`). An agent resuming
+  work re-receives everything it already processed; full recall re-assembles the same facts at every
+  session start, and there was no way to ask for the difference.
+
+  Every ingredient already existed and was already enforced on the live write path — `created_at`
+  stamped on create only, `invalidated_at` stamped idempotently, `SUPERSEDED_BY` edges,
+  `valid_from`/`valid_until`. Nothing read them as a diff. Eight buckets (new / superseded-as-pairs /
+  invalidated / expired-validity / newly-due / new preferences / superseded preferences / new entities)
+  are **disjoint by construction**: the window is half-open, `(since, until]`, everywhere without
+  exception, and the upper bound is read from the clock **once** and handed back as the next
+  checkpoint. That is what makes consecutive deltas partition time exactly, and it is also what makes
+  the feature verifiable without a judge or a benchmark.
+
+  The subtlest case has a test named after it. Supersession stamps **both** clocks, so a superseded
+  fact would appear as a pair *and* as an expiry — two entries for one change — without the
+  transaction-clock gate on the expiry query. Removing that gate was verified to fail exactly one test
+  and no others.
+
+  Ships as the `delta-recall` schema extension: **seven RANGE indexes, no labels, no properties, empty
+  parity delta** — the clocks were already there, and the extension only makes them seekable. TCK
+  Gold-safe with the extension on for two independent reasons: an index changes plans and never
+  results, and the new members are called by no bridge endpoint. See
+  [`docs/extensions/delta-recall.md`](docs/extensions/delta-recall.md).
+
+  The checkpoint is a **caller-held token**, not a stored node — it rides the MAF session's state bag,
+  so no schema pays for it. Advancing it is an *acknowledgement*, not a read receipt: a turn that threw
+  advances nothing and its delta is replayed, because replaying a change set costs tokens while losing
+  one loses knowledge.
+
+  Two things found while building it, both fixed here:
+
+  - `MemoryService` now resolves the delta's owner scope through `IMemoryIsolationPolicy`, as every
+    other read does. A delta reads the repositories directly — the assembler is not in that path — so
+    passing a caller's scope straight through would have handed a caller who supplied only a `UserId`
+    an unfiltered, cross-owner answer.
+  - The extension **documentation drift guard** was enumerating its subjects from a hand-written list
+    and had therefore silently stopped covering each new extension as it was added; it now reads
+    `SchemaExtensionRegistry.CreateShipped()`.
+
+- **The working-memory tier — a compiled per-owner profile block (`MemoryOptions.WorkingMemory`).**
+  Off by default. Everything else the system retrieves is probabilistic (query embedding → global
+  vector top-K → owner post-filter → threshold); this is a **point-read by owner**, so it cannot be
+  starved. Starvation is measured, not theoretical: an owner's own facts inside the global top-60
+  averaged **7, minimum 1**, and one real question retrieved **zero** facts from a graph holding 504 of
+  its own — all live, all above the floor.
+
+  Ships as the `working-memory` schema extension, and it is the **first parity delta that removes an
+  upstream-only label**: `:User` leaves `UpstreamOnlyLabels` and `NetOnlyLabels` stays empty, so
+  adopting it *narrows* divergence. It is keyed by upstream's own unique property `identifier` under
+  upstream's own constraint name `user_identifier` — a correction to the design, which had proposed a
+  new `user_owner_unique` constraint on `owner_id`; adopting a label while keying it differently would
+  make the adoption nominal, the same spelling carrying a different meaning, which is exactly what the
+  parity verifier cannot catch. See [`docs/extensions/working-memory.md`](docs/extensions/working-memory.md).
+
+  **Staleness is the kill rule.** Structured recall scores 8/9 on knowledge-update — the weakest
+  measured non-episodic type — so a block asserting the *old* value of an updated fact would
+  manufacture failures in exactly that type. Hence: full eager rebuild with no partial invalidation,
+  awaited inline so the contract is "after the write returns, the block is current", and the block is
+  **cleared** rather than left stale if a rebuild fails. A live canary asserts that superseding through
+  the production path leaves the new value and not the old.
+
+  Rendering (`ContextFormatOptions.IncludeWorkingMemory`, also off by default) goes through the same
+  per-item admission and delimiting as facts — the block is compiled from extraction output, so it
+  earns no trust bypass.
+
+- **A separate similarity floor for reasoning traces (`RecallOptions.MinTraceSimilarityScore`).**
+  Null by default, which resolves to `MinSimilarityScore` — today's behaviour exactly.
+
+  **This is a safety property, not a tuning knob.** At the shared 0.7 default, procedure retrieval
+  *never abstains*: a sweep found every threshold from 0.00 to 0.86 behaves identically — a measured
+  dead zone — so the one setting that looks like it controls procedure precision controlled nothing
+  across the whole range anyone would plausibly set. The measured knee is **0.92** (0.90 is the free
+  variant, at which no correct answer was lost). An agent handed a confident wrong procedure
+  *executes* it, where an agent handed nothing investigates — so recalling no procedure is a strictly
+  better failure than recalling the wrong one, and at the shared default only the worse outcome was
+  reachable.
+
+  Honoured on **both** recall paths, asserted at the query rather than at the option, and raising it
+  leaves the other categories on the shared floor.
+
+  A promoted procedure now also renders its length (`(16 steps)`) when match-quality projection is on:
+  replaying the archive task promoted a 16-call exploration, dead ends included, and rendered as a bare
+  outcome that is indistinguishable from a tight five-step recipe.
+
+- **The projection layer — render what the store already knows (`RecallOptions.Projection`,
+  `MemoryOptions.Projection`).** Retrieval computes a similarity score for every item and every
+  renderer discarded it, so a 0.72 near-miss reached the model looking exactly like a 0.99 match; the
+  graph holds `SUPERSEDED_BY` edges, conflicting facts and real source dates that never reached a
+  prompt; and triples drop the tense, participants and ordinals their source sentences still carry.
+  Five independent opt-in features now surface each of those:
+
+  | Flag | What it renders |
+  |---|---|
+  | `AnnotateMatchQuality` | `[closest match, 0.72]` per item, and one `No stored item directly matches…` line when a section's *best* score is weak |
+  | `ResolveSupersessions` | `(since 2023-05-12; previously Globex)` from supersession edges live recall filters out |
+  | `RenderConflicts` | `CONFLICTING MEMORY — …` when two live recalled facts disagree |
+  | `AttachSourceQuotes` | `— said: "…"`, the shortest source sentence containing the fact's object |
+  | `GroundDates` / `ChronologicalOrdering` | the real date an item was stated, and optional within-section ordering |
+
+  **Every flag is off by default and off is byte-identical**, asserted by SHA256 fingerprints over all
+  three render surfaces — the Core Markdown formatter, the Agent Framework `ChatMessage` mapper, and
+  the benchmark answer prompt — captured before any of this code existed and never regenerated.
+
+  One pipeline, three surfaces. Projection runs once inside the context assembler (after budgeting, so
+  its reads are paid only for items that reached the prompt) and produces a surface-neutral
+  `MemoryContext.Projection`; all three renderers consume it through one shared helper, so a rendering
+  decision is made once and cannot drift the way a procedure-trust clause once did — fixed in the
+  benchmark harness while the product shipped the contradiction.
+
+  Costs are bounded by construction: exactly one extra read per recall per read-feature (batched,
+  id-anchored, and enforced by test), a quote-length cap, a quotes-per-recall cap, and a supersession
+  chain cap. **Parity impact: zero** — no new labels, relationship types, properties, indexes or
+  migrations.
+
+  New repository members are default interface methods, so no existing implementation breaks:
+  `IFactRepository.GetSupersessionPredecessorsAsync` and `IMessageRepository.GetByIdsAsync`.
+
+- **Schema extensions — optional, additive-only schema modules (`Neo4jOptions.Extensions`).** A named,
+  versioned module owns its declarations, its own migration namespace, its parity divergence, and its
+  entry in the ownership report. **The default is the empty set, which is the base schema,
+  byte-identical** — nothing about an existing deployment changes until an id is added. An unknown id
+  is rejected at startup listing the known ones, rather than ignored: a deployment that asked for an
+  extension and silently ran without it is the failure the mechanism exists to prevent.
+
+  Extension migrations live at `Schema/Migrations/ext/<id>/000N_name.cypher` and are recorded under the
+  namespaced key `ext/<id>/000N_name`, with the owning id on the new `(:Migration).extension_id`
+  property. The base sequence always runs first and is untouched. This exists because a linear sequence
+  cannot host optional modules: two independently-written features each correctly claimed `0012` as
+  "next free after 0011", and a database enabling one and later the other would have had two scripts
+  fighting over one key in the unique-constrained migration bookkeeping — one silently skipped as
+  "already applied", leaving an index missing with nothing to report it. A base version key never
+  contains `/`, so the existing `migration_version` constraint already covers both namespaces.
+
+  The first extension is `procedural`, a **retro-wrap**: its schema already shipped in base migration
+  `0011_trace_kind`, so activating it applies nothing. It exists to give `trace_kind` and
+  `trace_kind_idx` an *owner* — that property shipped with its entire rationale in a Cypher comment,
+  and nothing in the parity policy, the CLI or the docs recorded which feature it belonged to.
+
+  Verified at **178/178** on the upstream TCK with the system merged and everything off, and again at
+  178/178 on the same build with the extension on. See [`docs/extensions/`](docs/extensions/README.md).
+
+- **`agentmemory schema-check` now reports schema ownership.** Every non-base shape names its owning
+  extension, and an orphan fails the check (exit 1) — a divergence no active extension declares, or an
+  applied `ext/<id>/…` migration whose id this build does not have registered, which means the database
+  carries schema from a module the binary cannot account for. This fails *even when every index is
+  present*, which conformance alone reports as OK.
+
+- **`agentmemory schema-parity [--extensions <id,…>]`** additionally verifies the effective policy the
+  named extensions compose. Base is verified either way, so an extension cannot hide a base
+  compatibility break behind the allowlist it supplied itself.
+
+- **Recalled reasoning traces can carry their outcome (opt-in).**
+  `ContextFormatOptions.IncludeTraceOutcomes`, default `false`. A recalled trace rendered its `Task`
+  and dropped its `Outcome`, so on a repeated task the injected block told the agent it had done this
+  before and nothing about *how* — the `Task` text is what the agent is already holding. Everything a
+  promoted procedure (`TraceKind.Procedure`) knows lives in `Outcome`, which means procedural memory
+  was retrievable, owner-scoped, prune-exempt and **mute** on the Agent Framework surface. Found while
+  wiring PLAN 7.6's benefit measurement, where it was one of three shut gates that each produce an
+  identical "no benefit" result.
+
+  Off by default because an outcome is model-written text: enabling it changes both the prompt bytes
+  and what a recalled block can influence. It is admitted and delimited like every other recalled item
+  (#92 Phase 1/2) — quoted, not trusted. `IncludeReasoningTraces` still gates the block entirely.
+  Renders as `"task: outcome"`; note that a procedure written with `->` arrives at the model as
+  `-&gt;` because admitted blocks are HTML-escaped, so write chains in words.
 
 - **Valid-time recall (opt-in).** `RecallOptions.ValidTime = ValidTimeMode.Current` filters facts on
   their real-world window (`valid_from`/`valid_until`) rather than only on the transaction clock.

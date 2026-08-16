@@ -134,6 +134,29 @@ public sealed class LongMemEvalOrphanSweepTests
         decision.Skipped.Should().BeEmpty();
     }
 
+    [Fact]
+    public void ThePinFileIsResolvedAgainstTheRepositoryNotTheWorkingDirectory()
+    {
+        // 13.0. This was a relative path resolved against the CWD, and a miss returned an empty pin
+        // list SILENTLY -- so a launch from anywhere but the repository root made every pinned corpus
+        // removable with no message. pinned-volumes.txt itself records a base already lost to this
+        // sweep, at the cost of a full cold build.
+        //
+        // Asserted on the RESOLUTION, not on the file's contents: the pin list is gitignored local
+        // state about local Docker volumes, so asserting a particular volume is pinned would pass on
+        // one machine and fail in CI. What must hold everywhere is that the path is rooted at the
+        // repository -- a relative literal can never satisfy that, which is what makes this red
+        // before the fix regardless of where the test host happens to run.
+        var path = LongMemEvalOrphanSweep.PinFilePath;
+
+        Path.IsPathRooted(path).Should().BeTrue(
+            "a working-directory-relative pin path silently protects nothing (resolved to '{0}')", path);
+
+        var repositoryRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path)!, "..", ".."));
+        File.Exists(Path.Combine(repositoryRoot, "AgentMemory.slnx")).Should().BeTrue(
+            "the pin path must be anchored at the repository root, not wherever the binary sits");
+    }
+
     private static LongMemEvalOrphanSweepDecision Select(
         params LongMemEvalVolumeCandidate[] candidates) =>
         LongMemEvalOrphanSweep.Select(candidates, protectedVolumeName: null, Now);

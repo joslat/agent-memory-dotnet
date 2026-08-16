@@ -3,6 +3,30 @@ namespace AgentMemory.Abstractions.Options;
 /// <summary>
 /// Root configuration for the memory system.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Scalar options are settable; nested option objects are <c>init</c>-only. That split is
+/// deliberate (25.1).</b>
+/// </para>
+/// <para>
+/// Every scalar here used to be <c>init</c>-only, which made the idiomatic
+/// <c>Action&lt;MemoryOptions&gt;</c> registration overload unable to configure a single flag — a
+/// consumer following the standard .NET options pattern could reach exactly one of twenty option
+/// groups (<see cref="Extraction"/>, the only mutable one). Widening <c>init</c> to <c>set</c> is both
+/// source- and binary-compatible, so object initialisers keep working and the configure lambda starts
+/// working.
+/// </para>
+/// <para>
+/// <b>The nested objects deliberately did not get the same treatment.</b> Several of them default to a
+/// shared static singleton — <c>RecallOptions.Default</c>, <c>ContextBudget.Default</c>,
+/// <c>MemoryDecayOptions.Default</c>, <c>MemoryRankingOptions.Default</c> are one instance each for the
+/// whole process. If their properties were settable, <c>options.Recall.MaxFacts = 5</c> inside a
+/// configure lambda would silently mutate the default for every other consumer in the application,
+/// including ones registered later. Assign a fresh instance instead:
+/// <c>options.Recall = RecallOptions.Default with { MaxFacts = 5 }</c> via an object initialiser, or
+/// use the <c>MemoryOptions</c>-instance registration overload.
+/// </para>
+/// </remarks>
 public sealed record MemoryOptions
 {
     /// <summary>Short-term memory configuration.</summary>
@@ -17,11 +41,24 @@ public sealed record MemoryOptions
     /// <summary>Recall configuration.</summary>
     public RecallOptions Recall { get; init; } = RecallOptions.Default;
 
+    /// <summary>
+    /// Application-level projection configuration, inherited by any recall that did not ask for its own.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors how <see cref="Recall"/> works: a request whose <c>RecallOptions.Projection</c> is still
+    /// the <see cref="MemoryProjectionOptions.Default"/> singleton inherits this value. Both default to
+    /// that same singleton, so an unconfigured application is byte-identical.
+    /// </remarks>
+    public MemoryProjectionOptions Projection { get; init; } = MemoryProjectionOptions.Default;
+
+    /// <summary>Working-memory tier (the compiled per-owner profile block). Off by default.</summary>
+    public WorkingMemoryOptions WorkingMemory { get; init; } = new();
+
     /// <summary>Context budget configuration.</summary>
     public ContextBudget ContextBudget { get; init; } = ContextBudget.Default;
 
     /// <summary>Whether to enable GraphRAG integration.</summary>
-    public bool EnableGraphRag { get; init; }
+    public bool EnableGraphRag { get; set; }
 
     /// <summary>
     /// Falls back to an owner-bounded similarity scan when an owner-scoped vector search returns
@@ -44,7 +81,7 @@ public sealed record MemoryOptions
     /// stated decision rather than an inherited one.
     /// </para>
     /// </remarks>
-    public bool RescueShortOwnerResults { get; init; }
+    public bool RescueShortOwnerResults { get; set; }
 
     /// <summary>
     /// Boosts recalled facts that sit close, in the graph, to the entity the query is about (R6).
@@ -66,7 +103,7 @@ public sealed record MemoryOptions
     /// every recorded measurement was taken without it.
     /// </para>
     /// </remarks>
-    public bool NodeDistanceReranking { get; init; }
+    public bool NodeDistanceReranking { get; set; }
 
     /// <summary>
     /// Boosts recalled facts the conversation keeps returning to (R7).
@@ -87,7 +124,7 @@ public sealed record MemoryOptions
     /// thirty-two does not. Off by default; every recorded measurement was taken without it.
     /// </para>
     /// </remarks>
-    public bool MentionFrequencyReranking { get; init; }
+    public bool MentionFrequencyReranking { get; set; }
 
     /// <summary>
     /// Starts the post-recall access-tracking write without waiting for it.
@@ -112,7 +149,32 @@ public sealed record MemoryOptions
     /// that was deferred — a feature that looks enabled and does nothing.
     /// </para>
     /// </remarks>
-    public bool DeferAccessTracking { get; init; }
+    public bool DeferAccessTracking { get; set; }
+
+    /// <summary>
+    /// Routes access tracking through a root-owned background queue instead of the recall path (30.12).
+    /// Default off.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the <b>safe</b> version of <see cref="DeferAccessTracking"/>, and it supersedes it where
+    /// both are set. Deferral starts the write inside the request scope, so a host that disposes that
+    /// scope on response completion can dispose the repository under an in-flight write — the failure
+    /// that option's own documentation admits to. The queue is owned by the <i>root</i> container and
+    /// resolves its own scope per batch, so the write outlives the request by construction.
+    /// </para>
+    /// <para>
+    /// Bounded and drop-on-full: a lost access stamp ages one memory's retention score marginally
+    /// against a 30-day half-life, while an unbounded queue turns a slow database into unbounded memory
+    /// and a blocking one puts the latency straight back. Drops are counted and logged.
+    /// </para>
+    /// </remarks>
+    public bool UseAccessTrackingQueue { get; set; }
+
+    /// <summary>
+    /// How many recall batches the access-tracking queue holds before dropping. Default 1024.
+    /// </summary>
+    public int AccessTrackingQueueCapacity { get; set; } = 1024;
 
     /// <summary>
     /// How much a fact's confidence moves when the world corroborates or contradicts it (S2).
@@ -139,7 +201,7 @@ public sealed record MemoryOptions
     /// conversation, small enough that a single restatement does not overwhelm what extraction judged.
     /// </para>
     /// </remarks>
-    public double ConfidenceReinforcementAlpha { get; init; }
+    public double ConfidenceReinforcementAlpha { get; set; }
 
     /// <summary>
     /// Routes a turn that names a past time to bitemporal recall at that time (R4).
@@ -172,7 +234,21 @@ public sealed record MemoryOptions
     /// now.
     /// </para>
     /// </remarks>
-    public bool ResolveTemporalQueries { get; init; }
+    public bool ResolveTemporalQueries { get; set; }
+
+    /// <summary>
+    /// Which clocks a resolved temporal query binds. Defaults to
+    /// <see cref="TemporalQueryClocks.ValidTimeOnly"/>; only consulted when
+    /// <see cref="ResolveTemporalQueries"/> is enabled.
+    /// </summary>
+    /// <remarks>
+    /// <b>Binding the transaction clock by default was a silent-empty-recall bug on a whole class of
+    /// host.</b> <c>created_at</c> is ingestion time wherever history was imported, migrated or
+    /// backfilled, so an as-of recall at any past instant excludes the entire store and returns an
+    /// empty context with no error. See <see cref="TemporalQueryClocks"/> for why the two failure modes
+    /// are not symmetric.
+    /// </remarks>
+    public TemporalQueryClocks TemporalQueryClocks { get; set; } = TemporalQueryClocks.ValidTimeOnly;
 
     /// <summary>
     /// Stops vector recall shipping the stored embedding back with every hit (rank 13 / payload).
@@ -200,7 +276,7 @@ public sealed record MemoryOptions
     /// Message and trace searches keep returning whole nodes.
     /// </para>
     /// </remarks>
-    public bool OmitEmbeddingsFromRecall { get; init; }
+    public bool OmitEmbeddingsFromRecall { get; set; }
 
     /// <summary>
     /// Skips the escalation ladder for an owner that holds no rows of the searched label (2.13).
@@ -220,13 +296,25 @@ public sealed record MemoryOptions
     /// rung, while the starved owner's rows are found. This option skips the ladder only for the first.
     /// </para>
     /// <para>
-    /// Off by default. The results are identical either way — an owner with nothing to find finds
-    /// nothing — so this is purely a cost saving; but it is gated because an existence probe that
-    /// disagreed with the search's own scoping would skip a rescue that would have worked, and a
-    /// silent recall loss is not worth one avoided query.
+    /// <b>Off by default, and MEASURED to be the right default (2026-08-14).</b> Flipping it on and
+    /// re-running the hermetic profile moved <c>PERF-R-01</c> from <b>13 queries to 16</b> — worse,
+    /// not better. The probe is an <i>additional</i> query per category, and it only pays for itself
+    /// when the owner turns out to be empty. On a turn where the owner does hold rows, all it buys is
+    /// three probes that answer "yes, look anyway".
+    /// </para>
+    /// <para>
+    /// So this is a bet on the shape of the workload, not a free saving: enable it for a deployment
+    /// dominated by owners with little or no stored memory (a large multi-tenant estate with a long
+    /// tail of near-empty tenants), and leave it off otherwise. The results are identical either way —
+    /// an owner with nothing to find finds nothing, asserted live — so the trade is purely cost, in
+    /// both directions.
+    /// </para>
+    /// <para>
+    /// It is also gated because an existence probe that disagreed with the search's own scoping would
+    /// skip a rescue that would have worked, and a silent recall loss is not worth one avoided query.
     /// </para>
     /// </remarks>
-    public bool SkipEscalationWhenOwnerHasNoRows { get; init; }
+    public bool SkipEscalationWhenOwnerHasNoRows { get; set; }
 
     // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
     // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured

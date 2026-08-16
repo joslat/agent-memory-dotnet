@@ -135,6 +135,90 @@ public static class ServiceCollectionExtensions
             .Validate(
                 o => o.Extraction.SameAsThreshold <= o.Extraction.AutoMergeThreshold,
                 "MemoryOptions.Extraction.SameAsThreshold must not exceed AutoMergeThreshold.")
+            // 30.2/30.3. Every other numeric option here is validated; these were not, and a threshold
+            // outside [0,1] is the worst kind of misconfiguration for this feature -- it does not fail,
+            // it silently makes the near-miss marker fire on everything or on nothing, which reads as
+            // "the feature does not work" rather than "the value is wrong".
+            .Validate(
+                o => o.Projection.NearMissThreshold is >= 0 and <= 1,
+                "MemoryOptions.Projection.NearMissThreshold must be between 0 and 1.")
+            .Validate(
+                o => o.Projection.TraceNearMissThreshold is >= 0 and <= 1,
+                "MemoryOptions.Projection.TraceNearMissThreshold must be between 0 and 1.")
+            .Validate(
+                o => o.Projection.MaxSupersessionChain > 0,
+                "MemoryOptions.Projection.MaxSupersessionChain must be positive.")
+            .Validate(
+                o => o.Projection.MaxQuoteLength > 0,
+                "MemoryOptions.Projection.MaxQuoteLength must be positive.")
+            .Validate(
+                o => o.Projection.MaxQuotesPerRecall > 0,
+                "MemoryOptions.Projection.MaxQuotesPerRecall must be positive.")
+            .Validate(
+                o => o.Recall.MinTraceSimilarityScore is null or (>= 0 and <= 1),
+                "MemoryOptions.Recall.MinTraceSimilarityScore must be between 0 and 1 when set.")
+            // 30.6/30.7/30.8/30.12. Wave B's self-review found six new numeric options shipped with no
+            // validation at all; Wave C then added eight more the same way, and an end-of-phase review
+            // found them the same way. Every one of these misconfigures SILENTLY rather than failing:
+            // a zero budget makes a feature look broken, a negative window inverts a comparison, and a
+            // confidence outside [0,1] propagates into every ranking and dedup computation that reads it.
+            .Validate(
+                o => o.Recall.MaxDueItems >= 0,
+                "MemoryOptions.Recall.MaxDueItems must not be negative.")
+            .Validate(
+                o => o.Recall.ExpiringWindow > TimeSpan.Zero,
+                "MemoryOptions.Recall.ExpiringWindow must be positive.")
+            .Validate(
+                o => o.Recall.DueLookback > TimeSpan.Zero,
+                "MemoryOptions.Recall.DueLookback must be positive.")
+            .Validate(
+                o => o.Recall.TombstoneProbeTopK > 0,
+                "MemoryOptions.Recall.TombstoneProbeTopK must be positive.")
+            .Validate(
+                o => o.AccessTrackingQueueCapacity > 0,
+                "MemoryOptions.AccessTrackingQueueCapacity must be positive.")
+            .Validate(
+                o => o.Extraction.DerivedMemory.MaxDerivedFactsPerBatch > 0,
+                "MemoryOptions.Extraction.DerivedMemory.MaxDerivedFactsPerBatch must be positive.")
+            .Validate(
+                o => o.Extraction.DerivedMemory.MaxGroupFanIn > 1,
+                "MemoryOptions.Extraction.DerivedMemory.MaxGroupFanIn must be greater than 1 — no "
+                + "operator can aggregate fewer than two facts, so a cap of 1 disables the feature "
+                + "while it reads as enabled.")
+            .Validate(
+                o => o.Extraction.DerivedMemory.MaxEnumerationItems > 0,
+                "MemoryOptions.Extraction.DerivedMemory.MaxEnumerationItems must be positive.")
+            .Validate(
+                o => o.Extraction.DerivedMemory.DerivedFactConfidence is >= 0 and <= 1,
+                "MemoryOptions.Extraction.DerivedMemory.DerivedFactConfidence must be between 0 and 1.")
+            // 30.4 working-memory tier. Validated late because it shipped without validation and an
+            // end-of-phase sweep found it -- the third time in this phase. These misconfigure worse
+            // than most: the three caps become a Cypher LIMIT, and a rebuild failure is deliberately
+            // swallowed so the write still succeeds, so a negative cap yields a warning in a log nobody
+            // reads and a block that simply never exists.
+            .Validate(
+                o => o.WorkingMemory.MaxTokens > 0,
+                "MemoryOptions.WorkingMemory.MaxTokens must be positive — a zero budget renders an "
+                + "empty block while the tier still reads as enabled.")
+            .Validate(
+                // Zero is allowed: omitting one section is a real configuration. Negative is the
+                // Cypher LIMIT crash.
+                o => o.WorkingMemory.MaxStableFacts >= 0,
+                "MemoryOptions.WorkingMemory.MaxStableFacts must not be negative.")
+            .Validate(
+                o => o.WorkingMemory.MaxActivePreferences >= 0,
+                "MemoryOptions.WorkingMemory.MaxActivePreferences must not be negative.")
+            .Validate(
+                o => o.WorkingMemory.MaxTopEntities >= 0,
+                "MemoryOptions.WorkingMemory.MaxTopEntities must not be negative.")
+            .Validate(
+                o => o.WorkingMemory.MinFactMentionCount >= 1,
+                "MemoryOptions.WorkingMemory.MinFactMentionCount must be at least 1 — the selection "
+                + "reads coalesce(mention_count, 1), so anything below 1 admits every fact including "
+                + "ones the world never re-asserted, which is a different tier than the documented one.")
+            .Validate(
+                o => o.WorkingMemory.MinPreferenceConfidence is >= 0 and <= 1,
+                "MemoryOptions.WorkingMemory.MinPreferenceConfidence must be between 0 and 1.")
             .ValidateOnStart();
 
         // Bridge sub-options from parent MemoryOptions so services that depend on
@@ -207,8 +291,50 @@ public static class ServiceCollectionExtensions
             // this the assembler can never publish the D3 per-request query intent, so RecallOptions.Intent
             // (Latest/Analog) is silently inert in every DI-wired deployment.
             rankingContext: sp.GetService<IWritableMemoryRankingContext>(),
-            truncationStrategies: sp.GetServices<ITruncationStrategy>()));
+            truncationStrategies: sp.GetServices<ITruncationStrategy>(),
+            rerankers: sp.GetServices<IMemoryReranker>(),
+            // 30.2. Enumerable and unconditional, the reranker pattern: every feature is registered,
+            // every feature reads its own flag, and every flag is off by default. Gating registration
+            // instead would mean a host that enables projection through IOptions reconfiguration still
+            // gets nothing -- silently, which is how both rerankers shipped registered by nobody.
+            projectionFeatures: sp.GetServices<Services.Projection.IProjectionFeature>(),
+            // 30.4. Optional: the working-memory tier is registered by the Neo4j package, so a
+            // memory-only Core consumer resolves null here and the block is simply never fetched.
+            workingMemory: sp.GetService<IWorkingMemoryService>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
+
+        // The five projection features (30.2), registered unconditionally and enumerably.
+        //
+        // The three that read go through GetService, not GetRequiredService, and take a NULLABLE
+        // repository. This is not defensive style, it is a resolvability requirement: a consumer may
+        // register Core with their OWN ILongTermMemoryService and no repositories at all -- a shape that
+        // exists in this repository's own tests and worked before this feature -- and a hard dependency
+        // inside an enumerable registration makes the WHOLE IEnumerable<IProjectionFeature>
+        // unresolvable, taking the assembler down with it. That is the same break an unconditional
+        // binding with an unsatisfiable dependency caused during the 1.0 lockdown. Each feature reports
+        // itself off when its repository is absent, which is more honest than accepting the flag and
+        // contributing nothing.
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            Services.Projection.IProjectionFeature, Services.Projection.MatchQualityProjectionFeature>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            Services.Projection.IProjectionFeature, Services.Projection.ConflictProjectionFeature>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            Services.Projection.IProjectionFeature, Services.Projection.ProcedureShapeProjectionFeature>());
+        // The two-type-parameter factory overload, not the one-type one: TryAddEnumerable de-duplicates
+        // by IMPLEMENTATION type, and a bare factory records the service type as its implementation,
+        // which makes every entry "indistinguishable" and throws.
+        services.TryAddEnumerable(ServiceDescriptor
+            .Scoped<Services.Projection.IProjectionFeature, Services.Projection.SupersessionProjectionFeature>(
+                sp => new Services.Projection.SupersessionProjectionFeature(
+                    sp.GetService<Abstractions.Repositories.IFactRepository>())));
+        services.TryAddEnumerable(ServiceDescriptor
+            .Scoped<Services.Projection.IProjectionFeature, Services.Projection.SourceQuoteProjectionFeature>(
+                sp => new Services.Projection.SourceQuoteProjectionFeature(
+                    sp.GetService<Abstractions.Repositories.IMessageRepository>())));
+        services.TryAddEnumerable(ServiceDescriptor
+            .Scoped<Services.Projection.IProjectionFeature, Services.Projection.DateGroundingProjectionFeature>(
+                sp => new Services.Projection.DateGroundingProjectionFeature(
+                    sp.GetService<Abstractions.Repositories.IMessageRepository>())));
 
         // Context compressor (reflection/observation summarization). It uses an IChatClient when one is
         // registered and degrades to a verbatim passthrough when not, so this binding is always safe to
@@ -260,7 +386,35 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<MemoryExtractionPipeline>>(),
             sp.GetRequiredService<IMemoryIsolationPolicy>(),
             sp.GetService<IOptions<ExtractionOptions>>(),
-            sp.GetServices<IMultiSessionUnifiedMemoryExtractor>()));
+            sp.GetServices<IMultiSessionUnifiedMemoryExtractor>(),
+            sp.GetService<AgentMemory.Core.Extraction.Derivation.IDerivedMemoryAccountant>()));
+
+        // 30.6. Registered UNCONDITIONALLY with the flag read inside AccountAsync -- the reranker
+        // pattern. A conditional registration reads the options once, at container-build time, so a
+        // host that enables derived memory through IOptions reconfiguration afterwards would find the
+        // service simply absent and the feature silently off.
+        //
+        // GetService rather than GetRequiredService above, and a nullable IFactRepository is NOT used
+        // here: SessionAccountant genuinely needs the repository, and Core already registers services
+        // that require one (ILongTermMemoryService), so this introduces no dependency a resolvable
+        // container did not already have.
+        services.TryAddScoped<
+            AgentMemory.Core.Extraction.Derivation.IDerivedMemoryAccountant,
+            AgentMemory.Core.Extraction.Derivation.SessionAccountant>();
+
+        // 30.12. A SINGLETON, owned by the root container — that placement is the whole feature.
+        // MemoryOptions.DeferAccessTracking already made this write fire-and-forget, but it starts
+        // inside the request scope, so a host that disposes the scope on response completion disposes
+        // the repository under an in-flight write. This one resolves its own scope per batch from the
+        // root provider, so the write outlives the request by construction.
+        //
+        // The factory closes over the ROOT provider deliberately, and creates a fresh scope per batch
+        // rather than capturing one service: capturing a scoped dependency in a singleton is the
+        // captive-dependency trap this codebase has already paid for once.
+        services.TryAddSingleton<IMemoryAccessTracker>(sp => new MemoryAccessTrackingChannel(
+            sp,
+            sp.GetRequiredService<IOptions<MemoryOptions>>(),
+            sp.GetRequiredService<ILogger<MemoryAccessTrackingChannel>>()));
 
         // Embedding orchestrator — centralizes embedding generation logic.
         services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();

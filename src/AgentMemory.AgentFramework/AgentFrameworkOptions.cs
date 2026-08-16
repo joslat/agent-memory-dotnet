@@ -96,4 +96,47 @@ public sealed class AgentFrameworkOptions
     /// the store for the scope. Absent ⇒ the default store.
     /// </summary>
     public string DefaultApplicationIdKey { get; set; } = "application_id";
+
+    /// <summary>
+    /// Injects a "what changed since we last spoke" block when a session resumes after a gap.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Off by default, and the off state is byte-identical</b> — no extra query, no extra message,
+    /// nothing added to the prompt. A host opts in; an upgrade never does it for them.
+    /// </para>
+    /// <para>
+    /// The delta <b>complements</b> recall on a resume turn, it does not replace it: the current
+    /// question still needs relevance-ranked context.
+    /// </para>
+    /// </remarks>
+    public bool InjectDeltaOnSessionResume { get; set; }
+
+    /// <summary>
+    /// The <c>StateBag</c> key holding the delta checkpoint (an ISO-8601 instant).
+    /// </summary>
+    /// <remarks>
+    /// The checkpoint is a caller-held token, not a stored node — it rides the session's own
+    /// serialize/restore seam, exactly as the identity keys do, so no schema pays for it.
+    /// </remarks>
+    public string DefaultDeltaCheckpointKey { get; set; } = "memory_delta_checkpoint";
+
+    /// <summary>
+    /// How stale the checkpoint must be before a turn counts as a <i>resume</i>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// There is no session lifecycle in this system — a session is a string — so "resume" cannot be
+    /// detected from a close event that does not exist. An age threshold is deterministic, needs no
+    /// state beyond the token, and is wrong only in the benign direction: a long pause inside one
+    /// sitting yields a small, accurate delta rather than a wrong one.
+    /// </para>
+    /// </remarks>
+    public TimeSpan MinimumDeltaGap { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Per-bucket cap on delta items. Exceeding it is reported <i>in the rendered block</i>, so
+    /// truncation is visible rather than silently mistaken for "that was everything".
+    /// </summary>
+    public int MaxDeltaItemsPerSection { get; set; } = 20;
 }

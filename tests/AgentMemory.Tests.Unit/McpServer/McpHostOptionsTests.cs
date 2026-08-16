@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Options;
 using AgentMemory.McpHost;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
@@ -156,5 +157,75 @@ public sealed class McpHostOptionsTests
     {
         Parse(["--no-bootstrap"], Env()).Bootstrap.Should().BeFalse();
         Parse([], Env(("AGENT_MEMORY_MCP_NO_BOOTSTRAP", "1"))).Bootstrap.Should().BeFalse();
+    }
+
+    // ── memory tuning (25.4) ───────────────────────────────────────────
+
+    [Fact]
+    public void MemoryDefaultsToTheLibraryDefaults()
+    {
+        // The host previously registered AddAgentMemoryCore(_ => { }), so these were the ONLY values
+        // an MCP server could ever run with. They must remain the values you get when nothing is set,
+        // or every existing deployment changes behaviour on upgrade.
+        var memory = Parse([], Env()).Memory;
+
+        memory.Recall.MaxFacts.Should().Be(RecallOptions.Default.MaxFacts);
+        memory.Recall.MinSimilarityScore.Should().Be(RecallOptions.Default.MinSimilarityScore);
+        memory.NodeDistanceReranking.Should().BeFalse();
+        memory.MentionFrequencyReranking.Should().BeFalse();
+        memory.ResolveTemporalQueries.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MemoryTuningIsReadFromTheEnvironment()
+    {
+        // Red before 25.4: every one of these was unreachable -- there was no path from the
+        // environment to MemoryOptions at all.
+        var memory = Parse([], Env(
+            ("AGENT_MEMORY_MCP_RECALL_FACTS", "40"),
+            ("AGENT_MEMORY_MCP_RECALL_ENTITIES", "25"),
+            ("AGENT_MEMORY_MCP_RECALL_PREFERENCES", "7"),
+            ("AGENT_MEMORY_MCP_RECALL_MESSAGES", "12"),
+            ("AGENT_MEMORY_MCP_MIN_SIMILARITY", "0.55"),
+            ("AGENT_MEMORY_MCP_RERANK_NODE_DISTANCE", "true"),
+            ("AGENT_MEMORY_MCP_RERANK_MENTION_FREQUENCY", "1"),
+            ("AGENT_MEMORY_MCP_RESOLVE_TEMPORAL", "yes"))).Memory;
+
+        memory.Recall.MaxFacts.Should().Be(40);
+        memory.Recall.MaxEntities.Should().Be(25);
+        memory.Recall.MaxPreferences.Should().Be(7);
+        memory.Recall.MaxRelevantMessages.Should().Be(12);
+        memory.Recall.MinSimilarityScore.Should().Be(0.55);
+        memory.NodeDistanceReranking.Should().BeTrue();
+        memory.MentionFrequencyReranking.Should().BeTrue();
+        memory.ResolveTemporalQueries.Should().BeTrue();
+    }
+
+    [Fact]
+    public void TuningTheHostDoesNotMutateTheProcessWideRecallDefault()
+    {
+        // THE hazard. MemoryOptions.Recall defaults to RecallOptions.Default, a single instance shared
+        // by the whole process. Assigning through it rather than replacing it would reconfigure every
+        // other consumer in the host -- silently, and in a way no test of THIS server would show.
+        var before = RecallOptions.Default.MaxFacts;
+
+        Parse([], Env(("AGENT_MEMORY_MCP_RECALL_FACTS", "99"))).Memory.Recall.MaxFacts.Should().Be(99);
+
+        RecallOptions.Default.MaxFacts.Should().Be(before, "the shared default must be untouched");
+    }
+
+    [Theory]
+    [InlineData("AGENT_MEMORY_MCP_RECALL_FACTS", "ten")]
+    [InlineData("AGENT_MEMORY_MCP_RECALL_FACTS", "-1")]
+    [InlineData("AGENT_MEMORY_MCP_MIN_SIMILARITY", "1.5")]
+    [InlineData("AGENT_MEMORY_MCP_MIN_SIMILARITY", "abc")]
+    public void AMalformedMemoryValueIsRefusedRatherThanIgnored(string key, string value)
+    {
+        // Consistent with how this host treats an unknown flag. An operator who wrote RECALL_FACTS=ten
+        // asked for something; starting on the default hands them a quietly under-configured server
+        // that looks healthy and retrieves less than they think.
+        var parse = () => Parse([], Env((key, value)));
+
+        parse.Should().Throw<ArgumentException>();
     }
 }

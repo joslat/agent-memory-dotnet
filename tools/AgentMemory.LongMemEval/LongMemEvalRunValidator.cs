@@ -65,6 +65,7 @@ internal static class LongMemEvalRunValidator
         long expectedInitialExtractionCalls = 0,
         int diagnosticJudgeCalls = 0,
         int agentEvalJudgeRetryAllowance = 0,
+        int? reportedJudgeRetryCalls = null,
         IReadOnlyList<LongMemEvalJudgeRetryResult>? judgeRetries = null,
         JudgeVerdictProtocol verdictProtocol = JudgeVerdictProtocol.FreeText)
     {
@@ -105,14 +106,22 @@ internal static class LongMemEvalRunValidator
         // verdict (the report records diagnosticCallsAffectScore = false), so they are excluded from
         // the exact 2N base-call contract rather than being allowed to reject an otherwise valid run.
         // The guard itself is unchanged: base calls must still be exactly 2N.
-        // AgentEval retries an unparseable judge verdict *internally* under
-        // JudgeFailurePolicy.RetryThenInconclusive and does not report how many times, so an exact
-        // call count is not achievable from outside the library. The correctness property is kept
-        // exact instead — one answer call per question, and one valid verdict per question, both
-        // asserted below — while the call count becomes a bounded cost signal. A run that exceeds
-        // the configured retry allowance still rejects, so runaway judging cannot pass.
+        // AgentEval used to retry an unparseable judge verdict internally under
+        // JudgeFailurePolicy.RetryThenInconclusive WITHOUT reporting how many times, so an exact call
+        // count was not achievable from outside the library and this guard had to widen into a
+        // tolerance band. That was the third of the four asks sent upstream, and 0.20.0-beta shipped
+        // it: ExternalBenchmarkResult.TotalJudgeRetryLlmCalls is the exact figure.
+        //
+        // So when the runner reports it, the bound goes back to being EXACT -- 2N plus the retries
+        // that actually happened -- and a band is used only when the value is absent (an older
+        // result, or a caller that cannot supply it). The band was a workaround for a missing signal;
+        // keeping it after the signal arrived would leave the defect that motivated the ask alive,
+        // which is that a good run was REJECTED because AgentEval retried internally and the guard
+        // had no way to tell that from runaway judging.
         var minimumCalls = questionCount * 2;
-        var maximumCalls = questionCount * (2 + agentEvalJudgeRetryAllowance);
+        var maximumCalls = reportedJudgeRetryCalls is { } exactRetries
+            ? questionCount * 2 + exactRetries
+            : questionCount * (2 + agentEvalJudgeRetryAllowance);
         var baseLlmCalls = llmCalls - diagnosticJudgeCalls;
         if (baseLlmCalls < minimumCalls || baseLlmCalls > maximumCalls)
         {
@@ -136,15 +145,19 @@ internal static class LongMemEvalRunValidator
         }
 
         var baseJudgeCalls = (judgeCalls?.Calls ?? 0) - diagnosticJudgeCalls;
+        var maximumJudgeCalls = reportedJudgeRetryCalls is { } reportedRetries
+            ? questionCount + reportedRetries
+            : questionCount * (1 + agentEvalJudgeRetryAllowance);
         if (judgeCalls is not null &&
-            (baseJudgeCalls < questionCount ||
-             baseJudgeCalls > questionCount * (1 + agentEvalJudgeRetryAllowance)))
+            (baseJudgeCalls < questionCount || baseJudgeCalls > maximumJudgeCalls))
         {
             issues.Add(
                 $"Observed {judgeCalls.Calls} judge calls ({baseJudgeCalls} base " +
                 $"after excluding {diagnosticJudgeCalls} diagnostic retries) for {questionCount} questions; " +
-                $"expected between {questionCount} and {questionCount * (1 + agentEvalJudgeRetryAllowance)} " +
-                "base judge calls.");
+                $"expected between {questionCount} and {maximumJudgeCalls} base judge calls" +
+                (reportedJudgeRetryCalls is null
+                    ? " (bounded by the configured retry allowance; AgentEval did not report a retry count)."
+                    : $" (AgentEval reported {reportedJudgeRetryCalls} judge retry calls).") );
         }
 
         // AgentEval's llmCalls ALREADY includes diagnostic judge retries - the message just above

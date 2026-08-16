@@ -216,4 +216,24 @@ internal static class PreferenceQueries
             LIMIT $limit";
     }
 
-}
+
+    // ── Delta recall (30.5) ────────────────────────────────────────────
+
+    private static string DeltaOwner(bool hasOwnerFilter, bool includeShared, string alias = "p") =>
+        !hasOwnerFilter ? string.Empty
+            : includeShared ? $" AND ({alias}.owner_id = $ownerId OR {alias}.owner_id IS NULL)"
+                            : $" AND {alias}.owner_id = $ownerId";
+
+    /// <summary>Preferences the system newly knows in <c>(since, until]</c>. Transaction clock.</summary>
+    public static string DeltaNewPreferences(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (p:Preference)
+            WHERE p.created_at > datetime($since) AND p.created_at <= datetime($until)
+              AND p.invalidated_at IS NULL" + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN p ORDER BY p.created_at ASC LIMIT $limit";
+
+    /// <summary>Preferences replaced in the window, with their successor.</summary>
+    public static string DeltaSupersededPreferences(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (old:Preference)-[:SUPERSEDED_BY]->(new:Preference)
+            WHERE old.invalidated_at > datetime($since) AND old.invalidated_at <= datetime($until)"
+        + DeltaOwner(hasOwnerFilter, includeShared, "old") + @"
+            RETURN old, new ORDER BY old.invalidated_at ASC LIMIT $limit";}

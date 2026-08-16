@@ -1,5 +1,7 @@
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Repositories;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.AgentFramework;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
@@ -35,6 +37,8 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
     private readonly string _taskPrompt;
     private readonly Func<string, bool> _isComplete;
     private readonly IReasoningTraceRepository? _traces;
+    private readonly IEmbeddingOrchestrator? _embeddings;
+    private readonly Func<string, bool>? _isRefusal;
     private readonly string _ownerId;
 
     /// <param name="agentFactory">
@@ -48,18 +52,32 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
     /// Where a successful attempt is promoted to a procedure. <see langword="null"/> disables
     /// promotion, which is what the control arm uses.
     /// </param>
+    /// <param name="embeddings">
+    /// Embeds the promoted procedure's task text. Required whenever <paramref name="traces"/> is
+    /// supplied: trace recall is a vector search, so a procedure stored without one is unreachable —
+    /// see <see cref="PromoteIfWorthKeepingAsync"/>.
+    /// </param>
+    /// <param name="isRefusal">
+    /// Decides whether a tool result means the call was declined, so a promoted procedure records the
+    /// calls that worked instead of the transcript of how they were found — see
+    /// <see cref="ProcedureChain"/>. <see langword="null"/> records every call, the previous behaviour.
+    /// </param>
     /// <param name="ownerId">Owner the procedure is stored under; recall is owner-scoped.</param>
     public MafAgentTaskRunner(
         Func<bool, AIAgent> agentFactory,
         string taskPrompt,
         Func<string, bool> isComplete,
         IReasoningTraceRepository? traces = null,
+        IEmbeddingOrchestrator? embeddings = null,
+        Func<string, bool>? isRefusal = null,
         string ownerId = "procedural-benchmark")
     {
         _agentFactory = agentFactory;
         _taskPrompt = taskPrompt;
         _isComplete = isComplete;
         _traces = traces;
+        _embeddings = embeddings;
+        _isRefusal = isRefusal;
         _ownerId = ownerId;
     }
 
@@ -75,7 +93,15 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
         // A fresh session per attempt. Procedural memory is supposed to carry across attempts through
         // the STORE; a shared session would carry it through the context window instead, and the
         // measurement would credit memory for what the transcript did.
-        var session = await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+        //
+        // The owner stamp is load-bearing, not bookkeeping: recall derives its MemoryScope from this
+        // userId, and the procedures are promoted under _ownerId. Leave it off and the arm recalls
+        // across every owner or none, and either way not the thing it stored. Both arms are stamped
+        // identically -- the control has no provider to read it -- so this is not an arm difference.
+        var session = (await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false))
+            .WithMemoryIdentity(
+                userId: _ownerId,
+                sessionId: $"{_ownerId}-attempt-{attempt}-{(procedureMemoryEnabled ? "proc" : "ctl")}");
 
         var response = await agent.RunAsync(_taskPrompt, session, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
@@ -87,12 +113,55 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
             ToolCalls: CountToolCalls(messages));
 
         await PromoteIfWorthKeepingAsync(
-                run,
-                procedureMemoryEnabled,
-                messages.SelectMany(m => m.Contents.OfType<FunctionCallContent>()).Select(c => c.Name),
-                cancellationToken)
+                run, procedureMemoryEnabled, ProcedureChain(messages, _isRefusal), cancellationToken)
             .ConfigureAwait(false);
         return run;
+    }
+
+    /// <summary>
+    /// The calls a promoted procedure should record: those that did work, in order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A transcript is not a procedure.</b> The raw call sequence is how the agent <i>discovered</i>
+    /// the route, refused calls and all, and a stored procedure that replays it makes the same wasted
+    /// call the second time. That is not a subtle effect: the seventh run promoted
+    /// "PlaceHold then RefreshSession then PlaceHold", the arm holding it still spent six tool calls, and
+    /// the two arms tied — a null result caused by what promotion recorded rather than by the feature.
+    /// </para>
+    /// <para>
+    /// Refusal is decided by a caller-supplied predicate, exactly as completion is. The runner cannot
+    /// know what "the environment declined" looks like, and a heuristic guess here would silently
+    /// mis-record procedures for any task whose refusals are worded differently. With no predicate the
+    /// behaviour is unchanged — every call is recorded — so nothing is quietly filtered from a caller
+    /// that never opted in.
+    /// </para>
+    /// <para>
+    /// Counting is untouched: <see cref="CountToolCalls"/> still counts the refused call, because the
+    /// agent really did spend it. Filtering here changes what is <i>learned</i>, never what is
+    /// <i>charged</i> — the opposite mistake would make the instrument flatter the feature.
+    /// </para>
+    /// </remarks>
+    internal static IEnumerable<string> ProcedureChain(
+        IEnumerable<ChatMessage> messages, Func<string, bool>? isRefusal)
+    {
+        var all = messages.ToList();
+        var calls = all.SelectMany(m => m.Contents.OfType<FunctionCallContent>()).ToList();
+        if (isRefusal is null) return calls.Select(call => call.Name).ToList();
+
+        // Paired by CallId rather than by position: a batched assistant turn issues several calls whose
+        // results arrive in their own messages, and matching by order would attribute one call's refusal
+        // to another.
+        var refusedCallIds = all
+            .SelectMany(m => m.Contents.OfType<FunctionResultContent>())
+            .Where(result => isRefusal(result.Result?.ToString() ?? string.Empty))
+            .Select(result => result.CallId)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return calls
+            .Where(call => !refusedCallIds.Contains(call.CallId))
+            .Select(call => call.Name)
+            .ToList();
     }
 
     /// <summary>Assistant turns taken — the agent's own reasoning steps.</summary>
@@ -125,9 +194,19 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
     /// bug introduced here rather than the feature.
     /// </para>
     /// <para>
-    /// <b>Written as <see cref="TraceKind.Procedure"/>, never Episode.</b> Owner-scoped procedural
-    /// recall filters on procedures, so an episode-kinded trace is stored, recalled by nothing, and
-    /// presents as exactly the same false negative this method exists to prevent.
+    /// <b>Written as <see cref="TraceKind.Procedure"/>, never Episode.</b> The kind is what
+    /// <c>proceduresOnly</c> recall and the retention exemption both key on, so an episode-kinded trace
+    /// is a procedure only by intention. (It is <i>not</i> filtered out by the MAF provider's automatic
+    /// recall, which passes no kind filter at all — an earlier note here claimed it was, and that claim
+    /// was wrong.)
+    /// </para>
+    /// <para>
+    /// <b>Stored with a task embedding, or not at all.</b> Trace recall is a vector search over
+    /// <c>task_embedding</c> — on the indexed path and on the owner-scoped fallback alike, which
+    /// requires <c>task_embedding IS NOT NULL</c>. A trace written without one is persisted,
+    /// counts as promoted, and is returned by no search that exists: the procedural arm would find
+    /// nothing while the store filled up with procedures. That is the same false negative as a missing
+    /// promotion, one layer down, so this throws rather than storing an unreachable trace.
     /// </para>
     /// </remarks>
     internal async Task PromoteIfWorthKeepingAsync(
@@ -140,7 +219,26 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
         // what makes the two arms differ in the feature rather than in their prompts.
         if (_traces is null || !procedureMemoryEnabled || !run.Completed) return;
 
-        var chain = string.Join(" -> ", toolNames);
+        if (_embeddings is null)
+            throw new InvalidOperationException(
+                "Promotion needs an IEmbeddingOrchestrator: trace recall is a vector search, so a "
+                + "procedure stored without a task embedding is unreachable and the arm silently "
+                + "measures nothing.");
+
+        // EmbedAsync returns an EMPTY array on a blank input or a generation failure rather than
+        // throwing, so the failure mode this guards is the quiet one: promotion appears to succeed and
+        // the procedure is invisible for the rest of the run.
+        var taskEmbedding = await _embeddings.EmbedAsync(_taskPrompt, cancellationToken)
+            .ConfigureAwait(false);
+        if (taskEmbedding.Length == 0)
+            throw new InvalidOperationException(
+                "Embedding the procedure's task text returned an empty vector; the promoted procedure "
+                + "would be unreachable by trace recall. Aborting rather than recording a null result.");
+
+        // Joined with " then " rather than an arrow: recalled memory is HTML-escaped before it reaches
+        // the model (#92 Phase 1), so a "->" chain arrives as "a -&gt; b -&gt; c". The escaping is the
+        // security property and stays; the procedure is written so it survives it legibly.
+        var chain = string.Join(" then ", toolNames);
 
         await _traces.AddAsync(
             new ReasoningTrace
@@ -148,6 +246,7 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
                 TraceId = $"proc-{Guid.NewGuid():N}",
                 SessionId = "procedural-benchmark",
                 Task = _taskPrompt,
+                TaskEmbedding = taskEmbedding,
                 Outcome = chain,
                 Success = true,
                 Kind = TraceKind.Procedure,

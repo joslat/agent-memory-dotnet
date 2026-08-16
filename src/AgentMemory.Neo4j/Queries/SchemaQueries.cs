@@ -461,5 +461,19 @@ internal static class SchemaQueries
     public const string IsMigrationApplied = "MATCH (m:Migration {version: $version}) RETURN m LIMIT 1";
 
     /// <summary>Record a migration as applied.</summary>
-    public const string RecordMigration = "MERGE (m:Migration {version: $version}) SET m.appliedAtUtc = $appliedAtUtc";
+    /// <remarks>
+    /// <c>extension_id</c> is the schema-extension discriminator (30.14): null for the base sequence,
+    /// the owning extension's id for anything under the <c>ext/&lt;id&gt;/</c> namespace. A property on
+    /// the existing bookkeeping node rather than a new <c>(:ExtensionMigration)</c> label, deliberately:
+    /// <c>:Migration</c> is not a domain label and is absent from <c>SchemaConstants.NodeLabels</c>, so
+    /// it costs nothing in parity, whereas a new bookkeeping label would be the first ever and would
+    /// surface in the fresh-database label scans Neo4j-side tooling performs.
+    /// </remarks>
+    public const string RecordMigration =
+        "MERGE (m:Migration {version: $version}) SET m.appliedAtUtc = $appliedAtUtc, m.extension_id = $extensionId";
+
+    /// <summary>Lists applied migrations with their owning extension, for the schema-check owners report.</summary>
+    public const string ListAppliedMigrations =
+        "MATCH (m:Migration) RETURN m.version AS version, m.extension_id AS extensionId, "
+        + "m.appliedAtUtc AS appliedAtUtc ORDER BY version";
 }

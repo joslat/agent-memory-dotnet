@@ -1,4 +1,4 @@
-using AgentMemory.LongMemEval;
+﻿using AgentMemory.LongMemEval;
 using FluentAssertions;
 using Xunit;
 
@@ -92,6 +92,97 @@ public sealed class ProceduralBenefitHarnessTests
 
         result.StepReduction.Should().BeGreaterThan(0);
         result.ImprovedWithRepetition.Should().BeFalse();
+        result.ShowsBenefit.Should().BeFalse(
+            "the class has always documented both comparisons as required, and a large step reduction "
+            + "with no learning across attempts means the arms differ for some other reason");
+    }
+
+    [Fact]
+    public async Task LearningShownInToolCallsAloneStillCountsAsLearning()
+    {
+        // The shape a real run produced: the arm read its procedure, skipped the refused call, and used
+        // the same number of turns to do it. A steps-only gate called that "learned nothing" while
+        // ToolCallReduction -- from the same class -- reported the saving.
+        (int Steps, int Calls)[] procedures = [(6, 6), (6, 5), (6, 5)];
+        var result = await MeasureAsync(
+            (enabled, attempt) => enabled
+                ? new AgentTaskRun(true, procedures[attempt - 1].Steps, procedures[attempt - 1].Calls)
+                : new AgentTaskRun(true, Steps: 6, ToolCalls: 6),
+            attempts: 3);
+
+        result.ImprovedStepsWithRepetition.Should().BeFalse();
+        result.ImprovedToolCallsWithRepetition.Should().BeTrue();
+        result.ImprovedWithRepetition.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task TradingTurnsForToolCallsIsNotLearning()
+    {
+        // The other half of the rule. An arm that spent four extra turns to make one fewer call has
+        // moved the cost, not learned a cheaper route.
+        (int Steps, int Calls)[] procedures = [(6, 6), (9, 5), (10, 5)];
+        var result = await MeasureAsync(
+            (enabled, attempt) => enabled
+                ? new AgentTaskRun(true, procedures[attempt - 1].Steps, procedures[attempt - 1].Calls)
+                : new AgentTaskRun(true, Steps: 6, ToolCalls: 6),
+            attempts: 3);
+
+        result.ImprovedToolCallsWithRepetition.Should().BeTrue();
+        result.ImprovedWithRepetition.Should().BeFalse("steps got worse");
+        result.ShowsBenefit.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ANoiseLevelDifferenceIsNotABenefit()
+    {
+        // The shape a real run produced: 6.3 steps against 6.7, identical tool calls, and a verdict of
+        // True. A third of a step across three attempts is the difference between two runs of the SAME
+        // configuration, which is what the control arm's own spread measures.
+        var procedures = new[] { 7, 6, 6 };
+        var control = new[] { 6, 7, 7 };
+        var result = await MeasureAsync(
+            (enabled, attempt) => new AgentTaskRun(
+                true,
+                Steps: enabled ? procedures[attempt - 1] : control[attempt - 1],
+                ToolCalls: 6),
+            attempts: 3);
+
+        result.StepReduction.Should().BeGreaterThan(0, "the means do differ, slightly");
+        result.ImprovedWithRepetition.Should().BeTrue("7 -> 6 steps, so the learning gate alone passes");
+        result.StepNoiseBand.Should().BeGreaterThan(
+            result.WithoutProcedures.MeanStepsWhenCompleted - result.WithProcedures.MeanStepsWhenCompleted);
+        result.ShowsBenefit.Should().BeFalse("the saving is smaller than the control arm's own jitter");
+    }
+
+    [Fact]
+    public async Task ASavingLargerThanTheControlSpreadIsABenefit()
+    {
+        // The floor must not be so high that a real, consistent saving is discarded: the control varies
+        // by one step, the enabled arm saves four.
+        var control = new[] { 9, 10, 10 };
+        var procedures = new[] { 9, 6, 5 };
+        var result = await MeasureAsync(
+            (enabled, attempt) => new AgentTaskRun(
+                true,
+                Steps: enabled ? procedures[attempt - 1] : control[attempt - 1],
+                ToolCalls: enabled ? procedures[attempt - 1] : control[attempt - 1]),
+            attempts: 3);
+
+        result.StepGainExceedsNoise.Should().BeTrue();
+        result.ShowsBenefit.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AControlArmWithASingleCompletedRunHasNoSpreadRatherThanAnInventedOne()
+    {
+        // One observation has no standard deviation. Manufacturing one would either mask a real gain or
+        // conjure a floor out of nothing.
+        var result = await MeasureAsync(
+            (enabled, attempt) => new AgentTaskRun(
+                Completed: enabled || attempt == 1, Steps: enabled ? 3 : 9, ToolCalls: enabled ? 2 : 7),
+            attempts: 3);
+
+        result.StepNoiseBand.Should().Be(0);
     }
 
     [Fact]

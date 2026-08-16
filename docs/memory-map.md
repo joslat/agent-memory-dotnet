@@ -97,13 +97,24 @@ section is the bridge.
 The layers answer **where memory is kept**. The types answer **what memory can do**. Neither replaces
 the other, and the rest of this document uses both.
 
+[§2.6](#26-what-was-added-since-and-where-it-lands-on-this-map) places the eight capabilities added
+since this section was written onto both vocabularies. None of them is a seventh type, all of them are
+off by default, and six of them have never been measured.
+
 ### 2.1 The three layers, as the code defines them
 
 | Layer | Public entry point | Node labels | Automatic producer | Status |
 |---|---|---|---|---|
 | **Short-term** | `ShortTermMemoryService` | `Conversation`, `Message` | yes — `Neo4jChatHistoryProvider` persists every turn | BUILT, WIRED, MEASURED |
 | **Long-term** | `ILongTermMemoryService` | `Entity`, `Fact`, `Preference` (+ `Extractor`, `Schema`) | yes — the extraction pipeline | BUILT, WIRED, MEASURED |
-| **Reasoning** | `IReasoningMemoryService` | `ReasoningTrace`, `ReasoningStep`, `ToolCall`, `Tool` | **no** | BUILT, WIRED, **UNMEASURED** |
+| **Reasoning** | `IReasoningMemoryService` | `ReasoningTrace`, `ReasoningStep`, `ToolCall`, `Tool` | **no** | BUILT, WIRED, MEASURED **in part** (procedural harness) |
+
+> Those are the labels of the **base** schema, present on every database. A schema extension can add
+> more — the `working-memory` extension adopts upstream's `:User` for a per-owner profile block that
+> belongs to no layer — but only on a database whose operator applied that extension's DDL, and only
+> when the host named it in `Neo4jOptions.Extensions`. Default is the empty set.
+> [§2.6](#26-what-was-added-since-and-where-it-lands-on-this-map) and
+> [`docs/extensions/`](extensions/README.md).
 
 **Short-term memory** is durable, session-scoped message storage.
 `(:Conversation)-[:HAS_MESSAGE]->(:Message)`, written by
@@ -133,7 +144,7 @@ application code at all.
 task-text vector search over `task_embedding_idx`, budgeted at `MaxTraces = 3` and delivered as
 `MemoryContext.SimilarTraces`. It is structurally the second-most developed part of the schema and the
 least exercised part of the product: it has **no automatic producer**, and it is off by default in the
-only agent-framework adapter. Full detail in [§6.6](#66-agent-episodic-reasoning-traces--built-and-wired-unmeasured).
+only agent-framework adapter. Full detail in [§6.6](#66-agent-episodic-reasoning-traces--built-wired-measured-in-part).
 
 ### 2.2 The mapping
 
@@ -143,11 +154,11 @@ Layers to types. Coverage words are the status labels from the top of this docum
 |---|---|---|
 | **Short-term** | **Episodic** — the storage half only | PARTIAL. Turns are stored with `role` and `timestamp`, and nothing mines them. Order is stored and never *returned as order*: the recency leg gives an unordered top-10 by timestamp, the relevance leg an unordered top-5 by cosine, and the two ordering edges are never traversed. |
 | **Long-term** | **Semantic** | FULL — BUILT, WIRED, MEASURED. [§6.1](#61-semantic-memory--built-wired-measured) |
-| | **Episodic** — the assistant-originated half | BUILT, WIRED, **default off**, **MEASURED** (2026-08-10). `AssistantContentMode.Utterance` stores `assistant \| recommended \| X` as an ordinary `:Fact`. Capture +42% facts; retrieval **32.3% of the structured budget in 33/50 questions**; cost **+23.1% prompt tokens**; accuracy unmoved. [§6.2](#62-episodic-memory--built-wired-measured) |
+| | **Episodic** — the assistant-originated half | BUILT, WIRED, **default off**, **MEASURED** (2026-08-10). `AssistantContentMode.Utterance` stores `assistant \| recommended \| X` as an ordinary `:Fact`. Capture +42% facts; retrieval **32.3% of the structured budget in 33/50 questions**; cost **+23.1% prompt tokens**; accuracy unmoved. [§6.2](#62-episodic-memory--built-wired-measured-default-off) |
 | | **Meta-memory** — substrate only | Confidence, `MemoryTrustLevel`, `access_count`, `:MemoryReadAudit`, `IMemoryHistoryService` — all scoped to the three long-term kinds. [§6.5](#65-meta-memory--substrate-only) |
-| | **Prospective** — writer added, **default off**, UNMEASURED | `valid_from` / `valid_until` exist on `Fact` and the bitemporal path reads them. Until 2026-08-11 **no extractor wrote them**, so the columns were empty on every stored fact; `TemporalValidityMode.Extract` now populates them. Off by default and not yet measured on a corpus. [§5.5](#55-temporal-validity) |
-| **Reasoning** | **Agent-episodic** | BUILT, WIRED (task-similarity recall only), **UNMEASURED**. [§6.6](#66-agent-episodic-reasoning-traces--built-and-wired-unmeasured) |
-| | **Procedural** — substrate only | NOT BUILT. The ordered-step representation, the `:Tool` reliability prior and a spare vector index exist; the concept does not. [§6.3](#63-procedural-memory--not-built) |
+| | **Prospective** — writer, live gate *and* query-triggered firing, all **default off** | `valid_from` / `valid_until` exist on `Fact`; `TemporalValidityMode.Extract` (1.4.0) populates them, `RecallOptions.ValidTime = Current` honours them on both live fact paths, and `RecallOptions.ProspectiveFiring` volunteers newly-due and soon-expiring facts by time alone. Still nothing **wall-clock**-triggered: no timer, no scheduler. Oracle-validated on the time-grounded corpus; firing itself unmeasured. [§5.5](#55-temporal-validity), [§6.4](#64-prospective-memory--expression-gating-and-query-triggered-firing-all-opt-in) |
+| **Reasoning** | **Agent-episodic** | BUILT, WIRED (task-similarity recall only), MEASURED **in part** — the procedural harness exercises recall end to end; the benchmark corpus still holds no traces. [§6.6](#66-agent-episodic-reasoning-traces--built-wired-measured-in-part) |
+| | **Procedural** — promoted traces | BUILT, WIRED, MEASURED. `TraceKind.Procedure` promotes a trace to a reusable, prune-exempt procedure, retrieved through the opt-in `proceduresOnly` filter (default inactive). [§6.3](#63-procedural-memory--built-wired-measured-one-discriminating-task) |
 
 And the reverse view, which is where it stops being tidy:
 
@@ -155,8 +166,8 @@ And the reverse view, which is where it stops being tidy:
 |---|---|
 | Semantic | Long-term. The only clean one-to-one. |
 | **Episodic** | **Split across short-term and long-term.** See [§2.3](#23-where-the-mapping-is-imperfect). |
-| Procedural | *none* |
-| Prospective | *none* as a node kind — properties live on `Fact`. A **writer** now exists (`TemporalValidityMode`, default off); live recall still ignores validity, so the read gate remains unbuilt. |
+| Procedural | Reasoning — as promoted traces (`TraceKind.Procedure`), not as a layer of its own |
+| Prospective | *none* as a node kind — properties live on `Fact`. A **writer** exists (`TemporalValidityMode`, default off), the **read gate** is built (`RecallOptions.ValidTime`, default `Ignore`), and **query-triggered firing** now ships (`RecallOptions.ProspectiveFiring`, default off, additionally gated on `ValidTime == Current`). Only the wall-clock scheduler is absent, deliberately. |
 | Meta-memory | *none named* (substrate lives in long-term; the README files it under "Memory Governance") |
 | Agent-episodic | Reasoning. One-to-one in name. |
 
@@ -176,11 +187,14 @@ Measured on 2026-08-10 and recorded in
 6-17: given a turn where the assistant recommended a specific film, the stored memory was
 `User asked about …` / `User is interested in …` and the recommendation existed nowhere in the graph.
 
-**2. Three of the six types have no layer at all.** Procedural, prospective and meta-memory are not
-absent because they were assigned somewhere unhelpful — there is no product word for them. A reader
-given only "three memory layers, not one" has no vocabulary in which to notice the absence. That is
-the difference between a taxonomy with gaps and a taxonomy that hides them, and it is the reason this
-document keeps the six-type vocabulary.
+**2. Two of the six types still have no layer at all.** Prospective and meta-memory are not absent
+because they were assigned somewhere unhelpful — there is no product word for them. Procedural left
+this list in the [Unreleased] work: it now lives inside the reasoning layer as a **promoted trace**
+(`TraceKind.Procedure`, [§6.3](#63-procedural-memory--built-wired-measured-one-discriminating-task)),
+which is a product word, if a borrowed one. A reader given only "three memory layers, not one" still
+has no vocabulary in which to notice the remaining absences. That is the difference between a
+taxonomy with gaps and a taxonomy that hides them, and it is the reason this document keeps the
+six-type vocabulary.
 
 **3. GraphRAG is classified by neither taxonomy.** It has its own budget (`MaxGraphRagItems = 5`), its
 own context section (`MemoryContext.GraphRagContext` / `GraphRagItems`) and its own retrievers
@@ -258,12 +272,12 @@ context arguments that `IEntityRepository`'s provenance overload accepts are nev
 `PersistenceStage`, so span-level provenance is BUILT end-to-end and never populated. The fact and
 preference provenance methods do not have those parameters at all.
 
-**"Temporal validity," read as a shipped behaviour.** The *transaction* clock is real and enforced
-everywhere. The *valid-time* clock is inert end to end: no extractor populates `valid_from` or
-`valid_until` — `LlmFactDto` carries only `source_session`, `subject`, `predicate`, `object` and
-`confidence` — and live recall does not filter on them.
-Full treatment in [§5.5](#55-temporal-validity). Until a writer exists, this should not appear in a
-feature list.
+**"Temporal validity," read as a default behaviour.** The *transaction* clock is real and enforced
+everywhere. The *valid-time* clock is no longer inert — but everything about it is opt-in:
+`TemporalValidityMode.Extract` (1.4.0) is the writer, `RecallOptions.ValidTime = Current` applies the
+valid-window clauses on both live fact paths, and supersession stamps `valid_until` as it closes a
+fact. Both switches default off. Full treatment in [§5.5](#55-temporal-validity). **Accurate
+phrasing: "valid-time capture and live gating both exist, both opt-in and off by default."**
 
 **"Decay," unqualified.** Both forms ship **off**. Decay-based *ranking* requires a profile above the
 `MemoryProfile.Parity` default, which sets recency weight 0 and structural γ 1.0. Decay-based
@@ -302,8 +316,11 @@ edges that would make a trajectory traversable (`INITIATED_BY`, `HAS_TRACE`/`IN_
 `TRIGGERED_BY`), together with the `:TOUCHED` edge to the knowledge graph, are all implemented and
 called by nothing outside the CLI evaluator and tests. **"How the agent got there" is representable in this
 schema and is not, today, queryable through any shipped host surface.** The one claim that survives
-intact is *similar-task retrieval* — and note that it retrieves *task titles*: the MAF renderer emits
-`t.Task` and nothing else, dropping outcome and success.
+intact is *similar-task retrieval* — and what it renders is now configurable:
+`ContextFormatOptions.IncludeTraceOutcomes` (default `false`) upgrades the MAF rendering from a bare
+task title to `task: outcome`, with `ProcedureTrustClause` appended so the untrusted-content framing
+from issue #92 no longer instructs the model to ignore the feature. With the flag off, the renderer
+still emits `t.Task` and nothing else, dropping outcome and success.
 
 **Two shipped samples report a persistence that does not happen.**
 `samples/AgentMemory.Sample.MinimalAgent/Program.cs` and
@@ -354,6 +371,46 @@ retention prune, those nodes survive, invisible to `ToolCallQueries.GetStats` (w
 trace) yet still counted in the `:Tool` aggregate, whose `total_calls` / `successful_calls` /
 `failed_calls` counters are only ever incremented. Any future tool-reliability prior built on `:Tool`
 inherits a monotonically drifting denominator.
+
+### 2.6 What was added since, and where it lands on this map
+
+Eight capabilities are collected below — seven that shipped after the mapping above was written, plus
+procedural promotion, which §2.2 already places but which belongs here as the fourth shipped schema
+extension. **Not one of them is a seventh memory type**, and saying so is the useful part of this
+section: three are new *kinds* or *tiers* inside existing types, one is a new *read mode*, one is a
+rendering layer, one is plumbing. **Every one is off by default** — the flag is named in each row, and
+the full posture table lives in
+[`architecture.md` §3.6](architecture.md#36-every-capability-in-this-cycle-ships-dark).
+
+| Addition | What it actually is | Type it serves | Own channel + budget? | Status |
+|---|---|---|---|---|
+| **Working memory** (`working-memory` ext) | A compiled per-owner profile block on an adopted upstream `:User`, fetched by **point-read** rather than vector search | Semantic, mostly — stable facts, active preferences, top entities | **Yes** — its own read path and its own `MaxTokens = 300` budget | BUILT, WIRED, **UNMEASURED** (`MemoryOptions.WorkingMemory.Enabled`) |
+| **Derived / arithmetic** (`arithmetic` ext) | A `fact_kind` **within** semantic memory: `fact_kind='derived'` on an ordinary `:Fact`, with `DERIVED_FROM` edges | Semantic — [§4.1a](#41a-derived-knowledge--a-capability-of-semantic-memory-not-a-seventh-type) argues the case for and against a seventh type and settles it | **No, deliberately** — it shares `:Fact`'s index and `MaxFacts` | BUILT, WIRED, **UNMEASURED** (`MemoryOptions.Extraction.DerivedMemory.Enabled`) |
+| **Prospective firing** | The third of [§4.4](#44-prospective-memory)'s three mechanisms, in its query-triggered form | Prospective | **Yes** — `MaxDueItems = 5`, never competing with `MaxFacts` | BUILT, WIRED, **UNMEASURED** (`RecallOptions.ProspectiveFiring`, **plus** `ValidTime = Current`) |
+| **Legible forgetting** | A **summary of absence**: on a fact section that came back empty from a search that ran, one probe reports what decay let go — topic, count, dates, never content | **Meta-memory.** This is the first thing in the system that reports negative evidence, the gap [§4.5](#45-meta-memory) names as usually unrecorded | No — one extra probe on an existing index, at most one summary | BUILT, WIRED, **UNMEASURED** (`RecallOptions.LegibleForgetting`) |
+| **Delta recall** (`delta-recall` ext) | A **read mode**, not a store: eight buckets over clocks that were already being written, asking "what changed since I last looked?" | Cuts across semantic and episodic; holds nothing of its own | No — a separate call (`RecallChangedSinceAsync`), not a section of assembled context | BUILT, WIRED, **UNMEASURED** (`AgentFrameworkOptions.InjectDeltaOnSessionResume`) |
+| **Procedural promotion** (`procedural` ext) | `TraceKind.Procedure` on a reasoning trace, plus the prune exemption that makes it survive | Procedural | Shares the trace channel; `proceduresOnly` is a filter, not a budget | BUILT, WIRED, **MEASURED** on one discriminating task ([§6.3](#63-procedural-memory--built-wired-measured-one-discriminating-task)). Nothing promotes automatically — a host calls the promotion service; the `proceduresOnly` filter is `null` (inactive) by default, and rendering an outcome needs `ContextFormatOptions.IncludeTraceOutcomes` |
+| **Projection layer** | Where a rendering decision is made once instead of three times. Holds no memory | None — it renders what the others retrieved | n/a | BUILT, WIRED, **UNMEASURED** (six `MemoryProjectionOptions` flags) |
+| **Access-tracking queue** | Moves decay's input writes off the caller's thread onto a root-owned queue | Meta-memory *substrate* — the same `access_count` / `last_accessed_at` inputs [§6.5](#65-meta-memory--substrate-only) already describes | n/a | BUILT, WIRED, **UNMEASURED** (`MemoryOptions.UseAccessTrackingQueue`) |
+
+**The one row that changes a status word in this document is legible forgetting.** Meta-memory has
+been "SUBSTRATE ONLY" throughout, on the grounds that every input needed for calibration is computed
+and thrown away, and that misses go unrecorded. Legible forgetting does not lift that verdict — it
+still changes no behaviour at a threshold, which is [§4.5](#45-meta-memory)'s admission criterion — but
+it is the first mechanism here whose entire output is a statement about what the system **does not**
+know. That is a different thing from a confidence score nobody acts on.
+
+**Two of the eight also test §3 position 2** — *every memory type is a claimant on a shared, finite
+channel* — and they answer it in opposite directions, on purpose. Working memory takes the position's
+advice: its own read path, its own budget, no competition with `MaxFacts`. Derived memory deliberately
+refuses it, sharing `:Fact`'s index and budget, and pays for that with a stated risk (derived facts
+claim `MaxFacts` slots alongside the very inputs they summarise). Which of the two was right is a
+measurement neither has had.
+
+**What still has no measurement at all.** Six of the eight rows above say UNMEASURED, and that word is
+load-bearing here rather than modest: these are capabilities whose *code paths* are proven by tests and
+whose *effect on answers* is unknown. A reader planning against this document should treat the
+right-hand column as the claim and the flag as the cost of finding out.
 
 ---
 
@@ -420,6 +477,40 @@ about, because it is the kind the agent stops questioning.
 written in a **different session** from the query *and* has low lexical overlap with it. That slice
 is the only one that isolates semantic memory from transcript search. Secondary signal: fact count
 per entity should plateau. A curve that keeps rising means you are storing restatements.
+
+#### 4.1a Derived knowledge — a capability of semantic memory, not a seventh type
+
+*What follows from what I know?* The store holds `800` and `50`; the answer is `750`, and nothing ever
+wrote it down. Roughly one in six benchmark questions is like this — a count, a difference, a
+latest-of-chain, a list — and the answer is a property of a **set** while retrieval returns a sample of
+it. No amount of better retrieval closes that gap.
+
+The session accountant (30.6, `arithmetic` extension) materialises those aggregates as ordinary facts
+carrying `fact_kind='derived'`, with `DERIVED_FROM` edges to their inputs and the arithmetic rendered
+inline so it can be checked rather than trusted. **BUILT, WIRED, off by default**
+(`MemoryOptions.Extraction.DerivedMemory.Enabled`); UNMEASURED end to end — the operator-correctness
+check below is the gate it has to pass and has not been run against a scored benchmark.
+
+**Why this is documented here and not as a seventh memory type.** The case *for* one is real: it
+answers a question no other type can, which is this taxonomy's own admission criterion, and its trust
+story genuinely differs — derived, not observed. The case against is what decides it. It answers *what
+is true*, which is semantic memory's question, by other means; it shares semantic memory's substrate,
+index, budget and failure modes; and §3 position 2 says a type earns the name when it earns its **own
+retrieval channel and budget**, which this deliberately does not build. It is a `kind` within semantic
+memory in exactly the way a promoted procedure is a `trace_kind` within reasoning memory.
+
+It graduates to a seventh type if and when it gets a dedicated channel.
+
+**When it is the wrong tool.** A derived fact is the most dangerous thing this system stores, because
+it arrives wearing provenance that makes it look verified. Two mitigations are load-bearing rather than
+nice: the arithmetic is deterministic (no model in the loop, so the only failure mode is a parsing bug),
+and the staleness cascade runs *in the same statement* that retracts an input. An aggregate over a
+superseded fact is a manufactured confident-wrong answer, and it is worse than having no aggregate.
+
+**How you would know it works.** Recompute every materialised aggregate out-of-band from its
+`DERIVED_FROM` inputs and compare exactly: the bar is **100%**, and a single wrong value rejects the
+feature outright. Secondary signal: the answer-presence gate's checkable-count on numeric-answer
+questions, which was structurally 0 before this existed.
 
 ### 4.2 Episodic memory
 
@@ -527,6 +618,23 @@ Memory's defensible role is to be the **record** of the intention and the **gate
   containing it. Under purely query-triggered recall this is bounded below by the user's next visit,
   and that number is the product's honest promise.
 
+**What is built here (30.7): expression, gating, and a *query-triggered* form of firing.**
+`RecallOptions.ProspectiveFiring` volunteers newly-due and soon-expiring facts on the next recall,
+selected by **time alone** — no embedding, no similarity floor. That is what makes it firing rather
+than gating: the item surfaces because its moment arrived, not because the query happened to resemble
+it, which is the distinction that matters since a reminder is off-topic by definition.
+
+It is deliberately **not** mechanism (3) in the full sense. There is no timer, no wall-clock trigger,
+no delivery: due-item latency remains bounded below by the user's next visit, and that bound is the
+honest promise. A background scheduler stays out of scope for the reason stated above — it would make
+the memory layer an actor, and actors need delivery guarantees, idempotency, retries and defined
+behaviour when they are wrong at 3 a.m. If it is ever built it belongs in the host, with the library
+supplying the query and at most a sink interface.
+
+Premature surfacing is held at zero **structurally** — the window is `(since, now]` on the valid-time
+clock — with a live-graph test named for it. It is off by default, gated additionally on
+`ValidTimeMode.Current`, and costs no schema at all.
+
 ### 4.5 Meta-memory
 
 **Answers:** *How much should I trust what I just recalled — and do I actually know this, or did I
@@ -585,7 +693,7 @@ every trace is unlabeled. Downstream, unlabeled usually renders as *failed*, so 
 wall of failed precedents; and filtering to successes returns nothing at all. Compounding it, if
 retention evicts by recency alone, good traces are deleted alongside the noise. **Any promotion path
 needs a matching exemption in the eviction path.** This library has the first half of that trap
-today; see [§6.6](#66-agent-episodic-reasoning-traces--built-and-wired-unmeasured).
+today; see [§6.6](#66-agent-episodic-reasoning-traces--built-wired-measured-in-part).
 
 **How you would know it works.** **Precedent lift**: split tasks by whether a trace above the
 similarity threshold was retrieved, and compare steps-to-completion and failure rate across the
@@ -641,6 +749,19 @@ self-confirming.** "This item was surfaced often" measures your ranker, not the 
 > auto-prune-on-extraction. Decay and access tracking cover `Entity`/`Fact`/`Preference` only
 > ([`MemoryNodeKind.cs`](../src/AgentMemory.Abstractions/Domain/MemoryNodeKind.cs)); reasoning traces
 > receive neither.
+>
+> **Forgetting is now sayable (30.8, `RecallOptions.LegibleForgetting`, off by default).** It used to
+> be invisible: decay pruned, recall returned less, and the agent answered as though it had never
+> known — indistinguishable, to the person asking, from never having been told. A system whose gaps
+> all look like the same gap cannot be corrected by its user, because they do not know there is
+> anything to re-supply. On a recall whose fact section comes back empty from a search that ran, one
+> probe reports a **summary** of what was let go — topic, count, dates — and never the content, since
+> rendering that would undo the forgetting.
+>
+> This required distinguishing two states that were previously identical in every query: the prune now
+> stamps `invalidated_reason = 'decay'`, and supersession deliberately stamps nothing. A superseded
+> fact was **replaced**, not forgotten, and its replacement is live and should be answering the
+> question — reporting it as lost would be wrong in the direction that misleads.
 
 ### 5.3 Contradiction handling
 
@@ -686,9 +807,16 @@ holding similar content. The query succeeds. No error is raised. The tests pass.
 > [`OwnerVectorOverFetch.cs`](../src/AgentMemory.Neo4j/Repositories/OwnerVectorOverFetch.cs).
 >
 > **Isolation itself was never in question — no foreign row is ever returned.** What degrades
-> silently is *recall*, and it degrades further with every tenant added. A bounded escalation exists
-> (one wider retry, capped at 2,000, only when the first scoped pass returned **zero**), because a
-> short-but-non-empty result still answers the question while zero is total failure.
+> silently is *recall*, and it degrades further with every tenant added. The escalation has been
+> superseded twice since this was first written. The original bounded escalation (one wider retry,
+> capped at 2,000, only when the first scoped pass returned **zero**) gained, in 1.4.1, a final
+> owner-scoped similarity scan reached when the indexed search and its widened retry both return
+> nothing — the 2,000-row ceiling was measured to matter: at 4,000 competing rows 1.4.0 returned 0 of
+> 4 and 1.4.1 returns 4 of 4 (CHANGELOG 1.4.1). And the original rationale — that a
+> short-but-non-empty result still answers the question while zero is total failure — was measured
+> false: one question returned 2 facts from a 710-fact graph with the answer present and was answered
+> wrongly, so [Unreleased] adds the opt-in `MemoryOptions.RescueShortOwnerResults` (with
+> `SkipEscalationWhenOwnerHasNoRows` to skip escalating when the owner has nothing to find).
 >
 > Note the contrast: the fulltext retriever applies its owner `WHERE` *before* `LIMIT`
 > ([`FulltextRetriever.cs`](../src/AgentMemory.Neo4j/Retrieval/Internal/FulltextRetriever.cs)), so it
@@ -715,22 +843,35 @@ Two traps, both common enough to check for by default:
   tests pass, and the semantics are absent. **Read the live query, not the schema.**
 - **No writer ever populates it.** A temporal model is only as good as its most careless write path.
 
-> **Our status — we have both traps.** The transaction clock is enforced everywhere: live fact search
-> filters `node.invalidated_at IS NULL`
-> ([`FactQueries.SearchByVector`](../src/AgentMemory.Neo4j/Queries/FactQueries.cs), line 216), and
+> **Our status — both traps now have opt-in remedies.** The transaction clock is enforced everywhere:
+> live fact search filters `node.invalidated_at IS NULL`
+> ([`FactQueries.SearchByVector`](../src/AgentMemory.Neo4j/Queries/FactQueries.cs)), and
 > `RecallAsOfAsync` reconstructs prior belief across entities, facts, preferences and traces.
-> The valid-time clock is honoured **only on the as-of path**:
-> [`TemporalQueries.SearchFactsAsOf`](../src/AgentMemory.Neo4j/Queries/TemporalQueries.cs) lines 57-58
-> apply `valid_from`/`valid_until`; `FactQueries.SearchByVector` lines 211-218 apply `score`,
-> `invalidated_at`, and owner — and nothing else. And no extractor populates the fields: every
-> `ExtractedFact` construction site omits them, so `PersistenceStage` faithfully copies two values
-> that are always null. `Preference` carries no valid-time window at all
-> ([`TemporalQueries.cs:76-77`](../src/AgentMemory.Neo4j/Queries/TemporalQueries.cs)).
+> The valid-time clock is honoured on the as-of path
+> ([`TemporalQueries.SearchFactsAsOf`](../src/AgentMemory.Neo4j/Queries/TemporalQueries.cs)) and now,
+> opt-in, on the live path too: `RecallOptions.ValidTime = ValidTimeMode.Current` applies the
+> `valid_from`/`valid_until` clauses on **both** live fact paths — indexed and owner-scoped fallback —
+> and defaults to `Ignore`. The writer exists as well: `TemporalValidityMode.Extract` (1.4.0)
+> populates the fields, and its prompt deliberately tells the model to *omit* validity rather than
+> guess it, because a fabricated `valid_until` deletes a memory from every future answer.
+> Supersession stamps `valid_until` as it closes a fact. `Preference` still carries no valid-time
+> window at all ([`TemporalQueries.cs:76-77`](../src/AgentMemory.Neo4j/Queries/TemporalQueries.cs)).
 >
-> The practical consequence today is small only by accident: the sole facts carrying `valid_until`
-> are supersession losers, and those are stamped `invalidated_at` in the same `SET`, so the existing
-> transaction-clock filter already excludes them. The gap is real; its blast radius is currently
-> zero rows.
+> One shipped default also moved on measurement: `MemoryOptions.TemporalQueryClocks` now defaults to
+> `ValidTimeOnly`
+> ([`MemoryOptions.cs:213`](../src/AgentMemory.Abstractions/Options/MemoryOptions.cs)), implementing
+> finding 2 of [`per-memory-type-failure-analysis.md`](reviews/per-memory-type-failure-analysis.md) —
+> the both-clocks default silently empties recall on any store whose `created_at` is import time,
+> which is every backfill and every history import.
+
+**A caveat on the benchmark's temporal number.** LongMemEval's temporal score (18/21 structured)
+measures whether date *strings* survive into the prompt, not the two-clock machinery: the prepared
+corpus stamps messages with synthetic ~1970 ordering keys and facts with the 2026 ingestion clock, so
+enabling temporal query resolution against it would *empty* the context rather than help
+([`per-memory-type-failure-analysis.md`](reviews/per-memory-type-failure-analysis.md), finding 1 —
+the ablation died for free). The same analysis produced the `TemporalQueryClocks = ValidTimeOnly`
+default above. This is the same metric-substitution trap this document warns about for procedural
+memory ([§4.3](#43-procedural-memory)), one level deeper.
 
 ### 5.6 Retrieval budget
 
@@ -755,10 +896,18 @@ Four consequences of position 1 in [§3](#3-what-makes-a-memory-system-great):
 > already-starved channel worse.
 >
 > Two honest qualifications:
-> - **Both memory-path rerankers ship off.** The default profile is `MemoryProfile.Parity` ⇒ recency
+> - **All four memory-path rerankers ship off.** The default profile is `MemoryProfile.Parity` ⇒ recency
 >   weight 0 and structural γ 1.0 ⇒ semantic-only ranking
 >   ([`MemoryRankingOptions.cs`](../src/AgentMemory.Abstractions/Options/MemoryRankingOptions.cs)).
->   BUILT and WIRED; not enabled by default; not measured.
+>   BUILT and WIRED; not enabled by default; not measured. A second pair —
+>   `NodeDistanceReranker` and `MentionFrequencyReranker` — spent months as this document's own
+>   signature failure mode, on its own subject matter: full unit suites, documented flags
+>   (`MemoryOptions.NodeDistanceReranking` / `MentionFrequencyReranking`), and **zero DI
+>   registrations**, so the flags described behaviour no consumer could obtain while Phase 10 was
+>   recorded complete. They are now registered
+>   ([`ServiceCollectionExtensions.cs:92-104`](../src/AgentMemory.Neo4j/Infrastructure/ServiceCollectionExtensions.cs)),
+>   gated at rerank time on the flags, both default `false`, still unmeasured — BUILT and, at last,
+>   WIRED.
 > - **Reciprocal-rank fusion and BM25 exist on a different channel.** `HybridRetriever` (RRF, k=60)
 >   and `FulltextRetriever` serve the optional GraphRAG document source, over a host-configured index
 >   (`GraphRagOptions.IndexName` / `FulltextIndexName`), not over `Fact`/`Entity`/`Preference` nodes.
@@ -767,10 +916,76 @@ Four consequences of position 1 in [§3](#3-what-makes-a-memory-system-great):
 >   long-term memory recall today.
 > - `RecallResult` reports `TotalItemsRetrieved` and `Truncated`, but truncation is not reported
 >   per section ([`RecallResult.cs`](../src/AgentMemory.Abstractions/Domain/Context/RecallResult.cs)).
+>
+> Configuration reachability has also improved: `MemoryOptions` now exposes ten settable scalar
+> options (`EnableGraphRag`, `RescueShortOwnerResults`, `NodeDistanceReranking`,
+> `MentionFrequencyReranking`, `DeferAccessTracking`, `ConfidenceReinforcementAlpha`,
+> `ResolveTemporalQueries`, `TemporalQueryClocks`, `OmitEmbeddingsFromRecall`,
+> `SkipEscalationWhenOwnerHasNoRows`) while nested option objects stay init-only by design, and
+> `MemoryOptions.Recall` is now the application-wide default for any `RecallRequest` that does not
+> supply its own options
+> ([`MemoryOptions.cs`](../src/AgentMemory.Abstractions/Options/MemoryOptions.cs);
+> `MemoryContextAssembler`) — previously a host's configured recall budgets were silently ignored on
+> that path.
+
+**A closing measured note: on the benchmark corpus, the budget is no longer what binds.** Realised
+gold-session coverage on the accepted 50-question runs is **0.965 (structured) / 0.980 (hybrid)**,
+with 94–98% of questions already at 1.00 and nothing truncated on any question
+([`making-retrieval-measurable-again.md`](reviews/making-retrieval-measurable-again.md)). Accuracy
+against coverage is a step, not a slope: 100% at coverage ≥ 0.75, collapsing to 22.7% in the
+0.50–0.74 band — completeness is worth ~80 points, and the system does not enter the regime where it
+loses them. This is why nine quality experiments (~1,800 calls) moved nothing: six architectural
+candidates were eliminated because the instrument has been out-run, not because memory stopped
+mattering ([`quality-effort-and-what-did-not-move.md`](reviews/quality-effort-and-what-did-not-move.md)).
+The costed way to make retrieval measurable again is a pre-registered budget sweep on the frozen
+corpus — a ranking instrument only, never quoted as accuracy — and it should not run until there is a
+candidate worth ranking. Cross-referenced from [§8.6](#86-isolation-pushed-into-the-index), which this
+finding qualifies.
 
 ---
 
 ## 6. Our coverage today
+
+### 6.0 What the benchmark measured
+
+Until this subsection existed, the MEASURED cells in the table below pointed at nothing — a label
+whose number is never stated undercuts this document's own thesis. These are the published numbers,
+with the rules for citing them.
+
+**The bands.** On LongMemEval-S (50 questions), **structured memory scores 76.0–90.0% and hybrid
+84.0–90.0%** across two accepted runs of the same configuration — bands, not points: structured moved
+14 points between accepted runs, so any single-number claim is unsupported
+([`longmemeval-results.md`](reviews/longmemeval-results.md)). The controls bound it: no-memory **0%**
+(0/19 over two runs), full history **80–100%** at **122,605 tokens/question** against structured's
+403 — the full-history band reached at 1/304th of the context. Raw scored 90.0%, but on one run, a
+different corpus, and a harness-rejected attribution check, so it carries an asterisk.
+
+**Per type, on the most recent accepted run:** semantic **25/25 (100%)** structured; temporal
+**18/21 (85.7%)** — the one type with a measured ±0.0 band across runs; episodic **2/4 at n=4** —
+not measurable at that sample size; and metamemory (abstention) **18/20 (90%)** on a separate
+20-question sample ([`longmemeval-results.md`](reviews/longmemeval-results.md) §3). **Cite the band
+and the n, never the point.**
+
+**The oracle-impossible set.** Four questions are wrong 8/8 with perfect context — handed exactly the
+evidence the dataset says answers them, no retrieval involved: `352ab8bd`, `58470ed2`, `7a8d0b71`
+(all single-session-assistant) and `bf659f65` (multi-session)
+([`quality-effort-and-what-did-not-move.md`](reviews/quality-effort-and-what-did-not-move.md) §2.1;
+[`longmemeval-results.md`](reviews/longmemeval-results.md) §5). No memory system can reach them, so
+every run now reports a **raw** and an **improvable** denominator side by side (90.0% vs 91.8% on the
+latest run), with the excluded ids, their evidence, and a contradiction flag that fires if one is
+ever answered correctly. For this document's episodic story the relevant one is `352ab8bd`: adjusting
+for it, episodic improvable is 2/3 structured and 3/3 hybrid — which is n=3 and therefore still not a
+story.
+
+**Why every number is a band.** The answer model runs at temperature 1.0 — this deployment
+hard-refuses any other value (HTTP 400 `unsupported_value`), verified in the
+`answer-determinism-*.json` artifacts under [`artifacts/evaluation/`](../artifacts/evaluation/). One
+question answered repeatedly returned **19 distinct texts in 24 calls**; passing a seed cut that to 8
+of 24 — "partially pinnable": the provider honours the option without guaranteeing it. The seed is
+therefore wired as an opt-in that narrows the noise band and does not license calling a run
+reproducible. 13 of 14 verdict flips across constant-configuration repeats occurred with **identical
+retrieved items**, so a meaningful share of the noise band is the answer call, not memory
+([`quality-effort-and-what-did-not-move.md`](reviews/quality-effort-and-what-did-not-move.md) §2.2).
 
 The honest table. Read the status column strictly. The **layer** column is the product vocabulary from
 [§2](#2-two-vocabularies-three-memory-layers-six-memory-types), so a reader who arrived with those
@@ -778,21 +993,26 @@ words can find their way in.
 
 | Type | Layer | BUILT | WIRED | MEASURED | One-line summary |
 |---|---|---|---|---|---|
-| **Semantic** | long-term | yes | yes | yes | Full pipeline: `Entity`/`Fact`/`Preference`, bitemporal, decay, owner isolation, supersession. |
-| **Episodic** | short-term *and* long-term | yes | yes (default off) | **no** | Turns live in short-term and are never mined; assistant-originated content is admitted into long-term by `AssistantContentMode` (added 2026-08-10, default `Ignore`). No evaluation run has used a non-default mode. |
-| **Procedural** | *none* (substrate in reasoning) | **no** | no | no | No concept in the domain. |
-| **Prospective** | *none* (properties in long-term) | **no** | no | no | No first-class concept. `valid_from`/`valid_until` exist but the live read path ignores them; nothing is time-triggered. |
-| **Meta-memory** | *none named* (substrate in long-term) | substrate only | partial | no | Confidence, decay, access tracking, read audit, trust levels exist. Memory cannot report what it does not know. |
-| **Agent-episodic (traces)** | reasoning | yes | yes (defaults off in the MAF adapter) | **no** | Full graph + retrieval + budget, and **no automatic producer**. The evaluation corpus contains no traces. |
+| **Semantic** | long-term | yes | yes | yes — 100% structured at n=25 ([§6.0](#60-what-the-benchmark-measured)) | Full pipeline: `Entity`/`Fact`/`Preference`, bitemporal, decay, owner isolation, supersession. |
+| **Episodic** | short-term *and* long-term | yes | yes (default off) | yes, with a caveat | Capture, retrieval share, cost and retrievability measured 2026-08-10/11 ([§6.2](#62-episodic-memory--built-wired-measured-default-off)); the benchmark's per-type split is n=4 and not measurable at that size ([§6.0](#60-what-the-benchmark-measured)). |
+| **Procedural** | reasoning (promoted traces) | yes | yes (opt-in filter) | yes — one discriminating task | `TraceKind.Procedure`: promoted, retrievable, prune-exempt. The rail task saves one tool call on every attempt after the first. [§6.3](#63-procedural-memory--built-wired-measured-one-discriminating-task) |
+| **Prospective** | *none* (properties in long-term) | expression + gating + query-triggered firing | yes (all opt-in, default off) | at the oracle only | `TemporalValidityMode.Extract` writes the window; `RecallOptions.ValidTime` gates live recall; `RecallOptions.ProspectiveFiring` volunteers due/expiring facts by time alone. Nothing is **wall-clock**-triggered. [§6.4](#64-prospective-memory--expression-gating-and-query-triggered-firing-all-opt-in) |
+| **Meta-memory** | *none named* (substrate in long-term) | substrate + diagnostics | partial | abstention 18/20 (90%) | Confidence, decay, access tracking, read audit, trust levels; misses are now observable via section diagnostics and the empty/short counters. [§6.5](#65-meta-memory--substrate-only) |
+| **Agent-episodic (traces)** | reasoning | yes | yes (defaults off in the MAF adapter) | partially — via the procedural harness, not the benchmark | Full graph + retrieval + budget, and **no automatic producer**. The LongMemEval corpus still contains no traces. [§6.6](#66-agent-episodic-reasoning-traces--built-wired-measured-in-part) |
 
 Two rows are worth reading twice. **Episodic** is the only type split across two layers, and the split
-misroutes its own flagship question ([§2.3](#23-where-the-mapping-is-imperfect)). **Procedural**,
-**prospective** and **meta-memory** have no product layer at all — which is precisely why this document
-keeps a second vocabulary.
+misroutes its own flagship question ([§2.3](#23-where-the-mapping-is-imperfect)). **Prospective** and
+**meta-memory** still have no product layer at all — which is precisely why this document keeps a
+second vocabulary. Procedural left that list in the [Unreleased] work: it now lives inside the
+reasoning layer as a promoted trace.
 
 ### 6.1 Semantic memory — BUILT, WIRED, MEASURED
 
 **Layer:** long-term. The only type with end-to-end coverage.
+
+**The number behind the label:** structured **25/25 (100%)** on the most recent accepted run, hybrid
+22/25 (88%) — per-type split and citation rules in [§6.0](#60-what-the-benchmark-measured)
+([`longmemeval-results.md`](reviews/longmemeval-results.md) §3).
 
 - Node kinds: `Entity`, `Fact`, `Preference` —
   [`MemoryNodeKind.cs`](../src/AgentMemory.Abstractions/Domain/MemoryNodeKind.cs).
@@ -852,62 +1072,119 @@ proposed. That mechanism landed in the **long-term** layer, as ordinary `:Fact` 
   evaluation CLI exposes `--assistant-content ignore|utterance|fact`.
 - The default returns the **empty string**, not a "neutral" instruction, so the prompt is byte-identical
   to before the option existed. Prompt bytes are a measured variable in this project's cost accounting.
-- **UNMEASURED**: no evaluation run has been executed with a non-default mode. Nothing is known about
-  its effect on answer quality, on graph size, or on the fact-channel crowding in [§5.4](#54-isolation).
+- **MEASURED** — the block at the top of this section is the record: capture, retrieval share, cost
+  and retrievability were all run with `Utterance` on 2026-08-10/11, and CHANGELOG 1.4.0 carries the
+  same numbers under "measured before being recommended". On the benchmark's own per-type split,
+  episodic is 2/4 structured and 3/4 hybrid at n=4 — not measurable at that sample size; after
+  excluding the oracle-impossible `352ab8bd` ([§6.0](#60-what-the-benchmark-measured)) it is 2/3
+  versus 3/3, which is n=3 and still not a story.
 - Known hazard before enabling `Fact`: trust is stamped per extraction *request*, not per message
   ([§6.5](#65-meta-memory--substrate-only)), so model-generated claims would be written as `UserProvided`.
 
-### 6.3 Procedural memory — **NOT BUILT**
+### 6.3 Procedural memory — BUILT, WIRED, MEASURED (one discriminating task)
 
-**Layer:** none. Substrate sits inside the reasoning layer; the concept has no product name.
+**Layer:** reasoning, as **promoted traces**. An earlier revision of this section said there was no
+procedural concept anywhere in the domain — no node label, no property, no option, no vocabulary
+entry. The grep that once returned nothing now returns plenty: `TraceKind`, `PromoteAsync`,
+`proceduresOnly`, `ContextFormatOptions.IncludeTraceOutcomes`, `ProcedureTrustClause`.
 
-There is no procedural concept anywhere in the domain: no node label, no property, no option, no
-vocabulary entry. A case-insensitive grep for `procedural`/`prospective` across `src/**/*.cs` returns
-nothing.
+**What shipped** — the exact design [§8.2](#82-procedural-memory-as-trace-promotion) prescribed:
 
-What exists is substrate, and it is more complete than the absence suggests:
+- A reasoning trace can be promoted to a procedure: `TraceKind` (default `Episode`), a **real
+  filterable property** rather than a `Metadata` entry, seekable via `trace_kind_idx` (migration
+  `0011_trace_kind.cypher`).
+- Retrieval through the opt-in `proceduresOnly` recall filter, which defaults to `null`/inactive so
+  the emitted Cypher for existing callers stays byte-identical.
+- **Exempt from retention pruning** — the load-bearing part: `PruneSessionTraces` evicts by age
+  alone, so without the exemption promotion would delete exactly what it exists to keep. Shipped
+  NULL-safe in both directions
+  ([`ReasoningQueries.cs:138-147`](../src/AgentMemory.Neo4j/Queries/ReasoningQueries.cs)).
+- Rendered with its `Outcome` under `ContextFormatOptions.IncludeTraceOutcomes`, with
+  `ProcedureTrustClause` resolving the issue-#92 conflict in which the shipped prompt told the model
+  to ignore recalled procedures.
 
-- A `ReasoningTrace` + ordered `ReasoningStep`s (`HAS_STEP {order}`) + `ToolCall`s **is** a procedure
-  representation; `Thought`/`Action`/`Observation` is a ReAct trajectory.
-- Retrieval by task similarity already exists and already composes filters —
-  [`ReasoningQueries.SearchByTaskVector`](../src/AgentMemory.Neo4j/Queries/ReasoningQueries.cs) builds
-  its `WHERE` from a `List<string>`.
-- A tool-reliability prior exists: `:Tool` nodes aggregate `total_calls`, `successful_calls`,
-  `failed_calls`, `total_duration_ms`, `last_used_at`, maintained on every tool-call write.
-- A detection hook exists: `ConsolidationOptions.DetectLongTraces` (threshold 20 steps) already counts
-  summarisation candidates and reports `LongTraceCandidates` — **detection only**, excluded from
-  `TotalChanges`.
-- `reasoning_step_embedding_idx` is a provisioned, dimension-matched vector index that **nothing
-  populates automatically and no query reads** — a retrieval channel already paid for.
+**Measured** ([`procedural-benefit-result.md`](reviews/procedural-benefit-result.md)): on the rail
+task, **one tool call saved on every attempt after the first** against a 0.00-noise control
+(procedures 5.2 vs control 6.0 mean tool calls, 100% completion on both arms; witness
+`proceduresInContextPerAttempt = [0,1,2,3,3]`) — an existence proof, not an effect size. Of three
+tasks attempted, **only rail discriminates**: the incident task was solved cold by the control —
+hence the fifth validity rule, *the convention must be arbitrary, not merely enforced* — and the
+archive task exposed that promotion stores the exploration, not the solution: 12 of its 16 promoted
+calls were decoys.
 
-See [§8](#8-what-is-deliberately-not-built-and-what-would-trigger-building-it) for what promotion
-would take and what would trigger it.
+**Retrieval precision is separately instrumented**
+([`procedure-retrieval-precision-result.md`](reviews/procedure-retrieval-precision-result.md)): at
+the shipped `MinSimilarityScore` of 0.7, procedure retrieval **never abstains** — thresholds
+0.00–0.86 are all identical — and the knee is **0.92** (wrongRate 5%, precision-when-answering
+92.3%), so procedures need their own, much higher threshold than facts.
 
-### 6.4 Prospective memory — **NOT BUILT**; substrate present, read path incomplete
+**Two shipped bugs the instrument found on first run belong in the record:** promotion had *never
+worked* — `PromoteAsync` wrote `'Procedure'` while every filter compared `'procedure'`, fixed
+2026-08-14 with `toLower`-normalised Cypher so pre-fix rows work without migration — and the
+owner-scoped fallback scan crashed on any success-filtered search.
 
-**Layer:** none. The `valid_from`/`valid_until` properties live on long-term `Fact` rows; nothing else
-does.
+The substrate that predated all of this is still there and still relevant: the ordered-step ReAct
+representation, the `:Tool` reliability prior, the `DetectLongTraces` detection hook, and
+`reasoning_step_embedding_idx` — a provisioned, dimension-matched vector index that **nothing
+populates automatically and no query reads** — a retrieval channel already paid for.
 
-No first-class concept. `planned` is not a schema element — it is an emergent predicate produced by
-extraction (839 facts in the measured graph). Nothing treats it differently from any other relation.
+### 6.4 Prospective memory — expression, gating and query-triggered firing (all opt-in)
 
-The substrate and its gap are covered in [§5.5](#55-temporal-validity): `valid_from`/`valid_until`
-are real properties, written on both fact paths and writable through the public
-`AddFactAsync(Fact, …)` surface, honoured by the as-of path, and **ignored by live recall**. No
-extractor populates them, and no MCP tool or facade method exposes them.
+**Layer:** none as a node kind. The `valid_from`/`valid_until` properties live on long-term `Fact`
+rows; nothing else does. `planned` is still not a schema element — it is an emergent predicate
+produced by extraction (839 facts in the measured graph), treated like any other relation.
 
-Firing is absent by construction. There is exactly one hit for `IHostedService|BackgroundService|PeriodicTimer`
-in `src/`, and it is a comment stating that the background enrichment queue deliberately uses a fixed
-pool of worker tasks instead
+Of [§4.4](#44-prospective-memory)'s three mechanisms, **all three now exist in some form, every one
+opt-in and off by default**:
+
+- **Expression** is written by `TemporalValidityMode.Extract` (1.4.0). The prompt deliberately tells
+  the model to *omit* validity rather than guess it, because a fabricated `valid_until` deletes a
+  memory from every future answer.
+- **Gating** is `RecallOptions.ValidTime = ValidTimeMode.Current`, applied on both live fact paths
+  ([Unreleased]) — **due-on-next-interaction** semantics. Supersession also stamps `valid_until` as
+  it closes a fact.
+- **Firing, in its query-triggered form**, is `RecallOptions.ProspectiveFiring` (default `false`).
+  On a recall it volunteers facts that *became* due since `DueLookback` (7 days) and facts whose
+  `valid_until` falls inside `ExpiringWindow` (7 days), selected by **time alone** — no query
+  embedding, no similarity floor, its own `MaxDueItems` budget (5) that never competes with
+  `MaxFacts`, surfaced as `MemoryContext.DueFacts` / `ExpiringFacts` and rendered before every
+  query-driven section. Selection by time is what makes it firing rather than gating: the item
+  surfaces because its moment arrived, not because the query resembled it.
+
+**Two things to hold onto before reading that as more than it is.** First, it is **gated twice** — the
+flag *and* `ValidTime == ValidTimeMode.Current`, which is itself off by default. Setting
+`ProspectiveFiring = true` alone does nothing at all, by design: firing reads a validity window, and a
+recall ignoring valid time has no window to read.
+
+Second, **the scheduler half of mechanism (3) is still deliberately absent, and that is the honest
+bound on the promise.** There is no timer and no wall-clock trigger: due-item latency remains bounded
+below by the user's next visit. There is exactly one hit for
+`IHostedService|BackgroundService|PeriodicTimer` in `src/`, and it is a comment stating that the
+background enrichment queue deliberately uses a fixed pool of worker tasks instead
 ([`BackgroundEnrichmentQueue.cs:19`](../src/AgentMemory.Core/Enrichment/BackgroundEnrichmentQueue.cs)).
-**Nothing in this system is time-triggered. All recall is query-triggered.**
+Premature surfacing is held at zero **structurally** — the window is `(since, now]` on the valid-time
+clock — with a live-graph test named for it. The as-of path deliberately does not fire, recorded in
+`AsOfRecallDivergenceTests`: splicing present-tense urgency into a reconstruction of a past instant
+would mislead about which world the answer describes.
+
+**Status: BUILT, WIRED, UNMEASURED.** No retrieval-path run has scored it.
+
+**Measurement exists for the first time.** The AgentEval 0.21.0-beta time-grounded corpus poses
+`tg-asof`, `tg-current` and `tg-prospective` question families, and a perfect-context oracle answers
+all three **4/4**
+([`time-grounded-oracle-20260814T222455Z.json`](../artifacts/evaluation/time-grounded-oracle-20260814T222455Z.json))
+— establishing the families are reachable, with the artifact's own caveat that at 4 questions per
+family one question is 25 points and no percentage there is an accuracy. The retrieval-path
+measurement — does the live gate surface the right facts at the right time? — has not been run.
 
 ### 6.5 Meta-memory — SUBSTRATE ONLY
 
 **Layer:** none named. The substrate is long-term-scoped; in the product vocabulary the pieces are
 filed under "Memory Governance", which is a compliance heading for what is really calibration.
 
-Everything needed to *build* meta-memory exists. The reporting layer does not.
+Everything needed to *build* meta-memory exists, and the first pieces of the reporting layer now do
+too — opt-in section diagnostics and miss counters. What still does not exist is calibration that
+changes behaviour at a threshold ([§4.5](#45-meta-memory)).
 
 **What is present:**
 
@@ -922,39 +1199,69 @@ Everything needed to *build* meta-memory exists. The reporting layer does not.
 - `MemoryContext.ResolvedQueryRelations` — the closest thing in the codebase to "did my vocabulary
   even contain this?"
 
-**What is missing, precisely:**
+**Measured (abstention):** **18/20 (90%)** on both arms, on the benchmark's 20-question abstention
+subset ([`per-memory-type-failure-analysis.md`](reviews/per-memory-type-failure-analysis.md)). The
+shared failure shape is over-answering on a **false presupposition**: the question names something
+that never happened, retrieval returns the semantically nearest rows, and a near-match renders into
+the prompt identically to an exact match — one probe read sufficiency 0.92 on a question unanswerable
+by construction. This is the one abstention failure where the *memory layer*, not the answer model,
+could carry the fix, and it is precisely the "do I actually know this, or did I merely find something
+nearby?" question [§4.5](#45-meta-memory) defines. One caveat for any capture/headroom analysis: the
+answer-presence gate is meaningless on abstention questions — it matches the refusal sentence's own
+tokens, 19 of 20 false-positives — so `_abs` rows must be fenced out of such denominators.
 
-- **Retrieval diagnostics now reach every section; the *summary* of them still does not.**
+**What was missing, precisely — updated in place as items shipped:**
+
+- **Retrieval diagnostics now reach every section, summary included.**
   `RecallOptions.IncludeDiagnostics` (default off) populates `RankedItems` for all five sections —
   messages, facts, entities, preferences and traces — on **both** recall paths, through the single
   `BuildRankedItems` join
   ([`MemoryContextAssembler.cs`](../src/AgentMemory.Core/Services/MemoryContextAssembler.cs)). The
   scores are the repositories' existing `(item, score)` tuples, recovered through the internal
   `IScoredLongTermSearch` / `IScoredTraceSearch` contracts, so no section costs a second query and the
-  flag-off path is unchanged. Two gaps remain: `RecallResult` still has no per-section
-  `TopScore`/`Count`, so a caller that does not walk `RankedItems` itself cannot see how thin a recall
-  was; and facts arriving from predicate expansion have no comparable score and are deliberately
-  absent from `RankedItems` rather than carrying a placeholder.
-- **`RecallResult` cannot express thinness.** It carries `TotalItemsRetrieved` and `Truncated`. It
-  cannot distinguish "0 facts because none exist" from "0 facts because `MinSimilarityScore = 0.7`
-  excluded them" from "0 facts because owner post-filtering starved the top-K" — the measured case in
-  [§5.4](#54-isolation). Three different failures, one indistinguishable output.
-- **Misses are unrecordable by construction.** The audit node is created inside
-  `MATCH (n:{label} {id: $id})`, so `:MemoryReadAudit` rows exist **only for hits**. There is no record
-  anywhere that an owner asked about something and memory had nothing.
+  flag-off path is unchanged. The per-section summary this bullet once said was missing now exists:
+  `MemoryContextSection<T>.Diagnostics` carries top and lowest scores, returned count, limit and
+  floor. One gap remains: facts arriving from predicate expansion have no comparable score and are
+  deliberately absent from `RankedItems` rather than carrying a placeholder.
+- **`RecallResult` can now express thinness — opt-in.** It carries `TotalItemsRetrieved` and
+  `Truncated`, and under `IncludeDiagnostics` each section's `Diagnostics` distinguishes
+  never-searched (`Searched`) from genuinely-empty from filtered-away (`SearchedAndShort` exposes the
+  owner post-filter shape) — the three failures an earlier revision of this bullet called "one
+  indistinguishable output", the measured case in [§5.4](#54-isolation) among them. With the flag
+  off, the output is as indistinguishable as ever.
+- **Misses are now recorded — as counters, not nodes.** The audit node is still created inside
+  `MATCH (n:{label} {id: $id})`, so `:MemoryReadAudit` rows exist **only for hits**. But
+  `memory.recall.section.empty` and `memory.recall.section.short` now count, per section, every
+  recall in which memory had nothing (or nearly nothing) to say — deliberately shipped as counters
+  rather than stored nodes, sidestepping the unbounded-growth trap
+  [§8.4](#84-meta-memory-that-reports-its-own-sufficiency) warned about. An empty recall section can
+  now say why it is empty.
 - **Trust is stamped per request, not per message.** `request.TrustLevel ?? _options.DefaultTrustLevel`
   is resolved once per extraction call
   ([`MemoryExtractionPipeline.cs:66`](../src/AgentMemory.Core/Services/MemoryExtractionPipeline.cs),
   `.Batch.cs:75`) and applied uniformly in `PersistenceStage`. The default is `UserProvided`. On the
   Neo4j extraction path, `ModelGenerated` is therefore unreachable — the enum has exactly the right
   member and nothing can assign it. (It *is* assigned on the NAMS recall path, where provenance is
-  derived per message role: `NamsRecallService.ProvenanceForRole`.)
+  derived per message role: `NamsRecallService.ProvenanceForRole` — and now on traces, which default
+  to `ReasoningMemoryOptions.DefaultTraceTrustLevel = ModelGenerated`.)
 - **Trust is a bypass and a demotion, never an admission floor.** `MinimumTrustForAdmissionBypass`
   defaults to `ApplicationTrusted` — the maximum — so nothing bypasses injection screening;
   `MinimumTrustForSystemRole` defaults to `Untrusted` — the minimum — so nothing is demoted. Both
   defaults are deliberately inert. There is no "admit nothing below level L" gate for memory items.
+- **Absence can now be reported, but still changes nothing.** `RecallOptions.LegibleForgetting`
+  (default off) makes a specific negative statement — *"I knew things about this topic and let them
+  go"* — with a count and dates, from a probe over facts the prune stamped `invalidated_reason =
+  'decay'`. That is the negative-evidence shape [§4.5](#45-meta-memory) says is usually unrecorded, and
+  it is the first of it here. It does **not** promote meta-memory past SUBSTRATE ONLY: it fires only
+  when the fact section came back empty from a search that ran, it returns at most one summary, and
+  nothing in the system takes a different action because of it. Calibration that crosses a decision
+  boundary is still absent.
+- **Decay's own inputs can now be written off the caller's thread.** `MemoryOptions.UseAccessTrackingQueue`
+  (default off) moves the `access_count`/`last_accessed_at` writes onto a root-owned bounded queue that
+  drops rather than blocks, and counts its drops. It changes when the substrate is written, never what
+  is computed from it.
 
-### 6.6 Agent-episodic (reasoning traces) — BUILT and WIRED, **UNMEASURED**
+### 6.6 Agent-episodic (reasoning traces) — BUILT, WIRED, MEASURED in part
 
 In the product vocabulary this is the **reasoning memory** layer
 ([§2.1](#21-the-three-layers-as-the-code-defines-them)). The graph layer is the most structurally
@@ -1005,12 +1312,16 @@ developed part of the system after semantic memory:
   ([`AgentTraceRecorder.cs`](../src/AgentMemory.AgentFramework/AgentTraceRecorder.cs)), added as an
   overload rather than an optional parameter because the surface is locked under SemVer. The original
   three-argument form is retained for source compatibility and forwards `success: null`, so any host
-  that has not migrated still stores unlabeled traces. Two consequences follow for those traces, and
-  both are still live: the query facade prints `t.Success == true ? "✓" : "✗"`
-  ([`MemoryQueryFacade.cs`](../src/AgentMemory.Core/Services/MemoryQueryFacade.cs)), so an unlabeled
-  trace is shown to the model as a *failed* precedent; and `SuccessfulTracesOnly = true` excludes them
-  entirely, because the predicate is `node.success = $successFilter` and in Cypher `null = true` is
-  null.
+  that has not migrated still stores unlabeled traces. Two consequences used to follow for those
+  traces; one is fixed and one is still live. Fixed: `find_similar_tasks` now renders **three**
+  states, with null meaning *unrecorded* rather than failed
+  ([`MemoryQueryFacade.cs`](../src/AgentMemory.Core/Services/MemoryQueryFacade.cs); CHANGELOG
+  [Unreleased]). Still live: `SuccessfulTracesOnly = true` excludes unlabeled traces entirely,
+  because the predicate is `node.success = $successFilter` and in Cypher `null = true` is null.
+- **Two smaller seams closed in the same pass.** `memory_start_trace` now accepts a `userId` — a
+  trace recorded through MCP used to land in the shared bucket, invisible to its own tenant — and
+  traces now carry a trust level at all: `ReasoningMemoryOptions.DefaultTraceTrustLevel`, defaulting
+  to `ModelGenerated` ([§6.5](#65-meta-memory--substrate-only)).
 - **Several recorded fields are unreachable from either host.** `ToolCall.DurationMs` and
   `ToolCall.Error` are not parameters of MCP `memory_record_tool_call` or of
   `AgentTraceRecorder.RecordToolCallAsync`, so `ToolCallStats.total_duration_ms` is always 0 for any
@@ -1028,9 +1339,13 @@ developed part of the system after semantic memory:
   trace cannot be reinforced by use.
 - **Deletion leaks `:ToolCall` nodes and inflates `:Tool` counters permanently.** See
   [§2.5](#25-two-defects-this-mapping-surfaced).
-- **Retention evicts by age alone.** `PruneSessionTraces` orders by `started_at DESC` and deletes past
-  `$keep`, driven by `ReasoningMemoryOptions.MaxTracesPerSession`. No confidence, no access count, no
-  success. Any future promotion mechanism needs a matching exemption here or it is silently undone.
+- **Retention evicts by age alone — with the one exemption promotion needs.** `PruneSessionTraces`
+  orders by `started_at DESC` and deletes past `$keep`, driven by
+  `ReasoningMemoryOptions.MaxTracesPerSession`. No confidence, no access count, no success. The
+  exemption an earlier revision of this bullet demanded now exists: promoted procedures are excluded
+  from the prune, NULL-safe in both directions
+  ([`ReasoningQueries.cs:138-147`](../src/AgentMemory.Neo4j/Queries/ReasoningQueries.cs)) — without
+  it, promotion would be silently undone by recency.
 - **Off by default in the adapter, twice, and the recall is paid for anyway.**
   `AgentFrameworkOptions.PersistReasoningTraces = false` — with it off, `AgentTraceRecorder` returns
   synthetic in-memory objects and never contacts Neo4j. `ContextFormatOptions.IncludeReasoningTraces =
@@ -1039,16 +1354,28 @@ developed part of the system after semantic memory:
   so every MAF turn pays for a `task_embedding_idx` vector query whose result the renderer then
   discards. (`AutomaticRecallCategories.Default` deliberately excludes traces — but `Default` is not
   the default; `All` is.)
-- **What is rendered is a task title, not a trajectory.** `MafTypeMapper` emits `t.Task` and nothing
-  else: no outcome, no success flag, no steps, no tool calls. The richer `[✓|✗] task: outcome` form
-  exists only in `MemoryQueryFacade`, which is an explicit tool call rather than automatic recall.
+- **What is rendered defaults to a task title, not a trajectory.**
+  `ContextFormatOptions.IncludeTraceOutcomes` (default `false`) now renders `task: outcome` on the
+  MAF surface, with `ProcedureTrustClause` automatically appended so the untrusted-content framing
+  from issue #92 no longer instructs the model to ignore the feature — before this shipped, the fix
+  lived only in the benchmark harness
+  ([`procedural-benefit-result.md`](reviews/procedural-benefit-result.md) §3a). With the flag off,
+  `MafTypeMapper` still emits `t.Task` and nothing else: no outcome, no success flag, no steps, no
+  tool calls.
 - **Two shipped samples report a persistence that does not happen.**
   `samples/AgentMemory.Sample.MinimalAgent/Program.cs` and
   `samples/AgentMemory.Sample.BlendedAgent/Program.cs` both record a trace and log
   `"Trace recorded successfully."` without ever setting `PersistReasoningTraces`, so nothing reaches
   Neo4j; their `catch` blocks, commented as expected when no live database is available, are
   unreachable on that path. This is a defect in shipped teaching material.
-- **Not measured.** The evaluation corpus contains no reasoning traces. The corpus probe
+- **Measured — partially, and not by the benchmark.** The procedural harness now exercises this
+  layer end to end through real recall: traces recorded, promoted, retrieved by task similarity,
+  admitted into the prompt (witness `proceduresInContextPerAttempt = [0,1,2,3,3]`) and shown to
+  change agent behaviour — one tool call saved on the rail task
+  ([`procedural-benefit-result.md`](reviews/procedural-benefit-result.md)); retrieval precision is
+  separately instrumented
+  ([`procedure-retrieval-precision-result.md`](reviews/procedure-retrieval-precision-result.md)).
+  What remains true: the LongMemEval evaluation corpus contains no reasoning traces. The corpus probe
   [`k6-trace-probe.json`](../artifacts/evaluation/k6-trace-probe.json) (2026-08-09) reports
   **traces: 0, steps: 0** against 10,382 entities and 14,621 messages, with `task_embedding_idx` and
   `reasoning_step_embedding_idx` both ONLINE — the zero is real emptiness, not index failure. The
@@ -1056,9 +1383,8 @@ developed part of the system after semantic memory:
   ([`LongMemEvalGraphProbe.cs`](../tools/AgentMemory.LongMemEval/LongMemEvalGraphProbe.cs)). The perf
   harness seeds 8 traces but calls only `StartTraceAsync` + `CompleteTraceAsync`, so it creates **zero
   steps and zero tool calls** ([`PerfFixture.cs`](../tools/AgentMemory.Cli/Perf/PerfFixture.cs)).
-  Task-similarity recall is therefore the only part of this layer any quality or performance run has
-  ever exercised; step persistence, tool-call persistence, step retrieval, tool-call retrieval and tool
-  stats are covered by live-Neo4j integration tests and by nothing else.
+  Step persistence, tool-call persistence, step retrieval, tool-call retrieval and tool stats are
+  still covered by live-Neo4j integration tests and by nothing else.
 
 ---
 
@@ -1093,7 +1419,10 @@ memory for problem-solving*. Its reasoning layer is also described as holding *p
 the layer was originally named procedural and the `ProceduralMemory` alias for `ReasoningMemory`
 survives. That double-labelling is worth knowing before comparing vocabularies: **the word "procedural"
 upstream refers to the trace layer, not to stored reusable skills.** Neither implementation has
-procedural memory in the "stored, retrievable, parameterised skill" sense.
+procedural memory in the full "stored, retrievable, *parameterised* skill" sense — but ours now has
+the first two thirds: stored, retrievable, prune-exempt procedures via `TraceKind` promotion
+([§6.3](#63-procedural-memory--built-wired-measured-one-discriminating-task)), not yet
+parameterised.
 
 ### Type-by-type
 
@@ -1103,8 +1432,8 @@ Both projects use the same three layer names, so the layer column applies to bot
 |---|---|---|---|
 | Semantic | long-term | `Entity`/`Fact`/`Preference` + `RELATED_TO`; fixed relation vocabulary | Same labels; canonicalised predicate keys; facts included in assembled context |
 | Episodic (messages) | short-term | `Conversation`/`Message`, extraction not gated by role | Same labels; extraction gated by `AssistantContentMode`, default `Ignore` |
-| Procedural | *none* | absent as stored skills (the name is applied to traces) | absent |
-| Prospective | *none* | absent | absent |
+| Procedural | *none* (ours: reasoning, as promoted traces) | absent as stored skills (the name is applied to traces) | promoted, retrievable, prune-exempt procedures via `TraceKind`; not parameterised |
+| Prospective | *none* | absent | expression + gating, opt-in (`TemporalValidityMode.Extract`, `RecallOptions.ValidTime`); no firing |
 | Meta-memory | *none named* | confidence, provenance via `:Extractor`, review status on dedup candidates | plus decay, access tracking, `:MemoryReadAudit`, `MemoryTrustLevel` |
 | Reasoning traces | reasoning | first-class; similar-trace search defaults to successful-only | first-class; `SuccessfulTracesOnly` defaults to *no filter*; **no automatic producer** |
 
@@ -1153,11 +1482,13 @@ claim.
    failed trace instructive.
 6. **Opposite defaults on trace outcome filtering, on purpose.** Upstream treats successful-only as
    correctness and defaults to it. We default `SuccessfulTracesOnly` to `null` — no filter — and the
-   reasoning is written into the option itself: nothing becomes a default here before it is measured,
-   and the trace surface has never been measured at all
-   ([`RecallOptions.cs:78-89`](../src/AgentMemory.Abstractions/Options/RecallOptions.cs)). Given
-   [§6.6](#66-agent-episodic-reasoning-traces--built-and-wired-unmeasured), upstream's default is the safer one for a host to
-   adopt today, and switching ours is gated on fixing outcome capture first, not on a preference.
+   reasoning is written into the option itself: nothing becomes a default here before it is measured
+   ([`RecallOptions.cs:78-89`](../src/AgentMemory.Abstractions/Options/RecallOptions.cs)). The stated
+   gate for reconsidering that default — fixing outcome capture first — has since been met: the
+   adapter has a `success` overload, the facade renders three states, and traces carry a default
+   trust level ([§6.6](#66-agent-episodic-reasoning-traces--built-wired-measured-in-part)); the trace
+   surface has also now been measured, by the procedural harness rather than the benchmark. The
+   default itself is unchanged.
 7. **A set of interop-critical property names that must never drift.** `id`, `name`, `type`,
    `embedding`, `confidence`, `subject`/`predicate`/`object`, `valid_from`/`valid_until`,
    `task`/`task_embedding`, `thought`/`action`/`observation`, `tool_name`/`status`/`duration_ms` and
@@ -1169,7 +1500,10 @@ claim.
 ## 8. What is deliberately not built, and what would trigger building it
 
 Nothing in this section is scheduled. Each entry states what exists, what is missing, and the concrete
-signal that would justify the work.
+signal that would justify the work. Entries whose trigger has since fired — [§8.2](#82-procedural-memory-as-trace-promotion),
+[§8.3](#83-prospective-memory-as-a-valid-time-gate), [§8.7](#87-query-formulation--built-fired-and-retired)
+— are kept as records of what was built and what it measured, so the next reader inherits the result
+rather than re-proposing the work.
 
 ### 8.1 Give the reasoning layer a producer and a read path
 
@@ -1178,7 +1512,7 @@ a `success` overload — an overload rather than an added optional parameter, be
 public and the API surface is locked under SemVer. The three-argument form is retained for source
 compatibility and still forwards `success: null`, so hosts must migrate to get labelled traces.
 
-**Still missing, and it is the larger half** ([§6.6](#66-agent-episodic-reasoning-traces--built-and-wired-unmeasured)):
+**Still missing, and it is the larger half** ([§6.6](#66-agent-episodic-reasoning-traces--built-wired-measured-in-part)):
 
 - **A producer.** No interceptor, middleware or pipeline hook starts a trace. Every trace in existence
   requires hand-written application code. This is why the corpus holds zero of them and why the layer
@@ -1200,49 +1534,65 @@ defects, not feature requests.
 
 ### 8.2 Procedural memory as trace promotion
 
-**Exists:** the representation, the retrieval, the delivery path, a tool-reliability prior, a detection
-hook, and a free second vector channel — all enumerated in [§6.3](#63-procedural-memory--not-built).
+**This entry used to be a proposal; it is now a record.** All of it happened, and the design it
+prescribed shipped exactly.
 
-**Missing:** (a) the outcome signal above; (b) a **filterable** procedure marker. It has to be a real
-property, not a `Metadata` entry: metadata round-trips as a single serialised JSON string, so a marker
-inside it is invisible to Cypher and both the recall filter and the prune exemption would degrade to
-full label scans. This is the one place the project's "land a speculative field in `Metadata` first"
-convention does not apply.
-
-**Two traps that make a naive implementation self-defeating:**
+**Built:** the marker is `TraceKind` with `trace_kind_idx` — a **real filterable property**, not a
+`Metadata` entry, exactly as this section demanded (metadata round-trips as a single serialised JSON
+string, so a marker inside it would have been invisible to Cypher and both the recall filter and the
+prune exemption would have degraded to full label scans; this remains the one place the project's
+"land a speculative field in `Metadata` first" convention does not apply). Both traps that would have
+made a naive implementation self-defeating were avoided:
 
 - **Promotion without a prune exemption.** `PruneSessionTraces` evicts by age alone; a promoted
-  procedure would be deleted by recency.
-- **A filter that is not opt-in.** The TCK exercises `get_similar_traces`. A new predicate must default
-  to *inactive* so the emitted Cypher for existing callers stays byte-identical.
+  procedure would have been deleted by recency. The exemption shipped, NULL-safe in both directions.
+- **A filter that is not opt-in.** The TCK exercises `get_similar_traces`. The `proceduresOnly`
+  predicate defaults to *inactive*, so the emitted Cypher for existing callers stays byte-identical.
 
-**Retrieval-budget note, and it is the argument in favour:** promoted procedures would arrive through
-`task_embedding_idx` with its own budget (`MaxTraces = 3`) and a current occupancy of zero. Unlike
-episodic fact extraction, this adds **no** claimant to the starved fact channel.
+**Retrieval-budget note, confirmed in practice:** promoted procedures arrive through
+`task_embedding_idx` with its own budget (`MaxTraces = 3`) and a prior occupancy of zero. Unlike
+episodic fact extraction, this added **no** claimant to the starved fact channel.
 
-**Trigger:** a repeated multi-step task workload where same-task second-attempt cost can be measured
-([§4.3](#43-procedural-memory)). Conversational QA cannot measure this — the workload is not in the
-corpus. Building the harness is part of the cost, and should be honestly counted as such.
+**Measured:** the trigger this entry named — a repeated multi-step task workload where same-task
+second-attempt cost can be measured ([§4.3](#43-procedural-memory)) — was built rather than waited
+for (`--procedural-benefit`, `--procedure-retrieval`; building the harness was part of the cost, and
+was counted as such). The results are
+[`procedural-benefit-result.md`](reviews/procedural-benefit-result.md) and
+[`procedure-retrieval-precision-result.md`](reviews/procedure-retrieval-precision-result.md).
+
+**The known limits belong in this record as much as the positive result:** only one of three tasks
+discriminates (the incident task was solved cold by the control — hence the fifth validity rule, *the
+convention must be arbitrary, not merely enforced*); on long chains promotion stores the exploration
+rather than the solution (12 of 16 promoted calls on the archive task were decoys); and the shipped
+similarity floor sits in a never-abstains dead zone whose knee is 0.92. Full detail in
+[§6.3](#63-procedural-memory--built-wired-measured-one-discriminating-task).
 
 ### 8.3 Prospective memory as a valid-time gate
 
-**Exists:** the properties, the write path, and the exact filter expression — on the as-of path.
+**Built — opt-in, oracle-validated; the retrieval-path measurement is still open.** The two clauses
+this entry once listed as missing are shipped: `RecallOptions.ValidTime = ValidTimeMode.Current`
+applies the `valid_from`/`valid_until` window on both live fact paths, default `Ignore`. The writer
+exists too: `TemporalValidityMode.Extract` (1.4.0) populates the fields
+([§5.5](#55-temporal-validity)).
 
-**Missing:** the same two clauses on the live path, and any writer that populates the fields.
+**Trigger (b) — "enough date-bearing questions in an evaluation corpus" — was answered by building
+one:** the AgentEval 0.21.0-beta time-grounded corpus poses `tg-asof`, `tg-current` and
+`tg-prospective` question families, and a perfect-context oracle answers all three **4/4**
+([`time-grounded-oracle-20260814T222455Z.json`](../artifacts/evaluation/time-grounded-oracle-20260814T222455Z.json))
+— establishing the families are reachable, with the artifact's own caveat that at 4 questions per
+family one question is 25 points and no percentage there is an accuracy. What has *not* run is the
+retrieval-path measurement: whether the live gate surfaces the right facts at the right time on a
+real recall path, rather than at the oracle.
 
-**Cost:** the read gate is two conditional `AND`s in `FactQueries.SearchByVector`, copied from
-`TemporalQueries.SearchFactsAsOf`. Because no extractor writes valid-time and the only rows carrying
-`valid_until` are already excluded by the transaction-clock filter, **turning the gate on changes the
-result set for zero currently-existing rows** — which makes it safe to ship and impossible to measure
-on its own. Real measurement needs the extraction side too, and that changes the graph.
-
-**Explicitly out of scope:** firing. That is a new hosting component with delivery guarantees and
-retry semantics, and it belongs to the orchestrator unless there is a specific reason it cannot
-([§4.4](#44-prospective-memory)).
-
-**Trigger:** either (a) a correctness complaint — an expired fact returned forever is a live bug the
-gate fixes — or (b) enough date-bearing questions in an evaluation corpus for the arm to detect an
-effect. Count them before spending a rebuild.
+**Firing has since split in two, and only half of it was ever the scary half.** The
+*query-triggered* half shipped as `RecallOptions.ProspectiveFiring` (default off, additionally gated
+on `ValidTime == Current`): on the next recall, facts that just became due and facts about to expire
+are volunteered by **time alone**, on their own `MaxDueItems` budget, with no schema at all
+([§6.4](#64-prospective-memory--expression-gating-and-query-triggered-firing-all-opt-in)). **The
+*wall-clock* half remains explicitly out of scope**: a scheduler is a new hosting component with
+delivery guarantees, idempotency and retry semantics, and it belongs to the orchestrator unless there
+is a specific reason it cannot ([§4.4](#44-prospective-memory)). Due-item latency therefore stays
+bounded below by the user's next visit, and that bound is the honest promise.
 
 ### 8.4 Meta-memory that reports its own sufficiency
 
@@ -1250,25 +1600,37 @@ effect. Count them before spending a rebuild.
 ([§6.5](#65-meta-memory--substrate-only)). Per-item scores on the other four sections were in this
 list and no longer are — see below.
 
-**First increment — done.** `RankedItems` is populated on the fact, entity, preference and trace
-sections (alongside messages) under the existing `IncludeDiagnostics` toggle, reusing the one
-`BuildRankedItems` join, on both the live and the as-of recall path. No schema change, no extra query,
-no extra round trip; unchanged when the flag is off. **Still outstanding from this increment:** the
-derived per-section `TopScore`/`Count` on `RecallResult`.
+**First increment — done, including its outstanding piece.** `RankedItems` is populated on the fact,
+entity, preference and trace sections (alongside messages) under the existing `IncludeDiagnostics`
+toggle, reusing the one `BuildRankedItems` join, on both the live and the as-of recall path. No
+schema change, no extra query, no extra round trip; unchanged when the flag is off. The derived
+per-section summary this entry once listed as still outstanding has since shipped as
+`MemoryContextSection<T>.Diagnostics` — top and lowest scores, returned count, limit and floor.
 
 **Why it ranks first on usefulness:** it is the instrument. Without it, the effect of every other
 change on the measured 7-of-60 in [§5.4](#54-isolation) is unobservable.
 
-**Second increment, harder:** the candidates-seen-before-owner-filter count. The over-fetch happens
-inside Cypher and the `LIMIT` is applied after filtering, so the pre-filter count is discarded in the
-database and needs a widened projection.
+**Second increment — done.** The candidates-seen-before-owner-filter count shipped as vector-recall
+yield telemetry on all eight owner-scoped searches (`requested_topk`, `effective_topk`, `escalated`,
+`returned` — CHANGELOG 1.4.0); the widened projection this entry predicted was exactly what it took.
 
-**Deferred:** negative-evidence records. `:MemoryReadAudit` cannot be extended to cover misses because
-it is keyed on a matched `memory_id`; a miss has none. That is a new node label, and it must ship with
-a growth story from the first commit. The read-audit precedent is the warning: a recall writes roughly
-25 audit rows, so an unindexed lookup over that label degraded **with time rather than with data
-size** — a store fast on day one and slow on day ninety with an unchanged graph. That one was fixed
-with an index (`memory_read_audit_memory_id_idx`); a per-recall miss record needs retention as well.
+**Formerly deferred — shipped, as counters rather than nodes.** Negative-evidence records could not
+ride on `:MemoryReadAudit` (it is keyed on a matched `memory_id`; a miss has none), and a new node
+label would have needed a growth story from the first commit — the read-audit precedent is the
+warning: a recall writes roughly 25 audit rows, so an unindexed lookup over that label degraded
+**with time rather than with data size**, a store fast on day one and slow on day ninety with an
+unchanged graph. The shipped form sidesteps the retention problem this entry predicted:
+`memory.recall.section.empty` and `memory.recall.section.short` are **counters**, not stored nodes,
+and `MemoryContextSection<T>.Diagnostics` says per recall why a section is empty
+([§6.5](#65-meta-memory--substrate-only)).
+
+**Third increment — shipped, and it reports absence rather than confidence.**
+`RecallOptions.LegibleForgetting` (default off) turns a specific miss into a specific statement: on a
+fact section that came back empty **from a search that ran**, a probe over facts the prune stamped
+`invalidated_reason = 'decay'` reports topic, count and dates — never the content, since rendering the
+forgotten facts would undo the forgetting. Note what this does *not* do, because the distinction is
+this entry's whole subject: it reports on the system's own history, not on the sufficiency of the
+answer it is about to give, and nothing acts differently because of it.
 
 **Trigger:** any product decision that depends on abstention ("say I don't know instead of guessing"),
 or any attempt to measure the effect of a retrieval change.
@@ -1297,6 +1659,28 @@ vector index cannot pre-filter on a property, so the options are partitioning by
 index strategy, or a hybrid candidate generator whose lexical half (which *can* filter before
 `LIMIT`) compensates.
 
+**A measured qualification (2026-08):** on the current benchmark corpus this constraint no longer
+binds — realised coverage is 0.965–0.980 and the accuracy cliff sits in a coverage band the system
+never enters ([§5.6](#56-retrieval-budget)). The starvation mechanism is real and returns with every
+tenant added; the corpus that would show it moving accuracy is not the one we have.
+
+### 8.7 Query formulation — built, fired, and retired
+
+The obvious next retrieval lever — rewriting the retrieval query instead of using the question
+verbatim — was built, pre-registered, run, and **retired**
+([`query-formulation-result.md`](reviews/query-formulation-result.md)). The mechanism demonstrably
+fired: the rewriter was invoked 50/50 and changed the query 50/50, and the retrieved item IDs changed
+on every hybrid question. Hybrid moved exactly **0.0000** on accuracy, session coverage and turn
+coverage — a strong null: retrieval responded, the measured thing did not, because at 0.980 coverage
+both queries find the gold and only filler reshuffles ([§5.6](#56-retrieval-budget)).
+
+The run also documented a reusable trap: the first comparison used a control predating the instrument
+fix that made structured turn coverage observable, manufacturing a fake 0.000 → 0.943 "gain" — a
+treatment run must be compared against a control from the same build.
+
+The arm ships opt-in and off (`--query-formulation verbatim`) as an instrument for a future,
+unsaturated corpus. This entry exists so the next reader does not re-propose it.
+
 ---
 
 ## Checking these claims yourself
@@ -1320,6 +1704,6 @@ Related reading: [`architecture.md`](architecture.md) · [`schema.md`](schema.md
 
 ---
 
-*Last verified against the codebase on 2026-08-10. Line numbers drift; symbol names and file paths are
+*Last verified against the codebase on 2026-08-15. Line numbers drift; symbol names and file paths are
 the durable references. If a claim here disagrees with the code, the code is right and this document is
 a bug.*

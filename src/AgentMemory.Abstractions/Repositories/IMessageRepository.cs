@@ -85,4 +85,37 @@ public interface IMessageRepository
     /// When false, only the node is deleted (relationships must already be removed).
     /// </summary>
     Task<bool> DeleteAsync(string messageId, bool cascade = true, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets several messages by id in one call. Ids that do not exist are simply absent.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Added for the projection layer, which dereferences <c>SourceMessageIds</c> to recover the
+    /// sentence a triple came from. Triples drop tense, participants and ordinals — three separately
+    /// named failing questions — and the source utterance still has all three. Doing that one
+    /// <see cref="GetByIdAsync"/> at a time would turn one projection into N round trips.
+    /// </para>
+    /// <para>
+    /// The default implementation loops <see cref="GetByIdAsync"/>: correct for every existing
+    /// implementation, slow, and overridden by the Neo4j repository with a single query. A default
+    /// interface method rather than a new member, so nothing outside this repository breaks.
+    /// </para>
+    /// </remarks>
+    /// <param name="messageIds">Ids to fetch.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    async Task<IReadOnlyList<Message>> GetByIdsAsync(
+        IReadOnlyList<string> messageIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messageIds);
+        var found = new List<Message>(messageIds.Count);
+        foreach (var id in messageIds)
+        {
+            var message = await GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+            if (message is not null) found.Add(message);
+        }
+
+        return found;
+    }
 }

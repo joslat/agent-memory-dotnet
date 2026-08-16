@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Neo4j.Driver;
 using AgentMemory.Abstractions.Repositories;
@@ -88,6 +88,35 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<IReasoningTraceRepository, Neo4jReasoningTraceRepository>();
         services.TryAddTransient<IReasoningStepRepository, Neo4jReasoningStepRepository>();
         services.TryAddTransient<IToolCallRepository, Neo4jToolCallRepository>();
+
+        // 17.4b. Rerankers (R6 node-distance, R7 mention-frequency). Both shipped with full unit
+        // suites and BOTH WERE REGISTERED BY NOTHING -- zero DI registrations and zero RerankAsync
+        // call sites across the whole repository -- while `MemoryOptions.NodeDistanceReranking` and
+        // `MentionFrequencyReranking` sat in the public surface documenting behaviour no consumer
+        // could obtain, and Phase 10 was recorded COMPLETE.
+        //
+        // Registered unconditionally and enumerable, because each one already owns its own IsEnabled
+        // gate reading those options. Gating the REGISTRATION on the flags instead would mean a host
+        // using IOptions reconfiguration (or IOptionsSnapshot) could turn a flag on and still get
+        // nothing -- the same class of defect one layer up. Both flags default false, so the default
+        // recall path is unchanged.
+        services.AddScoped<IMemoryReranker, NodeDistanceReranker>();
+        services.AddScoped<IMemoryReranker, MentionFrequencyReranker>();
+
+        // 30.14. Schema extensions, registered on exactly the reranker principle above: always
+        // present, never active unless Neo4jOptions.Extensions names them. Registration is what makes
+        // an extension *knowable* -- the owners report and the parity validator inspect every
+        // registered extension, active or not, so a declaration that collides with base is caught on a
+        // machine that has never enabled it. Empty Extensions set = base schema, byte-identical.
+        // Registered from the SAME list the host-less callers read (the schema-parity CLI verb builds
+        // no container), so DI and the CLI can never disagree about which extensions exist.
+        foreach (var extension in Schema.Extensions.SchemaExtensionRegistry.CreateShipped())
+            services.AddSingleton(extension);
+        services.TryAddSingleton<Schema.Extensions.SchemaExtensionRegistry>();
+
+        // 30.4. Registered unconditionally and self-gated on WorkingMemoryOptions.Enabled -- the
+        // reranker pattern, so IOptions reconfiguration works.
+        services.TryAddScoped<IWorkingMemoryService, Services.Neo4jWorkingMemoryService>();
 
         // Graph query service
         services.TryAddTransient<IGraphQueryService, Neo4jGraphQueryService>();

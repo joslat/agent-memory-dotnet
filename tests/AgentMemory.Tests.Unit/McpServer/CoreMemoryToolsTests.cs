@@ -17,6 +17,11 @@ public sealed class CoreMemoryToolsTests
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly IClock _clock = Substitute.For<IClock>();
     private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
+
+    // 25.2. The tool now starts from the host's CONFIGURED recall options rather than the static
+    // default, so it needs them injected. Stock values here, so these tests keep asserting the
+    // behaviour they always did.
+    private readonly IOptions<MemoryOptions> _memoryOptions = Options.Create(new MemoryOptions());
     private readonly IOptions<LongTermMemoryOptions> _longTermOptions = Options.Create(new LongTermMemoryOptions());
 
     private static readonly DateTimeOffset FixedTime = new(2025, 1, 15, 10, 0, 0, TimeSpan.Zero);
@@ -47,7 +52,7 @@ public sealed class CoreMemoryToolsTests
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(CreateRecallResult());
 
-        await CoreMemoryTools.MemorySearch(_memoryService, _options, "test query", "ses-1", "user-1");
+        await CoreMemoryTools.MemorySearch(_memoryService, _options, _memoryOptions, "test query", "ses-1", "user-1");
 
         await _memoryService.Received(1).RecallAsync(
             Arg.Is<RecallRequest>(r =>
@@ -63,7 +68,7 @@ public sealed class CoreMemoryToolsTests
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(CreateRecallResult());
 
-        await CoreMemoryTools.MemorySearch(_memoryService, _options, "query");
+        await CoreMemoryTools.MemorySearch(_memoryService, _options, _memoryOptions, "query");
 
         await _memoryService.Received(1).RecallAsync(
             Arg.Is<RecallRequest>(r => r.SessionId == "default"),
@@ -76,7 +81,7 @@ public sealed class CoreMemoryToolsTests
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(CreateRecallResult(5));
 
-        var result = await CoreMemoryTools.MemorySearch(_memoryService, _options, "query");
+        var result = await CoreMemoryTools.MemorySearch(_memoryService, _options, _memoryOptions, "query");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("totalItemsRetrieved").GetInt32().Should().Be(5);
@@ -417,6 +422,51 @@ public sealed class CoreMemoryToolsTests
 
         await _longTermMemory.Received(1).AddFactAsync(
             Arg.Is<Fact>(f => f.Metadata.ContainsKey("source")),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ── 30.6: derivation keys are reserved for the same reason ─────────
+
+    [Fact]
+    public async Task MemoryAddFact_CallerSuppliedDerivation_IsStripped()
+    {
+        // A caller who could stamp fact_kind='derived' plus an invented derivation string would hand
+        // the model arithmetic no accountant ever performed -- carrying the inline provenance that makes
+        // it look checked, which is strictly more persuasive than an unadorned wrong fact.
+        //
+        // Found by an end-of-phase review: WithoutCallerSuppliedDerivation was written, documented as
+        // enforcing this rule, and called by nothing. The helper existed; the rule did not.
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "user", "total_fish_count", "17",
+            metadataJson:
+                "{\"kind\":\"derived\",\"derivation\":\"12 (a1) + 5 (b2)\",\"operator\":\"Sum\","
+                + "\"input_fact_ids\":[\"a1\",\"b2\"]}");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f =>
+                !f.Metadata.IsDerived()
+                && f.Metadata.GetDerivation() == null
+                && f.Metadata.GetInputFactIds().Count == 0),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryAddFact_CallerSuppliedDerivation_OtherMetadataStillPreserved()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "user", "total_fish_count", "17",
+            metadataJson: "{\"kind\":\"derived\",\"source\":\"crm\"}");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.Metadata.ContainsKey("source") && !f.Metadata.IsDerived()),
             Arg.Any<CancellationToken>());
     }
 

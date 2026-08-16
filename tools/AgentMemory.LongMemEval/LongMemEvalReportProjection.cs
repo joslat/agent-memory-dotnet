@@ -109,6 +109,29 @@ internal static class LongMemEvalReportProjection
             manifest.MaxInputTokens,
             manifest.MaxConcurrentBatchesPerExtraction,
             manifest.MaxConcurrentExtractionBatches,
+            // ── Ingestion identity (schema 6) ────────────────────────────────────────────────
+            // The manifest has recorded these since schema 6 and the REPORT did not project any of
+            // them, which defeats most of the point: the report is the artifact a human reads and
+            // compares, so two corpora built under materially different ingestion settings -- an
+            // Utterance arm and an Ignore arm, say -- projected identically in every visible field.
+            // Found while trying to decide 8.3b from artifacts on disk and being unable to tell which
+            // arm a recorded run belonged to. The fingerprint would have differed, but a fingerprint
+            // says "not the same", never "differs in the episodic mode".
+            manifest.AssistantContent,
+            manifest.UsePredicateVocabulary,
+            // Schema 7 (30.1): null means the corpus was built with no extraction seed, which is what
+            // every corpus predating schema 7 was.
+            manifest.ExtractionSeed,
+            manifest.ExtractionVocabularySha256,
+            manifest.QueryRelationLexiconSha256,
+            manifest.ExtractionProvenance,
+            manifest.AbstentionPolicy,
+            manifest.RefusedSourceSessions,
+            manifest.MemoryTypes,
+            manifest.QuestionSeed,
+            manifest.Description,
+            // Observed rather than configured, and outside the fingerprint for that reason (S-4).
+            manifest.ExtractionProviderBuilds,
             performedByThisRun = batchExecution is not null,
             reusedPreparedVolume,
             plannedEstimatedInputTokens =

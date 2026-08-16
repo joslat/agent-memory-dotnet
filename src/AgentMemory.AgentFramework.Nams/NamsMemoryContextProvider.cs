@@ -18,6 +18,15 @@ namespace AgentMemory.AgentFramework.Nams;
 /// own package (ADR-9) rather than either <c>AgentMemory.Nams</c> (framework-free by design, B9) or
 /// <c>AgentMemory.AgentFramework</c> (backend-neutral for the direct provider).
 /// </summary>
+/// <remarks>
+/// <b>Procedural memory is Neo4j-backend-only and is not available here.</b> Reasoning traces,
+/// <c>TraceKind</c> promotion and task-similarity recall have no equivalent on this backend — NAMS
+/// traces are conversation-keyed with no task vector, so there is nothing for a procedures-only
+/// search to match on. A host that configures <c>IncludeReasoningTraces</c> or
+/// <c>IncludeTraceOutcomes</c> and points at NAMS gets neither, and gets no error either. Stated here
+/// because a capability that is silently absent on one backend is indistinguishable, from the
+/// caller's side, from a capability that is not working.
+/// </remarks>
 public sealed class NamsMemoryContextProvider : AIContextProvider
 {
     private readonly INamsConversationResolver _conversationResolver;

@@ -41,7 +41,10 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentExtractionBatches = 0,
         bool usePredicateVocabulary = false,
         AssistantContentMode assistantContent = AssistantContentMode.Ignore,
-        string? graphRagIndexName = null)
+        bool resolveTemporalQueries = false,
+        bool rescueShortOwnerResults = false,
+        string? graphRagIndexName = null,
+        int? extractionSeed = null)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
@@ -71,7 +74,10 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     maxConcurrentExtractionBatches,
                     usePredicateVocabulary,
                     assistantContent,
+                    resolveTemporalQueries,
+                    rescueShortOwnerResults,
                     graphRagIndexName,
+                    extractionSeed,
                     cancellationToken)
                 .ConfigureAwait(false);
             return profile;
@@ -97,7 +103,10 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentExtractionBatches,
         bool usePredicateVocabulary,
         AssistantContentMode assistantContent,
+        bool resolveTemporalQueries,
+        bool rescueShortOwnerResults,
         string? graphRagIndexName,
+        int? extractionSeed,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
@@ -121,8 +130,11 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             maxConcurrentExtractionBatches,
             usePredicateVocabulary,
             assistantContent,
+            resolveTemporalQueries,
+            rescueShortOwnerResults,
             graphRagIndexName,
-            multiSessionBatch);
+            multiSessionBatch,
+            extractionSeed);
 
         _provider = services.BuildServiceProvider();
         _scope = _provider.CreateAsyncScope();
@@ -156,8 +168,11 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentExtractionBatches,
         bool usePredicateVocabulary,
         AssistantContentMode assistantContent,
+        bool resolveTemporalQueries,
+        bool rescueShortOwnerResults,
         string? graphRagIndexName,
-        bool multiSessionBatch = true)
+        bool multiSessionBatch = true,
+        int? extractionSeed = null)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -180,13 +195,31 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.MaxConcurrentExtractionBatches = maxConcurrentExtractionBatches;
                 options.UsePredicateVocabulary = usePredicateVocabulary;
                 options.AssistantContent = assistantContent;
+                // 30.1. The one lever the provider offers against extraction nondeterminism, and it
+                // had no writer here: Temperature is already 0 and this deployment REJECTS an explicit
+                // zero, so the request runs at the provider default of 1.0. Three cold builds of one
+                // configuration agreed on 7.5% of their canonical triples and scored 25 accuracy points
+                // apart. Null (the default) sends nothing and reproduces every sealed measurement; a
+                // value is best-effort, which is why whether it helps is measured rather than assumed.
+                options.Seed = extractionSeed;
             }
             : null;
         services.AddNeo4jAgentMemory(
             // K9.1: the instance overload. The Action<MemoryOptions> one cannot set anything -
             // MemoryOptions is an init-only record, so a configure lambda can neither assign its
             // properties nor keep a `with` expression's result.
-            new MemoryOptions { EnableGraphRag = graphRagIndexName is not null },
+            new MemoryOptions
+            {
+                EnableGraphRag = graphRagIndexName is not null,
+                // 13.3. Off by default so every sealed measurement keeps taking the path it was taken
+                // under; the ablation turns it on explicitly and re-runs the SAME frozen corpus.
+                ResolveTemporalQueries = resolveTemporalQueries,
+                // 22.4. A coverage lever with ZERO harness references until now: the one option aimed
+                // squarely at "a short scoped result falls back to a bounded scan" could not be set
+                // from the benchmark, so the mechanism most directly matching the measured failure
+                // mode was the one thing no run could exercise.
+                RescueShortOwnerResults = rescueShortOwnerResults,
+            },
             neo4j =>
             {
                 neo4j.Uri = neo4jUri;
