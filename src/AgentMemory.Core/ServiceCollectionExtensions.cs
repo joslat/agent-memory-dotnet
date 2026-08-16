@@ -191,6 +191,34 @@ public static class ServiceCollectionExtensions
             .Validate(
                 o => o.Extraction.DerivedMemory.DerivedFactConfidence is >= 0 and <= 1,
                 "MemoryOptions.Extraction.DerivedMemory.DerivedFactConfidence must be between 0 and 1.")
+            // 30.4 working-memory tier. Validated late because it shipped without validation and an
+            // end-of-phase sweep found it -- the third time in this phase. These misconfigure worse
+            // than most: the three caps become a Cypher LIMIT, and a rebuild failure is deliberately
+            // swallowed so the write still succeeds, so a negative cap yields a warning in a log nobody
+            // reads and a block that simply never exists.
+            .Validate(
+                o => o.WorkingMemory.MaxTokens > 0,
+                "MemoryOptions.WorkingMemory.MaxTokens must be positive — a zero budget renders an "
+                + "empty block while the tier still reads as enabled.")
+            .Validate(
+                // Zero is allowed: omitting one section is a real configuration. Negative is the
+                // Cypher LIMIT crash.
+                o => o.WorkingMemory.MaxStableFacts >= 0,
+                "MemoryOptions.WorkingMemory.MaxStableFacts must not be negative.")
+            .Validate(
+                o => o.WorkingMemory.MaxActivePreferences >= 0,
+                "MemoryOptions.WorkingMemory.MaxActivePreferences must not be negative.")
+            .Validate(
+                o => o.WorkingMemory.MaxTopEntities >= 0,
+                "MemoryOptions.WorkingMemory.MaxTopEntities must not be negative.")
+            .Validate(
+                o => o.WorkingMemory.MinFactMentionCount >= 1,
+                "MemoryOptions.WorkingMemory.MinFactMentionCount must be at least 1 — the selection "
+                + "reads coalesce(mention_count, 1), so anything below 1 admits every fact including "
+                + "ones the world never re-asserted, which is a different tier than the documented one.")
+            .Validate(
+                o => o.WorkingMemory.MinPreferenceConfidence is >= 0 and <= 1,
+                "MemoryOptions.WorkingMemory.MinPreferenceConfidence must be between 0 and 1.")
             .ValidateOnStart();
 
         // Bridge sub-options from parent MemoryOptions so services that depend on

@@ -77,7 +77,7 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         bool persistResolution,
         CancellationToken cancellationToken)
     {
-        var candidates = await GetCandidatesAsync(extractedEntity.Type, scope, cancellationToken)
+        var candidates = await GetCandidatesAsync(extractedEntity, scope, cancellationToken)
             .ConfigureAwait(false);
 
         var matchers = BuildMatchers();
@@ -169,9 +169,12 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var candidates = await GetCandidatesAsync(type, scope, cancellationToken).ConfigureAwait(false);
-
+        // The probe is built first so duplicate-finding sees the same candidate set resolution does --
+        // including the non-strict widening, which is if anything more wanted here: a cross-type
+        // duplicate is exactly the kind this surface exists to surface.
         var probe = new ExtractedEntity { Name = name, Type = type };
+
+        var candidates = await GetCandidatesAsync(probe, scope, cancellationToken).ConfigureAwait(false);
         var matchers = BuildMatchers();
         var results = new List<Entity>();
 
@@ -186,11 +189,67 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         return results;
     }
 
-    private Task<IReadOnlyList<Entity>> GetCandidatesAsync(
-        string type,
+    /// <summary>
+    /// The candidate set a match is chosen from: same-type entities, plus — when
+    /// <see cref="EntityResolutionOptions.TypeStrictFiltering"/> is off — same-<i>name</i> entities of
+    /// any type.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The flag used to do nothing.</b> Candidates were always fetched by type, so turning strict
+    /// filtering off changed no behaviour and gave the caller no signal that it hadn't. The case it
+    /// exists for is extractor mistyping: the same real-world entity extracted as <c>Organization</c>
+    /// in one turn and <c>Location</c> in the next is, under strict filtering, permanently two entities.
+    /// </para>
+    /// <para>
+    /// <b>Why by name rather than everything.</b> An earlier note here reasoned that non-strict mode was
+    /// unimplementable because "the repository has no unfiltered GetAll contract" — true, but the wrong
+    /// contract to want. Loading every entity in the owner's graph on each resolution would be an
+    /// unbounded read on the write path. <see cref="IEntityRepository.GetByNameAsync"/> is bounded by
+    /// the name, matches aliases, carries the owner filter, and covers the mistyping case exactly.
+    /// </para>
+    /// <para>
+    /// The by-name read is deliberately <b>not</b> routed through the batch snapshot: that cache is
+    /// keyed by type, and its pre-warm pass (<c>PrepareCandidatesAsync</c>) knows the types in a batch
+    /// but not the names. Widening the key for a non-default path would slow the default one.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<Entity>> GetCandidatesAsync(
+        ExtractedEntity extracted,
         MemoryScope? scope,
-        CancellationToken cancellationToken) =>
-        GetBatchCandidatesAsync(type, scope, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        var byType = await GetBatchCandidatesAsync(extracted.Type, scope, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (_options.EntityResolution.TypeStrictFiltering || string.IsNullOrWhiteSpace(extracted.Name))
+            return byType;
+
+        // Same scope, always. Relaxing the TYPE boundary must never relax the OWNER one -- that would
+        // turn a matching convenience into a cross-tenant leak on the write path.
+        var byName = await _entityRepository
+            .GetByNameAsync(extracted.Name, includeAliases: true, scope, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (byName.Count == 0)
+            return byType;
+
+        // Same-type candidates first, so ordering-sensitive matchers see today's list before the
+        // widened tail. Dedup by id: a same-type entity that also matches by name is one candidate.
+        var seen = new HashSet<string>(byType.Select(e => e.EntityId), StringComparer.Ordinal);
+        var combined = new List<Entity>(byType);
+        foreach (var entity in byName)
+        {
+            if (seen.Add(entity.EntityId))
+                combined.Add(entity);
+        }
+
+        _logger.LogDebug(
+            "Type-strict filtering off: widened '{Name}' candidates from {Typed} to {Total}.",
+            extracted.Name, byType.Count, combined.Count);
+
+        return combined;
+    }
 
     private IReadOnlyList<IEntityMatcher> BuildMatchers()
     {

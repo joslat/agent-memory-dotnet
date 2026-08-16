@@ -172,6 +172,83 @@ public sealed class CompositeEntityResolverTests
         await _entityRepo.DidNotReceive().GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// With type-strict filtering OFF, a same-named entity of a <i>different</i> type is a candidate.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The flag existed, defaulted to <c>true</c>, was documented as "when true, only match candidates
+    /// of the same entity type", and had tests asserting its default — but <b>nothing read it</b>.
+    /// Setting it to <c>false</c> changed nothing at all: candidates were always fetched by type.
+    /// A caller who deliberately turned it off got silence, not behaviour.
+    /// </para>
+    /// <para>
+    /// The case it exists for is extractor mistyping — the same real-world entity extracted as
+    /// <c>Organization</c> in one turn and <c>Location</c> in another. Strict filtering makes those two
+    /// permanently unresolvable into one entity.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ResolveEntityAsync_TypeStrictFilteringOff_MatchesSameNameAcrossTypes()
+    {
+        var differentlyTyped = new[] { MakeEntity("e-loc", "Acme", type: "Location") };
+        _entityRepo.GetByTypeAsync("Organization", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+        _entityRepo.GetByNameAsync("Acme", Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(differentlyTyped));
+
+        var options = new ExtractionOptions();
+        options.EntityResolution.TypeStrictFiltering = false;
+
+        var sut = CreateSut(options);
+        var result = await sut.ResolveEntityAsync(
+            MakeCandidate("Acme", type: "Organization"), Array.Empty<string>());
+
+        result.EntityId.Should().Be("e-loc",
+            "with strict filtering off, the same name under another type is still the same entity");
+    }
+
+    /// <summary>The default must be byte-for-byte today's behaviour: no extra read, no cross-type match.</summary>
+    [Fact]
+    public async Task ResolveEntityAsync_TypeStrictFilteringOn_IsUnchanged_AndDoesNotReadByName()
+    {
+        var differentlyTyped = new[] { MakeEntity("e-loc", "Acme", type: "Location") };
+        _entityRepo.GetByTypeAsync("Organization", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+        _entityRepo.GetByNameAsync("Acme", Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(differentlyTyped));
+
+        var sut = CreateSut();   // default: TypeStrictFiltering = true
+        var result = await sut.ResolveEntityAsync(
+            MakeCandidate("Acme", type: "Organization"), Array.Empty<string>());
+
+        result.EntityId.Should().Be(NewEntityId, "strict filtering must not see the Location entity");
+        await _entityRepo.DidNotReceive().GetByNameAsync(
+            Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Non-strict candidates stay owner-scoped — widening type must never widen ownership.</summary>
+    [Fact]
+    public async Task ResolveEntityAsync_TypeStrictFilteringOff_StillPassesOwnerScope()
+    {
+        _entityRepo.GetByTypeAsync("Organization", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+        _entityRepo.GetByNameAsync("Acme", Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var options = new ExtractionOptions();
+        options.EntityResolution.TypeStrictFiltering = false;
+
+        var sut = CreateSut(options);
+        var scope = MemoryScope.For("alice");
+        await sut.ResolveEntityAsync(MakeCandidate("Acme", type: "Organization"), Array.Empty<string>(), scope);
+
+        await _entityRepo.Received(1).GetByNameAsync(
+            "Acme", Arg.Any<bool>(),
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task ResolveEntityAsync_PassesOwnerScopeToCandidateLookup()
     {

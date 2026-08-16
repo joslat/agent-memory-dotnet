@@ -76,9 +76,24 @@ public sealed record ProjectedItemAnnotation
 
 /// <summary>The kinds of standalone block projection can emit.</summary>
 /// <remarks>
-/// The reserved members are load-bearing rather than speculative: the working-memory profile block
-/// and the due-reminder block are approved designs whose only prompt-side need is a slot here, and
-/// naming them now is what stops each from inventing a fourth rendering path of its own.
+/// <para>
+/// <b>Only the first two are emitted.</b> The other three were reserved in Wave B on the reasoning that
+/// the working-memory, due-reminder and delta features would need "only a slot here", so naming them
+/// early would stop each inventing a rendering path of its own.
+/// </para>
+/// <para>
+/// <b>That is not how they shipped.</b> Wave C built all three, and each turned out to need a whole
+/// ordered section rather than a block inside someone else's — the profile renders ahead of every
+/// probabilistic section, and reminders render ahead of the query's own answer. So all three render
+/// through the existing per-section path, symmetrically on both surfaces
+/// (<c>MemoryContextFormatter</c> and the MAF <c>MafTypeMapper</c>), and these three members are
+/// unused. They are kept because removing a public enum member is a breaking change, not because
+/// anything is waiting on them.
+/// </para>
+/// <para>
+/// The prediction was wrong in a specific and useful way: the thing that prevents a fourth rendering
+/// path is a shared <i>section</i> pipeline, which exists, not a reserved block kind.
+/// </para>
 /// </remarks>
 public enum ProjectedBlockKind
 {
@@ -88,13 +103,16 @@ public enum ProjectedBlockKind
     /// <summary>Two live recalled facts contradict each other.</summary>
     ConflictingMemory,
 
-    /// <summary>RESERVED — the compiled per-owner profile block (working-memory tier).</summary>
+    /// <summary>
+    /// UNUSED — the working-memory tier renders as its own section, not as a block. See the remarks
+    /// on this enum.
+    /// </summary>
     WorkingMemoryProfile,
 
-    /// <summary>RESERVED — facts whose validity window just opened or is about to close.</summary>
+    /// <summary>UNUSED — prospective firing renders as its own section. See the remarks on this enum.</summary>
     DueReminders,
 
-    /// <summary>RESERVED — what changed since the caller's last checkpoint.</summary>
+    /// <summary>UNUSED — delta recall is returned as a typed result, not rendered as a block.</summary>
     DeltaSummary,
 }
 

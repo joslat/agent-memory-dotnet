@@ -64,6 +64,14 @@ public sealed class PhaseThirtyOptionValidationTests
         return options;
     }
 
+    private static MemoryOptions WithWorkingMemory(Action<WorkingMemoryOptions> configure)
+    {
+        var options = new MemoryOptions();
+        options.WorkingMemory.Enabled = true;
+        configure(options.WorkingMemory);
+        return options;
+    }
+
     public static TheoryData<string, MemoryOptions> InvalidCoreOptions() => new()
     {
         { "MaxDueItems negative", WithRecall(r => r with { MaxDueItems = -1 }) },
@@ -76,6 +84,18 @@ public sealed class PhaseThirtyOptionValidationTests
         { "MaxEnumerationItems zero", WithDerived(d => d.MaxEnumerationItems = 0) },
         { "DerivedFactConfidence above one", WithDerived(d => d.DerivedFactConfidence = 1.5) },
         { "DerivedFactConfidence negative", WithDerived(d => d.DerivedFactConfidence = -0.1) },
+
+        // Wave C's working-memory tier — the THIRD time this phase that a feature shipped options
+        // nothing validated. These are worse than most: three of them become a Cypher LIMIT, and a
+        // rebuild failure is deliberately swallowed (the write must still succeed), so a negative cap
+        // produces a warning in a log nobody is reading and a block that never exists.
+        { "WorkingMemory MaxTokens zero", WithWorkingMemory(w => w.MaxTokens = 0) },
+        { "WorkingMemory MaxStableFacts negative", WithWorkingMemory(w => w.MaxStableFacts = -1) },
+        { "WorkingMemory MaxActivePreferences negative", WithWorkingMemory(w => w.MaxActivePreferences = -1) },
+        { "WorkingMemory MaxTopEntities negative", WithWorkingMemory(w => w.MaxTopEntities = -1) },
+        { "WorkingMemory MinFactMentionCount zero", WithWorkingMemory(w => w.MinFactMentionCount = 0) },
+        { "WorkingMemory MinPreferenceConfidence above one", WithWorkingMemory(w => w.MinPreferenceConfidence = 1.5) },
+        { "WorkingMemory MinPreferenceConfidence negative", WithWorkingMemory(w => w.MinPreferenceConfidence = -0.1) },
     };
 
     [Theory]
@@ -94,6 +114,21 @@ public sealed class PhaseThirtyOptionValidationTests
         // The other direction, and it matters as much: a validator whose bound excludes the default
         // makes the library unusable out of the box.
         Resolving(new MemoryOptions()).Should().NotThrow();
+    }
+
+    /// <summary>
+    /// Zero is allowed for the three section caps, because omitting a section is a real intent —
+    /// but not for the token budget, which would disable the whole tier while it reads as on.
+    /// </summary>
+    [Fact]
+    public void AZeroSectionCapIsAllowed_ButAZeroTokenBudgetIsNot()
+    {
+        Resolving(WithWorkingMemory(w => w.MaxStableFacts = 0)).Should().NotThrow(
+            "omitting the facts section is a configuration, not a mistake");
+        Resolving(WithWorkingMemory(w => w.MaxTopEntities = 0)).Should().NotThrow();
+
+        Resolving(WithWorkingMemory(w => w.MaxTokens = 0)).Should().Throw<OptionsValidationException>(
+            "a zero budget renders nothing at all, which is indistinguishable from the tier being broken");
     }
 
     [Fact]
