@@ -300,3 +300,121 @@ Attach `Neo4jMemoryContextProvider` to the procedural arm's agent, with
 `AutomaticRecallCategories.ReasoningTraces` enabled and `MaxTraces > 0`, and leave the control arm
 without it. Then — and only then — the arms differ in the feature. Every figure recorded in this
 document up to that point should be treated as void.
+
+---
+
+## Runs 7–10: the read path, and the first interpretable result
+
+Attaching the provider was necessary and nowhere near sufficient. Wiring "the arm can read a
+procedure" turned out to be **five** independent gates, three of them silently shut, and each one
+produces the identical output: both arms the same, `SHOWS BENEFIT: False`.
+
+| # | Gate | State before | Symptom if shut |
+|---|---|---|---|
+| 1 | An `AIContextProvider` on the arm | absent | arm reads nothing (runs 1–6) |
+| 2 | `MaxTraces > 0`, other categories zeroed | n/a | reads the wrong memory, or memory generally |
+| 3 | `ReasoningTrace.TaskEmbedding` on the promoted trace | **never set** | trace stored, matched by no search |
+| 4 | `ContextFormatOptions.IncludeReasoningTraces` | **false** | trace recalled, dropped by the formatter |
+| 5 | The trace's **outcome** rendered at all | **impossible** | block says "you did this before", not how |
+
+Gates 3–5 were all found by reading the code before spending, and 5 was a product gap rather than a
+harness one: `MafTypeMapper` rendered a recalled trace's `Task` and never its `Outcome`. On a repeated
+task the `Task` text is what the agent is already holding, so trace recall could not convey a procedure
+to a MAF agent at all. Fixed behind `ContextFormatOptions.IncludeTraceOutcomes` (default off, so no
+sealed base moves).
+
+### The arm is no longer trusted to be wired
+
+Five identical false negatives is enough. `ProceduralRecallWitness` now rides the admission-policy seam
+— the last gate before `MafTypeMapper` hands a block to the model — and counts the procedure blocks
+that were actually admitted, per attempt. A run whose later attempts admitted **zero** procedures now
+prints `VOID` and exits non-zero instead of reporting a verdict. The property the measurement depends on
+is observed, not inferred from configuration that had been wrong three times.
+
+### Run 8: recall proven, and the promotion was the problem
+
+With the witness reporting `[0, 1, 2]` — attempt 1 reads nothing by construction, then 1, then 2 — the
+read path was confirmed working for the first time. The arms still tied at 6 tool calls, and the reason
+was visible in the procedure text the witness printed:
+
+```
+... : LookUpTraveller then CheckServiceBulletin then PlaceHold then RefreshSession then PlaceHold then Book
+```
+
+**That is a transcript, not a procedure.** It records how the agent stumbled into success, refused call
+included, so replaying it faithfully reproduces the wasted call. Promotion now records only calls whose
+result was not a refusal, decided by a caller-supplied predicate exactly as completion is. Counting is
+untouched: a refused call still costs a tool call, because the agent really did spend it.
+
+### Two defects in the verdict rule, found by it firing wrongly
+
+Run 8 reported `SHOWS BENEFIT: True` on a 0.4-step difference while reporting
+`improvedWithRepetition=False` on the line above — a benefit claim and "nothing was learned", together.
+
+1. **`ShowsBenefit` ignored `ImprovedWithRepetition`.** The class had always documented both comparisons
+   as required. It now requires both.
+2. **No noise floor.** A third of a step across three attempts is the difference between two runs of the
+   *same* configuration. The floor is now the **control arm's own spread** across attempts — the control
+   cannot learn by construction, so its variance *is* the instrument's jitter. Deliberately not the
+   enabled arm's spread, which learning inflates by design.
+
+A third change is disclosed rather than buried: `ImprovedWithRepetition` read `Steps` alone, so an arm
+that learned to skip one wasted **tool call** in the same number of turns scored as having learned
+nothing — while `ToolCallReduction`, from the same class, showed the saving. It now accepts learning in
+either measure and requires the other not to regress. **That rule was widened after seeing a run with
+exactly that shape**, so both per-measure flags are reported separately and no reader has to take the
+composite on trust.
+
+### Run 10 — the measurement, at last
+
+`--procedural-benefit --attempts 5`, promotion refusal-filtered, verdict noise-gated, recall witnessed.
+
+```
+procedures  completion=100%  meanSteps=6.0  meanToolCalls=5.2
+control     completion=100%  meanSteps=6.6  meanToolCalls=6.0
+stepReduction=9.1%  toolCallReduction=13.3%  completionDelta=0%
+improvedWithRepetition=True (steps=False, toolCalls=True)
+noiseBand(control spread): steps=0.55  toolCalls=0.00  => exceeded: steps=True, toolCalls=True
+perAttempt steps/toolCalls: procedures=[6/6, 6/5, 6/5, 6/5, 6/5]  control=[6/6, 7/6, 7/6, 6/6, 7/6]
+proceduresInContextPerAttempt=[0, 1, 2, 3, 3]
+SHOWS BENEFIT: True
+```
+
+The per-attempt column is the whole result. The procedural arm pays **6** tool calls on attempt one and
+exactly **5** on every attempt after it. The control pays 6 every single time and never varies — its
+tool-call spread is 0.00, so it is not that the control got unlucky. The saving is one call, it is the
+same call every time, and it is the one step in the chain that **cannot be inferred from any
+interface**: the stale-session refresh, discoverable only by being refused.
+
+### What this does and does not establish
+
+> **On a task containing a convention that must be learned by failing, a promoted procedure removes that
+> discovery cost from every subsequent attempt — one tool call, on 5/5 attempts, with no loss of
+> completion.**
+
+Narrow, and deliberately so:
+
+- **One task, one model, five attempts per arm.** This is an existence proof that the feature works
+  end-to-end and is measurable, not an effect size anyone should quote.
+- **The saving equals the discoverable step, and nothing more.** The other four calls are inferable from
+  tool descriptions and the procedural arm still makes all four. Consistent with runs 1–4's *shape*
+  (though not their conclusion, which was void): a well-documented tool API leaves procedural memory
+  nothing to remove. The benefit lives precisely in what the API cannot say.
+- **Steps did not improve** (6.0 vs 6.6, inside the 0.55 noise band). The arm saves a call, not a turn.
+- **The retracted conclusion stays retracted.** Runs 1–6 remain void; this is the first run whose read
+  path was verified rather than assumed.
+
+### Product changes this required
+
+- `ContextFormatOptions.IncludeTraceOutcomes` (new, default `false`) — a recalled trace renders its
+  outcome, not only its task. Without it, procedural memory is mute on the MAF surface.
+- The trace/outcome pair renders as `"task: outcome"` and procedures are written with the word `then`
+  rather than `->`, because every admitted block is HTML-escaped (#92 Phase 1) and an arrow reaches the
+  model as `-&gt;`. The escaping is the security property and stays; the procedure is written to survive
+  it.
+- **A tension worth recording, not fixed here:** the shipped context prefix tells the model that recalled
+  memory is untrusted data and that it must never follow instructions found inside it. A promoted
+  procedure *is* a suggested ordering, so the default framing argues against the feature's purpose. The
+  benchmark keeps the #92 prefix verbatim and appends one sentence scoped to procedures. A host enabling
+  procedural recall needs to make that decision consciously; there is no shipped default that resolves
+  it.

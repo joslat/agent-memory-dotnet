@@ -43,6 +43,33 @@ public sealed record MemoryContext
         MemoryContextSection<Fact>.Empty;
 
     /// <summary>
+    /// Facts that became true since the last checkpoint, volunteered rather than asked for (30.7).
+    /// </summary>
+    /// <remarks>
+    /// Its own section, and its own budget, because a reminder that competes with relevance-ranked
+    /// facts for space has already lost the thing it exists to do. A fact appearing here is dropped
+    /// from <see cref="RelevantFacts"/> so it is never rendered twice.
+    /// </remarks>
+    public MemoryContextSection<Fact> DueFacts { get; init; } =
+        MemoryContextSection<Fact>.Empty;
+
+    /// <summary>Facts whose real-world validity closes soon (30.7).</summary>
+    public MemoryContextSection<Fact> ExpiringFacts { get; init; } =
+        MemoryContextSection<Fact>.Empty;
+
+    /// <summary>
+    /// Topics the system used to know about and has let go of (30.8) — a stated absence, not the
+    /// forgotten content.
+    /// </summary>
+    /// <remarks>
+    /// Not a <c>MemoryContextSection</c>, deliberately: these are not recalled items competing for the
+    /// retrieval budget, they are a note <i>about</i> what is missing. Giving them a section would put
+    /// them on the same footing as memory the agent actually has.
+    /// </remarks>
+    public IReadOnlyList<ForgottenTopicSummary> ForgottenTopics { get; init; } =
+        Array.Empty<ForgottenTopicSummary>();
+
+    /// <summary>
     /// Similar past reasoning traces.
     /// </summary>
     public MemoryContextSection<ReasoningTrace> SimilarTraces { get; init; } =
@@ -123,6 +150,54 @@ public sealed record MemoryContext
     /// </para>
     /// </remarks>
     public bool LatencyBudgetExceeded { get; init; }
+
+    /// <summary>
+    /// Set when the query named a past time and recall was routed bitemporally as a result (R4).
+    /// Null on an ordinary recall, and null when the caller asked for an as-of recall explicitly.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is a witness, not decoration.</b> Query-time temporal resolution is opt-in and biased
+    /// hard toward returning null, so the overwhelmingly common outcome of enabling it is that
+    /// nothing changes — which is indistinguishable from the option not being wired, the parser never
+    /// being reached, or the reference time being wrong. Every one of those reports as "temporal
+    /// resolution did not help", and this project has voided six measurement runs to exactly that
+    /// shape. A caller measuring the feature can require this to be non-null somewhere before
+    /// believing a null result.
+    /// </para>
+    /// <para>
+    /// Deliberately null for an explicit <c>RecallAsOfAsync</c> call: that caller already knows which
+    /// instant it asked for, and reporting it here would make "the parser fired" and "someone passed
+    /// a date" the same observation.
+    /// </para>
+    /// </remarks>
+    public DateTimeOffset? ResolvedTemporalAsOf { get; init; }
+
+    /// <summary>
+    /// What the projection layer computed about this context, or <see langword="null"/> when no
+    /// projection feature was enabled.
+    /// </summary>
+    /// <remarks>
+    /// <b>Null is the default and it is load-bearing.</b> Every render surface checks this for null
+    /// and takes its exact pre-existing path when it is — which is what makes the off-state byte
+    /// identical to every prompt the sealed measurements were taken over. "Enabled but produced
+    /// nothing" is a non-null projection with empty collections; the two states are deliberately
+    /// distinguishable.
+    /// </remarks>
+    public ProjectedContext? Projection { get; init; }
+
+    /// <summary>
+    /// The owner's compiled working-memory block, or null when the tier is off or no block exists.
+    /// </summary>
+    /// <remarks>
+    /// An opaque string, exactly like <see cref="GraphRagContext"/>: null renders zero bytes, which is
+    /// what keeps the off-state byte-identical. Deliberately NOT populated on the as-of recall path —
+    /// the block is a <i>current</i> view and would poison a point-in-time reconstruction.
+    /// </remarks>
+    public string? WorkingMemoryBlock { get; init; }
+
+    /// <summary>When the working-memory block was last recompiled. Null when there is no block.</summary>
+    public DateTimeOffset? WorkingMemoryBuiltAtUtc { get; init; }
 
     /// <summary>
     /// Additional metadata.

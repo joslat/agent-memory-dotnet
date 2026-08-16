@@ -30,4 +30,22 @@ public interface IMemoryRecall
         DateTimeOffset asOf,
         DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default);
-}
+    /// <summary>
+    /// What changed in memory since <c>request.Since</c> — the inverse of full recall.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The default THROWS.</b> An empty delta is a real answer -- "nothing changed" -- so an
+    /// implementation that cannot compute one must say so rather than fabricate the most reassuring
+    /// possible response. Returning empty here would be the fake-null this project's measurement
+    /// discipline forbids, moved down to the API layer.
+    /// </para>
+    /// <para>
+    /// A delta COMPLEMENTS recall on a resume turn; it never replaces it. The current question still
+    /// needs relevance-ranked context.
+    /// </para>
+    /// </remarks>
+    Task<MemoryDelta> RecallChangedSinceAsync(
+        MemoryDeltaRequest request, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "This IMemoryRecall implementation does not support delta recall.");}

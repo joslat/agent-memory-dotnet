@@ -222,4 +222,55 @@ public class ProcedurePromotionIntegrationTests : IAsyncLifetime
         (await _traceRepo.GetByIdAsync(bobEpisode.TraceId)).Should().NotBeNull(
             "an owner-confined prune must never reach another owner's traces, whatever else it filters on");
     }
+
+    [Fact]
+    public async Task AnExistingEpisodeCanBePromotedAfterItWasCreated()
+    {
+        // 0.3, and the gap every other test in this file walked past: all eight of them promote at
+        // CREATE time, so none covered promotion of a trace that already exists -- which is the only
+        // way a real caller can do it, since a trace is only worth promoting once it has succeeded.
+        //
+        // UpdateTrace supplied $traceKind and never SET it. Neo4j ignores unused parameters, so
+        // read-modify-update promotion completed, returned the re-read node, and reported
+        // Kind = Episode. A silent success: no error, no warning, and procedural recall then filtered
+        // on a marker that was never written.
+        var sessionId = $"session-{Guid.NewGuid():N}";
+        var trace = MakeTrace(sessionId, 0, TraceKind.Episode);
+        await _traceRepo.AddAsync(trace);
+
+        var promoted = await _traceRepo.PromoteAsync(trace.TraceId, TraceKind.Procedure);
+
+        promoted.Should().NotBeNull();
+        promoted!.Kind.Should().Be(TraceKind.Procedure);
+        (await _traceRepo.GetByIdAsync(trace.TraceId))!.Kind.Should().Be(
+            TraceKind.Procedure, "the marker must be on the NODE, not only on the returned copy");
+    }
+
+    [Fact]
+    public async Task PromotingSurvivesAWholeObjectUpdate()
+    {
+        // Why promotion is its own statement rather than a widened UpdateTrace. A completion call
+        // built from a stale in-memory copy would carry Kind = Episode, and a widened update would
+        // silently demote the procedure -- losing it with no error and nothing to notice.
+        var sessionId = $"session-{Guid.NewGuid():N}";
+        var trace = MakeTrace(sessionId, 0, TraceKind.Episode);
+        await _traceRepo.AddAsync(trace);
+        await _traceRepo.PromoteAsync(trace.TraceId, TraceKind.Procedure);
+
+        // The stale copy: still Episode, as any caller holding the pre-promotion object would be.
+        await _traceRepo.UpdateAsync(trace with { Outcome = "completed later" });
+
+        (await _traceRepo.GetByIdAsync(trace.TraceId))!.Kind.Should().Be(
+            TraceKind.Procedure, "a whole-object update must not be able to undo a promotion");
+    }
+
+    [Fact]
+    public async Task PromotingAMissingTraceReportsNotFoundRatherThanThrowing()
+    {
+        // Same contract as UpdateAsync: a retention prune between the caller's read and this write is
+        // ordinary, and null says "gone" where an exception would say "broken".
+        var promoted = await _traceRepo.PromoteAsync($"missing-{Guid.NewGuid():N}", TraceKind.Procedure);
+
+        promoted.Should().BeNull();
+    }
 }

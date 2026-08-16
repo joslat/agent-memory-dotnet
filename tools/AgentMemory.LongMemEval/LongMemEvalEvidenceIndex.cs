@@ -363,7 +363,8 @@ public sealed record LongMemEvalRetrievalEvidence(
         IReadOnlyDictionary<string, LongMemEvalMessageOrigin> originsByMessageId,
         LongMemEvalEvidenceDetail detail,
         int answerPromptCharacters,
-        int configuredMessageBudget)
+        int configuredMessageBudget,
+        IReadOnlyCollection<string>? structuredSourceMessageIds = null)
     {
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(recalled);
@@ -418,7 +419,6 @@ public sealed record LongMemEvalRetrievalEvidence(
             .Distinct(StringComparer.Ordinal)
             .Count();
         var annotatedGoldTurns = question.AnnotatedGoldTurnCount;
-        var goldTurnsHit = evidence.Count(item => item.GoldTurnHit);
         var firstGoldSessionRank = evidence
             .Where(item => item.GoldSessionHit)
             .Select(item => (int?)item.ContextRank)
@@ -428,9 +428,73 @@ public sealed record LongMemEvalRetrievalEvidence(
             .Select(item => (int?)item.ContextRank)
             .FirstOrDefault();
 
-        // Gold attribution rides entirely on recalled raw messages. Without a message budget there is
-        // nothing it could ever have matched, so every gold metric is unobservable, not zero.
-        var observable = configuredMessageBudget > 0;
+        // 22.3. Gold attribution USED to ride entirely on recalled raw messages, so a structured run
+        // -- which has no message budget -- reported every gold metric as unobservable. That was
+        // honest but blinding: it left GoldSessionRecallAtK null on 1,476 of 1,476 structured
+        // question-records, and gold-session recall is exactly COVERAGE, which the completeness sweep
+        // then measured to be worth eighty points while nothing in the harness could see it.
+        //
+        // Structured items carry SourceMessageIds of their own, so the attribution is resolvable
+        // without raw messages: map each retrieved entity/fact/preference back through its provenance
+        // to a source session. The union with the message-derived sessions below is what makes
+        // coverage observable on BOTH arms and therefore comparable between them.
+        var structuredGoldSessions = new HashSet<string>(StringComparer.Ordinal);
+        var structuredSessionsSeen = new HashSet<string>(StringComparer.Ordinal);
+        // 27.1. TURN attribution, the half 22.3 left blind. Session coverage became observable on the
+        // structured arm; turn coverage did not, because `goldTurnsHit` counted only `evidence`, which
+        // is built from recalled RAW messages. A structured run has no message budget, so that count
+        // was 0 on every structured question -- correct answers and wrong ones alike.
+        //
+        // That mattered more than it looks. Turn coverage is the one retrieval signal that still
+        // separates hybrid successes from hybrid failures (0.937 against 0.667, where SESSION coverage
+        // separates them far less), and it was unobservable on the arm that actually ships. Any test of
+        // query formulation -- the last untested retrieval lever -- would have been unable to see its
+        // own effect.
+        var structuredGoldTurns = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var messageId in structuredSourceMessageIds ?? [])
+        {
+            if (!originsByMessageId.TryGetValue(messageId, out var origin)) continue;
+            structuredSessionsSeen.Add(origin.SourceSessionId);
+            if (question.AnswerSessionIds.Contains(origin.SourceSessionId) &&
+                !origin.IsSyntheticBoundary &&
+                !origin.IsSyntheticFormatterPadding)
+            {
+                structuredGoldSessions.Add(origin.SourceSessionId);
+            }
+
+            // Same predicate the message channel uses for GoldTurnHit (origin.HasAnswer), so a turn
+            // reached through a fact and a turn reached through a message count identically.
+            if (origin.HasAnswer &&
+                !origin.IsSyntheticBoundary &&
+                !origin.IsSyntheticFormatterPadding)
+            {
+                structuredGoldTurns.Add(messageId);
+            }
+        }
+
+        // Union, not sum: a session reached through both a recalled message and a retrieved fact is
+        // one session covered, and adding it twice would report recall above 1.0 on the hybrid arm.
+        var goldSessionsCovered = evidence
+            .Where(item => item.GoldSessionHit)
+            .Select(item => item.SourceSessionId)
+            .Concat(structuredGoldSessions)
+            .ToHashSet(StringComparer.Ordinal)
+            .Count;
+
+        // Union by message id for the same reason sessions union rather than sum: on the hybrid arm a
+        // gold turn is routinely reached through BOTH a recalled message and a fact extracted from it,
+        // and counting it twice would report turn coverage above 1.0.
+        var goldTurnsCovered = evidence
+            .Where(item => item.GoldTurnHit)
+            .Select(item => item.MessageId)
+            .Concat(structuredGoldTurns)
+            .ToHashSet(StringComparer.Ordinal)
+            .Count;
+
+        // Observable when EITHER channel could have hit: a message budget, or structured items whose
+        // provenance resolves. A structured run with no resolvable provenance is still unobservable
+        // rather than zero -- the distinction the original guard existed to protect.
+        var observable = configuredMessageBudget > 0 || structuredSessionsSeen.Count > 0;
 
         return new LongMemEvalRetrievalEvidence(
             K: recalled.Count,
@@ -439,14 +503,19 @@ public sealed record LongMemEvalRetrievalEvidence(
             DistinctSourceSessions: sourceSessionCounts.Length,
             MaxItemsFromSingleSession: sourceSessionCounts.DefaultIfEmpty(0).Max(),
             GoldSessionsRequired: question.AnswerSessionIds.Count,
-            GoldSessionsHit: goldSessionsHit,
+            GoldSessionsHit: goldSessionsCovered,
             GoldSessionRecallAtK: !observable || question.AnswerSessionIds.Count == 0
                 ? null
-                : (double)goldSessionsHit / question.AnswerSessionIds.Count,
+                : (double)goldSessionsCovered / question.AnswerSessionIds.Count,
             AnnotatedGoldTurns: annotatedGoldTurns,
-            GoldTurnsHit: goldTurnsHit,
-            GoldTurnHitAtK: !observable || annotatedGoldTurns == 0 ? null : goldTurnsHit > 0,
+            GoldTurnsHit: goldTurnsCovered,
+            GoldTurnHitAtK: !observable || annotatedGoldTurns == 0 ? null : goldTurnsCovered > 0,
             FirstGoldSessionRank: firstGoldSessionRank,
+            // Deliberately message-derived only, and therefore null on a pure structured run. A rank
+            // means "position in the answer context", and structured items are ranked within their own
+            // sections rather than in one ordering shared with messages. Synthesising a cross-section
+            // rank would produce a number that looks comparable between arms and is not; the honest
+            // report is absence. GoldTurnsHit above is a COUNT and has no such problem.
             FirstGoldTurnRank: firstGoldTurnRank,
             ReciprocalRank: observable && firstGoldSessionRank is int rank ? 1d / rank : null,
             RankedItems: detail == LongMemEvalEvidenceDetail.None

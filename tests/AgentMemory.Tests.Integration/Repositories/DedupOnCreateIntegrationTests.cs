@@ -80,6 +80,76 @@ public class DedupOnCreateIntegrationTests : IAsyncLifetime
         (await _facts.GetByIdAsync(f.FactId))!.Confidence.Should().Be(0.85);
     }
 
+    /// <summary>
+    /// A dedup hit is the world re-asserting a fact, so it must move <c>mention_count</c> — the same
+    /// counter the other three fact write paths maintain.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This was broken. <c>MarkDeduplicated</c> bumped confidence and nothing else, so with
+    /// <c>LongTerm.DeduplicateOnCreate</c> at its shipped default of <c>true</c>, a re-assert through
+    /// <c>AddFactAsync</c> — including a byte-identical triple, which trivially clears the similarity
+    /// threshold — never reached the triple MERGE's <c>ON MATCH SET f.mention_count = … + 1</c>.
+    /// The counter stayed at 1 forever on the single-add API.
+    /// </para>
+    /// <para>
+    /// <b>Why it mattered rather than being cosmetic.</b> The working-memory tier admits a fact only at
+    /// <c>MinFactMentionCount</c> (default 2), so a fact added through the direct API could never become
+    /// stable however often it was re-asserted; the block stayed empty and said nothing about why.
+    /// <see cref="AgentMemory.Neo4j.Services.MentionFrequencyReranker"/> lost the same signal.
+    /// <c>UpsertBatch</c>'s own comment states the invariant this violated: the counter must not
+    /// "depend on which write path ran".
+    /// </para>
+    /// <para>
+    /// Found while building the LangGraph demo adapter, whose writes go through exactly this path.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task FactMarkDeduplicated_IncrementsMentionCount_LikeEveryOtherWritePath()
+    {
+        var f = new Fact { FactId = $"f-{Guid.NewGuid():N}", Subject = "Alice", Predicate = "works_at", Object = "Acme", OwnerId = "alice", Confidence = 0.8, Embedding = E, CreatedAtUtc = DateTimeOffset.UtcNow };
+        await _facts.UpsertAsync(f);
+        (await MentionCountAsync(f.FactId)).Should().Be(1, "ON CREATE seeds the counter at 1");
+
+        await _facts.MarkDeduplicatedAsync(f.FactId, 0.85);
+        (await MentionCountAsync(f.FactId)).Should().Be(2, "a dedup hit is one more assertion by the world");
+
+        await _facts.MarkDeduplicatedAsync(f.FactId, 0.9);
+        (await MentionCountAsync(f.FactId)).Should().Be(3, "and it keeps counting");
+    }
+
+    /// <summary>
+    /// The counter must reach the same value whichever write path re-asserted the fact — the invariant
+    /// <c>UpsertBatch</c> states and the dedup path used to break.
+    /// </summary>
+    [Fact]
+    public async Task MentionCount_DoesNotDependOnWhichWritePathRan()
+    {
+        var viaUpsert = new Fact { FactId = $"f-{Guid.NewGuid():N}", Subject = "Alice", Predicate = "likes", Object = "coffee", OwnerId = "alice", Confidence = 0.8, Embedding = E, CreatedAtUtc = DateTimeOffset.UtcNow };
+        await _facts.UpsertAsync(viaUpsert);
+        await _facts.UpsertAsync(viaUpsert);   // same triple again: the ON MATCH path
+
+        var viaDedup = new Fact { FactId = $"f-{Guid.NewGuid():N}", Subject = "Bob", Predicate = "likes", Object = "tea", OwnerId = "bob", Confidence = 0.8, Embedding = E, CreatedAtUtc = DateTimeOffset.UtcNow };
+        await _facts.UpsertAsync(viaDedup);
+        await _facts.MarkDeduplicatedAsync(viaDedup.FactId, 0.85);   // the dedup path
+
+        (await MentionCountAsync(viaDedup.FactId))
+            .Should().Be(await MentionCountAsync(viaUpsert.FactId),
+                "two assertions is two assertions, whichever path carried them");
+    }
+
+    private Task<int> MentionCountAsync(string factId) =>
+        _fixture.TransactionRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                "MATCH (f:Fact {id: $id}) RETURN coalesce(f.mention_count, 0) AS count",
+                new { id = factId });
+            var records = await cursor.ToListAsync();
+            return records.Count == 0
+                ? -1
+                : global::Neo4j.Driver.ValueExtensions.As<int>(records[0]["count"]);
+        });
+
     [Fact]
     public async Task FactMarkDeduplicated_NonexistentId_ReturnsNull_DoesNotThrow()
     {

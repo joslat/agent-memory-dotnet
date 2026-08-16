@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Extraction.Llm;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
 using Microsoft.Extensions.AI;
@@ -80,7 +81,11 @@ public sealed class GraphRagWiringTests
         AgentMemoryLongMemEvalAdapter.BlendModeFor(graphRagBudget).Should().Be(expected);
     }
 
-    private static ServiceProvider Resolve(string? graphRagIndexName) =>
+    private static ServiceProvider Resolve(
+        string? graphRagIndexName,
+        bool resolveTemporalQueries = false,
+        bool rescueShortOwnerResults = false,
+        int? extractionSeed = null) =>
         LongMemEvalMemoryProfile.ConfigureServices(
                 "bolt://localhost:7687",
                 Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>(),
@@ -94,6 +99,65 @@ public sealed class GraphRagWiringTests
                 usePredicateVocabulary: true,
                 // Named, so a future parameter inserted here cannot silently rebind this argument.
                 assistantContent: AssistantContentMode.Ignore,
-                graphRagIndexName: graphRagIndexName)
+                resolveTemporalQueries: resolveTemporalQueries,
+                rescueShortOwnerResults: rescueShortOwnerResults,
+                graphRagIndexName: graphRagIndexName,
+                extractionSeed: extractionSeed)
             .BuildServiceProvider();
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheTemporalResolutionFlagReachesMemoryOptions(bool enabled)
+    {
+        // 13.3's harness half, guarded here rather than by paying for a run. A flag parsed, threaded
+        // through four signatures and then dropped before MemoryOptions is the exact shape that made
+        // IncludeQuestionTypes and AbstentionPolicy dead options -- both shipped, both wired to
+        // nothing, both discovered only when a measurement failed to move.
+        using var provider = Resolve(graphRagIndexName: null, resolveTemporalQueries: enabled);
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>().Value
+            .ResolveTemporalQueries.Should().Be(enabled);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheRescueShortOwnerResultsFlagReachesMemoryOptions(bool enabled)
+    {
+        // 22.4. This lever had ZERO harness references: the one option aimed squarely at "a short
+        // scoped result falls back to a bounded scan" could not be set from the benchmark at all --
+        // so the mechanism most directly matching the measured failure mode (coverage, worth 80
+        // points) was the single thing no run could exercise.
+        using var provider = Resolve(graphRagIndexName: null, rescueShortOwnerResults: enabled);
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>().Value
+            .RescueShortOwnerResults.Should().Be(enabled);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(20260815)]
+    public void TheExtractionSeedReachesTheExtractorOptions(int? seed)
+    {
+        // 30.1. LlmExtractionOptions.Seed shipped with NO writer anywhere in the harness: three cold
+        // builds of one configuration stored 6,078 / 6,199 / 6,272 canonical triples with 7.5% common
+        // to all three, and the single option the provider offers against that could not be set from
+        // the benchmark at all. This is the same shape as RescueShortOwnerResults above -- an option
+        // parsed, threaded and then dropped one line before it mattered -- so it is guarded here rather
+        // than discovered when a seeded build turns out to have been unseeded.
+        using var provider = Resolve(graphRagIndexName: null, extractionSeed: seed);
+
+        provider.GetRequiredService<IOptions<LlmExtractionOptions>>().Value.Seed.Should().Be(seed);
+    }
+
+    [Fact]
+    public void NotAskingForASeedSendsNone()
+    {
+        // The state every sealed measurement was taken under. Null sends no seed field at all, so a
+        // corpus built without --extraction-seed is byte-identical in its requests to every prior one.
+        using var provider = Resolve(graphRagIndexName: null);
+
+        provider.GetRequiredService<IOptions<LlmExtractionOptions>>().Value.Seed.Should().BeNull();
+    }
 }

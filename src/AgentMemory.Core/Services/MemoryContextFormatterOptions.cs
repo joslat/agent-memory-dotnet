@@ -11,6 +11,13 @@ namespace AgentMemory.Core.Services;
 /// </summary>
 internal sealed record MemoryContextFormatterOptions
 {
+    /// <summary>Renders the owner's compiled working-memory block, when one exists. Default false.</summary>
+    /// <remarks>
+    /// Compiled from extraction output, so it renders through the same admission and delimiting
+    /// machinery as every other recalled category and earns no trust bypass.
+    /// </remarks>
+    public bool IncludeWorkingMemory { get; init; }
+
     /// <summary>
     /// When <see langword="false"/> (the default), instruction-like content is still included -- delimited
     /// like every other recalled block -- but is not otherwise treated specially, matching the Agent

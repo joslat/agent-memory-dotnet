@@ -56,4 +56,29 @@ public class Neo4jOptions
     /// <see langword="false"/> to skip the check (e.g. during an intentional, staged migration).
     /// </summary>
     public bool ValidateVectorIndexDimensions { get; set; } = true;
+
+    /// <summary>
+    /// Ids of the optional schema extensions this deployment activates. Empty (the default) is today's
+    /// base schema, byte-identical.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A schema extension is a named, versioned, additive-only module — its own migration namespace
+    /// (<c>ext/&lt;id&gt;/000N</c>), its own parity delta, its own owner entry in the
+    /// <c>schema-check</c> owners report. Implementations are registered unconditionally and consulted
+    /// through this set, the <c>IMemoryReranker</c> pattern: gating the registration itself would mean
+    /// a host that enabled an extension through <c>IOptions</c> reconfiguration still got nothing.
+    /// </para>
+    /// <para>
+    /// An unknown id is <b>rejected at startup</b>, listing the known ones, rather than ignored. A
+    /// deployment that asked for an extension and silently ran without it is the failure this whole
+    /// mechanism exists to make impossible.
+    /// </para>
+    /// <para>
+    /// A mutable <see cref="ISet{T}"/> rather than an init-only collection, so it is reachable from a
+    /// <c>configureNeo4j</c> lambda and from configuration binding — the issue-#100 lesson, where
+    /// init-only option records could not be configured at all.
+    /// </para>
+    /// </remarks>
+    public ISet<string> Extensions { get; set; } = new HashSet<string>(StringComparer.Ordinal);
 }

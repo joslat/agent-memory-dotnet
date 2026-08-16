@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Options;
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -195,7 +196,9 @@ internal static class LongMemEvalPreparedPairProgram
                         maxConcurrentExtractionBatches:
                             options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches,
                         usePredicateVocabulary: options.UsePredicateVocabulary,
-                        assistantContent: options.AssistantContent)
+                        assistantContent: options.AssistantContent,
+                        rescueShortOwnerResults: options.RescueShortOwnerResults,
+                        extractionSeed: options.ExtractionSeed)
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
@@ -242,6 +245,7 @@ internal static class LongMemEvalPreparedPairProgram
                             EmbeddingDimensions = embeddingDimensions,
                             AssistantContent = options.AssistantContent.ToString(),
                             UsePredicateVocabulary = options.UsePredicateVocabulary,
+                            ExtractionSeed = options.ExtractionSeed,
                             ExtractionVocabularySha256 = MemoryPredicateSeedVocabulary.Fingerprint,
                             QueryRelationLexiconSha256 = MemoryRelationSeedTable.Fingerprint,
                             QuestionSeed = options.Seed,
@@ -688,6 +692,8 @@ internal static class LongMemEvalPreparedPairProgram
                     // refused instead of silently measuring a graph built under other settings.
                     assistantContent: options.AssistantContent.ToString(),
                     usePredicateVocabulary: options.UsePredicateVocabulary,
+                    // Schema 7. Sealed so a seeded corpus and an unseeded one are never confusable.
+                    extractionSeed: options.ExtractionSeed,
                     extractionVocabularySha256: MemoryPredicateSeedVocabulary.Fingerprint,
                     queryRelationLexiconSha256: MemoryRelationSeedTable.Fingerprint,
                     abstentionPolicy: options.AbstentionPolicy.ToString(),
@@ -695,7 +701,12 @@ internal static class LongMemEvalPreparedPairProgram
                     preparedAtUtc: DateTimeOffset.UtcNow.ToString("O"),
                     description: options.Description ?? string.Empty,
                     memoryTypes: options.MemoryTypes,
-                    questionSeed: options.Seed);
+                    questionSeed: options.Seed,
+                    // S-4. Observed, not configured: what backend build actually served this corpus's
+                    // extraction calls. More than one value means the build changed mid-preparation, so
+                    // the corpus is not even internally uniform -- worth knowing before it is adopted as
+                    // a sealed base and compared against another.
+                    extractionProviderBuilds: [.. extractionCalls.Snapshot().ProviderBuilds.Keys]);
 
                 var seal = Stopwatch.StartNew();
                 var store = new Neo4jLongMemEvalPreparationStore(driver);
@@ -844,8 +855,13 @@ internal static class LongMemEvalPreparedPairProgram
                     // without them two runs over the same frozen graph are indistinguishable in the
                     // artifact - which is precisely the comparison reuse exists to make.
                     expandFactsByPredicate = options.ExpandFactsByPredicate,
+                    rescueShortOwnerResults = options.RescueShortOwnerResults,
                     resolveQueryRelations = options.ResolveQueryRelations,
                     usePredicateVocabulary = options.UsePredicateVocabulary,
+                    // 30.1. Same reason: an artifact that does not say whether extraction was seeded
+                    // cannot be compared against one that was, and the whole point of the seed is to
+                    // make two builds comparable.
+                    extractionSeed = options.ExtractionSeed,
                     // Fingerprinted for the same reason the vocabulary is: it changes what
                     // gets stored, so two bases built under different modes are not
                     // comparable and must not be confusable in an artifact.
@@ -1000,6 +1016,14 @@ internal static class LongMemEvalPreparedPairProgram
         using var vectorYield = new LongMemEvalVectorYieldListener();
         using var answerCalls = new LongMemEvalChatCallMeter(
             azureClient.GetChatClient(deployment).AsIChatClient());
+        // 27.4. Metered separately from the answer calls: the arms differ by one model call per
+        // question, and folding that into the answer meter would make the call accounting -- which
+        // exists to catch exactly this -- unable to reconcile.
+        using var queryCalls = new LongMemEvalChatCallMeter(
+            azureClient.GetChatClient(deployment).AsIChatClient());
+        var formulator = options.QueryFormulation == LongMemEvalQueryFormulation.Verbatim
+            ? null
+            : new LongMemEvalQueryFormulator(queryCalls, options.QueryFormulation);
         using var judgeCalls = new LongMemEvalChatCallMeter(
             azureClient.GetChatClient(deployment).AsIChatClient());
         using var diagnosticCalls = new LongMemEvalChatCallMeter(
@@ -1048,6 +1072,9 @@ internal static class LongMemEvalPreparedPairProgram
                 MemoryMode = mode,
                 PreparedMemory = true,
                 PreparedState = state,
+                // 27.4. Null unless --query-formulation was asked for, which is byte-for-byte the
+                // historical retrieval path: the question text, verbatim.
+                QueryFormulator = formulator,
                 MaxRelevantMessages = options.MaxRelevantMessages,
                 MinSimilarityScore = 0,
                 ModelId = deployment,
@@ -1110,6 +1137,10 @@ internal static class LongMemEvalPreparedPairProgram
             // reported as missing on the strength of AgentEval's original explanation.
             judgeRetries: diagnostics.JudgeRetries,
             agentEvalJudgeRetryAllowance: options.JudgeRetryAttempts,
+            // 0.15. Shipped upstream in 0.20.0-beta as the third of four asks, and consumed by
+            // nothing until now -- so the guard kept guessing with a tolerance band while the exact
+            // figure sat in the result object we already had.
+            reportedJudgeRetryCalls: result.TotalJudgeRetryLlmCalls,
             // 3.7: the validator must know which judge protocol ran, or it reconciles a structured
             // verdict against a free-text re-parse and rejects every question.
             verdictProtocol: options.JudgeProtocol);
@@ -1133,7 +1164,41 @@ internal static class LongMemEvalPreparedPairProgram
                 adapter.QuestionTelemetry.Sum(item =>
                     item.StageTimings?.AnswerMs ?? 0),
                 total.Elapsed.TotalMilliseconds),
-            LongMemEvalVectorYieldSummary.From(vectorYield.Samples));
+            LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
+            formulator);
+    }
+
+    /// <summary>
+    /// Judged verdicts keyed by question id, for the summaries that score by question rather than by
+    /// arm. Unjudged questions are omitted rather than defaulted to false, so "not scored" can never
+    /// be read as "got it wrong".
+    /// </summary>
+    private static Dictionary<string, bool> CorrectByQuestionId(PreparedArmExecution arm) =>
+        arm.Result.QuestionResults
+            .Where(question => question.QuestionId is not null && question.Correct is not null)
+            .GroupBy(question => question.QuestionId!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().Correct!.Value, StringComparer.Ordinal);
+
+    /// <summary>Raw and improvable accuracy, with the excluded questions named in the report itself.</summary>
+    private static object ProjectOracleImpossible(PreparedArmExecution arm)
+    {
+        var score = LongMemEvalOracleImpossible.Score(CorrectByQuestionId(arm));
+        return new
+        {
+            rawCorrect = score.TotalCorrect,
+            rawQuestions = score.TotalQuestions,
+            rawAccuracy = score.RawAccuracy,
+            improvableCorrect = score.ImprovableCorrect,
+            improvableQuestions = score.ImprovableQuestions,
+            improvableAccuracy = score.ImprovableAccuracy,
+            // Named in every report. An exclusion a reader cannot see is an exclusion they cannot
+            // check, and the failure mode of a curated list is that it becomes a way of not counting
+            // inconvenient questions.
+            excludedQuestionIds = score.ExcludedQuestionIds,
+            excludedEvidence = score.ExcludedQuestionIds
+                .ToDictionary(id => id, id => LongMemEvalOracleImpossible.Questions[id], StringComparer.Ordinal),
+            contradiction = score.ExclusionContradicted,
+        };
     }
 
     /// <summary>The meta-memory half of an arm's result, or nulls when no abstention question ran.</summary>
@@ -1208,6 +1273,37 @@ internal static class LongMemEvalPreparedPairProgram
             // holds the two prices, never their difference). Reported as a group so a derived-answer
             // type's absences are not read as extraction failures.
             answerPresenceByType = LongMemEvalAnswerPresence.SummariseByType(arm.Telemetry),
+            // 27.3. Per-MEMORY-TYPE accuracy. LongMemEvalTypedBreakdown shipped with a full unit suite
+            // and had ZERO production call sites: every per-type figure this project has quoted was
+            // recomputed by hand from raw artifacts, because no report ever contained one. That is the
+            // same dead-code defect as an unwired flag, in the instrument that answers the question
+            // most often asked of it.
+            memoryTypeAccuracy = LongMemEvalTypedBreakdown.Summarise(
+                arm.Telemetry, CorrectByQuestionId(arm)),
+            // 27.3. Raw and improvable accuracy, side by side and never one without the other. Four
+            // questions in this dataset are answered wrongly by a PERFECT-CONTEXT oracle 8 times out of
+            // 8, so no memory system can reach them; leaving them in the denominator caps the score for
+            // reasons unrelated to memory. They are named, evidenced and reported -- not deleted -- and
+            // the score carries a contradiction flag that fires if one is ever answered correctly.
+            oracleImpossible = ProjectOracleImpossible(arm),
+            // 27.4. Null on the control. `voidReason` is the load-bearing field: an arm whose
+            // rewriter changed too few queries measured its own control, and "no difference" would
+            // then be a claim about a mechanism that mostly did not run.
+            queryFormulation = arm.QueryFormulator is null
+                ? null
+                : (object)new
+                {
+                    mode = arm.QueryFormulator.Mode.ToString(),
+                    derived = arm.QueryFormulator.Derived,
+                    changed = arm.QueryFormulator.Changed,
+                    failed = arm.QueryFormulator.Failed,
+                    changedFraction = arm.QueryFormulator.Derived == 0
+                        ? (double?)null
+                        : (double)arm.QueryFormulator.Changed / arm.QueryFormulator.Derived,
+                    questionsAnswered = arm.Telemetry.Count(t => t.Status == "completed"),
+                    voidReason = arm.QueryFormulator.VoidReason(
+                        arm.Telemetry.Count(t => t.Status == "completed")),
+                },
             // Meta-memory: how well the agent declines to answer what memory does not hold.
             // Reported separately from the AUC's "absent" count, which is a ground-truth INPUT
             // identical across arms -- reading a class balance as a result is the easy mistake,
@@ -1234,6 +1330,9 @@ internal static class LongMemEvalPreparedPairProgram
                     q.Correct,
                     q.RawScore,
                     q.JudgeLlmCallCount,
+                    // Separated at the question level too: JudgeLlmCallCount mixes primary and retry
+                    // calls, which is what made a run's accounting unauditable after the fact.
+                    q.JudgeRetryLlmCallCount,
                     q.JudgeTokensUsed,
                     agentResponse = q.AgentResponse,
                     judgeExplanation = q.JudgeExplanation,
@@ -1250,6 +1349,7 @@ internal static class LongMemEvalPreparedPairProgram
             callAccounting = new
             {
                 benchmarkLlmCalls = arm.Result.TotalLlmCalls,
+                judgeRetryLlmCalls = arm.Result.TotalJudgeRetryLlmCalls,
                 diagnosticLlmCalls = arm.Diagnostics.DiagnosticLlmCalls,
                 observed = new
                 {
@@ -1433,8 +1533,9 @@ internal static class LongMemEvalPreparedPairProgram
         "--questions", "--resolve-query-relations", "--retain-prepared-volumes",
         "--reuse-prepared-volumes", "--seed", "--single-session-unified",
         "--description", "--memory-types", "--allow-stale-prepared",
-        "--abstention", "--abstention-proportion",
-        "--use-predicate-vocabulary", "--judge-protocol",
+        "--abstention", "--abstention-proportion", "--query-formulation",
+        "--use-predicate-vocabulary", "--judge-protocol", "--rescue-short-owner-results",
+        "--extraction-seed",
     ];
 
     private static PreparedPairOptions Parse(string[] args)
@@ -1451,6 +1552,15 @@ internal static class LongMemEvalPreparedPairProgram
         }
         bool Has(string name) =>
             Array.IndexOf(args, name) >= 0;
+
+        var queryFormulation = (Value("--query-formulation") ?? "verbatim").ToLowerInvariant() switch
+        {
+            "verbatim" or "" => LongMemEvalQueryFormulation.Verbatim,
+            "rewrite" => LongMemEvalQueryFormulation.Rewrite,
+            "expansion" => LongMemEvalQueryFormulation.Expansion,
+            var other => throw new ArgumentException(
+                $"--query-formulation must be verbatim, rewrite or expansion; got '{other}'."),
+        };
 
         return new PreparedPairOptions(
             // Explicit --dataset wins; LONGMEMEVAL_DATASET is the standing setting; the known
@@ -1481,6 +1591,7 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--retain-prepared-volumes"),
             Has("--use-predicate-vocabulary"),
             ParseAssistantContent(Value("--assistant-content")),
+            Has("--rescue-short-owner-results"),
             // Default true reproduces every run recorded so far. Passing --single-session-unified
             // measures LlmUnifiedMemoryExtractor, the extractor an ordinary consumer gets from
             // UseUnifiedExtraction and which no measurement had ever exercised.
@@ -1504,7 +1615,20 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--allow-stale-prepared"),
             ParseAbstention(Value("--abstention")),
             ParseAbstentionProportion(Value("--abstention-proportion")),
-            ParseJudgeProtocol(Value("--judge-protocol")));
+            ParseJudgeProtocol(Value("--judge-protocol")),
+            queryFormulation,
+            // 30.1. Null reproduces every corpus built so far. A value is sealed into the manifest and
+            // drift-checked, so a seeded corpus can never be adopted by an unseeded run or vice versa.
+            ParseExtractionSeed(Value("--extraction-seed")));
+    }
+
+    /// <summary>Parses <c>--extraction-seed &lt;int&gt;</c>; absent means send no seed.</summary>
+    private static int? ParseExtractionSeed(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            throw new ArgumentException($"--extraction-seed must be an integer; got '{value}'.");
+        return parsed;
     }
 
     /// <summary>
@@ -1831,6 +1955,7 @@ internal static class LongMemEvalPreparedPairProgram
         bool RetainPreparedVolumes,
         bool UsePredicateVocabulary,
         AssistantContentMode AssistantContent,
+        bool RescueShortOwnerResults,
         bool MultiSessionBatch,
         bool ExpandFactsByPredicate,
         bool ResolveQueryRelations,
@@ -1848,7 +1973,13 @@ internal static class LongMemEvalPreparedPairProgram
         bool AllowStalePrepared = false,
         AbstentionSamplingPolicy AbstentionPolicy = AbstentionSamplingPolicy.AsSampled,
         double? AbstentionProportion = null,
-        JudgeVerdictProtocol JudgeProtocol = JudgeVerdictProtocol.FreeText)
+        JudgeVerdictProtocol JudgeProtocol = JudgeVerdictProtocol.FreeText,
+        // 27.4. Verbatim is the control and the shipped behaviour; the other modes derive the
+        // retrieval query with one model call per question.
+        LongMemEvalQueryFormulation QueryFormulation = LongMemEvalQueryFormulation.Verbatim,
+        // 30.1. The extraction sampling seed, sealed into the manifest because it changes what the
+        // extractor returned and therefore what is in the graph. Null sends no seed at all.
+        int? ExtractionSeed = null)
     {
         /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
         internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];
@@ -1877,5 +2008,8 @@ internal static class LongMemEvalPreparedPairProgram
         LongMemEvalChatCallSnapshot DiagnosticCalls,
         LongMemEvalChatCallSnapshot ExtractionCalls,
         PreparedArmTimings Timings,
-        LongMemEvalVectorYieldSummary VectorYield);
+        LongMemEvalVectorYieldSummary VectorYield,
+        // 27.4. Null on the control arm. Carries the void witness: an arm whose rewriter changed too
+        // few queries measured its own control and must say so.
+        LongMemEvalQueryFormulator? QueryFormulator = null);
 }

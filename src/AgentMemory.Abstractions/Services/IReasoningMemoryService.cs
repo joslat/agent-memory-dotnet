@@ -115,7 +115,57 @@ public interface IReasoningMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Point-in-time variant of <see cref="SearchSimilarTracesAsync"/>: only traces that had started at
+    /// Promotes a completed trace to a reusable procedure, or demotes it back to an episode (7.1).
+    /// Returns <c>null</c> if the trace no longer exists.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Until this existed, a consumer could not promote anything.</b> The whole procedural tier —
+    /// <c>trace_kind</c>, its index, the procedures-only filter, the prune exemption, eight
+    /// live-database tests — sat behind a repository the DI container does not hand out, so the
+    /// feature was complete in Cypher and unreachable from the public surface.
+    /// </para>
+    /// <para>
+    /// Deliberately a separate operation from <c>CompleteTraceAsync</c>: completion writes the whole
+    /// object, so promoting through it would let a later completion built from a stale in-memory copy
+    /// silently demote a procedure back to an episode.
+    /// </para>
+    /// </remarks>
+    Task<ReasoningTrace?> PromoteTraceAsync(
+        string traceId,
+        TraceKind kind,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            $"{GetType().Name} does not support trace promotion.");
+
+    /// <summary>
+    /// Task-similarity search restricted to (or excluding) promoted procedures.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The filter existed at every layer except this one.</b> The repository has taken a
+    /// <c>proceduresOnly</c> argument since 7.3; the service passed a hardcoded <c>null</c>, so no
+    /// shipped recall path could ask for procedures — an agent looking for "how did I do this before"
+    /// got episodes back, which is the wrong precedent library.
+    /// </para>
+    /// <para>
+    /// A default interface method, because the surface is SemVer-locked, and the default forwards to
+    /// the unfiltered overload: a store with no promotion concept keeps working and simply does not
+    /// filter, rather than appearing to.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsync(
+        float[] taskEmbedding,
+        bool? proceduresOnly,
+        bool? successFilter,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        SearchSimilarTracesAsync(taskEmbedding, successFilter, limit, minScore, scope, cancellationToken);
+
+    /// <summary>
+    /// Point-in-time variant of <c>SearchSimilarTracesAsync</c>: only traces that had started at
     /// or before <paramref name="asOf"/>. Completes temporal recall (entities/facts/preferences already
     /// have point-in-time search) so <c>AssembleContextAsOfAsync</c> can include reasoning traces.
     /// </summary>

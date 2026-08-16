@@ -86,6 +86,32 @@ public sealed class LongMemEvalPreparationManifestTests
         act.Should().NotThrow();
     }
 
+    [Fact]
+    public void ObservedProviderBuilds_DoNotChangeTheFingerprint()
+    {
+        // THE rule this project runs on: prompt bytes and corpus identity are fingerprinted, and any new
+        // field that is byte-identical in its off state must stay out of the hash. A backend build id is
+        // OBSERVED, not configured -- hashing it would make every sealed corpus non-reusable the moment
+        // the provider updated its backend, discarding a nine-hour build over a change nobody here made.
+        var without = Manifest();
+        var with = LongMemEvalPreparationManifest.ComputeFingerprint(
+            without with { ExtractionProviderBuilds = ["fp_44a1", "fp_9c02"] });
+
+        with.Should().Be(without.Fingerprint);
+    }
+
+    [Fact]
+    public void ObservedProviderBuilds_SurviveIntegrityVerification()
+    {
+        // Excluded from the hash must not mean "rejected by the checker": a manifest carrying observed
+        // builds still has to verify against its own recorded fingerprint.
+        var manifest = Manifest() with { ExtractionProviderBuilds = ["fp_44a1"] };
+
+        var act = manifest.VerifyIntegrity;
+
+        act.Should().NotThrow();
+    }
+
     private static LongMemEvalPreparationManifest Manifest() =>
         LongMemEvalPreparationManifest.Create(
             "preparation-1",

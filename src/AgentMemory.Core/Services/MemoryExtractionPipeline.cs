@@ -21,6 +21,10 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
     private readonly IMemoryIsolationPolicy _isolationPolicy;
     private readonly ExtractionOptions _options;
     private readonly IReadOnlyList<IMultiSessionUnifiedMemoryExtractor> _multiSessionExtractors;
+    // Nullable so a host that builds this pipeline by hand -- or a container assembled before 30.6 --
+    // keeps working. The accountant is an enrichment; its absence must degrade to "no aggregates", not
+    // to a failed ingestion.
+    private readonly Extraction.Derivation.IDerivedMemoryAccountant? _accountant;
 
     // Internal ctor: the stage interfaces are internal to Core, so this type is activated by an
     // explicit factory in AddAgentMemoryCore (the default DI activator only selects public ctors).
@@ -30,7 +34,8 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         ILogger<MemoryExtractionPipeline> logger,
         IMemoryIsolationPolicy isolationPolicy,
         IOptions<ExtractionOptions>? extractionOptions = null,
-        IEnumerable<IMultiSessionUnifiedMemoryExtractor>? multiSessionExtractors = null)
+        IEnumerable<IMultiSessionUnifiedMemoryExtractor>? multiSessionExtractors = null,
+        Extraction.Derivation.IDerivedMemoryAccountant? accountant = null)
     {
         _extractionStage = extractionStage;
         _persistenceStage = persistenceStage;
@@ -39,6 +44,42 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         _options = extractionOptions?.Value ?? new ExtractionOptions();
         _multiSessionExtractors = (multiSessionExtractors ?? [])
             .ToList().AsReadOnly();
+        _accountant = accountant;
+    }
+
+    /// <summary>
+    /// Runs the session accountant over what this batch just persisted (30.6).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// After <c>PersistAsync</c>, never before: an aggregate has to be computed from facts that are
+    /// actually in the graph, and computing it from staged candidates would produce a number describing
+    /// a state that might never commit.
+    /// </para>
+    /// <para>
+    /// Nothing about the outcome reaches <c>ExtractionResult</c>. The accountant is best-effort by
+    /// design, and threading a "derived count" into the result would tempt a caller into treating it as
+    /// part of the extraction contract — at which point a failure to compute an aggregate would start
+    /// failing ingestions.
+    /// </para>
+    /// </remarks>
+    private async Task AccountAsync(
+        ExtractionStageResult staged, string? ownerId, CancellationToken cancellationToken)
+    {
+        if (_accountant is null || !_options.DerivedMemory.Enabled) return;
+
+        try
+        {
+            await _accountant.AccountAsync(staged, ownerId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Derived-memory accounting failed; the batch's facts are stored.");
+        }
     }
 
     /// <inheritdoc/>
@@ -74,6 +115,7 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         // #92 Phase 3: a per-request TrustLevel override wins; otherwise fall back to the configured default.
         var trustLevel = request.TrustLevel ?? _options.DefaultTrustLevel;
         var persisted = await _persistenceStage.PersistAsync(staged, ownerId, trustLevel, cancellationToken).ConfigureAwait(false);
+        await AccountAsync(staged, ownerId, cancellationToken).ConfigureAwait(false);
 
         sw.Stop();
         _logger.LogInformation(

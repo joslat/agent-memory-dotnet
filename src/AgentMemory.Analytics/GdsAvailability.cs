@@ -28,14 +28,20 @@ internal sealed class GdsAvailability : IGdsAvailability
             if (_available is { } cached) return cached;
         }
 
-        var (available, definitive) = await ProbeAsync().ConfigureAwait(false);
+        var (available, definitive) = await ProbeAsync(cancellationToken).ConfigureAwait(false);
         if (definitive)
             lock (_gate) { _available = available; }
         return available;
     }
 
     /// <summary>Probes for GDS. Returns whether it is available and whether that answer is definitive (stable).</summary>
-    private async Task<(bool Available, bool Definitive)> ProbeAsync()
+    /// <remarks>
+    /// The caller's token is threaded through rather than dropped: <c>IsAvailableAsync</c> accepted one
+    /// and never used it, so cancelling a call that had reached the probe did nothing at all.
+    /// <c>INeo4jTransactionRunner</c> honours it as a pre-flight check, which is the same semantics every
+    /// other read in the codebase gets.
+    /// </remarks>
+    private async Task<(bool Available, bool Definitive)> ProbeAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -44,7 +50,7 @@ internal sealed class GdsAvailability : IGdsAvailability
                 var cursor = await runner.RunAsync(GdsQueries.ProbeVersion).ConfigureAwait(false);
                 var record = await cursor.SingleAsync().ConfigureAwait(false);
                 return record["version"].As<string>();
-            }).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
 
             _logger.LogInformation("Neo4j GDS plugin detected (version {Version}); analytics enabled.", version);
             return (true, true);

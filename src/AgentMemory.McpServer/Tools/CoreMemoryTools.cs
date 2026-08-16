@@ -19,6 +19,11 @@ internal sealed class CoreMemoryTools
     public static async Task<string> MemorySearch(
         IMemoryService memoryService,
         IOptions<AgentMemoryMcpOptions> options,
+        // 25.2. The host's CONFIGURED recall options, not the static default. Without this the tool
+        // started from RecallOptions.Default, so an operator who tuned similarity or recall depth
+        // through MemoryOptions got no effect here at all -- the configuration bound, validated, and
+        // was read by nobody on the path an MCP client actually uses.
+        IOptions<MemoryOptions> memoryOptions,
         [Description("The search query text")] string query,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
         [Description("User identifier (optional)")] string? userId = null,
@@ -29,7 +34,27 @@ internal sealed class CoreMemoryTools
         {
             SessionId = sessionId ?? options.Value.DefaultSessionId,
             UserId = userId,
-            Query = query
+            Query = query,
+            // 0.8. `maxResults` was declared, described to the model as "maximum number of results per
+            // memory section", and then never referenced -- so a client that set it got the defaults
+            // and no indication otherwise. A tool parameter a model can see is a promise it will act
+            // on; leaving it inert is worse than not offering it.
+            //
+            // MaxTraces is deliberately left at its default. This tool's own description advertises
+            // "recent messages, entities, facts, and preferences" and does not mention traces, so
+            // widening trace retrieval here would add a vector search per call that no caller asked
+            // for -- a cost change smuggled in behind a bug fix.
+            // Starts from the configured options so similarity threshold, trace budget and every
+            // other knob the host set are honoured; only the section caps the caller named are
+            // overridden.
+            Options = memoryOptions.Value.Recall with
+            {
+                MaxRecentMessages = maxResults,
+                MaxRelevantMessages = maxResults,
+                MaxEntities = maxResults,
+                MaxPreferences = maxResults,
+                MaxFacts = maxResults,
+            },
         };
 
         var result = await memoryService.RecallAsync(request, cancellationToken).ConfigureAwait(false);
@@ -38,18 +63,10 @@ internal sealed class CoreMemoryTools
             result.TotalItemsRetrieved,
             result.Truncated,
             result.EstimatedTokenCount,
-            context = new
-            {
-                result.Context.SessionId,
-                result.Context.AssembledAtUtc,
-                recentMessages = result.Context.RecentMessages.Items,
-                relevantMessages = result.Context.RelevantMessages.Items,
-                relevantEntities = result.Context.RelevantEntities.Items,
-                relevantPreferences = result.Context.RelevantPreferences.Items,
-                relevantFacts = result.Context.RelevantFacts.Items,
-                similarTraces = result.Context.SimilarTraces.Items,
-                result.Context.GraphRagContext
-            }
+            // 0.7. Projected, never the domain objects: Entity, Fact, Preference and ReasoningTrace
+            // each carry an embedding, so serializing them raw put 384 or 1536 floats per item on the
+            // wire on every single recall.
+            context = McpMemoryProjection.Context(result.Context)
         });
     }
 
@@ -70,7 +87,14 @@ internal sealed class CoreMemoryTools
         };
 
         var result = await memoryService.RecallAsync(request, cancellationToken).ConfigureAwait(false);
-        return ToolJsonContext.Serialize(result);
+        return ToolJsonContext.Serialize(new
+        {
+            result.TotalItemsRetrieved,
+            result.EstimatedTokenCount,
+            result.Truncated,
+            result.Metadata,
+            context = McpMemoryProjection.Context(result.Context),
+        });
     }
 
     [McpServerTool(Name = "memory_store_message"), Description("Store a message in short-term conversation memory.")]
@@ -208,8 +232,13 @@ internal sealed class CoreMemoryTools
         // (a caller must never be able to self-assign ApplicationTrusted and bypass the admission policy's
         // instruction-like-content detection) and stamp ToolDerived, since this fact arrived via a direct
         // tool call rather than the extraction pipeline.
+        // 30.6: derivation keys are reserved for exactly the same reason. A caller who could stamp
+        // fact_kind='derived' plus an invented derivation string would hand the model arithmetic no
+        // accountant ever performed -- wearing the inline provenance that makes it look checked, which
+        // is strictly more persuasive than an unadorned wrong fact.
         var callerMetadata = (ParseMetadata(metadataJson) ?? new Dictionary<string, object>())
-            .WithoutCallerSuppliedTrustLevel();
+            .WithoutCallerSuppliedTrustLevel()
+            .WithoutCallerSuppliedDerivation();
         var fact = new Fact
         {
             FactId = idGenerator.GenerateId(),

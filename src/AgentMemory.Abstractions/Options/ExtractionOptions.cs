@@ -149,6 +149,17 @@ public sealed class ExtractionOptions
     /// </para>
     /// </remarks>
     public int ExtractionContextTurns { get; set; }
+
+    /// <summary>
+    /// The session accountant: materialises aggregates from what a batch just persisted. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// Sits on extraction options because the accountant runs as a post-persistence pass over exactly
+    /// the groups the batch touched — it is part of writing, not of reading. Recall needs no changes at
+    /// all: a derived fact <i>is</i> a <c>:Fact</c>, so it rides the existing vector index, budget,
+    /// owner scoping, invalidation gate and valid-time gate for free.
+    /// </remarks>
+    public DerivedMemoryOptions DerivedMemory { get; set; } = new();
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>
@@ -160,7 +171,16 @@ public sealed class EntityResolutionOptions
     public bool EnableFuzzyMatch { get; set; } = true;
     /// <summary>Enable semantic (embedding) matching.</summary>
     public bool EnableSemanticMatch { get; set; } = true;
-    /// <summary>When true, only match candidates of the same entity type.</summary>
+    /// <summary>
+    /// When true (default), only same-type entities are candidates for a match. When false, entities
+    /// sharing the incoming name (or carrying it as an alias) are also candidates, whatever their type.
+    /// </summary>
+    /// <remarks>
+    /// Turn it off when the extractor's typing is unreliable — the same real-world entity arriving as
+    /// <c>Organization</c> in one turn and <c>Location</c> in the next is, under strict filtering,
+    /// permanently two entities. The cost is one extra bounded read per resolution; the owner boundary
+    /// is unaffected either way.
+    /// </remarks>
     public bool TypeStrictFiltering { get; set; } = true;
     /// <summary>Minimum similarity score for a fuzzy match to be considered.</summary>
     public double FuzzyMatchThreshold { get; set; } = 0.85;

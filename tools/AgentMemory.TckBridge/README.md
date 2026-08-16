@@ -29,6 +29,31 @@ the command line, same as `AgentMemory.Cli`:
 | `Neo4j:Password` | `password` |
 | `Neo4j:Database` | `neo4j` |
 | `EmbeddingDimensions` | `1536` |
+| `extensions` (or `Neo4j:Extensions`) | *(empty — base schema)* |
+
+### `--extensions` and the Gold-under-extension gate
+
+`--extensions <id,…>` activates the named [schema extensions](../../docs/extensions/README.md) for the
+run and prints which arm it is (`schema extensions OFF (base parity run)` / `ON: …`), because a gate run
+whose treatment arm was silently the control is the most expensive possible way to get a wrong answer.
+
+Every extension claims that enabling it leaves the 178 upstream-parity cases untouched — write-path
+isolation (R2) and base-read neutrality (R3). This flag is what makes that claim **testable** rather
+than asserted: run the full suite twice on the same build against the same database image, once with
+everything off (the void witness) and once with the extension on, and diff.
+
+```bash
+# control arm
+dotnet run --project tools/AgentMemory.TckBridge
+pytest -m "bronze or silver or gold" --bridge-url http://localhost:3001
+
+# treatment arm — same build, one variable
+dotnet run --project tools/AgentMemory.TckBridge -- --extensions procedural
+pytest -m "bronze or silver or gold" --bridge-url http://localhost:3001
+```
+
+Pass is *identical results*; any difference is an R2/R3 violation and the extension does not ship.
+Verified 178/178 on both arms. (Kill the bridge before rebuilding — the stale-DLL trap.)
 
 ## Endpoints (Bronze)
 

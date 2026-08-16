@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 
@@ -76,6 +77,73 @@ public static class AgentSessionMemoryExtensions
             string.IsNullOrWhiteSpace(sessionId) ? null : sessionId,
             string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
             string.IsNullOrWhiteSpace(applicationId) ? null : applicationId);
+    }
+
+    /// <summary>
+    /// Reads the delta checkpoint — the instant this session last <b>acknowledged</b> memory changes —
+    /// from the state bag, or <see langword="null"/> when this session has never acknowledged any.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Stored as a round-trip ISO-8601 string rather than a <see cref="DateTimeOffset"/> so it survives
+    /// any state-bag serializer a host plugs in, and read back with
+    /// <see cref="System.Globalization.CultureInfo.InvariantCulture"/> so a host running under a
+    /// non-Gregorian calendar cannot silently shift the window.
+    /// </para>
+    /// <para>
+    /// Unparseable content returns <see langword="null"/>, which degrades to "brand-new session": full
+    /// recall, no delta. Throwing here would take down a turn over a cosmetic token, and guessing a
+    /// window from a corrupt value is how an agent ends up asserting a change set it never verified.
+    /// </para>
+    /// </remarks>
+    public static DateTimeOffset? GetDeltaCheckpoint(
+        this AgentSession? session, AgentFrameworkOptions? options = null)
+    {
+        var opts = options ?? new AgentFrameworkOptions();
+        var bag = session?.StateBag;
+        if (bag is null) return null;
+
+        string? raw;
+        try
+        {
+            bag.TryGetValue(opts.DefaultDeltaCheckpointKey, out raw, JsonSerializerOptions.Default);
+        }
+        catch (JsonException)
+        {
+            // A value of the wrong SHAPE (an object where a string belongs) throws rather than
+            // returning false, and it means the same thing as an unparseable string here.
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+
+        return DateTimeOffset.TryParse(
+            raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    /// <summary>
+    /// Writes the delta checkpoint into the state bag. Returns the session for chaining.
+    /// </summary>
+    /// <remarks>
+    /// Advancing the checkpoint is an <b>acknowledgement</b>, not a read receipt: the provider advances
+    /// it after a turn completes successfully, never at the moment the delta is fetched. A crash between
+    /// the two replays the same delta, which is the harmless direction — the other one loses a change
+    /// set permanently.
+    /// </remarks>
+    public static AgentSession SetDeltaCheckpoint(
+        this AgentSession session, DateTimeOffset checkpoint, AgentFrameworkOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        var opts = options ?? new AgentFrameworkOptions();
+        session.StateBag.SetValue(
+            opts.DefaultDeltaCheckpointKey,
+            checkpoint.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            JsonSerializerOptions.Default);
+
+        return session;
     }
 }
 

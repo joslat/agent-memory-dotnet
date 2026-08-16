@@ -46,7 +46,9 @@ public sealed class MemoryServiceTemporalRoutingTests
             .Returns(Task.FromResult(empty));
     }
 
-    private MemoryService CreateSut(bool resolveTemporalQueries) =>
+    private MemoryService CreateSut(
+        bool resolveTemporalQueries,
+        TemporalQueryClocks clocks = TemporalQueryClocks.ValidTimeOnly) =>
         new(Substitute.For<IShortTermMemoryService>(),
             _assembler,
             Substitute.For<IMemoryExtractionPipeline>(),
@@ -54,7 +56,11 @@ public sealed class MemoryServiceTemporalRoutingTests
             Substitute.For<IFactRepository>(),
             Substitute.For<IPreferenceRepository>(),
             Substitute.For<IEmbeddingOrchestrator>(),
-            Options.Create(new MemoryOptions { ResolveTemporalQueries = resolveTemporalQueries }),
+            Options.Create(new MemoryOptions
+            {
+                ResolveTemporalQueries = resolveTemporalQueries,
+                TemporalQueryClocks = clocks,
+            }),
             _clock,
             Substitute.For<IIdGenerator>(),
             NullLogger<MemoryService>.Instance);
@@ -79,17 +85,43 @@ public sealed class MemoryServiceTemporalRoutingTests
     }
 
     [Fact]
-    public async Task BothClocksMoveTogether()
+    public async Task BothClocksMoveTogetherUnderBeliefReconstruction()
     {
         // "What did I think in March" asks what was true then AS KNOWN THEN. Moving only the valid
         // clock would answer with today's corrections applied to the past -- a different question, and
         // a subtly misleading one, because the answer would look like a faithful reconstruction.
+        //
+        // 13.2 made that the OPT-IN reading rather than the default, and the invariant is asserted at
+        // the assembler seam here because that is where a caller would actually be harmed. The default
+        // now binds valid time only: see ATemporalQueryBindsValidTimeOnlyByDefault for why -- binding
+        // the transaction clock on a host whose created_at is import time empties the whole store.
+        var expected = new DateTimeOffset(2026, 3, 31, 23, 59, 59, TimeSpan.Zero);
+
+        await CreateSut(true, TemporalQueryClocks.ValidAndTransactionTime)
+            .RecallAsync(new RecallRequest { SessionId = "s-1", Query = "what did I think back in March" });
+
+        await _assembler.Received(1).AssembleContextAsOfAsync(
+            Arg.Any<RecallRequest>(),
+            Arg.Is<DateTimeOffset>(v => v == expected),
+            Arg.Is<DateTimeOffset>(s => s == expected),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TheDefaultDoesNotBindTheTransactionClockToThePast()
+    {
+        // The seam-level guard for the default. Asserted as "systemAsOf is NOT the resolved instant"
+        // rather than only as a metadata value, because the exclusion happens inside the assembler's
+        // Cypher (`node.created_at <= datetime($systemAsOf)`) and a caller reading only the metadata
+        // would never see the rows it silently removed.
+        var resolved = new DateTimeOffset(2026, 3, 31, 23, 59, 59, TimeSpan.Zero);
+
         await RecallAsync("what did I think back in March");
 
         await _assembler.Received(1).AssembleContextAsOfAsync(
             Arg.Any<RecallRequest>(),
-            Arg.Is<DateTimeOffset>(v => v == new DateTimeOffset(2026, 3, 31, 23, 59, 59, TimeSpan.Zero)),
-            Arg.Is<DateTimeOffset>(s => s == new DateTimeOffset(2026, 3, 31, 23, 59, 59, TimeSpan.Zero)),
+            Arg.Is<DateTimeOffset>(v => v == resolved),
+            Arg.Is<DateTimeOffset>(s => s == Now),
             Arg.Any<CancellationToken>());
     }
 
@@ -154,5 +186,117 @@ public sealed class MemoryServiceTemporalRoutingTests
 
         await _assembler.Received(1).AssembleContextAsync(
             Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TheRequestsReferenceTimeOverridesTheClock()
+    {
+        // 13.2. THE test for the replayed-transcript case. "Ten days ago" is measured from when the
+        // turn was SPOKEN; for a host draining a backlog or replaying a recorded conversation that is
+        // not wall-clock. Resolving against the clock does not merely fail to help -- it binds the
+        // query to a window years away from anything the corpus holds, so recall returns nothing and
+        // the result reads as "temporal resolution does not work" rather than "it was asked the wrong
+        // question". A whole benchmark arm can be spent on that mistake.
+        var spoken = new DateTimeOffset(2023, 5, 20, 0, 0, 0, TimeSpan.Zero);
+
+        var result = await CreateSut(true).RecallAsync(new RecallRequest
+        {
+            SessionId = "s-1",
+            Query = "what kitchen appliance did I buy 10 days ago",
+            TemporalReferenceTime = spoken,
+        });
+
+        result.Metadata["validAsOf"].Should().Be(spoken.AddDays(-10));
+    }
+
+    [Fact]
+    public async Task TheResolvedInstantIsWitnessedOnTheContext()
+    {
+        // The witness half. Query-time resolution is biased hard toward returning null, so "nothing
+        // changed" is its normal outcome -- and therefore indistinguishable from the option being
+        // unwired, the parser never being reached, or the reference time being wrong. A measurement
+        // that cannot tell those apart is the defect shape that voided six runs of 7.6.
+        var result = await RecallAsync("what did I think back in March");
+
+        result.Context.ResolvedTemporalAsOf.Should()
+            .Be(new DateTimeOffset(2026, 3, 31, 23, 59, 59, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task AnOrdinaryRecallLeavesTheWitnessUnset()
+    {
+        var result = await RecallAsync("what is my favourite colour");
+
+        result.Context.ResolvedTemporalAsOf.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ATemporalQueryWithTheOptionOffLeavesTheWitnessUnset()
+    {
+        // Otherwise a run could report resolutions it never performed, which is worse than reporting
+        // none: it would license believing a null result.
+        var result = await RecallAsync("what did I think back in March", enabled: false);
+
+        result.Context.ResolvedTemporalAsOf.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ATemporalQueryBindsValidTimeOnlyByDefault()
+    {
+        // 13.2. THE bug this default exists to prevent. created_at is INGESTION time on any host that
+        // imported, migrated or backfilled its history -- so binding the transaction clock to a past
+        // instant excludes every row in the store. That host asks "what happened last month", gets an
+        // empty context, no error, and reads it as the memory holding nothing.
+        var result = await RecallAsync("what did I think back in March");
+
+        result.Metadata["validAsOf"].Should()
+            .Be(new DateTimeOffset(2026, 3, 31, 23, 59, 59, TimeSpan.Zero));
+        result.Metadata["systemAsOf"].Should().Be(Now,
+            "the transaction clock stays at now: the question is about the past WORLD, answered with "
+            + "everything known today");
+    }
+
+    [Fact]
+    public async Task BeliefReconstructionBindsBothClocksWhenAskedFor()
+    {
+        // The other reading, kept reachable rather than removed: "what did I think then" is a real
+        // question, and it is the one an audit asks.
+        var result = await CreateSut(true, TemporalQueryClocks.ValidAndTransactionTime)
+            .RecallAsync(new RecallRequest { SessionId = "s-1", Query = "what did I think back in March" });
+
+        var expected = new DateTimeOffset(2026, 3, 31, 23, 59, 59, TimeSpan.Zero);
+        result.Metadata["validAsOf"].Should().Be(expected);
+        result.Metadata["systemAsOf"].Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task TheTransactionClockFollowsTheRequestsReferenceTimeNotTheWallClock()
+    {
+        // Composed with the replay case: a host replaying a transcript wants "everything known as of
+        // the turn", not as of today. Taking _clock.UtcNow here would leak wall-clock back into the
+        // one path that exists precisely because wall-clock is wrong.
+        var spoken = new DateTimeOffset(2023, 5, 20, 0, 0, 0, TimeSpan.Zero);
+
+        var result = await CreateSut(true).RecallAsync(new RecallRequest
+        {
+            SessionId = "s-1",
+            Query = "what kitchen appliance did I buy 10 days ago",
+            TemporalReferenceTime = spoken,
+        });
+
+        result.Metadata["systemAsOf"].Should().Be(spoken);
+    }
+
+    [Fact]
+    public async Task AnExplicitAsOfRecallLeavesTheWitnessUnset()
+    {
+        // Deliberate. That caller already knows which instant it asked for, and stamping it here would
+        // make "the parser fired" and "someone passed a date" the same observation -- so a harness
+        // counting resolutions would count its own explicit calls and always look wired.
+        var result = await CreateSut(true).RecallAsOfAsync(
+            new RecallRequest { SessionId = "s-1", Query = "anything" },
+            new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+        result.Context.ResolvedTemporalAsOf.Should().BeNull();
     }
 }

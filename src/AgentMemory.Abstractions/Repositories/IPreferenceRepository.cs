@@ -98,4 +98,20 @@ public interface IPreferenceRepository
         double minScore = 0.0,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The two preference-change buckets over the half-open window <c>(since, until]</c>.
+    /// </summary>
+    /// <remarks>
+    /// Throws by default for the same reason as the fact analogue: an empty delta means "nothing
+    /// changed", and an implementation that cannot compute one must not fabricate that answer.
+    /// <c>Preference</c> carries no valid-time window, so there are no crossing buckets here.
+    /// </remarks>
+    Task<PreferenceDeltaRows> ListChangedInWindowAsync(
+        DateTimeOffset since,
+        DateTimeOffset until,
+        MemoryScope? scope,
+        int maxPerBucket,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "This IPreferenceRepository implementation does not support delta recall.");
 }

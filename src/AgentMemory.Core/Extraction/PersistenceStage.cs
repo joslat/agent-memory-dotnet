@@ -25,6 +25,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private readonly ExtractionOptions _options;
     private readonly IMemoryPersistenceTransaction _persistenceTransaction;
     private readonly ILogger<PersistenceStage> _logger;
+    private readonly IWorkingMemoryService? _workingMemory;
+    private readonly WorkingMemoryOptions _workingMemoryOptions;
 
     public PersistenceStage(
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -36,7 +38,11 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         IIdGenerator idGenerator,
         ILogger<PersistenceStage> logger,
         IMemoryPersistenceTransaction persistenceTransaction,
-        IOptions<ExtractionOptions>? extractionOptions = null)
+        IOptions<ExtractionOptions>? extractionOptions = null,
+        // 30.4. Optional and last, mirroring LongTermMemoryService: a host that has not registered the
+        // working-memory tier keeps the exact previous construction shape.
+        IWorkingMemoryService? workingMemory = null,
+        IOptions<MemoryOptions>? memoryOptions = null)
     {
         _embeddingOrchestrator = embeddingOrchestrator;
         _entityRepository = entityRepository;
@@ -48,6 +54,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         _logger = logger;
         _persistenceTransaction = persistenceTransaction ?? throw new ArgumentNullException(nameof(persistenceTransaction));
         _options = extractionOptions?.Value ?? new ExtractionOptions();
+        _workingMemory = workingMemory;
+        _workingMemoryOptions = memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions();
     }
 
     public async Task<PersistenceResult> PersistAsync(
@@ -55,6 +63,87 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         string? ownerId = null,
         MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted,
         CancellationToken cancellationToken = default)
+    {
+        var result = await PersistCoreAsync(extraction, ownerId, trustLevel, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Once per persist, and here rather than inside the core so it happens exactly once whichever
+        // of the three return paths (atomic / best-effort / replay) produced the result, and outside
+        // the storage transaction either way. A throw from the core skips it, which is right: nothing
+        // was persisted, so there is nothing to recompile.
+        await RebuildWorkingMemoryAsync(ownerId, result, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>
+    /// Recompiles the owner's working-memory block after a persist that changed something.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This was missing, and its absence made the tier inert on the primary path.</b> The rebuild
+    /// hook shipped only on <c>LongTermMemoryService</c>'s single-add methods, so a host that enabled
+    /// the tier and then ingested normally — conversation, extraction, persist, which is what the MAF
+    /// adapter does — never compiled a block at all. Recall fetched null forever and the feature read
+    /// as enabled. Every existing test called <c>RebuildAsync</c> directly, so none of them could see it.
+    /// </para>
+    /// <para>
+    /// Failure never propagates: the write already succeeded and the caller is not waiting on a derived
+    /// projection. Staleness is worse than absence, so a failed rebuild clears the block when
+    /// <c>ClearOnRebuildFailure</c> is set — the same contract the single-add path honours.
+    /// </para>
+    /// <para>
+    /// <b>Here rather than in <c>MemoryExtractionPipeline</c> beside the session accountant</b>, which is
+    /// the other post-persist hook and was the obvious alternative. Two reasons: both pipeline paths
+    /// (single-session and batch) go through <c>PersistAsync</c>, as would any future direct
+    /// <c>IPersistenceStage</c> caller; and the "at least one thing landed" gate the design specifies is
+    /// the <see cref="PersistenceResult"/> counts, which are here and would otherwise need plumbing out.
+    /// The cost is ordering: this runs before the accountant, so a fact <i>derived</i> in the same pass
+    /// is one rebuild late. That needs a non-default <c>MinFactMentionCount</c> of 1 to be observable at
+    /// all (derived facts are created with <c>mention_count = 1</c>) and self-heals on the next write,
+    /// which is within what an eager hash-short-circuited rebuild already promises.
+    /// </para>
+    /// </remarks>
+    private async Task RebuildWorkingMemoryAsync(
+        string? ownerId, PersistenceResult result, CancellationToken cancellationToken)
+    {
+        if (_workingMemory is null) return;
+        if (!_workingMemoryOptions.Enabled || !_workingMemoryOptions.RebuildOnWrite) return;
+        if (string.IsNullOrWhiteSpace(ownerId)) return;
+
+        // Nothing landed, nothing to recompile. Relationships are excluded on purpose: the block is
+        // compiled from facts, preferences and entities, so a relationship-only persist cannot change it.
+        if (result.EntityCount + result.FactCount + result.PreferenceCount == 0) return;
+
+        try
+        {
+            await _workingMemory.RebuildAsync(ownerId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Working-memory rebuild failed for owner {Owner} after persist; the persist itself succeeded.",
+                ownerId);
+
+            if (!_workingMemoryOptions.ClearOnRebuildFailure) return;
+            try
+            {
+                await _workingMemory.ClearAsync(ownerId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception clearFailure)
+            {
+                _logger.LogWarning(
+                    clearFailure,
+                    "Clearing the stale working-memory block for owner {Owner} also failed.", ownerId);
+            }
+        }
+    }
+
+    private async Task<PersistenceResult> PersistCoreAsync(
+        ExtractionStageResult extraction,
+        string? ownerId,
+        MemoryTrustLevel trustLevel,
+        CancellationToken cancellationToken)
     {
         // External embedding work is deliberately completed before the storage transaction opens.
         // Holding a database transaction while waiting on a model/provider would amplify contention

@@ -230,6 +230,27 @@ with retrieved and access-tracked item guards unchanged.
 | Fused ordered source-session persistence | `PERF-W-12-X01` | read transactions per 40 sessions | 60 | **20** | **−40 (−66.7%)** |
 | Fused ordered source-session persistence | `PERF-W-12-X01` | write transactions per 40 sessions | 250 | **50** | **−200 (−80.0%)** |
 
+### Where the write path actually stands today
+
+The table above is a change log of individual improvements and stops at the last one recorded. The
+**committed baseline** (`eng/perf/baselines/hermetic-S.json`) is the authority on the current state,
+and it is well below the last row of that table:
+
+| Scenario | 1.3.0 baseline | Doc table's last entry | **Committed baseline today** |
+|---|---:|---:|---:|
+| `PERF-W-02` queries | 43 | 28 | **8** |
+| `PERF-W-02` write transactions | 18 | 6 | **2** |
+| `PERF-W-03` queries | 88 | 33 | **13** |
+| `PERF-W-03` write transactions | 48 | 11 | **7** |
+
+So single-message persistence is **−81% queries and −89% write transactions** against 1.3.0, not the
+−35%/−67% the improvement log stops at. The gap is the batching work, recorded in the baseline and
+never folded back into this page.
+
+**Read the baseline, not this table, for the current number.** A published figure that understates
+the shipped result by three times is the same class of error as one that overstates it: both mean the
+document is not describing the software.
+
 Message creation, optional embedding persistence, `HAS_MESSAGE`, `FIRST_MESSAGE`, and `NEXT_MESSAGE`
 maintenance now execute as one parameterized Cypher operation. Write transactions remain 18 / 48,
 message counts remain 1 / 6, and estimated payload remains 102,960 / 108,964 bytes. Deterministic

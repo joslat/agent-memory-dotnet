@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Spike 0's prototype host (crosslang-architecture.md §5 Step 0).
+
+    NAMED "Spike0.Host", NOT "AgentMemory.Spike0.Host", and that is load-bearing. The root
+    Directory.Build.props multi-targets and attaches NuGet packaging metadata to every project whose
+    name starts with "AgentMemory" and is not on an explicit exclusion list. A throwaway spike picking
+    up net10/net9/net8 multi-targeting and package metadata would be wrong on its own, and adding it to
+    that exclusion list would edit shared build configuration for a prototype. The name sidesteps both.
+
+    Deliberately NOT in AgentMemory.slnx: the spike must never gate the repository's build or CI
+    ("no CI gating main"). Build it by path.
+
+    Zero diff to src/: this references the shipped packages as project references and changes nothing
+    in them.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Spike0.Host</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- A throwaway prototype is allowed to be scrappy, but not to hide real problems behind
+         warnings; the repo's TreatWarningsAsErrors default applies here and is left on. -->
+    <AssemblyName>Spike0.Host</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\AgentMemory\AgentMemory.csproj" />
+    <ProjectReference Include="..\..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="..\..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
+  </ItemGroup>
+
+</Project>

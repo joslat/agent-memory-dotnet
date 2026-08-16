@@ -1,4 +1,4 @@
-﻿using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Infrastructure;
 
 namespace AgentMemory.Neo4j.Queries;
 
@@ -286,8 +286,29 @@ internal static class FactQueries
             ORDER BY score DESC
             LIMIT 1";
 
-    /// <summary>Reinforce an existing fact reached by dedup: bump its confidence.</summary>
-    public const string MarkDeduplicated = "MATCH (f:Fact {id: $id}) SET f.confidence = $confidence RETURN f";
+    /// <summary>Reinforce an existing fact reached by dedup: bump its confidence and count the mention.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>mention_count</c> is incremented here for the same reason it is in <see cref="Upsert"/> and
+    /// <see cref="UpsertBatch"/>:</b> arriving by dedup still means the world asserted this fact again,
+    /// only in different words. This statement previously set confidence alone, which made the counter
+    /// depend on which write path ran — exactly what <see cref="UpsertBatch"/>'s comment says it must
+    /// not do.
+    /// </para>
+    /// <para>
+    /// The consequence was not cosmetic. <c>LongTerm.DeduplicateOnCreate</c> defaults to <c>true</c>, and
+    /// a re-asserted triple — including a byte-identical one, which trivially clears the similarity
+    /// threshold — reaches this statement instead of the triple MERGE. So on the single-add API the
+    /// counter never left 1, the working-memory tier (which admits at <c>MinFactMentionCount</c>,
+    /// default 2) could never admit a directly-added fact however often it was re-asserted, and
+    /// <c>MentionFrequencyReranker</c> had no salience signal to rank on.
+    /// </para>
+    /// </remarks>
+    public const string MarkDeduplicated = @"
+            MATCH (f:Fact {id: $id})
+            SET f.confidence    = $confidence,
+                f.mention_count = coalesce(f.mention_count, 1) + 1
+            RETURN f";
 
     // ── SearchByVectorAsync ────────────────────────────────────────────
 
@@ -427,7 +448,14 @@ internal static class FactQueries
         return @"
             MATCH (f:Fact {id: $id})
             WHERE true" + owner + @"
-            SET f.invalidated_at = coalesce(f.invalidated_at, datetime($now))
+            SET f.invalidated_at = coalesce(f.invalidated_at, datetime($now))"
+            // 30.6. Any aggregate computed from this fact stops being live in the SAME statement. A
+            // derived 750 whose input 800 was just retracted is a manufactured confident-wrong answer,
+            // and an eventually-consistent sweep would leave a window in which exactly that is
+            // retrievable. Unconditional rather than flag-gated: switching the accountant off must not
+            // freeze every aggregate it ever wrote into permanent truth. Row-neutral on a store with no
+            // derived facts (guard G1) -- see DerivedFactQueries.CascadeInvalidateDerived.
+            + DerivedFactQueries.CascadeInvalidateDerived("f") + @"
             RETURN count(f) > 0 AS invalidated";
     }
 
@@ -468,9 +496,216 @@ internal static class FactQueries
                         THEN 0.0
                         ELSE coalesce(loser.confidence, 0.0) - (2 * $reinforceAlpha) END
                     ELSE loser.confidence END
-            MERGE (loser)-[:SUPERSEDED_BY]->(winner)
+            MERGE (loser)-[:SUPERSEDED_BY]->(winner)"
+            // 30.6, same reasoning as Invalidate: an aggregate over a fact that was just replaced is
+            // stale the instant the replacement lands. The next accountant pass recomputes and re-arms
+            // it from the surviving inputs.
+            + DerivedFactQueries.CascadeInvalidateDerived("loser") + @"
             RETURN count(loser) > 0 AS superseded";
     }
+
+    // ── Legible forgetting (30.8) ──────────────────────────────────────
+
+    /// <summary>
+    /// Vector search over facts the prune let go of — <c>invalidated_reason = 'decay'</c> only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A sibling of <see cref="SearchByVector"/> with exactly two clauses inverted, so the two cannot
+    /// drift apart on anything else. The vector index already contains these nodes: soft-invalidation
+    /// keeps the embedding, and every live query simply filters them out afterwards. This inverts that
+    /// filter rather than adding an index.
+    /// </para>
+    /// <para>
+    /// <b><c>invalidated_reason = 'decay'</c>, not merely <c>invalidated_at IS NOT NULL</c>.</b> A
+    /// superseded fact is also invalidated, and reporting one as forgotten would be a lie in the most
+    /// damaging direction: the system did not forget it, it <i>replaced</i> it, and its replacement is
+    /// live and should be answering the question. The reason property is the partition.
+    /// </para>
+    /// <para>
+    /// <b>The same <c>$minScore</c> floor a live fact would face.</b> A tombstone that clears a looser
+    /// bar is a confident statement about having forgotten something on an unrelated topic — worse
+    /// than silence, because it invites the user to re-supply information they never gave.
+    /// </para>
+    /// <para>
+    /// <b>No escalation tiers.</b> The owner-starvation fallback ladder is deliberately not replicated
+    /// for a diagnostic line: if the global top-K starves, the tombstone silently does not render,
+    /// which is the correct failure direction for a surface whose whole job is honesty about absence.
+    /// </para>
+    /// </remarks>
+    public static string SearchDecayedByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
+        VectorRerank.Finish(
+            new CypherBuilder()
+                .WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK)
+                .Where("score >= $minScore")
+                .And("node.invalidated_at IS NOT NULL")
+                .And("node.invalidated_reason = 'decay'")
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
+            recencyRerank: false, omitEmbedding: true);
+
+    // ── Prospective firing (30.7) ──────────────────────────────────────
+
+    /// <summary>
+    /// Facts whose validity <b>opened</b> in <c>(since, now]</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No <c>$embedding</c>, no <c>$minScore</c>, no vector index.</b> That absence is the
+    /// specification, not an omission: a reminder is off-topic by definition, so a similarity-scoped
+    /// version of this query could never surface the reminders that matter most.
+    /// </para>
+    /// <para>
+    /// <c>valid_from</c>, the valid-time clock — deliberately not <c>created_at</c>. "I learned last
+    /// week that the renewal is today" must fire today, not last week, and those are different clocks
+    /// answering different questions.
+    /// </para>
+    /// <para>
+    /// Ordered most-recently-due first, so <c>LIMIT</c> truncates the oldest. Half-open on the same
+    /// convention every other window query here uses.
+    /// </para>
+    /// </remarks>
+    public static string GetDueFacts(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL
+              AND f.valid_from IS NOT NULL
+              AND f.valid_from > datetime($since)
+              AND f.valid_from <= datetime($now)"
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_from DESC LIMIT $limit";
+
+    /// <summary>
+    /// Facts whose validity <b>closes</b> between now and the expiry horizon.
+    /// </summary>
+    /// <remarks>
+    /// <c>valid_until &gt; $now</c> excludes what has already expired: that belongs to delta recall's
+    /// expired-validity bucket, and reporting it here as "expiring" would be a tense error the reader
+    /// acts on. The horizon is computed in C# and passed ISO-8601 — no Cypher duration arithmetic, the
+    /// same way <c>$now</c> already travels.
+    /// </remarks>
+    public static string GetExpiringFacts(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL
+              AND f.valid_until IS NOT NULL
+              AND f.valid_until > datetime($now)
+              AND f.valid_until <= datetime($expiryHorizon)"
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_until ASC LIMIT $limit";
+
+    // ── Delta recall (30.5) ────────────────────────────────────────────
+
+    /// <summary>
+    /// The owner fragment shared by every delta query. Same shape as <c>GetBySubject</c>'s.
+    /// </summary>
+    private static string DeltaOwner(bool hasOwnerFilter, bool includeShared, string alias = "f") =>
+        !hasOwnerFilter ? string.Empty
+            : includeShared ? $" AND ({alias}.owner_id = $ownerId OR {alias}.owner_id IS NULL)"
+                            : $" AND {alias}.owner_id = $ownerId";
+
+    /// <summary>
+    /// Facts the system newly knows in <c>(since, until]</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Transaction clock, deliberately.</b> Not <c>valid_from</c> — a fact learned yesterday about
+    /// 2019 would never surface. Not <c>updated_at</c> — <c>Upsert ON MATCH</c> bumps it on every
+    /// restatement, so restatements would replay as "new" forever.
+    /// </para>
+    /// <para>
+    /// This is also what makes a backfill behave: an import stamps <c>created_at</c> = import time, so
+    /// imported facts appear as new exactly once, in the first delta after the import, which is the
+    /// honest answer — the system newly knows them.
+    /// </para>
+    /// <para>
+    /// Boundary convention, applied without exception across every delta query: strictly
+    /// <c>&gt; $since</c>, inclusively <c>&lt;= $until</c>. One <c>&gt;=</c> where <c>&gt;</c> belongs
+    /// silently duplicates an item across consecutive windows.
+    /// </para>
+    /// </remarks>
+    public static string DeltaNewFacts(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.created_at > datetime($since) AND f.created_at <= datetime($until)
+              AND f.invalidated_at IS NULL" + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.created_at ASC LIMIT $limit";
+
+    /// <summary>Facts replaced in the window, with their successor.</summary>
+    public static string DeltaSupersededPairs(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (old:Fact)-[:SUPERSEDED_BY]->(new:Fact)
+            WHERE old.invalidated_at > datetime($since) AND old.invalidated_at <= datetime($until)"
+        + DeltaOwner(hasOwnerFilter, includeShared, "old") + @"
+            RETURN old, new ORDER BY old.invalidated_at ASC LIMIT $limit";
+
+    /// <summary>Facts closed in the window with no successor — retracted rather than replaced.</summary>
+    public static string DeltaInvalidatedFacts(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at > datetime($since) AND f.invalidated_at <= datetime($until)
+              AND NOT (f)-[:SUPERSEDED_BY]->(:Fact)" + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.invalidated_at ASC LIMIT $limit";
+
+    /// <summary>
+    /// Facts whose real-world window closed in the window and which are still live on the transaction clock.
+    /// </summary>
+    /// <remarks>
+    /// The <c>invalidated_at IS NULL</c> gate is load-bearing: <c>Supersede</c> stamps
+    /// <b>both</b> clocks, so without it a superseded fact would appear twice — once as a pair and
+    /// once here — and the exactly-once invariant the whole feature rests on would be false.
+    /// </remarks>
+    public static string DeltaExpiredValidity(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.valid_until IS NOT NULL
+              AND f.valid_until > datetime($since) AND f.valid_until <= datetime($until)
+              AND f.invalidated_at IS NULL" + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_until ASC LIMIT $limit";
+
+    /// <summary>
+    /// Facts that became true during the window, having been known before it.
+    /// </summary>
+    /// <remarks>
+    /// <c>created_at &lt;= $since</c> is what keeps this disjoint from <c>NewFacts</c>: a fact both
+    /// learned and becoming due inside one window belongs in exactly one bucket, and "new" is the more
+    /// informative of the two.
+    /// </remarks>
+    public static string DeltaNewlyDueProspective(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.valid_from IS NOT NULL
+              AND f.valid_from > datetime($since) AND f.valid_from <= datetime($until)
+              AND f.created_at <= datetime($since)
+              AND f.invalidated_at IS NULL
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($until))"
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_from ASC LIMIT $limit";
+
+    // ── GetSupersessionPredecessorsAsync (30.2 projection) ─────────────
+
+    /// <summary>
+    /// For a set of fact ids the caller already holds, what each one superseded — newest first, capped.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No owner clause, and that is a conclusion rather than an omission.</b> The edge this walks is
+    /// only ever created by <see cref="Supersede"/>, which carries a same-owner guard on <i>both</i>
+    /// ends — even on the unscoped admin path — so a <c>:SUPERSEDED_BY</c> chain cannot cross owners
+    /// and cannot be made to. Anchoring on ids the caller already retrieved under their own scope means
+    /// this query cannot widen it. An owner-isolation test covers the claim anyway.
+    /// </para>
+    /// <para>
+    /// One call per recall, not one per fact: <c>cur.id IN $factIds</c> batches the whole section. The
+    /// per-fact cap is applied inside the collect so a long chain cannot blow up the payload.
+    /// </para>
+    /// <para>
+    /// (A const, so it IS in the Cypher snapshot inventory — it is a fixed query with no variants.)
+    /// </para>
+    /// </remarks>
+    public const string GetSupersessionPredecessors = @"
+            MATCH (prev:Fact)-[:SUPERSEDED_BY]->(cur:Fact)
+            WHERE cur.id IN $factIds
+            WITH cur, prev
+            ORDER BY coalesce(prev.valid_until, prev.invalidated_at) DESC
+            WITH cur, collect({
+                object: prev.object,
+                invalidated_at: prev.invalidated_at,
+                valid_until: prev.valid_until
+            })[0..$maxChain] AS chain
+            RETURN cur.id AS factId, chain";
 
     // ── FindByTripleAsync ──────────────────────────────────────────────
 

@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -80,8 +82,136 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         var messages = context.AIContext?.Messages ?? Enumerable.Empty<ChatMessage>();
         var ids = ExtractIds(context.Session, context.Agent);
         using var storeScope = ApplyStoreContext(ids.applicationId);
-        return await BuildContextAsync(messages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId)
+        return await BuildContextAsync(
+                messages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId,
+                ReadDeltaCheckpoint(context.Session), context.Session)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the session's delta checkpoint, or <see langword="null"/> when the feature is off.
+    /// </summary>
+    /// <remarks>
+    /// Gated on the flag <b>here</b>, not at the use site, so that with the feature off this provider
+    /// never touches the state bag for a key it does not use — the off state is not merely
+    /// byte-identical in output, it performs no extra work at all.
+    /// </remarks>
+    private DateTimeOffset? ReadDeltaCheckpoint(AgentSession? session)
+    {
+        if (!_agentOptions.InjectDeltaOnSessionResume) return null;
+
+        try
+        {
+            return session.GetDeltaCheckpoint(_agentOptions);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the delta checkpoint from the state bag.");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The state-bag key holding the checkpoint a delta was <i>read</i> at, awaiting acknowledgement.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A second key, because the value has to survive from <c>ProvideAIContextAsync</c> to
+    /// <c>StoreAIContextAsync</c> and there is nowhere else it can live: an instance field would be
+    /// shared across every concurrent session on this provider, and an <c>AsyncLocal</c> set in the
+    /// provide hook never reaches the store hook — execution context flows into nested calls, not back
+    /// out of them.
+    /// </para>
+    /// <para>
+    /// Derived from the configured key so a host that renames one renames both.
+    /// </para>
+    /// </remarks>
+    private string PendingDeltaCheckpointKey => _agentOptions.DefaultDeltaCheckpointKey + ":pending";
+
+    /// <summary>Records the instant a delta was read at, without acknowledging it.</summary>
+    private void StagePendingCheckpoint(AgentSession? session, DateTimeOffset takenAt)
+    {
+        if (session is null) return;
+
+        try
+        {
+            session.StateBag.SetValue(
+                PendingDeltaCheckpointKey,
+                takenAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+                JsonSerializerOptions.Default);
+        }
+        catch (Exception ex)
+        {
+            // The checkpoint simply does not advance to the delta's instant; the fallback below stamps
+            // the turn's end. Losing a staging write is a cost question, never a correctness one.
+            _logger.LogDebug(ex, "Could not stage the delta checkpoint on the state bag.");
+        }
+    }
+
+    /// <summary>
+    /// Advances the delta checkpoint after a turn the agent actually completed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Advancing is an acknowledgement, not a read receipt</b> — the distinction that disqualified
+    /// deriving the checkpoint from the read-audit trail. A turn that threw never advances, so its delta
+    /// is replayed next time. Replaying a change set is harmless; marking one acknowledged that the
+    /// agent never saw loses it permanently.
+    /// </para>
+    /// <para>
+    /// It advances to the delta's own <c>TakenAtUtc</c>, not to now: the window between the delta being
+    /// read and the turn finishing was never reported to the agent, and stamping now would mark it
+    /// acknowledged. That window is short but it spans a model call, which is exactly long enough for a
+    /// concurrent writer to land in it.
+    /// </para>
+    /// <para>
+    /// Every turn advances, delta or not. The checkpoint marks the last moment the agent was present,
+    /// so mid-session turns must move it — otherwise the next resume re-reports everything the agent sat
+    /// through live.
+    /// </para>
+    /// </remarks>
+    private void AdvanceDeltaCheckpoint(AgentSession? session)
+    {
+        if (!_agentOptions.InjectDeltaOnSessionResume || session is null) return;
+
+        try
+        {
+            var current = session.GetDeltaCheckpoint(_agentOptions);
+            var staged = ReadPendingCheckpoint(session);
+
+            // Stale-staging guard: a staged value that is not newer than the checkpoint has already been
+            // acknowledged on an earlier turn. Promoting it again would move the checkpoint BACKWARDS and
+            // replay that window forever. This is also what clears the staging slot without needing to
+            // remove a key -- once promoted, it is no longer newer.
+            var advanceTo = staged is not null && (current is null || staged > current)
+                ? staged.Value
+                : _clock.UtcNow;
+
+            session.SetDeltaCheckpoint(advanceTo, _agentOptions);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not advance the delta checkpoint on the state bag.");
+        }
+    }
+
+    private DateTimeOffset? ReadPendingCheckpoint(AgentSession? session)
+    {
+        var bag = session?.StateBag;
+        if (bag is null) return null;
+
+        try
+        {
+            bag.TryGetValue(PendingDeltaCheckpointKey, out string? raw, JsonSerializerOptions.Default);
+            return DateTimeOffset.TryParse(
+                raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+                ? parsed
+                : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -92,7 +222,9 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         string sessionId,
         string conversationId,
         CancellationToken cancellationToken,
-        string? userId = null)
+        string? userId = null,
+        DateTimeOffset? deltaCheckpoint = null,
+        AgentSession? session = null)
     {
         // Set the ambient owner BEFORE recall so the LLM-invokable facade tools the agent calls mid-turn
         // (search_memory / remember_* etc.) scope to this owner instead of running unscoped. Scoped (not a
@@ -101,8 +233,15 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         // the value survives into the tool-calling loop that runs AFTER it returns -- see
         // MemoryOwnerScopingAgent (#90), which wraps the complete invocation for that guarantee.
         using var ownerScope = _ownerContext?.BeginOwnerScope(userId);
+        // Declared outside the try so every early return -- no user messages, policy said don't recall,
+        // recall threw -- still carries it. A resume delta that only survives the happy path is a resume
+        // delta that vanishes on exactly the turns where knowing what changed matters most.
+        ChatMessage? deltaMessage = null;
         try
         {
+            deltaMessage = await TryBuildDeltaMessageAsync(
+                deltaCheckpoint, sessionId, userId, session, cancellationToken).ConfigureAwait(false);
+
             // Materialised once: the thread is enumerated for the query below AND handed to the
             // mapper for dedup, and `messages` is an IEnumerable that a caller may well have built
             // lazily. Enumerating it twice would be a silent correctness bug for a generator source.
@@ -113,7 +252,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 .ToList();
 
             if (userMessages.Count == 0)
-                return BuildResult();
+                return BuildResult(null, deltaMessage);
 
             var queryText = string.Join("\n", userMessages.Select(m => m.Text));
 
@@ -140,7 +279,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 sessionId, _recallPolicy.GetType().Name, decision.ShouldRecall, decision.Categories, decision.Intent);
 
             if (!decision.ShouldRecall)
-                return BuildResult();
+                return BuildResult(null, deltaMessage);
 
             var effectiveOptions = ResolveEffectiveOptions(decision);
 
@@ -196,7 +335,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Memory recall failed for session {SessionId}; returning empty context.", sessionId);
-                return BuildResult();
+                return BuildResult(null, deltaMessage);
             }
 
             // 2.5. The host is already sending the live thread; recall returns the same recent turns
@@ -208,9 +347,9 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 _agentOptions.DeduplicateRecalledHistory ? liveThread : null);
 
             if (contextMessages.Count == 0)
-                return BuildResult();
+                return BuildResult(null, deltaMessage);
 
-            return BuildResult(contextMessages);
+            return BuildResult(contextMessages, deltaMessage);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -219,7 +358,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Unexpected error in Neo4jMemoryContextProvider for session {SessionId}.", sessionId);
-            return BuildResult();
+            return BuildResult(null, deltaMessage);
         }
     }
 
@@ -228,13 +367,106 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     /// tool exposure is consistent regardless of whether this turn had recall hits, no user messages, or
     /// a recall failure -- a turn with nothing to recall must not silently lose tool availability.
     /// </summary>
-    private AIContext BuildResult(IReadOnlyList<ChatMessage>? messages = null) => new()
+    /// <param name="messages">The recall block, if this turn produced one.</param>
+    /// <param name="deltaMessage">
+    /// The resume delta, prepended ahead of recall. When null — which is every turn with
+    /// <see cref="AgentFrameworkOptions.InjectDeltaOnSessionResume"/> off — <c>Messages</c> is the exact
+    /// same reference it was before 30.5, so the off state is byte-identical rather than merely
+    /// equivalent.
+    /// </param>
+    private AIContext BuildResult(
+        IReadOnlyList<ChatMessage>? messages = null, ChatMessage? deltaMessage = null)
     {
-        Messages = messages,
-        Tools = _agentOptions.ExposeMemoryToolsFromContextProvider
-            ? _toolFactory?.CreateAIFunctions()
-            : null,
-    };
+        IReadOnlyList<ChatMessage>? combined = messages;
+        if (deltaMessage is not null)
+        {
+            // Delta first: it frames what follows. Recall answers the current question; the delta says
+            // what moved underneath while nobody was asking.
+            var list = new List<ChatMessage>((messages?.Count ?? 0) + 1) { deltaMessage };
+            if (messages is not null) list.AddRange(messages);
+            combined = list;
+        }
+
+        return new AIContext
+        {
+            Messages = combined,
+            Tools = _agentOptions.ExposeMemoryToolsFromContextProvider
+                ? _toolFactory?.CreateAIFunctions()
+                : null,
+        };
+    }
+
+    /// <summary>
+    /// Fetches and renders the resume delta, or returns <see langword="null"/> when this turn does not
+    /// get one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The decision table, in three lines.</b> No checkpoint ⇒ brand-new session, full recall only.
+    /// Checkpoint younger than <see cref="AgentFrameworkOptions.MinimumDeltaGap"/> ⇒ a mid-session turn,
+    /// nothing to catch up on. Older ⇒ a resume: the delta is injected <i>in addition to</i> normal
+    /// recall, never instead of it.
+    /// </para>
+    /// <para>
+    /// The gap heuristic is deliberate. There is no session lifecycle in this system — a session is a
+    /// string — so "resume" cannot be read off a close event that does not exist. An age threshold is
+    /// deterministic, stateless beyond the token, and wrong only in the benign direction.
+    /// </para>
+    /// <para>
+    /// Every failure degrades to normal recall, matching the recall path's own catch. A delta is an
+    /// enrichment; taking down a turn because the enrichment failed inverts its value.
+    /// </para>
+    /// </remarks>
+    private async Task<ChatMessage?> TryBuildDeltaMessageAsync(
+        DateTimeOffset? checkpoint,
+        string sessionId,
+        string? userId,
+        AgentSession? session,
+        CancellationToken cancellationToken)
+    {
+        if (!_agentOptions.InjectDeltaOnSessionResume || checkpoint is null) return null;
+
+        var age = _clock.UtcNow - checkpoint.Value;
+        if (age < _agentOptions.MinimumDeltaGap) return null;
+
+        try
+        {
+            var delta = await _memoryService.RecallChangedSinceAsync(
+                new MemoryDeltaRequest
+                {
+                    Since = checkpoint.Value,
+                    UserId = userId,
+                    MaxItemsPerSection = _agentOptions.MaxDeltaItemsPerSection,
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            // Stamped even when the delta is empty. "Nothing changed" is still an answer the agent was
+            // given, and re-reporting an empty window next turn would be pure waste.
+            StagePendingCheckpoint(session, delta.TakenAtUtc);
+
+            // The host's own admission policy, not Core's built-in one: a custom policy applied to every
+            // category except this one would be a hole shaped exactly like a new feature.
+            var rendered = AgentMemory.Core.Services.MemoryDeltaFormatter.Format(
+                delta, options: null, _logger,
+                admit: (content, trust) => MafTypeMapper.AdmitItem(
+                    "delta", content, trust, _formatOptions, _admissionPolicy, _logger));
+            if (string.IsNullOrEmpty(rendered)) return null;
+
+            return new ChatMessage(
+                MafTypeMapper.RecalledBlockChatRole(MemoryTrustLevel.Untrusted, _formatOptions),
+                rendered);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Delta recall failed for session {SessionId}; continuing with normal recall.", sessionId);
+            return null;
+        }
+    }
 
     /// <summary>
     /// Resolves the effective <see cref="RecallOptions"/> for this turn from the policy's decision (#88).
@@ -308,6 +540,10 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
 
         await PerformStoreAsync(requestMessages, responseMessages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId)
             .ConfigureAwait(false);
+
+        // After persistence, and only on a turn that did not throw (the guard above): the checkpoint
+        // records what the agent has acknowledged, and a turn that failed acknowledged nothing.
+        AdvanceDeltaCheckpoint(context.Session);
     }
 
     /// <summary>Internal helper exposed for unit testing.</summary>

@@ -13,7 +13,22 @@ public sealed record ReasoningMemoryOptions
     /// <summary>Whether to store tool call details.</summary>
     public bool StoreToolCalls { get; init; } = true;
 
-    /// <summary>Maximum number of traces to retain per session.</summary>
+    /// <summary>Maximum number of traces to retain per session. Null (the default) means no pruning.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Null has a consequence beyond "no pruning", and it is easy to miss.</b> Retention pruning is
+    /// the only thing that ever consults a trace's promotion marker: <c>PruneSessionTracesAsync</c>
+    /// exempts promoted procedures so that recency cannot undo a promotion. With no cap configured,
+    /// prune never runs, so <b>the prune exemption — the load-bearing half of procedural memory's
+    /// retention story — is inert at stock settings</b>.
+    /// </para>
+    /// <para>
+    /// That is the correct default: a store that silently deleted a host's reasoning traces because a
+    /// cap was left unset would be far worse. It is recorded here because the exemption is otherwise
+    /// invisible — it ships, it is tested against a live database, and on a default configuration it
+    /// never executes, which is indistinguishable from it not existing.
+    /// </para>
+    /// </remarks>
     public int? MaxTracesPerSession { get; init; }
 
     /// <summary>

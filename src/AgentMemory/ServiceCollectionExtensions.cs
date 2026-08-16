@@ -19,10 +19,16 @@ public static class ServiceCollectionExtensions
     /// <see cref="MemoryOptions"/>.
     /// </summary>
     /// <remarks>
-    /// Prefer this over the <c>Action&lt;MemoryOptions&gt;</c> overload, which cannot configure
-    /// anything: <see cref="MemoryOptions"/> is a record with <c>init</c>-only properties, so a
-    /// configure lambda can neither assign them nor keep a <c>with</c> expression's result. See
-    /// <see cref="AgentMemory.Core.ServiceCollectionExtensions.AddAgentMemoryCore(IServiceCollection, MemoryOptions)"/>.
+    /// Use this when you want to assign a nested option object wholesale — <c>Recall</c>,
+    /// <c>ContextBudget</c>, <c>MemoryDecay</c> and <c>Ranking</c> remain <c>init</c>-only because they
+    /// default to process-wide shared singletons (see the remarks on <see cref="MemoryOptions"/>), so
+    /// replacing one needs an object initialiser:
+    /// <c>new MemoryOptions { Recall = RecallOptions.Default with { MaxFacts = 5 } }</c>.
+    /// <para>
+    /// <b>The <c>Action&lt;MemoryOptions&gt;</c> overload is no longer second-class.</b> It previously
+    /// could not configure a single option, because all 19 properties were <c>init</c>-only; as of 25.1
+    /// every scalar option is settable, so the idiomatic configure lambda works for all of them.
+    /// </para>
     /// <para>
     /// Binary compatibility is unaffected. There is one narrow source-level consequence: an untyped
     /// <c>null</c> as the second argument now converts to both this overload and the lambda one, so

@@ -1,6 +1,9 @@
 <Project>
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- 29.1. Default for everything: apps, tools, tests, samples and benchmarks. The publishable
+         libraries override this below with a net10.0;net9.0;net8.0 multi-target, so a .NET 8 or 9
+         consumer is unaffected. -->
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -28,6 +31,7 @@
     <TargetFramework></TargetFramework>
     <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
   </PropertyGroup>
+
 
   <!-- Shared NuGet packaging metadata for the publishable src/ libraries. Scoped by project name
        (test projects contain ".Tests", samples contain ".Sample") so it is correct cross-platform

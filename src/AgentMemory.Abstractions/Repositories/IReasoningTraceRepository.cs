@@ -18,6 +18,30 @@ public interface IReasoningTraceRepository
     /// </summary>
     Task<ReasoningTrace?> UpdateAsync(ReasoningTrace trace, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Sets a trace's <see cref="TraceKind"/> — promotion (7.1) — and nothing else. Returns
+    /// <c>null</c> if the trace no longer exists.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A separate operation from <see cref="UpdateAsync"/> on purpose.</b> Update writes the whole
+    /// object, so promoting through it would let a later completion call, built from a stale
+    /// in-memory copy, demote a promoted procedure back to an episode — losing the marker with no
+    /// error and nothing to notice.
+    /// </para>
+    /// <para>
+    /// <b>A default interface method, because the surface is locked under SemVer.</b> The default
+    /// throws rather than returning null: a store with no promotion concept that silently reported
+    /// "not found" would be indistinguishable from a successful promotion of a deleted trace, and
+    /// procedural recall would then filter on a marker that was never written.
+    /// </para>
+    /// </remarks>
+    Task<ReasoningTrace?> PromoteAsync(
+        string traceId, TraceKind kind, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            $"{GetType().Name} does not support trace promotion. Implement PromoteAsync to set "
+            + "trace_kind, or leave procedural promotion disabled.");
+
     /// <summary>Gets a trace by identifier.</summary>
     Task<ReasoningTrace?> GetByIdAsync(string traceId, CancellationToken cancellationToken = default);
 

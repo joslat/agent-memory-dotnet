@@ -35,15 +35,36 @@ public sealed class ProcedureRetrievalPrecisionTests
     }
 
     [Fact]
-    public void AbstentionIsNotAFailure()
+    public void AbstainingWhenNothingAppliesIsTheRightCall()
     {
-        // THE distinction. Returning nothing makes the agent investigate: slower, and safe. Counting
-        // it with wrong answers would make a cautious retriever indistinguishable from a reckless one.
-        var scored = ProcedureRetrievalPrecision.Score([Case("t-1", [], "right")]);
+        // THE distinction. Returning nothing when nothing applies is correct, not a failure, and
+        // counting it with wrong answers would make a cautious retriever indistinguishable from a
+        // reckless one.
+        var scored = ProcedureRetrievalPrecision.Score([Case("t-1", [])]);
 
         scored.Abstained.Should().Be(1);
+        scored.Missed.Should().Be(0);
         scored.WrongAtOne.Should().Be(0);
         scored.WrongProcedureRate.Should().Be(0);
+    }
+
+    [Fact]
+    public void ReturningNothingWhenAProcedureAppliedIsAMissNotAnAbstention()
+    {
+        // This test previously asserted the opposite, under the name "AbstentionIsNotAFailure": it
+        // fed a case whose correct answer was "right", retrieved nothing, and asserted that counted
+        // as abstention. That encoded the defect rather than catching it.
+        //
+        // Returning nothing when a procedure DID apply is a miss. It is safe -- the agent
+        // investigates rather than acting on the wrong plan -- but it is a failure, and scoring it in
+        // the column the docs call "not a failure" meant a retriever tuned so high that it found
+        // nothing would score maximally safe rather than useless.
+        var scored = ProcedureRetrievalPrecision.Score([Case("t-1", [], "right")]);
+
+        scored.Missed.Should().Be(1);
+        scored.Abstained.Should().Be(0);
+        scored.MissRate.Should().Be(1.0);
+        scored.WrongAtOne.Should().Be(0, "a miss is still not a WRONG procedure");
     }
 
     [Fact]
@@ -73,7 +94,10 @@ public sealed class ProcedureRetrievalPrecisionTests
 
         scored.PrecisionAtOne.Should().Be(0.5);
         scored.PrecisionWhenAnswering.Should().Be(1.0);
-        scored.AbstentionRate.Should().Be(0.5);
+        // t-3 applied to nothing and returned nothing (abstention); t-4 had a correct answer and
+        // returned nothing (miss). One of each, not two abstentions.
+        scored.AbstentionRate.Should().Be(0.25);
+        scored.MissRate.Should().Be(0.25);
     }
 
     [Fact]
@@ -97,7 +121,7 @@ public sealed class ProcedureRetrievalPrecisionTests
     }
 
     [Fact]
-    public void TheThreeOutcomesAccountForEveryTask()
+    public void TheFourOutcomesAccountForEveryTask()
     {
         // No task may fall through the classification: a total that does not reconcile would let a
         // silently dropped case look like an improved wrong-procedure rate.
@@ -108,6 +132,7 @@ public sealed class ProcedureRetrievalPrecisionTests
             Case("t-3", []),
         ]);
 
-        (scored.CorrectAtOne + scored.WrongAtOne + scored.Abstained).Should().Be(scored.Total);
+        (scored.CorrectAtOne + scored.WrongAtOne + scored.Abstained + scored.Missed)
+            .Should().Be(scored.Total, "every case lands in exactly one of the four outcomes");
     }
 }

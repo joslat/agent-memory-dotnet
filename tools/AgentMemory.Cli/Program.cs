@@ -32,7 +32,8 @@ if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 // schema-parity is pure static analysis of embedded snapshots — no Neo4j connection or host needed.
 if (string.Equals(cli.Command, "schema-parity", StringComparison.OrdinalIgnoreCase))
 {
-    return new AgentMemory.Cli.Commands.SchemaParityCommand(Console.Out).Execute(cli.Get("upstream-version"));
+    return new AgentMemory.Cli.Commands.SchemaParityCommand(Console.Out)
+        .Execute(cli.Get("upstream-version"), cli.Get("extensions"));
 }
 
 // perf provisions its OWN Neo4j (Testcontainers) and its own deterministic embedding/model stand-ins,
@@ -167,6 +168,20 @@ try
         Resolve("embedding-dimensions", "1536", "Neo4j:EmbeddingDimensions", "NEO4J_EMBEDDING_DIMENSIONS"),
         out var parsed) ? parsed : 1536;
 
+    // The operator path for extension DDL. Extensions ship their schema as ext/<id>/000N scripts and
+    // MigrationRunner applies exactly the ones Neo4jOptions.Extensions names -- and this block set the
+    // URI, credentials, database and dimensions and never touched Extensions, so `migrate` applied base
+    // migrations only and no supported path existed for the rest. Resolved through the same
+    // CLI > config > env precedence as every other setting.
+    //
+    // Validated BEFORE the host is built: an unknown id should end in "known: ..." on stderr, not a
+    // wrapped exception from inside the DI graph.
+    var extensionsArg = Resolve("extensions", string.Empty, "Neo4j:Extensions", "NEO4J_EXTENSIONS");
+    // Parsed EAGERLY, here, not inside the lambda below: an options-configure lambda runs lazily on
+    // first resolution, so throwing from inside it produces a wrapped exception from the DI graph
+    // instead of one readable line. A typo should end in a correction.
+    var activeExtensions = CliSchemaExtensions.Parse(extensionsArg);
+
     builder.Services.AddNeo4jAgentMemory(
         _ => { },
         o =>
@@ -176,6 +191,8 @@ try
             o.Password = password;
             o.Database = database;
             o.EmbeddingDimensions = dims;
+            if (activeExtensions is not null)
+                o.Extensions = new HashSet<string>(activeExtensions, StringComparer.Ordinal);
         });
     builder.Services.TryAddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
         new StubEmbeddingGenerator(
@@ -200,9 +217,12 @@ try
             sp.GetRequiredService<IMigrationRunner>(), output).ExecuteAsync(),
         "bootstrap" => await new BootstrapCommand(
             sp.GetRequiredService<ISchemaBootstrapper>(), output).ExecuteAsync(),
+        // 30.14: the registry is resolved here so the owners report runs. Resolved rather than
+        // required, because a host that has not registered extensions still gets the conformance half.
         "schema-check" => await new SchemaCheckCommand(
             sp.GetRequiredService<INeo4jTransactionRunner>(),
-            sp.GetRequiredService<IOptions<Neo4jOptions>>(), output).ExecuteAsync(),
+            sp.GetRequiredService<IOptions<Neo4jOptions>>(), output,
+            sp.GetService<AgentMemory.Neo4j.Schema.Extensions.SchemaExtensionRegistry>()).ExecuteAsync(),
         "consolidate" => await new ConsolidateCommand(
             sp.GetRequiredService<IConsolidationService>(), output).ExecuteAsync(cli.HasFlag("apply")),
         "decay" => await new DecayCommand(

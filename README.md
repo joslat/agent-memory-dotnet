@@ -40,6 +40,11 @@ with any MIT-licensed software, it's provided as-is, without warranty (see [Lice
   recall, GraphRAG, reasoning, maintenance, and agent-tool operations.
   Multi-tenant hosts must establish an owner scope for every agent run. Unscoped operations retain
   global behavior for administrative and single-tenant scenarios.
+  **One deliberate exception, stated precisely:** short-term messages are addressed *by handle*.
+  `:Message` nodes carry no `owner_id`, and reading a session's messages by session id performs no
+  owner check — **a session id is itself the capability.** Long-term memory, recall, and session
+  *clearing* are all owner-scoped; short-term reads by handle are not. Treat session ids as secrets,
+  and reach short-term history through recall when you want owner enforcement.
 - **Time-aware.** Bitemporal recall and non-destructive decay mean memory can answer "what did we believe
   back then" as well as "what do we believe now."
 - **Drops into the ecosystem you already use.** First-class adapters for the Microsoft Agent Framework,
@@ -62,7 +67,7 @@ not by convention. AgentMemory does:
 | **What changed, and when?** | A bitemporal model separates valid-time (`valid_from`/`valid_until`) from transaction-time (`created_at`/`invalidated_at`); contradictions resolve via non-destructive `SUPERSEDED_BY`, and point-in-time recall can answer "what did we believe back then." |
 | **Why was it recalled?** | Every long-term read is logged to a read/access audit trail (who, what, when, how often); ranking is driven by explicit, configurable recency/structural signals — not an opaque score. |
 | **How is it invalidated or deleted?** | Long-term memory soft-invalidates by default (kept, recoverable); hard deletion is opt-in. Short-term session data can be cleared explicitly, always scoped to a single owner. |
-| **Can scoped tenants see one another's memory?** | No. Owner-scoped operations return only that owner's memory and, when enabled, shared memory. Unscoped reads are global in the default compatibility mode, so multi-tenant hosts must establish an owner scope for every operation. |
+| **Can scoped tenants see one another's memory?** | No. Owner-scoped operations return only that owner's memory and, when enabled, shared memory. Unscoped reads are global in the default compatibility mode, so multi-tenant hosts must establish an owner scope for every operation. **Short-term messages are the one by-handle exception:** they carry no `owner_id`, so anyone holding a session id can read that session's messages. Session ids are capabilities — keep them secret. |
 | **How do applications meet retention and privacy requirements?** | Scoped decay/pruning, non-destructive-by-default invalidation, the read-audit trail, and physical per-application isolation are the building blocks — wire them into whatever retention or privacy policy your application needs. |
 
 ## Quick Start
@@ -107,8 +112,10 @@ Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotne
 
 - [Getting Started](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/getting-started.md)
 - [Architecture](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/architecture.md)
+- [The Memory Map](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/memory-map.md) - what this memory layer does, does partially, and does not do, with each claim labelled built / wired / measured
 - [Agent Framework Integration](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/agent-framework.md)
 - [Schema Reference](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/schema.md)
+- [Schema Extensions](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/extensions/README.md) - optional, additive-only schema modules a capability can bring with it; none is active by default, and each one's DDL is applied by an operator, not by application startup
 - [Specification](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/specification.md)
 - [Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md) - schema-parity/TCK compatibility tooling and the review process behind releases
 - [Threat Model](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/security/threat-model.md) - what isolation/authorization properties hold today, what's a documented gap, and who owns closing it

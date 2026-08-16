@@ -26,6 +26,20 @@ public static class ServiceCollectionExtensions
         else
             services.AddOptions<AgentFrameworkOptions>();
 
+        // 30.5. The delta options had no validation, like every other numeric option added in this
+        // phase before an end-of-phase review found them. Each misconfigures silently: a zero cap makes
+        // every delta render as fully truncated, a non-positive gap fires a "resume" delta on every
+        // single turn, and a blank state-bag key collides with whatever else is unkeyed.
+        services.AddOptions<AgentFrameworkOptions>()
+            .Validate(o => o.MaxDeltaItemsPerSection > 0,
+                "AgentFrameworkOptions.MaxDeltaItemsPerSection must be positive.")
+            .Validate(o => o.MinimumDeltaGap > TimeSpan.Zero,
+                "AgentFrameworkOptions.MinimumDeltaGap must be positive — a non-positive gap treats "
+                + "every turn as a session resume.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.DefaultDeltaCheckpointKey),
+                "AgentFrameworkOptions.DefaultDeltaCheckpointKey must not be blank.")
+            .ValidateOnStart();
+
         services.AddOptions<ContextFormatOptions>()
             .Configure<IOptions<AgentFrameworkOptions>>((ctx, af) =>
             {
@@ -34,7 +48,16 @@ public static class ServiceCollectionExtensions
                 ctx.IncludeFacts = src.IncludeFacts;
                 ctx.IncludePreferences = src.IncludePreferences;
                 ctx.IncludeReasoningTraces = src.IncludeReasoningTraces;
+                // Omitted until 2026-08-13, which made the documented procedural-memory recipe inert:
+                // a host that set IncludeTraceOutcomes got a recalled procedure rendering its task and
+                // dropping its outcome -- "you have done this before" and nothing about how. The
+                // property existed, the option bound, and the bridge silently discarded it.
+                ctx.IncludeTraceOutcomes = src.IncludeTraceOutcomes;
+                ctx.IncludeWorkingMemory = src.IncludeWorkingMemory;
                 ctx.ContextPrefix = src.ContextPrefix;
+                // 25.3. Same lesson, one line down: EverySettablePropertyCrossesTheBridge caught this
+                // omission the moment the property was added, which is precisely what that guard is for.
+                ctx.ProcedureTrustClause = src.ProcedureTrustClause;
                 ctx.MaxChatHistoryMessages = src.MaxChatHistoryMessages;
                 ctx.SecurityMode = src.SecurityMode;
                 ctx.MinimumTrustForAdmissionBypass = src.MinimumTrustForAdmissionBypass;

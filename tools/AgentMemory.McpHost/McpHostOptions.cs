@@ -1,4 +1,5 @@
 using System.Globalization;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.McpServer;
 using Microsoft.Extensions.Logging;
 
@@ -48,6 +49,24 @@ internal sealed record McpHostOptions
     internal bool EnableGraphQuery { get; init; }
     internal bool Bootstrap { get; init; } = true;
     internal LogLevel LogLevel { get; init; } = LogLevel.Information;
+
+    /// <summary>
+    /// Memory behaviour for this server (25.4). Defaults are <see cref="MemoryOptions"/>'s own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The host previously registered memory with <c>AddAgentMemoryCore(_ => { })</c> — an empty
+    /// configure lambda — so every MCP server ran on stock defaults with no way to change them. That
+    /// was not quite an oversight: until 25.1 made the scalar options settable, a configure lambda
+    /// <i>could not</i> assign any of them, so the empty body was the only body that compiled.
+    /// </para>
+    /// <para>
+    /// Environment-only, deliberately. These are deployment tuning rather than per-invocation choices,
+    /// and the flag surface is the part an operator reads under time pressure — it stays about
+    /// transport and safety.
+    /// </para>
+    /// </remarks>
+    internal MemoryOptions Memory { get; init; } = new();
 
     private static readonly string[] Known =
     [
@@ -113,7 +132,61 @@ internal sealed record McpHostOptions
                 || Boolean(environment("AGENT_MEMORY_MCP_ENABLE_GRAPH_QUERY")),
             Bootstrap = !Flag("--no-bootstrap") && !Boolean(environment("AGENT_MEMORY_MCP_NO_BOOTSTRAP")),
             LogLevel = ParseLogLevel(Value("--log-level") ?? environment("AGENT_MEMORY_MCP_LOG_LEVEL")),
+            Memory = ParseMemory(environment),
         };
+    }
+
+    /// <summary>
+    /// Memory options from the environment, falling back to the library defaults for anything unset.
+    /// </summary>
+    /// <remarks>
+    /// <c>Recall</c> is replaced wholesale with a <c>with</c> expression rather than mutated: it
+    /// defaults to <c>RecallOptions.Default</c>, which is a single instance shared by the whole
+    /// process, so assigning through it would change the default for every other consumer in the host.
+    /// </remarks>
+    private static MemoryOptions ParseMemory(Func<string, string?> environment)
+    {
+        var recall = RecallOptions.Default with
+        {
+            MaxFacts = Integer(environment("AGENT_MEMORY_MCP_RECALL_FACTS"), RecallOptions.Default.MaxFacts),
+            MaxEntities = Integer(environment("AGENT_MEMORY_MCP_RECALL_ENTITIES"), RecallOptions.Default.MaxEntities),
+            MaxPreferences = Integer(environment("AGENT_MEMORY_MCP_RECALL_PREFERENCES"), RecallOptions.Default.MaxPreferences),
+            MaxRelevantMessages = Integer(environment("AGENT_MEMORY_MCP_RECALL_MESSAGES"), RecallOptions.Default.MaxRelevantMessages),
+            MinSimilarityScore = Fraction(environment("AGENT_MEMORY_MCP_MIN_SIMILARITY"), RecallOptions.Default.MinSimilarityScore),
+        };
+
+        return new MemoryOptions
+        {
+            Recall = recall,
+            NodeDistanceReranking = Boolean(environment("AGENT_MEMORY_MCP_RERANK_NODE_DISTANCE")),
+            MentionFrequencyReranking = Boolean(environment("AGENT_MEMORY_MCP_RERANK_MENTION_FREQUENCY")),
+            ResolveTemporalQueries = Boolean(environment("AGENT_MEMORY_MCP_RESOLVE_TEMPORAL")),
+        };
+    }
+
+    /// <summary>A non-negative integer, or the default when unset. A malformed value is an error.</summary>
+    /// <remarks>
+    /// Never silently falls back on garbage: an operator who set <c>RECALL_FACTS=ten</c> asked for
+    /// something, and starting on the default would hand them a quietly under-configured server.
+    /// </remarks>
+    private static int Integer(string? value, int fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return fallback;
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) || parsed < 0)
+            throw new ArgumentException($"'{value}' is not a non-negative integer.");
+        return parsed;
+    }
+
+    private static double Fraction(string? value, double fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return fallback;
+        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            || parsed is < 0 or > 1)
+        {
+            throw new ArgumentException($"'{value}' is not a similarity score between 0 and 1.");
+        }
+
+        return parsed;
     }
 
     /// <summary>The first value that is present and not blank, or null.</summary>
@@ -169,6 +242,16 @@ internal sealed record McpHostOptions
           AGENT_MEMORY_MCP_ENABLE_GRAPH_QUERY unset
           AGENT_MEMORY_MCP_NO_BOOTSTRAP      unset
           AGENT_MEMORY_MCP_LOG_LEVEL         information
+
+        Memory tuning (environment only; defaults are the library's):
+          AGENT_MEMORY_MCP_RECALL_FACTS      10
+          AGENT_MEMORY_MCP_RECALL_ENTITIES   10
+          AGENT_MEMORY_MCP_RECALL_PREFERENCES 5
+          AGENT_MEMORY_MCP_RECALL_MESSAGES   5
+          AGENT_MEMORY_MCP_MIN_SIMILARITY    0.7
+          AGENT_MEMORY_MCP_RERANK_NODE_DISTANCE      unset
+          AGENT_MEMORY_MCP_RERANK_MENTION_FREQUENCY  unset
+          AGENT_MEMORY_MCP_RESOLVE_TEMPORAL          unset
 
         --read-only removes every tool that writes from the server's tool list entirely, rather than
         refusing them when called: a tool a client can see is one a model will try. {0} of the {1}

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
@@ -61,6 +62,74 @@ internal static class LongMemEvalProgram
             Console.WriteLine(LongMemEvalPreparedCorpusRegistry.Describe(
                 LongMemEvalPreparedCorpusRegistry.Read(), DateTimeOffset.UtcNow));
             return 0;
+        }
+
+        if (args.Contains("--capture-headroom", StringComparer.Ordinal))
+        {
+            // 8.3c. Read-only, credential-free, and dispatched before any Azure environment is required:
+            // this verb exists to decide whether a ~96M-input-token run could show anything, and a check
+            // that needs the credentials of a paid run is a check nobody makes before buying.
+            return LongMemEvalCaptureHeadroomProgram.Run(args);
+        }
+
+        if (args.Contains("--oracle-representation", StringComparer.Ordinal))
+        {
+            // P2. Extracts from the gold sessions only and answers from the structured rendering, so
+            // recall stays at 100% and the only variable is the representation.
+            return await LongMemEvalRepresentationProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
+        if (args.Contains("--oracle-precision", StringComparer.Ordinal))
+        {
+            // P1. Adds distractor sessions to a context that already holds all the gold, so recall is
+            // pinned at 100% and the only variable is how much wrong material sits beside the answer.
+            return await LongMemEvalContextPrecisionProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
+        if (args.Contains("--oracle-decomposition", StringComparer.Ordinal))
+        {
+            // B4. Needs answer + judge credentials but NO Neo4j, Docker or prepared corpus: the oracle
+            // reads gold sessions from the dataset, so the question "does decomposing help?" is
+            // answerable without paying for a build.
+            return await LongMemEvalOracleDecompositionProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
+        if (args.Contains("--typed-report", StringComparer.Ordinal))
+        {
+            // 25.7. Purely retrospective: reads reports already on disk, no provider call, no Neo4j.
+            // Wires up a per-type reporting stack that was complete, tested and called by nothing.
+            return await LongMemEvalTypedReportProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
+        if (args.Contains("--probe-answer-determinism", StringComparer.Ordinal))
+        {
+            // 27.2. Answer calls only, no judge and no infrastructure. Asks whether the answer model
+            // -- which the adapter currently invokes with NO ChatOptions, and which disagrees with
+            // itself on 13 of 14 flipping questions under byte-identical retrieval -- can be pinned by
+            // configuration on this deployment.
+            return await LongMemEvalAnswerDeterminismProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
+        if (args.Contains("--upstream-oracle", StringComparer.Ordinal))
+        {
+            // 28.2. AgentEval's oracle, now public. Runs before ours so the two can be compared on the
+            // same level -- retirement of the hand-rolled one has to be earned, not assumed.
+            return await LongMemEvalUpstreamOracleProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
+        if (args.Contains("--time-grounded-oracle", StringComparer.Ordinal))
+        {
+            // 26.3. Prospective memory, measurable for the first time: AgentEval 0.21.0-beta ships a
+            // time-grounded corpus. Oracle first -- gold context only, no Neo4j and no extraction --
+            // because a question the model fails WITH the evidence cannot be fixed by any memory work.
+            return await LongMemEvalTimeGroundedOracleProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
+        if (args.Contains("--procedure-retrieval", StringComparer.Ordinal))
+        {
+            // 26.2. Procedural RETRIEVAL precision: does recall return the RIGHT procedure, and does it
+            // stay quiet when none applies? Embedding calls only -- no chat model, no judge.
+            return await ProcedureRetrievalProgram.RunAsync(args).ConfigureAwait(false);
         }
 
         if (args.Contains("--procedural-benefit", StringComparer.Ordinal))
@@ -135,7 +204,8 @@ internal static class LongMemEvalProgram
                     extractionDeployment,
                     embeddingDimensions,
                     Console.Out,
-                    CancellationToken.None)
+                    CancellationToken.None,
+                    extractionSeed: options.ExtractionSeed)
                 .ConfigureAwait(false);
             var adapter = new AgentMemoryLongMemEvalAdapter(
                 profile.Services.GetRequiredService<IMemoryService>(),
@@ -145,6 +215,9 @@ internal static class LongMemEvalProgram
                 {
                     MaxRelevantMessages = options.MaxRelevantMessages,
                     MemoryMode = options.MemoryMode,
+                    AnswerSeed = options.AnswerSeed,
+                    AnswerVotes = options.AnswerVotes,
+                    QuoteForcing = options.QuoteForcing,
                     MinSimilarityScore = 0,
                     ModelId = deployment,
                     ExcludeSyntheticFormatterMessages = options.ExcludeSyntheticMessages,
@@ -240,6 +313,12 @@ internal static class LongMemEvalProgram
                     judgeModel = deployment,
                     maxRelevantMessages = options.MaxRelevantMessages,
                     operatingMode = options.MemoryMode.Fingerprint(),
+                    // 27.2. A seeded run and an unseeded one have different answer-variance, so they
+                    // must never be compared by accident. "unpinned-temperature-1" is the honest name
+                    // for the default: this deployment refuses every temperature but its own.
+                    answerSampling = options.AnswerSeed is { } seed
+                        ? $"seeded-{seed}-temperature-1"
+                        : "unpinned-temperature-1",
                     // G3B.1 changes which items fill the budget, so a filtered run must never be
                     // comparable to the control by accident.
                     syntheticFormatterExclusion = options.ExcludeSyntheticMessages
@@ -386,12 +465,25 @@ internal static class LongMemEvalProgram
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
         "--procedural-benefit", "--attempts",
+        "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
+        "--oracle-precision", "--distractor-sessions", "--gold-fraction", "--oracle-representation",
+        "--capture-headroom", "--artifacts",
+        "--probe-answer-determinism", "--repeats", "--probe-questions", "--include-text",
+        "--answer-seed", "--typed-report", "--reports", "--arm",
+        "--procedure-retrieval", "--min-scores", "--task", "--query-formulation", "--time-grounded-oracle", "--upstream-oracle",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",
         "--exclude-synthetic-messages", "--judge-retries", "--max-items-per-session",
         "--max-relevant", "--memory-mode", "--oracle", "--output", "--questions", "--seed",
         "--units", "--turns", "--repeat", "--extraction-seed", "--memory-types",
+        // 30.6 sub-step 0. Listed here even though --extraction-compare dispatches before validation
+        // runs: an option known to the parser but read by nobody is the exact defect 30.1 found in
+        // --extraction-seed, and the mirror-image defect (read but unlisted) becomes real the moment
+        // dispatch order changes. ExtractionCompareCommandLineTests holds both directions.
+        "--vocabulary-ab", "--use-predicate-vocabulary",
+        // 30.11. Listed AND read -- the pair that --extraction-seed broke by having only the first.
+        "--answer-votes", "--quote-forcing",
     ];
 
     private static Options Parse(string[] args)
@@ -424,8 +516,34 @@ internal static class LongMemEvalProgram
             Array.IndexOf(args, "--exclude-synthetic-messages") >= 0,
             ParseNonNegative(Value("--max-items-per-session"), 0, "--max-items-per-session"),
             Array.IndexOf(args, "--chronological-context") >= 0,
-            ParseMemoryTypes(Value("--memory-types")));
+            ParseMemoryTypes(Value("--memory-types")),
+            // 27.2. Null unless asked for. Measured on this deployment to cut distinct answers from
+            // 19-in-24 to 8-in-24; defaulting it on would make new runs incomparable with every
+            // sealed measurement in the archive, which were all taken without it.
+            Value("--answer-seed") is { } answerSeed
+                ? ParseNonNegative(answerSeed, 0, "--answer-seed")
+                : null,
+            // 30.1. This verb accepted --extraction-seed in KnownOptions and then dropped it: the
+            // argument validator let it through and nothing read it, so a run that asked to be seeded
+            // silently was not. The seed's own doc says its effect must be MEASURED per deployment,
+            // which requires being able to set it here at all.
+            Value("--extraction-seed") is { } extractionSeed
+                ? ParseSeedValue(extractionSeed, "--extraction-seed")
+                : null,
+            // 30.11. One vote is the historical call, byte for byte. N > 1 samples N answers with
+            // distinct seeds derived from --answer-seed and votes; the pre-registered claim is that the
+            // BAND narrows across repeat runs, not that point accuracy rises.
+            Value("--answer-votes") is { } answerVotes
+                ? ParseNonNegative(answerVotes, 1, "--answer-votes")
+                : 1,
+            args.Contains("--quote-forcing", StringComparer.Ordinal));
     }
+
+    /// <summary>Parses a sampling seed, which may legitimately be negative or zero.</summary>
+    private static int ParseSeedValue(string value, string option) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : throw new ArgumentException($"{option} must be an integer.");
 
     private static object Project(LongMemEvalChatCallSnapshot snapshot) => new
     {
@@ -595,5 +713,9 @@ internal static class LongMemEvalProgram
         bool ExcludeSyntheticMessages,
         int MaxItemsPerSourceSession,
         bool ChronologicalAnswerContext,
-        IReadOnlyList<string> MemoryTypes);
+        IReadOnlyList<string> MemoryTypes,
+        int? AnswerSeed,
+        int? ExtractionSeed,
+        int AnswerVotes,
+        bool QuoteForcing);
 }

@@ -25,9 +25,22 @@ fails on first contact.
 
 ```bash
 dotnet tool install --global AgentMemory.McpHost
-agentmemory-mcp --transport http --http-url http://0.0.0.0:8080 \
-  --neo4j-uri bolt://your-neo4j:7687
+
+# Neo4j and the model provider are configured by ENVIRONMENT, not flags.
+# NEO4J_PASSWORD is required and the host refuses to start without it.
+export NEO4J_URI=bolt://your-neo4j:7687
+export NEO4J_PASSWORD=...
+export AZURE_OPENAI_ENDPOINT=...
+export AZURE_OPENAI_API_KEY=...
+export AZURE_OPENAI_EMBEDDING_DEPLOYMENT=...
+
+agent-memory-mcp --transport http --url http://0.0.0.0:8080
 ```
+
+The host accepts exactly these flags — `--transport`, `--url`, `--server-name`, `--read-only`,
+`--enable-graph-query`, `--no-bootstrap`, `--log-level` — and **treats any other flag as a fatal
+error** rather than ignoring it, so a typo in `--read-only` cannot quietly start a writable server.
+Everything else is an environment variable.
 
 Or the container image, whose `docker-compose.yml` sits beside the host project.
 

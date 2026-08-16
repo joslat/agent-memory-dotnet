@@ -298,6 +298,37 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService, IScoredT
         return scored.Select(r => r.Trace).ToList();
     }
 
+    /// <inheritdoc/>
+    public async Task<ReasoningTrace?> PromoteTraceAsync(
+        string traceId,
+        TraceKind kind,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(traceId);
+        _logger.LogDebug("Promoting reasoning trace {Id} to {Kind}", traceId, kind);
+        return await _traceRepo.PromoteAsync(traceId, kind, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsync(
+        float[] taskEmbedding,
+        bool? proceduresOnly,
+        bool? successFilter,
+        int limit = 10,
+        double minScore = 0.0,
+        AgentMemory.Abstractions.Options.MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        // The isolation-policy operation name matches the unfiltered overload deliberately: asking for
+        // procedures must not change what an operator sees in the audit trail.
+        var resolvedScope = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(SearchSimilarTracesAsync), MemoryOperationAccess.Tenant);
+        var scored = await _traceRepo.SearchByTaskVectorAsync(
+            taskEmbedding, proceduresOnly, successFilter, limit, minScore, resolvedScope,
+            cancellationToken).ConfigureAwait(false);
+        return scored.Select(result => result.Trace).ToList();
+    }
+
     /// <summary>
     /// Returns the repository's already-ranked trace results without a second query — see
     /// <see cref="IScoredTraceSearch"/>.
