@@ -35,16 +35,19 @@ const int Dimensions = 8;
 // D2 needs two Wave-C features on, so the instance overload is used rather than the lambda one:
 // MemoryOptions.Recall is init-only and a configure lambda cannot assign it. WorkingMemory holds a
 // mutable class behind an init-only property, so it is reachable either way.
-// DEDUP-ON-CREATE OFF, and this is a finding rather than a preference. See crosslang/demo/README.md.
+// DEDUP-ON-CREATE OFF. This WAS a finding rather than a preference; the finding is now fixed and
+// this override is a leftover. See crosslang/demo/README.md ("Finding 1", marked FIXED).
 //
-// With it on (the default), AddFactAsync routes a re-asserted fact through FindDuplicateAsync ->
-// MarkDeduplicated, whose Cypher sets confidence and nothing else. The triple-MERGE's
-// `mention_count = coalesce(...) + 1` is never reached, so mention_count stays 1 forever on the
-// single-add API — and the working-memory tier admits a fact only at MinFactMentionCount (default 2).
-// Measured both ways on this host: ON -> mention_count 1, empty block; OFF -> 2, block compiled.
+// History: with dedup on (the default), AddFactAsync routed a re-asserted fact through
+// FindDuplicateAsync -> MarkDeduplicated, whose Cypher set confidence and nothing else, so
+// mention_count stayed 1 forever on the single-add API and the working-memory tier (admitting at
+// MinFactMentionCount, default 2) compiled nothing. `0f6ddea` fixed the counter; `2a44537` wired the
+// rebuild trigger that PersistenceStage had never had. (This comment also used to claim the shipped
+// conversational pipeline was unaffected — it was not, for the second reason.)
 //
-// The batch path (UpsertBatchAsync, which extraction uses) increments correctly, so the shipped
-// conversational pipeline is unaffected. Set here to make the tier observable, NOT to hide the gap.
+// TODO before the meeting: drop this override and run the demo on shipped defaults — a strictly
+// stronger story. It needs one live verification run first; until then the committed configuration
+// is the one that was rehearsed and that the screencast shows.
 var dedupOnCreate = string.Equals(
     Environment.GetEnvironmentVariable("SPIKE0_DEDUP_ON_CREATE"), "true", StringComparison.OrdinalIgnoreCase);
 

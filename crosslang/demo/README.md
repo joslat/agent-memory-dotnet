@@ -65,44 +65,42 @@ Both voids below were caught this way, not by reading the code.
 
 ## Two findings from building it
 
-### 1. `mention_count` is never incremented by the single-add API — so the working-memory tier admits nothing added through it
+### 1. `mention_count` was never incremented by the single-add API — ✅ **FIXED in `0f6ddea`**
 
-**Confirmed by measurement, both arms, on this host.**
+*Kept as the record of what building the demo found. The state below is historical; the correction
+follows.*
 
-`Fact` upserts MERGE on the triple and `ON MATCH SET f.mention_count = coalesce(f.mention_count,1)+1`.
-But `LongTermMemoryService.AddFactCoreAsync` only reaches that MERGE when dedup-on-create is off or
-the embedding is missing. With `LongTerm.DeduplicateOnCreate = true` — **the default** — a re-asserted
-fact goes to `FindDuplicateAsync` → `MarkDeduplicatedAsync`, and that Cypher is:
+**What was found, by measurement on both arms.** `Fact` upserts MERGE on the triple and
+`ON MATCH SET f.mention_count = coalesce(f.mention_count,1)+1`. But `AddFactCoreAsync` only reached
+that MERGE when dedup-on-create was off. With `LongTerm.DeduplicateOnCreate = true` — the default —
+a re-asserted fact went to `FindDuplicateAsync` → `MarkDeduplicatedAsync`, whose Cypher set
+confidence and nothing else. Since the tier admits on `mention_count >= 2`, a fact ingested through
+`AddFactAsync` could never become stable however many times the world re-asserted it:
 
-```cypher
-MATCH (f:Fact {id: $id}) SET f.confidence = $confidence RETURN f
-```
+| `DeduplicateOnCreate` | `mention_count` (then) | block (then) | now |
+|---|---|---|---|
+| `true` (default) | 1 | empty | **2 — compiled** |
+| `false` | 2 | compiled | 2 — compiled |
 
-Confidence is reinforced; `mention_count` is not touched. An exact byte-identical triple takes this
-path too, since it trivially clears the similarity threshold.
+**One thing this section got wrong, and it matters more than the finding.** It said "the shipped
+conversational pipeline is unaffected." That was false when written — not because extraction's
+counter was broken, but because `PersistenceStage` had **no working-memory rebuild hook at all**
+(`working-memory-tier.md` §5.2 specified one; it was never built). So the conversational path was
+*also* producing nothing, for a different reason, and this document asserted its safety from a
+counter that was working. Both halves were fixed in `0f6ddea` and `2a44537`; a later independent
+review found the trigger set is still **incomplete** (entity merge, invalidation and delete paths
+remain unhooked) — see the PR body for the current, scoped statement.
 
-Measured, re-asserting two facts twice each:
+**Also corrected:** the guessed fix said "plus the preference twin". There is no preference twin to
+fix — `Preference` has no `mention_count`; its block section admits on confidence, which the
+preference dedup path already bumps. `PreferenceQueries.MarkDeduplicated` being confidence-only is
+correct.
 
-| `DeduplicateOnCreate` | `mention_count` | working-memory block |
-|---|---|---|
-| `true` (default) | 1 | empty — nothing compiled |
-| `false` | 2 | compiled, both stable facts present |
-
-The working-memory tier's admission rule is `coalesce(f.mention_count,1) >= MinFactMentionCount`,
-default **2**. So at shipped defaults, a fact ingested through `AddFactAsync` can never become stable,
-however many times the world re-asserts it. `MentionFrequencyReranker` loses the same signal.
-
-**Scope — the shipped conversational pipeline is unaffected.** Extraction persists through
-`PersistenceStage` → `UpsertBatchAsync`, whose `ON MATCH` increments correctly, and whose comment
-explicitly says the counter must not "depend on which write path ran". That is exactly the invariant
-the single-add path breaks. The gap is on the direct-API surface — which is what this adapter, and any
-non-conversational integration, uses.
-
-**Not fixed here.** The demo track's binding rule is zero diff to `src/`, and this is a `src/` change
-with test implications (the fix is presumably `SET f.mention_count = coalesce(f.mention_count,1)+1` in
-`MarkDeduplicated`, plus the preference twin). The spike host sets `DeduplicateOnCreate = false` with a
-comment naming this finding — to make the tier **observable**, not to paper over it.
-`SPIKE0_DEDUP_ON_CREATE=true` reproduces the failing arm.
+⚠️ **Consequence for this demo:** `SPIKE0_DEDUP_ON_CREATE=true` no longer reproduces a failing arm,
+and the host's `DeduplicateOnCreate = false` override now works around a bug that is gone. Dropping
+the override would let the demo run **shipped defaults**, which is the stronger story — it needs one
+live verification run before the meeting, and until then the committed configuration is what was
+rehearsed and what the screencast shows.
 
 ### 2. `as_of` moves both clocks, and a demo that ignores that looks broken while the engine is right
 
@@ -119,7 +117,9 @@ Worth keeping in the demo script: bitemporality is two clocks, and the confusing
 
 ## Rules this respects
 
-- **Zero diff to `src/`** — verified at every commit. Finding 1 is reported, not fixed.
+- **Zero diff to `src/`** — verified at every commit *of the demo track*. Finding 1 was reported and
+  left unfixed here, exactly as the rule requires; it was fixed afterwards, on its own commits, with
+  its own tests.
 - **Pure Python, stdlib + `langgraph`** — no SDK, no generated client, nothing to install from us.
 - **No PyPI, no npm, no repo publish, no README claim, no announcement.**
 - The host answers `/v1/meta` with `PROTOTYPE` on its face.
