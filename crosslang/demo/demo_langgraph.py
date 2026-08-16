@@ -194,8 +194,8 @@ def main() -> int:
         VOIDS.append(
             f"both instants answered {march_employer} — as_of made no difference, so it proved nothing")
     else:
-        print("  ✓ different answers at different instants. No key-value store can do this: the "
-              "information was never recorded.")
+        print("  ✓ different answers at different instants. A store that overwrote the only copy "
+              "cannot do this: the earlier value is gone.")
 
     # ── 6. isolation, verifiable rather than asserted ─────────────────
     heading(6, "Isolation — Bob's fact is not in Alice's search")

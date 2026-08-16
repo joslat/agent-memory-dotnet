@@ -41,7 +41,7 @@ run **both ways**. Every cell is evidence-grounded, as of 2026-08-15.
 
 | Capability | .NET engine (ours) | Python 0.5.0 (upstream) |
 |---|:-:|:-:|
-| Core memory ops, upstream schema | ✅ TCK 178/178 daily | ✅ |
+| Core memory ops, upstream schema | ✅ TCK 178/178 — base **and** all four extensions, same build, last run 2026-08-16 | ✅ |
 | Reasoning traces | ✅ + measured procedural promotion | ✅ traces; no promotion tier |
 | Bitemporal / point-in-time recall | ✅ two clocks, all kinds | ◐ preferences only; general case is open RFC #177 |
 | Owner isolation on **reads** | ✅ central enforced policy | ✖ write-side identifier only (#137/#155 open) |
@@ -78,13 +78,16 @@ The alternative is this table growing more lopsided in both directions, forever.
 | Bitemporal recall — same query, two instants, two answers | **shipped** |
 | Non-destructive supersession — the replaced fact is still there and still linked | **shipped** |
 | Owner isolation enforced on reads, verifiable from the response | **shipped** |
-| Working-memory block + delta recall ("what changed since last session") | **shipped** |
+| Working-memory block + delta recall ("what changed since last session") | **shipped, off by default — effect on answers UNMEASURED** |
 | Read-audit trail, unmoved by historical reads | **shipped** |
 | LangGraph `BaseStore` adapter with an `as_of` filter | **prototype** — over a prototype host, draft wire |
 | Python/TS SDKs, embedded NativeAOT, cross-language conformance arms | **design** |
 
 The line between rows three and six is the one we care about keeping visible. What runs, runs. What
-doesn't, is a drawing.
+doesn't, is a drawing. And "shipped" is not one word: the two Wave-C rows are built, wired, and
+tested — but they are off by default and their effect on answer quality has **not** been measured
+yet, so we mark them differently from the rows a benchmark or a conformance kit already stands
+behind. Our own memory map says the same thing in the same words.
 
 ---
 

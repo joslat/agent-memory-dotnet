@@ -8,7 +8,8 @@ Why this adapter exists rather than a generic key-value one
 LangGraph's ``BaseStore`` is a namespaced document store: ``put`` takes an arbitrary dict, ``search``
 does text/semantic matching. Every backend implements roughly that.
 
-This one maps ``put`` onto a **typed memory write** and exposes something no other ``BaseStore``
+This one maps ``put`` onto a **typed memory write** and exposes something we are not aware of any
+other ``BaseStore``
 backend can offer: a ``as_of`` search filter that answers *"what did we believe about X on date D?"*.
 That is not a nicety layered on top — it falls out of the engine being bitemporal underneath, and a
 key-value store cannot retrofit it, because the information was never recorded.

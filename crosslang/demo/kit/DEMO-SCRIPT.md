@@ -4,7 +4,9 @@
 > rule holds in the room: an in-build feature is shown as a design, never demoed as a product. If a
 > line has no marker, it is not to be said.
 
-**Total: 10:00.** Timings are the dry-run measurements, not estimates — see `DRY-RUN.md`.
+**Total: 10:00.** The section markers are speaking budgets, not measurements. What the dry run
+*did* measure is machine time — the scripted run takes 14.4s and the notebook 9.6s (`DRY-RUN.md`);
+the rest of the ten minutes is you talking.
 
 ---
 
@@ -29,7 +31,9 @@ Have open, in this order, so no window is ever hunted for:
 1. Terminal 1 — the host, already running (never shown; it is just there)
 2. Terminal 2 — where `demo_langgraph.py` runs
 3. Jupyter — the notebook, kernel started, **cell 1 already executed**
-4. Browser tab — `crosslang/demo/kit/screencast.txt` replay, ready but not playing
+4. Terminal 3 — `python crosslang/demo/kit/screencast.py`, **typed but not run** (this is the
+   Fallback-A replay; it needs no host, no container, no network. There is no video: `RECORDING.md`
+   says so plainly, and a `.txt` opened in a browser is static text, not the rehearsed fallback)
 5. The one-pager, printed, face down
 
 ---
@@ -132,7 +136,7 @@ script has ~90 seconds of slack, so exactly one fallback fits without cutting th
 
 | # | If this breaks | Do this | Cost |
 |---|---|---|---|
-| **A** | Neo4j or the host won't come up (preflight fails) | Go straight to the **screencast replay** (browser tab, already open). Say: *"the container's not cooperating — here's the same run from this morning."* Nobody minds; everybody has been there. | 0:30 |
+| **A** | Neo4j or the host won't come up (preflight fails) | Run **`python crosslang/demo/kit/screencast.py`** in Terminal 3 — the captured transcript replayed with typing cadence, needing nothing but Python. Say: *"the container's not cooperating — here's the same run from this morning."* Nobody minds; everybody has been there. | 0:30 |
 | **B** | Host is up, `demo_langgraph.py` errors mid-run | Skip to the **notebook**, which is an independent client. The beats are the same. | 0:20 |
 | **C** | The notebook kernel dies or Jupyter hangs | Re-run `demo_langgraph.py` in Terminal 2 — it covers every beat including provenance, in one shot. | 0:20 |
 | **D** | Both clients are dead but the host lives | `curl` the two `as_of` recalls by hand. Raw JSON, two different answers, one changed field. Less pretty, *more* convincing to an engineer. Command is in `preflight.py --curl`. | 0:45 |

@@ -37,8 +37,16 @@ video made from the same transcript can never drift from what the terminal actua
 # 2. start the screen recorder (OBS, or Win+G on Windows)
 # 3. run:
 python crosslang/demo/kit/screencast.py
-# 4. stop recording; save as crosslang/demo/kit/screencast.mp4  (gitignored — it is a binary)
+# 4. stop recording; save as crosslang/demo/kit/screencast.mp4
+#    (keep it OUT of the repo — nothing in .gitignore excludes *.mp4 today, so it would be
+#     committed if you `git add -A`. Either add the pattern first or store the file elsewhere.)
 ```
+
+> ⚠️ **Re-capture the transcript before recording.** `screencast.txt` is a genuine capture and has
+> deliberately not been edited — but two printed lines were reworded after it was taken (the
+> key-value comparison, and the `as_of` claim, both softened to what the evidence actually
+> supports). Re-run the demo against a live host to refresh `screencast.txt` first, then record
+> from the refreshed replay, so the video and the code agree.
 
 Roughly 3 minutes at replay cadence. Do not narrate the recording: it is the *catastrophic* fallback,
 played while you talk over it live, so a second voice track fights you.

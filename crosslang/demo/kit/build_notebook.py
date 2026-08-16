@@ -28,8 +28,9 @@ Four beats, in order:
 
 1. **Store** — writes are typed triples, through LangGraph's own `store.put`.
 2. **Resume** — the working-memory block plus a delta: *"here's what changed since your last session."*
-3. **`as_of`** — the same query at two instants, two different answers. **This is the one no other
-   `BaseStore` backend can do.**
+3. **`as_of`** — the same query at two instants, two different answers. **This is the one we don't
+   think any other `BaseStore` backend can do** — we have not surveyed them all, so take it as our
+   claim about ours, not a proven claim about theirs.
 4. **Provenance** — *why* do you believe that, and what did it replace?
 
 ## Before you run
@@ -166,7 +167,8 @@ This is the cell to linger on. Everything else has a plausible-looking substitut
 is the reason the substitute is not equivalent.
 
 Watch the read-audit counts. The **live** search above surfaced two facts to a caller and they show 1;
-the two `as_of` searches surfaced nothing to anyone and did not inflate anything. A historical read is
+the two `as_of` searches returned answers too — the cell above printed them — but they were **not
+recorded** and did not inflate anything. A historical read is
 a replay, not a retrieval, and letting it move the counters would let auditing the past change how the
 present ranks."""),
 

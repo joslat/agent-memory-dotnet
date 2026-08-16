@@ -31,12 +31,16 @@ SEPTEMBER = EPOCH + timedelta(days=250)
 
 CURL = f"""Fallback D — the two as_of recalls by hand. One field differs.
 
+Owner is {OWNER}: the one THIS script writes and verifies above. (It used to read a notebook-only
+owner, which would have answered both curls identically if the notebook had not been run — two
+matching answers in front of the room, the exact failure the beat check exists to prevent.)
+
 curl -s {BASE}/v1/recall -H 'Content-Type: application/json' -d '{{
-  "sessionId":"demo","userId":"nb-alice","query":"where does alice work?",
+  "sessionId":"demo","userId":"{OWNER}","query":"where does alice work?",
   "maxFacts":5,"asOf":"2026-03-17T00:00:00Z"}}'
 
 curl -s {BASE}/v1/recall -H 'Content-Type: application/json' -d '{{
-  "sessionId":"demo","userId":"nb-alice","query":"where does alice work?",
+  "sessionId":"demo","userId":"{OWNER}","query":"where does alice work?",
   "maxFacts":5,"asOf":"2026-09-08T00:00:00Z"}}'
 """
 
