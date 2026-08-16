@@ -1,6 +1,6 @@
 # Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-08-15 (1.4.x + measurement-track reconciliation — procedural memory, valid-time recall, owner-starvation pipeline, NAMS trio, .NET 10)
+**Last Updated:** 2026-08-16 (schema-extension system, projection layer, and eight off-by-default memory capabilities — working memory, delta recall, derived/arithmetic memory, prospective firing, legible forgetting, access-tracking queue)
 **Author:** Jose Luis Latorre Millas
 **Canonical Specification:** [specification.md](specification.md)
 
@@ -19,7 +19,17 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 - **Adapter model**: MAF, GraphRAG, and MCP are thin adapter layers that depend inward on the core — never the reverse *(Plan §7.4)*
 - **Neo4j graph-native persistence**: direct Neo4j driver usage, no ORM, with schema bootstrapping and migration support *(Plan §7.3)*
 - **Context assembly**: configurable recall with budget enforcement and truncation strategies *(Spec §3.4, Plan §14)*
+- **A projection layer between assembly and the prompt**: one place where a rendering decision is made,
+  read by all three rendering surfaces, so a fix lands once instead of three times or rots in two
+  (§3.2.8)
 - **Extraction pipeline**: pluggable extraction from conversations to structured long-term memory *(Plan §13)*
+- **Schema extensions**: named, versioned, **additive-only** schema modules, so a new memory capability
+  can bring its own labels, properties, relationship types and migrations without editing the base
+  schema every deployment shares — with an ownership report that fails when a shape has no owner
+  (§4.3.1, §4.7, [`docs/extensions/`](extensions/README.md))
+- **An off-by-default posture for everything added recently**: valid-time gating, prospective firing,
+  the projection layer, delta recall, legible forgetting, derived/arithmetic memory, the working-memory
+  tier and the access-tracking queue all ship dark, and "off" means byte-identical (§3.6)
 - **Owner/store scoping**: `MemoryScope`/`owner_id` isolation runs through the repository, recall,
   GraphRAG, reasoning, and maintenance layers, but it is opt-in per call — a null scope (the
   backward-compatible default) is global, not isolated. Multi-tenant hosts must establish an owner scope
@@ -91,7 +101,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │  AgentMemory.Core                                     │   │
-│  │  (services, stubs, validation, context assembly)            │   │
+│  │  (services, stubs, validation, context assembly, projection)│   │
 │  │                                                              │   │
 │  │  + Microsoft.Extensions.DI/Logging/Options 10.0.10           │   │
 │  └──────────────────────┬───────────────────────────────────────┘   │
@@ -116,6 +126,14 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 > (MAF/NAMS provider), and `AgentMemory.McpServer.Nams` (NAMS MCP tools). They form a separate,
 > self-contained branch beside the layers above (B9–B11 in §5 define their boundaries; §3.5 describes
 > them) and are deliberately not drawn into this diagram.
+
+> **Note (2026-08-16):** Two additions since the diagram was drawn sit *inside* existing boxes rather
+> than beside them, which is the point of both. The **projection layer** (`MemoryContextProjector`,
+> `IProjectionFeature`, `ProjectionRenderer` — §3.2.8) lives in `AgentMemory.Core`, downstream of
+> context assembly and upstream of every rendering surface; it introduces no package and no dependency.
+> The **schema-extension system** (`ISchemaExtension`, `SchemaExtensionRegistry` — §4.3.1) lives in
+> `AgentMemory.Neo4j` beside `SchemaBootstrapper`/`MigrationRunner`, because an optional schema module
+> is a persistence concern and nothing above the Neo4j layer needs to know it exists.
 
 ### 2.2 Dependency Direction Rule
 
@@ -476,9 +494,17 @@ product shipped the contradiction).
 
 `MemoryContextProjector` runs inside `MemoryContextAssembler` **after budgeting and reranking** in both
 the live and as-of paths, and produces a surface-neutral `MemoryContext.Projection` — per-item
-annotations (score, near-miss, supersession note, source quote, source date) plus section-level blocks
-(`NoDirectMatch`, `ConflictingMemory`, and reserved slots for `WorkingMemoryProfile`, `DueReminders`,
-`DeltaSummary`). All three surfaces read it through `ProjectionRenderer`.
+annotations (score, near-miss, supersession note, source quote, source date, procedure shape) plus
+section-level blocks. All three surfaces read it through `ProjectionRenderer`.
+
+`ProjectedBlockKind` has five members and **two are emitted today** — `NoDirectMatch` and
+`ConflictingMemory`. `WorkingMemoryProfile`, `DueReminders` and `DeltaSummary` are **reserved and
+still unemitted**: the three capabilities they name (§3.2.11, §3.2.7, §3.2.9) shipped in the same
+cycle but each renders through its own path — `MemoryContext.WorkingMemoryBlock` via
+`MemoryContextFormatter`/`MafTypeMapper`, the DUE/EXPIRING lines via `MemoryContextFormatter`, and the
+delta via `MemoryDeltaFormatter`. Routing them through the projection layer is the consolidation this
+layer exists to make possible and has not been done; the enum members are a reserved contract, not a
+description of where those blocks come from.
 
 | Invariant | Mechanism |
 |---|---|
@@ -488,10 +514,29 @@ annotations (score, near-miss, supersession note, source quote, source date) plu
 | **Parity cost** | Zero. No labels, relationship types, properties, indexes or migrations |
 | **Reachability** | Every `IProjectionFeature` is DI-registered *and* every flag enables at least one feature — both directions reflected, not listed |
 
-The five features are registered unconditionally and enumerably (the `IMemoryReranker` pattern); the
-three that read take a **nullable** repository resolved with `GetService`, because a hard dependency
-inside an enumerable registration makes the whole enumerable unresolvable for a consumer who supplies
-their own `ILongTermMemoryService` without repositories.
+**Six** `IProjectionFeature` implementations ship (`Core/Services/Projection/`), all registered
+unconditionally and enumerably (the `IMemoryReranker` pattern): `MatchQualityProjectionFeature`,
+`ConflictProjectionFeature`, `ProcedureShapeProjectionFeature`, `SupersessionProjectionFeature`,
+`SourceQuoteProjectionFeature`, `DateGroundingProjectionFeature`. The **three that read** take a
+**nullable** repository resolved with `GetService`, because a hard dependency inside an enumerable
+registration makes the whole enumerable unresolvable for a consumer who supplies their own
+`ILongTermMemoryService` without repositories.
+
+Six flags gate them, and the mapping is deliberately not one-to-one:
+`ProcedureShapeProjectionFeature` shares `AnnotateMatchQuality` — both exist to stop a promoted
+procedure being trusted more than it earned (it annotates a procedure's step count, so a 16-call
+exploration is visibly one), and a second flag for one clause would be configuration surface with no
+separate decision behind it; `ChronologicalOrdering` is a second clause of
+`DateGroundingProjectionFeature`, which needs the same source-message read either way.
+
+| `MemoryProjectionOptions` flag | Default | Feature |
+|---|---|---|
+| `AnnotateMatchQuality` | `false` | `MatchQualityProjectionFeature` + `ProcedureShapeProjectionFeature` |
+| `RenderConflicts` | `false` | `ConflictProjectionFeature` |
+| `ResolveSupersessions` | `false` | `SupersessionProjectionFeature` (`MaxSupersessionChain = 3`) |
+| `AttachSourceQuotes` | `false` | `SourceQuoteProjectionFeature` (`MaxQuoteLength = 160`, `MaxQuotesPerRecall = 10`) |
+| `GroundDates` | `false` | `DateGroundingProjectionFeature` |
+| `ChronologicalOrdering` | `false` | `DateGroundingProjectionFeature` (ordering clause) |
 
 **Security posture unchanged, and strengthened at one point.** Quotes and supersession notes are
 recalled content: they render inside the existing delimit/admission machinery, never as system
@@ -533,9 +578,11 @@ delta's own `TakenAtUtc` rather than to "now", and a turn that threw advances no
 change set costs tokens; losing one loses knowledge.
 
 Rendered by `MemoryDeltaFormatter` through the same admission check and delimiter as every other
-recalled category, filling the projection layer's reserved `DeltaSummary` slot. The Agent Framework path
-passes its own host-pluggable admission policy in, so a custom policy is not applied everywhere *except*
-the delta. *(See [`docs/extensions/delta-recall.md`](extensions/delta-recall.md).)*
+recalled category, and injected by `Neo4jMemoryContextProvider`. It does **not** yet flow through the
+projection layer: `ProjectedBlockKind.DeltaSummary` is the slot reserved for it (§3.2.8) and nothing
+emits that kind today. The Agent Framework path passes its own host-pluggable admission policy in, so a
+custom policy is not applied everywhere *except* the delta.
+*(See [`docs/extensions/delta-recall.md`](extensions/delta-recall.md).)*
 
 #### 3.2.8b Access tracking on a root-owned queue (30.12)
 
@@ -569,9 +616,12 @@ answered as though it had never known — indistinguishable, to the person askin
 told. A system whose gaps all look like the same gap cannot be corrected by its user, because they do
 not know there is anything to re-supply.
 
-On a recall whose fact section comes back **empty from a search that ran**, one extra vector probe asks
-what the system used to know about this and has let go, and `MemoryContext.ForgottenTopics` carries a
-summary — topic, count, dates.
+`RecallOptions.LegibleForgetting` (default `false`) turns it on. On a recall whose fact section comes
+back **empty from a search that ran**, one extra vector probe (`TombstoneProbeTopK`, default 10) asks
+what the system used to know about this and has let go, and `MemoryContext.ForgottenTopics` carries at
+most one summary — topic, count, dates — for the dominant subject. It is a plain
+`IReadOnlyList<ForgottenTopicSummary>`, deliberately not a `MemoryContextSection`: it is a report about
+a section, not a section of its own.
 
 | Invariant | Mechanism |
 |---|---|
@@ -597,8 +647,16 @@ retrieval returns a sample.
 
 A deterministic post-persistence pass materialises aggregates for the `(subject, predicate, owner)`
 groups each extraction batch touched, on **both** the per-request and multi-session-batch paths. A
-derived fact is an ordinary `:Fact` with `kind='derived'`, so it rides the existing vector index,
+derived fact is an ordinary `:Fact` with `fact_kind='derived'`, so it rides the existing vector index,
 budget, owner scoping, invalidation gate and valid-time gate with **no recall-path changes at all**.
+
+**The property is `fact_kind`, not `kind`** — upstream already owns `kind` as an audit-node
+discriminator, and overloading a name whose meaning another implementation owns is the
+changed-semantics hazard the parity check cannot catch (the first draft used `kind` and the verifier
+rejected it). Note the one place `kind` still legitimately appears: `MemoryDerivationMetadataExtensions`
+uses `"kind"` as a key **inside the in-memory `Fact.Metadata` dictionary**, which round-trips as one
+serialized `metadata` JSON string. Graph property `fact_kind`; metadata dictionary key `kind`. They are
+different layers, not a leftover.
 
 | Invariant | Mechanism |
 |---|---|
@@ -609,8 +667,8 @@ budget, owner scoping, invalidation gate and valid-time gate with **no recall-pa
 | **Provenance is inline** | `17 — derived: 12 (a1) + 5 (b2)`, rendered by one shared renderer on both surfaces, so the model can check rather than trust |
 | **Staleness is same-statement** | `Supersede`/`Invalidate` cascade to dependent aggregates in the same Cypher statement, unconditionally — an eventually-consistent sweep leaves a window where a stale aggregate is retrievable |
 | **Recompute updates in place** | Identity is `derivation_key` = SHA-256 of `subject|predicate|operator|owner`, computed in C# (the U+0130 lesson); the *object* is absent from the key, or every recompute would spawn a node |
-| **DAG is one level deep** | The group read excludes `kind='derived'`, so the cascade never needs to recurse |
-| **Off is byte-identical** | `DerivedMemory.Enabled` defaults false; off means the repository sees zero calls, not merely an unchanged graph |
+| **DAG is one level deep** | The group read excludes `fact_kind='derived'`, so the cascade never needs to recurse |
+| **Off is byte-identical** | `MemoryOptions.Extraction.DerivedMemory.Enabled` defaults false; off means the repository sees zero calls, not merely an unchanged graph. The `DERIVED_FROM` staleness cascade is deliberately **not** gated on the flag — turning the accountant off must not freeze aggregates it already wrote into permanent truth |
 
 **Parity cost: one relationship type and five documented properties, zero labels.** Ships as the
 `arithmetic` schema extension. The `DERIVED_FROM` edge is argued for rather than assumed: reusing
@@ -622,6 +680,34 @@ include this one"*, evaluated inside the supersede statement.
 MERGE and `FindByTriple` cannot reach it. MERGE cannot carry a `WHERE`, so making the collision
 *unreachable* is the only form of the guarantee that holds. *(See
 [`docs/extensions/arithmetic.md`](extensions/arithmetic.md).)*
+
+#### 3.2.11 The working-memory tier (30.4)
+
+Every other retrieval channel here is probabilistic: query embedding → global vector top-K → owner
+post-filter → similarity floor. The working-memory tier is a **point-read by owner**, so it cannot be
+starved — which matters because starvation is measured, not theoretical (§3.3.2).
+
+`IWorkingMemoryService` compiles a small, rendered profile block per owner and stores it on an adopted
+upstream `:User` node, keyed on upstream's own `identifier` property. `LongTermMemoryService`'s write
+epilogue rebuilds it; `MemoryContextAssembler` reads it back onto `MemoryContext.WorkingMemoryBlock` /
+`WorkingMemoryBuiltAtUtc`.
+
+| Invariant | Mechanism |
+|---|---|
+| **Cannot be starved** | A `MERGE`/point-read on `:User {identifier}`, not a vector query. No top-K, no floor, no competition with other tenants |
+| **Rebuilt eagerly, never partially** | Full rebuild awaited **inline** in the write epilogue, so "after the write returns, the block is current" is the contract. Partial invalidation over a graph is the clever answer that goes stale |
+| **Absence beats staleness** | On rebuild failure the block is **cleared** (`ClearOnRebuildFailure`, default `true`). Absence degrades to today's behaviour; a block asserting the superseded value of an updated fact manufactures failures in the weakest measured question type |
+| **Byte-stable between input changes** | Every `ORDER BY` ends in `id ASC`, and a content hash (`working_memory_hash`) short-circuits the rebuild write — a reshuffle of equal-ranked rows must not move `built_at` and defeat prompt-prefix caching |
+| **Ownerless writes are skipped** | One `string.IsNullOrWhiteSpace` guard. Without it, `MERGE (:User {identifier: null})` violates a unique key and turns ownerless conformance cases into 500s |
+| **A hard token budget** | `MaxTokens` (300) enforced by dropping whole trailing lines — entities first, then preferences, then facts. Facts are the head of the question distribution, so they are sacrificed last |
+| **Two flags, not one** | `MemoryOptions.WorkingMemory.Enabled` (default `false`) builds it; `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` (both default `false`) render it. Building without rendering is a legitimate state, and neither flag implies the other |
+
+**Parity cost: the first delta that *narrows* divergence.** `:User` is adopted from upstream rather than
+invented, so `working-memory` pairs a `DeclaredLabels` entry with a `RemoveUpstreamOnlyLabels` entry —
+the one legal label overlap the validator permits (§4.3.1). Three superset properties
+(`working_memory`, `working_memory_built_at`, `working_memory_hash`), zero .NET-only labels, zero
+relationship types. **Unmeasured:** no LongMemEval run has been performed against this tier.
+*(See [`docs/extensions/working-memory.md`](extensions/working-memory.md).)*
 
 ### 3.3 AgentMemory.Neo4j
 
@@ -1113,6 +1199,39 @@ carry the full per-phase detail):
   explicit opt-in (`AddNamsAgentMemoryMcpWriteTools`); `nams_graph_query` (raw Cypher passthrough)
   deliberately excluded.
 
+### 3.6 Every capability in this cycle ships dark
+
+**Not one of the memory capabilities described in §3.2.7–§3.2.11 is on in a default configuration.**
+That is a deliberate, uniform posture, not a coincidence of scheduling: a memory layer that changes
+what reaches the model on upgrade is a memory layer that changes an application's answers without its
+author deciding to. Off is defined as *byte-identical*, and each feature's own invariant table says
+what that means for it — for most, the query is never issued at all rather than issued and discarded.
+
+| Capability | Flag | Default | Notes |
+|---|---|---|---|
+| Valid-time gating (§3.2.7) | `RecallOptions.ValidTime` | `ValidTimeMode.Ignore` | `Current` applies the validity window on both live fact paths |
+| Valid-time capture | `LlmExtractionOptions.TemporalValidity` | `TemporalValidityMode.Ignore` | the only non-supersession writer of `valid_from`/`valid_until` |
+| Prospective firing (§3.2.7) | `RecallOptions.ProspectiveFiring` | `false` | **gated twice** — also requires `ValidTime == Current`; the flag alone does nothing |
+| Projection layer (§3.2.8) | `MemoryProjectionOptions` × 6 | all `false` | reachable at `MemoryOptions.Projection` and per-request `RecallOptions.Projection`; no flag ⇒ `MemoryContext.Projection` is `null` |
+| Delta recall (§3.2.9) | `AgentFrameworkOptions.InjectDeltaOnSessionResume` | `false` | `IMemoryRecall.RecallChangedSinceAsync` is callable directly regardless; the flag governs automatic injection on session resume |
+| Access-tracking queue (§3.2.8b) | `MemoryOptions.UseAccessTrackingQueue` | `false` | supersedes `MemoryOptions.DeferAccessTracking` (also `false`) where both are set |
+| Legible forgetting (§3.2.9b) | `RecallOptions.LegibleForgetting` | `false` | three gates; see the invariant table |
+| Arithmetic / derived memory (§3.2.10) | `MemoryOptions.Extraction.DerivedMemory.Enabled` | `false` | note the path — it lives under `Extraction`, not on `MemoryOptions` directly |
+| Working memory (§3.2.11) | `MemoryOptions.WorkingMemory.Enabled` | `false` | plus `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` (`false`) to render it |
+| Trace outcomes in context (§3.4.1.5) | `ContextFormatOptions.IncludeTraceOutcomes` | `false` | brings `ProcedureTrustClause` with it |
+| Schema extensions (§4.3.1) | `Neo4jOptions.Extensions` | empty set | empty is the base schema, byte-identical |
+
+Two consequences worth stating rather than implying:
+
+- **An unmeasured feature that is off costs nothing to ship and something to enable.** Several of the
+  rows above are BUILT and WIRED but not MEASURED — working memory has had no LongMemEval run at all.
+  [`memory-map.md`](memory-map.md) labels each one; this table only says whether it is on.
+- **A flag being off is not the same as a change being invisible.** The one nearby change that is not
+  behind a flag is §3.2.5: `MemoryOptions.Recall` now supplies the effective `RecallOptions` for a
+  direct `RecallAsync` call that did not pass its own. A host that had configured `MemoryOptions.Recall`
+  and was silently getting `RecallOptions.Default` sees a difference; a host that configured nothing
+  does not, because the two are the same singleton.
+
 ---
 
 ## 4. Neo4j Graph Model
@@ -1321,6 +1440,32 @@ CREATE POINT INDEX entity_location_idx IF NOT EXISTS FOR (e:Entity) ON (e.locati
 
 > **Note:** The five owner-scope indexes — four node indexes (`fact_owner_idx`, `entity_owner_idx`, `preference_owner_idx`, `trace_owner_idx`) plus the `rel_owner_idx` relationship-property index — accelerate the `owner_id` filter applied during scoped vector recall (R1, multi-user isolation). `trace_kind_idx` makes promoted procedures seekable (§3.3.1) and is brought to existing databases by migration `0011_trace_kind.cypher`.
 
+### 4.7 Schema owned by extensions, not by base
+
+Everything in §4.1–§4.6 is the **base** schema: it exists on every database that has run migrations,
+whatever a host configured. The four shipped extensions (§4.3.1) own the shapes below, and **none of
+them exists on a database whose operator did not apply that extension's DDL** — registering an
+extension in code does not create schema; `agentmemory migrate --extensions <ids>` does.
+
+| Extension | Labels | Relationship types | Properties | Indexes / constraints |
+|---|---|---|---|---|
+| `procedural` | *none* | *none* | `ReasoningTrace.trace_kind` | `trace_kind_idx` — **base-resident** (migration `0011_trace_kind`), listed in §4.6 |
+| `working-memory` | `User` — **adopted from upstream**, not invented | *none* | `User.identifier`, `User.working_memory`, `User.working_memory_built_at`, `User.working_memory_hash` | `user_identifier` uniqueness constraint (upstream's own name) |
+| `delta-recall` | *none* | *none* | *none* | 7 RANGE indexes: `fact_created_at_idx`, `fact_invalidated_at_idx`, `fact_valid_from_idx`, `fact_valid_until_idx`, `preference_created_at_idx`, `preference_invalidated_at_idx`, `entity_created_at_idx` |
+| `arithmetic` | *none* — a derived fact is an ordinary `:Fact` | `DERIVED_FROM` (Fact → Fact) | `Fact.fact_kind`, `Fact.derivation_key`, `Fact.derivation_operator`, `Fact.derivation`, `Fact.derived_at` | `fact_derivation_key_idx`, `fact_kind_idx` |
+
+Two things this table is saying deliberately. **One new relationship type and one adopted label across
+four capabilities** — `DERIVED_FROM` is the only .NET-only edge added, and it is argued for on the
+grounds that the staleness cascade needs traversal in a direction a JSON id list cannot serve
+(§3.2.10); `:User` *narrows* divergence rather than widening it. And **`procedural` declares no
+migration script at all**: its DDL shipped in the base sequence before the extension system existed, so
+it declares `BaseResidentMigrations` instead — ownership recorded, script left where it is (§4.3.1).
+
+The `delta-recall` indexes are worth one note, because a reader who knows Neo4j will expect them to be
+dead weight: `invalidated_at IS NULL` genuinely cannot use a range index, because a range index stores
+no nulls. The delta predicates are the opposite shape — range predicates over **non-null** values
+(`invalidated_at > $since`) — which a range index serves directly.
+
 ---
 
 ## 5. Boundary Enforcement Rules
@@ -1476,6 +1621,20 @@ live in `docs/reviews/`; only the components are described here):
 - **Query-formulation arm** (`--query-formulation verbatim`) — exists, opt-in and off by default, and
   **retired as a lever** on this corpus; kept because the instrument, not the treatment, is the asset
   (see `docs/reviews/query-formulation-result.md` §5).
+- **Answer voting** (`--answer-votes N`, default 1 = the historical call byte for byte) — samples N
+  answers with distinct seeds and aggregates them, reporting disagreement. Its pre-registered primary
+  claim is that the **band narrows** across repeat runs, not that point accuracy rises: on a
+  50-question set one question is two points, so a point comparison between two runs is noise wearing a
+  decimal.
+- **Quote-forcing** (`--quote-forcing`, off by default) — makes the model name the retrieved line it is
+  answering from before answering, with an explicit `EVIDENCE: NONE FOUND` escape, because the
+  alternative to admitting absence is inventing presence.
+
+> **These last two are answering-side instruments, not memory-layer features.** They live entirely in
+> `tools/AgentMemory.LongMemEval` (`LongMemEvalAnswerVote`, `LongMemEvalQuoteForcing`) and have **no
+> presence in `src/`** — no option, no service, no shipped package changes behaviour because of them.
+> They are listed here so a reader who has seen the measurement work knows where they are, and knows
+> they are not something a consuming application can turn on.
 
 ---
 

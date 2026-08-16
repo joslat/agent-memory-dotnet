@@ -112,8 +112,10 @@ Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotne
 
 - [Getting Started](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/getting-started.md)
 - [Architecture](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/architecture.md)
+- [The Memory Map](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/memory-map.md) - what this memory layer does, does partially, and does not do, with each claim labelled built / wired / measured
 - [Agent Framework Integration](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/agent-framework.md)
 - [Schema Reference](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/schema.md)
+- [Schema Extensions](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/extensions/README.md) - optional, additive-only schema modules a capability can bring with it; none is active by default, and each one's DDL is applied by an operator, not by application startup
 - [Specification](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/specification.md)
 - [Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md) - schema-parity/TCK compatibility tooling and the review process behind releases
 - [Threat Model](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/security/threat-model.md) - what isolation/authorization properties hold today, what's a documented gap, and who owns closing it
