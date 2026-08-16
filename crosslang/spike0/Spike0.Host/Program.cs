@@ -32,8 +32,33 @@ var password = builder.Configuration["Neo4j:Password"]
     ?? "neo4j";
 const int Dimensions = 8;
 
+// D2 needs two Wave-C features on, so the instance overload is used rather than the lambda one:
+// MemoryOptions.Recall is init-only and a configure lambda cannot assign it. WorkingMemory holds a
+// mutable class behind an init-only property, so it is reachable either way.
+// DEDUP-ON-CREATE OFF, and this is a finding rather than a preference. See crosslang/demo/README.md.
+//
+// With it on (the default), AddFactAsync routes a re-asserted fact through FindDuplicateAsync ->
+// MarkDeduplicated, whose Cypher sets confidence and nothing else. The triple-MERGE's
+// `mention_count = coalesce(...) + 1` is never reached, so mention_count stays 1 forever on the
+// single-add API — and the working-memory tier admits a fact only at MinFactMentionCount (default 2).
+// Measured both ways on this host: ON -> mention_count 1, empty block; OFF -> 2, block compiled.
+//
+// The batch path (UpsertBatchAsync, which extraction uses) increments correctly, so the shipped
+// conversational pipeline is unaffected. Set here to make the tier observable, NOT to hide the gap.
+var dedupOnCreate = string.Equals(
+    Environment.GetEnvironmentVariable("SPIKE0_DEDUP_ON_CREATE"), "true", StringComparison.OrdinalIgnoreCase);
+
+var memoryOptions = new MemoryOptions
+{
+    LongTerm = new LongTermMemoryOptions { DeduplicateOnCreate = dedupOnCreate },
+};
+
+// The compiled per-owner block the LangGraph adapter reads on session start. Off by default in the
+// product; a demo that wants to show it has to ask for it, which is the point of the flag.
+memoryOptions.WorkingMemory.Enabled = true;
+
 builder.Services.AddNeo4jAgentMemory(
-    _ => { },
+    memoryOptions,
     o =>
     {
         o.Uri = uri;
@@ -81,7 +106,12 @@ app.MapGet("/v1/meta", () => Results.Ok(new
     // Stated on the endpoint itself, because the one thing a prototype must never do is look
     // production-ready to someone who found it by port-scanning.
     warning = "PROTOTYPE — throwaway spike host. The productized SDK follows the published designs.",
-    capabilities = new[] { "recall", "recall.asOf", "isolation.owner" },
+    capabilities = new[]
+    {
+        "recall", "recall.asOf", "isolation.owner",
+        // D2's additions: what the LangGraph BaseStore adapter needs to exist at all.
+        "facts.write", "facts.get", "workingMemory.get", "delta",
+    },
 }));
 
 // ── seeding ───────────────────────────────────────────────────────────
@@ -228,6 +258,123 @@ app.MapPost("/v1/spike/recall-direct", async (
         Preferences = [.. context.RelevantPreferences.Items
             .Select(p => string.Join('|', p.PreferenceId, p.Category, p.PreferenceText, p.OwnerId ?? "-"))
             .OrderBy(s => s, StringComparer.Ordinal)],
+    });
+});
+
+// ── D2: the store verbs the LangGraph adapter needs ───────────────────
+
+// A typed fact write. LangGraph's put() hands a namespace, a key and an arbitrary dict; the adapter
+// maps that onto this, so a store write becomes a FACT rather than an opaque blob. That mapping is the
+// difference between "a key-value store that happens to be backed by a graph" and a memory system.
+app.MapPost("/v1/facts", async (
+    WireFactWrite write, ILongTermMemoryService longTerm, IFactRepository facts, IClock clock,
+    CancellationToken ct) =>
+{
+    var fact = new Fact
+    {
+        // The caller's key is the id, so get(namespace, key) can find it again. LangGraph owns key
+        // identity; inventing our own would make put-then-get fail for a reason the client cannot see.
+        FactId = write.Key,
+        Subject = write.Subject,
+        Predicate = write.Predicate,
+        Object = write.Object,
+        Confidence = write.Confidence ?? 0.9,
+        CreatedAtUtc = write.RecordedAtUtc ?? clock.UtcNow,
+        OwnerId = write.OwnerId,
+        ValidFrom = write.ValidFrom,
+        ValidUntil = write.ValidUntil,
+    };
+
+    var saved = await longTerm.AddFactAsync(fact, ct);
+
+    // An update is a supersession. Applied through the repository so the graph carries a real
+    // SUPERSEDED_BY edge and a transaction-clock closure -- hand-setting invalidated_at would produce
+    // a shape the engine never produces, and every as-of read after it would be reading a fiction.
+    if (!string.IsNullOrWhiteSpace(write.Supersedes))
+    {
+        await facts.SupersedeAsync(
+            write.Supersedes,
+            saved.FactId,
+            MemoryScope.For(write.OwnerId ?? string.Empty, includeShared: false),
+            ct);
+    }
+
+    return Results.Ok(new { id = saved.FactId, superseded = write.Supersedes });
+});
+
+app.MapGet("/v1/facts/{id}", async (
+    string id, IFactRepository facts, CancellationToken ct) =>
+{
+    var fact = await facts.GetByIdAsync(id, ct);
+    return fact is null
+        ? Results.NotFound()
+        : Results.Ok(new WireFact
+        {
+            Id = fact.FactId,
+            Subject = fact.Subject,
+            Predicate = fact.Predicate,
+            Object = fact.Object,
+            Confidence = fact.Confidence,
+            ValidFrom = fact.ValidFrom,
+            ValidUntil = fact.ValidUntil,
+            OwnerId = fact.OwnerId,
+        });
+});
+
+// The compiled per-owner block, read on session start. A point-read by owner, so unlike everything
+// else here it cannot be starved by a global top-K.
+//
+// 404, not 200-with-nulls, when there is no block. "No block has been compiled" and "the block is
+// empty" are different states, and a client that has to distinguish them by null-checking fields will
+// eventually stop.
+app.MapGet("/v1/working-memory/{ownerId}", async (
+    string ownerId, IWorkingMemoryService workingMemory, CancellationToken ct) =>
+{
+    var block = await workingMemory.GetAsync(ownerId, ct);
+    return block is null
+        ? Results.NotFound()
+        : Results.Ok(new WireWorkingMemory
+        {
+            OwnerId = block.OwnerId,
+            Text = block.Text,
+            BuiltAtUtc = block.BuiltAtUtc,
+            ContentHash = block.ContentHash,
+        });
+});
+
+// "What changed since you were last here." The resume brief.
+app.MapPost("/v1/delta", async (
+    WireDeltaRequest wire, IMemoryService memory, CancellationToken ct) =>
+{
+    var delta = await memory.RecallChangedSinceAsync(
+        new MemoryDeltaRequest
+        {
+            Since = wire.Since,
+            UserId = wire.OwnerId,
+            MaxItemsPerSection = wire.MaxItemsPerSection ?? 20,
+        },
+        ct);
+
+    static WireFact Map(Fact f) => new()
+    {
+        Id = f.FactId, Subject = f.Subject, Predicate = f.Predicate, Object = f.Object,
+        Confidence = f.Confidence, ValidFrom = f.ValidFrom, ValidUntil = f.ValidUntil,
+        OwnerId = f.OwnerId,
+    };
+
+    return Results.Ok(new WireDeltaResponse
+    {
+        Since = delta.Since,
+        // Handed back so the caller can use it as the next checkpoint. A client that has to guess
+        // "now" reopens the read-skew gap the single clock read was there to close.
+        TakenAtUtc = delta.TakenAtUtc,
+        NewFacts = [.. delta.NewFacts.Select(Map)],
+        // Old and new together: "updated" reads as an update only if both halves are present, and as a
+        // deletion plus an unrelated creation otherwise.
+        SupersededPairs = [.. delta.SupersededPairs.Select(p =>
+            new WireSupersededPair { Old = Map(p.Old), New = Map(p.New) })],
+        InvalidatedFacts = [.. delta.InvalidatedFacts.Select(Map)],
+        TruncatedSections = [.. delta.TruncatedSections],
     });
 });
 

@@ -131,3 +131,98 @@ internal sealed record CanonicalRecall
     [JsonPropertyName("entities")] public required IReadOnlyList<string> Entities { get; init; }
     [JsonPropertyName("preferences")] public required IReadOnlyList<string> Preferences { get; init; }
 }
+
+// ── D2: the verbs the LangGraph BaseStore adapter maps onto ───────────────────────────────────────
+//
+// Spike 0's wire was read-only — enough to answer "can a wire carry a recall result". D2 needs three
+// more verbs, because a store that cannot write is not a store: a typed write (put), a point-read
+// (get), and the resume brief (delta). Still draft, still throwaway; the real contract waits on 31.1.
+
+/// <summary>A typed fact write, which is what LangGraph's <c>put()</c> maps onto (D2).</summary>
+/// <remarks>
+/// The caller supplies the <see cref="Key"/> and it becomes the fact id, because LangGraph owns key
+/// identity: a store that invented its own id would make <c>put</c>-then-<c>get</c> fail, and fail for
+/// a reason the client has no way to see.
+/// </remarks>
+internal sealed record WireFactWrite
+{
+    [JsonPropertyName("key")] public required string Key { get; init; }
+    [JsonPropertyName("ownerId")] public string? OwnerId { get; init; }
+    [JsonPropertyName("subject")] public required string Subject { get; init; }
+    [JsonPropertyName("predicate")] public required string Predicate { get; init; }
+    [JsonPropertyName("object")] public required string Object { get; init; }
+    [JsonPropertyName("confidence")] public double? Confidence { get; init; }
+    [JsonPropertyName("validFrom")] public DateTimeOffset? ValidFrom { get; init; }
+    [JsonPropertyName("validUntil")] public DateTimeOffset? ValidUntil { get; init; }
+
+    /// <summary>
+    /// When the system LEARNED this — the transaction clock — as distinct from when it became true in
+    /// the world (<see cref="ValidFrom"/>). Defaults to now.
+    /// </summary>
+    /// <remarks>
+    /// Exposed because a demo has to compress months into one process, and the two clocks are not
+    /// interchangeable: recording everything at "now" and then asking as-of March correctly returns
+    /// nothing, because in March the system knew nothing. That is right, and it makes a demo look
+    /// broken — so the write carries the transaction instant explicitly rather than the read quietly
+    /// ignoring one of the clocks to produce a friendlier answer.
+    /// </remarks>
+    [JsonPropertyName("recordedAtUtc")] public DateTimeOffset? RecordedAtUtc { get; init; }
+
+    /// <summary>
+    /// The id of a fact this one replaces. Applied as a real supersession, not a delete.
+    /// </summary>
+    /// <remarks>
+    /// This is how an <i>update</i> is expressed. A key-value store overwrites and the old value is
+    /// gone; here the loser is closed on the transaction clock, so as-of recall before this instant
+    /// still returns it — which is the whole reason the history is worth keeping.
+    /// </remarks>
+    [JsonPropertyName("supersedes")] public string? Supersedes { get; init; }
+}
+
+/// <summary>"What changed since I was last here" (D2's resume brief).</summary>
+internal sealed record WireDeltaRequest
+{
+    [JsonPropertyName("ownerId")] public string? OwnerId { get; init; }
+    [JsonPropertyName("since")] public required DateTimeOffset Since { get; init; }
+    [JsonPropertyName("maxItemsPerSection")] public int? MaxItemsPerSection { get; init; }
+}
+
+/// <summary>A replacement, carried as a pair so the client can render "was X, now Y".</summary>
+internal sealed record WireSupersededPair
+{
+    [JsonPropertyName("old")] public required WireFact Old { get; init; }
+    [JsonPropertyName("new")] public required WireFact New { get; init; }
+}
+
+internal sealed record WireDeltaResponse
+{
+    [JsonPropertyName("since")] public required DateTimeOffset Since { get; init; }
+
+    /// <summary>
+    /// The next checkpoint, handed back rather than left for the caller to guess.
+    /// </summary>
+    /// <remarks>
+    /// A client that stamped its own "now" after the call would leave a gap between the server's read
+    /// and its own clock, and anything written in that gap would never appear in any delta. The window
+    /// is half-open on the server's clock, so echoing this value back partitions time exactly.
+    /// </remarks>
+    [JsonPropertyName("takenAtUtc")] public required DateTimeOffset TakenAtUtc { get; init; }
+
+    [JsonPropertyName("newFacts")] public required IReadOnlyList<WireFact> NewFacts { get; init; }
+    [JsonPropertyName("supersededPairs")] public required IReadOnlyList<WireSupersededPair> SupersededPairs { get; init; }
+    [JsonPropertyName("invalidatedFacts")] public required IReadOnlyList<WireFact> InvalidatedFacts { get; init; }
+
+    /// <summary>Buckets that hit their cap. Truncation is reported, never silent.</summary>
+    [JsonPropertyName("truncatedSections")] public required IReadOnlyList<string> TruncatedSections { get; init; }
+}
+
+/// <summary>The compiled per-owner working-memory block (Wave C), as the wire carries it.</summary>
+internal sealed record WireWorkingMemory
+{
+    [JsonPropertyName("ownerId")] public required string OwnerId { get; init; }
+    [JsonPropertyName("text")] public required string Text { get; init; }
+    [JsonPropertyName("builtAtUtc")] public required DateTimeOffset BuiltAtUtc { get; init; }
+
+    /// <summary>Lets a client tell "unchanged since last session" from "rebuilt identically".</summary>
+    [JsonPropertyName("contentHash")] public required string ContentHash { get; init; }
+}
