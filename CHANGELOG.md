@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Verified
+
+- **Neo4j 2026.02 / Cypher 25 compatibility.** Neo4j 2026.02 defaults *new* databases to
+  `db.query.default_language=CYPHER_25`, which removes some Cypher 5 features. Checked against
+  2026.02.3 (community, single database): the full schema bootstraps — 53 indexes and 13 constraints,
+  including all six vector indexes with their `OPTIONS {indexConfig: …}` maps — and the integration
+  suite passes **479/479**, identical to the 5.26 baseline. A differential plan sweep (every statement
+  under both `CYPHER 5` and `CYPHER 25`) found **no statement that passes under 5 and fails under 25**.
+  `CALL { WITH … }` and `id()` remain deprecated-but-working and are slated for migration. CI
+  continues to gate on 5.26; no code change was required.
+
 ### Changed
 
 - **⚠️ `agent-memory-mcp` now targets .NET 10.** The MCP server ships as a `DotnetTool`, so its target

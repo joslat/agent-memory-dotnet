@@ -1244,7 +1244,7 @@ MATCH (f:Fact {owner_id: $ownerId})
 
 ## WorkingMemoryQueries.SelectTopEntities
 MATCH (e:Entity {owner_id: $ownerId})
-            WHERE e.invalidated_at IS NULL
+            WHERE e.invalidated_at IS NULL AND e.merged_into IS NULL
             RETURN e.name AS name, e.type AS type
             ORDER BY coalesce(e.access_count, 0) DESC, e.name ASC, e.id ASC
             LIMIT $limit

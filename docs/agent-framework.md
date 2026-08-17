@@ -141,10 +141,14 @@ only `Messages` varies by outcome, so a quiet turn never silently loses tool ava
 ## Prerequisites
 
 - **.NET 8, 9, or 10** SDK.
-- A **Neo4j 5.x** instance (self-hosted or AuraDB). Quick local start:
+- A **Neo4j 5.x or 2026.x** instance (self-hosted or AuraDB). Quick local start:
   ```bash
   docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5.26
   ```
+  **Cypher 25:** Neo4j 2026.02 defaults *new* databases to `db.query.default_language=CYPHER_25`,
+  which removes some Cypher 5 features. Verified on 2026.02.3 (community, single database): the full
+  schema bootstraps — 53 indexes and 13 constraints, including every vector index — and the
+  integration suite passes **479/479**, identical to the 5.26 baseline. CI still gates on 5.26.
 - For **real** semantic recall and entity extraction: an embedding provider and a chat model via
   `Microsoft.Extensions.AI` (e.g. OpenAI / Azure OpenAI). AgentMemory ships deterministic **offline
   stubs** so the wiring runs with no API key — see [Real providers vs. offline defaults](#real-providers-vs-offline-defaults).

@@ -1,5 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Neo4j.Driver;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Core.Extraction;
@@ -118,6 +119,13 @@ public static class ServiceCollectionExtensions
         // reranker pattern, so IOptions reconfiguration works.
         services.TryAddScoped<IWorkingMemoryService, Services.Neo4jWorkingMemoryService>();
 
+        // 30.4b. MergeEntitiesAsync's rebuild seam is hooked INSIDE Neo4jEntityRepository, not by
+        // decorating IEntityRepository here. A decorator implementing only IEntityRepository strips
+        // the three capability interfaces the concrete repository also implements
+        // (IUpsertPersistsProvenance, IBatchMemoryRepository<Entity>, IFusedBatchMemoryRepository<Entity>),
+        // which collapses the batch write paths into per-item queries -- measured at 8 -> 115 Cypher
+        // queries on the 50-message extraction scenario before the hermetic counter gate caught it.
+
         // Graph query service
         services.TryAddTransient<IGraphQueryService, Neo4jGraphQueryService>();
 
@@ -164,4 +172,5 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IGraphRagContextSource, Neo4jGraphRagContextSource>();
         return services;
     }
+
 }
