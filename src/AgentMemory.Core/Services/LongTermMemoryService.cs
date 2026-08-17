@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Core.Memory;
@@ -25,8 +25,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     private readonly LongTermMemoryOptions _options;
     private readonly ILogger<LongTermMemoryService> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
-    private readonly IWorkingMemoryService? _workingMemory;
-    private readonly WorkingMemoryOptions _workingMemoryOptions;
+    private readonly WorkingMemoryRebuilder _rebuilder;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LongTermMemoryService"/> class.
@@ -62,8 +61,10 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         _options = options.Value;
         _logger = logger;
         _isolationPolicy = isolationPolicy;
-        _workingMemory = workingMemory;
-        _workingMemoryOptions = memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions();
+        _rebuilder = new WorkingMemoryRebuilder(
+            workingMemory,
+            memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions(),
+            _logger);
     }
 
     /// <summary>
@@ -87,38 +88,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     /// identity key.
     /// </para>
     /// </remarks>
-    private async Task RebuildWorkingMemoryAsync(string? ownerId, CancellationToken cancellationToken)
-    {
-        if (_workingMemory is null) return;
-        if (!_workingMemoryOptions.Enabled || !_workingMemoryOptions.RebuildOnWrite) return;
-        if (string.IsNullOrWhiteSpace(ownerId)) return;
-
-        try
-        {
-            await _workingMemory.RebuildAsync(ownerId, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(
-                exception,
-                "Working-memory rebuild failed for owner {Owner}; the write itself succeeded.", ownerId);
-
-            if (!_workingMemoryOptions.ClearOnRebuildFailure) return;
-            try
-            {
-                await _workingMemory.ClearAsync(ownerId, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception clearFailure)
-            {
-                // The residual risk this design accepts and names: if the CLEAR also fails, a stale
-                // block can survive. Logged at Error because nothing else can notice it.
-                _logger.LogError(
-                    clearFailure,
-                    "Working-memory block for owner {Owner} could not be cleared after a failed "
-                    + "rebuild; it may now be STALE.", ownerId);
-            }
-        }
-    }
+    private Task RebuildWorkingMemoryAsync(string? ownerId, CancellationToken cancellationToken) =>
+        _rebuilder.RebuildAsync(ownerId, "a long-term memory write", cancellationToken);
 
     /// <inheritdoc/>
     public Task<Entity?> RecordEntityFeedbackAsync(

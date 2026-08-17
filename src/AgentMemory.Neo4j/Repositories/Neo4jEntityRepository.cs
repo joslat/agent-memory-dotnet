@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
+using AgentMemory.Core.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -17,6 +18,9 @@ namespace AgentMemory.Neo4j.Repositories;
 internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsertPersistsProvenance,
     IBatchMemoryRepository<Entity>, IFusedBatchMemoryRepository<Entity>
 {
+    private readonly IWorkingMemoryService? _workingMemory;
+    private readonly WorkingMemoryOptions _workingMemoryOptions;
+
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
@@ -67,8 +71,13 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         IOptions<MemoryRankingOptions>? ranking = null,
         IOptions<MemoryDecayOptions>? decay = null,
         IMemoryRankingContext? rankingContext = null,
-        IOptions<MemoryOptions>? memoryOptions = null)
+        IOptions<MemoryOptions>? memoryOptions = null,
+        // 30.4b. Optional, mirroring every other working-memory injection point: a host that never
+        // registered the tier keeps the exact previous construction shape.
+        IWorkingMemoryService? workingMemory = null)
     {
+        _workingMemory = workingMemory;
+        _workingMemoryOptions = memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions();
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
         _skipEscalationWhenOwnerHasNoRows =
             memoryOptions?.Value.SkipEscalationWhenOwnerHasNoRows ?? false;
@@ -590,7 +599,48 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         if (merged)
             await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken).ConfigureAwait(false);
 
+        // 30.4b. The working-memory block names entities, so a merge that folded one into another can
+        // leave it asserting an entity that no longer exists. This is the one rebuild seam with no
+        // service to hang an epilogue on -- MergeEntitiesAsync is IEntityRepository-only, so callers
+        // reach it directly. It is hooked HERE rather than through a decorator on the interface
+        // because this class also implements IUpsertPersistsProvenance, IBatchMemoryRepository<Entity>
+        // and IFusedBatchMemoryRepository<Entity>: a wrapper that implements only IEntityRepository
+        // silently strips all three, which collapses the batch write paths into per-item queries and
+        // re-adds provenance writes the marker exists to skip. That cost 8 -> 115 Cypher queries on
+        // the 50-message extraction scenario, caught by the hermetic counter gate.
+        if (merged)
+            await RebuildWorkingMemoryAfterMergeAsync(targetEntityId, scope, cancellationToken)
+                .ConfigureAwait(false);
+
         return merged;
+    }
+
+    /// <summary>
+    /// Recompiles the owner's working-memory block after a merge that actually matched. Never throws:
+    /// a caller who successfully merged must not see an exception because a projection of it could
+    /// not be recompiled.
+    /// </summary>
+    private async Task RebuildWorkingMemoryAfterMergeAsync(
+        string targetEntityId, MemoryScope? scope, CancellationToken cancellationToken)
+    {
+        var rebuilder = new WorkingMemoryRebuilder(_workingMemory, _workingMemoryOptions, _logger);
+        if (rebuilder.IsDisabled) return;
+
+        var ownerId = scope?.OwnerId;
+        if (string.IsNullOrWhiteSpace(ownerId))
+        {
+            // Unscoped admin/maintenance dedup names no owner, so the surviving target is the only
+            // thing that can say whose block changed. Read it AFTER the merge -- the merge folds the
+            // source into the target, so the target is the row that survives.
+            var target = await GetByIdAsync(targetEntityId, cancellationToken).ConfigureAwait(false);
+            ownerId = target?.OwnerId;
+        }
+
+        // Guard G3's near side: no owner, no block to rebuild.
+        if (string.IsNullOrWhiteSpace(ownerId)) return;
+
+        await rebuilder.RebuildAsync(ownerId, "an entity merge", cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task RefreshEntitySearchFieldsAsync(string entityId, CancellationToken cancellationToken = default)

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 
 namespace AgentMemory.Core.Extraction;
 
@@ -25,8 +26,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private readonly ExtractionOptions _options;
     private readonly IMemoryPersistenceTransaction _persistenceTransaction;
     private readonly ILogger<PersistenceStage> _logger;
-    private readonly IWorkingMemoryService? _workingMemory;
-    private readonly WorkingMemoryOptions _workingMemoryOptions;
+    private readonly WorkingMemoryRebuilder _rebuilder;
 
     public PersistenceStage(
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -54,8 +54,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         _logger = logger;
         _persistenceTransaction = persistenceTransaction ?? throw new ArgumentNullException(nameof(persistenceTransaction));
         _options = extractionOptions?.Value ?? new ExtractionOptions();
-        _workingMemory = workingMemory;
-        _workingMemoryOptions = memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions();
+        _rebuilder = new WorkingMemoryRebuilder(
+            workingMemory,
+            memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions(),
+            _logger);
     }
 
     public async Task<PersistenceResult> PersistAsync(
@@ -103,40 +105,16 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     /// which is within what an eager hash-short-circuited rebuild already promises.
     /// </para>
     /// </remarks>
-    private async Task RebuildWorkingMemoryAsync(
+    private Task RebuildWorkingMemoryAsync(
         string? ownerId, PersistenceResult result, CancellationToken cancellationToken)
     {
-        if (_workingMemory is null) return;
-        if (!_workingMemoryOptions.Enabled || !_workingMemoryOptions.RebuildOnWrite) return;
-        if (string.IsNullOrWhiteSpace(ownerId)) return;
+        if (_rebuilder.IsDisabled) return Task.CompletedTask;
 
         // Nothing landed, nothing to recompile. Relationships are excluded on purpose: the block is
         // compiled from facts, preferences and entities, so a relationship-only persist cannot change it.
-        if (result.EntityCount + result.FactCount + result.PreferenceCount == 0) return;
+        if (result.EntityCount + result.FactCount + result.PreferenceCount == 0) return Task.CompletedTask;
 
-        try
-        {
-            await _workingMemory.RebuildAsync(ownerId, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(
-                exception,
-                "Working-memory rebuild failed for owner {Owner} after persist; the persist itself succeeded.",
-                ownerId);
-
-            if (!_workingMemoryOptions.ClearOnRebuildFailure) return;
-            try
-            {
-                await _workingMemory.ClearAsync(ownerId, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception clearFailure)
-            {
-                _logger.LogWarning(
-                    clearFailure,
-                    "Clearing the stale working-memory block for owner {Owner} also failed.", ownerId);
-            }
-        }
+        return _rebuilder.RebuildAsync(ownerId, "a persist", cancellationToken);
     }
 
     private async Task<PersistenceResult> PersistCoreAsync(

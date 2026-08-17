@@ -46,9 +46,21 @@ internal static class WorkingMemoryQueries
     /// that is accepted for a top-6 list rather than solved here. It is recorded as a known weakness
     /// rather than presented as a ranking.
     /// </remarks>
+    /// <remarks>
+    /// <para>
+    /// <b><c>merged_into</c> is checked as well as <c>invalidated_at</c>, and that is not a
+    /// belt-and-braces filter.</b> A merge tombstones the source by stamping <c>merged_into</c> /
+    /// <c>merged_at</c> — deliberately, so the fold stays auditable and recoverable — and it does
+    /// NOT invalidate it. An <c>invalidated_at</c>-only filter therefore keeps naming an entity that
+    /// was folded into another, which is the same "block asserts something no longer true" staleness
+    /// the supersession canary exists to prevent, arriving by a different route. Found by the 30.4b
+    /// merge-seam test: hooking the rebuild alone left the merged name in the block, so the seam
+    /// would have been cosmetic without this.
+    /// </para>
+    /// </remarks>
     public const string SelectTopEntities = @"
             MATCH (e:Entity {owner_id: $ownerId})
-            WHERE e.invalidated_at IS NULL
+            WHERE e.invalidated_at IS NULL AND e.merged_into IS NULL
             RETURN e.name AS name, e.type AS type
             ORDER BY coalesce(e.access_count, 0) DESC, e.name ASC, e.id ASC
             LIMIT $limit";
