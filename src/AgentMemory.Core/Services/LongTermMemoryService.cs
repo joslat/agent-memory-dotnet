@@ -637,7 +637,26 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     {
         var resolvedScope = Resolve(scope, nameof(DeletePreferenceAsync));
         _logger.LogDebug("Deleting preference {PreferenceId}, owner={Owner}", preferenceId, resolvedScope.OwnerId);
-        return _prefRepo.DeleteAsync(preferenceId, resolvedScope, cancellationToken);
+
+        // 30.4b: same staleness shape as invalidation — a deleted preference must leave the block.
+        //
+        // Rebuilt UNCONDITIONALLY, unlike the invalidate family, and the asymmetry is forced rather
+        // than chosen: IPreferenceRepository.DeleteAsync returns Task, not Task<bool>, so there is no
+        // way to learn whether the delete matched anything. The invalidate paths skip the rebuild on a
+        // no-op precisely because they CAN tell. Here the choice is between a wasted rebuild on a
+        // no-op delete and a stale block on a real one, and staleness is the failure this design
+        // exists to prevent. Widening the repository signature would be the real fix; it is a public
+        // interface locked under SemVer since 1.0, so it is not worth a break for a bookkeeping win.
+        return DeleteThenRebuildAsync();
+
+        async Task DeleteThenRebuildAsync()
+        {
+            await _prefRepo.DeleteAsync(preferenceId, resolvedScope, cancellationToken)
+                .ConfigureAwait(false);
+            await _rebuilder
+                .RebuildAsync(resolvedScope.OwnerId, "a preference delete", cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>
@@ -726,17 +745,57 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     // central isolation policy (#100): these never had a fallback derivation of their own, so this adds
     // a warn/fail-closed gate on top of the existing pass-through rather than replacing anything. ──
 
+    /// <summary>
+    /// Shared epilogue for the invalidate/delete family (30.4b): perform the write, and recompile the
+    /// owner's working-memory block when it actually removed something.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why these needed hooking at all.</b> Every working-memory block query filters
+    /// <c>invalidated_at IS NULL</c>. Retracting a fact therefore changes what the block should say —
+    /// but nothing recompiled it, so the block kept asserting the retracted value until some unrelated
+    /// write happened to trigger a rebuild. That is precisely the staleness this design calls
+    /// "manufactures knowledge-update failures", and it is the reason supersession is hooked.
+    /// <b>Supersede was hooked and its exact twin was not.</b>
+    /// </para>
+    /// <para>
+    /// Only on a <c>true</c> result: a scoped call that matched nothing changed nothing, and rebuilding
+    /// there would spend reads on exactly the calls the isolation guard exists to make free.
+    /// </para>
+    /// </remarks>
+    private async Task<bool> InvalidateThenRebuildAsync(
+        Func<MemoryScope, Task<bool>> invalidate,
+        MemoryScope? scope,
+        string caller,
+        CancellationToken cancellationToken)
+    {
+        var resolvedScope = Resolve(scope, caller);
+        var changed = await invalidate(resolvedScope).ConfigureAwait(false);
+        if (!changed) return false;
+
+        await _rebuilder
+            .RebuildAsync(resolvedScope.OwnerId, "an invalidation", cancellationToken)
+            .ConfigureAwait(false);
+        return true;
+    }
+
     /// <inheritdoc/>
     public Task<bool> InvalidateFactAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _factRepo.InvalidateAsync(factId, Resolve(scope, nameof(InvalidateFactAsync)), cancellationToken);
+        => InvalidateThenRebuildAsync(
+            resolved => _factRepo.InvalidateAsync(factId, resolved, cancellationToken),
+            scope, nameof(InvalidateFactAsync), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> InvalidateEntityAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _entityRepo.InvalidateAsync(entityId, Resolve(scope, nameof(InvalidateEntityAsync)), cancellationToken);
+        => InvalidateThenRebuildAsync(
+            resolved => _entityRepo.InvalidateAsync(entityId, resolved, cancellationToken),
+            scope, nameof(InvalidateEntityAsync), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> InvalidatePreferenceAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _prefRepo.InvalidateAsync(preferenceId, Resolve(scope, nameof(InvalidatePreferenceAsync)), cancellationToken);
+        => InvalidateThenRebuildAsync(
+            resolved => _prefRepo.InvalidateAsync(preferenceId, resolved, cancellationToken),
+            scope, nameof(InvalidatePreferenceAsync), cancellationToken);
 
     /// <inheritdoc/>
     /// <remarks>

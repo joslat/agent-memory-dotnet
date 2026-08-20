@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using AgentEval.Memory.External.Models;
 using AgentEval.Memory.External.TypedMemEval;
@@ -47,6 +47,9 @@ internal static class TypedMemEvalProgram
     [
         "--typedmemeval", "--max-questions", "--random-seed", "--answer-seed",
         "--runs", "--oracle", "--control",
+        // 30.9c: the Wave-C ablation switches. Absent, every run takes the shipped-default path,
+        // which is what every sealed measurement so far was taken under.
+        "--working-memory", "--arithmetic-memory",
     ];
 
     public static async Task<int> RunAsync(string[] args)
@@ -94,7 +97,8 @@ internal static class TypedMemEvalProgram
                             extractionDeployment,
                             embeddingDimensions,
                             Console.Out,
-                            CancellationToken.None)
+                            CancellationToken.None,
+                            phase30: options.Phase30)
                         .ConfigureAwait(false);
                 }
 
@@ -315,7 +319,10 @@ internal static class TypedMemEvalProgram
             ParseAnyInteger(Value("--answer-seed"), "--answer-seed"),
             ParsePositive(Value("--runs"), "--runs") ?? 1,
             Array.IndexOf(args, "--oracle") >= 0,
-            Array.IndexOf(args, "--control") >= 0);
+            Array.IndexOf(args, "--control") >= 0,
+            new PhaseThirtyFeatures(
+                WorkingMemory: Array.IndexOf(args, "--working-memory") >= 0,
+                ArithmeticMemory: Array.IndexOf(args, "--arithmetic-memory") >= 0));
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -412,5 +419,6 @@ internal static class TypedMemEvalProgram
         int? AnswerSeed,
         int Runs,
         bool Oracle,
-        bool Control);
+        bool Control,
+        PhaseThirtyFeatures Phase30);
 }

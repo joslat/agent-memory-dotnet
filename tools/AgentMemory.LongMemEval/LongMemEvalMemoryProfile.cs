@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Domain;
+﻿using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
@@ -44,7 +44,11 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool resolveTemporalQueries = false,
         bool rescueShortOwnerResults = false,
         string? graphRagIndexName = null,
-        int? extractionSeed = null)
+        int? extractionSeed = null,
+        // 30.9c gap: every Phase-30 Wave-C capability ships dark AND had no way in from the harness,
+        // so the features built to move these very numbers were the one thing no run could exercise.
+        // Same defect the RescueShortOwnerResults comment below records, one wave later.
+        PhaseThirtyFeatures? phase30 = null)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
@@ -76,6 +80,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     assistantContent,
                     resolveTemporalQueries,
                     rescueShortOwnerResults,
+                    phase30 ?? PhaseThirtyFeatures.AllOff,
                     graphRagIndexName,
                     extractionSeed,
                     cancellationToken)
@@ -105,6 +110,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         AssistantContentMode assistantContent,
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
+        PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         int? extractionSeed,
         CancellationToken cancellationToken)
@@ -132,6 +138,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             assistantContent,
             resolveTemporalQueries,
             rescueShortOwnerResults,
+            phase30,
             graphRagIndexName,
             multiSessionBatch,
             extractionSeed);
@@ -170,6 +177,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         AssistantContentMode assistantContent,
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
+        PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         bool multiSessionBatch = true,
         int? extractionSeed = null)
@@ -219,9 +227,19 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // from the benchmark, so the mechanism most directly matching the measured failure
                 // mode was the one thing no run could exercise.
                 RescueShortOwnerResults = rescueShortOwnerResults,
+                // 30.4 / 30.6. Off unless the run asks for them, so every sealed measurement keeps
+                // taking the path it was taken under; an ablation turns one on and re-runs the SAME
+                // frozen corpus and seed.
+                WorkingMemory = { Enabled = phase30.WorkingMemory },
+                Extraction = { DerivedMemory = { Enabled = phase30.ArithmeticMemory } },
             },
             neo4j =>
             {
+                // The Wave-C features persist through SchemaExtensions; without the matching
+                // extension installed their DDL is absent and the writes fail at the store rather
+                // than doing nothing, which would read as a broken feature instead of a dark one.
+                foreach (var extension in phase30.Extensions)
+                    neo4j.Extensions.Add(extension);
                 neo4j.Uri = neo4jUri;
                 neo4j.Username = User;
                 neo4j.Password = Password;
