@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -154,5 +155,89 @@ public sealed class WorkingMemoryInvalidateSeamTests
 
         changed.Should().BeTrue("a failed projection must never fail the write that succeeded");
         await _workingMemory.Received(1).ClearAsync(Owner, Arg.Any<CancellationToken>());
+    }
+    
+    // ─── Seam 6: adding an entity (R3) ──────────────────────────────────────
+
+    /// <summary>
+    /// Adding an entity recompiles the block — the last write on this service that did not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The block carries a top-entities section (<c>WorkingMemoryQueries.SelectTopEntities</c>), so an
+    /// added entity can change it. Every sibling write — fact, preference, supersede, invalidate,
+    /// delete, and entity merge — was hooked across 30.4b and #206; this one was missed each time,
+    /// which is what a trigger set closed by successive partial sweeps looks like.
+    /// </para>
+    /// <para>
+    /// The window is narrow: entities sort by <c>access_count DESC</c>, so a new entity usually falls
+    /// outside the cap. It stops being narrow for an owner holding fewer entities than
+    /// <c>MaxTopEntities</c>, where the new entity genuinely belongs in the block and would not appear
+    /// until an unrelated write triggered a rebuild.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task AddEntityAsync_RebuildsTheBlock()
+    {
+        _entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(call.Arg<Entity>()));
+
+        var entity = new Entity
+        {
+            EntityId = Id,
+            Name = "Acme Corp",
+            Type = "Organization",
+            OwnerId = Owner,
+            Confidence = 1.0,
+            Embedding = new float[] { 0.1f, 0.2f },
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+        };
+
+        var saved = await CreateSut().AddEntityAsync(entity, CancellationToken.None);
+
+        saved.EntityId.Should().Be(Id, "the saved entity must still be returned to the caller");
+        await _workingMemory.Received(1).RebuildAsync(Owner, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddEntityAsync_BelowTheConfidenceFloor_DoesNotRebuild()
+    {
+        // Nothing is persisted below the floor, so nothing about the block can have changed.
+        var entity = new Entity
+        {
+            EntityId = Id,
+            Name = "Noise",
+            Type = "Organization",
+            OwnerId = Owner,
+            Confidence = 0.01,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+        };
+
+        await CreateSut().AddEntityAsync(entity, CancellationToken.None);
+
+        await _workingMemory.DidNotReceive().RebuildAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _entities.DidNotReceive().UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddEntityAsync_WithTheTierOff_DoesNotRebuild()
+    {
+        _entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(call.Arg<Entity>()));
+
+        var entity = new Entity
+        {
+            EntityId = Id,
+            Name = "Acme Corp",
+            Type = "Organization",
+            OwnerId = Owner,
+            Confidence = 1.0,
+            Embedding = new float[] { 0.1f, 0.2f },
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+        };
+
+        await CreateSut(enabled: false).AddEntityAsync(entity, CancellationToken.None);
+
+        await _workingMemory.DidNotReceive().RebuildAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 }

@@ -129,18 +129,35 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
             return Task.FromResult(entity);
         }
 
-        return EnsureEmbeddingThenUpsertAsync(
-            entity,
-            shouldEmbed: _options.GenerateEntityEmbeddings && entity.Embedding is null,
-            embed: cancellationToken =>
-            {
-                var text = string.IsNullOrEmpty(entity.Description) ? entity.Name : $"{entity.Name}: {entity.Description}";
-                _logger.LogDebug("Generating embedding for entity {EntityId}", entity.EntityId);
-                return _embeddingOrchestrator.EmbedTextAsync(text, cancellationToken);
-            },
-            withEmbedding: (e, emb) => e with { Embedding = emb },
-            upsert: _entityRepo.UpsertAsync,
-            cancellationToken);
+        return AddThenRebuildAsync();
+
+        async Task<Entity> AddThenRebuildAsync()
+        {
+            var saved = await EnsureEmbeddingThenUpsertAsync(
+                entity,
+                shouldEmbed: _options.GenerateEntityEmbeddings && entity.Embedding is null,
+                embed: cancellationToken =>
+                {
+                    var text = string.IsNullOrEmpty(entity.Description) ? entity.Name : $"{entity.Name}: {entity.Description}";
+                    _logger.LogDebug("Generating embedding for entity {EntityId}", entity.EntityId);
+                    return _embeddingOrchestrator.EmbedTextAsync(text, cancellationToken);
+                },
+                withEmbedding: (e, emb) => e with { Embedding = emb },
+                upsert: _entityRepo.UpsertAsync,
+                cancellationToken).ConfigureAwait(false);
+
+            // 30.4b, last of the family. The block carries a top-entities section
+            // (WorkingMemoryQueries.SelectTopEntities), so adding an entity can change it -- yet this
+            // was the one write on this service that did not rebuild, while its fact, preference,
+            // supersede, invalidate, delete and merge siblings all do.
+            //
+            // The window is small but real: entities are ordered by access_count DESC, so a brand-new
+            // entity usually sorts last and falls outside the cap. "Usually" stops being true for an
+            // owner with fewer entities than MaxTopEntities, where the new one genuinely belongs in the
+            // block and would not appear until some unrelated write happened to trigger a rebuild.
+            await RebuildWorkingMemoryAsync(saved.OwnerId, cancellationToken).ConfigureAwait(false);
+            return saved;
+        }
     }
 
     /// <inheritdoc/>
