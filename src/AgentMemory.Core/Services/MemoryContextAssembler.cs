@@ -1585,11 +1585,35 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         {
             var gate = RecallFanOutPlanner.EvaluateGate(request.Query, fanOutOptions);
             firedRules = gate.Rules;
+
+            // Signal W, evaluated AFTER the monolithic sections resolved rather than before, because
+            // it is a statement about what they came back with: nothing scored well, so the blended
+            // query may have been the wrong shape. Only consulted when no pre-retrieval rule fired --
+            // a query already known to be compound does not need a second reason.
+            var scoreObserved = false;
+            var weak = false;
             if (!gate.Fired)
             {
+                weak = EvaluateWeakTopScore(
+                    fanOutOptions, entityScores, factScores, preferenceScores, out scoreObserved);
+            }
+
+            if (weak)
+            {
+                firedRules = [.. gate.Rules, "W"];
+            }
+            else if (!gate.Fired)
+            {
                 // Ran and DECLINED. Distinct from never-ran (a null report), and it cost one token scan.
+                // When W was configured but no section published a score, that is recorded rather than
+                // read as a confident decline -- an unscored provider must never produce a fake fire OR
+                // a fake all-clear.
+                var declinedRules = fanOutOptions.WeakTopScoreThreshold is not null && !scoreObserved
+                    ? new[] { "W-unscored" }
+                    : gate.Rules;
+
                 return new FanOutOutcome(
-                    new RecallFanOutReport { GateFired = false, FiredRules = gate.Rules },
+                    new RecallFanOutReport { GateFired = false, FiredRules = declinedRules },
                     entities, facts, preferences);
             }
 
@@ -1727,6 +1751,38 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                     : null,
             },
             mergedEntities, mergedFacts, mergedPreferences);
+    }
+
+    /// <summary>
+    /// Signal W — the best monolithic score is below the configured floor.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="scoreObserved"/> exists so an unscored provider can be told apart from a
+    /// genuinely weak result. Without it, a provider that publishes no scores at all would look
+    /// exactly like one whose every score sat below the threshold, and W would either fire on
+    /// nothing or decline on nothing — both fabrications.
+    /// </remarks>
+    private static bool EvaluateWeakTopScore(
+        RecallFanOutOptions options,
+        IReadOnlyList<(Entity Entity, double Score)> entityScores,
+        IReadOnlyList<(Fact Fact, double Score)> factScores,
+        IReadOnlyList<(Preference Preference, double Score)> preferenceScores,
+        out bool scoreObserved)
+    {
+        scoreObserved = false;
+        if (options.WeakTopScoreThreshold is not { } threshold) return false;
+
+        var best = double.MinValue;
+
+        foreach (var scored in entityScores) { scoreObserved = true; if (scored.Score > best) best = scored.Score; }
+        foreach (var scored in factScores) { scoreObserved = true; if (scored.Score > best) best = scored.Score; }
+        foreach (var scored in preferenceScores) { scoreObserved = true; if (scored.Score > best) best = scored.Score; }
+
+        // No score anywhere: W cannot form an opinion, and inventing one either way would be worse
+        // than staying silent.
+        if (!scoreObserved) return false;
+
+        return best < threshold;
     }
 
     private static SubQueryYield EmptyYield(RecallSubQuery leg) => new()
