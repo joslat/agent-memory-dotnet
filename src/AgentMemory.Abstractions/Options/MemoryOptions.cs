@@ -54,6 +54,16 @@ public sealed record MemoryOptions
     /// <summary>Working-memory tier (the compiled per-owner profile block). Off by default.</summary>
     public WorkingMemoryOptions WorkingMemory { get; init; } = new();
 
+    /// <summary>
+    /// Per-memory-type recall fan-out (Proposal M, 30.10). Off by default.
+    /// </summary>
+    /// <remarks>
+    /// <c>get; set;</c> rather than <c>init</c>, unlike most siblings here: the #100 lesson is that a
+    /// sub-option a host cannot assign from <c>configureMemory</c> is a sub-option that silently
+    /// cannot be configured, and several on this type still carry that defect.
+    /// </remarks>
+    public RecallFanOutOptions FanOut { get; set; } = new();
+
     /// <summary>Context budget configuration.</summary>
     public ContextBudget ContextBudget { get; init; } = ContextBudget.Default;
 
