@@ -53,4 +53,22 @@ public sealed record RecallRequest
     /// </para>
     /// </remarks>
     public DateTimeOffset? TemporalReferenceTime { get; init; }
+
+    /// <summary>
+    /// Per-memory-type legs to retrieve separately and merge (Proposal M, 30.10). Null is today's
+    /// single-query path, byte for byte.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This member exists because the mechanism was otherwise <b>unexpressible</b>. The independent
+    /// audit's finding 11 is that the asked-for design — split the query into per-memory-type
+    /// sub-queries, retrieve each against the real store, merge the retrieved contexts, answer once —
+    /// had a substitute built in its place, and no part of the request schema could even state it.
+    /// </para>
+    /// <para>
+    /// Supplying these directly makes the caller the deriver (reported as <c>"caller"</c>); leaving it
+    /// null lets the planner decide, when the feature is enabled.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<RecallSubQuery>? SubQueries { get; init; }
 }

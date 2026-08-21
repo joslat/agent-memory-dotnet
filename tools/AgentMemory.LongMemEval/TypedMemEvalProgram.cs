@@ -49,7 +49,7 @@ internal static class TypedMemEvalProgram
         "--runs", "--oracle", "--control",
         // 30.9c: the Wave-C ablation switches. Absent, every run takes the shipped-default path,
         // which is what every sealed measurement so far was taken under.
-        "--working-memory", "--arithmetic-memory",
+        "--working-memory", "--arithmetic-memory", "--rescue-short-owner-results",
     ];
 
     public static async Task<int> RunAsync(string[] args)
@@ -98,7 +98,8 @@ internal static class TypedMemEvalProgram
                             embeddingDimensions,
                             Console.Out,
                             CancellationToken.None,
-                            phase30: options.Phase30)
+                            phase30: options.Phase30,
+                            rescueShortOwnerResults: options.RescueShortOwnerResults)
                         .ConfigureAwait(false);
                 }
 
@@ -322,7 +323,8 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--control") >= 0,
             new PhaseThirtyFeatures(
                 WorkingMemory: Array.IndexOf(args, "--working-memory") >= 0,
-                ArithmeticMemory: Array.IndexOf(args, "--arithmetic-memory") >= 0));
+                ArithmeticMemory: Array.IndexOf(args, "--arithmetic-memory") >= 0),
+            Array.IndexOf(args, "--rescue-short-owner-results") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -420,5 +422,11 @@ internal static class TypedMemEvalProgram
         int Runs,
         bool Oracle,
         bool Control,
-        PhaseThirtyFeatures Phase30);
+        PhaseThirtyFeatures Phase30,
+        // 30.9c re-measure instrument. Owner starvation reaches this eval because the harness assigns
+        // one owner per question into a shared index (ScopeId("owner", _questionNumber)); stored runs
+        // show owner-scoped recall returning ~48% of what it asks for. This flag is the mitigation
+        // arm. It stays OFF by default here for the same reason it ships off: measurements taken
+        // without it must remain comparable.
+        bool RescueShortOwnerResults);
 }
