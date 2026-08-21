@@ -25,6 +25,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IWritableMemoryRankingContext? _rankingContext;
     private readonly IReadOnlyList<IMemoryReranker> _rerankers;
     private readonly Projection.MemoryContextProjector _projector;
+    private readonly ISubQueryDeriver? _subQueryDeriver;
     private readonly IWorkingMemoryService? _workingMemory;
     private readonly IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> _truncationStrategies;
     private readonly ILogger<MemoryContextAssembler> _logger;
@@ -71,7 +72,10 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IEnumerable<ITruncationStrategy>? truncationStrategies,
         IEnumerable<IMemoryReranker>? rerankers = null,
         IEnumerable<Projection.IProjectionFeature>? projectionFeatures = null,
-        IWorkingMemoryService? workingMemory = null)
+        IWorkingMemoryService? workingMemory = null,
+        // 30.10. Optional and last, the same shape as every other feature seam here: a host that has
+        // not registered a deriver keeps the exact previous construction, and the planner never runs.
+        ISubQueryDeriver? subQueryDeriver = null)
     {
         _shortTerm = shortTerm;
         _longTerm = longTerm;
@@ -88,6 +92,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         // each owning its own IsEnabled gate, all flags off by default. Null (the non-DI ctor) means no
         // projection is possible at all, which is the byte-identical path.
         _projector = new Projection.MemoryContextProjector(projectionFeatures ?? []);
+        _subQueryDeriver = subQueryDeriver;
         _workingMemory = workingMemory;
         _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
@@ -789,6 +794,24 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             }
         }
 
+        // 30.10. Fan-out runs AFTER the monolithic sections resolve and BEFORE the budget, which is
+        // the only placement that satisfies both halves of the contract: the merge needs the
+        // monolithic sets to compute unique contributions against, and the merged sections must go
+        // through the existing truncation untouched so budgets are never multiplied.
+        RecallFanOutReport? fanOutReport = null;
+        if (ShouldConsiderFanOut(request))
+        {
+            var fanOut = await RunFanOutAsync(
+                request, recallOpts, scope, minScore, _longTerm as IScoredLongTermSearch,
+                entities, entityScores, facts, factScores, preferences, preferenceScores,
+                cancellationToken).ConfigureAwait(false);
+
+            fanOutReport = fanOut.Report;
+            entities = fanOut.Entities;
+            facts = fanOut.Facts;
+            preferences = fanOut.Preferences;
+        }
+
         // Apply context budget if configured
         var budget = _options.ContextBudget;
         bool truncated = false;
@@ -877,6 +900,9 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             Projection = projection,
             WorkingMemoryBlock = workingMemory?.Text,
             WorkingMemoryBuiltAtUtc = workingMemory?.BuiltAtUtc,
+            // 30.10. Null unless the planner ran at all -- see RecallFanOutReport's remarks: null,
+            // declined, and fired-but-useless are three states that must stay distinguishable.
+            FanOutReport = fanOutReport,
             RecentMessages = new MemoryContextSection<Message>
             {
                 Items = recentMessages,
@@ -1497,6 +1523,241 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         if (budget.MaxCharacters.HasValue) return budget.MaxCharacters.Value;
         if (budget.MaxTokens.HasValue) return (int)Math.Min((long)budget.MaxTokens.Value * 4, int.MaxValue);
         return int.MaxValue;
+    }
+
+    /// <summary>Whether the planner should run at all — the null-vs-declined boundary.</summary>
+    /// <remarks>
+    /// Caller-supplied sub-queries win even with the feature disabled, the same philosophy as
+    /// <c>TemporalReferenceTime</c>: an explicit request is not something a global flag gets to veto.
+    /// That is also what makes the mechanism reachable from the eval harness without touching the
+    /// framework seam.
+    /// </remarks>
+    private bool ShouldConsiderFanOut(RecallRequest request) =>
+        request.SubQueries is { Count: > 0 } || (_options.FanOut.Enabled && _subQueryDeriver is not null);
+
+    private readonly record struct FanOutOutcome(
+        RecallFanOutReport? Report,
+        IReadOnlyList<Entity> Entities,
+        IReadOnlyList<Fact> Facts,
+        IReadOnlyList<Preference> Preferences);
+
+    /// <summary>
+    /// Derives (or accepts) sub-queries, retrieves each, and merges them into the monolithic sections.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Cost when the gate declines is <b>zero</b>: no embedding, no search, one token scan. Cost when
+    /// it fires is bounded by <c>MaxSubQueries</c> embeddings plus their section searches.
+    /// </para>
+    /// <para>
+    /// A leg whose embedding fails is skipped and counted rather than throwing. The recall the caller
+    /// asked for has already succeeded by this point, and a failed enhancement must not take it down —
+    /// but it must not vanish either, so the count reaches <c>VoidReason</c>.
+    /// </para>
+    /// </remarks>
+    private async Task<FanOutOutcome> RunFanOutAsync(
+        RecallRequest request,
+        RecallOptions recallOpts,
+        MemoryScope? scope,
+        double minScore,
+        IScoredLongTermSearch? scoredLongTerm,
+        IReadOnlyList<Entity> entities,
+        IReadOnlyList<(Entity Entity, double Score)> entityScores,
+        IReadOnlyList<Fact> facts,
+        IReadOnlyList<(Fact Fact, double Score)> factScores,
+        IReadOnlyList<Preference> preferences,
+        IReadOnlyList<(Preference Preference, double Score)> preferenceScores,
+        CancellationToken cancellationToken)
+    {
+        var fanOutOptions = _options.FanOut;
+        var firedRules = Array.Empty<string>();
+        string deriverId;
+        IReadOnlyList<RecallSubQuery> legs;
+
+        if (request.SubQueries is { Count: > 0 } supplied)
+        {
+            deriverId = "caller";
+            legs = supplied.Count > fanOutOptions.MaxSubQueries
+                ? supplied.Take(fanOutOptions.MaxSubQueries).ToArray()
+                : supplied;
+        }
+        else
+        {
+            var gate = RecallFanOutPlanner.EvaluateGate(request.Query, fanOutOptions);
+            firedRules = gate.Rules;
+            if (!gate.Fired)
+            {
+                // Ran and DECLINED. Distinct from never-ran (a null report), and it cost one token scan.
+                return new FanOutOutcome(
+                    new RecallFanOutReport { GateFired = false, FiredRules = gate.Rules },
+                    entities, facts, preferences);
+            }
+
+            deriverId = _subQueryDeriver!.DeriverId;
+            legs = await _subQueryDeriver
+                .DeriveAsync(request.Query ?? string.Empty, fanOutOptions.MaxSubQueries, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (legs.Count == 0)
+            {
+                // Fired, then derived nothing. VOIDED rather than reported as a zero-yield fan-out: no
+                // leg ever ran, so a zero here would not be a measurement of anything.
+                return new FanOutOutcome(
+                    new RecallFanOutReport
+                    {
+                        GateFired = true,
+                        FiredRules = gate.Rules,
+                        DeriverId = deriverId,
+                        VoidReason = "derivation-failed",
+                    },
+                    entities, facts, preferences);
+            }
+        }
+
+        var yields = new List<SubQueryYield>(legs.Count);
+        var embeddingFailures = 0;
+        var mergedEntities = entities;
+        var mergedFacts = facts;
+        var mergedPreferences = preferences;
+
+        foreach (var leg in legs)
+        {
+            var embedding = leg.QueryEmbedding;
+            if (embedding is null || embedding.Length == 0)
+            {
+                try
+                {
+                    embedding = await _embeddingOrchestrator
+                        .EmbedQueryAsync(leg.QueryText, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogWarning(exception,
+                        "Fan-out leg embedding failed for affinity {Affinity}; the leg is skipped.",
+                        leg.Affinity);
+                    embeddingFailures++;
+                    yields.Add(EmptyYield(leg));
+                    continue;
+                }
+            }
+
+            if (embedding is null || embedding.Length == 0)
+            {
+                embeddingFailures++;
+                yields.Add(EmptyYield(leg));
+                continue;
+            }
+
+            var retrieved = 0;
+            var unique = 0;
+
+            foreach (var section in SubQueryAffinityMap.SectionsFor(leg.Affinity))
+            {
+                if (scoredLongTerm is null) break;
+
+                if (section == "entities" && recallOpts.MaxEntities > 0)
+                {
+                    var legRows = await scoredLongTerm.SearchEntitiesWithScoresAsync(
+                        embedding, recallOpts.MaxEntities, minScore, scope, cancellationToken)
+                        .ConfigureAwait(false);
+                    retrieved += legRows.Count;
+                    var merge = RecallFanOutMerge.Merge(
+                        PairWithScores(mergedEntities, entityScores), legRows,
+                        static e => e.EntityId, recallOpts.MaxEntities);
+                    mergedEntities = merge.Merged;
+                    unique += merge.UniqueIds.Count;
+                }
+                else if (section == "facts" && recallOpts.MaxFacts > 0)
+                {
+                    var legRows = await scoredLongTerm.SearchFactsWithScoresAsync(
+                        embedding, recallOpts.MaxFacts, minScore, scope,
+                        expandByPredicate: false, expansionLimit: 0,
+                        questionRelations: Array.Empty<string>(), cancellationToken)
+                        .ConfigureAwait(false);
+                    retrieved += legRows.Facts.Count;
+                    var merge = RecallFanOutMerge.Merge(
+                        PairWithScores(mergedFacts, factScores), legRows.Scored,
+                        static f => f.FactId, recallOpts.MaxFacts);
+                    mergedFacts = merge.Merged;
+                    unique += merge.UniqueIds.Count;
+                }
+                else if (section == "preferences" && recallOpts.MaxPreferences > 0)
+                {
+                    var legRows = await scoredLongTerm.SearchPreferencesWithScoresAsync(
+                        embedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
+                        .ConfigureAwait(false);
+                    retrieved += legRows.Count;
+                    var merge = RecallFanOutMerge.Merge(
+                        PairWithScores(mergedPreferences, preferenceScores), legRows,
+                        static p => p.PreferenceId, recallOpts.MaxPreferences);
+                    mergedPreferences = merge.Merged;
+                    unique += merge.UniqueIds.Count;
+                }
+
+                // "messages" and "traces" have no destination on this pass: message search is
+                // session-scoped and traces are not on this scored seam. They record a reported no-op
+                // (ItemsRetrieved 0) rather than an inert branch that looks as though it ran.
+            }
+
+            yields.Add(new SubQueryYield
+            {
+                Affinity = leg.Affinity,
+                QueryText = leg.QueryText,
+                ItemsRetrieved = retrieved,
+                UniqueContributions = unique,
+                SurvivedBudget = unique,
+            });
+        }
+
+        return new FanOutOutcome(
+            new RecallFanOutReport
+            {
+                GateFired = true,
+                FiredRules = firedRules,
+                DeriverId = deriverId,
+                SubQueries = yields,
+                VoidReason = embeddingFailures > 0
+                    ? string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"embedding-failed:{embeddingFailures}/{legs.Count}")
+                    : null,
+            },
+            mergedEntities, mergedFacts, mergedPreferences);
+    }
+
+    private static SubQueryYield EmptyYield(RecallSubQuery leg) => new()
+    {
+        Affinity = leg.Affinity,
+        QueryText = leg.QueryText,
+        ItemsRetrieved = 0,
+        UniqueContributions = 0,
+        SurvivedBudget = 0,
+    };
+
+    /// <summary>
+    /// Re-pairs a section with its scores, deriving them from rank when the section is unscored.
+    /// </summary>
+    /// <remarks>
+    /// The fallback descends by position rather than using a constant. A constant would make every
+    /// monolithic row tie with every other, and the merge's tie-break would then be free to reorder a
+    /// section the blended query had already ranked.
+    /// </remarks>
+    private static IReadOnlyList<(T Item, double Score)> PairWithScores<T>(
+        IReadOnlyList<T> items, IReadOnlyList<(T Item, double Score)> scores)
+    {
+        if (scores.Count > 0) return scores;
+
+        var paired = new List<(T, double)>(items.Count);
+        for (var index = 0; index < items.Count; index++)
+        {
+            paired.Add((items[index], 1.0 - (index / (double)Math.Max(items.Count, 1))));
+        }
+
+        return paired;
     }
 
     private AssembledSections ApplyBudget(
