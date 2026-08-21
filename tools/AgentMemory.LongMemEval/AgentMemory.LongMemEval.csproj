@@ -36,7 +36,7 @@
       hard-codes a corpus SHA-256 or question count — counts and identifiers are read from
       TypedMemEvalCorpus/TypedMemEvalVerticals at run time, which is what made this a one-line bump.
     -->
-    <PackageReference Include="AgentEval" Version="0.25.0-beta" />
+    <PackageReference Include="AgentEval" Version="0.26.0-beta" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
