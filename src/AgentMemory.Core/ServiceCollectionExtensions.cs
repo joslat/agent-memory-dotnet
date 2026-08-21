@@ -300,8 +300,41 @@ public static class ServiceCollectionExtensions
             projectionFeatures: sp.GetServices<Services.Projection.IProjectionFeature>(),
             // 30.4. Optional: the working-memory tier is registered by the Neo4j package, so a
             // memory-only Core consumer resolves null here and the block is simply never fetched.
-            workingMemory: sp.GetService<IWorkingMemoryService>()));
+            workingMemory: sp.GetService<IWorkingMemoryService>(),
+            // 30.10. Optional for the same reason as every seam above it: a host that has not
+            // registered a deriver resolves null and the planner never runs.
+            subQueryDeriver: sp.GetService<Services.ISubQueryDeriver>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
+
+        // 30.10. The deriver is selected by options, not registered twice. Two enumerable
+        // registrations would let both run, and the witness would then name one deriver while the
+        // other had produced the legs -- the reproducibility the DeriverId exists to guarantee.
+        //
+        // The LLM deriver needs an IChatClient. When the flag asks for it and no client is
+        // registered, this falls back to the deterministic deriver rather than registering something
+        // unresolvable: an unsatisfiable binding here takes the whole assembler down, which is the
+        // exact break the 1.0 lockdown produced and the reason TryAddEnumerable is used above.
+        services.TryAddScoped<Services.ISubQueryDeriver>(sp =>
+        {
+            var fanOut = sp.GetRequiredService<IOptions<MemoryOptions>>().Value.FanOut;
+            if (fanOut.UseLlmDerivation)
+            {
+                var chatClient = sp.GetService<Microsoft.Extensions.AI.IChatClient>();
+                if (chatClient is not null)
+                {
+                    return new Services.LlmSubQueryDeriver(
+                        chatClient,
+                        sp.GetRequiredService<ILogger<Services.LlmSubQueryDeriver>>());
+                }
+
+                sp.GetRequiredService<ILogger<Services.DeterministicSubQueryDeriver>>()
+                    .LogWarning(
+                        "FanOut.UseLlmDerivation is set but no IChatClient is registered; "
+                        + "falling back to the deterministic deriver.");
+            }
+
+            return new Services.DeterministicSubQueryDeriver();
+        });
 
         // The five projection features (30.2), registered unconditionally and enumerably.
         //
