@@ -227,11 +227,18 @@ internal static class TypedMemEvalProgram
         int runIndex,
         DateTimeOffset startedUtc)
     {
+        // The arm is stamped into the FILENAME, not into the report body. The serialized type is
+        // AgentEval's ExternalBenchmarkResult and its Options is their fixed record with no extension
+        // point, so adding a field is not available; rewrapping the JSON would break every existing
+        // reader of these artifacts. The filename and a sidecar are the two places that can carry it
+        // without touching a byte of the shape anyone already parses.
+        var arm = options.Arm;
         var name =
             $"typedmemeval-{descriptor.Slug}" +
             (options.Control ? "-control" : string.Empty) +
             (options.Oracle ? "-oracle" : string.Empty) +
             $"-seed{options.RandomSeed?.ToString(CultureInfo.InvariantCulture) ?? "unseeded"}" +
+            $"-arm{arm.FileToken()}" +
             $"-run{runIndex}" +
             $"-{startedUtc:yyyyMMddTHHmmssZ}.json";
         var destination = Path.GetFullPath(Path.Combine("artifacts", "evaluation", name));
@@ -240,7 +247,97 @@ internal static class TypedMemEvalProgram
             destination,
             JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }) +
             Environment.NewLine);
+
+        WriteProvenance(destination, arm, descriptor, options, runIndex, startedUtc);
         return destination;
+    }
+
+    /// <summary>
+    /// Writes the arm's provenance beside the report, as <c>&lt;report&gt;.provenance.json</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The filename names the arm; this says what the arm MEANT, plus the commit it ran on. A token
+    /// like <c>armfactwt</c> is only useful while someone remembers what that lever did, and the
+    /// commit is what makes a six-month-old number re-derivable at all.
+    /// </para>
+    /// <para>
+    /// <b>No environment is captured, deliberately.</b> This harness reads an endpoint, an API key and
+    /// deployment names out of the environment, and a provenance file that swept those up would put
+    /// credentials in a directory whose whole purpose is being shared and committed. Only the parsed
+    /// options are recorded, which cannot contain a secret because no secret is ever a CLI argument.
+    /// </para>
+    /// </remarks>
+    private static void WriteProvenance(
+        string reportPath,
+        TypedMemEvalArm arm,
+        TypedMemEvalVerticalDescriptor descriptor,
+        TypedMemEvalRunOptions options,
+        int runIndex,
+        DateTimeOffset startedUtc)
+    {
+        var provenance = new
+        {
+            schema = "typedmemeval-provenance/1",
+            report = Path.GetFileName(reportPath),
+            vertical = descriptor.Slug,
+            startedUtc = startedUtc.ToString("O", CultureInfo.InvariantCulture),
+            run = runIndex,
+            arm = new
+            {
+                token = arm.FileToken(),
+                describe = arm.Describe(),
+                isDefault = arm.IsDefault,
+                workingMemory = arm.Phase30.WorkingMemory,
+                arithmeticMemory = arm.Phase30.ArithmeticMemory,
+                rescueShortOwnerResults = arm.RescueShortOwnerResults,
+                factWeightedBudget = arm.FactWeightedBudget,
+                schemaExtensions = arm.Phase30.Extensions,
+            },
+            sampling = new
+            {
+                maxQuestions = options.MaxQuestions,
+                randomSeed = options.RandomSeed,
+                answerSeed = options.AnswerSeed,
+                runs = options.Runs,
+                oracle = options.Oracle,
+                control = options.Control,
+            },
+            commit = ReadGitSha(),
+        };
+
+        File.WriteAllText(
+            Path.ChangeExtension(reportPath, null) + ".provenance.json",
+            JsonSerializer.Serialize(provenance, new JsonSerializerOptions { WriteIndented = true }) +
+            Environment.NewLine);
+    }
+
+    /// <summary>The commit this ran on, or null when it cannot be determined.</summary>
+    /// <remarks>
+    /// Null rather than a guess. "unknown" written into a provenance field reads as a value and would
+    /// let a run claim a commit it never had; a missing field reads as missing.
+    /// </remarks>
+    private static string? ReadGitSha()
+    {
+        try
+        {
+            var head = Path.Combine(".git", "HEAD");
+            if (!File.Exists(head)) return null;
+
+            var contents = File.ReadAllText(head).Trim();
+            if (!contents.StartsWith("ref:", StringComparison.Ordinal)) return contents;
+
+            var refPath = Path.Combine(".git", contents[4..].Trim().Replace('/', Path.DirectorySeparatorChar));
+            return File.Exists(refPath) ? File.ReadAllText(refPath).Trim() : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private static void PrintRun(ExternalBenchmarkResult result, string destination)
@@ -435,5 +532,16 @@ internal static class TypedMemEvalProgram
         // Arm A finding (2026-08-21): the structured budget splits three ways, so an arithmetic
         // question spends two thirds of its context on entities and preferences -- kinds that cannot
         // carry a value. This reallocates the SAME total toward facts.
-        bool FactWeightedBudget);
+        bool FactWeightedBudget)
+    {
+        /// <summary>
+        /// Every lever this run had on, composed into one identity for the filename and the sidecar.
+        /// </summary>
+        /// <remarks>
+        /// Derived rather than stored, so it cannot drift from the flags it describes: an arm token
+        /// that disagreed with the options that produced it would be worse than no token at all.
+        /// </remarks>
+        internal TypedMemEvalArm Arm =>
+            new(Phase30, RescueShortOwnerResults, FactWeightedBudget);
+    }
 }
