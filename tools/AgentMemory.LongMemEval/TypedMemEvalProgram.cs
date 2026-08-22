@@ -50,6 +50,7 @@ internal static class TypedMemEvalProgram
         // 30.9c: the Wave-C ablation switches. Absent, every run takes the shipped-default path,
         // which is what every sealed measurement so far was taken under.
         "--working-memory", "--arithmetic-memory", "--rescue-short-owner-results",
+        "--fact-weighted-budget",
     ];
 
     public static async Task<int> RunAsync(string[] args)
@@ -177,6 +178,7 @@ internal static class TypedMemEvalProgram
                     new LongMemEvalAdapterOptions
                     {
                         MaxRelevantMessages = DefaultMaxRelevant,
+                        FactWeightedBudget = options.FactWeightedBudget,
                         MemoryMode = LongMemEvalMemoryMode.Structured,
                         MinSimilarityScore = 0,
                         ModelId = deployment,
@@ -324,7 +326,8 @@ internal static class TypedMemEvalProgram
             new PhaseThirtyFeatures(
                 WorkingMemory: Array.IndexOf(args, "--working-memory") >= 0,
                 ArithmeticMemory: Array.IndexOf(args, "--arithmetic-memory") >= 0),
-            Array.IndexOf(args, "--rescue-short-owner-results") >= 0);
+            Array.IndexOf(args, "--rescue-short-owner-results") >= 0,
+            Array.IndexOf(args, "--fact-weighted-budget") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -428,5 +431,9 @@ internal static class TypedMemEvalProgram
         // show owner-scoped recall returning ~48% of what it asks for. This flag is the mitigation
         // arm. It stays OFF by default here for the same reason it ships off: measurements taken
         // without it must remain comparable.
-        bool RescueShortOwnerResults);
+        bool RescueShortOwnerResults,
+        // Arm A finding (2026-08-21): the structured budget splits three ways, so an arithmetic
+        // question spends two thirds of its context on entities and preferences -- kinds that cannot
+        // carry a value. This reallocates the SAME total toward facts.
+        bool FactWeightedBudget);
 }

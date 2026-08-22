@@ -176,6 +176,11 @@ public sealed class TypedMemEvalCommandLineTests
             // DDL those writes need is absent and the feature reads as broken rather than dark.
             ["--working-memory"] = "Phase30",
             ["--arithmetic-memory"] = "Phase30",
+            // 30.9c re-measure arms. Each is a retrieval-side lever with its own record property, so
+            // an arm that was requested but not carried fails here rather than producing a report
+            // indistinguishable from the control it was supposed to differ from.
+            ["--rescue-short-owner-results"] = "RescueShortOwnerResults",
+            ["--fact-weighted-budget"] = "FactWeightedBudget",
         };
 
         TypedMemEvalProgram.KnownOptions.Should().BeEquivalentTo(
