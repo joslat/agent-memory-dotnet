@@ -97,6 +97,34 @@ public sealed class PerfLedgerTests
         }
     }
 
+    [Fact]
+    public async Task Add_RejectsARunThatSILENTLYLOSTAScenario()
+    {
+        // The comparability check asserted only that every scenario the CANDIDATE carries exists in
+        // the target. The reverse was unchecked, so a run that quietly stopped emitting a scenario
+        // compared clean on the ones it kept -- passable-by-absence, and hiding in the direction that
+        // flatters the run. The ledger's whole purpose is comparing like with like across time; a
+        // comparison silently covering fewer scenarios than the baseline is not that comparison.
+        var root = NewTempDirectory();
+        try
+        {
+            var ledgerPath = WriteLedger(root, "PERF-R-04", "PERF-R-05");
+            var before = await File.ReadAllBytesAsync(ledgerPath);
+            var lostOne = WriteRun(root, "lost-a-scenario", 384);   // emits PERF-R-04 only
+
+            var act = () => new PerfLedgerCommand(TextWriter.Null).ExecuteAsync(
+                lostOne, "0", "improvement", ledgerPath);
+
+            await act.Should().ThrowAsync<InvalidDataException>()
+                .WithMessage("*PERF-R-05*");
+            (await File.ReadAllBytesAsync(ledgerPath)).Should().Equal(before);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string NewTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), $"agentmemory-ledger-{Guid.NewGuid():N}");
@@ -104,12 +132,16 @@ public sealed class PerfLedgerTests
         return path;
     }
 
-    private static string WriteLedger(string root)
+    private static string WriteLedger(string root, params string[] scenarios)
     {
+        if (scenarios.Length == 0) scenarios = ["PERF-R-04"];
+        var scenarioList = string.Join(", ", scenarios.Select(name => $"\"{name}\""));
+        var counterList = string.Join(", ", scenarios.Select(name => $"\"{name}\": {{ \"neo4j.queries\": 9 }}"));
+
         var path = Path.Combine(root, "ledger.json");
         File.WriteAllText(
             path,
-            """
+            $$"""
             {
               "schemaVersion": 1,
               "entries": [
@@ -123,12 +155,10 @@ public sealed class PerfLedgerTests
                     "embeddingLatencyMs": 0,
                     "modelLatencyMs": 0,
                     "neo4jImage": "neo4j:5.26",
-                    "scenarios": [ "PERF-R-04" ]
+                    "scenarios": [ {{scenarioList}} ]
                   },
                   "counters": {
-                    "PERF-R-04": {
-                      "neo4j.queries": 9
-                    }
+            {{counterList}}
                   }
                 }
               ]
