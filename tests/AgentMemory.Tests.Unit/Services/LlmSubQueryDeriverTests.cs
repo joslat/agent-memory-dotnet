@@ -90,6 +90,21 @@ public sealed class LlmSubQueryDeriverTests
         (await derive.Should().NotThrowAsync()).Which.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("Semantic,Temporal")]
+    [InlineData("Temporal, Episodic")]
+    public async Task ACommaSeparatedAffinityIsDropped_NotCoercedIntoAThirdOne(string affinity)
+    {
+        // R5. Enum.TryParse bitwise-ORs a comma list even for a non-[Flags] enum: "Semantic,Temporal"
+        // is 1|2 = 3 = Episodic, and IsDefined then passes it. A model hedging between two affinities
+        // was silently routed to a definite third store it never named.
+        RespondWith("[{\"affinity\":\"" + affinity + "\",\"text\":\"a\"}]");
+
+        var legs = await CreateSut().DeriveAsync("q", 4, CancellationToken.None);
+
+        legs.Should().BeEmpty("there is no correct way to guess which half of a hedge was meant");
+    }
+
     [Fact]
     public async Task AProviderExceptionYieldsNoLegsAndNeverThrows()
     {

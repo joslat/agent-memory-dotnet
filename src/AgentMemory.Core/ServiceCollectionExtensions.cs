@@ -219,6 +219,22 @@ public static class ServiceCollectionExtensions
             .Validate(
                 o => o.WorkingMemory.MinPreferenceConfidence is >= 0 and <= 1,
                 "MemoryOptions.WorkingMemory.MinPreferenceConfidence must be between 0 and 1.")
+            // 30.10 fan-out. Added on an audit finding, which makes this the FOURTH time in this
+            // phase that a feature shipped numeric options nothing validated -- the exact defect
+            // class this chain's own comment documents.
+            .Validate(
+                o => o.FanOut.MaxSubQueries > 0,
+                "MemoryOptions.FanOut.MaxSubQueries must be positive — a cap of zero disables fan-out "
+                + "while the Enabled flag still reads as on, which is the silent-misconfiguration "
+                + "shape this chain exists to stop.")
+            .Validate(
+                o => o.FanOut.MinDistinctEntityMentions > 0,
+                "MemoryOptions.FanOut.MinDistinctEntityMentions must be positive — at zero rule E3 "
+                + "fires on every query including a bare greeting.")
+            .Validate(
+                o => o.FanOut.WeakTopScoreThreshold is null or (>= 0 and <= 1),
+                "MemoryOptions.FanOut.WeakTopScoreThreshold must be between 0 and 1 when set; it is "
+                + "compared against a cosine similarity.")
             .ValidateOnStart();
 
         // Bridge sub-options from parent MemoryOptions so services that depend on

@@ -27,7 +27,12 @@ namespace AgentMemory.Tests.Unit.Services;
 public sealed class RecallFanOutWeakScoreTests
 {
     private readonly IShortTermMemoryService _shortTerm = Substitute.For<IShortTermMemoryService>();
-    private readonly ILongTermMemoryService _longTerm = Substitute.For<ILongTermMemoryService>();
+    // R7. The scored cast is how the assembler actually reaches retrieval; a bare
+    // ILongTermMemoryService mock leaves it null, so the enabled path was never exercised and three
+    // defects passed the whole suite. R8 now voids that configuration outright, which is why these
+    // tests would otherwise report "provider-unsupported" instead of what they mean to assert.
+    private readonly ILongTermMemoryService _longTerm =
+        Substitute.For<ILongTermMemoryService, IScoredLongTermSearch>();
     private readonly IReasoningMemoryService _reasoning = Substitute.For<IReasoningMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
     private readonly IClock _clock = Substitute.For<IClock>();
@@ -46,6 +51,24 @@ public sealed class RecallFanOutWeakScoreTests
         _embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.1f, 0.2f, 0.3f, 0.4f });
         _deriver.DeriverId.Returns("det-v1");
+
+        // Empty defaults for the scored seam. NSubstitute returns null for an unstubbed method whose
+        // return type is a record, and the assembler dereferences the fact result directly -- a real
+        // provider never returns null, so this is arranging the mock rather than guarding production.
+        var scored = (IScoredLongTermSearch)_longTerm;
+        scored.SearchEntitiesWithScoresAsync(
+                Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<(Entity, double)>());
+        scored.SearchPreferencesWithScoresAsync(
+                Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<(Preference, double)>());
+        scored.SearchFactsWithScoresAsync(
+                Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(),
+                Arg.Any<bool>(), Arg.Any<int>(), Arg.Any<IReadOnlyList<string>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new ScoredFactSearchResult(Array.Empty<Fact>(), Array.Empty<(Fact, double)>()));
         _deriver.DeriveAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<RecallSubQuery>
             {

@@ -782,6 +782,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     /// </remarks>
     private async Task<bool> InvalidateThenRebuildAsync(
         Func<MemoryScope, Task<bool>> invalidate,
+        Func<CancellationToken, Task<string?>> ownerOfRecord,
         MemoryScope? scope,
         string caller,
         CancellationToken cancellationToken)
@@ -790,8 +791,24 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         var changed = await invalidate(resolvedScope).ConfigureAwait(false);
         if (!changed) return false;
 
+        // S1. The block to recompile belongs to the RECORD's owner, not to the caller's scope, and
+        // under the shipped SingleTenant default those differ on exactly the path that matters: an
+        // unscoped or admin call (the MCP maintenance tools permit omitting userId) invalidates
+        // alice's fact, the Cypher matches by id with no owner filter and returns true, and a rebuild
+        // keyed on the caller's null scope is then skipped entirely -- leaving alice's block asserting
+        // the value that was just retracted. That is the staleness this seam exists to prevent,
+        // reintroduced through the back door.
+        //
+        // The extra read is charged to the ADMIN path only. A scoped call already knows the owner, so
+        // the ordinary invalidation pays nothing for a rare case.
+        var owner = resolvedScope.OwnerId;
+        if (string.IsNullOrEmpty(owner))
+        {
+            owner = await ownerOfRecord(cancellationToken).ConfigureAwait(false);
+        }
+
         await _rebuilder
-            .RebuildAsync(resolvedScope.OwnerId, "an invalidation", cancellationToken)
+            .RebuildAsync(owner, "an invalidation", cancellationToken)
             .ConfigureAwait(false);
         return true;
     }
@@ -800,18 +817,21 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     public Task<bool> InvalidateFactAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
         => InvalidateThenRebuildAsync(
             resolved => _factRepo.InvalidateAsync(factId, resolved, cancellationToken),
+            async ct => (await _factRepo.GetByIdAsync(factId, ct).ConfigureAwait(false))?.OwnerId,
             scope, nameof(InvalidateFactAsync), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> InvalidateEntityAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
         => InvalidateThenRebuildAsync(
             resolved => _entityRepo.InvalidateAsync(entityId, resolved, cancellationToken),
+            async ct => (await _entityRepo.GetByIdAsync(entityId, ct).ConfigureAwait(false))?.OwnerId,
             scope, nameof(InvalidateEntityAsync), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> InvalidatePreferenceAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
         => InvalidateThenRebuildAsync(
             resolved => _prefRepo.InvalidateAsync(preferenceId, resolved, cancellationToken),
+            async ct => (await _prefRepo.GetByIdAsync(preferenceId, ct).ConfigureAwait(false))?.OwnerId,
             scope, nameof(InvalidatePreferenceAsync), cancellationToken);
 
     /// <inheritdoc/>

@@ -116,4 +116,70 @@ internal static class RecallFanOutMerge
 
         return (merged, survivingUnique);
     }
+
+    /// <summary>
+    /// Same rules as <see cref="Merge{T}"/>, but returns the merged <b>pairs</b> so a caller can feed
+    /// the result into the next leg.
+    /// </summary>
+    /// <remarks>
+    /// This overload exists because of audit finding R1. Returning bare items forced each leg to be
+    /// merged against the original monolithic list, so every leg but the last had its contributions
+    /// silently discarded — the accumulator was written and never effectively read. Carrying the
+    /// scores forward is what makes the accumulation real.
+    /// </remarks>
+    internal static (IReadOnlyList<(T Item, double Score)> Merged, IReadOnlyList<string> UniqueIds)
+        MergeScored<T>(
+            IReadOnlyList<(T Item, double Score)> monolithic,
+            IReadOnlyList<(T Item, double Score)> fromSubQuery,
+            Func<T, string> idOf,
+            int limit)
+    {
+        ArgumentNullException.ThrowIfNull(monolithic);
+        ArgumentNullException.ThrowIfNull(fromSubQuery);
+        ArgumentNullException.ThrowIfNull(idOf);
+
+        if (limit <= 0) return ([], []);
+
+        var byId = new Dictionary<string, (T Item, double Score, int Rank)>(StringComparer.Ordinal);
+        var order = new List<string>(monolithic.Count + fromSubQuery.Count);
+
+        for (var index = 0; index < monolithic.Count; index++)
+        {
+            var (item, score) = monolithic[index];
+            var id = idOf(item);
+            if (byId.ContainsKey(id)) continue;
+            byId[id] = (item, score, index);
+            order.Add(id);
+        }
+
+        var baseline = monolithic.Count;
+        var unique = new List<string>();
+
+        foreach (var (item, score) in fromSubQuery)
+        {
+            var id = idOf(item);
+            if (byId.TryGetValue(id, out var existing))
+            {
+                if (score > existing.Score) byId[id] = (existing.Item, score, existing.Rank);
+                continue;
+            }
+
+            byId[id] = (item, score, baseline + unique.Count);
+            order.Add(id);
+            unique.Add(id);
+        }
+
+        var merged = order
+            .Select(id => byId[id])
+            .OrderByDescending(entry => entry.Score)
+            .ThenBy(entry => entry.Rank)
+            .Take(limit)
+            .Select(entry => (entry.Item, entry.Score))
+            .ToList();
+
+        // Only ids that survived THIS merge's cap are reported as contributed. Whether they then
+        // survive the CONTEXT BUDGET is a separate question, answered after truncation runs (R4).
+        var survivors = new HashSet<string>(merged.Select(entry => idOf(entry.Item)), StringComparer.Ordinal);
+        return (merged, unique.Where(survivors.Contains).ToList());
+    }
 }

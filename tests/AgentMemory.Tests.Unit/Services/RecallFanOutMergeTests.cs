@@ -155,6 +155,25 @@ public sealed class RecallFanOutMergeTests
     }
 
     [Fact]
+    public void EverySectionTheMapPublishesIsOneTheAssemblerCanActuallyRetrieveFrom()
+    {
+        // R3. The map advertised "messages" and "traces" while the retrieval loop had arms only for
+        // entities, facts and preferences -- so Episodic and Procedural legs paid for a live embedding
+        // and could never return anything, reporting ItemsRetrieved=0 exactly as though the store had
+        // been empty. Advertised-but-unreachable destinations are the mechanism-substituted shape the
+        // router audit existed to kill, so the published set is pinned to the implemented set here.
+        var implemented = new[] { "entities", "facts", "preferences", "messages", "traces" };
+
+        var published = Enum.GetValues<MemoryTypeAffinity>()
+            .SelectMany(SubQueryAffinityMap.SectionsFor)
+            .Distinct()
+            .ToArray();
+
+        published.Should().OnlyContain(section => implemented.Contains(section),
+            "a section the map names but the assembler cannot read is a leg billed for nothing");
+    }
+
+    [Fact]
     public void EveryDefinedAffinityHasAtLeastOneDestination()
     {
         // An affinity with no destination is a leg that costs an embedding and can never return

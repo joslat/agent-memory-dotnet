@@ -96,7 +96,23 @@ public sealed class PhaseThirtyOptionValidationTests
         { "WorkingMemory MinFactMentionCount zero", WithWorkingMemory(w => w.MinFactMentionCount = 0) },
         { "WorkingMemory MinPreferenceConfidence above one", WithWorkingMemory(w => w.MinPreferenceConfidence = 1.5) },
         { "WorkingMemory MinPreferenceConfidence negative", WithWorkingMemory(w => w.MinPreferenceConfidence = -0.1) },
+
+        // 30.10 fan-out -- the FOURTH feature this phase to ship numeric options with no validator,
+        // and the first found by an EXTERNAL audit rather than by us, which is the part worth noticing.
+        { "FanOut MaxSubQueries zero", WithFanOut(f => f.MaxSubQueries = 0) },
+        { "FanOut MaxSubQueries negative", WithFanOut(f => f.MaxSubQueries = -1) },
+        { "FanOut MinDistinctEntityMentions zero", WithFanOut(f => f.MinDistinctEntityMentions = 0) },
+        { "FanOut WeakTopScoreThreshold above one", WithFanOut(f => f.WeakTopScoreThreshold = 1.5) },
+        { "FanOut WeakTopScoreThreshold negative", WithFanOut(f => f.WeakTopScoreThreshold = -0.1) },
     };
+
+    private static MemoryOptions WithFanOut(Action<RecallFanOutOptions> configure)
+    {
+        var options = new MemoryOptions();
+        options.FanOut.Enabled = true;
+        configure(options.FanOut);
+        return options;
+    }
 
     [Theory]
     [MemberData(nameof(InvalidCoreOptions))]

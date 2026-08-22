@@ -265,6 +265,12 @@ internal sealed class LlmSubQueryDeriver : ISubQueryDeriver
                 if (string.IsNullOrWhiteSpace(affinityText) || string.IsNullOrWhiteSpace(queryText))
                     continue;
 
+                // R5. Enum.TryParse accepts a COMMA-SEPARATED LIST and bitwise-ORs the values even for
+                // a non-[Flags] enum: "Semantic,Temporal" parses to 1|2 = 3 = Episodic, and IsDefined
+                // then passes it. A model hedging between two affinities would be silently coerced
+                // into a definite third one and routed to a store it never chose. Rejected outright,
+                // because there is no correct way to guess which half it meant.
+                if (affinityText.Contains(',', StringComparison.Ordinal)) continue;
                 if (!Enum.TryParse<MemoryTypeAffinity>(affinityText, ignoreCase: true, out var affinity))
                     continue;
                 if (!Enum.IsDefined(affinity)) continue;

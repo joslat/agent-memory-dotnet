@@ -13,7 +13,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Assembles memory context from multiple memory layers for a recall request.
 /// </summary>
-internal sealed class MemoryContextAssembler : IMemoryContextAssembler
+internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 {
     private readonly IShortTermMemoryService _shortTerm;
     private readonly ILongTermMemoryService _longTerm;
@@ -407,6 +407,13 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             ? FetchGraphRagAsync(request, recallOpts, scope, cancellationToken)
             : null;
 
+        // Hoisted so the fan-out merge below uses the SAME instance the monolithic sections were
+        // retrieved through. Re-deriving it there would let the two halves disagree about whether
+        // this provider is scored at all.
+        IScoredLongTermSearch? scoredLongTerm = null;
+        IScoredMessageSearch? scoredMessages = null;
+        IScoredTraceSearch? scoredReasoningHoisted = null;
+
         IReadOnlyList<Message> recentMessages = Array.Empty<Message>();
         IReadOnlyList<Message> relevantMessages = Array.Empty<Message>();
         IReadOnlyList<(Message Message, double Score)> relevantMessageScores =
@@ -500,9 +507,20 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // RankedItems/Diagnostics population below stays gated on IncludeDiagnostics exactly as
             // before, so no existing consumer's payload changes; projection reads the in-scope scored
             // tuples directly.
-            var needsScores = recallOpts.IncludeDiagnostics || projectionOpts.AnnotateMatchQuality;
-            var scoredLongTerm = needsScores ? _longTerm as IScoredLongTermSearch : null;
+            // 30.10 (R9, found while writing the on-path test the audit's R7 called for). Fan-out
+            // MUST be in this predicate. Without it the default recall takes the unscored monolithic
+            // path while the fan-out legs take the scored one, and the merge then compares real cosine
+            // similarities from the legs against rank-derived placeholders standing in for the
+            // monolithic side -- a leg row at 0.72 outranking a monolithic row whose "0.7" only ever
+            // meant "third in the list". Asking for scores whenever the merge might run is what makes
+            // the two sides comparable at all.
+            var needsScores = recallOpts.IncludeDiagnostics
+                || projectionOpts.AnnotateMatchQuality
+                || ShouldConsiderFanOut(request);
+            scoredLongTerm = needsScores ? _longTerm as IScoredLongTermSearch : null;
             var scoredReasoning = needsScores ? _reasoning as IScoredTraceSearch : null;
+            scoredMessages = needsScores ? _shortTerm as IScoredMessageSearch : null;
+            scoredReasoningHoisted = scoredReasoning;
 
             // Recent messages need no embedding; the rest are semantic and are gated on hasEmbedding. Each
             // is also gated on its own MaxX > 0 (#88): a task-aware recall policy that excludes a category
@@ -799,17 +817,23 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         // monolithic sets to compute unique contributions against, and the merged sections must go
         // through the existing truncation untouched so budgets are never multiplied.
         RecallFanOutReport? fanOutReport = null;
+        IReadOnlyList<LegContribution> fanOutLegs = [];
         if (ShouldConsiderFanOut(request))
         {
             var fanOut = await RunFanOutAsync(
-                request, recallOpts, scope, minScore, _longTerm as IScoredLongTermSearch,
+                request, recallOpts, scope, minScore,
+                scoredLongTerm, scoredMessages, scoredReasoningHoisted,
                 entities, entityScores, facts, factScores, preferences, preferenceScores,
+                relevantMessages, relevantMessageScores, traces, traceScores,
                 cancellationToken).ConfigureAwait(false);
 
             fanOutReport = fanOut.Report;
             entities = fanOut.Entities;
             facts = fanOut.Facts;
             preferences = fanOut.Preferences;
+            relevantMessages = fanOut.Messages;
+            traces = fanOut.Traces;
+            fanOutLegs = fanOut.Legs;
         }
 
         // Apply context budget if configured
@@ -820,6 +844,32 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         {
             (recentMessages, relevantMessages, entities, preferences, facts, traces, graphRagContext, truncated) =
                 ApplyBudget(budget, recentMessages, relevantMessages, entities, preferences, facts, traces, graphRagContext);
+        }
+
+        // R4. SurvivedBudget is MEASURED here, after truncation, rather than predicted before it. The
+        // two counts were previously the same variable computed pre-budget -- one number reported as
+        // two distinct quantities, and the §6 ship/no-ship metric reads both, so it would have
+        // over-counted successes by construction.
+        if (fanOutReport is not null && fanOutLegs.Count > 0)
+        {
+            var survivingIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var entity in entities) survivingIds.Add(entity.EntityId);
+            foreach (var fact in facts) survivingIds.Add(fact.FactId);
+            foreach (var preference in preferences) survivingIds.Add(preference.PreferenceId);
+            foreach (var message in relevantMessages) survivingIds.Add(message.MessageId);
+            foreach (var trace in traces) survivingIds.Add(trace.TraceId);
+
+            fanOutReport = fanOutReport with
+            {
+                SubQueries = [.. fanOutLegs.Select(leg => new SubQueryYield
+                {
+                    Affinity = leg.Affinity,
+                    QueryText = leg.QueryText,
+                    ItemsRetrieved = leg.ItemsRetrieved,
+                    UniqueContributions = leg.ContributedIds.Count,
+                    SurvivedBudget = leg.ContributedIds.Count(survivingIds.Contains),
+                })],
+            };
         }
 
         int estimatedChars = ContextBudgetEstimator.EstimateChars(recentMessages)
@@ -1237,6 +1287,10 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
             Projection = projection,
+            // Design §5.5: the as-of path does not fan out. A caller who asked for it anyway is told
+            // so -- a null here would read as "the planner never ran", which is true and unhelpful
+            // when the caller explicitly requested something and got nothing.
+            FanOutReport = VoidFanOutForAsOf(request),
             RecentMessages = new MemoryContextSection<Message>
             {
                 Items = recentMessages,
@@ -1523,297 +1577,6 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         if (budget.MaxCharacters.HasValue) return budget.MaxCharacters.Value;
         if (budget.MaxTokens.HasValue) return (int)Math.Min((long)budget.MaxTokens.Value * 4, int.MaxValue);
         return int.MaxValue;
-    }
-
-    /// <summary>Whether the planner should run at all — the null-vs-declined boundary.</summary>
-    /// <remarks>
-    /// Caller-supplied sub-queries win even with the feature disabled, the same philosophy as
-    /// <c>TemporalReferenceTime</c>: an explicit request is not something a global flag gets to veto.
-    /// That is also what makes the mechanism reachable from the eval harness without touching the
-    /// framework seam.
-    /// </remarks>
-    private bool ShouldConsiderFanOut(RecallRequest request) =>
-        request.SubQueries is { Count: > 0 } || (_options.FanOut.Enabled && _subQueryDeriver is not null);
-
-    private readonly record struct FanOutOutcome(
-        RecallFanOutReport? Report,
-        IReadOnlyList<Entity> Entities,
-        IReadOnlyList<Fact> Facts,
-        IReadOnlyList<Preference> Preferences);
-
-    /// <summary>
-    /// Derives (or accepts) sub-queries, retrieves each, and merges them into the monolithic sections.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Cost when the gate declines is <b>zero</b>: no embedding, no search, one token scan. Cost when
-    /// it fires is bounded by <c>MaxSubQueries</c> embeddings plus their section searches.
-    /// </para>
-    /// <para>
-    /// A leg whose embedding fails is skipped and counted rather than throwing. The recall the caller
-    /// asked for has already succeeded by this point, and a failed enhancement must not take it down —
-    /// but it must not vanish either, so the count reaches <c>VoidReason</c>.
-    /// </para>
-    /// </remarks>
-    private async Task<FanOutOutcome> RunFanOutAsync(
-        RecallRequest request,
-        RecallOptions recallOpts,
-        MemoryScope? scope,
-        double minScore,
-        IScoredLongTermSearch? scoredLongTerm,
-        IReadOnlyList<Entity> entities,
-        IReadOnlyList<(Entity Entity, double Score)> entityScores,
-        IReadOnlyList<Fact> facts,
-        IReadOnlyList<(Fact Fact, double Score)> factScores,
-        IReadOnlyList<Preference> preferences,
-        IReadOnlyList<(Preference Preference, double Score)> preferenceScores,
-        CancellationToken cancellationToken)
-    {
-        var fanOutOptions = _options.FanOut;
-        var firedRules = Array.Empty<string>();
-        string deriverId;
-        IReadOnlyList<RecallSubQuery> legs;
-
-        if (request.SubQueries is { Count: > 0 } supplied)
-        {
-            deriverId = "caller";
-            legs = supplied.Count > fanOutOptions.MaxSubQueries
-                ? supplied.Take(fanOutOptions.MaxSubQueries).ToArray()
-                : supplied;
-        }
-        else
-        {
-            var gate = RecallFanOutPlanner.EvaluateGate(request.Query, fanOutOptions);
-            firedRules = gate.Rules;
-
-            // Signal W, evaluated AFTER the monolithic sections resolved rather than before, because
-            // it is a statement about what they came back with: nothing scored well, so the blended
-            // query may have been the wrong shape. Only consulted when no pre-retrieval rule fired --
-            // a query already known to be compound does not need a second reason.
-            var scoreObserved = false;
-            var weak = false;
-            if (!gate.Fired)
-            {
-                weak = EvaluateWeakTopScore(
-                    fanOutOptions, entityScores, factScores, preferenceScores, out scoreObserved);
-            }
-
-            if (weak)
-            {
-                firedRules = [.. gate.Rules, "W"];
-            }
-            else if (!gate.Fired)
-            {
-                // Ran and DECLINED. Distinct from never-ran (a null report), and it cost one token scan.
-                // When W was configured but no section published a score, that is recorded rather than
-                // read as a confident decline -- an unscored provider must never produce a fake fire OR
-                // a fake all-clear.
-                var declinedRules = fanOutOptions.WeakTopScoreThreshold is not null && !scoreObserved
-                    ? new[] { "W-unscored" }
-                    : gate.Rules;
-
-                return new FanOutOutcome(
-                    new RecallFanOutReport { GateFired = false, FiredRules = declinedRules },
-                    entities, facts, preferences);
-            }
-
-            deriverId = _subQueryDeriver!.DeriverId;
-            legs = await _subQueryDeriver
-                .DeriveAsync(request.Query ?? string.Empty, fanOutOptions.MaxSubQueries, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (legs.Count == 0)
-            {
-                // Fired, then derived nothing. VOIDED rather than reported as a zero-yield fan-out: no
-                // leg ever ran, so a zero here would not be a measurement of anything.
-                return new FanOutOutcome(
-                    new RecallFanOutReport
-                    {
-                        GateFired = true,
-                        FiredRules = gate.Rules,
-                        DeriverId = deriverId,
-                        VoidReason = "derivation-failed",
-                    },
-                    entities, facts, preferences);
-            }
-        }
-
-        var yields = new List<SubQueryYield>(legs.Count);
-        var embeddingFailures = 0;
-        var mergedEntities = entities;
-        var mergedFacts = facts;
-        var mergedPreferences = preferences;
-
-        foreach (var leg in legs)
-        {
-            var embedding = leg.QueryEmbedding;
-            if (embedding is null || embedding.Length == 0)
-            {
-                try
-                {
-                    embedding = await _embeddingOrchestrator
-                        .EmbedQueryAsync(leg.QueryText, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception exception)
-                {
-                    _logger.LogWarning(exception,
-                        "Fan-out leg embedding failed for affinity {Affinity}; the leg is skipped.",
-                        leg.Affinity);
-                    embeddingFailures++;
-                    yields.Add(EmptyYield(leg));
-                    continue;
-                }
-            }
-
-            if (embedding is null || embedding.Length == 0)
-            {
-                embeddingFailures++;
-                yields.Add(EmptyYield(leg));
-                continue;
-            }
-
-            var retrieved = 0;
-            var unique = 0;
-
-            foreach (var section in SubQueryAffinityMap.SectionsFor(leg.Affinity))
-            {
-                if (scoredLongTerm is null) break;
-
-                if (section == "entities" && recallOpts.MaxEntities > 0)
-                {
-                    var legRows = await scoredLongTerm.SearchEntitiesWithScoresAsync(
-                        embedding, recallOpts.MaxEntities, minScore, scope, cancellationToken)
-                        .ConfigureAwait(false);
-                    retrieved += legRows.Count;
-                    var merge = RecallFanOutMerge.Merge(
-                        PairWithScores(mergedEntities, entityScores), legRows,
-                        static e => e.EntityId, recallOpts.MaxEntities);
-                    mergedEntities = merge.Merged;
-                    unique += merge.UniqueIds.Count;
-                }
-                else if (section == "facts" && recallOpts.MaxFacts > 0)
-                {
-                    var legRows = await scoredLongTerm.SearchFactsWithScoresAsync(
-                        embedding, recallOpts.MaxFacts, minScore, scope,
-                        expandByPredicate: false, expansionLimit: 0,
-                        questionRelations: Array.Empty<string>(), cancellationToken)
-                        .ConfigureAwait(false);
-                    retrieved += legRows.Facts.Count;
-                    var merge = RecallFanOutMerge.Merge(
-                        PairWithScores(mergedFacts, factScores), legRows.Scored,
-                        static f => f.FactId, recallOpts.MaxFacts);
-                    mergedFacts = merge.Merged;
-                    unique += merge.UniqueIds.Count;
-                }
-                else if (section == "preferences" && recallOpts.MaxPreferences > 0)
-                {
-                    var legRows = await scoredLongTerm.SearchPreferencesWithScoresAsync(
-                        embedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
-                        .ConfigureAwait(false);
-                    retrieved += legRows.Count;
-                    var merge = RecallFanOutMerge.Merge(
-                        PairWithScores(mergedPreferences, preferenceScores), legRows,
-                        static p => p.PreferenceId, recallOpts.MaxPreferences);
-                    mergedPreferences = merge.Merged;
-                    unique += merge.UniqueIds.Count;
-                }
-
-                // "messages" and "traces" have no destination on this pass: message search is
-                // session-scoped and traces are not on this scored seam. They record a reported no-op
-                // (ItemsRetrieved 0) rather than an inert branch that looks as though it ran.
-            }
-
-            yields.Add(new SubQueryYield
-            {
-                Affinity = leg.Affinity,
-                QueryText = leg.QueryText,
-                ItemsRetrieved = retrieved,
-                UniqueContributions = unique,
-                SurvivedBudget = unique,
-            });
-        }
-
-        return new FanOutOutcome(
-            new RecallFanOutReport
-            {
-                GateFired = true,
-                FiredRules = firedRules,
-                DeriverId = deriverId,
-                SubQueries = yields,
-                VoidReason = embeddingFailures > 0
-                    ? string.Create(
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        $"embedding-failed:{embeddingFailures}/{legs.Count}")
-                    : null,
-            },
-            mergedEntities, mergedFacts, mergedPreferences);
-    }
-
-    /// <summary>
-    /// Signal W — the best monolithic score is below the configured floor.
-    /// </summary>
-    /// <remarks>
-    /// <paramref name="scoreObserved"/> exists so an unscored provider can be told apart from a
-    /// genuinely weak result. Without it, a provider that publishes no scores at all would look
-    /// exactly like one whose every score sat below the threshold, and W would either fire on
-    /// nothing or decline on nothing — both fabrications.
-    /// </remarks>
-    private static bool EvaluateWeakTopScore(
-        RecallFanOutOptions options,
-        IReadOnlyList<(Entity Entity, double Score)> entityScores,
-        IReadOnlyList<(Fact Fact, double Score)> factScores,
-        IReadOnlyList<(Preference Preference, double Score)> preferenceScores,
-        out bool scoreObserved)
-    {
-        scoreObserved = false;
-        if (options.WeakTopScoreThreshold is not { } threshold) return false;
-
-        var best = double.MinValue;
-
-        foreach (var scored in entityScores) { scoreObserved = true; if (scored.Score > best) best = scored.Score; }
-        foreach (var scored in factScores) { scoreObserved = true; if (scored.Score > best) best = scored.Score; }
-        foreach (var scored in preferenceScores) { scoreObserved = true; if (scored.Score > best) best = scored.Score; }
-
-        // No score anywhere: W cannot form an opinion, and inventing one either way would be worse
-        // than staying silent.
-        if (!scoreObserved) return false;
-
-        return best < threshold;
-    }
-
-    private static SubQueryYield EmptyYield(RecallSubQuery leg) => new()
-    {
-        Affinity = leg.Affinity,
-        QueryText = leg.QueryText,
-        ItemsRetrieved = 0,
-        UniqueContributions = 0,
-        SurvivedBudget = 0,
-    };
-
-    /// <summary>
-    /// Re-pairs a section with its scores, deriving them from rank when the section is unscored.
-    /// </summary>
-    /// <remarks>
-    /// The fallback descends by position rather than using a constant. A constant would make every
-    /// monolithic row tie with every other, and the merge's tie-break would then be free to reorder a
-    /// section the blended query had already ranked.
-    /// </remarks>
-    private static IReadOnlyList<(T Item, double Score)> PairWithScores<T>(
-        IReadOnlyList<T> items, IReadOnlyList<(T Item, double Score)> scores)
-    {
-        if (scores.Count > 0) return scores;
-
-        var paired = new List<(T, double)>(items.Count);
-        for (var index = 0; index < items.Count; index++)
-        {
-            paired.Add((items[index], 1.0 - (index / (double)Math.Max(items.Count, 1))));
-        }
-
-        return paired;
     }
 
     private AssembledSections ApplyBudget(

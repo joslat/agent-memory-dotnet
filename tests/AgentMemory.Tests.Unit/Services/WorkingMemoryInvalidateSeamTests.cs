@@ -240,4 +240,67 @@ public sealed class WorkingMemoryInvalidateSeamTests
 
         await _workingMemory.DidNotReceive().RebuildAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
+
+    // ─── S1: the unscoped/admin axis ────────────────────────────────────
+
+    /// <summary>
+    /// An unscoped invalidation must rebuild the block of the record's OWNER, not of the caller.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rebuild used <c>resolvedScope.OwnerId</c> — the caller's scope. Under the shipped
+    /// <c>SingleTenant</c> default an unscoped or admin call (the MCP maintenance tools permit
+    /// omitting <c>userId</c>) invalidates alice's fact, the Cypher matches by id with no owner
+    /// filter and returns true, and the rebuild then runs for <c>OwnerId=null</c> — which the tier
+    /// skips. Alice's block goes on asserting the value that was just retracted.
+    /// </para>
+    /// <para>
+    /// Every existing test in this class passes an explicit owner scope, so none of them could see it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task AnUnscopedInvalidationRebuildsTheRecordsOwner_NotTheCallersNullScope()
+    {
+        _facts.InvalidateAsync(Id, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _facts.GetByIdAsync(Id, Arg.Any<CancellationToken>()).Returns(new Fact
+        {
+            FactId = Id, Subject = "alice", Predicate = "works_at", Object = "Acme",
+            OwnerId = Owner, Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow,
+        });
+
+        var changed = await CreateSut().InvalidateFactAsync(Id, scope: null, CancellationToken.None);
+
+        changed.Should().BeTrue();
+        await _workingMemory.Received(1).RebuildAsync(Owner, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AScopedInvalidationDoesNotPayForAnOwnerLookup()
+    {
+        // The extra read is an ADMIN-path cost only. A scoped call already knows the owner, and
+        // charging every ordinary invalidation a lookup to fix a rare path would be the wrong trade.
+        _facts.InvalidateAsync(Id, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        await CreateSut().InvalidateFactAsync(Id, Scope, CancellationToken.None);
+
+        await _facts.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _workingMemory.Received(1).RebuildAsync(Owner, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AnUnscopedInvalidationOfASharedRecordRebuildsNothing()
+    {
+        // A record with no owner has no per-owner block to recompile. Rebuilding "null" is the very
+        // no-op this fix exists to stop being mistaken for work.
+        _facts.InvalidateAsync(Id, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _facts.GetByIdAsync(Id, Arg.Any<CancellationToken>()).Returns(new Fact
+        {
+            FactId = Id, Subject = "acme", Predicate = "is", Object = "shared",
+            OwnerId = null, Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow,
+        });
+
+        await CreateSut().InvalidateFactAsync(Id, scope: null, CancellationToken.None);
+
+        await _workingMemory.DidNotReceive().RebuildAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
 }
