@@ -73,6 +73,13 @@ internal static class TypedMemEvalProgram
             LongMemEvalMemoryProfile? profile = null;
             LongMemEvalChatCallMeter? extractionChatClient = null;
             string? extractionDeployment = null;
+
+            // Listens for the repositories' own vector-yield telemetry so the run can say, from its own
+            // artifact, whether owner starvation happened during it. Null on the oracle arm because
+            // that arm issues no vector search at all -- and null there means NOT MEASURED, which is a
+            // different statement from a zeroed block claiming no starvation was seen.
+            using LongMemEvalVectorYieldListener? vectorYield =
+                options.Oracle ? null : new LongMemEvalVectorYieldListener();
             try
             {
                 if (!options.Oracle)
@@ -108,7 +115,8 @@ internal static class TypedMemEvalProgram
                 foreach (var vertical in options.Verticals)
                 {
                     assembledResults.AddRange(await RunVerticalAsync(
-                            vertical, options, answerChatClient, judgeChatClient, deployment, profile)
+                            vertical, options, answerChatClient, judgeChatClient, deployment, profile,
+                            vectorYield)
                         .ConfigureAwait(false));
                 }
 
@@ -139,7 +147,8 @@ internal static class TypedMemEvalProgram
         IChatClient answerChatClient,
         IChatClient judgeChatClient,
         string deployment,
-        LongMemEvalMemoryProfile? profile)
+        LongMemEvalMemoryProfile? profile,
+        LongMemEvalVectorYieldListener? vectorYield)
     {
         var descriptor = TypedMemEvalVerticals.For(vertical);
         var results = new List<ExternalBenchmarkResult>(options.Runs);
@@ -193,7 +202,9 @@ internal static class TypedMemEvalProgram
                 result = await runner.RunAsync(adapter, vertical, facade).ConfigureAwait(false);
             }
 
-            var destination = Persist(result, descriptor, options, runIndex, startedUtc);
+            var destination = Persist(
+                result, descriptor, options, runIndex, startedUtc,
+                vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples));
             PrintRun(result, destination);
             results.Add(result);
         }
@@ -225,7 +236,8 @@ internal static class TypedMemEvalProgram
         TypedMemEvalVerticalDescriptor descriptor,
         TypedMemEvalRunOptions options,
         int runIndex,
-        DateTimeOffset startedUtc)
+        DateTimeOffset startedUtc,
+        LongMemEvalVectorYieldSummary? vectorYield)
     {
         // The arm is stamped into the FILENAME, not into the report body. The serialized type is
         // AgentEval's ExternalBenchmarkResult and its Options is their fixed record with no extension
@@ -248,7 +260,7 @@ internal static class TypedMemEvalProgram
             JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }) +
             Environment.NewLine);
 
-        WriteProvenance(destination, arm, descriptor, options, runIndex, startedUtc);
+        WriteProvenance(destination, arm, descriptor, options, runIndex, startedUtc, vectorYield);
         return destination;
     }
 
@@ -274,8 +286,28 @@ internal static class TypedMemEvalProgram
         TypedMemEvalVerticalDescriptor descriptor,
         TypedMemEvalRunOptions options,
         int runIndex,
-        DateTimeOffset startedUtc)
+        DateTimeOffset startedUtc,
+        LongMemEvalVectorYieldSummary? vectorYield)
     {
+        // Built before the object rather than inline: an anonymous type inside a conditional has no
+        // natural type to infer, so `condition ? null : new { ... }` does not compile. Hoisting it
+        // also keeps the null case explicit, which is the meaning that matters here.
+        object? yieldBlock = null;
+        if (vectorYield is not null)
+        {
+            yieldBlock = new
+            {
+                searches = vectorYield.Searches,
+                ownerScopedSearches = vectorYield.OwnerScopedSearches,
+                starvedSearches = vectorYield.StarvedSearches,
+                escalatedSearches = vectorYield.EscalatedSearches,
+                meanReturned = vectorYield.MeanReturned,
+                meanFillRatio = vectorYield.MeanFillRatio,
+                meanYieldRatio = vectorYield.MeanYieldRatio,
+                totalReturned = vectorYield.TotalReturned,
+            };
+        }
+
         var provenance = new
         {
             schema = "typedmemeval-provenance/1",
@@ -304,6 +336,15 @@ internal static class TypedMemEvalProgram
                 control = options.Control,
             },
             commit = ReadGitSha(),
+            // Recorded gap, closed here rather than in the report: a run could not confirm from its
+            // own artifact whether owner starvation occurred during it, which is what forced the
+            // LongMemEval runs to stand in as evidence for a TypedMemEval claim. It lives in the
+            // sidecar for the same reason the arm token does -- AgentEval's result type is fixed and
+            // rewrapping the JSON would break every existing reader.
+            //
+            // NULL means NOT MEASURED, and that distinction is the point: a zeroed block would read
+            // as "no starvation observed", which is a claim this listener never made.
+            vectorYield = yieldBlock,
         };
 
         File.WriteAllText(
