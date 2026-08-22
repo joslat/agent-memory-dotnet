@@ -69,10 +69,11 @@ public sealed class RecallFanOutOnPathTests
             .Returns(Array.Empty<(Preference, double)>());
     }
 
-    private MemoryContextAssembler CreateSut()
+    private MemoryContextAssembler CreateSut(ContextBudget? budget = null)
     {
         var options = new MemoryOptions();
         options.FanOut.Enabled = true;
+        if (budget is not null) options = options with { ContextBudget = budget };
 
         return new MemoryContextAssembler(
             _shortTerm, _longTerm, _reasoning, null, _embeddings, _clock,
@@ -208,5 +209,42 @@ public sealed class RecallFanOutOnPathTests
         context.RelevantFacts.Items.Select(f => f.FactId)
             .Should().Contain("x1",
                 "the unscored expansion tail must survive a fan-out that contributed nothing");
+    }
+
+    [Fact]
+    public async Task WhenTheBudgetTruncates_SurvivedBudgetIsSmallerThanUniqueContributions()
+    {
+        // R4, verified empirically rather than by construction. The previous code assigned both counts
+        // the same PRE-budget variable, so no budget however small could ever separate them -- which is
+        // exactly why the defect was invisible: the two numbers agreed by definition.
+        //
+        // Here a leg contributes real rows and a deliberately tiny character budget then cuts most of
+        // them. If the fix is real the two counts must diverge.
+        ArrangeFacts(
+            monolithic: [(F("m1", "monolithic row with a reasonably long body of text"), 0.99)],
+            legOne:
+            [
+                (F("L1", "leg row one with a reasonably long body of text"), 0.98),
+                (F("L2", "leg row two with a reasonably long body of text"), 0.97),
+                (F("L3", "leg row three with a reasonably long body of text"), 0.96),
+            ],
+            legTwo: []);
+
+        var tight = new ContextBudget { MaxCharacters = 120 };
+        var context = await CreateSut(tight).AssembleContextAsync(Compound(), CancellationToken.None);
+
+        var report = context.FanOutReport;
+        report.Should().NotBeNull();
+
+        var contributed = report!.SubQueries.Sum(y => y.UniqueContributions);
+        var survived = report.SubQueries.Sum(y => y.SurvivedBudget);
+
+        contributed.Should().BeGreaterThan(0, "the leg genuinely found rows the monolithic query missed");
+        survived.Should().BeLessThan(contributed,
+            "a budget this tight must cut some of them, and SurvivedBudget is what remains AFTER it");
+
+        // And the survivors must actually be present, not merely counted.
+        var present = context.RelevantFacts.Items.Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+        survived.Should().BeLessThanOrEqualTo(present.Count);
     }
 }

@@ -134,6 +134,11 @@ internal sealed partial class MemoryContextAssembler
 
         if (request.SubQueries is { Count: > 0 } supplied)
         {
+            // Known LOW, recorded rather than chased: with MaxSubQueries at 0 the Take below yields an
+            // empty set, the leg loop does not execute, and the report comes back fired-with-no-legs
+            // and no VoidReason -- readable only by someone who already suspects the cap. The
+            // validator added for R6 rejects a zero cap at startup, so this is unreachable through
+            // configuration; it survives only for a caller constructing options in code.
             deriverId = "caller";
             legs = supplied.Count > fanOutOptions.MaxSubQueries
                 ? supplied.Take(fanOutOptions.MaxSubQueries).ToArray()
