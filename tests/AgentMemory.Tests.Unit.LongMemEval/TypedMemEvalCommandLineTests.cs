@@ -180,6 +180,7 @@ public sealed class TypedMemEvalCommandLineTests
             // an arm that was requested but not carried fails here rather than producing a report
             // indistinguishable from the control it was supposed to differ from.
             ["--rescue-short-owner-results"] = "RescueShortOwnerResults",
+            ["--evidence-detail"] = "EvidenceDetail",
             ["--fact-weighted-budget"] = "FactWeightedBudget",
         };
 

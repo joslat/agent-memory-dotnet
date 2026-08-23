@@ -51,6 +51,11 @@ internal static class TypedMemEvalProgram
         // which is what every sealed measurement so far was taken under.
         "--working-memory", "--arithmetic-memory", "--rescue-short-owner-results",
         "--fact-weighted-budget",
+        // Escalation instrument. The verb hard-coded Identifiers, so AnswerContext[].Content came
+        // back null on every item and "was the needed VALUE rendered" could not be asked of any
+        // artifact -- only "was its SESSION covered", which is a different and weaker question. The
+        // Bitemporal misses turned on exactly that distinction.
+        "--evidence-detail",
     ];
 
     public static async Task<int> RunAsync(string[] args)
@@ -192,7 +197,7 @@ internal static class TypedMemEvalProgram
                         MinSimilarityScore = 0,
                         ModelId = deployment,
                         EvidenceIndex = LongMemEvalEvidenceIndex.CreateTypedMemEval(vertical, facade),
-                        EvidenceDetail = LongMemEvalEvidenceDetail.Identifiers,
+                        EvidenceDetail = options.EvidenceDetail,
                         RequireGraphReadBack = true,
                         GraphProbe = new Neo4jLongMemEvalGraphProbe(
                             profile.Services.GetRequiredService<global::Neo4j.Driver.IDriver>()),
@@ -465,6 +470,7 @@ internal static class TypedMemEvalProgram
                 WorkingMemory: Array.IndexOf(args, "--working-memory") >= 0,
                 ArithmeticMemory: Array.IndexOf(args, "--arithmetic-memory") >= 0),
             Array.IndexOf(args, "--rescue-short-owner-results") >= 0,
+            ParseEvidenceDetail(Value("--evidence-detail")),
             Array.IndexOf(args, "--fact-weighted-budget") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
@@ -486,6 +492,23 @@ internal static class TypedMemEvalProgram
 
         return options;
     }
+
+    /// <summary>Parses <c>--evidence-detail</c>, defaulting to the value this verb used to hard-code.</summary>
+    /// <remarks>
+    /// <c>identifiers</c> stays the default so every sealed measurement remains comparable: it is what
+    /// the verb did before the flag existed. <c>content</c> is the escalation instrument -- it puts
+    /// bounded evidence text in <c>AnswerContext[].Content</c>, which turns "was the needed VALUE
+    /// rendered" from an inference into a measurement. It costs artifact size, so it is opt-in.
+    /// </remarks>
+    private static LongMemEvalEvidenceDetail ParseEvidenceDetail(string? value) => value switch
+    {
+        null or "" => LongMemEvalEvidenceDetail.Identifiers,
+        "none" => LongMemEvalEvidenceDetail.None,
+        "identifiers" => LongMemEvalEvidenceDetail.Identifiers,
+        "content" => LongMemEvalEvidenceDetail.Content,
+        _ => throw new ArgumentException(
+            "--evidence-detail must be one of: none, identifiers, content."),
+    };
 
     private static IReadOnlyList<TypedMemEvalVertical> ParseVerticals(string value)
     {
@@ -570,6 +593,7 @@ internal static class TypedMemEvalProgram
         // arm. It stays OFF by default here for the same reason it ships off: measurements taken
         // without it must remain comparable.
         bool RescueShortOwnerResults,
+        LongMemEvalEvidenceDetail EvidenceDetail,
         // Arm A finding (2026-08-21): the structured budget splits three ways, so an arithmetic
         // question spends two thirds of its context on entities and preferences -- kinds that cannot
         // carry a value. This reallocates the SAME total toward facts.

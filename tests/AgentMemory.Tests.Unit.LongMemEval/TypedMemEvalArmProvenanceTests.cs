@@ -128,6 +128,7 @@ public sealed class TypedMemEvalArmProvenanceTests
         var options = new TypedMemEvalProgram.TypedMemEvalRunOptions(
             [TypedMemEvalVertical.Arithmetic], 50, 20260821, null, 1, false, false,
             new PhaseThirtyFeatures(false, true), RescueShortOwnerResults: true,
+            EvidenceDetail: LongMemEvalEvidenceDetail.Identifiers,
             FactWeightedBudget: true);
 
         var arm = options.Arm;
