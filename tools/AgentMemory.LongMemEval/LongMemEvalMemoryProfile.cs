@@ -43,6 +43,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         AssistantContentMode assistantContent = AssistantContentMode.Ignore,
         bool resolveTemporalQueries = false,
         bool rescueShortOwnerResults = false,
+        bool supersedeReplacedFacts = false,
         string? graphRagIndexName = null,
         int? extractionSeed = null,
         // 30.9c gap: every Phase-30 Wave-C capability ships dark AND had no way in from the harness,
@@ -80,6 +81,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     assistantContent,
                     resolveTemporalQueries,
                     rescueShortOwnerResults,
+                    supersedeReplacedFacts,
                     phase30 ?? PhaseThirtyFeatures.AllOff,
                     graphRagIndexName,
                     extractionSeed,
@@ -110,6 +112,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         AssistantContentMode assistantContent,
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
+        bool supersedeReplacedFacts,
         PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         int? extractionSeed,
@@ -138,6 +141,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             assistantContent,
             resolveTemporalQueries,
             rescueShortOwnerResults,
+            supersedeReplacedFacts,
             phase30,
             graphRagIndexName,
             multiSessionBatch,
@@ -177,6 +181,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         AssistantContentMode assistantContent,
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
+        bool supersedeReplacedFacts,
         PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         bool multiSessionBatch = true,
@@ -231,7 +236,20 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // taking the path it was taken under; an ablation turns one on and re-runs the SAME
                 // frozen corpus and seed.
                 WorkingMemory = { Enabled = phase30.WorkingMemory },
-                Extraction = { DerivedMemory = { Enabled = phase30.ArithmeticMemory } },
+                Extraction =
+                {
+                    DerivedMemory = { Enabled = phase30.ArithmeticMemory },
+                    // The lever the four-vertical run proved was missing. `SupersedeReplacedFacts`
+                    // defaults FALSE and no harness reference existed, so the Bitemporal vertical --
+                    // whose whole subject is supersession -- was measured against an append-only
+                    // store: no fact ever carried `invalidated_at`, no `:SUPERSEDED_BY` edge was
+                    // ever written, and 0.783 was the feature's off-state, not its performance.
+                    //
+                    // Same shape as RescueShortOwnerResults above, one wave later: the option aimed
+                    // squarely at the measured failure mode was the one thing no run could set. Off
+                    // unless asked for, so every sealed measurement keeps its path.
+                    SupersedeReplacedFacts = supersedeReplacedFacts,
+                },
             },
             neo4j =>
             {

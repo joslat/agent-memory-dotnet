@@ -56,6 +56,8 @@ internal static class TypedMemEvalProgram
         // artifact -- only "was its SESSION covered", which is a different and weaker question. The
         // Bitemporal misses turned on exactly that distinction.
         "--evidence-detail",
+        // 30.9c ON arm for Bitemporal — see PREREG-BITEMPORAL-ON-2026-08-23.md.
+        "--supersede-replaced-facts",
     ];
 
     public static async Task<int> RunAsync(string[] args)
@@ -112,7 +114,8 @@ internal static class TypedMemEvalProgram
                             Console.Out,
                             CancellationToken.None,
                             phase30: options.Phase30,
-                            rescueShortOwnerResults: options.RescueShortOwnerResults)
+                            rescueShortOwnerResults: options.RescueShortOwnerResults,
+                            supersedeReplacedFacts: options.SupersedeReplacedFacts)
                         .ConfigureAwait(false);
                 }
 
@@ -328,6 +331,7 @@ internal static class TypedMemEvalProgram
                 workingMemory = arm.Phase30.WorkingMemory,
                 arithmeticMemory = arm.Phase30.ArithmeticMemory,
                 rescueShortOwnerResults = arm.RescueShortOwnerResults,
+                supersedeReplacedFacts = arm.SupersedeReplacedFacts,
                 factWeightedBudget = arm.FactWeightedBudget,
                 schemaExtensions = arm.Phase30.Extensions,
             },
@@ -470,6 +474,7 @@ internal static class TypedMemEvalProgram
                 WorkingMemory: Array.IndexOf(args, "--working-memory") >= 0,
                 ArithmeticMemory: Array.IndexOf(args, "--arithmetic-memory") >= 0),
             Array.IndexOf(args, "--rescue-short-owner-results") >= 0,
+            Array.IndexOf(args, "--supersede-replaced-facts") >= 0,
             ParseEvidenceDetail(Value("--evidence-detail")),
             Array.IndexOf(args, "--fact-weighted-budget") >= 0);
 
@@ -593,6 +598,7 @@ internal static class TypedMemEvalProgram
         // arm. It stays OFF by default here for the same reason it ships off: measurements taken
         // without it must remain comparable.
         bool RescueShortOwnerResults,
+        bool SupersedeReplacedFacts,
         LongMemEvalEvidenceDetail EvidenceDetail,
         // Arm A finding (2026-08-21): the structured budget splits three ways, so an arithmetic
         // question spends two thirds of its context on entities and preferences -- kinds that cannot
@@ -607,6 +613,6 @@ internal static class TypedMemEvalProgram
         /// that disagreed with the options that produced it would be worse than no token at all.
         /// </remarks>
         internal TypedMemEvalArm Arm =>
-            new(Phase30, RescueShortOwnerResults, FactWeightedBudget);
+            new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget);
     }
 }

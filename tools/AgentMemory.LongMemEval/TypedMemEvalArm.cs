@@ -29,10 +29,17 @@ namespace AgentMemory.LongMemEval;
 /// </remarks>
 /// <param name="Phase30">Engine features under test.</param>
 /// <param name="RescueShortOwnerResults">Whether the short-owner-result rescue was enabled.</param>
+/// <param name="SupersedeReplacedFacts">
+/// Whether write-time supersession was enabled. It defaults OFF in the engine, and the four-vertical
+/// run measured Bitemporal without it -- an append-only store with no <c>invalidated_at</c> and no
+/// <c>:SUPERSEDED_BY</c> edge. The arm token must name it, or an ON artifact and an OFF artifact are
+/// once again indistinguishable from each other.
+/// </param>
 /// <param name="FactWeightedBudget">Whether the recall budget was reallocated toward facts.</param>
 public sealed record TypedMemEvalArm(
     PhaseThirtyFeatures Phase30,
     bool RescueShortOwnerResults = false,
+    bool SupersedeReplacedFacts = false,
     bool FactWeightedBudget = false)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
@@ -40,7 +47,8 @@ public sealed record TypedMemEvalArm(
 
     /// <summary>True when nothing is enabled, so a run can assert it took the default path.</summary>
     public bool IsDefault =>
-        Phase30.IsDefault && !RescueShortOwnerResults && !FactWeightedBudget;
+        Phase30.IsDefault && !RescueShortOwnerResults && !FactWeightedBudget
+        && !SupersedeReplacedFacts;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -58,6 +66,7 @@ public sealed record TypedMemEvalArm(
         if (Phase30.WorkingMemory) parts.Add("wm");
         if (Phase30.ArithmeticMemory) parts.Add("arith");
         if (RescueShortOwnerResults) parts.Add("rescue");
+        if (SupersedeReplacedFacts) parts.Add("supersede");
         if (FactWeightedBudget) parts.Add("factwt");
         return string.Join("-", parts);
     }
@@ -66,5 +75,6 @@ public sealed record TypedMemEvalArm(
     public string Describe() => string.Create(
         CultureInfo.InvariantCulture,
         $"{Phase30.Describe()} rescue-short-owner-results={RescueShortOwnerResults} " +
+        $"supersede-replaced-facts={SupersedeReplacedFacts} " +
         $"fact-weighted-budget={FactWeightedBudget}");
 }

@@ -85,6 +85,7 @@ public sealed class GraphRagWiringTests
         string? graphRagIndexName,
         bool resolveTemporalQueries = false,
         bool rescueShortOwnerResults = false,
+        bool supersedeReplacedFacts = false,
         int? extractionSeed = null,
         PhaseThirtyFeatures? phase30 = null) =>
         LongMemEvalMemoryProfile.ConfigureServices(
@@ -102,6 +103,7 @@ public sealed class GraphRagWiringTests
                 assistantContent: AssistantContentMode.Ignore,
                 resolveTemporalQueries: resolveTemporalQueries,
                 rescueShortOwnerResults: rescueShortOwnerResults,
+                supersedeReplacedFacts: supersedeReplacedFacts,
                 phase30: phase30 ?? PhaseThirtyFeatures.AllOff,
                 graphRagIndexName: graphRagIndexName,
                 extractionSeed: extractionSeed)

@@ -41,8 +41,12 @@ public sealed class TypedMemEvalArmProvenanceTests
     public void EachLeverNamesItselfInTheToken(
         bool workingMemory, bool arithmetic, bool rescue, bool factWeighted, string expected)
     {
+        // Named, not positional: inserting SupersedeReplacedFacts ahead of FactWeightedBudget
+        // silently re-slotted these and the token tests were the only thing that noticed.
         var arm = new TypedMemEvalArm(
-            new PhaseThirtyFeatures(workingMemory, arithmetic), rescue, factWeighted);
+            new PhaseThirtyFeatures(workingMemory, arithmetic),
+            RescueShortOwnerResults: rescue,
+            FactWeightedBudget: factWeighted);
 
         arm.FileToken().Should().Be(expected);
     }
@@ -70,12 +74,16 @@ public sealed class TypedMemEvalArmProvenanceTests
     [Fact]
     public void CombinedLeversAllAppear()
     {
-        var arm = new TypedMemEvalArm(new PhaseThirtyFeatures(true, true), true, true);
+        var arm = new TypedMemEvalArm(
+            new PhaseThirtyFeatures(true, true),
+            RescueShortOwnerResults: true,
+            SupersedeReplacedFacts: true,
+            FactWeightedBudget: true);
 
         var token = arm.FileToken();
 
         token.Should().Contain("wm").And.Contain("arith")
-            .And.Contain("rescue").And.Contain("factwt");
+            .And.Contain("rescue").And.Contain("supersede").And.Contain("factwt");
     }
 
     [Fact]
@@ -128,6 +136,7 @@ public sealed class TypedMemEvalArmProvenanceTests
         var options = new TypedMemEvalProgram.TypedMemEvalRunOptions(
             [TypedMemEvalVertical.Arithmetic], 50, 20260821, null, 1, false, false,
             new PhaseThirtyFeatures(false, true), RescueShortOwnerResults: true,
+            SupersedeReplacedFacts: false,
             EvidenceDetail: LongMemEvalEvidenceDetail.Identifiers,
             FactWeightedBudget: true);
 

@@ -181,6 +181,7 @@ public sealed class TypedMemEvalCommandLineTests
             // indistinguishable from the control it was supposed to differ from.
             ["--rescue-short-owner-results"] = "RescueShortOwnerResults",
             ["--evidence-detail"] = "EvidenceDetail",
+            ["--supersede-replaced-facts"] = "SupersedeReplacedFacts",
             ["--fact-weighted-budget"] = "FactWeightedBudget",
         };
 
