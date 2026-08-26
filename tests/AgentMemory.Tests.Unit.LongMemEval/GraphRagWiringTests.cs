@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Options;
+﻿using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extraction.Llm;
 using AgentMemory.LongMemEval;
@@ -85,7 +85,9 @@ public sealed class GraphRagWiringTests
         string? graphRagIndexName,
         bool resolveTemporalQueries = false,
         bool rescueShortOwnerResults = false,
-        int? extractionSeed = null) =>
+        bool supersedeReplacedFacts = false,
+        int? extractionSeed = null,
+        PhaseThirtyFeatures? phase30 = null) =>
         LongMemEvalMemoryProfile.ConfigureServices(
                 "bolt://localhost:7687",
                 Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>(),
@@ -101,9 +103,62 @@ public sealed class GraphRagWiringTests
                 assistantContent: AssistantContentMode.Ignore,
                 resolveTemporalQueries: resolveTemporalQueries,
                 rescueShortOwnerResults: rescueShortOwnerResults,
+                supersedeReplacedFacts: supersedeReplacedFacts,
+                phase30: phase30 ?? PhaseThirtyFeatures.AllOff,
                 graphRagIndexName: graphRagIndexName,
                 extractionSeed: extractionSeed)
             .BuildServiceProvider();
+
+    /// <summary>
+    /// 30.9c's harness half: the Wave-C switches must reach <c>MemoryOptions</c>, not merely parse.
+    /// </summary>
+    /// <remarks>
+    /// Every Phase-30 Wave-C capability shipped off by default AND unreachable from the harness —
+    /// the profile set three fields on <c>MemoryOptions</c> and none was a Phase-30 flag. So the
+    /// features built to move the benchmark numbers were the one thing no run could exercise, and
+    /// 30.6 sat "built, not measured" because it was <b>unmeasurable</b>. Same shape as the dead
+    /// options this class already guards, one wave later.
+    /// </remarks>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheArithmeticMemoryFlagReachesMemoryOptions(bool enabled)
+    {
+        using var provider = Resolve(
+            graphRagIndexName: null,
+            phase30: new PhaseThirtyFeatures(ArithmeticMemory: enabled));
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>()
+            .Value.Extraction.DerivedMemory.Enabled.Should().Be(enabled);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheWorkingMemoryFlagReachesMemoryOptions(bool enabled)
+    {
+        using var provider = Resolve(
+            graphRagIndexName: null,
+            phase30: new PhaseThirtyFeatures(WorkingMemory: enabled));
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>()
+            .Value.WorkingMemory.Enabled.Should().Be(enabled);
+    }
+
+    /// <summary>
+    /// A flag without its schema extension is worse than a no-op: the DDL those writes need would be
+    /// absent, so they fail at the store and the feature reads as broken rather than dark.
+    /// </summary>
+    [Fact]
+    public void EnablingAFeatureInstallsItsSchemaExtension()
+    {
+        using var provider = Resolve(
+            graphRagIndexName: null,
+            phase30: new PhaseThirtyFeatures(ArithmeticMemory: true));
+
+        provider.GetRequiredService<IOptions<AgentMemory.Neo4j.Infrastructure.Neo4jOptions>>()
+            .Value.Extensions.Should().Contain("arithmetic");
+    }
 
     [Theory]
     [InlineData(false)]

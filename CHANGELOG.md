@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Recall fan-out (opt-in, off by default).** `MemoryOptions.FanOut` enables per-memory-type
+  sub-queries: a deterministic gate decides whether a query is compound, a deriver splits it into
+  typed legs, each leg retrieves against the real store, and the results merge into the monolithic
+  sections by id keeping the higher score. Merged sections are **re-capped at the existing `MaxX`**,
+  so a fan-out changes *which* items reach the prompt, never *how many*.
+  - New public types: `MemoryTypeAffinity`, `RecallSubQuery`, `SubQueryYield`, `RecallFanOutReport`;
+    `RecallRequest.SubQueries` and `MemoryContext.FanOutReport`. All additive; no interface members
+    changed, so no default interface methods were needed.
+  - Callers may supply `SubQueries` directly, which is honoured **even with the feature disabled** —
+    an explicit request is not something a global flag vetoes.
+  - `FanOutReport` distinguishes three states that must not collapse: `null` (the planner never ran),
+    `GateFired = false` (it ran and declined), and fired-with-zero-contributions (it ran and changed
+    nothing). `VoidReason` marks a report that cannot be read as a measurement at all.
+  - Neo4j-backed hosts only in practice: the merge requires the scored search contracts.
+
 ### Verified
 
 - **Neo4j 2026.02 / Cypher 25 compatibility.** Neo4j 2026.02 defaults *new* databases to

@@ -674,8 +674,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         // Hoisted out of the try: the retrieval-evidence build below needs the message allowance to
         // tell "retrieval missed" apart from "retrieval was never given a message budget" (BUG-E1).
-        var budget = LongMemEvalRecallBudget.For(
-            _options.MemoryMode, _options.MaxRelevantMessages) with
+        var budget = (_options.FactWeightedBudget
+                && _options.MemoryMode == LongMemEvalMemoryMode.Structured
+            ? LongMemEvalRecallBudget.FactWeighted(_options.MaxRelevantMessages)
+            : LongMemEvalRecallBudget.For(_options.MemoryMode, _options.MaxRelevantMessages)) with
         {
             GraphRag = _options.GraphRagItems
         };
@@ -1916,6 +1918,28 @@ public sealed record LongMemEvalAdapterOptions
     /// </remarks>
     public int GraphRagItems { get; init; }
 
+    /// <summary>
+    /// Weights the structured recall budget toward facts instead of splitting it three ways.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The structured split is an even third each to entities, facts and preferences. On an
+    /// arithmetic question that spends two thirds of the context on item kinds which cannot carry a
+    /// value: a preference has no number in it to count or sum.
+    /// </para>
+    /// <para>
+    /// Measured on Arm A (2026-08-21, 50 Arithmetic questions): the answer context came out 45% facts,
+    /// 33% entities, 22% preferences, and every count and sum error -- 16 of 16 -- was in the SAME
+    /// direction, too few. A reasoning failure scatters both ways; a missing-input failure does not.
+    /// </para>
+    /// <para>
+    /// <b>A reallocation, not an enlargement.</b> The total is unchanged, so a score difference is
+    /// attributable to where the budget went rather than to having more of it -- the confound the
+    /// GraphRag budget above explicitly carries and this one deliberately does not.
+    /// </para>
+    /// </remarks>
+    public bool FactWeightedBudget { get; init; }
+
     /// <summary>G5. Returns every fact sharing a retrieved fact's canonical predicate.</summary>
     public bool ExpandFactsByPredicate { get; init; }
 
@@ -2246,6 +2270,33 @@ internal sealed record LongMemEvalRecallBudget(
     {
         var each = total / 3;
         return new(0, each, total - each * 2, each, 0);
+    }
+
+    /// <summary>
+    /// The same total, weighted toward facts: entities and preferences keep a sixth each.
+    /// </summary>
+    /// <remarks>
+    /// Not zero for the other two. A count question still needs the entity that names what is being
+    /// counted, and zeroing a section would test "facts only" rather than "more facts", which is a
+    /// different claim and a worse one.
+    /// </remarks>
+    internal static LongMemEvalRecallBudget FactWeighted(int total)
+    {
+        // The same guard For() enforces, and it has to be HERE rather than inherited: the adapter's
+        // ternary calls this method directly, so a total of 0 or 1 would otherwise skip the check and
+        // return a NEGATIVE fact count -- Math.Max(1, ...) floors the minor sections at 1 each, so
+        // total 1 yields facts = 1 - 2 = -1. A negative budget is not a small budget; it is a limit
+        // that silently inverts every downstream comparison it reaches.
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(total);
+
+        // The floor and the cap are BOTH required, and the guard above is not enough on its own.
+        // Math.Max(1, ...) keeps a slot for entities and preferences at ordinary totals, but at total
+        // 1 it hands each of them a slot the total cannot pay for and facts becomes 1 - 2 = -1 --
+        // positive input, negative budget, past the ThrowIfNegativeOrZero check. Capping the minor
+        // sections at a third keeps facts non-negative for EVERY positive total, and at small totals
+        // it degrades to exactly what For() already does there rather than to something new.
+        var minor = Math.Min(Math.Max(1, total / 6), total / 3);
+        return new(0, minor, total - (minor * 2), minor, 0);
     }
 
     private static LongMemEvalRecallBudget Hybrid(int total)

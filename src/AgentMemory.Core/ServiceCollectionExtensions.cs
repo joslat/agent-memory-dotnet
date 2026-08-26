@@ -219,6 +219,22 @@ public static class ServiceCollectionExtensions
             .Validate(
                 o => o.WorkingMemory.MinPreferenceConfidence is >= 0 and <= 1,
                 "MemoryOptions.WorkingMemory.MinPreferenceConfidence must be between 0 and 1.")
+            // 30.10 fan-out. Added on an audit finding, which makes this the FOURTH time in this
+            // phase that a feature shipped numeric options nothing validated -- the exact defect
+            // class this chain's own comment documents.
+            .Validate(
+                o => o.FanOut.MaxSubQueries > 0,
+                "MemoryOptions.FanOut.MaxSubQueries must be positive — a cap of zero disables fan-out "
+                + "while the Enabled flag still reads as on, which is the silent-misconfiguration "
+                + "shape this chain exists to stop.")
+            .Validate(
+                o => o.FanOut.MinDistinctEntityMentions > 0,
+                "MemoryOptions.FanOut.MinDistinctEntityMentions must be positive — at zero rule E3 "
+                + "fires on every query including a bare greeting.")
+            .Validate(
+                o => o.FanOut.WeakTopScoreThreshold is null or (>= 0 and <= 1),
+                "MemoryOptions.FanOut.WeakTopScoreThreshold must be between 0 and 1 when set; it is "
+                + "compared against a cosine similarity.")
             .ValidateOnStart();
 
         // Bridge sub-options from parent MemoryOptions so services that depend on
@@ -300,8 +316,41 @@ public static class ServiceCollectionExtensions
             projectionFeatures: sp.GetServices<Services.Projection.IProjectionFeature>(),
             // 30.4. Optional: the working-memory tier is registered by the Neo4j package, so a
             // memory-only Core consumer resolves null here and the block is simply never fetched.
-            workingMemory: sp.GetService<IWorkingMemoryService>()));
+            workingMemory: sp.GetService<IWorkingMemoryService>(),
+            // 30.10. Optional for the same reason as every seam above it: a host that has not
+            // registered a deriver resolves null and the planner never runs.
+            subQueryDeriver: sp.GetService<Services.ISubQueryDeriver>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
+
+        // 30.10. The deriver is selected by options, not registered twice. Two enumerable
+        // registrations would let both run, and the witness would then name one deriver while the
+        // other had produced the legs -- the reproducibility the DeriverId exists to guarantee.
+        //
+        // The LLM deriver needs an IChatClient. When the flag asks for it and no client is
+        // registered, this falls back to the deterministic deriver rather than registering something
+        // unresolvable: an unsatisfiable binding here takes the whole assembler down, which is the
+        // exact break the 1.0 lockdown produced and the reason TryAddEnumerable is used above.
+        services.TryAddScoped<Services.ISubQueryDeriver>(sp =>
+        {
+            var fanOut = sp.GetRequiredService<IOptions<MemoryOptions>>().Value.FanOut;
+            if (fanOut.UseLlmDerivation)
+            {
+                var chatClient = sp.GetService<Microsoft.Extensions.AI.IChatClient>();
+                if (chatClient is not null)
+                {
+                    return new Services.LlmSubQueryDeriver(
+                        chatClient,
+                        sp.GetRequiredService<ILogger<Services.LlmSubQueryDeriver>>());
+                }
+
+                sp.GetRequiredService<ILogger<Services.DeterministicSubQueryDeriver>>()
+                    .LogWarning(
+                        "FanOut.UseLlmDerivation is set but no IChatClient is registered; "
+                        + "falling back to the deterministic deriver.");
+            }
+
+            return new Services.DeterministicSubQueryDeriver();
+        });
 
         // The five projection features (30.2), registered unconditionally and enumerably.
         //

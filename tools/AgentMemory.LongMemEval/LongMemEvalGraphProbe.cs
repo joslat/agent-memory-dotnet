@@ -1,4 +1,4 @@
-using Neo4j.Driver;
+﻿using Neo4j.Driver;
 
 namespace AgentMemory.LongMemEval;
 
@@ -156,8 +156,21 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
           MATCH (n)
           WHERE n.owner_id = $ownerId AND (n:Entity OR n:Fact OR n:Preference)
           OPTIONAL MATCH (n)-[:EXTRACTED_FROM]->(m:Message)
+          // A DERIVED fact has no source message and never will: it is computed FROM other facts,
+          // and DERIVED_FROM is its provenance. Requiring EXTRACTED_FROM of every learned item
+          // encoded an assumption that was true only while derived memory did not exist -- the
+          // moment the session accountant creates one, learnedItemsWithProvenance < learnedItems,
+          // CompleteProvenance goes false, and the adapter throws on EVERY question. That is what
+          // made the first arithmetic-memory ablation void: 50/50 agent errors, ~4.5 hours a run,
+          // and no diagnosable error, because the throw sits outside the stage wrapper that logs.
+          // Counting DERIVED_FROM as provenance keeps the check strict -- an unlinked derived fact
+          // still fails it -- while making it correct for a node kind the check predates.
+          // EXISTS rather than a second OPTIONAL MATCH: another MATCH would multiply rows per n
+          // and inflate provenanceEdges / sourceMessages, which are counted from the same rows.
           RETURN count(DISTINCT n) AS learnedItems,
-                 count(DISTINCT CASE WHEN m IS NOT NULL THEN n END) AS learnedItemsWithProvenance,
+                 count(DISTINCT CASE
+                   WHEN m IS NOT NULL OR EXISTS { (n)-[:DERIVED_FROM]->(:Fact) } THEN n END)
+                   AS learnedItemsWithProvenance,
                  count(m) AS provenanceEdges,
                  count(DISTINCT m) AS sourceMessages
         }

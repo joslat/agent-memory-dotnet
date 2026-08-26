@@ -263,16 +263,34 @@ public sealed class PerfLedgerCommand(TextWriter output)
         Equal("Neo4j image", target.Neo4jImage, candidate.Neo4jImage);
 
         var targetScenarios = target.Scenarios.ToHashSet(StringComparer.Ordinal);
+        var candidateScenarios = candidate.Scenarios.ToHashSet(StringComparer.Ordinal);
         var targetCounters = targetEntry["counters"]?.AsObject()
             ?? throw new InvalidDataException(
                 $"Ledger seq {targetSequence} has no scenario counters.");
-        foreach (var scenario in candidate.Scenarios)
+
+        foreach (var scenario in candidateScenarios)
         {
             if (!targetScenarios.Contains(scenario) || !targetCounters.ContainsKey(scenario))
             {
                 throw new InvalidDataException(
                     $"Scenario '{scenario}' is absent from compared-to seq {targetSequence}.");
             }
+        }
+
+        // The other direction, which went unchecked. Only the candidate-subset-of-target half was
+        // asserted, so a run that SILENTLY STOPPED EMITTING a scenario compared clean on the ones it
+        // still had -- passable by absence, and hiding in the direction that flatters the run. The
+        // ledger exists to compare like with like over time; a comparison quietly covering fewer
+        // scenarios than its baseline is not that comparison, and nothing in the output said so.
+        var dropped = targetScenarios.Except(candidateScenarios, StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (dropped.Length > 0)
+        {
+            throw new InvalidDataException(
+                $"Run is missing {dropped.Length} scenario(s) present in compared-to seq "
+                + $"{targetSequence}: {string.Join(", ", dropped)}. A ledger comparison must cover "
+                + "the same scenario set on both sides.");
         }
     }
 

@@ -129,18 +129,35 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
             return Task.FromResult(entity);
         }
 
-        return EnsureEmbeddingThenUpsertAsync(
-            entity,
-            shouldEmbed: _options.GenerateEntityEmbeddings && entity.Embedding is null,
-            embed: cancellationToken =>
-            {
-                var text = string.IsNullOrEmpty(entity.Description) ? entity.Name : $"{entity.Name}: {entity.Description}";
-                _logger.LogDebug("Generating embedding for entity {EntityId}", entity.EntityId);
-                return _embeddingOrchestrator.EmbedTextAsync(text, cancellationToken);
-            },
-            withEmbedding: (e, emb) => e with { Embedding = emb },
-            upsert: _entityRepo.UpsertAsync,
-            cancellationToken);
+        return AddThenRebuildAsync();
+
+        async Task<Entity> AddThenRebuildAsync()
+        {
+            var saved = await EnsureEmbeddingThenUpsertAsync(
+                entity,
+                shouldEmbed: _options.GenerateEntityEmbeddings && entity.Embedding is null,
+                embed: cancellationToken =>
+                {
+                    var text = string.IsNullOrEmpty(entity.Description) ? entity.Name : $"{entity.Name}: {entity.Description}";
+                    _logger.LogDebug("Generating embedding for entity {EntityId}", entity.EntityId);
+                    return _embeddingOrchestrator.EmbedTextAsync(text, cancellationToken);
+                },
+                withEmbedding: (e, emb) => e with { Embedding = emb },
+                upsert: _entityRepo.UpsertAsync,
+                cancellationToken).ConfigureAwait(false);
+
+            // 30.4b, last of the family. The block carries a top-entities section
+            // (WorkingMemoryQueries.SelectTopEntities), so adding an entity can change it -- yet this
+            // was the one write on this service that did not rebuild, while its fact, preference,
+            // supersede, invalidate, delete and merge siblings all do.
+            //
+            // The window is small but real: entities are ordered by access_count DESC, so a brand-new
+            // entity usually sorts last and falls outside the cap. "Usually" stops being true for an
+            // owner with fewer entities than MaxTopEntities, where the new one genuinely belongs in the
+            // block and would not appear until some unrelated write happened to trigger a rebuild.
+            await RebuildWorkingMemoryAsync(saved.OwnerId, cancellationToken).ConfigureAwait(false);
+            return saved;
+        }
     }
 
     /// <inheritdoc/>
@@ -637,7 +654,26 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     {
         var resolvedScope = Resolve(scope, nameof(DeletePreferenceAsync));
         _logger.LogDebug("Deleting preference {PreferenceId}, owner={Owner}", preferenceId, resolvedScope.OwnerId);
-        return _prefRepo.DeleteAsync(preferenceId, resolvedScope, cancellationToken);
+
+        // 30.4b: same staleness shape as invalidation — a deleted preference must leave the block.
+        //
+        // Rebuilt UNCONDITIONALLY, unlike the invalidate family, and the asymmetry is forced rather
+        // than chosen: IPreferenceRepository.DeleteAsync returns Task, not Task<bool>, so there is no
+        // way to learn whether the delete matched anything. The invalidate paths skip the rebuild on a
+        // no-op precisely because they CAN tell. Here the choice is between a wasted rebuild on a
+        // no-op delete and a stale block on a real one, and staleness is the failure this design
+        // exists to prevent. Widening the repository signature would be the real fix; it is a public
+        // interface locked under SemVer since 1.0, so it is not worth a break for a bookkeeping win.
+        return DeleteThenRebuildAsync();
+
+        async Task DeleteThenRebuildAsync()
+        {
+            await _prefRepo.DeleteAsync(preferenceId, resolvedScope, cancellationToken)
+                .ConfigureAwait(false);
+            await _rebuilder
+                .RebuildAsync(resolvedScope.OwnerId, "a preference delete", cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>
@@ -726,17 +762,77 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     // central isolation policy (#100): these never had a fallback derivation of their own, so this adds
     // a warn/fail-closed gate on top of the existing pass-through rather than replacing anything. ──
 
+    /// <summary>
+    /// Shared epilogue for the invalidate/delete family (30.4b): perform the write, and recompile the
+    /// owner's working-memory block when it actually removed something.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why these needed hooking at all.</b> Every working-memory block query filters
+    /// <c>invalidated_at IS NULL</c>. Retracting a fact therefore changes what the block should say —
+    /// but nothing recompiled it, so the block kept asserting the retracted value until some unrelated
+    /// write happened to trigger a rebuild. That is precisely the staleness this design calls
+    /// "manufactures knowledge-update failures", and it is the reason supersession is hooked.
+    /// <b>Supersede was hooked and its exact twin was not.</b>
+    /// </para>
+    /// <para>
+    /// Only on a <c>true</c> result: a scoped call that matched nothing changed nothing, and rebuilding
+    /// there would spend reads on exactly the calls the isolation guard exists to make free.
+    /// </para>
+    /// </remarks>
+    private async Task<bool> InvalidateThenRebuildAsync(
+        Func<MemoryScope, Task<bool>> invalidate,
+        Func<CancellationToken, Task<string?>> ownerOfRecord,
+        MemoryScope? scope,
+        string caller,
+        CancellationToken cancellationToken)
+    {
+        var resolvedScope = Resolve(scope, caller);
+        var changed = await invalidate(resolvedScope).ConfigureAwait(false);
+        if (!changed) return false;
+
+        // S1. The block to recompile belongs to the RECORD's owner, not to the caller's scope, and
+        // under the shipped SingleTenant default those differ on exactly the path that matters: an
+        // unscoped or admin call (the MCP maintenance tools permit omitting userId) invalidates
+        // alice's fact, the Cypher matches by id with no owner filter and returns true, and a rebuild
+        // keyed on the caller's null scope is then skipped entirely -- leaving alice's block asserting
+        // the value that was just retracted. That is the staleness this seam exists to prevent,
+        // reintroduced through the back door.
+        //
+        // The extra read is charged to the ADMIN path only. A scoped call already knows the owner, so
+        // the ordinary invalidation pays nothing for a rare case.
+        var owner = resolvedScope.OwnerId;
+        if (string.IsNullOrEmpty(owner))
+        {
+            owner = await ownerOfRecord(cancellationToken).ConfigureAwait(false);
+        }
+
+        await _rebuilder
+            .RebuildAsync(owner, "an invalidation", cancellationToken)
+            .ConfigureAwait(false);
+        return true;
+    }
+
     /// <inheritdoc/>
     public Task<bool> InvalidateFactAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _factRepo.InvalidateAsync(factId, Resolve(scope, nameof(InvalidateFactAsync)), cancellationToken);
+        => InvalidateThenRebuildAsync(
+            resolved => _factRepo.InvalidateAsync(factId, resolved, cancellationToken),
+            async ct => (await _factRepo.GetByIdAsync(factId, ct).ConfigureAwait(false))?.OwnerId,
+            scope, nameof(InvalidateFactAsync), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> InvalidateEntityAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _entityRepo.InvalidateAsync(entityId, Resolve(scope, nameof(InvalidateEntityAsync)), cancellationToken);
+        => InvalidateThenRebuildAsync(
+            resolved => _entityRepo.InvalidateAsync(entityId, resolved, cancellationToken),
+            async ct => (await _entityRepo.GetByIdAsync(entityId, ct).ConfigureAwait(false))?.OwnerId,
+            scope, nameof(InvalidateEntityAsync), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> InvalidatePreferenceAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _prefRepo.InvalidateAsync(preferenceId, Resolve(scope, nameof(InvalidatePreferenceAsync)), cancellationToken);
+        => InvalidateThenRebuildAsync(
+            resolved => _prefRepo.InvalidateAsync(preferenceId, resolved, cancellationToken),
+            async ct => (await _prefRepo.GetByIdAsync(preferenceId, ct).ConfigureAwait(false))?.OwnerId,
+            scope, nameof(InvalidatePreferenceAsync), cancellationToken);
 
     /// <inheritdoc/>
     /// <remarks>

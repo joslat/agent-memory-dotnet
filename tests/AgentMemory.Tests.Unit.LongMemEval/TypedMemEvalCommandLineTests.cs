@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AgentEval.Memory.External.TypedMemEval;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
@@ -171,6 +171,18 @@ public sealed class TypedMemEvalCommandLineTests
             ["--runs"] = "Runs",
             ["--oracle"] = "Oracle",
             ["--control"] = "Control",
+            // 30.9c. Both Wave-C switches are carried by the same record property, which is the
+            // point: a feature flag and the schema extension it needs must travel together, or the
+            // DDL those writes need is absent and the feature reads as broken rather than dark.
+            ["--working-memory"] = "Phase30",
+            ["--arithmetic-memory"] = "Phase30",
+            // 30.9c re-measure arms. Each is a retrieval-side lever with its own record property, so
+            // an arm that was requested but not carried fails here rather than producing a report
+            // indistinguishable from the control it was supposed to differ from.
+            ["--rescue-short-owner-results"] = "RescueShortOwnerResults",
+            ["--evidence-detail"] = "EvidenceDetail",
+            ["--supersede-replaced-facts"] = "SupersedeReplacedFacts",
+            ["--fact-weighted-budget"] = "FactWeightedBudget",
         };
 
         TypedMemEvalProgram.KnownOptions.Should().BeEquivalentTo(

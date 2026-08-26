@@ -200,6 +200,18 @@ public sealed record MemoryContext
     public DateTimeOffset? WorkingMemoryBuiltAtUtc { get; init; }
 
     /// <summary>
+    /// What the fan-out planner did, or null when it never ran (Proposal M, 30.10).
+    /// </summary>
+    /// <remarks>
+    /// <b>Null is load-bearing.</b> Null means the planner never ran — the feature is off and the
+    /// caller supplied no sub-queries. A non-null report with <c>GateFired = false</c> means it ran
+    /// and declined. A fired report whose legs all contributed nothing is a third, distinct state.
+    /// Collapsing those is how a mechanism gets retired at exactly 0.0000 with nobody able to say
+    /// whether it ever ran.
+    /// </remarks>
+    public RecallFanOutReport? FanOutReport { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =
