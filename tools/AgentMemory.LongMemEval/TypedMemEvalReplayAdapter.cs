@@ -29,6 +29,22 @@ namespace AgentMemory.LongMemEval;
 /// bit-identity, and the disagreements are inspected rather than averaged away.
 /// </para>
 /// <para>
+/// <b>Keyed by POSITION, not by question text, and that is a corpus fact rather than a preference.</b>
+/// Twelve of the sixty bitemporal questions share their text with another question and carry a
+/// DIFFERENT gold answer -- <c>tme-bit-007</c> and <c>tme-bit-037</c> ask "which department was Colm
+/// Whitaker at in February?" and answer Lowick and Marchmont respectively. Each question is asked
+/// against its own injected history, so identical words over different memory legitimately have
+/// different right answers. A text-keyed replay would therefore have handed 12 of 60 questions an
+/// answer written for a different question and graded it, which is not a lost row but a WRONG one.
+/// </para>
+/// <para>
+/// <b>The position assumption is asserted, not trusted.</b> <see cref="InvokeAsync"/> receives only
+/// the prompt, so ordering is the only identity available; it is verified by checking that the text
+/// at each position still matches the stored row. If the runner ever selects or orders questions
+/// differently, that check fires instead of silently pairing the wrong answers -- the failure mode
+/// this whole class exists to make impossible.
+/// </para>
+/// <para>
 /// <b>The history hooks are deliberately inert.</b> Nothing is retrieved here; the answer already
 /// exists. Implementing them anyway keeps the adapter's shape identical to the real one, so the
 /// runner takes the same branches — a replay that changed the runner's path would be measuring a
@@ -36,12 +52,14 @@ namespace AgentMemory.LongMemEval;
 /// </para>
 /// </remarks>
 internal sealed class TypedMemEvalReplayAdapter(
-    IReadOnlyDictionary<string, string> answersByQuestion,
+    IReadOnlyList<(string Question, string Answer)> storedRows,
     string? modelId)
     : IEvaluableAgent, IHistoryInjectableAgent, ITimestampedHistoryInjectableAgent,
       ISessionResettableAgent
 {
     private readonly List<string> _unmatched = [];
+    private readonly List<string> _orderingMismatches = [];
+    private int _next;
 
     public string Name => "AgentMemory.LongMemEval.Replay";
 
@@ -52,6 +70,15 @@ internal sealed class TypedMemEvalReplayAdapter(
     /// so the caller can fail the whole re-grade instead.
     /// </remarks>
     public IReadOnlyList<string> UnmatchedQuestions => _unmatched;
+
+    /// <summary>
+    /// Positions where the runner's question did not match the stored row at that position.
+    /// </summary>
+    /// <remarks>
+    /// Non-empty means the replay is pairing answers with the wrong questions, which produces a
+    /// fully-populated, entirely meaningless score. Fatal to the caller, never a warning.
+    /// </remarks>
+    public IReadOnlyList<string> OrderingMismatches => _orderingMismatches;
 
     public int Matched { get; private set; }
 
@@ -71,16 +98,22 @@ internal sealed class TypedMemEvalReplayAdapter(
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!answersByQuestion.TryGetValue(prompt, out var answer))
+        if (_next >= storedRows.Count)
         {
+            // The runner asked more questions than the artifact holds answers for. Recorded rather
+            // than thrown so the caller sees the full extent before aborting.
             _unmatched.Add(prompt);
-            // Still returns empty rather than throwing: one unmatched question should not abort a
-            // 60-question re-grade, because the caller can only judge whether the mismatch is
-            // systematic by seeing how many there are. UnmatchedQuestions is the gate.
+            return Task.FromResult(new AgentResponse { Text = string.Empty, ModelId = modelId });
+        }
+
+        var row = storedRows[_next++];
+        if (!string.Equals(row.Question, prompt, StringComparison.Ordinal))
+        {
+            _orderingMismatches.Add(prompt);
             return Task.FromResult(new AgentResponse { Text = string.Empty, ModelId = modelId });
         }
 
         Matched++;
-        return Task.FromResult(new AgentResponse { Text = answer, ModelId = modelId });
+        return Task.FromResult(new AgentResponse { Text = row.Answer, ModelId = modelId });
     }
 }

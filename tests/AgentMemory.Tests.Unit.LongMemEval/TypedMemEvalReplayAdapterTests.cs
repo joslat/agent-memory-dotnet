@@ -23,7 +23,7 @@ namespace AgentMemory.Tests.Unit.LongMemEval;
 public class TypedMemEvalReplayAdapterTests
 {
     private static TypedMemEvalReplayAdapter Adapter(params (string Question, string Answer)[] rows) =>
-        new(rows.ToDictionary(row => row.Question, row => row.Answer, StringComparer.Ordinal), "m");
+        new(rows, "m");
 
     [Fact]
     public async Task AStoredAnswerIsReplayedVerbatim()
@@ -40,7 +40,7 @@ public class TypedMemEvalReplayAdapterTests
     }
 
     [Fact]
-    public async Task AQuestionWithNoStoredAnswerIsRecordedAsUnmatchedRatherThanScoredAsWrong()
+    public async Task AnUnexpectedQuestionIsRefusedRatherThanScoredAsWrong()
     {
         var adapter = Adapter(("Known question", "answer"));
 
@@ -48,22 +48,53 @@ public class TypedMemEvalReplayAdapterTests
 
         response.Text.Should().BeEmpty();
         adapter.Matched.Should().Be(0);
-        // The whole safety property: the caller can see the miss and abort, instead of publishing a
-        // baseline quietly reduced by one wrong answer that was never actually wrong.
-        adapter.UnmatchedQuestions.Should().ContainSingle()
+        // The safety property: the caller sees it and aborts, instead of publishing a baseline
+        // quietly reduced by one wrong answer that was never actually wrong.
+        adapter.OrderingMismatches.Should().ContainSingle()
             .Which.Should().Be("A question the artifact never contained");
     }
 
     [Fact]
-    public async Task MatchingIsExactSoANearMissIsAMissRatherThanAWrongPairing()
+    public async Task AQuestionOutOfOrderIsRefusedRatherThanPairedWithTheWrongAnswer()
     {
-        // Trailing whitespace, casing, punctuation: pairing a question with a DIFFERENT question's
-        // answer would be worse than not pairing it at all, because it would be graded and scored.
-        var adapter = Adapter(("Where does Colm work?", "Marchmont"));
+        // The failure this class exists to prevent. Pairing answers with the wrong questions yields
+        // a complete, plausible, entirely meaningless score -- far worse than an obvious blank.
+        var adapter = Adapter(("First question", "first answer"), ("Second question", "second answer"));
 
-        await adapter.InvokeAsync("where does colm work?");
+        await adapter.InvokeAsync("Second question");
 
         adapter.Matched.Should().Be(0);
+        adapter.OrderingMismatches.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task DuplicateQuestionTextsAreReplayedDistinctlyByPosition()
+    {
+        // Twelve of the sixty bitemporal questions share text with a question whose gold answer
+        // DIFFERS -- tme-bit-007 and tme-bit-037 both ask about Colm Whitaker in February and answer
+        // Lowick and Marchmont. Text keying silently mispaired 12 of 60; position keying does not.
+        var adapter = Adapter(
+            ("Which department was Colm Whitaker at in February?", "Lowick"),
+            ("Which department was Colm Whitaker at in February?", "Marchmont"));
+
+        var first = await adapter.InvokeAsync("Which department was Colm Whitaker at in February?");
+        var second = await adapter.InvokeAsync("Which department was Colm Whitaker at in February?");
+
+        first.Text.Should().Be("Lowick");
+        second.Text.Should().Be("Marchmont");
+        adapter.Matched.Should().Be(2);
+        adapter.OrderingMismatches.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task MoreQuestionsThanStoredAnswersIsRecordedAsUnmatched()
+    {
+        var adapter = Adapter(("only question", "only answer"));
+
+        await adapter.InvokeAsync("only question");
+        await adapter.InvokeAsync("a question past the end of the artifact");
+
+        adapter.Matched.Should().Be(1);
         adapter.UnmatchedQuestions.Should().ContainSingle();
     }
 

@@ -69,15 +69,19 @@ internal static class TypedMemEvalRegradeProgram
             using var report = JsonDocument.Parse(File.ReadAllText(reportPath));
             using var sidecar = JsonDocument.Parse(File.ReadAllText(sidecarPath));
 
+            // Kept in artifact ORDER. Twelve of the sixty bitemporal questions share their text with
+            // another question that has a DIFFERENT gold answer (tme-bit-007 / tme-bit-037 both ask
+            // about Colm Whitaker in February and answer Lowick and Marchmont), because each question
+            // is asked against its own injected history. Keying by text would hand 12 of 60 questions
+            // an answer written for a different question -- and grade it.
             var rows = report.RootElement.GetProperty("QuestionResults");
-            var answers = new Dictionary<string, string>(StringComparer.Ordinal);
-            var duplicates = 0;
+            var storedRows = new List<(string Question, string Answer)>();
             string? modelId = null;
             foreach (var row in rows.EnumerateArray())
             {
-                var question = row.GetProperty("Question").GetString() ?? string.Empty;
-                var answer = row.GetProperty("AgentResponse").GetString() ?? string.Empty;
-                if (!answers.TryAdd(question, answer)) duplicates++;
+                storedRows.Add((
+                    row.GetProperty("Question").GetString() ?? string.Empty,
+                    row.GetProperty("AgentResponse").GetString() ?? string.Empty));
             }
 
             var sampling = sidecar.RootElement.GetProperty("sampling");
@@ -93,18 +97,7 @@ internal static class TypedMemEvalRegradeProgram
 
             Console.WriteLine(
                 $"regrade: source {Path.GetFileName(reportPath)} — vertical {verticalSlug}, " +
-                $"arm {armToken}, {answers.Count} distinct answers" +
-                (duplicates > 0 ? $" ({duplicates} duplicate question texts collapsed)" : string.Empty));
-
-            if (duplicates > 0)
-            {
-                // Text is the only key InvokeAsync receives, so identical questions are
-                // indistinguishable to the replay. Rather than grade one answer twice and call the
-                // difference a judge effect, stop.
-                Console.Error.WriteLine(
-                    "regrade: ABORT — duplicate question texts cannot be replayed unambiguously.");
-                return 2;
-            }
+                $"arm {armToken}, {storedRows.Count} stored answers replayed in artifact order");
 
             var facade = new TypedMemEvalOptions
             {
@@ -124,9 +117,22 @@ internal static class TypedMemEvalRegradeProgram
             using var judgeChatClient = new LongMemEvalChatCallMeter(
                 azureClient.GetChatClient(deployment).AsIChatClient());
 
-            var adapter = new TypedMemEvalReplayAdapter(answers, modelId);
+            var adapter = new TypedMemEvalReplayAdapter(storedRows, modelId);
             var runner = new TypedMemEvalRunner(judgeChatClient);
             var result = await runner.RunAsync(adapter, vertical, facade).ConfigureAwait(false);
+
+            if (adapter.OrderingMismatches.Count > 0)
+            {
+                // The runner selected or ordered questions differently from the stored artifact, so
+                // positional replay is pairing answers with the wrong questions. That yields a
+                // complete, plausible, entirely meaningless score -- the worst possible outcome, and
+                // the reason the position assumption is verified rather than trusted.
+                Console.Error.WriteLine(
+                    $"regrade: ABORT — {adapter.OrderingMismatches.Count} position(s) did not match " +
+                    "the stored question order, so answers would be paired with the wrong questions. " +
+                    "First: " + Truncate(adapter.OrderingMismatches[0]));
+                return 4;
+            }
 
             if (adapter.UnmatchedQuestions.Count > 0)
             {
