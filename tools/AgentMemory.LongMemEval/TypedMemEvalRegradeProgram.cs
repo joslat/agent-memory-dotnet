@@ -1,0 +1,269 @@
+using System.Globalization;
+using System.Reflection;
+using System.Text.Json;
+using AgentEval.Memory.External.Models;
+using AgentEval.Memory.External.TypedMemEval;
+using Azure;
+using Azure.AI.OpenAI;
+using Microsoft.Extensions.AI;
+
+namespace AgentMemory.LongMemEval;
+
+/// <summary>
+/// Re-grades a stored TypedMemEval artifact under the currently referenced judge, without re-running
+/// extraction, retrieval, or answering.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The situation this exists for.</b> The Bitemporal vertical shipped with no judge body, so
+/// every bitemporal number on record was graded by a judge that graded the gold answer's
+/// justification rather than its value. The model answers were not affected — the judge is strictly
+/// downstream of answering, verified in code — so the correct repair is to re-grade the stored
+/// answers, not to re-run four hours of pipeline per arm.
+/// </para>
+/// <para>
+/// <b>It replays through AgentEval's own runner.</b> Question selection, judge body, typed-outcome
+/// derivation and attribution accounting are all their code, reached through
+/// <see cref="TypedMemEvalReplayAdapter"/>. Nothing about grading is reimplemented here, so this
+/// cannot drift from the path that produces every other number we cite, and it inherits whatever the
+/// new package changes.
+/// </para>
+/// <para>
+/// <b>Self-validating, which is why it can be trusted before the fixed judge exists.</b> Re-grading
+/// an artifact under the SAME judge that produced it must reproduce its verdicts. That check costs
+/// one judge pass and no new package. An instrument that cannot reproduce a known result has no
+/// business re-anchoring a baseline, and this prints the agreement rate so the question is answered
+/// rather than assumed.
+/// </para>
+/// <para>
+/// <b>Sampling is read from the artifact's own provenance sidecar</b>, never re-specified by hand: a
+/// re-grade that selected a different question set would silently compare two different corpora
+/// slices and report it as a judge effect.
+/// </para>
+/// </remarks>
+internal static class TypedMemEvalRegradeProgram
+{
+    internal static readonly string[] KnownOptions = ["--regrade"];
+
+    public static async Task<int> RunAsync(string[] args)
+    {
+        try
+        {
+            var reportPath = Value(args, "--regrade")
+                ?? throw new ArgumentException("--regrade requires a path to a stored report .json.");
+            reportPath = Path.GetFullPath(reportPath);
+            if (!File.Exists(reportPath))
+                throw new FileNotFoundException($"No such report: {reportPath}");
+
+            var sidecarPath = Path.ChangeExtension(reportPath, null) + ".provenance.json";
+            if (!File.Exists(sidecarPath))
+            {
+                // Refused rather than defaulted. The sidecar carries the seed and question cap; a
+                // guessed sampling would re-grade a DIFFERENT question set and the difference would
+                // present as a judge effect, which is the one conclusion this tool exists to support.
+                throw new FileNotFoundException(
+                    $"No provenance sidecar beside the report ({Path.GetFileName(sidecarPath)}). " +
+                    "Sampling cannot be reconstructed safely without it.");
+            }
+
+            using var report = JsonDocument.Parse(File.ReadAllText(reportPath));
+            using var sidecar = JsonDocument.Parse(File.ReadAllText(sidecarPath));
+
+            var rows = report.RootElement.GetProperty("QuestionResults");
+            var answers = new Dictionary<string, string>(StringComparer.Ordinal);
+            var duplicates = 0;
+            string? modelId = null;
+            foreach (var row in rows.EnumerateArray())
+            {
+                var question = row.GetProperty("Question").GetString() ?? string.Empty;
+                var answer = row.GetProperty("AgentResponse").GetString() ?? string.Empty;
+                if (!answers.TryAdd(question, answer)) duplicates++;
+            }
+
+            var sampling = sidecar.RootElement.GetProperty("sampling");
+            var verticalSlug = sidecar.RootElement.GetProperty("vertical").GetString()!;
+            // Resolved through the descriptor table, the same lookup the run verb uses, so a slug
+            // this build does not know fails here rather than silently grading a different vertical.
+            var vertical = (TypedMemEvalVerticals.All.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Slug, verticalSlug, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException(
+                    $"The sidecar names vertical '{verticalSlug}', which this build does not know."))
+                .Vertical;
+            var armToken = sidecar.RootElement.GetProperty("arm").GetProperty("token").GetString();
+
+            Console.WriteLine(
+                $"regrade: source {Path.GetFileName(reportPath)} — vertical {verticalSlug}, " +
+                $"arm {armToken}, {answers.Count} distinct answers" +
+                (duplicates > 0 ? $" ({duplicates} duplicate question texts collapsed)" : string.Empty));
+
+            if (duplicates > 0)
+            {
+                // Text is the only key InvokeAsync receives, so identical questions are
+                // indistinguishable to the replay. Rather than grade one answer twice and call the
+                // difference a judge effect, stop.
+                Console.Error.WriteLine(
+                    "regrade: ABORT — duplicate question texts cannot be replayed unambiguously.");
+                return 2;
+            }
+
+            var facade = new TypedMemEvalOptions
+            {
+                MaxQuestions = Nullable(sampling, "maxQuestions"),
+                RandomSeed = Nullable(sampling, "randomSeed"),
+                AnswerSeed = Nullable(sampling, "answerSeed"),
+                ControlArm = sampling.GetProperty("control").GetBoolean(),
+                TemporalGrounding = sampling.GetProperty("control").GetBoolean()
+                    ? TemporalGroundingMode.TimestampsAndText
+                    : null,
+            };
+
+            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
+            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
+            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
+            var azureClient = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+            using var judgeChatClient = new LongMemEvalChatCallMeter(
+                azureClient.GetChatClient(deployment).AsIChatClient());
+
+            var adapter = new TypedMemEvalReplayAdapter(answers, modelId);
+            var runner = new TypedMemEvalRunner(judgeChatClient);
+            var result = await runner.RunAsync(adapter, vertical, facade).ConfigureAwait(false);
+
+            if (adapter.UnmatchedQuestions.Count > 0)
+            {
+                // An unmatched question is graded as an empty answer, which scores as WRONG rather
+                // than as MISSING and would quietly lower the re-graded baseline -- corrupting the
+                // very number this exists to establish. Fail loudly instead.
+                Console.Error.WriteLine(
+                    $"regrade: ABORT — {adapter.UnmatchedQuestions.Count} question(s) had no stored " +
+                    "answer, so the re-graded score would be understated. First: " +
+                    Truncate(adapter.UnmatchedQuestions[0]));
+                return 3;
+            }
+
+            var agreement = Agreement(report.RootElement, result);
+            var destination = Persist(result, reportPath, sidecarPath, armToken, agreement);
+
+            Console.WriteLine(
+                $"regrade: matched {adapter.Matched} answers; " +
+                $"judge agreement with the stored verdicts {agreement.Agreed}/{agreement.Compared} " +
+                $"({(agreement.Compared == 0 ? 0 : (double)agreement.Agreed / agreement.Compared):P1})");
+            Console.WriteLine($"regrade: report {destination}");
+            Console.WriteLine(
+                "regrade: NOTE — agreement is the instrument check when re-grading under the SAME " +
+                "judge, and the FINDING when re-grading under a different one. Which of the two this " +
+                "run was depends on the AgentEval package referenced at build time: " +
+                AgentEvalVersion());
+            return 0;
+        }
+        catch (Exception ex) when (ex is ArgumentException or FileNotFoundException or JsonException)
+        {
+            Console.Error.WriteLine($"regrade: {ex.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>Per-question verdict agreement between the stored artifact and the re-grade.</summary>
+    /// <remarks>
+    /// Compared by <c>QuestionId</c>, not by position: the runner selects questions itself, and a
+    /// positional comparison would silently pair different questions if selection ever changed.
+    /// </remarks>
+    private static (int Compared, int Agreed) Agreement(JsonElement stored, object regraded)
+    {
+        var storedById = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (var row in stored.GetProperty("QuestionResults").EnumerateArray())
+        {
+            var id = row.GetProperty("QuestionId").GetString();
+            if (id is not null) storedById[id] = row.GetProperty("Correct").GetBoolean();
+        }
+
+        // Re-serialized rather than reflected over: the result type is AgentEval's and its shape is
+        // theirs to change, so reading it the same way the artifact is read keeps one parsing story.
+        using var fresh = JsonDocument.Parse(JsonSerializer.Serialize(regraded));
+        var compared = 0;
+        var agreed = 0;
+        foreach (var row in fresh.RootElement.GetProperty("QuestionResults").EnumerateArray())
+        {
+            var id = row.GetProperty("QuestionId").GetString();
+            if (id is null || !storedById.TryGetValue(id, out var before)) continue;
+            compared++;
+            if (before == row.GetProperty("Correct").GetBoolean()) agreed++;
+        }
+
+        return (compared, agreed);
+    }
+
+    private static string Persist(
+        object result,
+        string sourceReportPath,
+        string sourceSidecarPath,
+        string? armToken,
+        (int Compared, int Agreed) agreement)
+    {
+        var stamp = DateTimeOffset.UtcNow;
+        var name =
+            Path.GetFileNameWithoutExtension(sourceReportPath) +
+            $"-regrade-{stamp:yyyyMMddTHHmmssZ}.json";
+        var destination = Path.GetFullPath(Path.Combine("artifacts", "evaluation", name));
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        File.WriteAllText(
+            destination,
+            JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }) +
+            Environment.NewLine);
+
+        var provenance = new
+        {
+            schema = "typedmemeval-regrade-provenance/1",
+            report = Path.GetFileName(destination),
+            regradedAtUtc = stamp.ToString("O", CultureInfo.InvariantCulture),
+            // The whole point of the artifact: which answers were graded, and by which judge.
+            source = new
+            {
+                report = Path.GetFileName(sourceReportPath),
+                sidecar = Path.GetFileName(sourceSidecarPath),
+                arm = armToken,
+            },
+            judge = new
+            {
+                agentEvalVersion = AgentEvalVersion(),
+                agreementWithStored = agreement.Agreed,
+                agreementCompared = agreement.Compared,
+            },
+            // Stated in the artifact so no later reader has to infer it: answers were REPLAYED. No
+            // extraction, retrieval or answering ran, so retrieval-side diagnostics in the body
+            // describe the ORIGINAL run and must not be read as fresh measurements.
+            answersReplayed = true,
+        };
+        File.WriteAllText(
+            Path.ChangeExtension(destination, null) + ".provenance.json",
+            JsonSerializer.Serialize(provenance, new JsonSerializerOptions { WriteIndented = true }) +
+            Environment.NewLine);
+        return destination;
+    }
+
+    private static string AgentEvalVersion() =>
+        typeof(TypedMemEvalRunner).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? typeof(TypedMemEvalRunner).Assembly.GetName().Version?.ToString()
+        ?? "unknown";
+
+    private static int? Nullable(JsonElement parent, string name) =>
+        parent.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
+            ? value.GetInt32()
+            : null;
+
+    private static string? Value(string[] args, string name)
+    {
+        var index = Array.IndexOf(args, name);
+        if (index < 0) return null;
+        if (index + 1 >= args.Length) throw new ArgumentException($"{name} requires a value.");
+        return args[index + 1];
+    }
+
+    private static string RequiredEnvironment(string name) =>
+        Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
+            ? value
+            : throw new ArgumentException($"{name} must be set.");
+
+    private static string Truncate(string text) =>
+        text.Length <= 120 ? text : text[..120] + "…";
+}
