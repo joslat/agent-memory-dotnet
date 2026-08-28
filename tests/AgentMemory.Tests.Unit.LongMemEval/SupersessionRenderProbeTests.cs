@@ -101,6 +101,54 @@ public class SupersessionRenderProbeTests
         summary.RenderConfirmed.Should().BeTrue();
     }
 
+    /// <summary>
+    /// The last untested link: a projected note must survive the HARNESS's own prompt builder.
+    /// </summary>
+    /// <remarks>
+    /// The engine renders through <c>ProjectionRenderer</c>, but this harness assembles its answer
+    /// prompt itself, so "projection produced a note" and "the model saw a note" are separate claims
+    /// with separate ways to fail. Everything else in this chain is now asserted — the flag reaches
+    /// <c>MemoryOptions.Projection</c>, the renderer's optional <c>IFactRepository</c> resolves, and
+    /// the probe reports honestly — which leaves exactly one link that a live run would otherwise be
+    /// the first thing to test. It is deterministic, so it does not need to be bought.
+    /// </remarks>
+    [Fact]
+    public void AProjectedNoteSurvivesTheHarnessPromptBuilder()
+    {
+        var fact = new Fact
+        {
+            FactId = "fact-0",
+            Subject = "Colm Whitaker",
+            Predicate = "works_at",
+            Object = "Marchmont",
+            Confidence = 1,
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        };
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UnixEpoch,
+            RelevantFacts = new MemoryContextSection<Fact> { Items = [fact] },
+            Projection = new ProjectedContext
+            {
+                Annotations = new Dictionary<string, ProjectedItemAnnotation>(StringComparer.Ordinal)
+                {
+                    ["fact-0"] = new() { SupersessionNote = Note }
+                }
+            }
+        };
+
+        var prompt = AgentMemoryLongMemEvalAdapter.BuildAnswerPrompt(context, "Where does Colm work?");
+
+        prompt.Should().Contain(Note, "the cue is the whole intervention; a dropped note is silent");
+
+        // And the probe must agree, on the real prompt rather than a fixture string — this is the
+        // end-to-end form of the gate the run will report.
+        var probe = new LongMemEvalSupersessionRenderProbe();
+        probe.Observe("q1", context, prompt);
+        LongMemEvalSupersessionRenderSummary.From(probe.Samples).RenderConfirmed.Should().BeTrue();
+    }
+
     [Fact]
     public void AnAbsentProjectionIsRecordedAsNotMeasuredRatherThanAsZeroRendered()
     {

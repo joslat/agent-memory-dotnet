@@ -1,4 +1,5 @@
 ﻿using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extraction.Llm;
 using AgentMemory.LongMemEval;
@@ -185,6 +186,30 @@ public sealed class GraphRagWiringTests
 
         provider.GetRequiredService<IOptions<MemoryOptions>>()
             .Value.Projection.Should().BeSameAs(MemoryProjectionOptions.Default);
+    }
+
+    /// <summary>
+    /// The renderer's OPTIONAL dependency must actually be satisfiable in the harness's own graph.
+    /// </summary>
+    /// <remarks>
+    /// <c>SupersessionProjectionFeature</c> takes <c>IFactRepository?</c> and reports itself
+    /// <b>disabled</b> when it is absent — deliberately, so a container without repositories stays
+    /// resolvable. The consequence is that the flag can be true, the option can reach
+    /// <c>MemoryOptions</c>, and the feature can still never run, reporting exactly what a corpus
+    /// with no supersessions reports. That is the same indistinguishable-zero this whole wave exists
+    /// to eliminate, so the dependency is asserted rather than assumed.
+    /// </remarks>
+    [Fact]
+    public async Task TheRenderersOptionalFactRepositoryIsActuallyRegistered()
+    {
+        // `await using`, unlike every sibling test here: resolving the repository constructs
+        // Neo4jDriverFactory, which implements IAsyncDisposable ONLY, and a synchronous Dispose on a
+        // provider holding one throws. The sibling tests never resolve deep enough to reach it.
+        await using var provider = Resolve(graphRagIndexName: null, resolveSupersessions: true);
+
+        provider.GetService<IFactRepository>().Should().NotBeNull(
+            "the supersession renderer silently disables itself without it, which is "
+            + "indistinguishable from a corpus that had nothing to supersede");
     }
 
     /// <summary>
