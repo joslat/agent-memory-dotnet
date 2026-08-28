@@ -86,6 +86,7 @@ public sealed class GraphRagWiringTests
         bool resolveTemporalQueries = false,
         bool rescueShortOwnerResults = false,
         bool supersedeReplacedFacts = false,
+        bool resolveSupersessions = false,
         int? extractionSeed = null,
         PhaseThirtyFeatures? phase30 = null) =>
         LongMemEvalMemoryProfile.ConfigureServices(
@@ -104,6 +105,7 @@ public sealed class GraphRagWiringTests
                 resolveTemporalQueries: resolveTemporalQueries,
                 rescueShortOwnerResults: rescueShortOwnerResults,
                 supersedeReplacedFacts: supersedeReplacedFacts,
+                resolveSupersessions: resolveSupersessions,
                 phase30: phase30 ?? PhaseThirtyFeatures.AllOff,
                 graphRagIndexName: graphRagIndexName,
                 extractionSeed: extractionSeed)
@@ -143,6 +145,59 @@ public sealed class GraphRagWiringTests
 
         provider.GetRequiredService<IOptions<MemoryOptions>>()
             .Value.WorkingMemory.Enabled.Should().Be(enabled);
+    }
+
+    /// <summary>
+    /// 30.9d: the renderer flag must reach <c>MemoryOptions.Projection</c>, not merely parse.
+    /// </summary>
+    /// <remarks>
+    /// The SECOND reachable-but-never-fed lever inside one intervention.
+    /// <c>SupersessionProjectionFeature</c> was fully built and gated on
+    /// <c>ResolveSupersessions</c>, which defaults false and which no harness ever set — so every
+    /// scored run rendered supersession chains dark, including the ablation that existed to measure
+    /// supersession. Same shape as the arithmetic flag above, one wave later.
+    /// </remarks>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheResolveSupersessionsFlagReachesMemoryOptions(bool enabled)
+    {
+        using var provider = Resolve(graphRagIndexName: null, resolveSupersessions: enabled);
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>()
+            .Value.Projection.ResolveSupersessions.Should().Be(enabled);
+    }
+
+    /// <summary>
+    /// Off must leave <c>Projection</c> REFERENCE-identical to the shared default.
+    /// </summary>
+    /// <remarks>
+    /// <c>MemoryProjectionOptions.Default</c> is reference-compared to tell "unset" from "set to the
+    /// defaults" (<c>MemoryContextAssembler.ResolveProjectionOptions</c>), so assigning a
+    /// <c>with</c>-copy unconditionally would change identity for every sealed measurement while
+    /// leaving all property values equal — a behavioural change that property assertions cannot see.
+    /// This is the test that fails if the conditional assignment is ever "simplified" away.
+    /// </remarks>
+    [Fact]
+    public void TheOffStateKeepsTheSharedProjectionDefaultInstance()
+    {
+        using var provider = Resolve(graphRagIndexName: null, resolveSupersessions: false);
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>()
+            .Value.Projection.Should().BeSameAs(MemoryProjectionOptions.Default);
+    }
+
+    /// <summary>
+    /// Turning rendering on must not silently retune the chain depth the arm did not ask about.
+    /// </summary>
+    [Fact]
+    public void TurningRenderingOnLeavesTheChainDepthAtItsDefault()
+    {
+        using var provider = Resolve(graphRagIndexName: null, resolveSupersessions: true);
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>()
+            .Value.Projection.MaxSupersessionChain.Should()
+            .Be(MemoryProjectionOptions.Default.MaxSupersessionChain);
     }
 
     /// <summary>

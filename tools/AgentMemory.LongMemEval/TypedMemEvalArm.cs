@@ -36,11 +36,25 @@ namespace AgentMemory.LongMemEval;
 /// once again indistinguishable from each other.
 /// </param>
 /// <param name="FactWeightedBudget">Whether the recall budget was reallocated toward facts.</param>
+/// <param name="ResolveSupersessions">
+/// Whether the supersession CHAIN was rendered into the prompt. Deliberately appended LAST rather
+/// than grouped beside <paramref name="SupersedeReplacedFacts"/>, which is where it belongs by
+/// meaning: inserting a positional parameter mid-record silently re-slots every positional call
+/// site, and that exact mistake turned a `factwt` arm into a `supersede` arm once already. Meaning
+/// loses to safety here, and the pairing is documented instead.
+/// <para>
+/// The two levers are only informative TOGETHER. <see cref="SupersedeReplacedFacts"/> writes the
+/// <c>:SUPERSEDED_BY</c> edges; this renders them. Rendering alone has nothing to read, and writing
+/// alone filters the superseded value out of recall while giving the model no cue that the surviving
+/// value ever replaced anything -- which is the off-state the 0.767 ON ablation actually measured.
+/// </para>
+/// </param>
 public sealed record TypedMemEvalArm(
     PhaseThirtyFeatures Phase30,
     bool RescueShortOwnerResults = false,
     bool SupersedeReplacedFacts = false,
-    bool FactWeightedBudget = false)
+    bool FactWeightedBudget = false,
+    bool ResolveSupersessions = false)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -48,7 +62,7 @@ public sealed record TypedMemEvalArm(
     /// <summary>True when nothing is enabled, so a run can assert it took the default path.</summary>
     public bool IsDefault =>
         Phase30.IsDefault && !RescueShortOwnerResults && !FactWeightedBudget
-        && !SupersedeReplacedFacts;
+        && !SupersedeReplacedFacts && !ResolveSupersessions;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -67,6 +81,7 @@ public sealed record TypedMemEvalArm(
         if (Phase30.ArithmeticMemory) parts.Add("arith");
         if (RescueShortOwnerResults) parts.Add("rescue");
         if (SupersedeReplacedFacts) parts.Add("supersede");
+        if (ResolveSupersessions) parts.Add("render");
         if (FactWeightedBudget) parts.Add("factwt");
         return string.Join("-", parts);
     }
@@ -76,5 +91,6 @@ public sealed record TypedMemEvalArm(
         CultureInfo.InvariantCulture,
         $"{Phase30.Describe()} rescue-short-owner-results={RescueShortOwnerResults} " +
         $"supersede-replaced-facts={SupersedeReplacedFacts} " +
+        $"resolve-supersessions={ResolveSupersessions} " +
         $"fact-weighted-budget={FactWeightedBudget}");
 }
