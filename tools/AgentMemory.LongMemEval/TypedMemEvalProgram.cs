@@ -220,13 +220,37 @@ internal static class TypedMemEvalProgram
                 result = await runner.RunAsync(adapter, vertical, facade).ConfigureAwait(false);
             }
 
+            // Read BEFORE Persist and before teardown: the container is reaped when the run ends, so
+            // a store fact not captured here can never be recovered. This is the store-state gate as
+            // a COUNT rather than the facts-per-question inference it replaces -- that inference
+            // certified an off-state arm as verified-ON, which is the failure the gate existed to
+            // prevent occurring inside the gate itself.
+            LongMemEvalSupersessionStore? supersessionStore = null;
+            if (profile is not null && !options.Oracle)
+            {
+                try
+                {
+                    supersessionStore = await new Neo4jLongMemEvalGraphProbe(
+                            profile.Services.GetRequiredService<global::Neo4j.Driver.IDriver>())
+                        .ReadSupersessionStoreAsync(CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Diagnostic only: it must never cost a completed run. Null reads as NOT
+                    // MEASURED, which is the honest value and is distinct from a measured zero.
+                    Console.WriteLine($"typedmemeval: supersession store probe failed — {ex.Message}");
+                }
+            }
+
             var renderSummary = renderProbe is null
                 ? null
                 : LongMemEvalSupersessionRenderSummary.From(renderProbe.Samples);
             var destination = Persist(
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
-                renderSummary);
+                renderSummary, supersessionStore);
+            PrintSupersessionStore(supersessionStore);
             PrintRenderState(options, renderSummary);
             PrintRun(result, destination);
             results.Add(result);
@@ -261,7 +285,8 @@ internal static class TypedMemEvalProgram
         int runIndex,
         DateTimeOffset startedUtc,
         LongMemEvalVectorYieldSummary? vectorYield,
-        LongMemEvalSupersessionRenderSummary? renderSummary)
+        LongMemEvalSupersessionRenderSummary? renderSummary,
+        LongMemEvalSupersessionStore? supersessionStore)
     {
         // The arm is stamped into the FILENAME, not into the report body. The serialized type is
         // AgentEval's ExternalBenchmarkResult and its Options is their fixed record with no extension
@@ -285,7 +310,8 @@ internal static class TypedMemEvalProgram
             Environment.NewLine);
 
         WriteProvenance(
-            destination, arm, descriptor, options, runIndex, startedUtc, vectorYield, renderSummary);
+            destination, arm, descriptor, options, runIndex, startedUtc, vectorYield, renderSummary,
+            supersessionStore);
         return destination;
     }
 
@@ -313,7 +339,8 @@ internal static class TypedMemEvalProgram
         int runIndex,
         DateTimeOffset startedUtc,
         LongMemEvalVectorYieldSummary? vectorYield,
-        LongMemEvalSupersessionRenderSummary? renderSummary)
+        LongMemEvalSupersessionRenderSummary? renderSummary,
+        LongMemEvalSupersessionStore? supersessionStore)
     {
         // Built before the object rather than inline: an anonymous type inside a conditional has no
         // natural type to infer, so `condition ? null : new { ... }` does not compile. Hoisting it
@@ -346,6 +373,19 @@ internal static class TypedMemEvalProgram
                 notesInPrompt = renderSummary.NotesInPrompt,
                 sample = renderSummary.Sample,
                 renderConfirmed = renderSummary.RenderConfirmed,
+            };
+        }
+
+        object? storeBlock = null;
+        if (supersessionStore is not null)
+        {
+            storeBlock = new
+            {
+                supersededByEdges = supersessionStore.SupersededByEdges,
+                facts = supersessionStore.Facts,
+                invalidatedFacts = supersessionStore.InvalidatedFacts,
+                topPredicates = supersessionStore.TopPredicates
+                    .Select(p => new { predicate = p.Predicate, count = p.Count }).ToArray(),
             };
         }
 
@@ -394,6 +434,11 @@ internal static class TypedMemEvalProgram
             // scores from an unconfirmed arm may not be read, because a dark renderer is exactly the
             // defect this arm exists to rule out.
             supersessionRender = renderBlock,
+            // The store-state gate, as a count. `supersededByEdges: 0` means write-time supersession
+            // never ran and the arm measured an off-state whatever its flags say; `topPredicates`
+            // explains why, since supersession is refused for any predicate outside the six the
+            // relation vocabulary declares single-valued.
+            supersessionStore = storeBlock,
         };
 
         File.WriteAllText(
@@ -438,6 +483,24 @@ internal static class TypedMemEvalProgram
     /// expected state, and a warning there would train the reader to ignore this line -- which is how
     /// a gate stops being read at all.
     /// </remarks>
+    /// <summary>Announces what supersession actually wrote, loudly when it wrote nothing.</summary>
+    private static void PrintSupersessionStore(LongMemEvalSupersessionStore? store)
+    {
+        if (store is null) return;
+
+        Console.WriteLine(
+            $"typedmemeval: supersession store — {store.SupersededByEdges} :SUPERSEDED_BY edge(s), " +
+            $"{store.InvalidatedFacts}/{store.Facts} facts invalidated.");
+
+        if (store.SupersededByEdges > 0) return;
+
+        Console.WriteLine(
+            "typedmemeval: WARNING supersession wrote NOTHING — this arm measured an OFF-STATE " +
+            "regardless of its flags. Write-time supersession is refused for any predicate outside " +
+            "the six the relation vocabulary declares single-valued. Top predicates extracted: " +
+            string.Join(", ", store.TopPredicates.Take(8).Select(p => $"{p.Predicate}×{p.Count}")));
+    }
+
     private static void PrintRenderState(
         TypedMemEvalRunOptions options, LongMemEvalSupersessionRenderSummary? renderSummary)
     {

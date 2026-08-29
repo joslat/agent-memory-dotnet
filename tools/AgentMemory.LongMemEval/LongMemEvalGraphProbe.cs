@@ -4,6 +4,26 @@ namespace AgentMemory.LongMemEval;
 
 internal interface ILongMemEvalGraphProbe
 {
+    /// <summary>
+    /// Counts the supersession the run actually wrote: <c>:SUPERSEDED_BY</c> edges, invalidated
+    /// facts, and the predicates extraction produced.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This replaces an inference that was wrong.</b> The store-state gate used to argue from
+    /// facts-placed-per-question falling (8.25 → 7.92) that supersession had fired. Three arms later
+    /// the same lever produced 7.65 with no lever change in between, so that signal was extraction
+    /// variance and the gate had been certifying an off-state run as "verified ON" — the exact error
+    /// the gate existed to prevent, in the gate itself.
+    /// </para>
+    /// <para>
+    /// A count of edges cannot be confused with noise: zero means the mechanism did not run, and the
+    /// predicate histogram says why, because write-time supersession is refused outright for any
+    /// predicate outside the six the vocabulary declares single-valued.
+    /// </para>
+    /// </remarks>
+    Task<LongMemEvalSupersessionStore> ReadSupersessionStoreAsync(CancellationToken cancellationToken);
+
     Task<LongMemEvalGraphSnapshot> ReadAsync(
         string ownerId,
         CancellationToken cancellationToken = default);
@@ -100,6 +120,60 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
           AND (f.owner_id = $ownerId OR f.owner_id IS NULL)
         RETURN f.predicate_key AS predicateKey, count(f) AS factCount
         """;
+
+    // Deliberately three statements rather than one joined query. A single MATCH over facts AND
+    // edges returns NO ROW at all when the graph holds zero edges, and zero edges is the single most
+    // important thing this can report -- it must arrive as a number, never as an absent row.
+    private const string SupersessionEdgeCountQuery =
+        """
+        MATCH ()-[r:SUPERSEDED_BY]->() RETURN count(r) AS edges
+        """;
+
+    private const string FactShapeQuery =
+        """
+        MATCH (f:Fact)
+        RETURN count(f) AS facts,
+               count(CASE WHEN f.invalidated_at IS NOT NULL THEN 1 END) AS invalidated
+        """;
+
+    private const string PredicateHistogramQuery =
+        """
+        MATCH (f:Fact)
+        RETURN coalesce(f.predicate_key, toLower(f.predicate)) AS predicate, count(f) AS n
+        ORDER BY n DESC LIMIT 15
+        """;
+
+    public async Task<LongMemEvalSupersessionStore> ReadSupersessionStoreAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+
+        var edges = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(SupersessionEdgeCountQuery).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
+            return record["edges"].As<int>();
+        }).ConfigureAwait(false);
+
+        var (facts, invalidated) = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(FactShapeQuery).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
+            return (record["facts"].As<int>(), record["invalidated"].As<int>());
+        }).ConfigureAwait(false);
+
+        var predicates = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(PredicateHistogramQuery).ConfigureAwait(false);
+            var rows = await cursor.ToListAsync().ConfigureAwait(false);
+            return rows
+                .Where(row => row["predicate"] is not null)
+                .Select(row => (Predicate: row["predicate"].As<string>(), Count: row["n"].As<int>()))
+                .ToArray();
+        }).ConfigureAwait(false);
+
+        return new LongMemEvalSupersessionStore(edges, facts, invalidated, predicates);
+    }
 
     public async Task<IReadOnlyDictionary<string, int>?> ReadRelationFactCountsAsync(
         string ownerId,
@@ -395,3 +469,22 @@ public sealed record LongMemEvalGraphSnapshot(
         LearnedItemsWithProvenance == LearnedItems &&
         RelationshipsWithProvenance == Relationships;
 }
+
+/// <summary>What the store actually holds after a run, on the supersession axis.</summary>
+/// <param name="SupersededByEdges">
+/// The number that decides whether an arm measured anything. Zero means write-time supersession
+/// never ran, and every score from that arm is an off-state score however the flag was set.
+/// </param>
+/// <param name="Facts">Total facts stored.</param>
+/// <param name="InvalidatedFacts">Facts carrying <c>invalidated_at</c>.</param>
+/// <param name="TopPredicates">
+/// The most common predicates extraction produced. Present because a zero edge count is a symptom
+/// and this is the diagnosis: supersession is refused for any predicate outside the six the relation
+/// vocabulary declares single-valued, so the histogram shows immediately whether a corpus can
+/// exercise the mechanism at all.
+/// </param>
+internal sealed record LongMemEvalSupersessionStore(
+    int SupersededByEdges,
+    int Facts,
+    int InvalidatedFacts,
+    IReadOnlyList<(string Predicate, int Count)> TopPredicates);
