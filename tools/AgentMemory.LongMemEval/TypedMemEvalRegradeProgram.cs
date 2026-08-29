@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AgentEval.Memory.External.Models;
 using AgentEval.Memory.External.TypedMemEval;
 using Azure;
@@ -146,11 +147,19 @@ internal static class TypedMemEvalRegradeProgram
                 return 3;
             }
 
+            // Persisted FIRST, and the ordering is the fix for a real loss: Agreement() used to run
+            // before this and threw on a null verdict, destroying an artifact that had already cost a
+            // full judge pass. A cheap derived metric must never stand between an expensive result and
+            // the disk. Agreement is written into the sidecar afterwards, by amendment.
+            var destination = Persist(result, reportPath, sidecarPath, armToken, agreement: null);
             var agreement = Agreement(report.RootElement, result);
-            var destination = Persist(result, reportPath, sidecarPath, armToken, agreement);
+            AmendSidecarWithAgreement(destination, agreement);
 
             Console.WriteLine(
                 $"regrade: matched {adapter.Matched} answers; " +
+                (agreement.Unscored > 0
+                    ? $"{agreement.Unscored} question(s) returned NO VERDICT (validity issue, not a score); "
+                    : string.Empty) +
                 $"judge agreement with the stored verdicts {agreement.Agreed}/{agreement.Compared} " +
                 $"({(agreement.Compared == 0 ? 0 : (double)agreement.Agreed / agreement.Compared):P1})");
             Console.WriteLine($"regrade: report {destination}");
@@ -173,7 +182,8 @@ internal static class TypedMemEvalRegradeProgram
     /// Compared by <c>QuestionId</c>, not by position: the runner selects questions itself, and a
     /// positional comparison would silently pair different questions if selection ever changed.
     /// </remarks>
-    private static (int Compared, int Agreed) Agreement(JsonElement stored, object regraded)
+    private static (int Compared, int Agreed, int Unscored) Agreement(
+        JsonElement stored, object regraded)
     {
         var storedById = new Dictionary<string, bool>(StringComparer.Ordinal);
         foreach (var row in stored.GetProperty("QuestionResults").EnumerateArray())
@@ -187,15 +197,28 @@ internal static class TypedMemEvalRegradeProgram
         using var fresh = JsonDocument.Parse(JsonSerializer.Serialize(regraded));
         var compared = 0;
         var agreed = 0;
+        var unscored = 0;
         foreach (var row in fresh.RootElement.GetProperty("QuestionResults").EnumerateArray())
         {
             var id = row.GetProperty("QuestionId").GetString();
             if (id is null || !storedById.TryGetValue(id, out var before)) continue;
+
+            // `Correct` is NULL when the judge returned no verdict at all. That is neither agreement
+            // nor disagreement, and folding it into either would move the agreement rate for a reason
+            // that has nothing to do with the judge's opinion. Counted on its own instead, because a
+            // re-grade carrying unscored questions is a validity question before it is a score.
+            var verdict = row.GetProperty("Correct");
+            if (verdict.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                unscored++;
+                continue;
+            }
+
             compared++;
-            if (before == row.GetProperty("Correct").GetBoolean()) agreed++;
+            if (before == verdict.GetBoolean()) agreed++;
         }
 
-        return (compared, agreed);
+        return (compared, agreed, unscored);
     }
 
     private static string Persist(
@@ -203,7 +226,7 @@ internal static class TypedMemEvalRegradeProgram
         string sourceReportPath,
         string sourceSidecarPath,
         string? armToken,
-        (int Compared, int Agreed) agreement)
+        (int Compared, int Agreed, int Unscored)? agreement)
     {
         var stamp = DateTimeOffset.UtcNow;
         var name =
@@ -231,8 +254,11 @@ internal static class TypedMemEvalRegradeProgram
             judge = new
             {
                 agentEvalVersion = AgentEvalVersion(),
-                agreementWithStored = agreement.Agreed,
-                agreementCompared = agreement.Compared,
+                // Null until amended in: the artifact is written before agreement is computed, so a
+                // crash in the diagnostic cannot cost the judge pass that produced the artifact.
+                agreementWithStored = agreement?.Agreed,
+                agreementCompared = agreement?.Compared,
+                unscoredQuestions = agreement?.Unscored,
             },
             // Stated in the artifact so no later reader has to infer it: answers were REPLAYED. No
             // extraction, retrieval or answering ran, so retrieval-side diagnostics in the body
@@ -244,6 +270,25 @@ internal static class TypedMemEvalRegradeProgram
             JsonSerializer.Serialize(provenance, new JsonSerializerOptions { WriteIndented = true }) +
             Environment.NewLine);
         return destination;
+    }
+
+    /// <summary>Writes the agreement figures into the sidecar after the artifact is safely on disk.</summary>
+    /// <remarks>
+    /// A second small write rather than a delayed first one. The expensive thing is the judge pass;
+    /// once it exists it must reach disk before anything that can throw runs against it.
+    /// </remarks>
+    private static void AmendSidecarWithAgreement(
+        string reportPath, (int Compared, int Agreed, int Unscored) agreement)
+    {
+        var sidecarPath = Path.ChangeExtension(reportPath, null) + ".provenance.json";
+        var node = JsonNode.Parse(File.ReadAllText(sidecarPath))!;
+        var judge = node["judge"]!;
+        judge["agreementWithStored"] = agreement.Agreed;
+        judge["agreementCompared"] = agreement.Compared;
+        judge["unscoredQuestions"] = agreement.Unscored;
+        File.WriteAllText(
+            sidecarPath,
+            node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
     }
 
     private static string AgentEvalVersion() =>

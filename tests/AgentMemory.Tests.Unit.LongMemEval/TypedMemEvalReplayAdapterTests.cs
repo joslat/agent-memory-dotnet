@@ -99,6 +99,22 @@ public class TypedMemEvalReplayAdapterTests
     }
 
     [Fact]
+    public async Task AReplayIsUnaffectedByAStoredRowWhoseVerdictWasNull()
+    {
+        // The ON re-grade crashed on a question the new judge returned NO verdict for, and the crash
+        // sat in the AGREEMENT diagnostic -- which ran before the artifact was persisted, so a full
+        // judge pass was destroyed by a statistic. The replay itself must be indifferent to verdicts;
+        // it only ever hands back answer text.
+        var adapter = Adapter(("q", "a"));
+
+        var response = await adapter.InvokeAsync("q");
+
+        response.Text.Should().Be("a");
+        adapter.Matched.Should().Be(1);
+        adapter.OrderingMismatches.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task TheHistoryHooksAreInertAndDoNotDisturbReplay()
     {
         // Implemented only so the runner takes the same branches it takes for the real adapter. If
