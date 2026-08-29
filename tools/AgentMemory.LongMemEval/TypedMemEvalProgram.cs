@@ -226,14 +226,17 @@ internal static class TypedMemEvalProgram
             // certified an off-state arm as verified-ON, which is the failure the gate existed to
             // prevent occurring inside the gate itself.
             LongMemEvalSupersessionStore? supersessionStore = null;
+            LongMemEvalFactObjectShape? objectShape = null;
             if (profile is not null && !options.Oracle)
             {
                 try
                 {
-                    supersessionStore = await new Neo4jLongMemEvalGraphProbe(
-                            profile.Services.GetRequiredService<global::Neo4j.Driver.IDriver>())
-                        .ReadSupersessionStoreAsync(CancellationToken.None)
-                        .ConfigureAwait(false);
+                    var storeProbe = new Neo4jLongMemEvalGraphProbe(
+                        profile.Services.GetRequiredService<global::Neo4j.Driver.IDriver>());
+                    supersessionStore = await storeProbe
+                        .ReadSupersessionStoreAsync(CancellationToken.None).ConfigureAwait(false);
+                    objectShape = await storeProbe
+                        .ReadFactObjectShapeAsync(CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -251,6 +254,7 @@ internal static class TypedMemEvalProgram
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                 renderSummary, supersessionStore);
             PrintSupersessionStore(supersessionStore);
+            PrintObjectShape(objectShape);
             PrintRenderState(options, renderSummary);
             PrintRun(result, destination);
             results.Add(result);
@@ -499,6 +503,22 @@ internal static class TypedMemEvalProgram
             "regardless of its flags. Write-time supersession is refused for any predicate outside " +
             "the six the relation vocabulary declares single-valued. Top predicates extracted: " +
             string.Join(", ", store.TopPredicates.Take(8).Select(p => $"{p.Predicate}×{p.Count}")));
+    }
+
+    /// <summary>Reports what reaches fact objects: wrong grain, or lost content.</summary>
+    private static void PrintObjectShape(LongMemEvalFactObjectShape? shape)
+    {
+        if (shape is null) return;
+
+        Console.WriteLine(
+            $"typedmemeval: fact objects — {shape.AmountBearing} amount-bearing, " +
+            $"{shape.OtherNumeric} other-numeric, {shape.NonNumeric} non-numeric of {shape.Facts}.");
+        foreach (var sample in shape.AmountSamples)
+            Console.WriteLine($"typedmemeval:   [amount]  {sample}");
+        foreach (var sample in shape.NumericSamples)
+            Console.WriteLine($"typedmemeval:   [numeric] {sample}");
+        foreach (var sample in shape.NonNumericSamples)
+            Console.WriteLine($"typedmemeval:   [plain]   {sample}");
     }
 
     private static void PrintRenderState(

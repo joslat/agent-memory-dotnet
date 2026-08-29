@@ -24,6 +24,19 @@ internal interface ILongMemEvalGraphProbe
     /// </remarks>
     Task<LongMemEvalSupersessionStore> ReadSupersessionStoreAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Classifies what actually sits in fact OBJECTS, to tell "stored at the wrong grain" from
+    /// "never captured".
+    /// </summary>
+    /// <remarks>
+    /// The predicate histogram showed extraction writing speech acts across three unrelated corpora.
+    /// It could not say whether the content survived inside those triples — an amount attached to
+    /// <c>said as much about</c> is a grain problem, an amount nowhere in the store is a capture
+    /// problem, and the two need different fixes. Objects are returned verbatim in samples so the
+    /// classification is eyeballable rather than trusted.
+    /// </remarks>
+    Task<LongMemEvalFactObjectShape> ReadFactObjectShapeAsync(CancellationToken cancellationToken);
+
     Task<LongMemEvalGraphSnapshot> ReadAsync(
         string ownerId,
         CancellationToken cancellationToken = default);
@@ -142,6 +155,52 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
         RETURN coalesce(f.predicate_key, toLower(f.predicate)) AS predicate, count(f) AS n
         ORDER BY n DESC LIMIT 15
         """;
+
+    private const string FactObjectQuery =
+        """
+        MATCH (f:Fact)
+        RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object
+        """;
+
+    public async Task<LongMemEvalFactObjectShape> ReadFactObjectShapeAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+        var rows = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(FactObjectQuery).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records
+                .Select(r => (
+                    Subject: r["subject"].As<string>() ?? string.Empty,
+                    Predicate: r["predicate"].As<string>() ?? string.Empty,
+                    Object: r["object"].As<string>() ?? string.Empty))
+                .ToArray();
+        }).ConfigureAwait(false);
+
+        // The arithmetic corpus answers in the shape `319.97`, so that is what "amount" means here --
+        // registered before this was written, and deliberately NOT widened to "any digit", which
+        // would count dates and session numbers as money.
+        var amount = new System.Text.RegularExpressions.Regex(
+            @"(\$\s?\d|\d+\.\d{2})", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        var digit = new System.Text.RegularExpressions.Regex(@"\d");
+
+        var amounts = rows.Where(r => amount.IsMatch(r.Object)).ToArray();
+        var numeric = rows.Where(r => !amount.IsMatch(r.Object) && digit.IsMatch(r.Object)).ToArray();
+        var plain = rows.Where(r => !digit.IsMatch(r.Object)).ToArray();
+
+        static IReadOnlyList<string> Sample((string Subject, string Predicate, string Object)[] rows) =>
+            rows.Take(6)
+                .Select(r => $"{Trim(r.Subject)} | {Trim(r.Predicate)} | {Trim(r.Object)}")
+                .ToArray();
+
+        return new LongMemEvalFactObjectShape(
+            rows.Length, amounts.Length, numeric.Length, plain.Length,
+            Sample(amounts), Sample(numeric), Sample(plain));
+    }
+
+    private static string Trim(string value) =>
+        value.Length <= 60 ? value : value[..60] + "…";
 
     public async Task<LongMemEvalSupersessionStore> ReadSupersessionStoreAsync(
         CancellationToken cancellationToken)
@@ -488,3 +547,18 @@ internal sealed record LongMemEvalSupersessionStore(
     int Facts,
     int InvalidatedFacts,
     IReadOnlyList<(string Predicate, int Count)> TopPredicates);
+
+/// <summary>What kind of content reaches fact objects.</summary>
+/// <param name="AmountBearing">
+/// Objects carrying a value in the arithmetic corpus's own answer shape. <b>Presence, not
+/// dominance, is the test</b>: one confirmed amount settles "stored at the wrong grain" against
+/// "never captured", which is why no threshold was registered and none may be invented afterwards.
+/// </param>
+internal sealed record LongMemEvalFactObjectShape(
+    int Facts,
+    int AmountBearing,
+    int OtherNumeric,
+    int NonNumeric,
+    IReadOnlyList<string> AmountSamples,
+    IReadOnlyList<string> NumericSamples,
+    IReadOnlyList<string> NonNumericSamples);
