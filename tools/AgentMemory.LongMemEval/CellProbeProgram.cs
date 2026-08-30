@@ -36,7 +36,7 @@ namespace AgentMemory.LongMemEval;
 internal static partial class CellProbeProgram
 {
     internal static readonly string[] KnownOptions =
-        ["--cell-probe", "--max-entries", "--skip-entries"];
+        ["--cell-probe", "--max-entries", "--skip-entries", "--dry-run", "--pair-with"];
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\$\s?\d|\d+\.\d{2}")]
     private static partial System.Text.RegularExpressions.Regex AmountPattern();
@@ -72,6 +72,51 @@ internal static partial class CellProbeProgram
             return 2;
         }
         Console.WriteLine($"cell-probe: window holds {amountSentences} amount-bearing sentence(s).");
+
+        // DRY RUN. Everything the real run does EXCEPT the paid part: the corpus loads, the window
+        // contains the phenomenon, the paired cell lines up entry-for-entry, the amount pattern
+        // actually matches this corpus's sentences, and the store queries execute. Added because the
+        // first cell run spent ~2,224 calls and two hours on a window that contained none of what it
+        // measured -- a fact one free read of the corpus would have shown before ignition.
+        if (args.Contains("--dry-run", StringComparer.Ordinal))
+        {
+            Console.WriteLine("cell-probe: DRY RUN — no LLM calls, no extraction.");
+            var sessions = entries.Sum(e => e.GetProperty("haystack_sessions").GetArrayLength());
+            Console.WriteLine(
+                $"cell-probe:   entries {entries.Length} (skip {skip}), sessions {sessions}, " +
+                $"amount sentences {amountSentences}");
+
+            var sample = entries
+                .SelectMany(e => e.GetProperty("haystack_sessions").EnumerateArray())
+                .SelectMany(sess => sess.EnumerateArray())
+                .Select(t => t.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "")
+                .FirstOrDefault(text => AmountPattern().IsMatch(text));
+            Console.WriteLine($"cell-probe:   pattern matches, e.g. \"{Trim(sample ?? "(none)")}\"");
+
+            if (Value(args, "--pair-with") is { } pairPath)
+            {
+                // The comparison is only controlled if entry i of one cell is entry i of the other.
+                using var pair = JsonDocument.Parse(File.ReadAllText(Path.GetFullPath(pairPath)));
+                var paired = pair.RootElement.EnumerateArray().Skip(skip).Take(maxEntries).ToArray();
+                var mismatch = entries.Length != paired.Length ? -1 : Enumerable
+                    .Range(0, entries.Length)
+                    .FirstOrDefault(i => entries[i].GetProperty("question_id").GetString()
+                        != paired[i].GetProperty("question_id").GetString(), -1);
+                Console.WriteLine(mismatch == -1
+                    ? $"cell-probe:   PAIRING OK — {entries.Length} entries share question ids with " +
+                      Path.GetFileName(pairPath)
+                    : $"cell-probe:   PAIRING BROKEN at index {mismatch} — the cells are not aligned.");
+                var pairedAmounts = paired.Sum(entry =>
+                    entry.GetProperty("haystack_sessions").EnumerateArray()
+                        .Sum(sess => sess.EnumerateArray()
+                            .Sum(t => AmountPattern().Matches(
+                                t.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "").Count)));
+                Console.WriteLine($"cell-probe:   paired window holds {pairedAmounts} amount sentence(s).");
+            }
+
+            Console.WriteLine("cell-probe: DRY RUN COMPLETE — nothing spent.");
+            return 0;
+        }
         Console.WriteLine(
             $"cell-probe: {Path.GetFileName(path)} — {entries.Length} entr(ies), extraction only.");
 
@@ -153,6 +198,9 @@ internal static partial class CellProbeProgram
         var index = Array.IndexOf(args, name);
         return index < 0 || index + 1 >= args.Length ? null : args[index + 1];
     }
+
+    private static string Trim(string value) =>
+        value.Length <= 90 ? value : value[..90] + "…";
 
     private static string RequiredEnvironment(string name) =>
         Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
