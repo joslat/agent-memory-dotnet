@@ -70,6 +70,18 @@ internal interface ILongMemEvalGraphProbe
     Task<LongMemEvalSubjectAmbiguity> ReadSubjectAmbiguityAsync(CancellationToken cancellationToken)
         => Task.FromResult(new LongMemEvalSubjectAmbiguity([]));
 
+    /// <summary>
+    /// Of the subject/predicate groups whose objects are amounts, how many hold more than one.
+    /// </summary>
+    /// <remarks>
+    /// The B-vs-C metric, and deliberately narrower than general subject ambiguity: a multi-object
+    /// group is only a defect for a FUNCTIONAL relation, and "this payment's amount" is functional by
+    /// construction. Restricting to amount-valued groups makes the measure functional-only without a
+    /// hand-classified predicate list, which is what the general metric needed and could not have.
+    /// </remarks>
+    Task<LongMemEvalAmountCollision> ReadAmountGroupCollisionAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalAmountCollision(0, 0, []));
+
     Task<LongMemEvalGraphSnapshot> ReadAsync(
         string ownerId,
         CancellationToken cancellationToken = default);
@@ -211,6 +223,39 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
         RETURN subject, subjectKey, predicateKey, objects, entities
         ORDER BY size(objects) DESC LIMIT 12
         """;
+
+    private const string AmountCollisionQuery =
+        """
+        MATCH (f:Fact)
+        WHERE f.object =~ '.*(\$\s?\d|\d+\.\d{2}).*'
+        WITH f.subject_key AS s, f.predicate_key AS p, f.owner_key AS ow,
+             collect(DISTINCT f.object) AS amounts, head(collect(f.subject)) AS subject
+        RETURN subject, p AS predicate, amounts, size(amounts) AS distinctAmounts
+        ORDER BY distinctAmounts DESC
+        """;
+
+    public async Task<LongMemEvalAmountCollision> ReadAmountGroupCollisionAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+        var rows = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(AmountCollisionQuery).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r => (
+                Subject: r["subject"].As<string>() ?? string.Empty,
+                Predicate: r["predicate"].As<string>() ?? string.Empty,
+                Amounts: r["amounts"].As<List<object>>().Select(a => a?.ToString() ?? "").ToArray(),
+                Distinct: r["distinctAmounts"].As<int>())).ToArray();
+        }).ConfigureAwait(false);
+
+        var colliding = rows.Where(r => r.Distinct > 1).ToArray();
+        var samples = colliding.Take(5)
+            .Select(r => $"\"{Trim(r.Subject)}\" | {r.Predicate} | {r.Distinct} amounts: " +
+                         string.Join(" / ", r.Amounts.Take(4)))
+            .ToArray();
+        return new LongMemEvalAmountCollision(rows.Length, colliding.Length, samples);
+    }
 
     public async Task<LongMemEvalSubjectAmbiguity> ReadSubjectAmbiguityAsync(
         CancellationToken cancellationToken)
@@ -642,3 +687,7 @@ internal sealed record LongMemEvalAmbiguousSubject(
 
 /// <summary>Whether a retrieved value can be attributed to the thing it belongs to.</summary>
 internal sealed record LongMemEvalSubjectAmbiguity(IReadOnlyList<LongMemEvalAmbiguousSubject> Pairs);
+
+/// <summary>Whether amounts collide under a shared subject — the Cell B vs Cell C measure.</summary>
+internal sealed record LongMemEvalAmountCollision(
+    int AmountGroups, int CollidingGroups, IReadOnlyList<string> Samples);

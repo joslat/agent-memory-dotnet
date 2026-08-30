@@ -145,6 +145,13 @@ internal static class LongMemEvalProgram
                 .ConfigureAwait(false);
         }
 
+        if (args.Contains("--cell-probe", StringComparer.Ordinal))
+        {
+            // Extraction-only probe of an EXTERNAL corpus file. Checked before the verbs that read
+            // embedded corpora: a diagnostic cell is deliberately not a shipped vertical.
+            return await CellProbeProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--regrade", StringComparer.Ordinal))
         {
             // Judge-only re-grade of a stored artifact. Checked BEFORE --typedmemeval because a
@@ -481,7 +488,7 @@ internal static class LongMemEvalProgram
     private static readonly string[] KnownOptions =
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
-        "--procedural-benefit", "--typedmemeval", "--attempts", "--regrade",
+        "--procedural-benefit", "--typedmemeval", "--attempts", "--regrade", "--cell-probe", "--max-entries",
         "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
         "--oracle-precision", "--distractor-sessions", "--gold-fraction", "--oracle-representation",
         "--capture-headroom", "--artifacts",
