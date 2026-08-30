@@ -112,6 +112,15 @@ public sealed record MemoryOptions
     /// Off by default: it changes recall ordering, costs two bounded queries per fact section, and
     /// every recorded measurement was taken without it.
     /// </para>
+    /// <para>
+    /// <b>Its traversal names <c>:ABOUT</c>, but pipeline-built stores contain none.</b> The path
+    /// walks <c>[:RELATED_TO|ABOUT*..4]</c>, and while <c>ABOUT</c> is documented there as one of the
+    /// two edges carrying meaning between an entity and a fact, nothing in this library ever writes
+    /// one — the public <c>CreateAboutRelationshipAsync</c> verbs exist but no ingestion path calls
+    /// them. So on any store this library built, this re-ranker effectively traverses
+    /// <c>RELATED_TO</c> alone, and is weaker than its own query describes. <c>ABOUT</c> participates
+    /// only if a consumer created those links manually.
+    /// </para>
     /// </remarks>
     public bool NodeDistanceReranking { get; set; }
 

@@ -227,6 +227,7 @@ internal static class TypedMemEvalProgram
             // prevent occurring inside the gate itself.
             LongMemEvalSupersessionStore? supersessionStore = null;
             LongMemEvalFactObjectShape? objectShape = null;
+            LongMemEvalSubjectAmbiguity? subjectAmbiguity = null;
             if (profile is not null && !options.Oracle)
             {
                 try
@@ -237,6 +238,8 @@ internal static class TypedMemEvalProgram
                         .ReadSupersessionStoreAsync(CancellationToken.None).ConfigureAwait(false);
                     objectShape = await storeProbe
                         .ReadFactObjectShapeAsync(CancellationToken.None).ConfigureAwait(false);
+                    subjectAmbiguity = await storeProbe
+                        .ReadSubjectAmbiguityAsync(CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -255,6 +258,7 @@ internal static class TypedMemEvalProgram
                 renderSummary, supersessionStore);
             PrintSupersessionStore(supersessionStore);
             PrintObjectShape(objectShape);
+            PrintSubjectAmbiguity(subjectAmbiguity);
             PrintRenderState(options, renderSummary);
             PrintRun(result, destination);
             results.Add(result);
@@ -519,6 +523,31 @@ internal static class TypedMemEvalProgram
             Console.WriteLine($"typedmemeval:   [numeric] {sample}");
         foreach (var sample in shape.NonNumericSamples)
             Console.WriteLine($"typedmemeval:   [plain]   {sample}");
+    }
+
+    /// <summary>Reports subject-predicate pairs whose value cannot be attributed.</summary>
+    private static void PrintSubjectAmbiguity(LongMemEvalSubjectAmbiguity? ambiguity)
+    {
+        if (ambiguity is null) return;
+
+        if (ambiguity.Pairs.Count == 0)
+        {
+            // Registered in advance as informative: zero means the sample-line concern was an
+            // artifact of reading three rows, and the retraction is the finding.
+            Console.WriteLine(
+                "typedmemeval: subject ambiguity — NONE. No subject/predicate pair carries more " +
+                "than one distinct object; the C1b genericity flag does not reproduce.");
+            return;
+        }
+
+        Console.WriteLine($"typedmemeval: subject ambiguity — {ambiguity.Pairs.Count} pair(s):");
+        foreach (var pair in ambiguity.Pairs)
+        {
+            Console.WriteLine(
+                $"typedmemeval:   \"{pair.Subject}\" | {pair.PredicateKey} | " +
+                $"{pair.Objects.Count} distinct objects | {pair.DistinctEntities} entity(ies) " +
+                $"→ {string.Join(" / ", pair.Objects.Take(4))}");
+        }
     }
 
     private static void PrintRenderState(

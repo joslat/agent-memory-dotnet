@@ -62,7 +62,13 @@ internal static class NodeDistanceQueries
     internal static string DistanceToCandidates => @"
             MATCH (centroid:Entity {id: $centroidId})
             MATCH (f:Fact) WHERE f.id IN $candidateIds
-            MATCH path = shortestPath((centroid)-[:RELATED_TO|ABOUT*..4]-(f))
+                    // NOTE: `ABOUT` is named here and NO ingestion path in this library writes one -- the
+            // public CreateAboutRelationshipAsync verbs exist and nothing calls them, so a
+            // pipeline-built store traverses RELATED_TO alone (verified: 26,887 of 26,887 facts
+            // unlinked). Left in the pattern deliberately rather than removed: the writer is public
+            // API, so a consumer who created links manually has them honoured today, and dropping the
+            // edge would silently change their results.
+    MATCH path = shortestPath((centroid)-[:RELATED_TO|ABOUT*..4]-(f))
             WHERE length(path) <= $maxHops
             RETURN f.id AS candidateId, length(path) AS hops";
 }

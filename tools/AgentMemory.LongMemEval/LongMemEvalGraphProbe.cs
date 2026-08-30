@@ -22,7 +22,14 @@ internal interface ILongMemEvalGraphProbe
     /// predicate outside the six the vocabulary declares single-valued.
     /// </para>
     /// </remarks>
-    Task<LongMemEvalSupersessionStore> ReadSupersessionStoreAsync(CancellationToken cancellationToken);
+    /// <remarks>
+    /// Defaulted to empty because these three are OPTIONAL DIAGNOSTICS, not part of what a probe must
+    /// be able to do. Making them required broke six unrelated test fakes that have no graph to
+    /// report on, which is a signal about the contract rather than about the fakes: a store-shape
+    /// reading is something a probe MAY offer, and empty is the honest answer when it cannot.
+    /// </remarks>
+    Task<LongMemEvalSupersessionStore> ReadSupersessionStoreAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalSupersessionStore(0, 0, 0, []));
 
     /// <summary>
     /// Classifies what actually sits in fact OBJECTS, to tell "stored at the wrong grain" from
@@ -35,7 +42,21 @@ internal interface ILongMemEvalGraphProbe
     /// problem, and the two need different fixes. Objects are returned verbatim in samples so the
     /// classification is eyeballable rather than trusted.
     /// </remarks>
-    Task<LongMemEvalFactObjectShape> ReadFactObjectShapeAsync(CancellationToken cancellationToken);
+    Task<LongMemEvalFactObjectShape> ReadFactObjectShapeAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalFactObjectShape(0, 0, 0, 0, [], [], []));
+
+    /// <summary>
+    /// Finds subject-predicate pairs carrying more than one distinct object, and reports how those
+    /// facts resolve to entities.
+    /// </summary>
+    /// <remarks>
+    /// The condition under which a retrieved amount cannot be attributed: if
+    /// <c>payment | has_amount</c> holds three different values, "what did the payment cost" has no
+    /// single answer however well retrieval performs. Whether those facts reach distinct entities,
+    /// one merged entity, or none separates three different defects with three different fixes.
+    /// </remarks>
+    Task<LongMemEvalSubjectAmbiguity> ReadSubjectAmbiguityAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalSubjectAmbiguity([]));
 
     Task<LongMemEvalGraphSnapshot> ReadAsync(
         string ownerId,
@@ -161,6 +182,41 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
         MATCH (f:Fact)
         RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object
         """;
+
+    // Grouped on the KEYS the store merges on, not on the display strings: two facts differing only
+    // by whitespace or case are one fact to the store, and counting them as two would invent
+    // ambiguity that retrieval never sees.
+    private const string SubjectAmbiguityQuery =
+        """
+        MATCH (f:Fact)
+        WITH f.subject_key AS subjectKey, f.predicate_key AS predicateKey,
+             collect(DISTINCT f.object) AS objects, collect(f) AS facts
+        WHERE size(objects) > 1
+        UNWIND facts AS fact
+        OPTIONAL MATCH (fact)-[:ABOUT]->(e:Entity)
+        WITH subjectKey, predicateKey, objects, head(collect(fact.subject)) AS subject,
+             count(DISTINCT e) AS entities
+        RETURN subject, subjectKey, predicateKey, objects, entities
+        ORDER BY size(objects) DESC LIMIT 12
+        """;
+
+    public async Task<LongMemEvalSubjectAmbiguity> ReadSubjectAmbiguityAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+        var rows = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(SubjectAmbiguityQuery).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r => new LongMemEvalAmbiguousSubject(
+                r["subject"].As<string>() ?? string.Empty,
+                r["predicateKey"].As<string>() ?? string.Empty,
+                r["objects"].As<List<object>>().Select(o => o?.ToString() ?? string.Empty).ToArray(),
+                r["entities"].As<int>())).ToArray();
+        }).ConfigureAwait(false);
+
+        return new LongMemEvalSubjectAmbiguity(rows);
+    }
 
     public async Task<LongMemEvalFactObjectShape> ReadFactObjectShapeAsync(
         CancellationToken cancellationToken)
@@ -562,3 +618,15 @@ internal sealed record LongMemEvalFactObjectShape(
     IReadOnlyList<string> AmountSamples,
     IReadOnlyList<string> NumericSamples,
     IReadOnlyList<string> NonNumericSamples);
+
+/// <summary>One subject-predicate pair holding more than one distinct object.</summary>
+/// <param name="DistinctEntities">
+/// How many <c>:Entity</c> nodes the facts reach through <c>ABOUT</c>. Several means the entities
+/// were separated and only the subject STRING is under-specified; one means resolution merged
+/// things that differ; zero means the triples are about nobody. Three defects, three fixes.
+/// </param>
+internal sealed record LongMemEvalAmbiguousSubject(
+    string Subject, string PredicateKey, IReadOnlyList<string> Objects, int DistinctEntities);
+
+/// <summary>Whether a retrieved value can be attributed to the thing it belongs to.</summary>
+internal sealed record LongMemEvalSubjectAmbiguity(IReadOnlyList<LongMemEvalAmbiguousSubject> Pairs);

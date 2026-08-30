@@ -73,6 +73,15 @@ public interface IPreferenceRepository
     Task CreateExtractedFromRelationshipAsync(string preferenceId, string messageId, CancellationToken cancellationToken = default);
 
     /// <summary>Creates an ABOUT relationship from a preference to an entity.</summary>
+    /// <remarks>
+    /// <b>Written links are traversed only by <c>MemoryOptions.NodeDistanceReranking</c>, and the
+    /// ingestion pipeline never writes them.</b> Nothing in this library calls this method, so a
+    /// store built by the pipeline alone contains no <c>:ABOUT</c> edges at all (verified: 26,887 of
+    /// 26,887 facts unlinked in a prepared store). Calling it is therefore only useful in combination
+    /// with that re-ranker, which is itself off by default. Documented rather than removed because
+    /// the method is public API under SemVer, and a consumer who does create links has them honoured
+    /// by that traversal today.
+    /// </remarks>
     Task CreateAboutRelationshipAsync(string preferenceId, string entityId, CancellationToken cancellationToken = default);
 
     /// <summary>Creates a HAS_PREFERENCE relationship from a conversation to this preference.</summary>
