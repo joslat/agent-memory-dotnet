@@ -23,10 +23,22 @@ internal interface ILongMemEvalGraphProbe
     /// </para>
     /// </remarks>
     /// <remarks>
+    /// <para>
     /// Defaulted to empty because these three are OPTIONAL DIAGNOSTICS, not part of what a probe must
     /// be able to do. Making them required broke six unrelated test fakes that have no graph to
     /// report on, which is a signal about the contract rather than about the fakes: a store-shape
     /// reading is something a probe MAY offer, and empty is the honest answer when it cannot.
+    /// </para>
+    /// <para>
+    /// <b>EMPTY MEANS "NO STORE TO READ", NOT "MEASURED ZERO", and a reader must not collapse the
+    /// two.</b> A default that silently satisfies every caller is how a constant column is born — a
+    /// value that could not have come out any other way, read as though it were evidence. That has
+    /// already cost this project once: "12 of 12 pairs with zero entity links" was reported as a
+    /// finding when every fact in every store had zero, because nothing writes those links. A caller
+    /// that needs to distinguish "the mechanism wrote nothing" from "nobody looked" must check
+    /// whether a real probe was supplied, exactly as the render gate treats a null block as a
+    /// failure rather than a pass.
+    /// </para>
     /// </remarks>
     Task<LongMemEvalSupersessionStore> ReadSupersessionStoreAsync(CancellationToken cancellationToken)
         => Task.FromResult(new LongMemEvalSupersessionStore(0, 0, 0, []));
