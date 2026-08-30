@@ -483,14 +483,6 @@ internal static class TypedMemEvalProgram
         }
     }
 
-    /// <summary>
-    /// Announces the render-state gate at the console, loudly when it fails.
-    /// </summary>
-    /// <remarks>
-    /// Printed only for the arm that asked for rendering. Elsewhere a zero is the correct and
-    /// expected state, and a warning there would train the reader to ignore this line -- which is how
-    /// a gate stops being read at all.
-    /// </remarks>
     /// <summary>Announces what supersession actually wrote, loudly when it wrote nothing.</summary>
     private static void PrintSupersessionStore(LongMemEvalSupersessionStore? store)
     {
@@ -550,6 +542,14 @@ internal static class TypedMemEvalProgram
         }
     }
 
+    /// <summary>
+    /// Announces the render-state gate at the console, loudly when it fails.
+    /// </summary>
+    /// <remarks>
+    /// Printed only for the arm that asked for rendering. Elsewhere a zero is the correct and
+    /// expected state, and a warning there would train the reader to ignore this line -- which is how
+    /// a gate stops being read at all.
+    /// </remarks>
     private static void PrintRenderState(
         TypedMemEvalRunOptions options, LongMemEvalSupersessionRenderSummary? renderSummary)
     {

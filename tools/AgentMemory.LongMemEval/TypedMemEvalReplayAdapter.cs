@@ -69,7 +69,9 @@ internal sealed class TypedMemEvalReplayAdapter(
     /// wrong answer rather than as a missing one, quietly lowering the re-graded baseline. Collected
     /// so the caller can fail the whole re-grade instead.
     /// </remarks>
-    public IReadOnlyList<string> UnmatchedQuestions => _unmatched;
+    // Snapshot, not the backing list: a caller that downcast and mutated this would corrupt
+    // the accounting the whole re-grade gate depends on.
+    public IReadOnlyList<string> UnmatchedQuestions => _unmatched.ToArray();
 
     /// <summary>
     /// Positions where the runner's question did not match the stored row at that position.
@@ -78,7 +80,7 @@ internal sealed class TypedMemEvalReplayAdapter(
     /// Non-empty means the replay is pairing answers with the wrong questions, which produces a
     /// fully-populated, entirely meaningless score. Fatal to the caller, never a warning.
     /// </remarks>
-    public IReadOnlyList<string> OrderingMismatches => _orderingMismatches;
+    public IReadOnlyList<string> OrderingMismatches => _orderingMismatches.ToArray();
 
     public int Matched { get; private set; }
 

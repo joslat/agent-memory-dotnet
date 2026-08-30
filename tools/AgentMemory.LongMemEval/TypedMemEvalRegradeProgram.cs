@@ -189,7 +189,15 @@ internal static class TypedMemEvalRegradeProgram
         foreach (var row in stored.GetProperty("QuestionResults").EnumerateArray())
         {
             var id = row.GetProperty("QuestionId").GetString();
-            if (id is not null) storedById[id] = row.GetProperty("Correct").GetBoolean();
+            if (id is null) continue;
+
+            // The SAME null-verdict case the re-graded side below already handles, and it was missed
+            // here -- an asymmetry that would have thrown AFTER the judge pass was paid for, which is
+            // exactly the cheap-thing-destroys-expensive-result failure the persist-before-diagnostics
+            // ordering exists to prevent. A stored row with no verdict is simply not comparable.
+            var storedVerdict = row.GetProperty("Correct");
+            if (storedVerdict.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) continue;
+            storedById[id] = storedVerdict.GetBoolean();
         }
 
         // Re-serialized rather than reflected over: the result type is AgentEval's and its shape is

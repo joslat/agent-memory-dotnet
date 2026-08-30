@@ -115,6 +115,22 @@ public class TypedMemEvalReplayAdapterTests
     }
 
     [Fact]
+    public async Task TheAccountingListsCannotBeMutatedThroughTheirPublicProperties()
+    {
+        // Copilot review, PR #209: these returned the backing lists, so a caller could downcast and
+        // mutate the accounting the re-grade gate depends on -- and that gate's whole job is to abort
+        // a run whose baseline would otherwise be silently understated.
+        var adapter = Adapter(("q", "a"));
+        await adapter.InvokeAsync("unexpected question");
+
+        var mismatches = adapter.OrderingMismatches;
+        (mismatches as List<string>)?.Clear();
+
+        adapter.OrderingMismatches.Should().ContainSingle(
+            "the property must hand out a snapshot, not the list the adapter counts with");
+    }
+
+    [Fact]
     public async Task TheHistoryHooksAreInertAndDoNotDisturbReplay()
     {
         // Implemented only so the runner takes the same branches it takes for the real adapter. If
