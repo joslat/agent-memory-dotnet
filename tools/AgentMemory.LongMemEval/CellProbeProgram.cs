@@ -184,9 +184,12 @@ internal static partial class CellProbeProgram
         Console.WriteLine(amountGroups.AmountGroups == 0
             ? "cell-probe: AMOUNT-SUBJECT COLLISION — NOT MEASURED (zero amount-bearing groups in " +
               "the store; the metric has no denominator). This is not 0%."
-            : $"cell-probe: AMOUNT-SUBJECT COLLISION — {amountGroups.CollidingGroups} of " +
-              $"{amountGroups.AmountGroups} amount-bearing subject/predicate groups hold >1 distinct " +
-              $"amount = {100.0 * amountGroups.CollidingGroups / amountGroups.AmountGroups:F1}%");
+            : $"cell-probe: AMOUNT-SUBJECT COLLISION — groups {amountGroups.CollidingGroups}/" +
+              $"{amountGroups.AmountGroups} = {100.0 * amountGroups.CollidingGroups / amountGroups.AmountGroups:F1}%" +
+              $"  |  AMOUNTS UNDER AN OVERLOADED SUBJECT {amountGroups.CollidingFacts}/" +
+              $"{amountGroups.AmountFacts} = " +
+              $"{(amountGroups.AmountFacts == 0 ? 0 : 100.0 * amountGroups.CollidingFacts / amountGroups.AmountFacts):F1}%" +
+              "  (the second is the one comparable to their 48/48 per-payment calibration)");
         foreach (var sample in amountGroups.Samples) Console.WriteLine($"cell-probe:   {sample}");
         Console.WriteLine($"cell-probe: (subject-ambiguity groups overall: {ambiguity.Pairs.Count})");
         Console.WriteLine($"cell-probe: extraction LLM calls {extractionChat.Snapshot()}");

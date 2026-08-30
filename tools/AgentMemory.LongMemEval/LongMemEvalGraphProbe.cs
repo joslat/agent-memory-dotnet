@@ -80,7 +80,7 @@ internal interface ILongMemEvalGraphProbe
     /// hand-classified predicate list, which is what the general metric needed and could not have.
     /// </remarks>
     Task<LongMemEvalAmountCollision> ReadAmountGroupCollisionAsync(CancellationToken cancellationToken)
-        => Task.FromResult(new LongMemEvalAmountCollision(0, 0, []));
+        => Task.FromResult(new LongMemEvalAmountCollision(0, 0, 0, 0, []));
 
     Task<LongMemEvalGraphSnapshot> ReadAsync(
         string ownerId,
@@ -250,11 +250,20 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
         }).ConfigureAwait(false);
 
         var colliding = rows.Where(r => r.Distinct > 1).ToArray();
+        // Two denominators, both reported, neither chosen after the fact. GROUPS answers "how many
+        // subjects are overloaded"; FACTS answers "how many amounts sit under an overloaded subject"
+        // and is the one comparable to AgentEval's per-payment calibration (48/48). The group rate is
+        // unstable at small denominators -- a wiring smoke showed 1 of 3 groups holding 8 of 10
+        // amounts -- so reporting only the group rate would understate the collapse it exists to
+        // measure. Both are registered before the paired run so neither can be selected afterwards.
+        var amountFacts = rows.Sum(r => r.Distinct);
+        var collidingFacts = colliding.Sum(r => r.Distinct);
         var samples = colliding.Take(5)
             .Select(r => $"\"{Trim(r.Subject)}\" | {r.Predicate} | {r.Distinct} amounts: " +
                          string.Join(" / ", r.Amounts.Take(4)))
             .ToArray();
-        return new LongMemEvalAmountCollision(rows.Length, colliding.Length, samples);
+        return new LongMemEvalAmountCollision(
+            rows.Length, colliding.Length, amountFacts, collidingFacts, samples);
     }
 
     public async Task<LongMemEvalSubjectAmbiguity> ReadSubjectAmbiguityAsync(
@@ -690,4 +699,8 @@ internal sealed record LongMemEvalSubjectAmbiguity(IReadOnlyList<LongMemEvalAmbi
 
 /// <summary>Whether amounts collide under a shared subject — the Cell B vs Cell C measure.</summary>
 internal sealed record LongMemEvalAmountCollision(
-    int AmountGroups, int CollidingGroups, IReadOnlyList<string> Samples);
+    int AmountGroups,
+    int CollidingGroups,
+    int AmountFacts,
+    int CollidingFacts,
+    IReadOnlyList<string> Samples);
