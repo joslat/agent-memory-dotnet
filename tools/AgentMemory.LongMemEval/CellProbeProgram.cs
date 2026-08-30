@@ -43,6 +43,29 @@ internal static partial class CellProbeProgram
 
     public static async Task<int> RunAsync(string[] args)
     {
+        try
+        {
+            return await RunCoreAsync(args).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is ArgumentException or FileNotFoundException)
+        {
+            // Presented as a refusal, not a crash. The validator's message already names the typo and
+            // suggests the correction; a stack trace on top of it only obscures that the run was
+            // stopped deliberately -- and this particular guard is what stands between a mistyped
+            // --dry-run and an unintended paid extraction.
+            Console.Error.WriteLine($"cell-probe: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static async Task<int> RunCoreAsync(string[] args)
+    {
+        // Validate FIRST, and the reason is specific to this verb: a mistyped `--dry-runn` is
+        // silently ignored, the dry-run branch never fires, and the operator who asked for the free
+        // check gets a paid extraction instead. Unknown-option tolerance is a spending hazard here,
+        // not a usability nicety.
+        LongMemEvalArgumentValidator.Validate(args, KnownOptions);
+
         var path = Value(args, "--cell-probe")
             ?? throw new ArgumentException("--cell-probe requires a path to a cell .json.");
         var maxEntries = int.TryParse(Value(args, "--max-entries"), out var n) ? n : int.MaxValue;

@@ -50,6 +50,8 @@ internal static class TypedMemEvalRegradeProgram
     {
         try
         {
+            LongMemEvalArgumentValidator.Validate(args, KnownOptions);
+
             var reportPath = Value(args, "--regrade")
                 ?? throw new ArgumentException("--regrade requires a path to a stored report .json.");
             reportPath = Path.GetFullPath(reportPath);
