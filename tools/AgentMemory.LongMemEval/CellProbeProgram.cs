@@ -98,14 +98,18 @@ internal static partial class CellProbeProgram
                 // The comparison is only controlled if entry i of one cell is entry i of the other.
                 using var pair = JsonDocument.Parse(File.ReadAllText(Path.GetFullPath(pairPath)));
                 var paired = pair.RootElement.EnumerateArray().Skip(skip).Take(maxEntries).ToArray();
-                var mismatch = entries.Length != paired.Length ? -1 : Enumerable
+                var lengthsMatch = entries.Length == paired.Length;
+                var mismatch = lengthsMatch ? Enumerable
                     .Range(0, entries.Length)
                     .FirstOrDefault(i => entries[i].GetProperty("question_id").GetString()
-                        != paired[i].GetProperty("question_id").GetString(), -1);
-                Console.WriteLine(mismatch == -1
+                        != paired[i].GetProperty("question_id").GetString(), -1) : -1;
+                Console.WriteLine(lengthsMatch && mismatch == -1
                     ? $"cell-probe:   PAIRING OK — {entries.Length} entries share question ids with " +
                       Path.GetFileName(pairPath)
-                    : $"cell-probe:   PAIRING BROKEN at index {mismatch} — the cells are not aligned.");
+                    : lengthsMatch
+                        ? $"cell-probe:   PAIRING BROKEN at index {mismatch} — the cells are not aligned."
+                        : $"cell-probe:   PAIRING BROKEN — window length mismatch " +
+                          $"{entries.Length} vs {paired.Length}.");
                 var pairedAmounts = paired.Sum(entry =>
                     entry.GetProperty("haystack_sessions").EnumerateArray()
                         .Sum(sess => sess.EnumerateArray()
