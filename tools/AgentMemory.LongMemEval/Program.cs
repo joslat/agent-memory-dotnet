@@ -488,7 +488,7 @@ internal static class LongMemEvalProgram
     private static readonly string[] KnownOptions =
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
-        "--procedural-benefit", "--typedmemeval", "--attempts", "--regrade", "--cell-probe", "--max-entries",
+        "--procedural-benefit", "--typedmemeval", "--attempts", "--regrade", "--cell-probe", "--max-entries", "--skip-entries",
         "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
         "--oracle-precision", "--distractor-sessions", "--gold-fraction", "--oracle-representation",
         "--capture-headroom", "--artifacts",

@@ -33,9 +33,13 @@ namespace AgentMemory.LongMemEval;
 /// later be read as a result it was never designed to support.
 /// </para>
 /// </remarks>
-internal static class CellProbeProgram
+internal static partial class CellProbeProgram
 {
-    internal static readonly string[] KnownOptions = ["--cell-probe", "--max-entries"];
+    internal static readonly string[] KnownOptions =
+        ["--cell-probe", "--max-entries", "--skip-entries"];
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\$\s?\d|\d+\.\d{2}")]
+    private static partial System.Text.RegularExpressions.Regex AmountPattern();
 
     public static async Task<int> RunAsync(string[] args)
     {
@@ -44,8 +48,30 @@ internal static class CellProbeProgram
         var maxEntries = int.TryParse(Value(args, "--max-entries"), out var n) ? n : int.MaxValue;
         path = Path.GetFullPath(path);
 
+        var skip = int.TryParse(Value(args, "--skip-entries"), out var k) ? k : 0;
         using var document = JsonDocument.Parse(File.ReadAllText(path));
-        var entries = document.RootElement.EnumerateArray().Take(maxEntries).ToArray();
+        var entries = document.RootElement.EnumerateArray().Skip(skip).Take(maxEntries).ToArray();
+
+        // PRECONDITION, checked before a single LLM call. The first registered window was "the first
+        // 12 entries", and payment sentences in this corpus start at entry 14 -- so the window held
+        // ZERO of the phenomenon, the metric measured 0 of 0, and it printed "0.0%" as though that
+        // were a reading. Two hours and ~2,200 calls bought a constant. A sampling rule that cannot
+        // contain the thing being measured is a defect in the rule, and it is free to detect.
+        var amountSentences = entries.Sum(entry =>
+            entry.GetProperty("haystack_sessions").EnumerateArray()
+                .Sum(session => session.EnumerateArray()
+                    .Sum(turn => AmountPattern().Matches(
+                        turn.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "").Count)));
+        if (amountSentences == 0)
+        {
+            Console.Error.WriteLine(
+                $"cell-probe: ABORT — the selected window (skip {skip}, take {maxEntries}) contains " +
+                "NO amount-bearing sentences, so the amount-collision metric would divide by zero and " +
+                "report 0.0% as if it were a measurement. Choose a window that contains the " +
+                "phenomenon.");
+            return 2;
+        }
+        Console.WriteLine($"cell-probe: window holds {amountSentences} amount-bearing sentence(s).");
         Console.WriteLine(
             $"cell-probe: {Path.GetFileName(path)} — {entries.Length} entr(ies), extraction only.");
 
@@ -107,10 +133,15 @@ internal static class CellProbeProgram
 
         Console.WriteLine(
             $"cell-probe: objects — {objects.AmountBearing} amount-bearing of {objects.Facts} facts.");
-        Console.WriteLine(
-            $"cell-probe: AMOUNT-SUBJECT COLLISION — {amountGroups.CollidingGroups} of " +
-            $"{amountGroups.AmountGroups} amount-bearing subject/predicate groups hold >1 distinct " +
-            $"amount = {(amountGroups.AmountGroups == 0 ? 0 : 100.0 * amountGroups.CollidingGroups / amountGroups.AmountGroups):F1}%");
+        // A share over an empty denominator is NOT MEASURED, and must never be rendered as 0.0% --
+        // that is the constant column this project has now been bitten by three times, and once by
+        // this very program.
+        Console.WriteLine(amountGroups.AmountGroups == 0
+            ? "cell-probe: AMOUNT-SUBJECT COLLISION — NOT MEASURED (zero amount-bearing groups in " +
+              "the store; the metric has no denominator). This is not 0%."
+            : $"cell-probe: AMOUNT-SUBJECT COLLISION — {amountGroups.CollidingGroups} of " +
+              $"{amountGroups.AmountGroups} amount-bearing subject/predicate groups hold >1 distinct " +
+              $"amount = {100.0 * amountGroups.CollidingGroups / amountGroups.AmountGroups:F1}%");
         foreach (var sample in amountGroups.Samples) Console.WriteLine($"cell-probe:   {sample}");
         Console.WriteLine($"cell-probe: (subject-ambiguity groups overall: {ambiguity.Pairs.Count})");
         Console.WriteLine($"cell-probe: extraction LLM calls {extractionChat.Snapshot()}");
