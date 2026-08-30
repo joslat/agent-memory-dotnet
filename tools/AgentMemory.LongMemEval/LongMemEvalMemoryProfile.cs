@@ -44,6 +44,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool resolveTemporalQueries = false,
         bool rescueShortOwnerResults = false,
         bool supersedeReplacedFacts = false,
+        bool resolveSupersessions = false,
         string? graphRagIndexName = null,
         int? extractionSeed = null,
         // 30.9c gap: every Phase-30 Wave-C capability ships dark AND had no way in from the harness,
@@ -82,6 +83,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     resolveTemporalQueries,
                     rescueShortOwnerResults,
                     supersedeReplacedFacts,
+                    resolveSupersessions,
                     phase30 ?? PhaseThirtyFeatures.AllOff,
                     graphRagIndexName,
                     extractionSeed,
@@ -113,6 +115,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
         bool supersedeReplacedFacts,
+        bool resolveSupersessions,
         PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         int? extractionSeed,
@@ -142,6 +145,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             resolveTemporalQueries,
             rescueShortOwnerResults,
             supersedeReplacedFacts,
+            resolveSupersessions,
             phase30,
             graphRagIndexName,
             multiSessionBatch,
@@ -182,6 +186,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
         bool supersedeReplacedFacts,
+        bool resolveSupersessions,
         PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         bool multiSessionBatch = true,
@@ -250,6 +255,27 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     // unless asked for, so every sealed measurement keeps its path.
                     SupersedeReplacedFacts = supersedeReplacedFacts,
                 },
+                // 30.9d. The SECOND reachable-but-never-fed lever inside one intervention, and the
+                // one the ON ablation's own result points at. `SupersessionProjectionFeature` is
+                // fully built and renders "(since D; previously Y)" -- its docstring names the loss
+                // verbatim ("a superseded fact is not 'shown as old' -- it is absent") -- but it is
+                // gated on ResolveSupersessions, which defaults false, and NO harness ever set it.
+                //
+                // That explains the 0.767 null exactly: with writes on and rendering off, the
+                // superseded value is filtered out of recall and the surviving value arrives with no
+                // cue it ever replaced anything, so misses moved from "value absent" to "had it and
+                // chose the wrong side". This is the lever that makes currency legible.
+                //
+                // Assigned CONDITIONALLY, and that is not stylistic. MemoryProjectionOptions.Default
+                // is reference-compared to distinguish "unset" from "set to the defaults"
+                // (MemoryContextAssembler.cs:119), so handing back a `with`-copy even in the off case
+                // would change identity for every sealed measurement. Off must stay byte-identical.
+                //
+                // `Default with` also preserves MaxSupersessionChain = 3, which this arm deliberately
+                // does NOT tune: chain depth is its own ablation with its own pre-registration.
+                Projection = resolveSupersessions
+                    ? MemoryProjectionOptions.Default with { ResolveSupersessions = true }
+                    : MemoryProjectionOptions.Default,
             },
             neo4j =>
             {

@@ -876,6 +876,13 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             prompt,
             queryTime is { } answerNow ? FormatQueryTime(answerNow) : evidenceQuestion?.QuestionDate,
             originsByMessageId);
+
+        // 30.9d render-state evidence, taken HERE rather than from the config, and taken from the
+        // prompt string itself rather than from the projection alone. Two levers in this intervention
+        // were already believed live because they were reachable; a third assumption is not affordable.
+        // Null probe => not observed, which the prereg reads as a failure, never as a pass.
+        _options.SupersessionRenderProbe?.Observe(
+            evidenceQuestion?.QuestionId ?? "(unidentified)", recall.Context, answerPrompt);
         LongMemEvalRetrievalEvidence? retrievalEvidence = null;
         AgentEval.Memory.External.Models.QuestionEvidenceEnvelope? normalizedEvidence = null;
         if (evidenceQuestion is not null)
@@ -1979,6 +1986,12 @@ public sealed record LongMemEvalAdapterOptions
     internal bool RequireGraphReadBack { get; init; }
 
     internal ILongMemEvalGraphProbe? GraphProbe { get; init; }
+
+    /// <summary>
+    /// Collects positive evidence that supersession chains reached the answer prompt, or null to not
+    /// observe. Absence is "not measured" — a gate that reads it must fail closed on null.
+    /// </summary>
+    internal LongMemEvalSupersessionRenderProbe? SupersessionRenderProbe { get; init; }
 }
 
 public sealed record LongMemEvalQuestionTelemetry(

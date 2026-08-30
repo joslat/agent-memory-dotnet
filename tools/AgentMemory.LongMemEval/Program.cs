@@ -145,6 +145,22 @@ internal static class LongMemEvalProgram
                 .ConfigureAwait(false);
         }
 
+        if (args.Contains("--cell-probe", StringComparer.Ordinal))
+        {
+            // Extraction-only probe of an EXTERNAL corpus file. Checked before the verbs that read
+            // embedded corpora: a diagnostic cell is deliberately not a shipped vertical.
+            return await CellProbeProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
+        if (args.Contains("--regrade", StringComparer.Ordinal))
+        {
+            // Judge-only re-grade of a stored artifact. Checked BEFORE --typedmemeval because a
+            // re-grade names its vertical through the source sidecar, never on the command line:
+            // re-specifying sampling by hand is how a re-grade quietly compares two different
+            // question sets and reports the difference as a judge effect.
+            return await TypedMemEvalRegradeProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--typedmemeval", StringComparer.Ordinal))
         {
             // 30.9c. TypedMemEval verticals (embedded AgentEval corpora): typed-outcome runs,
@@ -472,7 +488,7 @@ internal static class LongMemEvalProgram
     private static readonly string[] KnownOptions =
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
-        "--procedural-benefit", "--typedmemeval", "--attempts",
+        "--procedural-benefit", "--typedmemeval", "--attempts", "--regrade", "--cell-probe", "--max-entries", "--skip-entries", "--dry-run", "--pair-with",
         "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
         "--oracle-precision", "--distractor-sessions", "--gold-fraction", "--oracle-representation",
         "--capture-headroom", "--artifacts",

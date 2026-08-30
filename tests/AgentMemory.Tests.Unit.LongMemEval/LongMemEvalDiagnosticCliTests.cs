@@ -144,4 +144,52 @@ public sealed class LongMemEvalDiagnosticCliTests
                 Directory.Delete(directory);
         }
     }
+
+    [Fact]
+    public async Task CellProbeDryRunReportsBrokenPairingWhenWindowLengthsDiffer()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"agentmemory-lme-cell-probe-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var cell = Path.Combine(directory, "cell.json");
+        var pair = Path.Combine(directory, "pair.json");
+        await File.WriteAllTextAsync(
+            cell,
+            """
+            [
+              { "question_id": "q1", "haystack_sessions": [[{ "content": "Payment logged against job: $10 for cable." }]] },
+              { "question_id": "q2", "haystack_sessions": [[{ "content": "Payment logged against job: $11 for tape." }]] }
+            ]
+            """);
+        await File.WriteAllTextAsync(
+            pair,
+            """
+            [
+              { "question_id": "q1", "haystack_sessions": [[{ "content": "Payment logged against job: $10 for cable." }]] }
+            ]
+            """);
+
+        var originalOut = Console.Out;
+        using var output = new StringWriter();
+        Console.SetOut(output);
+        try
+        {
+            await CellProbeProgram.RunAsync(
+            [
+                "--cell-probe", cell,
+                "--dry-run",
+                "--pair-with", pair
+            ]);
+
+            output.ToString().Should().Contain("PAIRING BROKEN")
+                .And.NotContain("PAIRING OK");
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
 }

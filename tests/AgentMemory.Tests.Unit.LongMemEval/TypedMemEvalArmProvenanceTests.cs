@@ -97,7 +97,10 @@ public sealed class TypedMemEvalArmProvenanceTests
         foreach (var arm in new[]
         {
             TypedMemEvalArm.Default,
-            new TypedMemEvalArm(new PhaseThirtyFeatures(true, true), true, true),
+            new TypedMemEvalArm(
+                new PhaseThirtyFeatures(true, true),
+                RescueShortOwnerResults: true,
+                SupersedeReplacedFacts: true),
         })
         {
             arm.FileToken().IndexOfAny(invalid).Should().Be(-1,
@@ -116,6 +119,46 @@ public sealed class TypedMemEvalArmProvenanceTests
         describe.Should().Contain("rescue-short-owner-results=False");
         describe.Should().Contain("fact-weighted-budget=False");
         describe.Should().Contain("phase30:none");
+    }
+
+    /// <summary>
+    /// 30.9d: the two supersession levers must be distinguishable, alone and together.
+    /// </summary>
+    /// <remarks>
+    /// They are only informative together — one writes the <c>:SUPERSEDED_BY</c> edges, the other
+    /// renders them — so an artifact that cannot say which of the two was on cannot be read at all.
+    /// The write-only arm is the 0.767 ON ablation; the both-on arm is what this wave measures.
+    /// </remarks>
+    [Fact]
+    public void TheSupersessionLeversAreDistinguishableAloneAndTogether()
+    {
+        var writeOnly = new TypedMemEvalArm(
+            PhaseThirtyFeatures.AllOff, SupersedeReplacedFacts: true);
+        var renderOnly = new TypedMemEvalArm(
+            PhaseThirtyFeatures.AllOff, ResolveSupersessions: true);
+        var both = new TypedMemEvalArm(
+            PhaseThirtyFeatures.AllOff, SupersedeReplacedFacts: true, ResolveSupersessions: true);
+
+        writeOnly.FileToken().Should().Be("supersede");
+        renderOnly.FileToken().Should().Be("render");
+        both.FileToken().Should().Be("supersede-render");
+
+        new[] { writeOnly.FileToken(), renderOnly.FileToken(), both.FileToken() }
+            .Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public void RenderingAloneIsNotTheDefaultArm()
+    {
+        new TypedMemEvalArm(PhaseThirtyFeatures.AllOff, ResolveSupersessions: true)
+            .IsDefault.Should().BeFalse();
+    }
+
+    [Fact]
+    public void TheDescriptionNamesTheRendererSoASidecarCanBeReadWithoutTheToken()
+    {
+        new TypedMemEvalArm(PhaseThirtyFeatures.AllOff, ResolveSupersessions: true)
+            .Describe().Should().Contain("resolve-supersessions=True");
     }
 
     [Fact]
@@ -138,7 +181,8 @@ public sealed class TypedMemEvalArmProvenanceTests
             new PhaseThirtyFeatures(false, true), RescueShortOwnerResults: true,
             SupersedeReplacedFacts: false,
             EvidenceDetail: LongMemEvalEvidenceDetail.Identifiers,
-            FactWeightedBudget: true);
+            FactWeightedBudget: true,
+            ResolveSupersessions: false);
 
         var arm = options.Arm;
 

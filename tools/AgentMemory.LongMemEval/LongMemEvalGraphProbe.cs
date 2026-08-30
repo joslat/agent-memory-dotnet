@@ -4,6 +4,84 @@ namespace AgentMemory.LongMemEval;
 
 internal interface ILongMemEvalGraphProbe
 {
+    /// <summary>
+    /// Counts the supersession the run actually wrote: <c>:SUPERSEDED_BY</c> edges, invalidated
+    /// facts, and the predicates extraction produced.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This replaces an inference that was wrong.</b> The store-state gate used to argue from
+    /// facts-placed-per-question falling (8.25 → 7.92) that supersession had fired. Three arms later
+    /// the same lever produced 7.65 with no lever change in between, so that signal was extraction
+    /// variance and the gate had been certifying an off-state run as "verified ON" — the exact error
+    /// the gate existed to prevent, in the gate itself.
+    /// </para>
+    /// <para>
+    /// A count of edges cannot be confused with noise: zero means the mechanism did not run, and the
+    /// predicate histogram says why, because write-time supersession is refused outright for any
+    /// predicate outside the six the vocabulary declares single-valued.
+    /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <para>
+    /// Defaulted to empty because these three are OPTIONAL DIAGNOSTICS, not part of what a probe must
+    /// be able to do. Making them required broke six unrelated test fakes that have no graph to
+    /// report on, which is a signal about the contract rather than about the fakes: a store-shape
+    /// reading is something a probe MAY offer, and empty is the honest answer when it cannot.
+    /// </para>
+    /// <para>
+    /// <b>EMPTY MEANS "NO STORE TO READ", NOT "MEASURED ZERO", and a reader must not collapse the
+    /// two.</b> A default that silently satisfies every caller is how a constant column is born — a
+    /// value that could not have come out any other way, read as though it were evidence. That has
+    /// already cost this project once: "12 of 12 pairs with zero entity links" was reported as a
+    /// finding when every fact in every store had zero, because nothing writes those links. A caller
+    /// that needs to distinguish "the mechanism wrote nothing" from "nobody looked" must check
+    /// whether a real probe was supplied, exactly as the render gate treats a null block as a
+    /// failure rather than a pass.
+    /// </para>
+    /// </remarks>
+    Task<LongMemEvalSupersessionStore> ReadSupersessionStoreAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalSupersessionStore(0, 0, 0, []));
+
+    /// <summary>
+    /// Classifies what actually sits in fact OBJECTS, to tell "stored at the wrong grain" from
+    /// "never captured".
+    /// </summary>
+    /// <remarks>
+    /// The predicate histogram showed extraction writing speech acts across three unrelated corpora.
+    /// It could not say whether the content survived inside those triples — an amount attached to
+    /// <c>said as much about</c> is a grain problem, an amount nowhere in the store is a capture
+    /// problem, and the two need different fixes. Objects are returned verbatim in samples so the
+    /// classification is eyeballable rather than trusted.
+    /// </remarks>
+    Task<LongMemEvalFactObjectShape> ReadFactObjectShapeAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalFactObjectShape(0, 0, 0, 0, [], [], []));
+
+    /// <summary>
+    /// Finds subject-predicate pairs carrying more than one distinct object, and reports how those
+    /// facts resolve to entities.
+    /// </summary>
+    /// <remarks>
+    /// The condition under which a retrieved amount cannot be attributed: if
+    /// <c>payment | has_amount</c> holds three different values, "what did the payment cost" has no
+    /// single answer however well retrieval performs. Whether those facts reach distinct entities,
+    /// one merged entity, or none separates three different defects with three different fixes.
+    /// </remarks>
+    Task<LongMemEvalSubjectAmbiguity> ReadSubjectAmbiguityAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalSubjectAmbiguity([]));
+
+    /// <summary>
+    /// Of the subject/predicate groups whose objects are amounts, how many hold more than one.
+    /// </summary>
+    /// <remarks>
+    /// The B-vs-C metric, and deliberately narrower than general subject ambiguity: a multi-object
+    /// group is only a defect for a FUNCTIONAL relation, and "this payment's amount" is functional by
+    /// construction. Restricting to amount-valued groups makes the measure functional-only without a
+    /// hand-classified predicate list, which is what the general metric needed and could not have.
+    /// </remarks>
+    Task<LongMemEvalAmountCollision> ReadAmountGroupCollisionAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalAmountCollision(0, 0, 0, 0, []));
+
     Task<LongMemEvalGraphSnapshot> ReadAsync(
         string ownerId,
         CancellationToken cancellationToken = default);
@@ -100,6 +178,183 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
           AND (f.owner_id = $ownerId OR f.owner_id IS NULL)
         RETURN f.predicate_key AS predicateKey, count(f) AS factCount
         """;
+
+    // Deliberately three statements rather than one joined query. A single MATCH over facts AND
+    // edges returns NO ROW at all when the graph holds zero edges, and zero edges is the single most
+    // important thing this can report -- it must arrive as a number, never as an absent row.
+    private const string SupersessionEdgeCountQuery =
+        """
+        MATCH ()-[r:SUPERSEDED_BY]->() RETURN count(r) AS edges
+        """;
+
+    private const string FactShapeQuery =
+        """
+        MATCH (f:Fact)
+        RETURN count(f) AS facts,
+               count(CASE WHEN f.invalidated_at IS NOT NULL THEN 1 END) AS invalidated
+        """;
+
+    private const string PredicateHistogramQuery =
+        """
+        MATCH (f:Fact)
+        RETURN coalesce(f.predicate_key, toLower(f.predicate)) AS predicate, count(f) AS n
+        ORDER BY n DESC LIMIT 15
+        """;
+
+    private const string FactObjectQuery =
+        """
+        MATCH (f:Fact)
+        RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object
+        """;
+
+    // Grouped on the KEYS the store merges on, not on the display strings: two facts differing only
+    // by whitespace or case are one fact to the store, and counting them as two would invent
+    // ambiguity that retrieval never sees.
+    private const string SubjectAmbiguityQuery =
+        """
+        MATCH (f:Fact)
+        WITH f.subject_key AS subjectKey, f.predicate_key AS predicateKey,
+             collect(DISTINCT f.object) AS objects, collect(f) AS facts
+        WHERE size(objects) > 1
+        UNWIND facts AS fact
+        OPTIONAL MATCH (fact)-[:ABOUT]->(e:Entity)
+        WITH subjectKey, predicateKey, objects, head(collect(fact.subject)) AS subject,
+             count(DISTINCT e) AS entities
+        RETURN subject, subjectKey, predicateKey, objects, entities
+        ORDER BY size(objects) DESC LIMIT 12
+        """;
+
+    private const string AmountCollisionQuery =
+        """
+        MATCH (f:Fact)
+        WHERE f.object =~ '.*(\$\s?\d|\d+\.\d{2}).*'
+        WITH f.subject_key AS s, f.predicate_key AS p, f.owner_key AS ow,
+             collect(DISTINCT f.object) AS amounts, head(collect(f.subject)) AS subject
+        RETURN subject, p AS predicate, amounts, size(amounts) AS distinctAmounts
+        ORDER BY distinctAmounts DESC
+        """;
+
+    public async Task<LongMemEvalAmountCollision> ReadAmountGroupCollisionAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+        var rows = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(AmountCollisionQuery).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r => (
+                Subject: r["subject"].As<string>() ?? string.Empty,
+                Predicate: r["predicate"].As<string>() ?? string.Empty,
+                Amounts: r["amounts"].As<List<object>>().Select(a => a?.ToString() ?? "").ToArray(),
+                Distinct: r["distinctAmounts"].As<int>())).ToArray();
+        }).ConfigureAwait(false);
+
+        var colliding = rows.Where(r => r.Distinct > 1).ToArray();
+        // Two denominators, both reported, neither chosen after the fact. GROUPS answers "how many
+        // subjects are overloaded"; FACTS answers "how many amounts sit under an overloaded subject"
+        // and is the one comparable to AgentEval's per-payment calibration (48/48). The group rate is
+        // unstable at small denominators -- a wiring smoke showed 1 of 3 groups holding 8 of 10
+        // amounts -- so reporting only the group rate would understate the collapse it exists to
+        // measure. Both are registered before the paired run so neither can be selected afterwards.
+        var amountFacts = rows.Sum(r => r.Distinct);
+        var collidingFacts = colliding.Sum(r => r.Distinct);
+        var samples = colliding.Take(5)
+            .Select(r => $"\"{Trim(r.Subject)}\" | {r.Predicate} | {r.Distinct} amounts: " +
+                         string.Join(" / ", r.Amounts.Take(4)))
+            .ToArray();
+        return new LongMemEvalAmountCollision(
+            rows.Length, colliding.Length, amountFacts, collidingFacts, samples);
+    }
+
+    public async Task<LongMemEvalSubjectAmbiguity> ReadSubjectAmbiguityAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+        var rows = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(SubjectAmbiguityQuery).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r => new LongMemEvalAmbiguousSubject(
+                r["subject"].As<string>() ?? string.Empty,
+                r["predicateKey"].As<string>() ?? string.Empty,
+                r["objects"].As<List<object>>().Select(o => o?.ToString() ?? string.Empty).ToArray(),
+                r["entities"].As<int>())).ToArray();
+        }).ConfigureAwait(false);
+
+        return new LongMemEvalSubjectAmbiguity(rows);
+    }
+
+    public async Task<LongMemEvalFactObjectShape> ReadFactObjectShapeAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+        var rows = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(FactObjectQuery).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records
+                .Select(r => (
+                    Subject: r["subject"].As<string>() ?? string.Empty,
+                    Predicate: r["predicate"].As<string>() ?? string.Empty,
+                    Object: r["object"].As<string>() ?? string.Empty))
+                .ToArray();
+        }).ConfigureAwait(false);
+
+        // The arithmetic corpus answers in the shape `319.97`, so that is what "amount" means here --
+        // registered before this was written, and deliberately NOT widened to "any digit", which
+        // would count dates and session numbers as money.
+        var amount = new System.Text.RegularExpressions.Regex(
+            @"(\$\s?\d|\d+\.\d{2})", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        var digit = new System.Text.RegularExpressions.Regex(@"\d");
+
+        var amounts = rows.Where(r => amount.IsMatch(r.Object)).ToArray();
+        var numeric = rows.Where(r => !amount.IsMatch(r.Object) && digit.IsMatch(r.Object)).ToArray();
+        var plain = rows.Where(r => !digit.IsMatch(r.Object)).ToArray();
+
+        static IReadOnlyList<string> Sample((string Subject, string Predicate, string Object)[] rows) =>
+            rows.Take(6)
+                .Select(r => $"{Trim(r.Subject)} | {Trim(r.Predicate)} | {Trim(r.Object)}")
+                .ToArray();
+
+        return new LongMemEvalFactObjectShape(
+            rows.Length, amounts.Length, numeric.Length, plain.Length,
+            Sample(amounts), Sample(numeric), Sample(plain));
+    }
+
+    private static string Trim(string value) =>
+        value.Length <= 60 ? value : value[..60] + "…";
+
+    public async Task<LongMemEvalSupersessionStore> ReadSupersessionStoreAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+
+        var edges = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(SupersessionEdgeCountQuery).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
+            return record["edges"].As<int>();
+        }).ConfigureAwait(false);
+
+        var (facts, invalidated) = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(FactShapeQuery).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
+            return (record["facts"].As<int>(), record["invalidated"].As<int>());
+        }).ConfigureAwait(false);
+
+        var predicates = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(PredicateHistogramQuery).ConfigureAwait(false);
+            var rows = await cursor.ToListAsync().ConfigureAwait(false);
+            return rows
+                .Where(row => row["predicate"] is not null)
+                .Select(row => (Predicate: row["predicate"].As<string>(), Count: row["n"].As<int>()))
+                .ToArray();
+        }).ConfigureAwait(false);
+
+        return new LongMemEvalSupersessionStore(edges, facts, invalidated, predicates);
+    }
 
     public async Task<IReadOnlyDictionary<string, int>?> ReadRelationFactCountsAsync(
         string ownerId,
@@ -395,3 +650,57 @@ public sealed record LongMemEvalGraphSnapshot(
         LearnedItemsWithProvenance == LearnedItems &&
         RelationshipsWithProvenance == Relationships;
 }
+
+/// <summary>What the store actually holds after a run, on the supersession axis.</summary>
+/// <param name="SupersededByEdges">
+/// The number that decides whether an arm measured anything. Zero means write-time supersession
+/// never ran, and every score from that arm is an off-state score however the flag was set.
+/// </param>
+/// <param name="Facts">Total facts stored.</param>
+/// <param name="InvalidatedFacts">Facts carrying <c>invalidated_at</c>.</param>
+/// <param name="TopPredicates">
+/// The most common predicates extraction produced. Present because a zero edge count is a symptom
+/// and this is the diagnosis: supersession is refused for any predicate outside the six the relation
+/// vocabulary declares single-valued, so the histogram shows immediately whether a corpus can
+/// exercise the mechanism at all.
+/// </param>
+internal sealed record LongMemEvalSupersessionStore(
+    int SupersededByEdges,
+    int Facts,
+    int InvalidatedFacts,
+    IReadOnlyList<(string Predicate, int Count)> TopPredicates);
+
+/// <summary>What kind of content reaches fact objects.</summary>
+/// <param name="AmountBearing">
+/// Objects carrying a value in the arithmetic corpus's own answer shape. <b>Presence, not
+/// dominance, is the test</b>: one confirmed amount settles "stored at the wrong grain" against
+/// "never captured", which is why no threshold was registered and none may be invented afterwards.
+/// </param>
+internal sealed record LongMemEvalFactObjectShape(
+    int Facts,
+    int AmountBearing,
+    int OtherNumeric,
+    int NonNumeric,
+    IReadOnlyList<string> AmountSamples,
+    IReadOnlyList<string> NumericSamples,
+    IReadOnlyList<string> NonNumericSamples);
+
+/// <summary>One subject-predicate pair holding more than one distinct object.</summary>
+/// <param name="DistinctEntities">
+/// How many <c>:Entity</c> nodes the facts reach through <c>ABOUT</c>. Several means the entities
+/// were separated and only the subject STRING is under-specified; one means resolution merged
+/// things that differ; zero means the triples are about nobody. Three defects, three fixes.
+/// </param>
+internal sealed record LongMemEvalAmbiguousSubject(
+    string Subject, string PredicateKey, IReadOnlyList<string> Objects, int DistinctEntities);
+
+/// <summary>Whether a retrieved value can be attributed to the thing it belongs to.</summary>
+internal sealed record LongMemEvalSubjectAmbiguity(IReadOnlyList<LongMemEvalAmbiguousSubject> Pairs);
+
+/// <summary>Whether amounts collide under a shared subject — the Cell B vs Cell C measure.</summary>
+internal sealed record LongMemEvalAmountCollision(
+    int AmountGroups,
+    int CollidingGroups,
+    int AmountFacts,
+    int CollidingFacts,
+    IReadOnlyList<string> Samples);
