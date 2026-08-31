@@ -60,6 +60,8 @@ internal static class TypedMemEvalProgram
         "--supersede-replaced-facts",
         // 30.9d. Renders the chains --supersede-replaced-facts writes. Only informative together.
         "--resolve-supersessions",
+        // Stage 1 of the three-stage run protocol. Spends nothing.
+        "--dry-run",
     ];
 
     public static async Task<int> RunAsync(string[] args)
@@ -67,6 +69,11 @@ internal static class TypedMemEvalProgram
         try
         {
             var options = Parse(args);
+
+            // STAGE 1 runs BEFORE any client, container or credential read. It sat after the profile
+            // started in its first version, which booted Neo4j for a check that is supposed to cost
+            // nothing -- a dry run that spends anything is not the thing the protocol asked for.
+            if (options.DryRun) return DryRun(options);
 
             var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
             var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
@@ -162,6 +169,11 @@ internal static class TypedMemEvalProgram
         LongMemEvalVectorYieldListener? vectorYield)
     {
         var descriptor = TypedMemEvalVerticals.For(vertical);
+
+        // STAGE 1 of the three-stage run protocol: prove the corpus loads, the selection is what the
+        // seed says it is, and the arm is what was asked for -- before a single paid call. Built into
+        // the verb rather than kept as a side-script, because a side-script proves things about the
+        // side-script and not about the path the real run takes.
         var results = new List<ExternalBenchmarkResult>(options.Runs);
         for (var runIndex = 1; runIndex <= options.Runs; runIndex++)
         {
@@ -484,6 +496,52 @@ internal static class TypedMemEvalProgram
     }
 
     /// <summary>Announces what supersession actually wrote, loudly when it wrote nothing.</summary>
+    /// <summary>Stage 1 of the three-stage run protocol: prove the corpus, spend nothing.</summary>
+    /// <remarks>
+    /// Uses <c>TypedMemEvalCorpus.Load</c> through the same option mapping the real run uses, so it
+    /// proves the corpus the run will actually read rather than a simulation of it — and it runs
+    /// before any client or container exists, so "nothing spent" includes time.
+    /// </remarks>
+    private static int DryRun(TypedMemEvalRunOptions options)
+    {
+        foreach (var vertical in options.Verticals)
+        {
+            var descriptor = TypedMemEvalVerticals.For(vertical);
+            var mapped = TypedMemEvalOptionMapping.ToExternalOptions(BuildFacade(options), descriptor);
+            var entries = TypedMemEvalCorpus.Load(vertical, mapped);
+
+            Console.WriteLine(
+                $"typedmemeval: DRY RUN — {descriptor.DisplayName}, arm {options.Arm.FileToken()}, " +
+                $"seed {options.RandomSeed?.ToString(CultureInfo.InvariantCulture) ?? "unseeded"}, " +
+                $"{entries.Count} question(s) selected.");
+
+            // Containment precondition: an empty selection cannot measure anything, and a window
+            // holding none of the phenomenon has already cost this project a paid run.
+            if (entries.Count == 0)
+            {
+                Console.Error.WriteLine(
+                    $"typedmemeval: ABORT — {descriptor.Slug} selects NO questions under this seed " +
+                    "and cap, so the run would measure nothing. Fix the selection before spending.");
+                return 2;
+            }
+
+            foreach (var group in entries
+                .GroupBy(entry => entry.QuestionType ?? "(none)")
+                .OrderByDescending(group => group.Count()))
+            {
+                Console.WriteLine($"typedmemeval:   shape {group.Key}: {group.Count()}");
+            }
+
+            Console.WriteLine($"typedmemeval:   e.g. \"{Truncate(entries[0].Question)}\"");
+        }
+
+        Console.WriteLine("typedmemeval: DRY RUN COMPLETE — nothing spent.");
+        return 0;
+    }
+
+    private static string Truncate(string value) =>
+        value.Length <= 100 ? value : value[..100] + "…";
+
     private static void PrintSupersessionStore(LongMemEvalSupersessionStore? store)
     {
         if (store is null) return;
@@ -671,7 +729,8 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--supersede-replaced-facts") >= 0,
             ParseEvidenceDetail(Value("--evidence-detail")),
             Array.IndexOf(args, "--fact-weighted-budget") >= 0,
-            Array.IndexOf(args, "--resolve-supersessions") >= 0);
+            Array.IndexOf(args, "--resolve-supersessions") >= 0,
+            Array.IndexOf(args, "--dry-run") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -803,7 +862,9 @@ internal static class TypedMemEvalProgram
         // MemoryProjectionOptions.ResolveSupersessions = false, and never set by any harness -- so
         // every scored run rendered supersession chains DARK. Appended last for the positional-safety
         // reason documented on TypedMemEvalArm.ResolveSupersessions.
-        bool ResolveSupersessions)
+        bool ResolveSupersessions,
+        // Stage 1 of the three-stage protocol; spends nothing and exits before the profile starts.
+        bool DryRun)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
