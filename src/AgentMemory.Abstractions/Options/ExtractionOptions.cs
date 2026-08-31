@@ -94,6 +94,20 @@ public sealed class ExtractionOptions
     /// <c>IFactRepository.FindSupersededCandidatesAsync</c>; one that does not simply keeps appending.
     /// </para>
     /// </remarks>
+    /// <remarks>
+    /// <b>This only applies to predicates the relation vocabulary declares SINGLE-VALUED</b>
+    /// (functional relations, where a subject holds at most one live value). A predicate outside that
+    /// set — including any free-form phrasing an extractor invents, such as <c>"was at"</c>,
+    /// <c>"assigned to"</c> or <c>"department"</c> — is refused, silently as far as the graph is
+    /// concerned: no <c>:SUPERSEDED_BY</c> edge is written and no <c>invalidated_at</c> is stamped.
+    /// <para>
+    /// So enabling this against free-form predicates leaves the feature <b>on and inert</b>. The
+    /// library now says so — a debug line per refusal naming the predicate and the qualifying set, and
+    /// one warning per batch when the option is enabled and nothing qualified. If you see that
+    /// warning, either the extraction needs to canonicalise its predicates into the vocabulary, or
+    /// supersession does not apply to your material.
+    /// </para>
+    /// </remarks>
     public bool SupersedeReplacedFacts { get; set; }
 
     /// <summary>
