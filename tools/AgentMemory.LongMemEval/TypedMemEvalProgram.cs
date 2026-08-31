@@ -495,7 +495,6 @@ internal static class TypedMemEvalProgram
         }
     }
 
-    /// <summary>Announces what supersession actually wrote, loudly when it wrote nothing.</summary>
     /// <summary>Stage 1 of the three-stage run protocol: prove the corpus, spend nothing.</summary>
     /// <remarks>
     /// Uses <c>TypedMemEvalCorpus.Load</c> through the same option mapping the real run uses, so it
@@ -542,6 +541,7 @@ internal static class TypedMemEvalProgram
     private static string Truncate(string value) =>
         value.Length <= 100 ? value : value[..100] + "…";
 
+    /// <summary>Announces what supersession actually wrote, loudly when it wrote nothing.</summary>
     private static void PrintSupersessionStore(LongMemEvalSupersessionStore? store)
     {
         if (store is null) return;
