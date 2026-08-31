@@ -367,7 +367,6 @@ internal static class LongMemEvalPostRunDiagnostics
     }
 
 
-    /// <summary>The leading letter-token of a judge explanation, capped, for diagnostics only.</summary>
     /// <summary>
     /// The leading letter-token after a short <c>Judge:</c>-style label, or null when there is none.
     /// </summary>
@@ -392,6 +391,7 @@ internal static class LongMemEvalPostRunDiagnostics
         return LeadingToken(value[(colon + 1)..].Trim());
     }
 
+    /// <summary>The leading letter-token of a judge explanation, capped, for diagnostics only.</summary>
     private static string LeadingToken(string? explanation)
     {
         if (string.IsNullOrWhiteSpace(explanation))

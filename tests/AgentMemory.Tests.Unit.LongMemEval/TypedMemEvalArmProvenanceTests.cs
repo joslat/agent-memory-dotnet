@@ -182,7 +182,8 @@ public sealed class TypedMemEvalArmProvenanceTests
             SupersedeReplacedFacts: false,
             EvidenceDetail: LongMemEvalEvidenceDetail.Identifiers,
             FactWeightedBudget: true,
-            ResolveSupersessions: false);
+            ResolveSupersessions: false,
+            DryRun: false);
 
         var arm = options.Arm;
 

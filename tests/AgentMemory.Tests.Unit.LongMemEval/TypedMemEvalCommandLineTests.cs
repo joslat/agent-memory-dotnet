@@ -187,6 +187,8 @@ public sealed class TypedMemEvalCommandLineTests
             // measures an off-state. Both must be nameable, or the pair is indistinguishable again.
             ["--resolve-supersessions"] = "ResolveSupersessions",
             ["--fact-weighted-budget"] = "FactWeightedBudget",
+            // Stage 1 of the three-stage run protocol. Advertised, so it must be carried.
+            ["--dry-run"] = "DryRun",
         };
 
         TypedMemEvalProgram.KnownOptions.Should().BeEquivalentTo(
