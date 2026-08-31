@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
@@ -81,7 +80,9 @@ public sealed class WriteTimeSupersessionTests
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = [];
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool DebugEnabled { get; set; } = true;
+        public bool IsEnabled(LogLevel logLevel) =>
+            logLevel != LogLevel.Debug || DebugEnabled;
         public void Log<TState>(
             LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter) =>
@@ -271,5 +272,23 @@ public sealed class WriteTimeSupersessionTests
         await CreateSut(supersede: false).PersistAsync(Incoming("was at", "Zurich"), ownerId: "alice");
 
         _log.Entries.Should().NotContain(e => e.Level == LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task TheDebugRefusalIsNotBuiltWhenDebugIsDisabled()
+    {
+        // It runs once per refused fact, so on an ingestion where nothing qualifies it runs once per
+        // fact. Formatting the relation list each time would be a cost paid for output nobody reads.
+        _log.DebugEnabled = false;
+
+        await CreateSut(supersede: true).PersistAsync(Incoming("was at", "Zurich"), ownerId: "alice");
+
+        // Asserted against the REFUSAL message, not "no Debug at all": this stage also logs an
+        // unrelated per-fact "Persisted fact" line, and the capturing logger records what it is given
+        // rather than re-checking IsEnabled the way a real provider would.
+        _log.Entries.Should().NotContain(e => e.Message.Contains("Supersession skipped"),
+            "the guarded branch must not build its message when Debug is off");
+        _log.Entries.Should().Contain(e => e.Level == LogLevel.Warning,
+            "the batch warning fires at most once and must survive Debug being off");
     }
 }

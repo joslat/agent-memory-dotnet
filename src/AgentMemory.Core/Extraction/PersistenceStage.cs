@@ -429,12 +429,21 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             if (!WriteTimeFactResolution.CanSupersede(winner))
             {
                 supersessionRefusals++;
-                _logger.LogDebug(
-                    "Supersession skipped for '{S} {P} {O}': predicate '{P}' is not declared "
-                    + "single-valued, so at most one live value per subject is not assumed. "
-                    + "Single-valued relations: {Known}.",
-                    winner.Subject, winner.Predicate, winner.Object, winner.Predicate,
-                    string.Join(", ", MemoryRelationCardinality.SingleValuedPredicates));
+                // Guarded, because the arguments are evaluated whether or not Debug is enabled: this
+                // runs once per refused fact, and on an ingestion where NOTHING qualifies that is once
+                // per fact in the batch. Joining the relation list each time would be a real cost paid
+                // for output nobody is reading. The batch warning below is unguarded on purpose --
+                // it fires at most once and only when something is wrong.
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(
+                        "Supersession skipped for '{Subject} {Predicate} {Object}': predicate is not "
+                        + "declared single-valued, so at most one live value per subject is not "
+                        + "assumed. Single-valued relations: {Known}.",
+                        winner.Subject, winner.Predicate, winner.Object,
+                        string.Join(", ", MemoryRelationCardinality.SingleValuedPredicates));
+                }
+
                 return;
             }
 
