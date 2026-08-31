@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Memory;
 using AgentMemory.Core.Services;
 
 namespace AgentMemory.Core.Extraction;
@@ -308,6 +309,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
         // 2. Embed + upsert facts.
         var persistedFactCount = 0;
+        // Counted so the batch can say whether the lever did anything at all -- the "you turned this
+        // on and it was inert" signal that took a week and four scored runs to notice its absence.
+        var supersessionEligible = 0;
+        var supersessionRefusals = 0;
 
         async Task<(Fact Item, string SourceKey)?> PrepareFactAsync(PreparedFact preparedFact)
         {
@@ -410,8 +415,30 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // precision in live recall, while failing the ingestion over it would lose the memory itself.
         async Task SupersedeReplacedFactsAsync(Fact winner)
         {
-            if (!_options.SupersedeReplacedFacts || !WriteTimeFactResolution.CanSupersede(winner))
+            if (!_options.SupersedeReplacedFacts) return;
+
+            // The silent no-op this closes. `CanSupersede` requires the predicate to be one of the
+            // relations the vocabulary declares single-valued, and it is FALSE for anything
+            // unrecognised -- so a caller who enables SupersedeReplacedFacts against free-form
+            // predicates ("was at", "assigned to", "department") gets a feature that is on and inert,
+            // writes no :SUPERSEDED_BY edge, and says nothing about it anywhere.
+            //
+            // That is not hypothetical: a benchmark ran four scored arms against it before the cause
+            // was found, and only because the graph could be queried directly. A consumer has no such
+            // recourse, so the refusal is now observable.
+            if (!WriteTimeFactResolution.CanSupersede(winner))
+            {
+                supersessionRefusals++;
+                _logger.LogDebug(
+                    "Supersession skipped for '{S} {P} {O}': predicate '{P}' is not declared "
+                    + "single-valued, so at most one live value per subject is not assumed. "
+                    + "Single-valued relations: {Known}.",
+                    winner.Subject, winner.Predicate, winner.Object, winner.Predicate,
+                    string.Join(", ", MemoryRelationCardinality.SingleValuedPredicates));
                 return;
+            }
+
+            supersessionEligible++;
 
             var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
             try
@@ -763,6 +790,22 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             foreach (var input in relationshipInputs)
                 await PersistRelationshipIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
         }
+        // The batch-level signal. Debug-level per-fact logging tells you WHY once you are already
+        // looking; this is what makes you look. Warned once per batch rather than per fact so a large
+        // ingestion cannot bury it, and only when the option was actually asked for -- a warning on a
+        // feature nobody enabled is how warnings stop being read.
+        if (_options.SupersedeReplacedFacts && supersessionEligible == 0 && supersessionRefusals > 0)
+        {
+            _logger.LogWarning(
+                "SupersedeReplacedFacts is ENABLED but none of the {Refused} fact(s) in this batch "
+                + "had a predicate declared single-valued, so NO supersession was attempted and no "
+                + ":SUPERSEDED_BY edge was written. The feature is on and inert for this content. "
+                + "Single-valued relations: {Known}. Either the extracted predicates need to "
+                + "canonicalise into that set, or supersession does not apply to this material.",
+                supersessionRefusals,
+                string.Join(", ", MemoryRelationCardinality.SingleValuedPredicates));
+        }
+
         return new PersistenceResult
         {
             EntityCount = persistedEntityMap.Count,

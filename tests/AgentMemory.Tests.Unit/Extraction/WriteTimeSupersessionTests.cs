@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
@@ -73,9 +74,23 @@ public sealed class WriteTimeSupersessionTests
         CreatedAtUtc = DateTimeOffset.UnixEpoch,
     };
 
+    private readonly CapturingLogger _log = new();
+
+    /// <summary>A logger that keeps what was written, so "it said nothing" is testable.</summary>
+    private sealed class CapturingLogger : ILogger<PersistenceStage>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
+    }
+
     private PersistenceStage CreateSut(bool supersede) =>
         new(_orchestrator, _entityRepo, _factRepo, _prefRepo, _relRepo, _clock, _idGen,
-            NullLogger<PersistenceStage>.Instance,
+            _log,
             new PassThroughMemoryPersistenceTransaction(),
             Options.Create(new ExtractionOptions
             {
@@ -208,5 +223,53 @@ public sealed class WriteTimeSupersessionTests
         functional.Should().HaveCountLessThan(12,
             "each entry licenses closing a fact; a large set means someone stopped thinking about it");
         functional.Should().NotContain("likes").And.NotContain("owns").And.NotContain("visited");
+    }
+
+    // ── half three: the refusal is observable ─────────────────────────────
+
+    [Fact]
+    public async Task AnUnrecognisedPredicateWarnsThatTheFeatureIsOnAndInert()
+    {
+        // The silent no-op this closes. A caller enables supersession, their extractor writes
+        // free-form predicates, nothing qualifies, no edge is written -- and before this, nothing
+        // anywhere said so. A benchmark ran four scored arms against exactly that before the cause
+        // was found, and only because the graph could be queried directly.
+        await CreateSut(supersede: true).PersistAsync(Incoming("was at", "Zurich"), ownerId: "alice");
+
+        _superseded.Should().BeEmpty("'was at' is not declared single-valued");
+        _log.Entries.Should().Contain(e =>
+            e.Level == LogLevel.Warning && e.Message.Contains("ENABLED but none of the"),
+            "a feature that is on and doing nothing must say so");
+        _log.Entries.Should().Contain(e => e.Message.Contains("lives in"),
+            "the warning names the qualifying relations so the reader can act on it");
+    }
+
+    [Fact]
+    public async Task TheRefusalNamesThePredicateItRefused()
+    {
+        await CreateSut(supersede: true).PersistAsync(Incoming("was at", "Zurich"), ownerId: "alice");
+
+        _log.Entries.Should().Contain(e =>
+            e.Level == LogLevel.Debug && e.Message.Contains("was at"),
+            "per-fact detail is what makes the batch warning actionable");
+    }
+
+    [Fact]
+    public async Task AQualifyingPredicateDoesNotWarn()
+    {
+        // The counter-check: a warning that fires when the feature IS working would train the reader
+        // to ignore it, which is how a signal stops being a signal.
+        await CreateSut(supersede: true).PersistAsync(Incoming("lives in", "Zurich"), ownerId: "alice");
+
+        _log.Entries.Should().NotContain(e => e.Level == LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task TheFeatureBeingOffIsSilent()
+    {
+        // Nobody asked for supersession, so nobody is told it did not happen.
+        await CreateSut(supersede: false).PersistAsync(Incoming("was at", "Zurich"), ownerId: "alice");
+
+        _log.Entries.Should().NotContain(e => e.Level == LogLevel.Warning);
     }
 }
