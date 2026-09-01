@@ -131,6 +131,27 @@ public class TypedMemEvalReplayAdapterTests
     }
 
     [Fact]
+    public async Task PositionKeyingCannotDetectAGoldThatMovedBehindUnchangedText()
+    {
+        // Documents the LIMIT of this adapter, and why the re-grade needs a corpus-sha gate above it.
+        // AgentEval redraws corpora keeping the question_id set identical with zero byte-identical
+        // items; for bitemporal, 27 of 60 keep the SAME question text with a DIFFERENT gold. The
+        // replay verifies text per position and is therefore blind to exactly that case -- it will
+        // happily replay, and the answers will be graded against keys they were never produced for.
+        //
+        // This test asserts the blindness rather than pretending it away: the guard that catches it
+        // lives in TypedMemEvalRegradeProgram, which compares corpus_sha256 before spending.
+        var adapter = Adapter(("Which department was Colm Whitaker at in February?", "Lowick"));
+
+        var response = await adapter.InvokeAsync("Which department was Colm Whitaker at in February?");
+
+        response.Text.Should().Be("Lowick");
+        adapter.OrderingMismatches.Should().BeEmpty(
+            "identical text passes the positional check no matter what the gold now says — which is "
+            + "why corpus identity must be established before the replay runs at all");
+    }
+
+    [Fact]
     public async Task TheHistoryHooksAreInertAndDoNotDisturbReplay()
     {
         // Implemented only so the runner takes the same branches it takes for the real adapter. If
