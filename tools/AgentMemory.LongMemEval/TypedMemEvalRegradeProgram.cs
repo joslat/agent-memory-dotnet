@@ -98,6 +98,53 @@ internal static class TypedMemEvalRegradeProgram
                 .Vertical;
             var armToken = sidecar.RootElement.GetProperty("arm").GetProperty("token").GetString();
 
+            // CORPUS IDENTITY GATE, checked before a single judge call.
+            //
+            // AgentEval redraws corpora keeping the question_id set 100% IDENTICAL with ZERO
+            // byte-identical items, and neither corpus_id nor revision moves either -- corpus_sha256
+            // is the ONLY distinguishing field. For bitemporal, 27 of 60 items keep the SAME question
+            // text and carry a DIFFERENT gold.
+            //
+            // That defeats the protection this program already had. The replay is position-keyed and
+            // verifies the question TEXT at each position, which catches a redraw that reworded
+            // anything -- and catches nothing at all when the text is stable and only the gold moved.
+            // Re-grading across such a redraw would replay the right answers against the wrong keys
+            // and report an agreement rate that means nothing.
+            var storedCorpusSha =
+                report.RootElement.TryGetProperty("TypedOutcomes", out var outcomes)
+                && outcomes.ValueKind == JsonValueKind.Object
+                && outcomes.TryGetProperty("CorpusSha256", out var sha)
+                && sha.ValueKind == JsonValueKind.String
+                    // ValueKind-checked rather than GetString()-and-hope: a null, number or object
+                    // here would throw and kill the tool on a malformed or older artifact, and this
+                    // gate's whole job is to fail SAFELY before anything is spent.
+                    ? sha.GetString() is { Length: > 0 } value ? value.Trim() : null
+                    : null;
+            var currentCorpusSha = CurrentCorpusSha(verticalSlug);
+
+            if (storedCorpusSha is null)
+            {
+                // Not fatal, and deliberately so: artifacts predating provenance capture are still
+                // re-gradable. But it is the one case where nothing can be verified, so it is said
+                // out loud rather than passing quietly.
+                Console.WriteLine(
+                    "regrade: WARNING the stored artifact records no corpus sha, so corpus identity " +
+                    "CANNOT be verified. If it predates the current corpus, the replay may grade " +
+                    "against different gold behind identical question text.");
+            }
+            else if (currentCorpusSha is not null &&
+                     !string.Equals(storedCorpusSha, currentCorpusSha, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine(
+                    $"regrade: ABORT — corpus mismatch. The artifact was produced against " +
+                    $"{storedCorpusSha[..16]}… and this build carries {currentCorpusSha[..16]}…. " +
+                    "Question ids and text are NOT sufficient to detect this: corpora are redrawn " +
+                    "keeping ids identical, and gold can move behind unchanged text. Re-grade with " +
+                    "the package the artifact was produced against.");
+                return 5;
+            }
+
+
             Console.WriteLine(
                 $"regrade: source {Path.GetFileName(reportPath)} — vertical {verticalSlug}, " +
                 $"arm {armToken}, {storedRows.Count} stored answers replayed in artifact order");
@@ -299,6 +346,35 @@ internal static class TypedMemEvalRegradeProgram
         File.WriteAllText(
             sidecarPath,
             node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
+    }
+
+    /// <summary>The sha256 of the corpus this build actually carries, or null if not found.</summary>
+    /// <remarks>
+    /// Hashed from the embedded resource rather than read from a manifest, so it is the bytes the run
+    /// would use and not a claim about them. Null when the resource cannot be located, which is
+    /// treated as "cannot verify" rather than as "matches".
+    /// </remarks>
+    private static string? CurrentCorpusSha(string verticalSlug)
+    {
+        var assembly = typeof(TypedMemEvalRunner).Assembly;
+        var matches = assembly.GetManifestResourceNames().Where(resource =>
+                resource.Contains($".{verticalSlug}.", StringComparison.OrdinalIgnoreCase)
+                && resource.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                && !resource.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        // Exactly one, or nothing. FirstOrDefault would resolve an ambiguity by manifest ordering,
+        // which is not guaranteed -- and a gate that picks a different corpus on a different run is
+        // worse than no gate, because it looks like it verified something.
+        if (matches.Length != 1) return null;
+
+        using var stream = assembly.GetManifestResourceStream(matches[0]);
+        if (stream is null) return null;
+
+        // Hashed straight off the stream: the corpora run to ~1.5 MB and buffering them twice to
+        // compute a digest is allocation for nothing.
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream))
+            .ToLowerInvariant();
     }
 
     private static string AgentEvalVersion() =>
