@@ -33,23 +33,28 @@ public class FacadeCallerFeedsTests
     /// <summary>Set by <c>BuildFacade</c> from a run option.</summary>
     private static readonly HashSet<string> Fed = new(StringComparer.Ordinal)
     {
-        "MaxQuestions", "RandomSeed", "AnswerSeed", "TemporalGrounding", "ControlArm",
+        nameof(TypedMemEvalOptions.MaxQuestions),
+        nameof(TypedMemEvalOptions.RandomSeed),
+        nameof(TypedMemEvalOptions.AnswerSeed),
+        nameof(TypedMemEvalOptions.TemporalGrounding),
+        nameof(TypedMemEvalOptions.ControlArm),
         // Added when this test was written: --evidence-detail previously reached the adapter only.
-        "EvidenceCaptureMode", "EvidenceTopK",
+        nameof(TypedMemEvalOptions.EvidenceCaptureMode),
+        nameof(TypedMemEvalOptions.EvidenceTopK),
     };
 
     /// <summary>Deliberately left at the runner's default, with the reason recorded.</summary>
     private static readonly Dictionary<string, string> IntentionallyDefaulted = new(StringComparer.Ordinal)
     {
-        ["AnswerTemperature"] = "answer determinism is controlled through the chat client, not here",
-        ["HistoryInjectionMode"] = "the adapter implements the timestamped interface; the runner picks",
-        ["IncludeTimestamps"] = "subsumed by TemporalGrounding, which this facade does set",
-        ["JudgeTemperature"] = "judge configuration is AgentEval's to own; we grade with their defaults",
-        ["JudgeMaxOutputTokens"] = "as above",
-        ["MaxJudgeRetries"] = "as above — and a retry count we chose would make our scores incomparable",
-        ["JudgeFailurePolicy"] = "as above",
-        ["JudgeEvidenceMode"] = "as above",
-        ["RetainRawJudgeResponse"] = "raw judge text is theirs; our artifacts carry verdicts, not prose",
+        [nameof(TypedMemEvalOptions.AnswerTemperature)] = "answer determinism is controlled through the chat client, not here",
+        [nameof(TypedMemEvalOptions.HistoryInjectionMode)] = "the adapter implements the timestamped interface; the runner picks",
+        [nameof(TypedMemEvalOptions.IncludeTimestamps)] = "subsumed by TemporalGrounding, which this facade does set",
+        [nameof(TypedMemEvalOptions.JudgeTemperature)] = "judge configuration is AgentEval's to own; we grade with their defaults",
+        [nameof(TypedMemEvalOptions.JudgeMaxOutputTokens)] = "as above",
+        [nameof(TypedMemEvalOptions.MaxJudgeRetries)] = "as above — and a retry count we chose would make our scores incomparable",
+        [nameof(TypedMemEvalOptions.JudgeFailurePolicy)] = "as above",
+        [nameof(TypedMemEvalOptions.JudgeEvidenceMode)] = "as above",
+        [nameof(TypedMemEvalOptions.RetainRawJudgeResponse)] = "raw judge text is theirs; our artifacts carry verdicts, not prose",
     };
 
     [Fact]
@@ -73,9 +78,14 @@ public class FacadeCallerFeedsTests
     }
 
     [Fact]
-    public void TheEvidenceFlagReachesTheRunnerAndNotOnlyTheAdapter()
+    public void BuildFacadeItselfCarriesTheEvidenceModeToTheRunner()
     {
-        // The concrete regression. Before the fix this property was default regardless of the flag.
+        // The first version of this asserted the MAPPING FUNCTION and not the assignment, so deleting
+        // the line in BuildFacade would have left it green -- a guard that cannot come out the other
+        // way, in the very test written to enforce that rule. It now calls BuildFacade.
+        //
+        // A [Fact] with a loop rather than a [Theory]: xUnit requires a public test class, and the
+        // detail enum is internal, so it cannot appear in a public method signature.
         foreach (var (detail, expected) in new[]
         {
             (LongMemEvalEvidenceDetail.None, EvidenceCaptureMode.None),
@@ -83,7 +93,23 @@ public class FacadeCallerFeedsTests
             (LongMemEvalEvidenceDetail.Content, EvidenceCaptureMode.Full),
         })
         {
-            LongMemEvalBenchmarkProtocol.CaptureModeFor(detail).Should().Be(expected);
+            TypedMemEvalProgram.BuildFacade(Options(detail)).EvidenceCaptureMode
+                .Should().Be(expected, "detail {0} must reach the runner", detail);
         }
     }
+
+    [Fact]
+    public void BuildFacadeCarriesAnEvidenceTopK()
+    {
+        TypedMemEvalProgram.BuildFacade(Options(LongMemEvalEvidenceDetail.Identifiers))
+            .EvidenceTopK.Should().BeGreaterThan(0,
+                "zero would silently capture no evidence while looking configured");
+    }
+
+    private static TypedMemEvalProgram.TypedMemEvalRunOptions Options(
+        LongMemEvalEvidenceDetail detail) => new(
+        [TypedMemEvalVertical.Arithmetic], MaxQuestions: null, RandomSeed: 1, AnswerSeed: null,
+        Runs: 1, Oracle: false, Control: false, Phase30: PhaseThirtyFeatures.AllOff,
+        RescueShortOwnerResults: false, SupersedeReplacedFacts: false, EvidenceDetail: detail,
+        FactWeightedBudget: false, ResolveSupersessions: false, DryRun: false);
 }

@@ -282,7 +282,8 @@ internal static class TypedMemEvalProgram
         return results;
     }
 
-    private static TypedMemEvalOptions BuildFacade(TypedMemEvalRunOptions options) => new()
+    /// <summary>Internal so the caller-feeds guard can assert the real assignment, not a proxy.</summary>
+    internal static TypedMemEvalOptions BuildFacade(TypedMemEvalRunOptions options) => new()
     {
         MaxQuestions = options.MaxQuestions,
         RandomSeed = options.RandomSeed,
