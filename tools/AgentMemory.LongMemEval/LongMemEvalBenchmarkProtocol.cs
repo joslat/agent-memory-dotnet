@@ -73,14 +73,23 @@ internal static class LongMemEvalBenchmarkProtocol
             // messages were this boilerplate, and it read as a defect in OUR retrieval for weeks.
             // Empty marker == omit. Default keeps the historical text so sealed bases stay comparable.
             SyntheticTurnMarker = suppressSyntheticBoundaries ? string.Empty : null,
-            EvidenceCaptureMode = evidenceDetail switch
-            {
-                LongMemEvalEvidenceDetail.None => EvidenceCaptureMode.None,
-                LongMemEvalEvidenceDetail.Identifiers => EvidenceCaptureMode.References,
-                LongMemEvalEvidenceDetail.Content => EvidenceCaptureMode.Full,
-                _ => throw new ArgumentOutOfRangeException(nameof(evidenceDetail))
-            },
+            EvidenceCaptureMode = CaptureModeFor(evidenceDetail),
             EvidenceTopK = maxRelevantMessages
+        };
+
+    /// <summary>Maps our evidence-detail flag onto the runner's capture mode.</summary>
+    /// <remarks>
+    /// Shared rather than duplicated because it was duplicated by omission once already: the
+    /// typedmemeval verb's facade never set <c>EvidenceCaptureMode</c> at all, so `--evidence-detail`
+    /// fed the adapter and left the runner on its default. One definition, two callers.
+    /// </remarks>
+    internal static EvidenceCaptureMode CaptureModeFor(LongMemEvalEvidenceDetail evidenceDetail) =>
+        evidenceDetail switch
+        {
+            LongMemEvalEvidenceDetail.None => EvidenceCaptureMode.None,
+            LongMemEvalEvidenceDetail.Identifiers => EvidenceCaptureMode.References,
+            LongMemEvalEvidenceDetail.Content => EvidenceCaptureMode.Full,
+            _ => throw new ArgumentOutOfRangeException(nameof(evidenceDetail))
         };
 
     internal static IReadOnlyList<(string UserMessage, string AssistantResponse)> History(

@@ -282,7 +282,8 @@ internal static class TypedMemEvalProgram
         return results;
     }
 
-    private static TypedMemEvalOptions BuildFacade(TypedMemEvalRunOptions options) => new()
+    /// <summary>Internal so the caller-feeds guard can assert the real assignment, not a proxy.</summary>
+    internal static TypedMemEvalOptions BuildFacade(TypedMemEvalRunOptions options) => new()
     {
         MaxQuestions = options.MaxQuestions,
         RandomSeed = options.RandomSeed,
@@ -291,7 +292,14 @@ internal static class TypedMemEvalProgram
         // family's published pairing: same corpus, same hash, dates re-added to the text, and the
         // run labelled so it can never be banded with the probe by accident.
         TemporalGrounding = options.Control ? TemporalGroundingMode.TimestampsAndText : null,
-        ControlArm = options.Control
+        ControlArm = options.Control,
+        // These two were NEVER SET, and `--evidence-detail` therefore only did half its job on this
+        // verb: it reached the adapter (which builds our own evidence view) and left the RUNNER's
+        // capture mode on its default, even though TypedMemEvalOptionMapping reads it and passes it
+        // straight through. A flag that configures one of two consumers is the same reachable-but-not-
+        // fed shape this project has now found on four codepaths.
+        EvidenceCaptureMode = LongMemEvalBenchmarkProtocol.CaptureModeFor(options.EvidenceDetail),
+        EvidenceTopK = DefaultMaxRelevant,
     };
 
     /// <summary>
