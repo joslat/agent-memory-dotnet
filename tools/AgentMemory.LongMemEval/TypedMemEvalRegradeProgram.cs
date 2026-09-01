@@ -114,7 +114,11 @@ internal static class TypedMemEvalRegradeProgram
                 report.RootElement.TryGetProperty("TypedOutcomes", out var outcomes)
                 && outcomes.ValueKind == JsonValueKind.Object
                 && outcomes.TryGetProperty("CorpusSha256", out var sha)
-                    ? sha.GetString()
+                && sha.ValueKind == JsonValueKind.String
+                    // ValueKind-checked rather than GetString()-and-hope: a null, number or object
+                    // here would throw and kill the tool on a malformed or older artifact, and this
+                    // gate's whole job is to fail SAFELY before anything is spent.
+                    ? sha.GetString() is { Length: > 0 } value ? value.Trim() : null
                     : null;
             var currentCorpusSha = CurrentCorpusSha(verticalSlug);
 
@@ -353,18 +357,23 @@ internal static class TypedMemEvalRegradeProgram
     private static string? CurrentCorpusSha(string verticalSlug)
     {
         var assembly = typeof(TypedMemEvalRunner).Assembly;
-        var name = assembly.GetManifestResourceNames().FirstOrDefault(resource =>
-            resource.Contains($".{verticalSlug}.", StringComparison.OrdinalIgnoreCase)
-            && resource.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
-            && !resource.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase));
-        if (name is null) return null;
+        var matches = assembly.GetManifestResourceNames().Where(resource =>
+                resource.Contains($".{verticalSlug}.", StringComparison.OrdinalIgnoreCase)
+                && resource.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                && !resource.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
 
-        using var stream = assembly.GetManifestResourceStream(name);
+        // Exactly one, or nothing. FirstOrDefault would resolve an ambiguity by manifest ordering,
+        // which is not guaranteed -- and a gate that picks a different corpus on a different run is
+        // worse than no gate, because it looks like it verified something.
+        if (matches.Length != 1) return null;
+
+        using var stream = assembly.GetManifestResourceStream(matches[0]);
         if (stream is null) return null;
 
-        using var buffer = new MemoryStream();
-        stream.CopyTo(buffer);
-        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(buffer.ToArray()))
+        // Hashed straight off the stream: the corpora run to ~1.5 MB and buffering them twice to
+        // compute a digest is allocation for nothing.
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream))
             .ToLowerInvariant();
     }
 
