@@ -137,7 +137,7 @@ internal static class TypedMemEvalRegradeProgram
                 case CorpusIdentityVerdict.Mismatch:
                     Console.Error.WriteLine(
                         $"regrade: ABORT — corpus mismatch. The artifact was produced against " +
-                        $"{storedCorpusSha![..16]}… and this build carries {currentCorpusSha![..16]}…. " +
+                        $"{ShortSha(storedCorpusSha)} and this build carries {ShortSha(currentCorpusSha)}. " +
                         "Question ids and text are NOT sufficient to detect this: corpora are redrawn " +
                         "keeping ids identical, and gold can move behind unchanged text. Re-grade " +
                         "with the package the artifact was produced against.");
@@ -347,6 +347,18 @@ internal static class TypedMemEvalRegradeProgram
             sidecarPath,
             node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
     }
+
+    /// <summary>A sha abbreviated for a message, without assuming it is well-formed.</summary>
+    /// <remarks>
+    /// A fixed <c>[..16]</c> throws on a truncated or corrupt value — and this is the ABORT path,
+    /// whose entire purpose is to fail safely with an exit code rather than an exception. Second time
+    /// on this gate: #213 hardened the sha's TYPE and left its LENGTH assumed. A guard that can throw
+    /// is not a guard.
+    /// </remarks>
+    private static string ShortSha(string? sha) =>
+        string.IsNullOrWhiteSpace(sha) ? "(none)"
+        : sha.Length <= 16 ? sha
+        : sha[..16] + "…";
 
     /// <summary>What a corpus-sha comparison concluded.</summary>
     internal enum CorpusIdentityVerdict

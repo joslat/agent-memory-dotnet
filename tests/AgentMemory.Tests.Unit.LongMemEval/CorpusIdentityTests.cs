@@ -60,4 +60,18 @@ public class CorpusIdentityTests
     public void AnUnknownShaIsUnverifiableAndNotAMatch(string? stored, string? current) =>
         TypedMemEvalRegradeProgram.CorpusIdentity.Verify(stored, current)
             .Should().Be(TypedMemEvalRegradeProgram.CorpusIdentityVerdict.Unverifiable);
+
+    /// <summary>A mismatch on a malformed sha must still be a MISMATCH, not an exception.</summary>
+    /// <remarks>
+    /// The abort path formats both shas into its message. It previously sliced them at a fixed 16
+    /// characters, which throws on a truncated or corrupt value — in the one branch whose entire job
+    /// is to fail safely with an exit code. Second time on this gate: #213 hardened the sha's type
+    /// and left its length assumed.
+    /// </remarks>
+    [Theory]
+    [InlineData("abc", "def")]
+    [InlineData("f5b384d7", "abf2f3f4")]
+    public void AShortOrMalformedShaStillCompares(string stored, string current) =>
+        TypedMemEvalRegradeProgram.CorpusIdentity.Verify(stored, current)
+            .Should().Be(TypedMemEvalRegradeProgram.CorpusIdentityVerdict.Mismatch);
 }
