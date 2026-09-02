@@ -122,26 +122,26 @@ internal static class TypedMemEvalRegradeProgram
                     : null;
             var currentCorpusSha = CurrentCorpusSha(verticalSlug);
 
-            if (storedCorpusSha is null)
+            switch (CorpusIdentity.Verify(storedCorpusSha, currentCorpusSha))
             {
-                // Not fatal, and deliberately so: artifacts predating provenance capture are still
-                // re-gradable. But it is the one case where nothing can be verified, so it is said
-                // out loud rather than passing quietly.
-                Console.WriteLine(
-                    "regrade: WARNING the stored artifact records no corpus sha, so corpus identity " +
-                    "CANNOT be verified. If it predates the current corpus, the replay may grade " +
-                    "against different gold behind identical question text.");
-            }
-            else if (currentCorpusSha is not null &&
-                     !string.Equals(storedCorpusSha, currentCorpusSha, StringComparison.OrdinalIgnoreCase))
-            {
-                Console.Error.WriteLine(
-                    $"regrade: ABORT — corpus mismatch. The artifact was produced against " +
-                    $"{storedCorpusSha[..16]}… and this build carries {currentCorpusSha[..16]}…. " +
-                    "Question ids and text are NOT sufficient to detect this: corpora are redrawn " +
-                    "keeping ids identical, and gold can move behind unchanged text. Re-grade with " +
-                    "the package the artifact was produced against.");
-                return 5;
+                case CorpusIdentityVerdict.Unverifiable:
+                    // Not fatal, and deliberately so: artifacts predating provenance capture are
+                    // still re-gradable. But it is the one case where nothing can be verified, so it
+                    // is said out loud rather than passing quietly.
+                    Console.WriteLine(
+                        "regrade: WARNING corpus identity CANNOT be verified (the artifact or this " +
+                        "build records no corpus sha). If the corpus has since been redrawn, the " +
+                        "replay may grade against different gold behind identical question text.");
+                    break;
+
+                case CorpusIdentityVerdict.Mismatch:
+                    Console.Error.WriteLine(
+                        $"regrade: ABORT — corpus mismatch. The artifact was produced against " +
+                        $"{ShortSha(storedCorpusSha)} and this build carries {ShortSha(currentCorpusSha)}. " +
+                        "Question ids and text are NOT sufficient to detect this: corpora are redrawn " +
+                        "keeping ids identical, and gold can move behind unchanged text. Re-grade " +
+                        "with the package the artifact was produced against.");
+                    return 5;
             }
 
 
@@ -346,6 +346,48 @@ internal static class TypedMemEvalRegradeProgram
         File.WriteAllText(
             sidecarPath,
             node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
+    }
+
+    /// <summary>A sha abbreviated for a message, without assuming it is well-formed.</summary>
+    /// <remarks>
+    /// A fixed <c>[..16]</c> throws on a truncated or corrupt value — and this is the ABORT path,
+    /// whose entire purpose is to fail safely with an exit code rather than an exception. Second time
+    /// on this gate: #213 hardened the sha's TYPE and left its LENGTH assumed. A guard that can throw
+    /// is not a guard.
+    /// </remarks>
+    private static string ShortSha(string? sha) =>
+        string.IsNullOrWhiteSpace(sha) ? "(none)"
+        : sha.Length <= 16 ? sha
+        : sha[..16] + "…";
+
+    /// <summary>What a corpus-sha comparison concluded.</summary>
+    internal enum CorpusIdentityVerdict
+    {
+        /// <summary>Both shas known and equal — the artifact and this build share a corpus.</summary>
+        Match,
+
+        /// <summary>Both known and different — the corpus was redrawn; re-grading would be meaningless.</summary>
+        Mismatch,
+
+        /// <summary>One or both unknown. NOT a match: it is the absence of evidence, and saying so
+        /// is the difference between a check and a formality.</summary>
+        Unverifiable,
+    }
+
+    /// <summary>The corpus-identity decision, extracted so it can be tested rather than only run.</summary>
+    /// <remarks>
+    /// Three outcomes and not two. Collapsing <see cref="CorpusIdentityVerdict.Unverifiable"/> into
+    /// either of the others is the mistake this whole gate exists to avoid: folded into Match it
+    /// passes silently, folded into Mismatch it blocks every artifact older than provenance capture.
+    /// </remarks>
+    internal static class CorpusIdentity
+    {
+        public static CorpusIdentityVerdict Verify(string? stored, string? current) =>
+            string.IsNullOrWhiteSpace(stored) || string.IsNullOrWhiteSpace(current)
+                ? CorpusIdentityVerdict.Unverifiable
+                : string.Equals(stored, current, StringComparison.OrdinalIgnoreCase)
+                    ? CorpusIdentityVerdict.Match
+                    : CorpusIdentityVerdict.Mismatch;
     }
 
     /// <summary>The sha256 of the corpus this build actually carries, or null if not found.</summary>
