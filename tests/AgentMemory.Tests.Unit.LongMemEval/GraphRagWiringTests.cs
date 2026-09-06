@@ -88,6 +88,7 @@ public sealed class GraphRagWiringTests
         bool rescueShortOwnerResults = false,
         bool supersedeReplacedFacts = false,
         bool resolveSupersessions = false,
+        bool recallFanOut = false,
         int? extractionSeed = null,
         PhaseThirtyFeatures? phase30 = null) =>
         LongMemEvalMemoryProfile.ConfigureServices(
@@ -107,6 +108,7 @@ public sealed class GraphRagWiringTests
                 rescueShortOwnerResults: rescueShortOwnerResults,
                 supersedeReplacedFacts: supersedeReplacedFacts,
                 resolveSupersessions: resolveSupersessions,
+                recallFanOut: recallFanOut,
                 phase30: phase30 ?? PhaseThirtyFeatures.AllOff,
                 graphRagIndexName: graphRagIndexName,
                 extractionSeed: extractionSeed)

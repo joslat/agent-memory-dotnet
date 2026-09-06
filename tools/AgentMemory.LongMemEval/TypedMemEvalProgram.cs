@@ -60,6 +60,11 @@ internal static class TypedMemEvalProgram
         "--supersede-replaced-facts",
         // 30.9d. Renders the chains --supersede-replaced-facts writes. Only informative together.
         "--resolve-supersessions",
+        // C-D finding (2026-09-05). The retrieval levers built for aggregation and multi-hop
+        // recall. `ExpandFactsByPredicate`/`ResolveQueryRelations` were set ONLY by the LongMemEval
+        // verb and `RecallFanOutOptions.Enabled` by nothing at all, so every TypedMemEval number in
+        // this project was taken with the composition machinery hard off and no way to turn it on.
+        "--expand-facts", "--resolve-query-relations", "--recall-fan-out",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -125,7 +130,8 @@ internal static class TypedMemEvalProgram
                             phase30: options.Phase30,
                             rescueShortOwnerResults: options.RescueShortOwnerResults,
                             supersedeReplacedFacts: options.SupersedeReplacedFacts,
-                            resolveSupersessions: options.ResolveSupersessions)
+                            resolveSupersessions: options.ResolveSupersessions,
+                            recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
                 }
 
@@ -217,6 +223,10 @@ internal static class TypedMemEvalProgram
                     {
                         MaxRelevantMessages = DefaultMaxRelevant,
                         FactWeightedBudget = options.FactWeightedBudget,
+                        // The levers this verb never fed. Defaults stay false, so an unflagged run
+                        // is byte-identical to every sealed measurement before it.
+                        ExpandFactsByPredicate = options.ExpandFactsByPredicate,
+                        ResolveQueryRelations = options.ResolveQueryRelations,
                         MemoryMode = LongMemEvalMemoryMode.Structured,
                         MinSimilarityScore = 0,
                         ModelId = deployment,
@@ -738,6 +748,9 @@ internal static class TypedMemEvalProgram
             ParseEvidenceDetail(Value("--evidence-detail")),
             Array.IndexOf(args, "--fact-weighted-budget") >= 0,
             Array.IndexOf(args, "--resolve-supersessions") >= 0,
+            Array.IndexOf(args, "--expand-facts") >= 0,
+            Array.IndexOf(args, "--resolve-query-relations") >= 0,
+            Array.IndexOf(args, "--recall-fan-out") >= 0,
             Array.IndexOf(args, "--dry-run") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
@@ -871,6 +884,13 @@ internal static class TypedMemEvalProgram
         // every scored run rendered supersession chains DARK. Appended last for the positional-safety
         // reason documented on TypedMemEvalArm.ResolveSupersessions.
         bool ResolveSupersessions,
+        // C-D finding (2026-09-05): the aggregation levers. The adapter's own comments say they
+        // exist "for the aggregation questions top-K structurally cannot answer" and "the
+        // multi-relation case top-K structurally cannot nominate" -- precisely the shapes that
+        // scored 0/15, 0/10 and 0/20 across the family. Never set by this verb until now.
+        bool ExpandFactsByPredicate,
+        bool ResolveQueryRelations,
+        bool RecallFanOut,
         // Stage 1 of the three-stage protocol; spends nothing and exits before the profile starts.
         bool DryRun)
     {
@@ -883,6 +903,6 @@ internal static class TypedMemEvalProgram
         /// </remarks>
         internal TypedMemEvalArm Arm =>
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
-                ResolveSupersessions);
+                ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut);
     }
 }

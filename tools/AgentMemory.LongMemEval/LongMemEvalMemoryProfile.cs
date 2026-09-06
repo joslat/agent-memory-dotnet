@@ -45,6 +45,11 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool rescueShortOwnerResults = false,
         bool supersedeReplacedFacts = false,
         bool resolveSupersessions = false,
+        // C-D finding (2026-09-05): RecallFanOutOptions.Enabled defaults false and NOTHING under
+        // tools/ set it, so the feature built for multi-hop recall had never been switched on in a
+        // measurement. Same reachable-but-not-fed shape as RescueShortOwnerResults and
+        // SupersedeReplacedFacts above -- the third time in this one file.
+        bool recallFanOut = false,
         string? graphRagIndexName = null,
         int? extractionSeed = null,
         // 30.9c gap: every Phase-30 Wave-C capability ships dark AND had no way in from the harness,
@@ -84,6 +89,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     rescueShortOwnerResults,
                     supersedeReplacedFacts,
                     resolveSupersessions,
+                    recallFanOut,
                     phase30 ?? PhaseThirtyFeatures.AllOff,
                     graphRagIndexName,
                     extractionSeed,
@@ -116,6 +122,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool rescueShortOwnerResults,
         bool supersedeReplacedFacts,
         bool resolveSupersessions,
+        bool recallFanOut,
         PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         int? extractionSeed,
@@ -146,6 +153,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             rescueShortOwnerResults,
             supersedeReplacedFacts,
             resolveSupersessions,
+            recallFanOut,
             phase30,
             graphRagIndexName,
             multiSessionBatch,
@@ -187,6 +195,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool rescueShortOwnerResults,
         bool supersedeReplacedFacts,
         bool resolveSupersessions,
+        bool recallFanOut,
         PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         bool multiSessionBatch = true,
@@ -237,6 +246,9 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // from the benchmark, so the mechanism most directly matching the measured failure
                 // mode was the one thing no run could exercise.
                 RescueShortOwnerResults = rescueShortOwnerResults,
+                // Off unless asked for, so every sealed measurement keeps its path. FanOut is a
+                // mutable class precisely so this assignment is possible (#100 lesson).
+                FanOut = { Enabled = recallFanOut },
                 // 30.4 / 30.6. Off unless the run asks for them, so every sealed measurement keeps
                 // taking the path it was taken under; an ablation turns one on and re-runs the SAME
                 // frozen corpus and seed.

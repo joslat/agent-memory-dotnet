@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace AgentMemory.LongMemEval;
 
@@ -36,12 +36,29 @@ namespace AgentMemory.LongMemEval;
 /// once again indistinguishable from each other.
 /// </param>
 /// <param name="FactWeightedBudget">Whether the recall budget was reallocated toward facts.</param>
+/// <param name="ExpandFactsByPredicate">
+/// Whether a matched relation was returned WHOLE rather than by similarity rank. The lever the
+/// C-D family run proved was missing: its own comment in the adapter says it exists "for the
+/// aggregation questions top-K structurally cannot answer", and it was set only by the LongMemEval
+/// verb -- so every TypedMemEval number was taken with the aggregation machinery hard off.
+/// </param>
+/// <param name="ResolveQueryRelations">
+/// Whether relations the question itself names were expanded. Pairs with
+/// <paramref name="ExpandFactsByPredicate"/>: that one completes a relation once found, this one
+/// finds the relations a multi-relation question nominates.
+/// </param>
+/// <param name="RecallFanOut">
+/// Whether per-memory-type recall fan-out ran. <c>RecallFanOutOptions.Enabled</c> defaults false and
+/// NOTHING under <c>tools/</c> set it, so the feature built for multi-hop recall had never been
+/// switched on in any measurement this project holds.
+/// </param>
 /// <param name="ResolveSupersessions">
-/// Whether the supersession CHAIN was rendered into the prompt. Deliberately appended LAST rather
-/// than grouped beside <paramref name="SupersedeReplacedFacts"/>, which is where it belongs by
+/// Whether the supersession CHAIN was rendered into the prompt. Deliberately APPENDED rather than
+/// grouped beside <paramref name="SupersedeReplacedFacts"/>, which is where it belongs by
 /// meaning: inserting a positional parameter mid-record silently re-slots every positional call
 /// site, and that exact mistake turned a `factwt` arm into a `supersede` arm once already. Meaning
-/// loses to safety here, and the pairing is documented instead.
+/// loses to safety here, and the pairing is documented instead. The three retrieval levers after it
+/// were appended under the same rule, which is why it is no longer the last parameter.
 /// <para>
 /// The two levers are only informative TOGETHER. <see cref="SupersedeReplacedFacts"/> writes the
 /// <c>:SUPERSEDED_BY</c> edges; this renders them. Rendering alone has nothing to read, and writing
@@ -54,7 +71,10 @@ public sealed record TypedMemEvalArm(
     bool RescueShortOwnerResults = false,
     bool SupersedeReplacedFacts = false,
     bool FactWeightedBudget = false,
-    bool ResolveSupersessions = false)
+    bool ResolveSupersessions = false,
+    bool ExpandFactsByPredicate = false,
+    bool ResolveQueryRelations = false,
+    bool RecallFanOut = false)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -62,7 +82,8 @@ public sealed record TypedMemEvalArm(
     /// <summary>True when nothing is enabled, so a run can assert it took the default path.</summary>
     public bool IsDefault =>
         Phase30.IsDefault && !RescueShortOwnerResults && !FactWeightedBudget
-        && !SupersedeReplacedFacts && !ResolveSupersessions;
+        && !SupersedeReplacedFacts && !ResolveSupersessions
+        && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -83,6 +104,9 @@ public sealed record TypedMemEvalArm(
         if (SupersedeReplacedFacts) parts.Add("supersede");
         if (ResolveSupersessions) parts.Add("render");
         if (FactWeightedBudget) parts.Add("factwt");
+        if (ExpandFactsByPredicate) parts.Add("expand");
+        if (ResolveQueryRelations) parts.Add("qrel");
+        if (RecallFanOut) parts.Add("fanout");
         return string.Join("-", parts);
     }
 
@@ -92,5 +116,8 @@ public sealed record TypedMemEvalArm(
         $"{Phase30.Describe()} rescue-short-owner-results={RescueShortOwnerResults} " +
         $"supersede-replaced-facts={SupersedeReplacedFacts} " +
         $"resolve-supersessions={ResolveSupersessions} " +
-        $"fact-weighted-budget={FactWeightedBudget}");
+        $"fact-weighted-budget={FactWeightedBudget} " +
+        $"expand-facts-by-predicate={ExpandFactsByPredicate} " +
+        $"resolve-query-relations={ResolveQueryRelations} " +
+        $"recall-fan-out={RecallFanOut}");
 }
