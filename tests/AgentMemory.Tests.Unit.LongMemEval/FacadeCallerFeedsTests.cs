@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using AgentEval.Memory.External.Models;
 using AgentEval.Memory.External.TypedMemEval;
 using AgentMemory.LongMemEval;

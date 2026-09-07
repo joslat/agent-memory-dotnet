@@ -1,4 +1,4 @@
-﻿using AgentEval.Memory.External.TypedMemEval;
+using AgentEval.Memory.External.TypedMemEval;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
 using Xunit;

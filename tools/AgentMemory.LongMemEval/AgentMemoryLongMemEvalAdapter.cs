@@ -1,4 +1,4 @@
-﻿using AgentMemory.Core.Memory;
+using AgentMemory.Core.Memory;
 using System.Collections.ObjectModel;
 using System.Text;
 using AgentEval.Core;
