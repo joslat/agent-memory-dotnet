@@ -169,6 +169,61 @@ public interface ILongTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Bitemporal fact search WITH predicate expansion: the same two clocks, plus the relation-
+    /// completeness widening the live path already had.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this exists.</b> The narrow overload above had no expansion parameters at all, so
+    /// point-in-time recall could only ever return the top-K most similar facts. Aggregation
+    /// questions — "what did I spend in total, as of March" — are exactly the shape top-K cannot
+    /// answer, and they are more likely on a point-in-time query, not less. The benchmark harness
+    /// refused to run rather than accept flags that would silently do nothing; this makes that
+    /// refusal unnecessary by making the capability real.
+    /// </para>
+    /// <para>
+    /// <b>THE INVARIANT: an expanded hop is bounded by BOTH clocks.</b> Expansion widens a query from
+    /// "the K most similar facts" to "this relation, whole", and a relation returned whole from an
+    /// as-of query must be the relation <i>as it stood at that instant</i>. An implementation that
+    /// expands without carrying <paramref name="asOf"/> and <paramref name="systemAsOf"/> into the
+    /// expanded lookup leaks facts from outside the window into an answer that claims to be
+    /// point-in-time — and a wrong point-in-time answer is indistinguishable from a right one without
+    /// checking the clock. This is the defect this overload exists to make impossible to write by
+    /// accident, which is why the clocks are non-optional here.
+    /// </para>
+    /// <para>
+    /// A default interface method, for the same reason as the live path's expansion overloads: the
+    /// interface is locked under SemVer, so adding parameters would break every implementor. The
+    /// default falls back to the unexpanded search, which is byte-identical to today's behaviour —
+    /// an implementor that does not override this is no worse off, only unexpanded.
+    /// </para>
+    /// </remarks>
+    /// <param name="queryEmbedding">Query vector for the similarity search.</param>
+    /// <param name="asOf">Valid-time clock — "what was true" at this instant.</param>
+    /// <param name="limit">Maximum facts from the similarity search, before expansion.</param>
+    /// <param name="minScore">Similarity floor.</param>
+    /// <param name="scope">Isolation scope for the read.</param>
+    /// <param name="systemAsOf">Transaction-time clock — "what we believed"; defaults to <paramref name="asOf"/>.</param>
+    /// <param name="expandByPredicate">Return matched relations whole rather than by similarity rank.</param>
+    /// <param name="expansionLimit">Hard cap on facts added by expansion.</param>
+    /// <param name="questionRelations">
+    /// Relations named by the question itself. Empty reproduces the previous overload exactly.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<IReadOnlyList<Fact>> SearchFactsAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        DateTimeOffset? systemAsOf,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        CancellationToken cancellationToken) =>
+        SearchFactsAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, systemAsOf, cancellationToken);
+
+    /// <summary>
     /// Searches preferences semantically, returning only those that existed at <paramref name="asOf"/>.
     /// </summary>
     Task<IReadOnlyList<Preference>> SearchPreferencesAsOfAsync(

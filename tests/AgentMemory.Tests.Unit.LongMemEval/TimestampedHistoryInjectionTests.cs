@@ -1,4 +1,4 @@
-using AgentEval.Core;
+﻿using AgentEval.Core;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.LongMemEval;
@@ -233,30 +233,54 @@ public sealed class TimestampedHistoryInjectionTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*more than once*");
     }
 
-    [Theory]
-    [InlineData(true, false, 0)]
-    [InlineData(false, true, 0)]
-    [InlineData(false, false, 3)]
-    public void RefusesOptionsThePointInTimeRecallPathWouldSilentlyIgnore(
-        bool expandFactsByPredicate, bool resolveQueryRelations, int graphRagItems)
+    /// <summary>
+    /// GraphRAG is still not implemented as-of, and is still refused.
+    /// </summary>
+    /// <remarks>
+    /// W1c NARROWED this guard by making part of its claim true, never by relaxing it: predicate
+    /// expansion and query-relation resolution now run on the as-of path with both clocks carried
+    /// into the expanded lookup. GraphRAG did not change, so it must still throw. When
+    /// GraphRAG-as-of lands, this test and the guard go together — and not one line before.
+    /// </remarks>
+    [Fact]
+    public void GraphRagIsStillRefusedOnThePointInTimePath()
     {
-        // The dead-option shape: RecallAsOfAsync implements neither predicate expansion nor
-        // query-relation resolution nor GraphRAG, so a timestamped run configured with them would
-        // report a measurement of options that never executed. ResolveQueryRelations rides with
-        // expansion enabled so the combination is constructible at all.
-        var adapter = new AgentMemoryLongMemEvalAdapter(
-            Substitute.For<IMemoryService>(),
-            Substitute.For<IChatClient>(),
-            "typed-run",
-            new LongMemEvalAdapterOptions
-            {
-                ExpandFactsByPredicate = expandFactsByPredicate || resolveQueryRelations,
-                ResolveQueryRelations = resolveQueryRelations,
-                GraphRagItems = graphRagItems
-            });
+        var adapter = Adapter(new LongMemEvalAdapterOptions { GraphRagItems = 3 });
 
         var act = () => adapter.InjectTimestampedConversationHistory(TwoTurnHistory());
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*silently ignored*");
     }
+
+    /// <summary>
+    /// The two options W1c implemented are now ACCEPTED — refusing them would refuse a capability
+    /// the engine has.
+    /// </summary>
+    /// <remarks>
+    /// This is the other half of the red-first pair in <c>AsOfExpansionTests</c>: that one asserts
+    /// the assembler reaches the expansion overload carrying both clocks, this one asserts the
+    /// harness no longer blocks the run from getting there. Either alone would let the capability be
+    /// half-wired — reachable but refused, or accepted but not implemented.
+    /// </remarks>
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ExpansionOptionsAreAcceptedNowThatTheAsOfPathImplementsThem(
+        bool expandFactsByPredicate, bool resolveQueryRelations)
+    {
+        var adapter = Adapter(new LongMemEvalAdapterOptions
+        {
+            ExpandFactsByPredicate = expandFactsByPredicate,
+            ResolveQueryRelations = resolveQueryRelations
+        });
+
+        var act = () => adapter.InjectTimestampedConversationHistory(TwoTurnHistory());
+
+        act.Should().NotThrow(
+            "W1c implements expansion and query-relation resolution on the as-of path, so these "
+            + "options are no longer silently ignored");
+    }
+
+    private static AgentMemoryLongMemEvalAdapter Adapter(LongMemEvalAdapterOptions options) =>
+        new(Substitute.For<IMemoryService>(), Substitute.For<IChatClient>(), "typed-run", options);
 }

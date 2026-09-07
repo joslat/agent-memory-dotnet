@@ -578,16 +578,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         // whole. Top-K is a relevance cutoff and carries no completeness guarantee, so a question
         // like "how many babies were born" is unanswerable from it - miss one of five and the count
         // is four. Expansion is additive: the similarity-ranked facts stay, in order, at the front.
-        var predicates = top
-            .Select(fact => MemoryTripleCanonicalizer.Canonical(fact.Predicate))
-            // J2.2. Relations the question named, each widened to every form it could be stored under:
-            // the write-side canonicalizer never folds morphology, so one relation lives under several
-            // keys and expanding only the canonical name would miss the smaller buckets.
-            .Concat(questionRelations.SelectMany(
-                relation => MemoryRelationLexicon.Default.StoredFormsOf(relation)))
-            .Where(predicate => predicate.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
+        var predicates = ExpansionPredicates(top, questionRelations);
         // J3.1. The predicate set above deliberately mixes two very different things: relations the
         // QUESTION named, and predicates BORROWED from whatever top-K happened to return. They share
         // one budget ordered by confidence, so a borrowed predicate with high-confidence facts can
@@ -597,11 +588,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         //
         // Passing the named relations as priority makes them a tiebreak ahead of the borrowed ones.
         // Empty when the question named nothing, so the ordering is unchanged for every other path.
-        var priorityPredicates = questionRelations
-            .SelectMany(MemoryRelationLexicon.Default.StoredFormsOf)
-            .Where(predicate => predicate.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
+        var priorityPredicates = PriorityPredicates(questionRelations);
         var expanded = await _factRepo.SearchByCanonicalPredicatesAsync(
             predicates, expansionLimit, resolved, cancellationToken, priorityPredicates)
             .ConfigureAwait(false);
@@ -701,6 +688,102 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
         _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchEntitiesAsOfAsync)), cancellationToken);
+
+    /// <summary>
+    /// Which predicates expansion should return whole: those the top-K nominated, plus every stored
+    /// form of the relations the question named.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the live and point-in-time paths so the two cannot drift. They have already
+    /// diverged once on a single option, and a difference in WHICH relations get expanded would be
+    /// invisible in both outputs while changing what each can answer.
+    /// </remarks>
+    private static string[] ExpansionPredicates(
+        IReadOnlyList<Fact> top, IReadOnlyList<string> questionRelations) =>
+        top
+            .Select(fact => MemoryTripleCanonicalizer.Canonical(fact.Predicate))
+            // J2.2. Relations the question named, each widened to every form it could be stored under:
+            // the write-side canonicalizer never folds morphology, so one relation lives under several
+            // keys and expanding only the canonical name would miss the smaller buckets.
+            .Concat(questionRelations.SelectMany(
+                relation => MemoryRelationLexicon.Default.StoredFormsOf(relation)))
+            .Where(predicate => predicate.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+    /// <summary>Relations the question named, as a tiebreak ahead of predicates borrowed from top-K.</summary>
+    private static string[] PriorityPredicates(IReadOnlyList<string> questionRelations) =>
+        questionRelations
+            .SelectMany(MemoryRelationLexicon.Default.StoredFormsOf)
+            .Where(predicate => predicate.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+    /// <summary>
+    /// W1c. Point-in-time fact search WITH predicate expansion, both clocks carried into the
+    /// expanded lookup.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The similarity search and the expansion are bounded by the same two instants. Expansion adds
+    /// facts that similarity never nominated, so it is the half where a dropped clock would not show
+    /// up as a missing result but as an EXTRA one — a present-day fact inside an answer about March.
+    /// </para>
+    /// <para>
+    /// Expanded facts are marked with the same retrieval-source metadata as the live path: expansion
+    /// returns a relation across the whole owner, so a consumer resolving provenance must be able to
+    /// tell "legitimately outside this query's window" from "unresolvable", which is corruption.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<Fact>> SearchFactsAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        DateTimeOffset? systemAsOf,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(questionRelations);
+
+        var resolved = Resolve(scope, nameof(SearchFactsAsOfAsync));
+        var systemClock = systemAsOf ?? asOf;
+        var scored = await _factRepo
+            .SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, resolved, systemClock, cancellationToken)
+            .ConfigureAwait(false);
+        var top = scored.Select(r => r.Fact).ToList();
+
+        // A question naming its relations outright does not need top-K to nominate them, so an empty
+        // top-K is only a dead end when there is nothing else to expand on.
+        if (!expandByPredicate || (top.Count == 0 && questionRelations.Count == 0))
+            return top;
+
+        var expanded = await _factRepo.SearchByCanonicalPredicatesAsOfAsync(
+                ExpansionPredicates(top, questionRelations),
+                expansionLimit,
+                resolved,
+                asOf,
+                systemClock,
+                cancellationToken,
+                PriorityPredicates(questionRelations))
+            .ConfigureAwait(false);
+
+        var seen = top.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
+        foreach (var fact in expanded)
+        {
+            if (!seen.Add(fact.FactId)) continue;
+            var metadata = new Dictionary<string, object>(fact.Metadata, StringComparer.Ordinal)
+            {
+                [Fact.RetrievalSourceMetadataKey] = Fact.RetrievalSourcePredicateExpansion
+            };
+            top.Add(fact with { Metadata = metadata });
+        }
+
+        return top;
+    }
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<Fact>> SearchFactsAsOfAsync(

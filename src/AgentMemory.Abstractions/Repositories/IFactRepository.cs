@@ -210,6 +210,46 @@ public interface IFactRepository
         Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
 
     /// <summary>
+    /// Predicate expansion bounded by both clocks: the same relation-completeness widening, restricted
+    /// to facts that existed and were valid at the given instants.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this is a separate method and not a flag.</b> The unbounded overload above returns a
+    /// relation whole <i>as it stands now</i>. Calling it from a point-in-time recall would splice
+    /// present-day facts into an answer that claims to describe an earlier instant — and a wrong
+    /// point-in-time answer is indistinguishable from a right one without checking the clock. Two
+    /// methods make that mistake impossible to make by passing the wrong argument.
+    /// </para>
+    /// <para>
+    /// <b>The default returns EMPTY, deliberately, and must never delegate to the unbounded overload.</b>
+    /// An implementor that has not written the clock-aware query degrades to <i>unexpanded</i>
+    /// point-in-time recall — the behaviour that shipped before this existed, and merely incomplete.
+    /// Delegating instead would make every non-overriding implementor silently leak facts from
+    /// outside the window, turning a missing feature into a correctness defect. Incomplete is
+    /// recoverable; wrong-and-confident is not.
+    /// </para>
+    /// </remarks>
+    /// <param name="canonicalPredicates">Canonical predicate keys to return whole.</param>
+    /// <param name="limit">Hard cap on facts returned.</param>
+    /// <param name="scope">Isolation scope for the read.</param>
+    /// <param name="asOf">Valid-time clock — the fact's validity window must contain this instant.</param>
+    /// <param name="systemAsOf">Transaction-time clock — the fact must have been believed at this instant.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="priorityPredicates">
+    /// Predicates the caller asked for by name, ordered ahead of the rest when the budget binds.
+    /// </param>
+    Task<IReadOnlyList<Fact>> SearchByCanonicalPredicatesAsOfAsync(
+        IReadOnlyList<string> canonicalPredicates,
+        int limit,
+        MemoryScope scope,
+        DateTimeOffset asOf,
+        DateTimeOffset systemAsOf,
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? priorityPredicates = null) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
     /// For each of <paramref name="factIds"/>, the facts it superseded — newest first, capped.
     /// </summary>
     /// <remarks>

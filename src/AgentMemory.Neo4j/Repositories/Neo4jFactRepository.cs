@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -1181,6 +1181,62 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         {
             var cursor = await runner.RunAsync(
                 FactQueries.SearchByCanonicalPredicates(hasOwner, includeShared, priorityKeys.Length > 0),
+                parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Fact>)records
+                .Select(record =>
+                {
+                    var node = record["f"].As<INode>();
+                    return MapToFact(node, ReadEmbedding(node));
+                })
+                .ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The point-in-time twin of <see cref="SearchByCanonicalPredicatesAsync"/>. Identical in every
+    /// respect except the four clock predicates, which are the whole reason it is a separate method:
+    /// expansion returns a relation WHOLE, so a dropped clock here does not lose a row, it adds one —
+    /// a present-day fact inside an answer about an earlier instant.
+    /// </remarks>
+    public async Task<IReadOnlyList<Fact>> SearchByCanonicalPredicatesAsOfAsync(
+        IReadOnlyList<string> canonicalPredicates,
+        int limit,
+        MemoryScope scope,
+        DateTimeOffset asOf,
+        DateTimeOffset systemAsOf,
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? priorityPredicates = null)
+    {
+        ArgumentNullException.ThrowIfNull(canonicalPredicates);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        if (canonicalPredicates.Count == 0)
+            return Array.Empty<Fact>();
+
+        var hasOwner = scope?.HasOwnerFilter == true;
+        var includeShared = scope?.IncludeShared ?? true;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["predicateKeys"] = canonicalPredicates.ToArray(),
+            ["limit"] = limit,
+            // Bound unconditionally: unlike the owner and priority parameters, a missing clock is
+            // not a narrower query, it is a query that cannot run. Better to fail loudly here than
+            // to have a caller discover it as a wrong answer.
+            // Same "O" round-trip format as SearchByVectorAsOfAsync above; the two halves of one
+            // recall must serialise their clocks identically or they filter on different instants.
+            ["validAsOf"] = asOf.UtcDateTime.ToString("O"),
+            ["systemAsOf"] = systemAsOf.UtcDateTime.ToString("O")
+        };
+        var priorityKeys = priorityPredicates?.Where(p => !string.IsNullOrEmpty(p)).ToArray() ?? [];
+        if (priorityKeys.Length > 0) parameters["priorityKeys"] = priorityKeys;
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                TemporalQueries.SearchFactsByCanonicalPredicatesAsOf(
+                    hasOwner, includeShared, priorityKeys.Length > 0),
                 parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return (IReadOnlyList<Fact>)records

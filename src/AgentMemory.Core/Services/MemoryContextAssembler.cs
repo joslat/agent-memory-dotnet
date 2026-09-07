@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -1152,8 +1152,28 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             ? scoredLongTerm!.SearchPreferencesAsOfWithScoresAsync(queryEmbedding, systemAsOf, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
             : null;
 
+        // W1c. The same J2.2 resolution the live path performs, computed here rather than shared,
+        // because the two paths already diverged once on a single option and "it mirrors the live
+        // path" is not safe to take on trust.
+        var resolvedQueryRelations = recallOpts.ExpandFactsByPredicate && recallOpts.ResolveQueryRelations
+            ? MemoryRelationLexicon.Default.ResolveQuestion(request.Query)
+            : Array.Empty<string>();
+
         var factsTask = searchFacts && scoredLongTerm is null
-            ? _longTerm.SearchFactsAsOfAsync(queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf, cancellationToken)
+            // Only the expansion path takes the wider overload. When expansion is off the call is
+            // byte-for-byte the pre-W1c one, which is what keeps every sealed as-of measurement
+            // comparable -- and an implementor who overrode only the narrow overload keeps being
+            // consulted, rather than silently losing the call to a default interface method.
+            ? (recallOpts.ExpandFactsByPredicate
+                ? _longTerm.SearchFactsAsOfAsync(
+                    queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf,
+                    // THE INVARIANT: both clocks travel with the expansion. An expanded hop that
+                    // dropped them would return a relation "whole" as of NOW inside an answer that
+                    // claims to be as of `validAsOf`.
+                    true, recallOpts.MaxExpandedFacts, resolvedQueryRelations, cancellationToken)
+                : _longTerm.SearchFactsAsOfAsync(
+                    queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf,
+                    cancellationToken))
             : Empty<Fact>();
         var factsScoredTask = searchFacts && scoredLongTerm is not null
             ? scoredLongTerm!.SearchFactsAsOfWithScoresAsync(queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf, cancellationToken)

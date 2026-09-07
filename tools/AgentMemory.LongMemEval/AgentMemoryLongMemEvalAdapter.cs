@@ -1,4 +1,4 @@
-using AgentMemory.Core.Memory;
+﻿using AgentMemory.Core.Memory;
 using System.Collections.ObjectModel;
 using System.Text;
 using AgentEval.Core;
@@ -243,13 +243,24 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     {
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(history.Turns);
-        if (_options.ExpandFactsByPredicate || _options.ResolveQueryRelations ||
-            _options.GraphRagItems > 0)
+        // W1c NARROWED THIS GUARD BY MAKING ITS CLAIM TRUE, NOT BY RELAXING IT.
+        //
+        // Predicate expansion and query-relation resolution are now implemented on the as-of path
+        // (MemoryContextAssembler.AssembleContextAsOfCoreAsync -> SearchFactsAsOfAsync's expansion
+        // overload -> SearchByCanonicalPredicatesAsOfAsync), with both clocks carried into the
+        // expanded lookup and a red-first test that failed before the feature existed. So those two
+        // options are no longer silently ignored, and refusing them would now be refusing a
+        // capability the engine has.
+        //
+        // GRAPHRAG IS STILL NOT IMPLEMENTED AS-OF and is still refused. The check did not get
+        // weaker; its scope shrank to exactly what remains untrue. If GraphRAG-as-of ever lands,
+        // this guard goes away entirely -- and not one line before.
+        if (_options.GraphRagItems > 0)
         {
             throw new InvalidOperationException(
                 "Timestamped LongMemEval history anchors recall at RecallAsOfAsync, which does not " +
-                "implement predicate expansion, query-relation resolution, or GraphRAG; refusing to " +
-                "run a question whose options would be silently ignored.");
+                "implement GraphRAG; refusing to run a question whose options would be silently " +
+                "ignored.");
         }
 
         var pairs = new (string UserMessage, string AssistantResponse)[history.Turns.Count];

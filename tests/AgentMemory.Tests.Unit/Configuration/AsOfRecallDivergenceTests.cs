@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using FluentAssertions;
 using Xunit;
 
@@ -46,12 +46,18 @@ public sealed class AsOfRecallDivergenceTests
     [
         "BlendMode",
         "EnableGraphRag",
-        "ExpandFactsByPredicate",
         "LatencyBudget",
-        "MaxExpandedFacts",
         "MaxRelevantMessages",
-        "ResolveQueryRelations",
         "ValidTime",
+
+        // W1c REMOVED three entries from this list: ExpandFactsByPredicate, MaxExpandedFacts and
+        // ResolveQueryRelations are now honoured on the as-of path, with both clocks carried into
+        // the expanded lookup. This test failing on their removal is the guard working exactly as
+        // designed -- it required the change to be deliberate rather than discovered later.
+        //
+        // EnableGraphRag deliberately STAYS. GraphRAG as-of is a separate surface with its own index
+        // semantics, and bundling it into W1c would have shipped two capabilities under one
+        // invariant test.
 
         // 30.7 prospective firing, live path only — a decision, recorded here because this guard
         // exists to stop such decisions being made by omission.
