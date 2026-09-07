@@ -128,3 +128,63 @@ internal readonly record struct GoldValueCoverage(int RequiredValues, int Presen
     /// <summary>True when every gold value was retrievable, so a wrong answer is not a retrieval miss.</summary>
     public bool IsComplete => PresentValues == RequiredValues;
 }
+
+/// <summary>
+/// Collects per-question gold-value coverage across a run, so a vertical can be read as
+/// "retrieval never had it" versus "retrieval had it and the answer still missed".
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Required values come from the gold-bearing TURNS, not the gold answer.</b> That distinction is
+/// the whole correction. The gold answer for an aggregation question states the RESULT ("$1,113.71
+/// in total"), and the result is never stored -- the components are. Measured against the answer
+/// string, this reported a miss on questions the engine got RIGHT.
+/// <c>LongMemEvalMessageOrigin.HasAnswer</c> marks the turns carrying the components, and those are
+/// the values retrieval actually had to deliver.
+/// </para>
+/// <para>
+/// <b>Record-only.</b> Nothing here influences retrieval, the prompt, or the answer; it reads what
+/// recall already returned. A measurement that changed the thing it measures would void every
+/// pairing in this wave.
+/// </para>
+/// </remarks>
+public sealed class LongMemEvalGoldValueCoverageProbe
+{
+    private readonly List<GoldValueSample> _samples = [];
+    private readonly object _gate = new();
+
+    /// <summary>Records one question. Gold carrying no measurable value is skipped, never scored 0.</summary>
+    public void Record(string questionId, IEnumerable<string?> goldTurnTexts, IEnumerable<string?> recalledFactTexts)
+    {
+        ArgumentNullException.ThrowIfNull(goldTurnTexts);
+        ArgumentNullException.ThrowIfNull(recalledFactTexts);
+
+        var required = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var turn in goldTurnTexts)
+            required.UnionWith(LongMemEvalGoldValueCoverage.Extract(turn));
+        if (required.Count == 0) return;
+
+        var available = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var fact in recalledFactTexts)
+            available.UnionWith(LongMemEvalGoldValueCoverage.Extract(fact));
+
+        var sample = new GoldValueSample(questionId, required.Count, required.Count(available.Contains));
+        lock (_gate) { _samples.Add(sample); }
+    }
+
+    /// <summary>A snapshot, so a caller cannot observe the list mutating mid-read.</summary>
+    public IReadOnlyList<GoldValueSample> Samples
+    {
+        get { lock (_gate) { return _samples.ToArray(); } }
+    }
+}
+
+/// <param name="QuestionId">The question these values belong to.</param>
+/// <param name="RequiredValues">Distinct values the gold-bearing turns carry.</param>
+/// <param name="PresentValues">How many of them the recalled facts carried.</param>
+public readonly record struct GoldValueSample(string QuestionId, int RequiredValues, int PresentValues)
+{
+    /// <summary>True when retrieval delivered every value, so a wrong answer is not a retrieval miss.</summary>
+    public bool IsComplete => PresentValues == RequiredValues;
+}
+

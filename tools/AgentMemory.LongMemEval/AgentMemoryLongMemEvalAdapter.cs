@@ -1,4 +1,4 @@
-using AgentMemory.Core.Memory;
+﻿using AgentMemory.Core.Memory;
 using System.Collections.ObjectModel;
 using System.Text;
 using AgentEval.Core;
@@ -801,6 +801,19 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                         _options.MaxItemsPerSourceSession)
                 }
             };
+        }
+
+        if (_options.GoldValueProbe is { } goldValueProbe && evidenceQuestion is not null)
+        {
+            // Required values come from the gold-bearing TURNS, never the gold answer: the answer
+            // states a total that is not stored, while the turns carry the components that are.
+            goldValueProbe.Record(
+                evidenceQuestion.QuestionId,
+                evidenceQuestion.Messages
+                    .Where(origin => origin.HasAnswer)
+                    .Select(origin => (string?)origin.FormattedContent),
+                recall.Context.RelevantFacts.Items
+                    .Select(fact => (string?)$"{fact.Subject} {fact.Predicate} {fact.Object}"));
         }
 
         var recalled = recall.Context.RelevantMessages.Items;
@@ -1899,6 +1912,17 @@ public sealed record LongMemEvalAdapterOptions
     /// are refilled uncapped so the context is never left short.
     /// </remarks>
     public int MaxItemsPerSourceSession { get; init; }
+
+    /// <summary>
+    /// Optional record-only probe: how many of the gold-bearing turns' values reached the recalled
+    /// facts. Null means not measured, which is distinct from measured zero.
+    /// </summary>
+    /// <remarks>
+    /// The instrument row 56 registered was session-grained and nearly missed a real effect; this
+    /// one is value-grained and separates "retrieval never had it" from "retrieval had it and the
+    /// answer still missed". It reads what recall already returned and changes nothing.
+    /// </remarks>
+    public LongMemEvalGoldValueCoverageProbe? GoldValueProbe { get; init; }
 
 
     /// <summary>

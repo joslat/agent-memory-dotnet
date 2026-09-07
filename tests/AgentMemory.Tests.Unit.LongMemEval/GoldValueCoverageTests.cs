@@ -87,3 +87,68 @@ public sealed class GoldValueCoverageTests
     public void NoFactsMeansNoCoverageRatherThanACrash() =>
         LongMemEvalGoldValueCoverage.Measure("$12.50", [])!.Value.PresentValues.Should().Be(0);
 }
+
+/// <summary>
+/// The probe, whose required values come from gold-bearing TURNS rather than the gold answer.
+/// </summary>
+/// <remarks>
+/// Sourcing from the answer string was the defect validation exposed: an aggregation question's gold
+/// states a TOTAL that is never stored, while the turns carry the components that are. Measured the
+/// wrong way it reported a miss on questions the engine answered correctly.
+/// </remarks>
+public sealed class GoldValueCoverageProbeTests
+{
+    [Fact]
+    public void ComponentsFromTurnsAreWhatMustBeRetrieved()
+    {
+        var probe = new LongMemEvalGoldValueCoverageProbe();
+
+        probe.Record("q1",
+            ["I paid 371.41 for cavity trays", "and 354.06 for guttering"],
+            ["Payment | has amount | 371.41"]);
+
+        var s = probe.Samples.Single();
+        s.RequiredValues.Should().Be(2, "both component turns carry a value");
+        s.PresentValues.Should().Be(1);
+        s.IsComplete.Should().BeFalse();
+    }
+
+    /// <summary>The total in a gold ANSWER is not a component and must not be required.</summary>
+    [Fact]
+    public void FullRetrievalOfComponentsReadsAsComplete()
+    {
+        var probe = new LongMemEvalGoldValueCoverageProbe();
+
+        probe.Record("q2",
+            ["paid 371.41", "paid 354.06"],
+            ["f | amount | 371.41", "f | amount | 354.06"]);
+
+        probe.Samples.Single().IsComplete.Should().BeTrue(
+            "retrieval delivered every component, so a wrong answer here is NOT a retrieval miss");
+    }
+
+    /// <summary>Unmeasurable questions are skipped, never recorded as zero coverage.</summary>
+    [Fact]
+    public void TurnsWithNoValueAreNotRecordedAsZero()
+    {
+        var probe = new LongMemEvalGoldValueCoverageProbe();
+
+        probe.Record("q3", ["The Ennisk pass runs first."], ["a | b | c"]);
+
+        probe.Samples.Should().BeEmpty(
+            "procedural gold carries no amounts; scoring it 0.0 would report total retrieval "
+            + "failure on 80 questions the instrument simply cannot see");
+    }
+
+    [Fact]
+    public void SamplesAreASnapshot()
+    {
+        var probe = new LongMemEvalGoldValueCoverageProbe();
+        probe.Record("q4", ["12.50"], ["f | a | 12.50"]);
+
+        var first = probe.Samples;
+        probe.Record("q5", ["99.99"], ["f | a | 99.99"]);
+
+        first.Should().HaveCount(1, "a returned snapshot must not mutate under the caller");
+    }
+}

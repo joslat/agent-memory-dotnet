@@ -199,6 +199,11 @@ internal static class TypedMemEvalProgram
             LongMemEvalSupersessionRenderProbe? renderProbe = null;
             if (!options.Oracle) renderProbe = new LongMemEvalSupersessionRenderProbe();
 
+            // Value-grained retrieval reading, recorded beside the run it describes. Separates
+            // "retrieval never had the value" from "retrieval had it and the answer still missed" --
+            // the distinction the session-grained metric registered in row 56 could not resolve.
+            var goldValueProbe = new LongMemEvalGoldValueCoverageProbe();
+
             ExternalBenchmarkResult result;
             if (options.Oracle)
             {
@@ -233,6 +238,7 @@ internal static class TypedMemEvalProgram
                         EvidenceIndex = LongMemEvalEvidenceIndex.CreateTypedMemEval(vertical, facade),
                         EvidenceDetail = options.EvidenceDetail,
                         SupersessionRenderProbe = renderProbe,
+                        GoldValueProbe = goldValueProbe,
                         RequireGraphReadBack = true,
                         GraphProbe = new Neo4jLongMemEvalGraphProbe(
                             profile.Services.GetRequiredService<global::Neo4j.Driver.IDriver>()),
@@ -278,6 +284,7 @@ internal static class TypedMemEvalProgram
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                 renderSummary, supersessionStore);
+            PrintGoldValueCoverage(goldValueProbe);
             PrintSupersessionStore(supersessionStore);
             PrintObjectShape(objectShape);
             PrintSubjectAmbiguity(subjectAmbiguity);
@@ -560,6 +567,35 @@ internal static class TypedMemEvalProgram
         value.Length <= 100 ? value : value[..100] + "…";
 
     /// <summary>Announces what supersession actually wrote, loudly when it wrote nothing.</summary>
+    /// <summary>
+    /// Reports value-grained retrieval coverage, and reports the UNMEASURED count beside it.
+    /// </summary>
+    /// <remarks>
+    /// Questions whose gold-bearing turns carry no amount or quantity are not scored zero — they are
+    /// not measurable by this rule, and folding the two together is the constant-column failure this
+    /// repository has hit three times. Procedural is entirely unmeasurable here (0 of 80 golds carry
+    /// a value), and the line must say so rather than print a confident 0.00.
+    /// </remarks>
+    private static void PrintGoldValueCoverage(LongMemEvalGoldValueCoverageProbe probe)
+    {
+        var samples = probe.Samples;
+        if (samples.Count == 0)
+        {
+            Console.WriteLine(
+                "typedmemeval: gold-value coverage — NOT MEASURABLE on this vertical "
+                + "(no gold-bearing turn carries an amount or quantity).");
+            return;
+        }
+
+        var complete = samples.Count(sample => sample.IsComplete);
+        var required = samples.Sum(sample => sample.RequiredValues);
+        var present = samples.Sum(sample => sample.PresentValues);
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"typedmemeval: gold-value coverage — {present}/{required} value(s) reached recall; "
+            + $"{complete}/{samples.Count} question(s) fully covered."));
+    }
+
     private static void PrintSupersessionStore(LongMemEvalSupersessionStore? store)
     {
         if (store is null) return;
