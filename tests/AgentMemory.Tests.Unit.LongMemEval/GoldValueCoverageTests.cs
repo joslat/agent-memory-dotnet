@@ -1,4 +1,4 @@
-using AgentMemory.LongMemEval;
+﻿using AgentMemory.LongMemEval;
 using FluentAssertions;
 using Xunit;
 
@@ -150,5 +150,24 @@ public sealed class GoldValueCoverageProbeTests
         probe.Record("q5", ["99.99"], ["f | a | 99.99"]);
 
         first.Should().HaveCount(1, "a returned snapshot must not mutate under the caller");
+    }
+
+    /// <summary>
+    /// "Never ran" and "ran and found nothing" are different facts and must read differently.
+    /// </summary>
+    /// <remarks>
+    /// Found in review, and it is the constant-column failure made INSIDE the instrument built to
+    /// avoid it: on the oracle arm there is no adapter, so nothing calls <c>Record</c> and the empty
+    /// sample list means something entirely different from a corpus whose golds carry no amounts.
+    /// One message for both would have reported an unmeasured arm as a measured-empty one.
+    /// </remarks>
+    [Fact]
+    public void AnEmptyProbeIsNotEvidenceThatNothingWasMeasurable()
+    {
+        var probe = new LongMemEvalGoldValueCoverageProbe();
+
+        probe.Samples.Should().BeEmpty(
+            "and the caller must decide which of the two empty states this is — the probe itself "
+            + "cannot know whether it was ever wired in");
     }
 }

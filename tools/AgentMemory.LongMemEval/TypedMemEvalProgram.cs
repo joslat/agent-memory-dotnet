@@ -293,7 +293,7 @@ internal static class TypedMemEvalProgram
                 renderSummary, supersessionStore);
             PrintPredicateDensity(predicateDensity);
             PrintExpansionYield(options, result);
-            PrintGoldValueCoverage(goldValueProbe);
+            PrintGoldValueCoverage(goldValueProbe, probeRan: !options.Oracle);
             PrintSupersessionStore(supersessionStore);
             PrintObjectShape(objectShape);
             PrintSubjectAmbiguity(subjectAmbiguity);
@@ -575,41 +575,6 @@ internal static class TypedMemEvalProgram
     private static string Truncate(string value) =>
         value.Length <= 100 ? value : value[..100] + "…";
 
-    /// <summary>Announces what supersession actually wrote, loudly when it wrote nothing.</summary>
-    /// <summary>
-    /// Reports value-grained retrieval coverage, and reports the UNMEASURED count beside it.
-    /// </summary>
-    /// <remarks>
-    /// Questions whose gold-bearing turns carry no amount or quantity are not scored zero — they are
-    /// not measurable by this rule, and folding the two together is the constant-column failure this
-    /// repository has hit three times. Procedural is entirely unmeasurable here (0 of 80 golds carry
-    /// a value), and the line must say so rather than print a confident 0.00.
-    /// </remarks>
-    /// <summary>
-    /// Facts per question on an expansion arm — the go/no-go that makes a five-hour run unnecessary.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Wave 1 measured five verticals and the fact ratio against the default arm separated the
-    /// outcomes perfectly: arithmetic 3.8× → +16 points, procedural 5.6× → +15, conjunction 4.7× → −1
-    /// (dense, but its questions need hops rather than completeness), prospective 0.96× → −2,
-    /// temporal 1.04× → 0. <b>Every vertical below 1.1× was flat; every gain came from one above
-    /// 3.8×.</b>
-    /// </para>
-    /// <para>
-    /// Expansion returns a relation WHOLE, so it can only add rows where relations are DENSE — many
-    /// facts under one predicate. On a corpus of singleton relations it returns exactly what
-    /// similarity already had, and no amount of running changes that.
-    /// </para>
-    /// <para>
-    /// <b>ONE QUESTION IS NOT ENOUGH, and this line was nearly shipped claiming it was.</b> Measured
-    /// immediately after writing it: temporal's one-question run reports <c>10.00</c> facts against
-    /// the full run's mean of <c>5.54</c> — roughly 2× off, in the direction that would have made a
-    /// sparse vertical look dense. Use a small sample (<c>--max-questions 5</c> or more) before
-    /// reading the ratio as a go/no-go, and treat a borderline value as "unknown" rather than "go".
-    /// The instrument is worth having because it is cheap, not because one sample is reliable.
-    /// </para>
-    /// </remarks>
     /// <summary>
     /// Reports predicate density — whether expansion has anything to widen on this corpus.
     /// </summary>
@@ -635,6 +600,31 @@ internal static class TypedMemEvalProgram
             + $"widen the last group — a store of singletons cannot benefit whatever the run costs."));
     }
 
+    /// <summary>
+    /// Facts per question on an expansion arm — the go/no-go that makes a five-hour run unnecessary.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Wave 1 measured five verticals and the fact ratio against the default arm separated the
+    /// outcomes perfectly: arithmetic 3.8× → +16 points, procedural 5.6× → +15, conjunction 4.7× → −1
+    /// (dense, but its questions need hops rather than completeness), prospective 0.96× → −2,
+    /// temporal 1.04× → 0. <b>Every vertical below 1.1× was flat; every gain came from one above
+    /// 3.8×.</b>
+    /// </para>
+    /// <para>
+    /// Expansion returns a relation WHOLE, so it can only add rows where relations are DENSE — many
+    /// facts under one predicate. On a corpus of singleton relations it returns exactly what
+    /// similarity already had, and no amount of running changes that.
+    /// </para>
+    /// <para>
+    /// <b>ONE QUESTION IS NOT ENOUGH, and this line was nearly shipped claiming it was.</b> Measured
+    /// immediately after writing it: temporal's one-question run reports <c>10.00</c> facts against
+    /// the full run's mean of <c>5.54</c> — roughly 2× off, in the direction that would have made a
+    /// sparse vertical look dense. Use a small sample (<c>--max-questions 5</c> or more) before
+    /// reading the ratio as a go/no-go, and treat a borderline value as "unknown" rather than "go".
+    /// The instrument is worth having because it is cheap, not because one sample is reliable.
+    /// </para>
+    /// </remarks>
     private static void PrintExpansionYield(
         TypedMemEvalRunOptions options, ExternalBenchmarkResult result)
     {
@@ -656,14 +646,37 @@ internal static class TypedMemEvalProgram
             + $"before treating this as a go/no-go."));
     }
 
-    private static void PrintGoldValueCoverage(LongMemEvalGoldValueCoverageProbe probe)
+    /// <summary>
+    /// Reports value-grained retrieval coverage, and reports the UNMEASURED count beside it.
+    /// </summary>
+    /// <remarks>
+    /// Questions whose gold-bearing turns carry no amount or quantity are not scored zero — they are
+    /// not measurable by this rule, and folding the two together is the constant-column failure this
+    /// repository has hit three times. Procedural is entirely unmeasurable here (0 of 80 golds carry
+    /// a value), and the line must say so rather than print a confident 0.00.
+    /// </remarks>
+    private static void PrintGoldValueCoverage(
+        LongMemEvalGoldValueCoverageProbe probe, bool probeRan)
     {
+        // Three states, not two. An empty sample set means "ran and found nothing measurable" ONLY
+        // if the probe ran at all -- on the oracle arm there is no adapter, so nothing ever calls
+        // Record and the same empty list means something entirely different. Printing one message
+        // for both is the constant-column failure this instrument exists to avoid, made INSIDE the
+        // instrument. Found in review; the null-vs-zero discipline has to apply to the reporting
+        // line too, not only to the metric.
+        if (!probeRan)
+        {
+            Console.WriteLine(
+                "typedmemeval: gold-value coverage — NOT MEASURED (no probe on this arm).");
+            return;
+        }
+
         var samples = probe.Samples;
         if (samples.Count == 0)
         {
             Console.WriteLine(
                 "typedmemeval: gold-value coverage — NOT MEASURABLE on this vertical "
-                + "(no gold-bearing turn carries an amount or quantity).");
+                + "(probe ran; no gold-bearing turn carries an amount or quantity).");
             return;
         }
 
@@ -676,6 +689,7 @@ internal static class TypedMemEvalProgram
             + $"{complete}/{samples.Count} question(s) fully covered."));
     }
 
+    /// <summary>Announces what supersession actually wrote, loudly when it wrote nothing.</summary>
     private static void PrintSupersessionStore(LongMemEvalSupersessionStore? store)
     {
         if (store is null) return;
