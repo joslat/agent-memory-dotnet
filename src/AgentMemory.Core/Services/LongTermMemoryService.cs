@@ -623,8 +623,13 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         // Passing the named relations as priority makes them a tiebreak ahead of the borrowed ones.
         // Empty when the question named nothing, so the ordering is unchanged for every other path.
         var priorityPredicates = PriorityPredicates(questionRelations);
+        // The derived budget covers BOTH retrieval paths or neither. Filtering only the vector
+        // search left expansion free to fill its 60 slots with the accountant's own output --
+        // measured as the read side under-delivering by 8 facts/question, and as the accountant
+        // still costing 10 points against not using it at all.
         var expanded = await _factRepo.SearchByCanonicalPredicatesAsync(
-            predicates, expansionLimit, resolved, cancellationToken, priorityPredicates)
+            predicates, expansionLimit, resolved, cancellationToken, priorityPredicates,
+            excludeDerived: maxDerivedFacts is not null)
             .ConfigureAwait(false);
 
         var seen = top.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);

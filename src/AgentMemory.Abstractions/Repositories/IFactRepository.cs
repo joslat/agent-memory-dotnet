@@ -219,12 +219,20 @@ public interface IFactRepository
     /// <param name="priorityPredicates">
     /// Predicates the caller asked for by name, ordered ahead of the rest when the budget binds.
     /// </param>
+    /// <param name="excludeDerived">
+    /// Keep the accountant's derived facts out of the expansion budget. Expansion returns a relation
+    /// WHOLE, so without this it hands back derived counts and sums alongside the sources and fills
+    /// its 60 slots with the very output a derived budget exists to segregate. Filtering only the
+    /// vector search and not this one measured as the read side under-delivering by 8
+    /// facts/question.
+    /// </param>
     Task<IReadOnlyList<Fact>> SearchByCanonicalPredicatesAsync(
         IReadOnlyList<string> canonicalPredicates,
         int limit,
         MemoryScope scope,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<string>? priorityPredicates = null) =>
+        IReadOnlyList<string>? priorityPredicates = null,
+        bool excludeDerived = false) =>
         Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
 
     /// <summary>

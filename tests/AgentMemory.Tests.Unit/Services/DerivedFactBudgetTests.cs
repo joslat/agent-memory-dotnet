@@ -180,4 +180,55 @@ public sealed class DerivedFactBudgetTests
             isolation);
         return (service, repo);
     }
+
+    /// <summary>
+    /// The budget must cover EXPANSION too, not only the vector search.
+    /// </summary>
+    /// <remarks>
+    /// The defect this pins cost a five-hour run. Expansion returns a relation WHOLE, so filtering
+    /// only the vector search left the accountant's derived facts free to consume the 60-slot
+    /// expansion budget — measured as source facts falling 35.4 to 27.9 per question, and as the
+    /// accountant still costing 10 points against not using it at all. Half a read side reads as a
+    /// failed feature.
+    /// </remarks>
+    [Fact]
+    public async Task TheBudgetCoversExpansionAndNotOnlyTheVectorSearch()
+    {
+        var (service, repo) = Create();
+        repo.SearchByVectorAsync(
+                Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope>(),
+                DerivedFactMode.Exclude, Arg.Any<CancellationToken>())
+            .Returns([(Fact("source"), 0.9)]);
+
+        await service.SearchFactsAsync(
+            new float[8], 10, 0.0, MemoryScope.Global,
+            expandByPredicate: true, expansionLimit: 60, questionRelations: ["paid"],
+            maxDerivedFacts: 10, CancellationToken.None);
+
+        await repo.Received(1).SearchByCanonicalPredicatesAsync(
+            Arg.Any<IReadOnlyList<string>>(), 60, Arg.Any<MemoryScope>(),
+            Arg.Any<CancellationToken>(), Arg.Any<IReadOnlyList<string>?>(),
+            excludeDerived: true);
+    }
+
+    /// <summary>And null must leave expansion exactly as it was.</summary>
+    [Fact]
+    public async Task NullLeavesExpansionUnfiltered()
+    {
+        var (service, repo) = Create();
+        repo.SearchByVectorAsync(
+                Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope>(),
+                Arg.Any<CancellationToken>())
+            .Returns([(Fact("source"), 0.9)]);
+
+        await service.SearchFactsAsync(
+            new float[8], 10, 0.0, MemoryScope.Global,
+            expandByPredicate: true, expansionLimit: 60, questionRelations: ["paid"],
+            maxDerivedFacts: null, CancellationToken.None);
+
+        await repo.Received(1).SearchByCanonicalPredicatesAsync(
+            Arg.Any<IReadOnlyList<string>>(), 60, Arg.Any<MemoryScope>(),
+            Arg.Any<CancellationToken>(), Arg.Any<IReadOnlyList<string>?>(),
+            excludeDerived: false);
+    }
 }

@@ -61,7 +61,8 @@ internal static class FactQueries
     public static string SearchByCanonicalPredicates(
         bool hasOwnerFilter,
         bool includeShared,
-        bool hasPriorityKeys = false)
+        bool hasPriorityKeys = false,
+        bool excludeDerived = false)
     {
         // Mirrors GetBySubject's owner-conditional shape rather than inventing its own. The first
         // version hard-coded `f.owner_key = $ownerKey` with `scope.OwnerId ?? OwnerKeyShared`, which
@@ -83,10 +84,15 @@ internal static class FactQueries
         var owner = !hasOwnerFilter ? string.Empty
             : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
                             : " AND f.owner_id = $ownerId";
+        // Expansion returns a relation WHOLE, so without this it hands back the accountant's derived
+        // facts alongside the sources -- consuming the 60-slot expansion budget with the very output
+        // the derived budget exists to keep out of it. The vector search was filtered and this was
+        // not, which measured as the read side under-delivering by 8 facts/question.
+        var derived = excludeDerived ? " AND f.derivation_key IS NULL" : string.Empty;
         return $@"
             MATCH (f:Fact)
             WHERE f.predicate_key IN $predicateKeys
-              AND f.invalidated_at IS NULL{owner}
+              AND f.invalidated_at IS NULL{derived}{owner}
             RETURN f
             ORDER BY {priority}f.confidence DESC, f.id ASC
             LIMIT $limit";

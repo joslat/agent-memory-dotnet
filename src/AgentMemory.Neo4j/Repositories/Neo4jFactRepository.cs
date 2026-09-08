@@ -1170,7 +1170,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         int limit,
         MemoryScope scope,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<string>? priorityPredicates = null)
+        IReadOnlyList<string>? priorityPredicates = null,
+        bool excludeDerived = false)
     {
         ArgumentNullException.ThrowIfNull(canonicalPredicates);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
@@ -1195,7 +1196,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
-                FactQueries.SearchByCanonicalPredicates(hasOwner, includeShared, priorityKeys.Length > 0),
+                FactQueries.SearchByCanonicalPredicates(
+                    hasOwner, includeShared, priorityKeys.Length > 0, excludeDerived),
                 parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return (IReadOnlyList<Fact>)records
