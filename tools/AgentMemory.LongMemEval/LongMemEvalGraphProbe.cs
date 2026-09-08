@@ -83,9 +83,22 @@ internal interface ILongMemEvalGraphProbe
     /// and temporal 1.04x could not move.
     /// </para>
     /// <para>
-    /// <b>Density is a property of the STORE, identical in both arms</b>, so reading it directly
-    /// answers "can expansion help here" from ONE ingestion rather than from a paired ratio needing
-    /// two. That halves the cost of asking, and the cost is ingestion — not question count.
+    /// ⚠️ <b>THIS METRIC DOES NOT PREDICT THE OUTCOME, AND WAS CALIBRATED INTO RETIREMENT AS A
+    /// GO/NO-GO.</b> Measured across six verticals: arithmetic reads mean 3.61 / largest 60 / 39%
+    /// multi-fact and GAINED 16 points; <b>prospective reads 3.15 / 46 / 31% and was FLAT</b>. Those
+    /// are indistinguishable, so store-wide density is not the operative variable.
+    /// <para>
+    /// The reason is that expansion widens the predicates <b>top-K actually nominates</b>, not the
+    /// store. Arithmetic's questions land on one relation holding many payments; prospective's land
+    /// on unique reminders, even though other predicates in its store are dense. The measure that
+    /// DOES separate all five measured verticals is the ON-arm's absolute facts/question — above ~20
+    /// expansion fired, below ~10 it did not — which needs one run and no baseline.
+    /// </para>
+    /// <para>
+    /// Kept because it is genuinely informative about the corpus, and because a retired instrument
+    /// with its calibration recorded is worth more than a deleted one: the next person to reach for
+    /// store density will find out here that it was tried and did not discriminate.
+    /// </para>
     /// </para>
     /// </remarks>
     Task<LongMemEvalPredicateDensity> ReadPredicateDensityAsync(CancellationToken cancellationToken)

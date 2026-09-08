@@ -1038,6 +1038,7 @@ internal static class TypedMemEvalProgram
         /// </remarks>
         internal TypedMemEvalArm Arm =>
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
-                ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut);
+                ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
+                MaxDerivedFacts);
     }
 }

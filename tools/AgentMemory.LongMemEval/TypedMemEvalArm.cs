@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace AgentMemory.LongMemEval;
 
@@ -47,6 +47,12 @@ namespace AgentMemory.LongMemEval;
 /// <paramref name="ExpandFactsByPredicate"/>: that one completes a relation once found, this one
 /// finds the relations a multi-relation question nominates.
 /// </param>
+/// <param name="MaxDerivedFacts">
+/// How derived facts were budgeted. <c>null</c> is the pre-existing behaviour AND the measured-harmful
+/// one: the accountant's counts and sums compete for the ordinary fact budget and displace the source
+/// values they were computed from (arithmetic 30% to 14%). Named in the token because a run with the
+/// read side on and one without it are otherwise indistinguishable on disk.
+/// </param>
 /// <param name="RecallFanOut">
 /// Whether per-memory-type recall fan-out ran. <c>RecallFanOutOptions.Enabled</c> defaults false and
 /// NOTHING under <c>tools/</c> set it, so the feature built for multi-hop recall had never been
@@ -74,7 +80,8 @@ public sealed record TypedMemEvalArm(
     bool ResolveSupersessions = false,
     bool ExpandFactsByPredicate = false,
     bool ResolveQueryRelations = false,
-    bool RecallFanOut = false)
+    bool RecallFanOut = false,
+    int? MaxDerivedFacts = null)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -83,7 +90,8 @@ public sealed record TypedMemEvalArm(
     public bool IsDefault =>
         Phase30.IsDefault && !RescueShortOwnerResults && !FactWeightedBudget
         && !SupersedeReplacedFacts && !ResolveSupersessions
-        && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut;
+        && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut
+        && MaxDerivedFacts is null;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -107,6 +115,11 @@ public sealed record TypedMemEvalArm(
         if (ExpandFactsByPredicate) parts.Add("expand");
         if (ResolveQueryRelations) parts.Add("qrel");
         if (RecallFanOut) parts.Add("fanout");
+        // The VALUE is in the token, not just the fact that it was set: 0 (exclude) and 10 (own
+        // budget) are different arms with different predictions, and an artifact that could not tell
+        // them apart would be a number with its story attached separately -- the defect this whole
+        // type exists to close.
+        if (MaxDerivedFacts is { } derived) parts.Add($"derived{derived.ToString(CultureInfo.InvariantCulture)}");
         return string.Join("-", parts);
     }
 
@@ -119,5 +132,6 @@ public sealed record TypedMemEvalArm(
         $"fact-weighted-budget={FactWeightedBudget} " +
         $"expand-facts-by-predicate={ExpandFactsByPredicate} " +
         $"resolve-query-relations={ResolveQueryRelations} " +
-        $"recall-fan-out={RecallFanOut}");
+        $"recall-fan-out={RecallFanOut} " +
+        $"max-derived-facts={(MaxDerivedFacts is { } d ? d.ToString(CultureInfo.InvariantCulture) : "null")}");
 }

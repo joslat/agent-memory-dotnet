@@ -96,3 +96,62 @@ public sealed class CompositionLeverWiringTests
         new MemoryOptions().FanOut.Enabled.Should().BeFalse(
             "the five-vertical baseline was taken on this path");
 }
+
+/// <summary>
+/// The derived-fact budget must be visible in the arm token — including its VALUE.
+/// </summary>
+/// <remarks>
+/// Declared in the pre-registration before the run rather than discovered after it: without this,
+/// the derived-budget arm and row 61's arm (same accountant, same expansion, no read side) produce
+/// an identical token and their artifacts are indistinguishable on disk. That is precisely the
+/// defect <see cref="TypedMemEvalArm"/> exists to close, and 0 versus 10 are different arms with
+/// different predictions — exclude versus own-budget.
+/// </remarks>
+public sealed class DerivedBudgetArmTokenTests
+{
+    private static TypedMemEvalProgram.TypedMemEvalRunOptions Parse(params string[] extra) =>
+        TypedMemEvalProgram.Parse(["--typedmemeval", "arithmetic", .. extra]);
+
+    [Fact]
+    public void TheBudgetIsAKnownOption() =>
+        TypedMemEvalProgram.KnownOptions.Should().Contain("--max-derived-facts");
+
+    [Theory]
+    [InlineData("0", "derived0")]
+    [InlineData("10", "derived10")]
+    public void TheTOKENCarriesTheValueNotJustThatItWasSet(string value, string token)
+    {
+        var arm = Parse("--max-derived-facts", value).Arm;
+
+        arm.IsDefault.Should().BeFalse();
+        arm.FileToken().Should().Be(token);
+    }
+
+    [Fact]
+    public void TwoDifferentBudgetsAreDifferentArmsOnDisk() =>
+        Parse("--max-derived-facts", "0").Arm.FileToken()
+            .Should().NotBe(Parse("--max-derived-facts", "10").Arm.FileToken(),
+                "exclude and own-budget make opposite predictions and must never share a filename");
+
+    [Fact]
+    public void UnsetLeavesTheArmDefault() =>
+        Parse().Arm.IsDefault.Should().BeTrue(
+            "null is the pre-existing path and every sealed measurement was taken on it");
+
+    /// <summary>Zero must not read as "unset" — it is an explicit, different arm.</summary>
+    [Fact]
+    public void ZeroIsNotTheSameAsUnset()
+    {
+        Parse("--max-derived-facts", "0").Arm.IsDefault.Should().BeFalse();
+        Parse().Arm.FileToken().Should().Be("default");
+    }
+
+    [Fact]
+    public void ANegativeBudgetIsRejected()
+    {
+        var act = () => Parse("--max-derived-facts", "-1");
+
+        act.Should().Throw<ArgumentException>(
+            "a negative budget is not a narrower arm, it is a typo that would otherwise run");
+    }
+}
