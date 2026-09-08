@@ -71,6 +71,40 @@ internal interface ILongMemEvalGraphProbe
         => Task.FromResult(new LongMemEvalSubjectAmbiguity([]));
 
     /// <summary>
+    /// How many facts sit under each predicate — the property that decides whether predicate
+    /// expansion can add anything at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Expansion returns a matched relation WHOLE. On a store of SINGLETON relations it therefore
+    /// returns exactly what similarity already had, and no amount of running changes that. Wave 1
+    /// measured this the expensive way — five verticals, ~25 hours — and the fact ratio separated the
+    /// outcomes perfectly: arithmetic 3.8x and procedural 5.6x gained 15-16 points; prospective 0.96x
+    /// and temporal 1.04x could not move.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>THIS METRIC DOES NOT PREDICT THE OUTCOME, AND WAS CALIBRATED INTO RETIREMENT AS A
+    /// GO/NO-GO.</b> Measured across six verticals: arithmetic reads mean 3.61 / largest 60 / 39%
+    /// multi-fact and GAINED 16 points; <b>prospective reads 3.15 / 46 / 31% and was FLAT</b>. Those
+    /// are indistinguishable, so store-wide density is not the operative variable.
+    /// <para>
+    /// The reason is that expansion widens the predicates <b>top-K actually nominates</b>, not the
+    /// store. Arithmetic's questions land on one relation holding many payments; prospective's land
+    /// on unique reminders, even though other predicates in its store are dense. The measure that
+    /// DOES separate all five measured verticals is the ON-arm's absolute facts/question — above ~20
+    /// expansion fired, below ~10 it did not — which needs one run and no baseline.
+    /// </para>
+    /// <para>
+    /// Kept because it is genuinely informative about the corpus, and because a retired instrument
+    /// with its calibration recorded is worth more than a deleted one: the next person to reach for
+    /// store density will find out here that it was tried and did not discriminate.
+    /// </para>
+    /// </para>
+    /// </remarks>
+    Task<LongMemEvalPredicateDensity> ReadPredicateDensityAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalPredicateDensity(0, 0, 0, 0));
+
+    /// <summary>
     /// Of the subject/predicate groups whose objects are amounts, how many hold more than one.
     /// </summary>
     /// <remarks>
@@ -282,6 +316,27 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
         }).ConfigureAwait(false);
 
         return new LongMemEvalSubjectAmbiguity(rows);
+    }
+
+    public async Task<LongMemEvalPredicateDensity> ReadPredicateDensityAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+        return await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(@"
+                MATCH (f:Fact)
+                WHERE f.invalidated_at IS NULL
+                WITH f.predicate_key AS key, count(*) AS n
+                RETURN count(key) AS predicates, sum(n) AS facts, max(n) AS largest,
+                       size([x IN collect(n) WHERE x > 1]) AS multi").ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
+            return new LongMemEvalPredicateDensity(
+                record["predicates"].As<int>(),
+                record["facts"].As<int>(),
+                record["largest"].As<int>(),
+                record["multi"].As<int>());
+        }).ConfigureAwait(false);
     }
 
     public async Task<LongMemEvalFactObjectShape> ReadFactObjectShapeAsync(
@@ -704,3 +759,22 @@ internal sealed record LongMemEvalAmountCollision(
     int AmountFacts,
     int CollidingFacts,
     IReadOnlyList<string> Samples);
+
+/// <summary>
+/// Facts per predicate in the store — the go/no-go for predicate expansion.
+/// </summary>
+/// <param name="Predicates">Distinct predicate keys holding at least one live fact.</param>
+/// <param name="Facts">Live facts across all predicates.</param>
+/// <param name="LargestRelation">Facts under the single most populated predicate.</param>
+/// <param name="MultiFactPredicates">Predicates holding more than one fact — the only ones expansion can widen.</param>
+internal readonly record struct LongMemEvalPredicateDensity(
+    int Predicates, int Facts, int LargestRelation, int MultiFactPredicates)
+{
+    /// <summary>Mean facts per predicate. Zero when nothing was ingested, which is NOT a density of one.</summary>
+    public double MeanFactsPerPredicate => Predicates == 0 ? 0 : (double)Facts / Predicates;
+
+    /// <summary>
+    /// Share of predicates holding more than one fact. Expansion can only ever widen these.
+    /// </summary>
+    public double MultiFactShare => Predicates == 0 ? 0 : (double)MultiFactPredicates / Predicates;
+}

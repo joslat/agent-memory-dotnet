@@ -1,4 +1,4 @@
-namespace AgentMemory.Abstractions.Options;
+﻿namespace AgentMemory.Abstractions.Options;
 
 /// <summary>
 /// Configuration for memory recall operations.
@@ -42,6 +42,39 @@ public sealed record RecallOptions
 
     /// <summary>Maximum facts to include.</summary>
     public int MaxFacts { get; init; } = 10;
+
+    /// <summary>
+    /// How derived facts (the session accountant's counts and sums) are treated at recall.
+    /// <c>null</c> — the default — is today's behaviour: they compete for the ordinary fact budget.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Three deliberate states, and null is the measured-harmful one.</b>
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>
+    /// <c>null</c> — derived facts sit in the same similarity pool as everything else and consume
+    /// <see cref="MaxFacts"/> slots. **Measured cost: enabling the accountant on the arithmetic
+    /// vertical moved 30% → 14%**, because ~2,560 derived facts displaced the source values they
+    /// were derived from and facts-per-question FELL from 35.4 to 27.6. This remains the default
+    /// only because changing it would alter every sealed measurement taken under it.
+    /// </description></item>
+    /// <item><description>
+    /// <c>0</c> — derived facts are excluded from recall. Strictly better than <c>null</c> whenever
+    /// the accountant is enabled: an unread derived fact is pure dilution.
+    /// </description></item>
+    /// <item><description>
+    /// <c>&gt; 0</c> — derived facts get their OWN budget, retrieved separately and appended, so a
+    /// count or sum can reach the prompt <i>without</i> costing a source fact its slot. This is the
+    /// state in which the accountant can finally be shown to help or not.
+    /// </description></item>
+    /// </list>
+    /// <para>
+    /// Derived facts are identified by <c>derivation_key</c>, which the derived-fact upsert writes
+    /// and no ordinary fact carries — so the filter is a property test, not a heuristic.
+    /// </para>
+    /// </remarks>
+    public int? MaxDerivedFacts { get; init; }
 
     /// <summary>Maximum reasoning traces to include.</summary>
     public int MaxTraces { get; init; } = 3;

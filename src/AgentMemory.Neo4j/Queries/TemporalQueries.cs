@@ -1,4 +1,4 @@
-namespace AgentMemory.Neo4j.Queries;
+﻿namespace AgentMemory.Neo4j.Queries;
 
 /// <summary>
 /// Cypher queries for temporal (point-in-time) memory retrieval. The vector AsOf searches are
@@ -59,6 +59,48 @@ internal static class TemporalQueries
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit";
+
+    /// <summary>
+    /// W1c. Predicate expansion bounded by BOTH clocks — the point-in-time twin of
+    /// <c>FactQueries.SearchByCanonicalPredicates</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The live expansion query filters <c>invalidated_at IS NULL</c> — "believed NOW". Reusing it
+    /// from a point-in-time recall would splice present-day facts into an answer about an earlier
+    /// instant, and would do so silently: the extra rows look exactly like legitimate completeness.
+    /// </para>
+    /// <para>
+    /// The four predicates below are deliberately the SAME four as
+    /// <see cref="SearchFactsAsOf(bool, bool, int)"/>, in the same order, so the similarity half and
+    /// the expansion half of one recall cannot disagree about what "as of" means. If one changes,
+    /// both must.
+    /// </para>
+    /// </remarks>
+    public static string SearchFactsByCanonicalPredicatesAsOf(
+        bool hasOwnerFilter,
+        bool includeShared,
+        bool hasPriorityKeys = false)
+    {
+        // Same tiebreak as the live query: the question's own relations ahead of predicates
+        // borrowed from top-K when the budget binds. Never a filter.
+        var priority = hasPriorityKeys
+            ? "CASE WHEN f.predicate_key IN $priorityKeys THEN 0 ELSE 1 END, "
+            : string.Empty;
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+        return $@"
+            MATCH (f:Fact)
+            WHERE f.predicate_key IN $predicateKeys
+              AND f.created_at <= datetime($systemAsOf)
+              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($systemAsOf))
+              AND (f.valid_from IS NULL OR f.valid_from <= datetime($validAsOf))
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($validAsOf)){owner}
+            RETURN f
+            ORDER BY {priority}f.confidence DESC, f.id ASC
+            LIMIT $limit";
+    }
 
     /// <summary>Get a single fact by id as of a point in time.</summary>
     public const string GetFactByIdAsOf = @"

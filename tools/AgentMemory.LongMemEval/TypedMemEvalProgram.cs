@@ -60,6 +60,14 @@ internal static class TypedMemEvalProgram
         "--supersede-replaced-facts",
         // 30.9d. Renders the chains --supersede-replaced-facts writes. Only informative together.
         "--resolve-supersessions",
+        // C-D finding (2026-09-05). The retrieval levers built for aggregation and multi-hop
+        // recall. `ExpandFactsByPredicate`/`ResolveQueryRelations` were set ONLY by the LongMemEval
+        // verb and `RecallFanOutOptions.Enabled` by nothing at all, so every TypedMemEval number in
+        // this project was taken with the composition machinery hard off and no way to turn it on.
+        "--expand-facts", "--resolve-query-relations", "--recall-fan-out",
+        // W2. The read side of derived memory. `--arithmetic-memory` writes counts and sums and
+        // NOTHING at recall read them, so they diluted the pool: 30% -> 14%. This budgets them.
+        "--max-derived-facts",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -125,7 +133,8 @@ internal static class TypedMemEvalProgram
                             phase30: options.Phase30,
                             rescueShortOwnerResults: options.RescueShortOwnerResults,
                             supersedeReplacedFacts: options.SupersedeReplacedFacts,
-                            resolveSupersessions: options.ResolveSupersessions)
+                            resolveSupersessions: options.ResolveSupersessions,
+                            recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
                 }
 
@@ -193,6 +202,11 @@ internal static class TypedMemEvalProgram
             LongMemEvalSupersessionRenderProbe? renderProbe = null;
             if (!options.Oracle) renderProbe = new LongMemEvalSupersessionRenderProbe();
 
+            // Value-grained retrieval reading, recorded beside the run it describes. Separates
+            // "retrieval never had the value" from "retrieval had it and the answer still missed" --
+            // the distinction the session-grained metric registered in row 56 could not resolve.
+            var goldValueProbe = new LongMemEvalGoldValueCoverageProbe();
+
             ExternalBenchmarkResult result;
             if (options.Oracle)
             {
@@ -217,12 +231,18 @@ internal static class TypedMemEvalProgram
                     {
                         MaxRelevantMessages = DefaultMaxRelevant,
                         FactWeightedBudget = options.FactWeightedBudget,
+                        // The levers this verb never fed. Defaults stay false, so an unflagged run
+                        // is byte-identical to every sealed measurement before it.
+                        ExpandFactsByPredicate = options.ExpandFactsByPredicate,
+                        ResolveQueryRelations = options.ResolveQueryRelations,
+                        MaxDerivedFacts = options.MaxDerivedFacts,
                         MemoryMode = LongMemEvalMemoryMode.Structured,
                         MinSimilarityScore = 0,
                         ModelId = deployment,
                         EvidenceIndex = LongMemEvalEvidenceIndex.CreateTypedMemEval(vertical, facade),
                         EvidenceDetail = options.EvidenceDetail,
                         SupersessionRenderProbe = renderProbe,
+                        GoldValueProbe = goldValueProbe,
                         RequireGraphReadBack = true,
                         GraphProbe = new Neo4jLongMemEvalGraphProbe(
                             profile.Services.GetRequiredService<global::Neo4j.Driver.IDriver>()),
@@ -240,6 +260,7 @@ internal static class TypedMemEvalProgram
             LongMemEvalSupersessionStore? supersessionStore = null;
             LongMemEvalFactObjectShape? objectShape = null;
             LongMemEvalSubjectAmbiguity? subjectAmbiguity = null;
+            LongMemEvalPredicateDensity? predicateDensity = null;
             if (profile is not null && !options.Oracle)
             {
                 try
@@ -252,6 +273,8 @@ internal static class TypedMemEvalProgram
                         .ReadFactObjectShapeAsync(CancellationToken.None).ConfigureAwait(false);
                     subjectAmbiguity = await storeProbe
                         .ReadSubjectAmbiguityAsync(CancellationToken.None).ConfigureAwait(false);
+                    predicateDensity = await storeProbe
+                        .ReadPredicateDensityAsync(CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -268,6 +291,9 @@ internal static class TypedMemEvalProgram
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                 renderSummary, supersessionStore);
+            PrintPredicateDensity(predicateDensity);
+            PrintExpansionYield(options, result);
+            PrintGoldValueCoverage(goldValueProbe, probeRan: !options.Oracle);
             PrintSupersessionStore(supersessionStore);
             PrintObjectShape(objectShape);
             PrintSubjectAmbiguity(subjectAmbiguity);
@@ -549,6 +575,120 @@ internal static class TypedMemEvalProgram
     private static string Truncate(string value) =>
         value.Length <= 100 ? value : value[..100] + "…";
 
+    /// <summary>
+    /// Reports predicate density — whether expansion has anything to widen on this corpus.
+    /// </summary>
+    /// <remarks>
+    /// Wave 1 learned this the expensive way: prospective and temporal cost ten hours to establish
+    /// that their relations are singletons, which expansion cannot widen by construction. Density is
+    /// a property of the STORE and identical in both arms, so ONE ingestion answers it — no paired
+    /// ratio, and no second run.
+    /// </remarks>
+    private static void PrintPredicateDensity(LongMemEvalPredicateDensity? density)
+    {
+        if (density is not { } d || d.Predicates == 0)
+        {
+            Console.WriteLine("typedmemeval: predicate density — NOT MEASURED (no probe, or empty store).");
+            return;
+        }
+
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"typedmemeval: predicate density — {d.Facts} fact(s) over {d.Predicates} predicate(s), "
+            + $"mean {d.MeanFactsPerPredicate:F2}, largest relation {d.LargestRelation}, "
+            + $"{d.MultiFactPredicates} ({d.MultiFactShare:P0}) hold >1 fact. Expansion can only "
+            + $"widen the last group — a store of singletons cannot benefit whatever the run costs."));
+    }
+
+    /// <summary>
+    /// Facts per question on an expansion arm — the go/no-go that makes a five-hour run unnecessary.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Wave 1 measured five verticals and the fact ratio against the default arm separated the
+    /// outcomes perfectly: arithmetic 3.8× → +16 points, procedural 5.6× → +15, conjunction 4.7× → −1
+    /// (dense, but its questions need hops rather than completeness), prospective 0.96× → −2,
+    /// temporal 1.04× → 0. <b>Every vertical below 1.1× was flat; every gain came from one above
+    /// 3.8×.</b>
+    /// </para>
+    /// <para>
+    /// Expansion returns a relation WHOLE, so it can only add rows where relations are DENSE — many
+    /// facts under one predicate. On a corpus of singleton relations it returns exactly what
+    /// similarity already had, and no amount of running changes that.
+    /// </para>
+    /// <para>
+    /// <b>ONE QUESTION IS NOT ENOUGH, and this line was nearly shipped claiming it was.</b> Measured
+    /// immediately after writing it: temporal's one-question run reports <c>10.00</c> facts against
+    /// the full run's mean of <c>5.54</c> — roughly 2× off, in the direction that would have made a
+    /// sparse vertical look dense. Use a small sample (<c>--max-questions 5</c> or more) before
+    /// reading the ratio as a go/no-go, and treat a borderline value as "unknown" rather than "go".
+    /// The instrument is worth having because it is cheap, not because one sample is reliable.
+    /// </para>
+    /// </remarks>
+    private static void PrintExpansionYield(
+        TypedMemEvalRunOptions options, ExternalBenchmarkResult result)
+    {
+        if (!options.ExpandFactsByPredicate) return;
+
+        var counts = result.QuestionResults
+            .Select(question => question.Evidence?.AnswerContext?
+                .Count(item => item.Id?.StartsWith("fact:", StringComparison.Ordinal) == true) ?? 0)
+            .ToArray();
+        if (counts.Length == 0) return;
+
+        var mean = counts.Average();
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"typedmemeval: expansion yield — {mean:F2} fact(s)/question over {counts.Length} "
+            + $"question(s). Compare against the SAME vertical's default arm: below ~1.1x the "
+            + $"relations are singletons and expansion cannot help. NOTE: one question is a noisy "
+            + $"estimate (temporal read 10.00 at n=1 against a 5.54 full-run mean) — sample 5+ "
+            + $"before treating this as a go/no-go."));
+    }
+
+    /// <summary>
+    /// Reports value-grained retrieval coverage, and reports the UNMEASURED count beside it.
+    /// </summary>
+    /// <remarks>
+    /// Questions whose gold-bearing turns carry no amount or quantity are not scored zero — they are
+    /// not measurable by this rule, and folding the two together is the constant-column failure this
+    /// repository has hit three times. Procedural is entirely unmeasurable here (0 of 80 golds carry
+    /// a value), and the line must say so rather than print a confident 0.00.
+    /// </remarks>
+    private static void PrintGoldValueCoverage(
+        LongMemEvalGoldValueCoverageProbe probe, bool probeRan)
+    {
+        // Three states, not two. An empty sample set means "ran and found nothing measurable" ONLY
+        // if the probe ran at all -- on the oracle arm there is no adapter, so nothing ever calls
+        // Record and the same empty list means something entirely different. Printing one message
+        // for both is the constant-column failure this instrument exists to avoid, made INSIDE the
+        // instrument. Found in review; the null-vs-zero discipline has to apply to the reporting
+        // line too, not only to the metric.
+        if (!probeRan)
+        {
+            Console.WriteLine(
+                "typedmemeval: gold-value coverage — NOT MEASURED (no probe on this arm).");
+            return;
+        }
+
+        var samples = probe.Samples;
+        if (samples.Count == 0)
+        {
+            Console.WriteLine(
+                "typedmemeval: gold-value coverage — NOT MEASURABLE on this vertical "
+                + "(probe ran; no gold-bearing turn carries an amount or quantity).");
+            return;
+        }
+
+        var complete = samples.Count(sample => sample.IsComplete);
+        var required = samples.Sum(sample => sample.RequiredValues);
+        var present = samples.Sum(sample => sample.PresentValues);
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"typedmemeval: gold-value coverage — {present}/{required} value(s) reached recall; "
+            + $"{complete}/{samples.Count} question(s) fully covered."));
+    }
+
     /// <summary>Announces what supersession actually wrote, loudly when it wrote nothing.</summary>
     private static void PrintSupersessionStore(LongMemEvalSupersessionStore? store)
     {
@@ -738,6 +878,10 @@ internal static class TypedMemEvalProgram
             ParseEvidenceDetail(Value("--evidence-detail")),
             Array.IndexOf(args, "--fact-weighted-budget") >= 0,
             Array.IndexOf(args, "--resolve-supersessions") >= 0,
+            Array.IndexOf(args, "--expand-facts") >= 0,
+            Array.IndexOf(args, "--resolve-query-relations") >= 0,
+            Array.IndexOf(args, "--recall-fan-out") >= 0,
+            ParseNonNegative(Value("--max-derived-facts"), "--max-derived-facts"),
             Array.IndexOf(args, "--dry-run") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
@@ -793,6 +937,22 @@ internal static class TypedMemEvalProgram
 
     private static string VerticalSlugs() =>
         string.Join("|", TypedMemEvalVerticals.All.Select(descriptor => descriptor.Slug));
+
+    /// <summary>
+    /// Zero is a LEGAL value here — it means "exclude derived facts" — so this cannot reuse
+    /// <see cref="ParsePositive"/>, whose whole job is to reject it.
+    /// </summary>
+    private static int? ParseNonNegative(string? value, string option)
+    {
+        if (value is null) return null;
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ||
+            parsed < 0)
+        {
+            throw new ArgumentException($"{option} must be zero or a positive integer.");
+        }
+
+        return parsed;
+    }
 
     private static int? ParsePositive(string? value, string option)
     {
@@ -871,6 +1031,15 @@ internal static class TypedMemEvalProgram
         // every scored run rendered supersession chains DARK. Appended last for the positional-safety
         // reason documented on TypedMemEvalArm.ResolveSupersessions.
         bool ResolveSupersessions,
+        // C-D finding (2026-09-05): the aggregation levers. The adapter's own comments say they
+        // exist "for the aggregation questions top-K structurally cannot answer" and "the
+        // multi-relation case top-K structurally cannot nominate" -- precisely the shapes that
+        // scored 0/15, 0/10 and 0/20 across the family. Never set by this verb until now.
+        bool ExpandFactsByPredicate,
+        bool ResolveQueryRelations,
+        bool RecallFanOut,
+        // W2. Null = pre-existing (and measured-harmful); 0 = exclude; >0 = own budget.
+        int? MaxDerivedFacts,
         // Stage 1 of the three-stage protocol; spends nothing and exits before the profile starts.
         bool DryRun)
     {
@@ -883,6 +1052,7 @@ internal static class TypedMemEvalProgram
         /// </remarks>
         internal TypedMemEvalArm Arm =>
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
-                ResolveSupersessions);
+                ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
+                MaxDerivedFacts);
     }
 }

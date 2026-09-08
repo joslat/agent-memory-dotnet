@@ -187,6 +187,18 @@ public sealed class TypedMemEvalCommandLineTests
             // measures an off-state. Both must be nameable, or the pair is indistinguishable again.
             ["--resolve-supersessions"] = "ResolveSupersessions",
             ["--fact-weighted-budget"] = "FactWeightedBudget",
+            // C-D finding (2026-09-05). The composition levers. Their absence from this verb is why
+            // five verticals were measured with the aggregation machinery hard off: the adapter
+            // reads ExpandFactsByPredicate/ResolveQueryRelations and the engine reads
+            // MemoryOptions.FanOut.Enabled, and no TypedMemEval run could set any of the three.
+            ["--expand-facts"] = "ExpandFactsByPredicate",
+            ["--resolve-query-relations"] = "ResolveQueryRelations",
+            ["--recall-fan-out"] = "RecallFanOut",
+            // W2. The READ side of derived memory. --arithmetic-memory writes counts and sums and
+            // nothing at recall read them, so they diluted the pool (30% -> 14%). Zero is legal and
+            // means "exclude", which is why it parses through ParseNonNegative rather than
+            // ParsePositive.
+            ["--max-derived-facts"] = "MaxDerivedFacts",
             // Stage 1 of the three-stage run protocol. Advertised, so it must be carried.
             ["--dry-run"] = "DryRun",
         };

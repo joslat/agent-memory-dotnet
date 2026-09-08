@@ -1,4 +1,4 @@
-using AgentEval.Memory.External.TypedMemEval;
+﻿using AgentEval.Memory.External.TypedMemEval;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
 using Xunit;
@@ -183,6 +183,8 @@ public sealed class TypedMemEvalArmProvenanceTests
             EvidenceDetail: LongMemEvalEvidenceDetail.Identifiers,
             FactWeightedBudget: true,
             ResolveSupersessions: false,
+            ExpandFactsByPredicate: false, ResolveQueryRelations: false, RecallFanOut: false,
+            MaxDerivedFacts: null,
             DryRun: false);
 
         var arm = options.Arm;

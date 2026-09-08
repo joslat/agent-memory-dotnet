@@ -1,4 +1,4 @@
-using AgentMemory.Core.Memory;
+﻿using AgentMemory.Core.Memory;
 using System.Collections.ObjectModel;
 using System.Text;
 using AgentEval.Core;
@@ -243,13 +243,24 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     {
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(history.Turns);
-        if (_options.ExpandFactsByPredicate || _options.ResolveQueryRelations ||
-            _options.GraphRagItems > 0)
+        // W1c NARROWED THIS GUARD BY MAKING ITS CLAIM TRUE, NOT BY RELAXING IT.
+        //
+        // Predicate expansion and query-relation resolution are now implemented on the as-of path
+        // (MemoryContextAssembler.AssembleContextAsOfCoreAsync -> SearchFactsAsOfAsync's expansion
+        // overload -> SearchByCanonicalPredicatesAsOfAsync), with both clocks carried into the
+        // expanded lookup and a red-first test that failed before the feature existed. So those two
+        // options are no longer silently ignored, and refusing them would now be refusing a
+        // capability the engine has.
+        //
+        // GRAPHRAG IS STILL NOT IMPLEMENTED AS-OF and is still refused. The check did not get
+        // weaker; its scope shrank to exactly what remains untrue. If GraphRAG-as-of ever lands,
+        // this guard goes away entirely -- and not one line before.
+        if (_options.GraphRagItems > 0)
         {
             throw new InvalidOperationException(
                 "Timestamped LongMemEval history anchors recall at RecallAsOfAsync, which does not " +
-                "implement predicate expansion, query-relation resolution, or GraphRAG; refusing to " +
-                "run a question whose options would be silently ignored.");
+                "implement GraphRAG; refusing to run a question whose options would be silently " +
+                "ignored.");
         }
 
         var pairs = new (string UserMessage, string AssistantResponse)[history.Turns.Count];
@@ -713,6 +724,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // the multi-relation case top-K structurally cannot nominate.
                 ResolveQueryRelations = _options.ResolveQueryRelations,
                 MaxExpandedFacts = _options.MaxExpandedFacts,
+                // W2. Null is the pre-existing behaviour AND the measured-harmful one: derived facts
+                // compete for the ordinary fact budget and displace the source values they were
+                // computed from (arithmetic 30% -> 14%).
+                MaxDerivedFacts = _options.MaxDerivedFacts,
                 MaxGraphRagItems = budget.GraphRag,
                 MinSimilarityScore = _options.MinSimilarityScore,
                 BlendMode = BlendModeFor(budget.GraphRag),
@@ -801,6 +816,19 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                         _options.MaxItemsPerSourceSession)
                 }
             };
+        }
+
+        if (_options.GoldValueProbe is { } goldValueProbe && evidenceQuestion is not null)
+        {
+            // Required values come from the gold-bearing TURNS, never the gold answer: the answer
+            // states a total that is not stored, while the turns carry the components that are.
+            goldValueProbe.Record(
+                evidenceQuestion.QuestionId,
+                evidenceQuestion.Messages
+                    .Where(origin => origin.HasAnswer)
+                    .Select(origin => (string?)origin.FormattedContent),
+                recall.Context.RelevantFacts.Items
+                    .Select(fact => (string?)$"{fact.Subject} {fact.Predicate} {fact.Object}"));
         }
 
         var recalled = recall.Context.RelevantMessages.Items;
@@ -1899,6 +1927,23 @@ public sealed record LongMemEvalAdapterOptions
     /// are refilled uncapped so the context is never left short.
     /// </remarks>
     public int MaxItemsPerSourceSession { get; init; }
+
+    /// <summary>
+    /// Optional record-only probe: how many of the gold-bearing turns' values reached the recalled
+    /// facts. Null means not measured, which is distinct from measured zero.
+    /// </summary>
+    /// <remarks>
+    /// The instrument row 56 registered was session-grained and nearly missed a real effect; this
+    /// one is value-grained and separates "retrieval never had it" from "retrieval had it and the
+    /// answer still missed". It reads what recall already returned and changes nothing.
+    /// </remarks>
+    public LongMemEvalGoldValueCoverageProbe? GoldValueProbe { get; init; }
+
+    /// <summary>
+    /// How derived facts are budgeted at recall. Null = compete in the ordinary pool (pre-existing,
+    /// and measured at −16 points); 0 = excluded; &gt; 0 = their own budget.
+    /// </summary>
+    public int? MaxDerivedFacts { get; init; }
 
 
     /// <summary>

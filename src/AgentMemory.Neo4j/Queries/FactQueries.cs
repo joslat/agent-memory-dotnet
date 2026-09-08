@@ -1,4 +1,4 @@
-using AgentMemory.Neo4j.Infrastructure;
+﻿using AgentMemory.Neo4j.Infrastructure;
 
 namespace AgentMemory.Neo4j.Queries;
 
@@ -61,7 +61,8 @@ internal static class FactQueries
     public static string SearchByCanonicalPredicates(
         bool hasOwnerFilter,
         bool includeShared,
-        bool hasPriorityKeys = false)
+        bool hasPriorityKeys = false,
+        bool excludeDerived = false)
     {
         // Mirrors GetBySubject's owner-conditional shape rather than inventing its own. The first
         // version hard-coded `f.owner_key = $ownerKey` with `scope.OwnerId ?? OwnerKeyShared`, which
@@ -83,10 +84,15 @@ internal static class FactQueries
         var owner = !hasOwnerFilter ? string.Empty
             : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
                             : " AND f.owner_id = $ownerId";
+        // Expansion returns a relation WHOLE, so without this it hands back the accountant's derived
+        // facts alongside the sources -- consuming the 60-slot expansion budget with the very output
+        // the derived budget exists to keep out of it. The vector search was filtered and this was
+        // not, which measured as the read side under-delivering by 8 facts/question.
+        var derived = excludeDerived ? " AND f.derivation_key IS NULL" : string.Empty;
         return $@"
             MATCH (f:Fact)
             WHERE f.predicate_key IN $predicateKeys
-              AND f.invalidated_at IS NULL{owner}
+              AND f.invalidated_at IS NULL{derived}{owner}
             RETURN f
             ORDER BY {priority}f.confidence DESC, f.id ASC
             LIMIT $limit";
@@ -325,7 +331,8 @@ internal static class FactQueries
     /// </summary>
     public static string SearchByVector(
         bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false,
-        bool currentValidTime = false, bool omitEmbedding = false) =>
+        bool currentValidTime = false, bool omitEmbedding = false,
+        bool excludeDerived = false, bool onlyDerived = false) =>
         VectorRerank.Finish(
             new CypherBuilder()
                 .WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK)
@@ -338,6 +345,12 @@ internal static class FactQueries
                 // returned FOREVER. Off unless asked for, so no deployment silently recalls less.
                 .And("(node.valid_from IS NULL OR node.valid_from <= datetime($now))", when: currentValidTime)
                 .And("(node.valid_until IS NULL OR node.valid_until > datetime($now))", when: currentValidTime)
+                // Derived facts (the accountant's counts and sums) carry `derivation_key`; no
+                // ordinary fact does, so this is a property test rather than a heuristic. BOTH flags
+                // default false, leaving the query byte-for-byte today's -- which is what keeps every
+                // sealed measurement comparable, including the ones that measured the harm.
+                .And("node.derivation_key IS NULL", when: excludeDerived)
+                .And("node.derivation_key IS NOT NULL", when: onlyDerived)
                 .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
             recencyRerank, omitEmbedding);
 
