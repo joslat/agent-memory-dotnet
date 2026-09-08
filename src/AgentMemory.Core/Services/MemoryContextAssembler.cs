@@ -612,6 +612,10 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                             // to nothing, so both the option-off and the no-match paths reproduce the
                             // previous call exactly.
                             resolvedQueryRelations,
+                            // Null keeps the pre-existing overload and the pre-existing behaviour;
+                            // any value segregates derived facts so the accountant's output stops
+                            // consuming the budget belonging to its own inputs.
+                            recallOpts.MaxDerivedFacts,
                             cancellationToken)
                         // Valid time is applied on the non-expansion path only. Expansion fetches by
                         // predicate rather than by vector and would need its own clause; gating one and

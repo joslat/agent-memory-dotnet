@@ -65,6 +65,9 @@ internal static class TypedMemEvalProgram
         // verb and `RecallFanOutOptions.Enabled` by nothing at all, so every TypedMemEval number in
         // this project was taken with the composition machinery hard off and no way to turn it on.
         "--expand-facts", "--resolve-query-relations", "--recall-fan-out",
+        // W2. The read side of derived memory. `--arithmetic-memory` writes counts and sums and
+        // NOTHING at recall read them, so they diluted the pool: 30% -> 14%. This budgets them.
+        "--max-derived-facts",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -232,6 +235,7 @@ internal static class TypedMemEvalProgram
                         // is byte-identical to every sealed measurement before it.
                         ExpandFactsByPredicate = options.ExpandFactsByPredicate,
                         ResolveQueryRelations = options.ResolveQueryRelations,
+                        MaxDerivedFacts = options.MaxDerivedFacts,
                         MemoryMode = LongMemEvalMemoryMode.Structured,
                         MinSimilarityScore = 0,
                         ModelId = deployment,
@@ -256,6 +260,7 @@ internal static class TypedMemEvalProgram
             LongMemEvalSupersessionStore? supersessionStore = null;
             LongMemEvalFactObjectShape? objectShape = null;
             LongMemEvalSubjectAmbiguity? subjectAmbiguity = null;
+            LongMemEvalPredicateDensity? predicateDensity = null;
             if (profile is not null && !options.Oracle)
             {
                 try
@@ -268,6 +273,8 @@ internal static class TypedMemEvalProgram
                         .ReadFactObjectShapeAsync(CancellationToken.None).ConfigureAwait(false);
                     subjectAmbiguity = await storeProbe
                         .ReadSubjectAmbiguityAsync(CancellationToken.None).ConfigureAwait(false);
+                    predicateDensity = await storeProbe
+                        .ReadPredicateDensityAsync(CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -284,6 +291,7 @@ internal static class TypedMemEvalProgram
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                 renderSummary, supersessionStore);
+            PrintPredicateDensity(predicateDensity);
             PrintExpansionYield(options, result);
             PrintGoldValueCoverage(goldValueProbe);
             PrintSupersessionStore(supersessionStore);
@@ -602,6 +610,31 @@ internal static class TypedMemEvalProgram
     /// The instrument is worth having because it is cheap, not because one sample is reliable.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Reports predicate density — whether expansion has anything to widen on this corpus.
+    /// </summary>
+    /// <remarks>
+    /// Wave 1 learned this the expensive way: prospective and temporal cost ten hours to establish
+    /// that their relations are singletons, which expansion cannot widen by construction. Density is
+    /// a property of the STORE and identical in both arms, so ONE ingestion answers it — no paired
+    /// ratio, and no second run.
+    /// </remarks>
+    private static void PrintPredicateDensity(LongMemEvalPredicateDensity? density)
+    {
+        if (density is not { } d || d.Predicates == 0)
+        {
+            Console.WriteLine("typedmemeval: predicate density — NOT MEASURED (no probe, or empty store).");
+            return;
+        }
+
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"typedmemeval: predicate density — {d.Facts} fact(s) over {d.Predicates} predicate(s), "
+            + $"mean {d.MeanFactsPerPredicate:F2}, largest relation {d.LargestRelation}, "
+            + $"{d.MultiFactPredicates} ({d.MultiFactShare:P0}) hold >1 fact. Expansion can only "
+            + $"widen the last group — a store of singletons cannot benefit whatever the run costs."));
+    }
+
     private static void PrintExpansionYield(
         TypedMemEvalRunOptions options, ExternalBenchmarkResult result)
     {
@@ -834,6 +867,7 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--expand-facts") >= 0,
             Array.IndexOf(args, "--resolve-query-relations") >= 0,
             Array.IndexOf(args, "--recall-fan-out") >= 0,
+            ParseNonNegative(Value("--max-derived-facts"), "--max-derived-facts"),
             Array.IndexOf(args, "--dry-run") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
@@ -889,6 +923,22 @@ internal static class TypedMemEvalProgram
 
     private static string VerticalSlugs() =>
         string.Join("|", TypedMemEvalVerticals.All.Select(descriptor => descriptor.Slug));
+
+    /// <summary>
+    /// Zero is a LEGAL value here — it means "exclude derived facts" — so this cannot reuse
+    /// <see cref="ParsePositive"/>, whose whole job is to reject it.
+    /// </summary>
+    private static int? ParseNonNegative(string? value, string option)
+    {
+        if (value is null) return null;
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ||
+            parsed < 0)
+        {
+            throw new ArgumentException($"{option} must be zero or a positive integer.");
+        }
+
+        return parsed;
+    }
 
     private static int? ParsePositive(string? value, string option)
     {
@@ -974,6 +1024,8 @@ internal static class TypedMemEvalProgram
         bool ExpandFactsByPredicate,
         bool ResolveQueryRelations,
         bool RecallFanOut,
+        // W2. Null = pre-existing (and measured-harmful); 0 = exclude; >0 = own budget.
+        int? MaxDerivedFacts,
         // Stage 1 of the three-stage protocol; spends nothing and exits before the profile starts.
         bool DryRun)
     {

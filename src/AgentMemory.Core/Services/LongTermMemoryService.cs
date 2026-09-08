@@ -460,6 +460,22 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
             questionRelations, scoreSink: null, cancellationToken);
 
     /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        int? maxDerivedFacts,
+        CancellationToken cancellationToken) =>
+        SearchFactsCoreAsync(
+            queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
+            questionRelations, scoreSink: null, cancellationToken,
+            maxDerivedFacts: maxDerivedFacts);
+
+    /// <inheritdoc/>
     /// <remarks>
     /// A straight forward to the repository, with the owner scope resolved through the isolation policy
     /// exactly as every other read here is. Note what this method does <b>not</b> do: it takes no query
@@ -549,7 +565,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         IReadOnlyList<string> questionRelations,
         List<(Fact Fact, double Score)>? scoreSink,
         CancellationToken cancellationToken,
-        ValidTimeMode validTime = ValidTimeMode.Ignore)
+        ValidTimeMode validTime = ValidTimeMode.Ignore,
+        int? maxDerivedFacts = null)
     {
         ArgumentNullException.ThrowIfNull(questionRelations);
         var resolved = Resolve(scope, nameof(SearchFactsAsync));
@@ -557,10 +574,19 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         // exact repository call it always did -- byte-identical rather than merely equivalent. It also
         // means a third-party IFactRepository that never implements the valid-time overload is only
         // reached through it when a caller explicitly asked for gating.
+        // Null leaves the call byte-identical: derived facts compete in the ordinary pool exactly as
+        // they always have. Any value segregates them, so the accountant's output stops consuming the
+        // budget belonging to the source facts it was computed FROM -- the displacement measured at
+        // 16 points on the arithmetic vertical.
+        var derivedMode = maxDerivedFacts is null ? DerivedFactMode.Include : DerivedFactMode.Exclude;
         var scored = validTime == ValidTimeMode.Ignore
-            ? await _factRepo
-                .SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, cancellationToken)
-                .ConfigureAwait(false)
+            ? (derivedMode == DerivedFactMode.Include
+                ? await _factRepo
+                    .SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, cancellationToken)
+                    .ConfigureAwait(false)
+                : await _factRepo
+                    .SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, derivedMode, cancellationToken)
+                    .ConfigureAwait(false))
             : await _factRepo
                 .SearchByVectorAsync(queryEmbedding, validTime, limit, minScore, resolved, cancellationToken)
                 .ConfigureAwait(false);
@@ -571,8 +597,16 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         var top = scored.Select(r => r.Fact).ToList();
         // A question that names its relations outright does not need the top-K to nominate them, so an
         // empty top-K is only a dead end when there is nothing else to expand on.
+        //
+        // Routed through the derived budget rather than returning directly: the two features are
+        // independent, and returning here skipped it entirely whenever expansion was off — so the
+        // derived budget would have done nothing on every non-expansion recall, silently. Caught by
+        // APositiveBudgetFetchesDerivedFactsSeparatelyAndAppendsThem, which is exactly the shape of
+        // reachable-but-not-fed this codebase keeps finding.
         if (!expandByPredicate || (top.Count == 0 && questionRelations.Count == 0))
-            return top;
+            return await AppendDerivedAsync(
+                top, queryEmbedding, minScore, resolved, maxDerivedFacts, cancellationToken)
+                .ConfigureAwait(false);
 
         // G5 "hard" tier. Similarity decides *which* relation matters; this returns that relation
         // whole. Top-K is a relevance cutoff and carries no completeness guarantee, so a question
@@ -611,7 +645,55 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
             top.Add(fact with { Metadata = metadata });
         }
 
-        return top;
+        return await AppendDerivedAsync(
+            top, queryEmbedding, minScore, resolved, maxDerivedFacts, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Gives derived facts their OWN budget, appended after the source facts rather than competing
+    /// with them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The accountant writes counts and sums and marks them with <c>derivation_key</c>; until now
+    /// <b>nothing at recall read that mark</b>, so its output entered the same similarity pool as
+    /// everything else. Measured on the arithmetic vertical: <b>30% to 14%</b>, because ~2,560
+    /// derived facts displaced the source values they were computed FROM, and facts-per-question
+    /// fell 35.4 to 27.6. A feature that writes answers into memory made the inputs harder to find.
+    /// </para>
+    /// <para>
+    /// A separate budget is what lets a count reach the prompt <i>without</i> costing a source fact
+    /// its slot -- and it is the state in which the accountant can finally be shown to help or not,
+    /// which today's evidence does NOT establish either way.
+    /// </para>
+    /// <para>
+    /// Null and zero both skip the second search: null because that is the pre-existing path, zero
+    /// because excluding derived facts is already done by the main query's filter and a round trip
+    /// returning nothing is pure cost.
+    /// </para>
+    /// </remarks>
+    private async Task<List<Fact>> AppendDerivedAsync(
+        List<Fact> facts,
+        float[] queryEmbedding,
+        double minScore,
+        MemoryScope? resolved,
+        int? maxDerivedFacts,
+        CancellationToken cancellationToken)
+    {
+        if (maxDerivedFacts is not > 0) return facts;
+
+        var derived = await _factRepo.SearchByVectorAsync(
+                queryEmbedding, maxDerivedFacts.Value, minScore, resolved,
+                DerivedFactMode.Only, cancellationToken)
+            .ConfigureAwait(false);
+
+        var seen = facts.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
+        foreach (var (fact, _) in derived)
+            if (seen.Add(fact.FactId))
+                facts.Add(fact);
+
+        return facts;
     }
 
     /// <inheritdoc/>

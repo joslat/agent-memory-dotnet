@@ -306,6 +306,48 @@ public interface ILongTermMemoryService
             queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
             cancellationToken);
 
+    /// <summary>
+    /// Fact recall that also decides how DERIVED facts (the accountant's counts and sums) are
+    /// budgeted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>null</c> is the pre-existing behaviour and the measured-harmful one: derived facts compete
+    /// for the ordinary fact budget and displace the source values they were computed from. Measured
+    /// on the arithmetic vertical, enabling the accountant moved <b>30% to 14%</b>.
+    /// </para>
+    /// <para>
+    /// A default interface method for the same reason as the expansion overloads above — the
+    /// interface is locked under SemVer. The default ignores the budget and delegates, so an
+    /// implementor that does not override keeps today's behaviour exactly.
+    /// </para>
+    /// </remarks>
+    /// <param name="queryEmbedding">Query vector for the similarity search.</param>
+    /// <param name="limit">Maximum facts from the similarity search, before expansion.</param>
+    /// <param name="minScore">Similarity floor.</param>
+    /// <param name="scope">Isolation scope for the read.</param>
+    /// <param name="expandByPredicate">Return matched relations whole rather than by similarity rank.</param>
+    /// <param name="expansionLimit">Hard cap on facts added by expansion.</param>
+    /// <param name="questionRelations">Relations named by the question itself.</param>
+    /// <param name="maxDerivedFacts">
+    /// <c>null</c> = compete in the ordinary pool; <c>0</c> = exclude; <c>&gt; 0</c> = a separate
+    /// budget, appended without costing a source fact its slot.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        int? maxDerivedFacts,
+        CancellationToken cancellationToken) =>
+        SearchFactsAsync(
+            queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
+            questionRelations, cancellationToken);
+
 
     /// <summary>
     /// Fact recall restricted to facts whose valid-time window contains the present.

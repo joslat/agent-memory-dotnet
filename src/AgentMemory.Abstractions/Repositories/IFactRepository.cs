@@ -46,6 +46,24 @@ public interface IFactRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Vector fact search that can separate DERIVED facts from ordinary ones.
+    /// </summary>
+    /// <remarks>
+    /// A default interface method delegating to the mode-less overload, for the same reason as the
+    /// expansion overloads: the interface is locked under SemVer. An implementor that does not
+    /// override this keeps today's behaviour exactly — derived facts competing in the ordinary pool,
+    /// which is the state whose cost was measured at 16 points on the arithmetic vertical.
+    /// </remarks>
+    Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        DerivedFactMode derivedMode,
+        CancellationToken cancellationToken) =>
+        SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
+
+    /// <summary>
     /// Searches facts by vector similarity, optionally restricted to facts valid <i>now</i>.
     /// </summary>
     /// <remarks>

@@ -724,6 +724,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // the multi-relation case top-K structurally cannot nominate.
                 ResolveQueryRelations = _options.ResolveQueryRelations,
                 MaxExpandedFacts = _options.MaxExpandedFacts,
+                // W2. Null is the pre-existing behaviour AND the measured-harmful one: derived facts
+                // compete for the ordinary fact budget and displace the source values they were
+                // computed from (arithmetic 30% -> 14%).
+                MaxDerivedFacts = _options.MaxDerivedFacts,
                 MaxGraphRagItems = budget.GraphRag,
                 MinSimilarityScore = _options.MinSimilarityScore,
                 BlendMode = BlendModeFor(budget.GraphRag),
@@ -1934,6 +1938,12 @@ public sealed record LongMemEvalAdapterOptions
     /// answer still missed". It reads what recall already returned and changes nothing.
     /// </remarks>
     public LongMemEvalGoldValueCoverageProbe? GoldValueProbe { get; init; }
+
+    /// <summary>
+    /// How derived facts are budgeted at recall. Null = compete in the ordinary pool (pre-existing,
+    /// and measured at −16 points); 0 = excluded; &gt; 0 = their own budget.
+    /// </summary>
+    public int? MaxDerivedFacts { get; init; }
 
 
     /// <summary>

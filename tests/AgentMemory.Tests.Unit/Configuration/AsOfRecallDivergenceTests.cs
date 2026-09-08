@@ -59,6 +59,20 @@ public sealed class AsOfRecallDivergenceTests
         // semantics, and bundling it into W1c would have shipped two capabilities under one
         // invariant test.
 
+        // W2 derived-fact budgeting, live path only — a decision, and a temporal one.
+        //
+        // A derived fact is a count or sum computed by the session accountant. Which instant does it
+        // belong to? It is written "now", from inputs that each have their own validity window, and
+        // nothing in the derivation records the window the AGGREGATE was true over. Placing such a
+        // fact into a point-in-time answer would assert a total that may never have held at that
+        // instant — precisely the anachronism the two clocks exist to prevent, and one that would be
+        // indistinguishable from a correct total without recomputing it.
+        //
+        // So as-of recall keeps derived facts out until derivation records its own valid-time window.
+        // That is a substrate gap, not an oversight, and it is recorded here rather than discovered
+        // later as a wrong answer.
+        "MaxDerivedFacts",
+
         // 30.7 prospective firing, live path only — a decision, recorded here because this guard
         // exists to stop such decisions being made by omission.
         //

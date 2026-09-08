@@ -194,6 +194,11 @@ public sealed class TypedMemEvalCommandLineTests
             ["--expand-facts"] = "ExpandFactsByPredicate",
             ["--resolve-query-relations"] = "ResolveQueryRelations",
             ["--recall-fan-out"] = "RecallFanOut",
+            // W2. The READ side of derived memory. --arithmetic-memory writes counts and sums and
+            // nothing at recall read them, so they diluted the pool (30% -> 14%). Zero is legal and
+            // means "exclude", which is why it parses through ParseNonNegative rather than
+            // ParsePositive.
+            ["--max-derived-facts"] = "MaxDerivedFacts",
             // Stage 1 of the three-stage run protocol. Advertised, so it must be carried.
             ["--dry-run"] = "DryRun",
         };

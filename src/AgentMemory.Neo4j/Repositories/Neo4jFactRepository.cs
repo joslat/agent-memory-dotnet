@@ -354,13 +354,25 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         CancellationToken cancellationToken = default) =>
         SearchByVectorAsync(queryEmbedding, ValidTimeMode.Ignore, limit, minScore, scope, cancellationToken);
 
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        DerivedFactMode derivedMode,
+        CancellationToken cancellationToken) =>
+        SearchByVectorAsync(
+            queryEmbedding, ValidTimeMode.Ignore, limit, minScore, scope, cancellationToken, derivedMode);
+
     public async Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
         float[] queryEmbedding,
         ValidTimeMode validTime,
         int limit = 10,
         double minScore = 0.0,
         MemoryScope? scope = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DerivedFactMode derivedMode = DerivedFactMode.Include)
     {
         // Boundary invariant: a zero-dimension (empty/degraded) query embedding has no semantic signal and
         // would throw a dimension mismatch at db.index.vector.queryNodes — short-circuit to an empty result.
@@ -395,7 +407,10 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         {
             var cypher = FactQueries.SearchByVector(
                 hasOwner, includeShared, width, recencyRerank, currentValidTime,
-                omitEmbedding: _omitEmbeddingsFromRecall);
+                omitEmbedding: _omitEmbeddingsFromRecall,
+                // Include (the default) leaves the query byte-for-byte what it has always been.
+                excludeDerived: derivedMode == DerivedFactMode.Exclude,
+                onlyDerived: derivedMode == DerivedFactMode.Only);
             return await _tx.ReadAsync(async runner =>
             {
                 var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);

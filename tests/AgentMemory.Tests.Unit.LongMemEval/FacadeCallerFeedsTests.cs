@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AgentEval.Memory.External.Models;
 using AgentEval.Memory.External.TypedMemEval;
 using AgentMemory.LongMemEval;
@@ -113,5 +113,6 @@ public class FacadeCallerFeedsTests
         RescueShortOwnerResults: false, SupersedeReplacedFacts: false, EvidenceDetail: detail,
         FactWeightedBudget: false, ResolveSupersessions: false,
         ExpandFactsByPredicate: false, ResolveQueryRelations: false, RecallFanOut: false,
+        MaxDerivedFacts: null,
         DryRun: false);
 }
