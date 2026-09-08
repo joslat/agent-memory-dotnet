@@ -284,6 +284,7 @@ internal static class TypedMemEvalProgram
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                 renderSummary, supersessionStore);
+            PrintExpansionYield(options, result);
             PrintGoldValueCoverage(goldValueProbe);
             PrintSupersessionStore(supersessionStore);
             PrintObjectShape(objectShape);
@@ -576,6 +577,52 @@ internal static class TypedMemEvalProgram
     /// repository has hit three times. Procedural is entirely unmeasurable here (0 of 80 golds carry
     /// a value), and the line must say so rather than print a confident 0.00.
     /// </remarks>
+    /// <summary>
+    /// Facts per question on an expansion arm — the go/no-go that makes a five-hour run unnecessary.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Wave 1 measured five verticals and the fact ratio against the default arm separated the
+    /// outcomes perfectly: arithmetic 3.8× → +16 points, procedural 5.6× → +15, conjunction 4.7× → −1
+    /// (dense, but its questions need hops rather than completeness), prospective 0.96× → −2,
+    /// temporal 1.04× → 0. <b>Every vertical below 1.1× was flat; every gain came from one above
+    /// 3.8×.</b>
+    /// </para>
+    /// <para>
+    /// Expansion returns a relation WHOLE, so it can only add rows where relations are DENSE — many
+    /// facts under one predicate. On a corpus of singleton relations it returns exactly what
+    /// similarity already had, and no amount of running changes that.
+    /// </para>
+    /// <para>
+    /// <b>ONE QUESTION IS NOT ENOUGH, and this line was nearly shipped claiming it was.</b> Measured
+    /// immediately after writing it: temporal's one-question run reports <c>10.00</c> facts against
+    /// the full run's mean of <c>5.54</c> — roughly 2× off, in the direction that would have made a
+    /// sparse vertical look dense. Use a small sample (<c>--max-questions 5</c> or more) before
+    /// reading the ratio as a go/no-go, and treat a borderline value as "unknown" rather than "go".
+    /// The instrument is worth having because it is cheap, not because one sample is reliable.
+    /// </para>
+    /// </remarks>
+    private static void PrintExpansionYield(
+        TypedMemEvalRunOptions options, ExternalBenchmarkResult result)
+    {
+        if (!options.ExpandFactsByPredicate) return;
+
+        var counts = result.QuestionResults
+            .Select(question => question.Evidence?.AnswerContext?
+                .Count(item => item.Id?.StartsWith("fact:", StringComparison.Ordinal) == true) ?? 0)
+            .ToArray();
+        if (counts.Length == 0) return;
+
+        var mean = counts.Average();
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"typedmemeval: expansion yield — {mean:F2} fact(s)/question over {counts.Length} "
+            + $"question(s). Compare against the SAME vertical's default arm: below ~1.1x the "
+            + $"relations are singletons and expansion cannot help. NOTE: one question is a noisy "
+            + $"estimate (temporal read 10.00 at n=1 against a 5.54 full-run mean) — sample 5+ "
+            + $"before treating this as a go/no-go."));
+    }
+
     private static void PrintGoldValueCoverage(LongMemEvalGoldValueCoverageProbe probe)
     {
         var samples = probe.Samples;
