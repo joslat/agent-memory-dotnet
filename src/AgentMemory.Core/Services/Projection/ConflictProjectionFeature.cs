@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
@@ -30,6 +30,21 @@ namespace AgentMemory.Core.Services.Projection;
 /// </remarks>
 internal sealed class ConflictProjectionFeature : IProjectionFeature
 {
+    /// <remarks>
+    /// ⚠️ <b>OBSERVABILITY GAP, recorded rather than half-closed.</b> When this feature is enabled
+    /// and renders nothing, there is no way to tell "ran and found no conflicting claims" from
+    /// "never ran" — the shape this codebase has found on several paths. Closing it properly means
+    /// either injecting a logger (no projection feature takes one today, so it is a DI change) or
+    /// having <c>ProjectionState</c> record which features applied, which is the better general fix
+    /// and larger than a drive-by. Left whole and documented instead of partly wired: a half-wired
+    /// read side cost this project a five-hour measurement, and the lesson is that an honest gap
+    /// beats a knob that looks like a fix.
+    /// <para>
+    /// The sibling gap on <c>LegibleForgetting</c> WAS closed, because it collapsed five distinct
+    /// outcomes into one empty list and needed only Debug lines on an object that already had a
+    /// logger.
+    /// </para>
+    /// </remarks>
     public bool IsEnabled(MemoryProjectionOptions options) => options.RenderConflicts;
 
     public Task ApplyAsync(ProjectionState state, CancellationToken cancellationToken)

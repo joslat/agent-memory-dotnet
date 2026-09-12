@@ -236,18 +236,51 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         double minScore,
         CancellationToken cancellationToken)
     {
-        if (!recallOpts.LegibleForgetting) return Array.Empty<ForgottenTopicSummary>();
-        if (queryEmbedding is not { Length: > 0 }) return Array.Empty<ForgottenTopicSummary>();
+        // Five DIFFERENT outcomes previously collapsed into one empty list: the option is off, there
+        // was no embedding to probe with, the recall was not thin, the budget was zero, or nothing
+        // decayed was found. Enabling the feature and observing nothing was therefore
+        // indistinguishable from it never having run -- the same reachable-but-unobservable shape
+        // this codebase has now found on several paths. Each branch names itself at Debug.
+        if (!recallOpts.LegibleForgetting)
+            return Array.Empty<ForgottenTopicSummary>();
+
+        if (queryEmbedding is not { Length: > 0 })
+        {
+            _logger.LogDebug(
+                "Legible forgetting skipped: no query embedding to probe tombstones with.");
+            return Array.Empty<ForgottenTopicSummary>();
+        }
+
         // The thinness trigger. Searched-and-found-nothing, not merely found-nothing: a recall whose
         // fact budget was zero never asked, and never asking is not the same as an absence.
-        if (facts.Count > 0 || recallOpts.MaxFacts <= 0) return Array.Empty<ForgottenTopicSummary>();
+        if (recallOpts.MaxFacts <= 0)
+        {
+            _logger.LogDebug(
+                "Legible forgetting skipped: MaxFacts is {MaxFacts}, so live facts were never "
+                + "searched -- an unasked question is not an absence.", recallOpts.MaxFacts);
+            return Array.Empty<ForgottenTopicSummary>();
+        }
+
+        if (facts.Count > 0)
+        {
+            _logger.LogDebug(
+                "Legible forgetting skipped: recall returned {FactCount} live fact(s), so it was "
+                + "not thin.", facts.Count);
+            return Array.Empty<ForgottenTopicSummary>();
+        }
 
         try
         {
             var decayed = await _longTerm.SearchDecayedFactsAsync(
                 queryEmbedding, recallOpts.TombstoneProbeTopK, minScore, scope, cancellationToken)
                 .ConfigureAwait(false);
-            if (decayed.Count == 0) return Array.Empty<ForgottenTopicSummary>();
+            if (decayed.Count == 0)
+            {
+                _logger.LogDebug(
+                    "Legible forgetting ran and found nothing: the tombstone probe returned no "
+                    + "decayed facts. This is a MEASURED absence, not a skipped probe.");
+                return Array.Empty<ForgottenTopicSummary>();
+            }
 
             // Grouped case-insensitively, the way the graph groups: two spellings of one subject are
             // one topic, and reporting them as two would overstate how much was lost.
