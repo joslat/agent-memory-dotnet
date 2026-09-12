@@ -291,6 +291,7 @@ internal static class TypedMemEvalProgram
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                 renderSummary, supersessionStore);
+            PrintReachableCeiling(descriptor, result);
             PrintPredicateDensity(predicateDensity);
             PrintExpansionYield(options, result);
             PrintGoldValueCoverage(goldValueProbe, probeRan: !options.Oracle);
@@ -574,6 +575,38 @@ internal static class TypedMemEvalProgram
 
     private static string Truncate(string value) =>
         value.Length <= 100 ? value : value[..100] + "…";
+
+    /// <summary>
+    /// Reports the score against the corpus's own REACHABLE ceiling, not against 1.0.
+    /// </summary>
+    /// <remarks>
+    /// AgentEval ships <c>ceiling.by_g</c> and <c>structure.g_distribution</c> in every corpus's
+    /// meta resource, and a question needing more gold sessions than <c>k_ref</c> cannot be fully
+    /// answered from <c>k_ref</c>. Conjunction caps 13 of 65 questions, for a corpus ceiling of
+    /// 0.947 — so a perfect engine cannot score 100%, and a scoreboard read against 1.0 overstates
+    /// every gap it exists to rank. The numbers are read from the package the run loaded, never
+    /// hardcoded, so a redrawn corpus brings its own ceiling.
+    /// </remarks>
+    private static void PrintReachableCeiling(
+        TypedMemEvalVerticalDescriptor descriptor, ExternalBenchmarkResult result)
+    {
+        if (TypedMemEvalReachableCeiling.For(descriptor.Slug) is not { } ceiling)
+        {
+            Console.WriteLine(
+                "typedmemeval: reachable ceiling — NOT DECLARED by this corpus (scores read against "
+                + "1.0, which may overstate the gap).");
+            return;
+        }
+
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"typedmemeval: reachable ceiling — {ceiling.Fraction:P1} "
+            + $"({ceiling.ReachableQuestions:F2} of {ceiling.Questions} questions reachable at "
+            + $"k_ref={ceiling.KRef?.ToString(CultureInfo.InvariantCulture) ?? "?"}; "
+            + $"{ceiling.CappedQuestions} structurally capped). "
+            + $"Score {result.CorrectQuestions}/{ceiling.Questions} = "
+            + $"{ceiling.ShareOfReachable(result.CorrectQuestions):P1} OF REACHABLE."));
+    }
 
     /// <summary>
     /// Reports predicate density — whether expansion has anything to widen on this corpus.
