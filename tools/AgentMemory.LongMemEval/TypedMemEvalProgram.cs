@@ -292,6 +292,7 @@ internal static class TypedMemEvalProgram
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                 renderSummary, supersessionStore);
             PrintReachableCeiling(descriptor, result);
+            TypedMemEvalFloorReport.Print(result, options.Arm.FileToken());
             PrintPredicateDensity(predicateDensity);
             PrintExpansionYield(options, result);
             PrintGoldValueCoverage(goldValueProbe, probeRan: !options.Oracle);
