@@ -292,6 +292,7 @@ internal static class TypedMemEvalProgram
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                 renderSummary, supersessionStore);
             PrintReachableCeiling(descriptor, result);
+            TypedMemEvalRetrieverSensitivity.Print(descriptor);
             TypedMemEvalFloorReport.Print(result, options.Arm.FileToken());
             PrintPredicateDensity(predicateDensity);
             PrintExpansionYield(options, result);
