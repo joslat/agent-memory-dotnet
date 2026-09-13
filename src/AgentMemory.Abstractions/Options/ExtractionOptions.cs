@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Domain;
+﻿using AgentMemory.Abstractions.Domain;
 
 namespace AgentMemory.Abstractions.Options;
 
@@ -109,6 +109,37 @@ public sealed class ExtractionOptions
     /// </para>
     /// </remarks>
     public bool SupersedeReplacedFacts { get; set; }
+
+    /// <summary>
+    /// Write an <c>:ABOUT</c> edge from each persisted fact to the entities its subject or object
+    /// names. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The gap this closes.</b> Extraction persists entities AND facts and has never linked them:
+    /// <c>CreateAboutRelationshipAsync</c> is public, unit-tested, and proven against live Neo4j —
+    /// and <b>no ingestion path has ever called it</b>, a fact this repository states in two separate
+    /// comments of its own. Every store probe this project has run reports <c>0 entity(ies)</c>, on
+    /// every line, across every vertical.
+    /// </para>
+    /// <para>
+    /// <b>Why it matters, measured.</b> Three shapes across three verticals need the same operation —
+    /// resolve a referent to an entity — and their scores fall as the surface forms diverge:
+    /// semantic <c>co-reference</c> 11/15, episodic <c>participant-attribution</c> 4/15, conjunction
+    /// <c>alias-then-count</c> <b>0/15</b>. The last is immune to more evidence: three arms at 4.7x
+    /// the facts moved it by one question. <b>You cannot count across an identity the store never
+    /// recorded.</b>
+    /// </para>
+    /// <para>
+    /// <b>Matching is by name, and that is a deliberate limit.</b> A fact links to an entity only
+    /// when its subject or object matches that entity's name. It therefore does NOT resolve aliases
+    /// — "head office" and "the Calderwick office" remain two names until something declares them
+    /// one. This option is the substrate that alias resolution would need, not alias resolution
+    /// itself, and shipping it as if it were the latter would repeat the half-wired-feature mistake
+    /// this codebase has paid for twice.
+    /// </para>
+    /// </remarks>
+    public bool LinkFactsToEntities { get; set; }
 
     /// <summary>
     /// Skips the extraction call entirely for turns that cannot carry a fact — greetings, thanks,

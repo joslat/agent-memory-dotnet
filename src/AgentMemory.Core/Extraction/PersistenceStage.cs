@@ -372,12 +372,58 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
         }
 
+        async Task LinkFactToNamedEntitiesAsync(Fact persisted)
+        {
+            // Subject and object are checked separately and deduplicated: a fact like
+            // "Rome | is_capital_of | Rome" would otherwise write the same edge twice, and MERGE
+            // would absorb it silently rather than showing the caller was confused.
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(persisted.Subject)) names.Add(persisted.Subject);
+            if (!string.IsNullOrWhiteSpace(persisted.Object)) names.Add(persisted.Object);
+
+            foreach (var name in names)
+            {
+                if (!persistedEntityMap.TryGetValue(name, out var entity)) continue;
+
+                try
+                {
+                    await _factRepository
+                        .CreateAboutRelationshipAsync(persisted.FactId, entity.EntityId, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    // A missing ABOUT edge degrades retrieval; a thrown one loses the fact that was
+                    // already persisted. The edge is an enrichment of a write that has succeeded, so
+                    // it must never be the reason the write is reported as failed.
+                    _logger.LogWarning(
+                        ex, "Could not link fact {FactId} to entity {EntityId} ('{Name}').",
+                        persisted.FactId, entity.EntityId, name);
+                }
+            }
+        }
+
         async Task RecordPersistedFactAsync(
             string sourceKey, Fact persisted, IReadOnlyList<string> provenanceMessageIds)
         {
             // Fact upsert MERGEs on the natural triple and may return an older stable id. Always use
             // the repository result for outcomes and provenance rather than the fresh caller id.
             RecordSuccess(outcomes, MemoryItemKind.Fact, sourceKey, persisted.FactId);
+
+            // W-E1. Link the fact to the entities its subject or object NAMES. Extraction has always
+            // persisted both and never connected them: CreateAboutRelationshipAsync is public,
+            // unit-tested and proven against live Neo4j, and no ingestion path has ever called it.
+            // Every store probe this project has run reports 0 entity(ies), on every line.
+            //
+            // Matching is by name only, deliberately. This does NOT resolve aliases -- "head office"
+            // and "the Calderwick office" stay two names until something declares them one. It is the
+            // substrate alias resolution needs, not alias resolution, and calling it the latter would
+            // repeat a half-wired-feature mistake this codebase has already paid for twice.
+            if (_options.LinkFactsToEntities)
+            {
+                await LinkFactToNamedEntitiesAsync(persisted).ConfigureAwait(false);
+            }
 
             // The INPUT item's resolved ids, not the persisted result's: a MERGE returns the stored
             // node, whose source ids may be the union accumulated over earlier ingestions. Writing
