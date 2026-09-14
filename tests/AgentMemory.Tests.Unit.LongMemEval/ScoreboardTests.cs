@@ -72,6 +72,65 @@ public sealed class ScoreboardTests : IDisposable
         row.ShareOfAll.Should().BeNull("a void row reports no score at all");
     }
 
+    /// <summary>
+    /// Bitemporal scored against a store where supersession never fired is an OFF-STATE, not a score.
+    /// </summary>
+    /// <remarks>
+    /// Every arm this project has run recorded zero <c>:SUPERSEDED_BY</c> edges, so every bitemporal
+    /// number ever produced here measures the absence of the mechanism its shapes ask about. Placing
+    /// it beside the other nine as a percentage is the one claim this project holds as absolutely
+    /// forbidden — and a scoreboard that assembles itself is exactly where it would slip back in.
+    /// </remarks>
+    [Fact]
+    public void BitemporalWithNoSupersessionEdgesIsAnOffStateRatherThanAScore()
+    {
+        Write("bitemporal", correct: 33, scored: 60, supersededByEdges: 0);
+
+        var row = Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "bitemporal");
+
+        row.State.Should().Be(RowState.OffState);
+        row.ShareOfAll.Should().BeNull("an off-state carries no score at all");
+        row.Reason.Should().Contain("never fired");
+    }
+
+    /// <summary>The same run WITH supersession firing does score — the gate is the edges, not the name.</summary>
+    [Fact]
+    public void BitemporalScoresOnceSupersessionActuallyFires()
+    {
+        Write("bitemporal", correct: 33, scored: 60, supersededByEdges: 412);
+
+        var row = Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "bitemporal");
+
+        row.State.Should().Be(RowState.Placed);
+        row.ShareOfAll.Should().BeApproximately(33d / 60, 1e-9);
+    }
+
+    /// <summary>
+    /// A zero edge count does NOT void the verticals that do not measure supersession.
+    /// </summary>
+    /// <remarks>
+    /// Every vertical runs against a store with zero edges. If that voided all of them the constraint
+    /// would be noise, and noise gets switched off — which is how a real gate stops working.
+    /// </remarks>
+    [Fact]
+    public void ZeroSupersessionEdgesDoNotVoidVerticalsThatDoNotMeasureIt()
+    {
+        Write("semantic", correct: 45, scored: 50, supersededByEdges: 0);
+
+        Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic")
+            .State.Should().Be(RowState.Placed);
+    }
+
+    /// <summary>An unrecorded edge count is unknown, and unknown is not "it fired".</summary>
+    [Fact]
+    public void BitemporalWithNoRecordedEdgeCountIsNotSilentlyScored()
+    {
+        Write("bitemporal", correct: 33, scored: 60, supersededByEdges: null);
+
+        Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "bitemporal")
+            .State.Should().NotBe(RowState.Placed);
+    }
+
     /// <summary>Two judges means no table, not a footnote.</summary>
     [Fact]
     public void RowsGradedByDifferentJudgesRefuseToShareATable()
@@ -338,6 +397,7 @@ public sealed class ScoreboardTests : IDisposable
         string started = "2026-09-14T00:00:00Z",
         string stamp = "run",
         string? corpusSha = "(this build's)",
+        int? supersededByEdges = 0,
         int? selected = null,
         int? corpusQuestions = null,
         Dictionary<string, (int N, int Correct)>? shapes = null)
@@ -386,6 +446,10 @@ public sealed class ScoreboardTests : IDisposable
             ["vertical"] = vertical,
             ["startedUtc"] = started,
             ["arm"] = new Dictionary<string, object?> { ["token"] = arm },
+            ["supersessionStore"] = new Dictionary<string, object?>
+            {
+                ["supersededByEdges"] = supersededByEdges,
+            },
         };
 
         File.WriteAllText(Path.Combine(_directory, reportName), JsonSerializer.Serialize(report));

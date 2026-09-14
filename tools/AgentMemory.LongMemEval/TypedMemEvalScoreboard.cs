@@ -136,29 +136,47 @@ internal static class TypedMemEvalScoreboard
 
             if (!sidecar.TryGetProperty("arm", out var arm) ||
                 !arm.TryGetProperty("token", out var token) ||
+                token.ValueKind != JsonValueKind.String ||
                 !string.Equals(token.GetString(), armToken, StringComparison.Ordinal))
             {
                 return null;
             }
 
+            // GetString() throws on any non-string kind, so the kind is checked before the read --
+            // a hand-edited or truncated sidecar must make its run unplaceable, not kill the tool.
             if (!sidecar.TryGetProperty("vertical", out var vertical) ||
+                vertical.ValueKind != JsonValueKind.String ||
                 vertical.GetString() is not { Length: > 0 } slug ||
                 !sidecar.TryGetProperty("report", out var report) ||
+                report.ValueKind != JsonValueKind.String ||
                 report.GetString() is not { Length: > 0 } reportName)
             {
                 return null;
             }
 
             var startedUtc = sidecar.TryGetProperty("startedUtc", out var started) &&
+                             started.ValueKind == JsonValueKind.String &&
                              started.TryGetDateTimeOffset(out var value)
                 ? value
                 : DateTimeOffset.MinValue;
+
+            // Read from the SIDECAR, not the report: the store probe is provenance, and a vertical
+            // whose mechanism never fired is a fact about the run rather than about the answers.
+            // Absent reads as null -- unknown, never as "it fired".
+            int? supersededByEdges =
+                sidecar.TryGetProperty("supersessionStore", out var store)
+                && store.ValueKind == JsonValueKind.Object
+                && store.TryGetProperty("supersededByEdges", out var edges)
+                && edges.ValueKind == JsonValueKind.Number
+                && edges.TryGetInt32(out var edgeCount)
+                    ? edgeCount
+                    : null;
 
             var reportPath = Path.Combine(Path.GetDirectoryName(sidecarPath)!, reportName);
             if (!File.Exists(reportPath)) return null;
 
             using var reportDocument = JsonDocument.Parse(File.ReadAllBytes(reportPath));
-            return Read(slug, startedUtc, reportDocument.RootElement);
+            return Read(slug, startedUtc, supersededByEdges, reportDocument.RootElement);
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -168,7 +186,8 @@ internal static class TypedMemEvalScoreboard
         }
     }
 
-    private static RunArtifacts? Read(string slug, DateTimeOffset startedUtc, JsonElement report)
+    private static RunArtifacts? Read(
+        string slug, DateTimeOffset startedUtc, int? supersededByEdges, JsonElement report)
     {
         if (!report.TryGetProperty("TypedOutcomes", out var outcomes) ||
             !report.TryGetProperty("Provenance", out var provenance))
@@ -199,13 +218,21 @@ internal static class TypedMemEvalScoreboard
             ScoredQuestions: Int(report, "ScoredQuestions"),
             CorrectQuestions: Int(report, "CorrectQuestions"),
             AgentFailureQuestions: Int(report, "AgentFailureQuestions"),
+            SupersededByEdges: supersededByEdges,
             ByShape: byShape);
 
+        // ValueKind-checked before every Try*: on a JSON null these accessors THROW rather than
+        // returning false, and this method's callers treat a malformed artifact as unreadable, not
+        // as a reason to take the tool down. A guard that can throw is not a guard.
         static int Int(JsonElement element, string name) =>
-            element.TryGetProperty(name, out var v) && v.TryGetInt32(out var i) ? i : 0;
+            element.TryGetProperty(name, out var v)
+            && v.ValueKind == JsonValueKind.Number
+            && v.TryGetInt32(out var i) ? i : 0;
 
         static string? Str(JsonElement element, string name) =>
-            element.TryGetProperty(name, out var v) ? v.GetString() : null;
+            element.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
+                ? v.GetString()
+                : null;
     }
 
     private static ScoreboardRow Place(string slug, RunArtifacts run)
@@ -219,6 +246,24 @@ internal static class TypedMemEvalScoreboard
                 run.AgentFailureQuestions > 0
                     ? $"{run.AgentFailureQuestions} agent failure(s) — an absent measurement, not a wrong answer"
                     : "no scored questions");
+        }
+
+        // OFF-STATE, checked before any arithmetic and separately from VOID. A vertical whose
+        // shapes measure write-time supersession, run against a store where supersession never
+        // wrote a single edge, has measured the ABSENCE of the mechanism. Its questions were asked
+        // and answered, so nothing is missing and VOID would be wrong -- but the number is not a
+        // measurement of the feature, and placing it beside the others is the one claim this
+        // project holds as absolutely forbidden.
+        // The test is "can it be SHOWN to have fired", not "is it known to have not fired". An
+        // unrecorded probe is unknown, and unknown placed as a number is the same claim as zero
+        // placed as a number -- which is why this reads `is > 0` and not `is not 0`.
+        if (DependsOnSupersession(slug) && run.SupersededByEdges is not > 0)
+        {
+            return ScoreboardRow.OffState(slug, run, run.SupersededByEdges is 0
+                ? "supersession wrote 0 edges — the questions were answered against a store where the "
+                  + "mechanism under test never fired, so this is an off-state, not a score"
+                : "this run records no supersession store probe, so the mechanism under test cannot "
+                  + "be shown to have fired — unknown is not evidence that it did");
         }
 
         var ceiling = TypedMemEvalReachableCeiling.For(slug);
@@ -240,6 +285,23 @@ internal static class TypedMemEvalScoreboard
             Ranking: ranking,
             Reason: null);
     }
+
+    /// <summary>
+    /// Whether a vertical's score is a measurement of write-time supersession.
+    /// </summary>
+    /// <remarks>
+    /// <b>Deliberately a named list of one, not a heuristic.</b> Bitemporal's shapes ask what a fact
+    /// was superseded BY and what held at a past instant — questions the store can only answer if
+    /// supersession wrote something. Every arm this project has ever run recorded zero
+    /// <c>:SUPERSEDED_BY</c> edges, so every bitemporal number ever produced here is one off-state.
+    /// <para>
+    /// Other verticals are NOT listed. Semantic, temporal and the rest also run against a store with
+    /// zero edges, and for them that is irrelevant — supersession is not what their shapes measure,
+    /// and voiding them would turn a real constraint into noise that gets ignored.
+    /// </para>
+    /// </remarks>
+    private static bool DependsOnSupersession(string verticalSlug) =>
+        string.Equals(verticalSlug, "bitemporal", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The score restricted to shapes that can separate systems under a dense retriever.
@@ -349,6 +411,7 @@ internal static class TypedMemEvalScoreboard
         {
             RowState.NotPlaced => $"  {name}  — NOT PLACED: {row.Reason}",
             RowState.Void => $"  {name}  — VOID: {row.Reason}; no score is reported",
+            RowState.OffState => $"  {name}  — ⛔ OFF-STATE: {row.Reason}",
             _ => string.Create(
                 CultureInfo.InvariantCulture,
                 $"  {name}  {Pct(row.ShareOfAll),12}   {Pct(row.ShareOfReachable),18}   "
@@ -466,6 +529,9 @@ internal readonly record struct ScoreboardRow(
 
     internal static ScoreboardRow Void(string vertical, RunArtifacts run, string reason) =>
         new(vertical, RowState.Void, run, null, null, null, RankingOnlyScore.Unknown(), reason);
+
+    internal static ScoreboardRow OffState(string vertical, RunArtifacts run, string reason) =>
+        new(vertical, RowState.OffState, run, null, null, null, RankingOnlyScore.Unknown(), reason);
 }
 
 /// <summary>Why a row carries no number — each distinct, because they mean different things.</summary>
@@ -478,6 +544,12 @@ internal enum RowState
 
     /// <summary>The run exists and its measurements are missing. Not a low score.</summary>
     Void,
+
+    /// <summary>
+    /// The run completed and the mechanism it measures never fired. Not a score, and not missing
+    /// data either — a measurement of an absence.
+    /// </summary>
+    OffState,
 
     /// <summary>Scored.</summary>
     Placed,
@@ -495,6 +567,7 @@ internal readonly record struct RunArtifacts(
     int ScoredQuestions,
     int CorrectQuestions,
     int AgentFailureQuestions,
+    int? SupersededByEdges,
     IReadOnlyDictionary<string, ShapeTally> ByShape);
 
 /// <summary>One shape's tally, as the typed outcomes record it.</summary>
