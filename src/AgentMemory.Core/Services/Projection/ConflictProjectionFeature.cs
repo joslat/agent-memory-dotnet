@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 

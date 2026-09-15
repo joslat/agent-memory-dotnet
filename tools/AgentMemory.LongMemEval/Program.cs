@@ -152,6 +152,14 @@ internal static class LongMemEvalProgram
             return await CellProbeProgram.RunAsync(args).ConfigureAwait(false);
         }
 
+        if (args.Contains("--scoreboard", StringComparer.Ordinal))
+        {
+            // Reads stored artifacts only -- no store, no judge, no spend. Checked before the verbs
+            // that name a vertical because the scoreboard names all ten, and an absent one is a row
+            // it has to print rather than an argument it could take.
+            return TypedMemEvalScoreboardProgram.Run(args);
+        }
+
         if (args.Contains("--regrade", StringComparer.Ordinal))
         {
             // Judge-only re-grade of a stored artifact. Checked BEFORE --typedmemeval because a

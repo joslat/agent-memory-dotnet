@@ -1,4 +1,4 @@
-﻿using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Domain;
 
 namespace AgentMemory.Abstractions.Options;
 

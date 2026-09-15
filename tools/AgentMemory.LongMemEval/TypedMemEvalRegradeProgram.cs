@@ -392,32 +392,11 @@ internal static class TypedMemEvalRegradeProgram
 
     /// <summary>The sha256 of the corpus this build actually carries, or null if not found.</summary>
     /// <remarks>
-    /// Hashed from the embedded resource rather than read from a manifest, so it is the bytes the run
-    /// would use and not a claim about them. Null when the resource cannot be located, which is
-    /// treated as "cannot verify" rather than as "matches".
+    /// Delegates to the shared helper the scoreboard also uses: one lineage check, not two that can
+    /// drift apart.
     /// </remarks>
-    private static string? CurrentCorpusSha(string verticalSlug)
-    {
-        var assembly = typeof(TypedMemEvalRunner).Assembly;
-        var matches = assembly.GetManifestResourceNames().Where(resource =>
-                resource.Contains($".{verticalSlug}.", StringComparison.OrdinalIgnoreCase)
-                && resource.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
-                && !resource.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-
-        // Exactly one, or nothing. FirstOrDefault would resolve an ambiguity by manifest ordering,
-        // which is not guaranteed -- and a gate that picks a different corpus on a different run is
-        // worse than no gate, because it looks like it verified something.
-        if (matches.Length != 1) return null;
-
-        using var stream = assembly.GetManifestResourceStream(matches[0]);
-        if (stream is null) return null;
-
-        // Hashed straight off the stream: the corpora run to ~1.5 MB and buffering them twice to
-        // compute a digest is allocation for nothing.
-        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream))
-            .ToLowerInvariant();
-    }
+    private static string? CurrentCorpusSha(string verticalSlug) =>
+        TypedMemEvalCorpusSha.For(verticalSlug);
 
     private static string AgentEvalVersion() =>
         typeof(TypedMemEvalRunner).Assembly
