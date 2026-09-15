@@ -346,3 +346,55 @@ public sealed class ProvenanceCommitCaptureTests
         return File.ReadAllText(path);
     }
 }
+
+/// <summary>
+/// <c>--runs</c> above 1 is refused: band members would share one store and degrade each other.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Measured on a temporal ×3 attempt stopped at run 3. All members ingest into the SAME container,
+/// so the store grows monotonically — run 1 searched 5,129 facts, run 2 searched 10,324. Owner
+/// scoping keeps results CORRECT (no foreign fact is ever returned) but the indexed path takes a
+/// <b>global</b> top-K and filters to the owner afterwards, so foreign rows consume the budget
+/// first. Mean returned fell 4.72 → 1.61, starved searches rose 5 → 29, and the scores fell with
+/// them: 54.0% then 36.0%, against 62.0% for the identical question set on an uncontaminated store.
+/// </para>
+/// <para>
+/// A band whose members degrade monotonically measures store growth — the one thing banding exists
+/// to rule out. The flag is refused rather than left to produce a plausible-looking band.
+/// </para>
+/// </remarks>
+public sealed class BandingStoreIsolationTests
+{
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void RunsAboveOneIsRefusedBecauseMembersWouldShareAStore(int runs)
+    {
+        var parse = () => TypedMemEvalProgram.Parse(
+            ["--typedmemeval", "temporal", "--random-seed", "20260821",
+             "--runs", runs.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+
+        parse.Should().Throw<ArgumentException>()
+            .WithMessage("*REFUSED*shared store*");
+    }
+
+    /// <summary>A single run is untouched — every sealed measurement was taken this way.</summary>
+    [Fact]
+    public void ASingleRunStillParses()
+    {
+        var parse = () => TypedMemEvalProgram.Parse(
+            ["--typedmemeval", "temporal", "--random-seed", "20260821", "--runs", "1"]);
+
+        parse.Should().NotThrow();
+    }
+
+    /// <summary>The seed check still fires first, so its message is not lost behind the new one.</summary>
+    [Fact]
+    public void TheUnseededBandStillFailsOnTheSeedFirst()
+    {
+        var parse = () => TypedMemEvalProgram.Parse(["--typedmemeval", "temporal", "--runs", "3"]);
+
+        parse.Should().Throw<ArgumentException>().WithMessage("*requires --random-seed*");
+    }
+}

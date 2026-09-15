@@ -105,16 +105,32 @@ public sealed class TypedMemEvalCommandLineTests
         act.Should().Throw<ArgumentException>().WithMessage($"*{option}*integer*");
     }
 
+    /// <summary>
+    /// <c>--runs</c> is carried, and BOTH band refusals fire before anything is spent.
+    /// </summary>
+    /// <remarks>
+    /// This test previously asserted that a seeded <c>--runs 3</c> parses. It no longer does, and the
+    /// change is the point: measured 2026-09-15, every member of an in-process band ingests into the
+    /// SAME store, so the store grows monotonically and the indexed vector path — which takes a
+    /// global top-K and filters to the owner afterwards — starves each member worse than the last.
+    /// Mean returned fell 4.72 to 1.61 and the scores fell 54.0% to 36.0% against 62.0%
+    /// uncontaminated. A band that measures store growth is not a band.
+    /// </remarks>
     [Fact]
-    public void RunsIsCarried_AndBandingWithoutASeedIsRefusedBeforeAnySpend()
+    public void RunsIsCarried_AndBothBandRefusalsFireBeforeAnySpend()
     {
-        Parse("--typedmemeval", "forgetting", "--runs", "3", "--random-seed", "42")
-            .Runs.Should().Be(3);
+        Parse("--typedmemeval", "forgetting", "--runs", "1", "--random-seed", "42")
+            .Runs.Should().Be(1);
 
         // TypedMemEvalRunSet.Summarize refuses to band runs that drew different questions; an
-        // unseeded multi-run would discover that only AFTER paying for every run.
-        var act = () => Parse("--typedmemeval", "forgetting", "--runs", "3");
-        act.Should().Throw<ArgumentException>().WithMessage("*--runs*--random-seed*");
+        // unseeded multi-run would discover that only AFTER paying for every run. Checked FIRST, so
+        // its message is not hidden behind the newer one.
+        var unseeded = () => Parse("--typedmemeval", "forgetting", "--runs", "3");
+        unseeded.Should().Throw<ArgumentException>().WithMessage("*--runs*--random-seed*");
+
+        // And a seeded band is refused too, for the store it would share.
+        var seeded = () => Parse("--typedmemeval", "forgetting", "--runs", "3", "--random-seed", "42");
+        seeded.Should().Throw<ArgumentException>().WithMessage("*REFUSED*shared store*");
     }
 
     [Fact]

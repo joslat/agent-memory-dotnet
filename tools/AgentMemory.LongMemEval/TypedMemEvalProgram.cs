@@ -984,6 +984,38 @@ internal static class TypedMemEvalProgram
                 "--runs above 1 requires --random-seed: unseeded runs draw different questions, and " +
                 "TypedMemEvalRunSet.Summarize refuses to band different samples.");
         }
+
+        // --runs ABOVE 1 SHARES ONE STORE ACROSS BAND MEMBERS, AND THAT INVALIDATES THE BAND.
+        //
+        // Measured 2026-09-15 on a temporal x3 attempt, stopped at run 3. All three members ingest
+        // into the SAME container, so the store grows monotonically: run 1 searched 5,129 facts,
+        // run 2 searched 10,324. Owner scoping keeps the results CORRECT -- each question recalls
+        // under its own owner namespace and no foreign fact is ever returned -- but the indexed path
+        // asks for a GLOBAL top-K and filters to the owner afterwards, so foreign rows consume the
+        // budget before the filter runs. The yield collapsed with the growth:
+        //
+        //     run 1   150 searches   5 starved   mean returned 4.72
+        //     run 2   150 searches  29 starved   mean returned 1.61
+        //
+        // and the scores fell with it -- 54.0% then 36.0%, against 62.0% for the same question set,
+        // same seed, same judge and same corpus on an uncontaminated store. A band whose members
+        // degrade monotonically measures STORE GROWTH, not run-to-run variance, which is the one
+        // thing banding exists to measure.
+        //
+        // This refuses rather than silently banding: the fix is one process per member, which gets a
+        // fresh container from Testcontainers and reproduces the uncontaminated condition exactly.
+        // Making --runs itself allocate a store per member is the better repair and a larger one;
+        // until it exists, the flag must not look like it works.
+        if (options.Runs > 1)
+        {
+            throw new ArgumentException(
+                $"--runs {options.Runs.ToString(CultureInfo.InvariantCulture)} is REFUSED: every " +
+                "member would ingest into one shared store, and the indexed vector path takes a " +
+                "global top-K before filtering to the owner -- so each member retrieves worse than " +
+                "the last. Measured: mean returned 4.72 then 1.61, starved 5 then 29, scores 54.0% " +
+                "then 36.0% against 62.0% uncontaminated. Run one process per band member instead " +
+                "(each gets its own container), then band the artifacts.");
+        }
         if (options.Control &&
             (options.Verticals.Count != 1 ||
              options.Verticals[0] != TypedMemEvalVertical.Prospective))
