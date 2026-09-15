@@ -382,6 +382,94 @@ public sealed class ScoreboardTests : IDisposable
             + "ranking-restricted one");
     }
 
+    /// <summary>
+    /// Repeated runs of ONE measurement are banded, because a single number hides the spread.
+    /// </summary>
+    /// <remarks>
+    /// Temporal ×3 on one binary, three separate stores, identical everything: 54.0% / 58.0% / 64.0%.
+    /// A board printing whichever finished last would have shown any of the three as "the" number
+    /// with 10 points invisible behind it.
+    /// </remarks>
+    [Fact]
+    public void RepeatedRunsOfOneMeasurementAreBanded()
+    {
+        Write("semantic", correct: 27, scored: 50, stamp: "a", started: "2026-09-15T01:00:00Z");
+        Write("semantic", correct: 29, scored: 50, stamp: "b", started: "2026-09-15T02:00:00Z");
+        Write("semantic", correct: 32, scored: 50, stamp: "c", started: "2026-09-15T03:00:00Z");
+
+        var row = Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic");
+
+        row.BandMembers.Should().Be(3);
+        row.BandMeanShare.Should().BeApproximately((27 + 29 + 32) / 150.0, 1e-9);
+        row.BandMinShare.Should().BeApproximately(27 / 50.0, 1e-9);
+        row.BandMaxShare.Should().BeApproximately(32 / 50.0, 1e-9);
+    }
+
+    /// <summary>A single run is marked n=1 rather than passed off as settled.</summary>
+    [Fact]
+    public void ASingleRunIsNotABand()
+    {
+        Write("semantic", correct: 45, scored: 50);
+
+        var row = Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic");
+
+        row.BandMembers.Should().Be(1);
+        row.BandMeanShare.Should().BeNull("there is no mean of one run to report");
+    }
+
+    /// <summary>A different QUESTION SET is not a band member, however matched everything else is.</summary>
+    /// <remarks>
+    /// Two seeds draw different questions. Averaging those reports a number no configuration ever
+    /// produced, which is why the run-set summariser refuses it and why this does too.
+    /// </remarks>
+    [Fact]
+    public void ADifferentQuestionSetDoesNotJoinTheBand()
+    {
+        Write("semantic", correct: 45, scored: 50, stamp: "a", started: "2026-09-15T02:00:00Z");
+        Write("semantic", correct: 20, scored: 50, stamp: "b", started: "2026-09-15T01:00:00Z",
+            qidFingerprint: "qid-different");
+
+        Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic")
+            .BandMembers.Should().Be(1, "a different sample is a different measurement");
+    }
+
+    /// <summary>
+    /// THE CONTAMINATION CASE: a run whose store was materially larger did not measure this system.
+    /// </summary>
+    /// <remarks>
+    /// The defect this closes was live. The contaminated member of the first temporal band shared the
+    /// corpus, the judge, the question set and had zero agent failures — every field the band checked
+    /// — and still scored 18/50 against its siblings' 27-32, because it searched 10,324 facts to
+    /// their ~5,150. Banding it in dragged the reported range from 10 points to 28.
+    /// </remarks>
+    [Fact]
+    public void ARunWhoseStoreWasTwiceTheSizeDoesNotJoinTheBand()
+    {
+        Write("semantic", correct: 27, scored: 50, stamp: "a", started: "2026-09-15T02:00:00Z",
+            storeFacts: 5150);
+        Write("semantic", correct: 18, scored: 50, stamp: "b", started: "2026-09-15T01:00:00Z",
+            storeFacts: 10324);
+
+        var row = Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic");
+
+        row.BandMembers.Should().Be(1,
+            "a store that doubled is a different index, and the difference shows in no other field");
+        row.ShareOfAll.Should().BeApproximately(27 / 50.0, 1e-9);
+    }
+
+    /// <summary>Ordinary ingestion drift still bands: the test is materiality, not equality.</summary>
+    [Fact]
+    public void SmallStoreDriftStillBands()
+    {
+        Write("semantic", correct: 27, scored: 50, stamp: "a", started: "2026-09-15T02:00:00Z",
+            storeFacts: 5146);
+        Write("semantic", correct: 32, scored: 50, stamp: "b", started: "2026-09-15T01:00:00Z",
+            storeFacts: 5201);
+
+        Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic")
+            .BandMembers.Should().Be(2, "the three clean temporal members spanned about 1%");
+    }
+
     private static ScoreboardRow Row(Scoreboard scoreboard, string vertical) =>
         scoreboard.Rows.Single(row => row.Vertical == vertical);
 
@@ -400,6 +488,8 @@ public sealed class ScoreboardTests : IDisposable
         int? supersededByEdges = 0,
         int? selected = null,
         int? corpusQuestions = null,
+        string qidFingerprint = "qid-same",
+        int storeFacts = 5000,
         Dictionary<string, (int N, int Correct)>? shapes = null)
     {
         judge ??= new string('c', 64);
@@ -434,6 +524,7 @@ public sealed class ScoreboardTests : IDisposable
             ["Provenance"] = new Dictionary<string, object?>
             {
                 ["DatasetQuestionCount"] = corpusQuestions ?? scored,
+                ["SelectedQuestionIdFingerprint"] = qidFingerprint,
                 ["AgentEvalVersion"] = version,
                 ["JudgePromptFingerprint"] = judge,
             },
@@ -449,6 +540,7 @@ public sealed class ScoreboardTests : IDisposable
             ["supersessionStore"] = new Dictionary<string, object?>
             {
                 ["supersededByEdges"] = supersededByEdges,
+                ["facts"] = storeFacts,
             },
         };
 
