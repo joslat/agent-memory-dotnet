@@ -1,6 +1,10 @@
+using AgentEval.Core;
 using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Services;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
+using Microsoft.Extensions.AI;
+using NSubstitute;
 using Xunit;
 
 namespace AgentMemory.Tests.Unit.LongMemEval;
@@ -36,6 +40,21 @@ public sealed class ProspectiveFiringWiringTests
 {
     private static TypedMemEvalProgram.TypedMemEvalRunOptions Parse(params string[] extra) =>
         TypedMemEvalProgram.Parse(["--typedmemeval", "prospective", .. extra]);
+
+    private static AgentMemoryLongMemEvalAdapter Adapter(LongMemEvalAdapterOptions options) =>
+        new(Substitute.For<IMemoryService>(), Substitute.For<IChatClient>(), "run-1", options);
+
+    /// <summary>A minimal timestamped history — the shape every prospective question arrives as.</summary>
+    private static TimestampedConversationHistory History() => new()
+    {
+        Turns =
+        [
+            new TimestampedConversationTurn(
+                "I joined Riverside Fitness.", "Noted.",
+                new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero), 0),
+        ],
+        QueryTime = new DateTimeOffset(2026, 5, 4, 9, 0, 0, TimeSpan.Zero),
+    };
 
     [Theory]
     [InlineData("--current-valid-time")]
@@ -115,6 +134,78 @@ public sealed class ProspectiveFiringWiringTests
 
         describe.Should().Contain("current-valid-time-only=True");
         describe.Should().Contain("prospective-firing=True");
+    }
+
+    /// <summary>
+    /// With both flags off the adapter is byte-identical to every run taken before them.
+    /// </summary>
+    /// <remarks>
+    /// This is load-bearing, not hygiene. The firing ablation pairs its new arms against the
+    /// <c>default</c> prospective row already on the board — an artifact produced BEFORE these flags
+    /// existed. That pairing is only legitimate if an unflagged run still takes exactly the old path:
+    /// the adapter previously left <c>ValidTime</c> unassigned (so <c>Ignore</c>) and
+    /// <c>ProspectiveFiring</c> unassigned (so false), and the new code must land on the same two
+    /// values rather than merely on plausible ones.
+    /// </remarks>
+    [Fact]
+    public void BothLeversDefaultOffOnTheAdapterSoTheSealedDefaultArmStillPairs()
+    {
+        var adapter = new LongMemEvalAdapterOptions();
+
+        adapter.CurrentValidTimeOnly.Should().BeFalse();
+        adapter.ProspectiveFiring.Should().BeFalse();
+
+        // The values those defaults produce are the ones the old code produced by omission.
+        var recall = new RecallOptions
+        {
+            ValidTime = adapter.CurrentValidTimeOnly ? ValidTimeMode.Current : ValidTimeMode.Ignore,
+            ProspectiveFiring = adapter.ProspectiveFiring,
+        };
+
+        recall.ValidTime.Should().Be(new RecallOptions().ValidTime);
+        recall.ProspectiveFiring.Should().Be(new RecallOptions().ProspectiveFiring);
+    }
+
+    /// <summary>
+    /// A firing arm on a TIMESTAMPED vertical is REFUSED, because firing cannot reach that path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The gate <c>ProspectiveFiring &amp;&amp; ValidTime == Current</c> lives in
+    /// <c>AssembleContextAsync</c> alone. <c>AssembleContextAsOfCoreAsync</c> contains no firing
+    /// block — zero references to <c>ProspectiveFiring</c>, <c>GetDueFactsAsync</c> or a due section.
+    /// Every prospective question carries a <c>QuestionDate</c>, so every one of them routes through
+    /// <c>RecallAsOfAsync</c> and CANNOT fire however the arm is configured.
+    /// </para>
+    /// <para>
+    /// So wiring the flag made firing <b>requestable</b> without making it <b>reachable</b>. An arm
+    /// named <c>vtcurrent-firing</c> that quietly ran the ordinary as-of path would report an
+    /// off-state under an on-state's name — and firing-ablation v2's pre-registered reading for
+    /// "indistinguishable" is that it KILLS the feature's value claim. That verdict must not be
+    /// reachable by accident, so the adapter refuses instead, alongside the GraphRAG refusal that
+    /// already existed for the same reason.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AFiringArmOnATimestampedVerticalIsRefusedRatherThanSilentlyDark()
+    {
+        var adapter = Adapter(new LongMemEvalAdapterOptions { ProspectiveFiring = true });
+
+        var inject = () => adapter.InjectTimestampedConversationHistory(History());
+
+        inject.Should().Throw<InvalidOperationException>()
+            .WithMessage("*does not implement prospective firing*");
+    }
+
+    /// <summary>The same history is accepted when firing is off, so nothing else regressed.</summary>
+    [Fact]
+    public void TheSameTimestampedHistoryIsAcceptedWithFiringOff()
+    {
+        var adapter = Adapter(new LongMemEvalAdapterOptions());
+
+        var inject = () => adapter.InjectTimestampedConversationHistory(History());
+
+        inject.Should().NotThrow();
     }
 
     /// <summary>

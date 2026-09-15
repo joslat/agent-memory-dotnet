@@ -263,6 +263,30 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 "ignored.");
         }
 
+        // PROSPECTIVE FIRING IS NOT IMPLEMENTED ON THE AS-OF PATH, so it joins the same refusal.
+        //
+        // The firing gate lives in AssembleContextAsync alone:
+        //     fireProspective = recallOpts.ProspectiveFiring
+        //                       && recallOpts.ValidTime == ValidTimeMode.Current;
+        // AssembleContextAsOfCoreAsync contains no firing block at all -- zero references to
+        // ProspectiveFiring, GetDueFactsAsync or a due section. A timestamped question therefore
+        // CANNOT fire however the arm is configured.
+        //
+        // Which makes this the dead-option shape exactly: wiring the flag (2026-09-15) made firing
+        // REQUESTABLE without making it REACHABLE here, and an arm named `vtcurrent-firing` that
+        // silently ran the ordinary as-of path would produce an off-state under an on-state's name
+        // -- and firing-ablation v2's pre-registered reading for "indistinguishable" is that it
+        // KILLS the feature's value claim. That verdict must never be reachable by accident.
+        if (_options.ProspectiveFiring)
+        {
+            throw new InvalidOperationException(
+                "Timestamped LongMemEval history anchors recall at RecallAsOfAsync, which does not " +
+                "implement prospective firing (the gate exists only on the live-recall path); " +
+                "refusing to run a firing arm whose configuration would silently do nothing. " +
+                "Firing must be implemented on the as-of path before it can be measured on a " +
+                "timestamped vertical.");
+        }
+
         var pairs = new (string UserMessage, string AssistantResponse)[history.Turns.Count];
         var timestamps = new DateTimeOffset[history.Turns.Count];
         for (var index = 0; index < history.Turns.Count; index++)
