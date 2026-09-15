@@ -324,6 +324,10 @@ internal static class TypedMemEvalScoreboard
         var nonRanking = new List<string>();
         var unclassified = new List<string>();
 
+        var sensitiveShapes = new List<string>();
+        var sensitiveCorrect = 0;
+        var sensitiveScored = 0;
+
         foreach (var (shape, tally) in run.ByShape)
         {
             if (!sensitivity.TryGetValue(shape, out var flag))
@@ -334,22 +338,47 @@ internal static class TypedMemEvalScoreboard
                 continue;
             }
 
-            if (!flag.Discriminates)
-            {
-                nonRanking.Add(shape);
-                continue;
-            }
+            // THE 2026-09-15 RULING: the dense boolean is a THREE-CLASS read, not a filter. The
+            // published flag is measured with ada-002 and flips on 4 of 35 shapes against 3-small --
+            // and neither embedder is ours. A shape that only one of them ranks is a fact about the
+            // embedder, so it is held apart rather than counted or discarded.
+            var verdict = TypedMemEvalDenseSecondOpinion.For(run.Vertical, shape)?.Class
+                // No second opinion for this shape: fall back to the published flag alone and say so
+                // by treating it as SENSITIVE, never as robust. One retriever is not a condition.
+                ?? (flag.Discriminates ? DenseRankingClass.RetrieverSensitive : DenseRankingClass.NonRanking);
 
-            ranking++;
-            correct += tally.Correct;
-            scored += tally.N - tally.Unrun;
+            switch (verdict)
+            {
+                case DenseRankingClass.NonRanking:
+                    nonRanking.Add(shape);
+                    break;
+
+                case DenseRankingClass.RetrieverSensitive:
+                    sensitiveShapes.Add(shape);
+                    sensitiveCorrect += tally.Correct;
+                    sensitiveScored += tally.N - tally.Unrun;
+                    break;
+
+                default:
+                    ranking++;
+                    correct += tally.Correct;
+                    scored += tally.N - tally.Unrun;
+                    break;
+            }
         }
+
+        sensitiveShapes.Sort(StringComparer.Ordinal);
 
         nonRanking.Sort(StringComparer.Ordinal);
         unclassified.Sort(StringComparer.Ordinal);
 
         return scored <= 0
-            ? RankingOnlyScore.NotRankable(nonRanking, unclassified)
+            ? RankingOnlyScore.NotRankable(nonRanking, unclassified) with
+            {
+                SensitiveShapes = sensitiveShapes,
+                SensitiveCorrect = sensitiveCorrect,
+                SensitiveScored = sensitiveScored,
+            }
             : new RankingOnlyScore(
                 Score: (double)correct / scored,
                 Correct: correct,
@@ -357,7 +386,12 @@ internal static class TypedMemEvalScoreboard
                 RankingShapes: ranking,
                 NonRankingShapes: nonRanking,
                 UnclassifiedShapes: unclassified,
-                State: RankingState.Scored);
+                State: RankingState.Scored)
+            {
+                SensitiveShapes = sensitiveShapes,
+                SensitiveCorrect = sensitiveCorrect,
+                SensitiveScored = sensitiveScored,
+            };
     }
 
     /// <summary>Prints the scoreboard, or the reason it refuses to be one.</summary>
@@ -390,7 +424,7 @@ internal static class TypedMemEvalScoreboard
         // differ, and repeating four 40-character build hashes here would bury the table.
         writer.WriteLine($"  judge {Short(scoreboard.JudgePromptFingerprint)}");
         writer.WriteLine(
-            "  vertical          share-of-all   share-of-reachable   ranking-only        corpus");
+            "  vertical          share-of-all   share-of-reachable   robust-ranking                     corpus");
 
         foreach (var row in scoreboard.Rows)
         {
@@ -415,20 +449,31 @@ internal static class TypedMemEvalScoreboard
             _ => string.Create(
                 CultureInfo.InvariantCulture,
                 $"  {name}  {Pct(row.ShareOfAll),12}   {Pct(row.ShareOfReachable),18}   "
-                + $"{Ranking(row.Ranking),-18}  {Short(row.Run!.Value.CorpusSha256)}"),
+                + $"{Ranking(row.Ranking),-34}  {Short(row.Run!.Value.CorpusSha256)}"),
         };
 
         static string Pct(double? value) =>
             value is { } v ? v.ToString("P1", CultureInfo.InvariantCulture) : "NOT KNOWN";
 
-        static string Ranking(RankingOnlyScore ranking) => ranking.State switch
+        static string Ranking(RankingOnlyScore ranking)
         {
-            RankingState.Unknown => "UNKNOWN",
-            RankingState.NotRankable => "⛔ NOT RANKABLE",
-            _ => string.Create(
-                CultureInfo.InvariantCulture,
-                $"{ranking.Score:P1} ({ranking.Correct}/{ranking.Scored}, {ranking.RankingShapes} shape(s))"),
-        };
+            // The sensitive tail is APPENDED, never merged. A reader must be able to see that a
+            // vertical's robust score rests on two shapes while a third flips with the embedder.
+            var tail = ranking.SensitiveShapes.Count == 0
+                ? string.Empty
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $" +{ranking.SensitiveShapes.Count} sensitive ({ranking.SensitiveCorrect}/{ranking.SensitiveScored})");
+
+            return ranking.State switch
+            {
+                RankingState.Unknown => "UNKNOWN",
+                RankingState.NotRankable => $"⛔ NO ROBUST SHAPE{tail}",
+                _ => string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{ranking.Score:P1} ({ranking.Correct}/{ranking.Scored}, {ranking.RankingShapes} robust)") + tail,
+            };
+        }
     }
 
     private static string Short(string? hash) =>
@@ -583,6 +628,19 @@ internal readonly record struct RankingOnlyScore(
     IReadOnlyList<string> UnclassifiedShapes,
     RankingState State)
 {
+    /// <summary>Shapes whose ranking power flips between the two published dense retrievers.</summary>
+    /// <remarks>
+    /// Held apart from the score rather than folded into it. Counting them would let a fact about an
+    /// embedder move a number about the engine; discarding them would throw away a cell that one of
+    /// the two published retrievers does rank. They are reported beside the robust score so a reader
+    /// can see how much of the vertical is resting on them — and never load-bearing alone.
+    /// </remarks>
+    internal IReadOnlyList<string> SensitiveShapes { get; init; } = [];
+
+    internal int SensitiveCorrect { get; init; }
+
+    internal int SensitiveScored { get; init; }
+
     internal static RankingOnlyScore Unknown() =>
         new(0, 0, 0, 0, [], [], RankingState.Unknown);
 
