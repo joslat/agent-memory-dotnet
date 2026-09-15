@@ -44,6 +44,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool resolveTemporalQueries = false,
         bool rescueShortOwnerResults = false,
         bool supersedeReplacedFacts = false,
+        bool linkFactsToEntities = false,
         bool resolveSupersessions = false,
         // C-D finding (2026-09-05): RecallFanOutOptions.Enabled defaults false and NOTHING under
         // tools/ set it, so the feature built for multi-hop recall had never been switched on in a
@@ -88,6 +89,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     resolveTemporalQueries,
                     rescueShortOwnerResults,
                     supersedeReplacedFacts,
+                    linkFactsToEntities,
                     resolveSupersessions,
                     recallFanOut,
                     phase30 ?? PhaseThirtyFeatures.AllOff,
@@ -121,6 +123,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
         bool supersedeReplacedFacts,
+        bool linkFactsToEntities,
         bool resolveSupersessions,
         bool recallFanOut,
         PhaseThirtyFeatures phase30,
@@ -152,6 +155,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             resolveTemporalQueries,
             rescueShortOwnerResults,
             supersedeReplacedFacts,
+            linkFactsToEntities,
             resolveSupersessions,
             recallFanOut,
             phase30,
@@ -194,6 +198,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
         bool supersedeReplacedFacts,
+        bool linkFactsToEntities,
         bool resolveSupersessions,
         bool recallFanOut,
         PhaseThirtyFeatures phase30,
@@ -266,6 +271,18 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     // squarely at the measured failure mode was the one thing no run could set. Off
                     // unless asked for, so every sealed measurement keeps its path.
                     SupersedeReplacedFacts = supersedeReplacedFacts,
+                    // W-E1, and the SEVENTH reachable-but-never-fed lever this project has found.
+                    // `CreateAboutRelationshipAsync` is public, unit-tested and proven against live
+                    // Neo4j; no ingestion path ever called it, so every store probe reports
+                    // `0 entity(ies)` on every line. The measured consequence is a gradient across
+                    // three verticals whose shapes all need one operation -- resolve a referent to an
+                    // entity: semantic co-reference 11/15, episodic participant-attribution 1/15,
+                    // conjunction alias-then-count 1/15 with FOURTEEN undercounts and ZERO
+                    // overcounts, which is the signature of a missing join rather than a bad ranking.
+                    //
+                    // Matching is by NAME and does NOT resolve aliases. Off unless asked for, so
+                    // every sealed measurement keeps its path.
+                    LinkFactsToEntities = linkFactsToEntities,
                 },
                 // 30.9d. The SECOND reachable-but-never-fed lever inside one intervention, and the
                 // one the ON ablation's own result points at. `SupersessionProjectionFeature` is

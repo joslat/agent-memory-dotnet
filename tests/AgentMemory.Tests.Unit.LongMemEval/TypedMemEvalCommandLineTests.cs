@@ -206,6 +206,10 @@ public sealed class TypedMemEvalCommandLineTests
             // entries, because an arm moving both could attribute a difference to neither.
             ["--current-valid-time"] = "CurrentValidTimeOnly",
             ["--prospective-firing"] = "ProspectiveFiring",
+            // W-E1. SEVENTH reachable-but-never-fed lever: ExtractionOptions.LinkFactsToEntities is
+            // public and unit-tested and no harness could set it, so every store probe reports
+            // `0 entity(ies)` on every line. An INGESTION lever -- it changes the store, not the read.
+            ["--link-fact-entities"] = "LinkFactsToEntities",
             // Stage 1 of the three-stage run protocol. Advertised, so it must be carried.
             ["--dry-run"] = "DryRun",
         };

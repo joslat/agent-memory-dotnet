@@ -228,3 +228,61 @@ public sealed class ProspectiveFiringWiringTests
             + "read — so the feature was dark on BOTH conditions, not one");
     }
 }
+
+/// <summary>
+/// The entity-linking lever — seventh reachable-but-never-fed instance, found by checking the NEXT
+/// queued run's wiring rather than the current one's.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <c>ExtractionOptions.LinkFactsToEntities</c> is public and unit-tested;
+/// <c>LongMemEvalMemoryProfile</c> configured <c>Extraction { DerivedMemory, SupersedeReplacedFacts }</c>
+/// and not this, so no run could set it. Every store probe this project has taken reports
+/// <c>0 entity(ies)</c> on every line, across every vertical.
+/// </para>
+/// <para>
+/// It gates the D1 recommendation — entity linking before the conjunction router — whose evidence is
+/// that <c>alias-then-count</c> produced <b>14 undercounts and zero overcounts</b> across all 15
+/// questions: one-directional loss, the signature of a missing join rather than a bad ranking.
+/// </para>
+/// <para>
+/// <b>Unlike every other arm lever, this one changes INGESTION.</b> Two arms differing by it are not
+/// two readings of one store — they are two stores. That is why it must be nameable on disk.
+/// </para>
+/// </remarks>
+public sealed class EntityLinkingWiringTests
+{
+    private static TypedMemEvalProgram.TypedMemEvalRunOptions Parse(params string[] extra) =>
+        TypedMemEvalProgram.Parse(["--typedmemeval", "conjunction", .. extra]);
+
+    [Fact]
+    public void TheFlagIsAKnownOption() =>
+        TypedMemEvalProgram.KnownOptions.Should().Contain("--link-fact-entities");
+
+    [Fact]
+    public void TheFlagReachesTheOptionsRecord() =>
+        Parse("--link-fact-entities").LinkFactsToEntities.Should().BeTrue();
+
+    [Fact]
+    public void TheDefaultArmLeavesItOff()
+    {
+        var off = Parse();
+
+        off.LinkFactsToEntities.Should().BeFalse();
+        off.Arm.IsDefault.Should().BeTrue(
+            "every C-D row was ingested on this path and must stay reproducible from it");
+    }
+
+    /// <summary>An entity-linked run is a DIFFERENT STORE and its filename must say so.</summary>
+    [Fact]
+    public void AnEntityLinkedArmIsItsOwnTokenBecauseItIsItsOwnCorpus()
+    {
+        Parse("--link-fact-entities").Arm.FileToken().Should().Be("entlink");
+        Parse().Arm.FileToken().Should().Be("default");
+    }
+
+    [Fact]
+    public void TheDescriptionCarriesTheLever() =>
+        Parse("--link-fact-entities").Arm.Describe()
+            .Should().Contain("link-facts-to-entities=True");
+}

@@ -74,6 +74,10 @@ internal static class TypedMemEvalProgram
         // BOTH, so every prospective number here was taken with the feature dark twice over. Two
         // flags, because an ablation that moved both could attribute a difference to neither.
         "--current-valid-time", "--prospective-firing",
+        // W-E1 (2026-09-15). SEVENTH reachable-but-never-fed lever: ExtractionOptions
+        // .LinkFactsToEntities is public and unit-tested, and no harness could set it -- so every
+        // store probe this project ran reports `0 entity(ies)` on every line, across every vertical.
+        "--link-fact-entities",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -139,6 +143,7 @@ internal static class TypedMemEvalProgram
                             phase30: options.Phase30,
                             rescueShortOwnerResults: options.RescueShortOwnerResults,
                             supersedeReplacedFacts: options.SupersedeReplacedFacts,
+                            linkFactsToEntities: options.LinkFactsToEntities,
                             resolveSupersessions: options.ResolveSupersessions,
                             recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
@@ -470,6 +475,7 @@ internal static class TypedMemEvalProgram
                 arithmeticMemory = arm.Phase30.ArithmeticMemory,
                 rescueShortOwnerResults = arm.RescueShortOwnerResults,
                 supersedeReplacedFacts = arm.SupersedeReplacedFacts,
+                linkFactsToEntities = arm.LinkFactsToEntities,
                 resolveSupersessions = arm.ResolveSupersessions,
                 factWeightedBudget = arm.FactWeightedBudget,
                 schemaExtensions = arm.Phase30.Extensions,
@@ -943,7 +949,8 @@ internal static class TypedMemEvalProgram
             ParseNonNegative(Value("--max-derived-facts"), "--max-derived-facts"),
             Array.IndexOf(args, "--dry-run") >= 0,
             Array.IndexOf(args, "--current-valid-time") >= 0,
-            Array.IndexOf(args, "--prospective-firing") >= 0);
+            Array.IndexOf(args, "--prospective-firing") >= 0,
+            Array.IndexOf(args, "--link-fact-entities") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1106,7 +1113,10 @@ internal static class TypedMemEvalProgram
         // FIRING. Separate because the engine gates firing on both, so only a third arm
         // (valid-time on, firing off) can separate the two effects.
         bool CurrentValidTimeOnly = false,
-        bool ProspectiveFiring = false)
+        bool ProspectiveFiring = false,
+        // W-E1. An INGESTION lever: it changes the store, so an arm carrying it is a different
+        // corpus and can never be banded with one that does not.
+        bool LinkFactsToEntities = false)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1118,6 +1128,6 @@ internal static class TypedMemEvalProgram
         internal TypedMemEvalArm Arm =>
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
-                MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring);
+                MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities);
     }
 }

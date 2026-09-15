@@ -112,7 +112,8 @@ public sealed record TypedMemEvalArm(
     bool RecallFanOut = false,
     int? MaxDerivedFacts = null,
     bool CurrentValidTimeOnly = false,
-    bool ProspectiveFiring = false)
+    bool ProspectiveFiring = false,
+    bool LinkFactsToEntities = false)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -122,7 +123,8 @@ public sealed record TypedMemEvalArm(
         Phase30.IsDefault && !RescueShortOwnerResults && !FactWeightedBudget
         && !SupersedeReplacedFacts && !ResolveSupersessions
         && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut
-        && MaxDerivedFacts is null && !CurrentValidTimeOnly && !ProspectiveFiring;
+        && MaxDerivedFacts is null && !CurrentValidTimeOnly && !ProspectiveFiring
+        && !LinkFactsToEntities;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -157,6 +159,10 @@ public sealed record TypedMemEvalArm(
         // difference to either.
         if (CurrentValidTimeOnly) parts.Add("vtcurrent");
         if (ProspectiveFiring) parts.Add("firing");
+        // An INGESTION lever, unlike every other token here: it changes the store the questions are
+        // asked against, not how that store is read. Two arms differing by it are not two readings of
+        // one corpus -- they are two corpora -- which is exactly why it must be nameable on disk.
+        if (LinkFactsToEntities) parts.Add("entlink");
         return string.Join("-", parts);
     }
 
@@ -172,5 +178,6 @@ public sealed record TypedMemEvalArm(
         $"recall-fan-out={RecallFanOut} " +
         $"max-derived-facts={(MaxDerivedFacts is { } d ? d.ToString(CultureInfo.InvariantCulture) : "null")} " +
         $"current-valid-time-only={CurrentValidTimeOnly} " +
-        $"prospective-firing={ProspectiveFiring}");
+        $"prospective-firing={ProspectiveFiring} " +
+        $"link-facts-to-entities={LinkFactsToEntities}");
 }
