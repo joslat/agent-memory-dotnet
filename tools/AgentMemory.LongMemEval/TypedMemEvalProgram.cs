@@ -68,6 +68,12 @@ internal static class TypedMemEvalProgram
         // W2. The read side of derived memory. `--arithmetic-memory` writes counts and sums and
         // NOTHING at recall read them, so they diluted the pool: 30% -> 14%. This budgets them.
         "--max-derived-facts",
+        // FIRING (2026-09-15). `RecallOptions.ProspectiveFiring` is public, consumed by the
+        // assembler and covered by three unit-test classes -- and the harness's single RecallOptions
+        // construction never set it, nor ValidTime (default Ignore). The assembler gates firing on
+        // BOTH, so every prospective number here was taken with the feature dark twice over. Two
+        // flags, because an ablation that moved both could attribute a difference to neither.
+        "--current-valid-time", "--prospective-firing",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -236,6 +242,8 @@ internal static class TypedMemEvalProgram
                         ExpandFactsByPredicate = options.ExpandFactsByPredicate,
                         ResolveQueryRelations = options.ResolveQueryRelations,
                         MaxDerivedFacts = options.MaxDerivedFacts,
+                        CurrentValidTimeOnly = options.CurrentValidTimeOnly,
+                        ProspectiveFiring = options.ProspectiveFiring,
                         MemoryMode = LongMemEvalMemoryMode.Structured,
                         MinSimilarityScore = 0,
                         ModelId = deployment,
@@ -933,7 +941,9 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--resolve-query-relations") >= 0,
             Array.IndexOf(args, "--recall-fan-out") >= 0,
             ParseNonNegative(Value("--max-derived-facts"), "--max-derived-facts"),
-            Array.IndexOf(args, "--dry-run") >= 0);
+            Array.IndexOf(args, "--dry-run") >= 0,
+            Array.IndexOf(args, "--current-valid-time") >= 0,
+            Array.IndexOf(args, "--prospective-firing") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1092,7 +1102,11 @@ internal static class TypedMemEvalProgram
         // W2. Null = pre-existing (and measured-harmful); 0 = exclude; >0 = own budget.
         int? MaxDerivedFacts,
         // Stage 1 of the three-stage protocol; spends nothing and exits before the profile starts.
-        bool DryRun)
+        bool DryRun,
+        // FIRING. Separate because the engine gates firing on both, so only a third arm
+        // (valid-time on, firing off) can separate the two effects.
+        bool CurrentValidTimeOnly = false,
+        bool ProspectiveFiring = false)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1104,6 +1118,6 @@ internal static class TypedMemEvalProgram
         internal TypedMemEvalArm Arm =>
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
-                MaxDerivedFacts);
+                MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring);
     }
 }

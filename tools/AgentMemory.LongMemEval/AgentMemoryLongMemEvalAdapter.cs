@@ -728,6 +728,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // compete for the ordinary fact budget and displace the source values they were
                 // computed from (arithmetic 30% -> 14%).
                 MaxDerivedFacts = _options.MaxDerivedFacts,
+                // FIRING. Both, because the assembler gates on both -- setting only ProspectiveFiring
+                // leaves the feature inert and would measure an off-state under an on-state's name.
+                ValidTime = _options.CurrentValidTimeOnly ? ValidTimeMode.Current : ValidTimeMode.Ignore,
+                ProspectiveFiring = _options.ProspectiveFiring,
                 MaxGraphRagItems = budget.GraphRag,
                 MinSimilarityScore = _options.MinSimilarityScore,
                 BlendMode = BlendModeFor(budget.GraphRag),
@@ -1994,6 +1998,20 @@ public sealed record LongMemEvalAdapterOptions
 
     /// <summary>G5. Returns every fact sharing a retrieved fact's canonical predicate.</summary>
     public bool ExpandFactsByPredicate { get; init; }
+
+    /// <summary>Restricts recall to facts whose valid-time window contains the present.</summary>
+    /// <remarks>
+    /// Separate from <see cref="ProspectiveFiring"/> on purpose: the assembler gates firing on BOTH,
+    /// so an arm that moved them together could not attribute a difference to either.
+    /// </remarks>
+    public bool CurrentValidTimeOnly { get; init; }
+
+    /// <summary>Volunteers facts that just became due or are about to expire, selected by time.</summary>
+    /// <remarks>
+    /// Never set by this harness before 2026-09-15, and neither was <c>ValidTime</c> -- so every
+    /// prospective number this project produced was taken with firing dark on both of its conditions.
+    /// </remarks>
+    public bool ProspectiveFiring { get; init; }
 
     /// <summary>J2.2. Also expands on relations resolved from the question text itself.</summary>
     public bool ResolveQueryRelations { get; init; }

@@ -72,6 +72,35 @@ namespace AgentMemory.LongMemEval;
 /// value ever replaced anything -- which is the off-state the 0.767 ON ablation actually measured.
 /// </para>
 /// </param>
+/// <param name="CurrentValidTimeOnly">
+/// Sets <c>RecallOptions.ValidTime</c> to <c>Current</c>, so only facts whose valid-time window
+/// contains the present are returned. Appended last under the positional-safety rule documented on
+/// <paramref name="ResolveSupersessions"/>.
+/// </param>
+/// <param name="ProspectiveFiring">
+/// Volunteers facts that just became due, or are about to expire — selected by TIME, never by
+/// similarity.
+/// <para>
+/// <b>These two levers are only informative TOGETHER, and that is a property of the engine, not a
+/// convention.</b> <c>MemoryContextAssembler</c> gates firing on
+/// <c>ProspectiveFiring &amp;&amp; ValidTime == ValidTimeMode.Current</c>: firing reads a fact's
+/// valid-time window, and a recall ignoring valid time has no window to read. So enabling firing
+/// alone changes NOTHING, and enabling both changes two things at once.
+/// </para>
+/// <para>
+/// <b>Which is why they are two flags and two tokens rather than one.</b> An ablation that moved
+/// both could not attribute a difference to firing rather than to the valid-time filter. The third
+/// arm — valid-time on, firing off — is what separates them, and it is expressible only because the
+/// levers stayed separate here.
+/// </para>
+/// <para>
+/// <b>Never set by any harness before now.</b> <c>RecallOptions.ProspectiveFiring</c> is public,
+/// consumed by the assembler and covered by three unit-test classes, and the benchmark harness's
+/// single <c>RecallOptions</c> construction never assigned it — nor <c>ValidTime</c>, which defaults
+/// to <c>Ignore</c>. Every prospective number this project has produced, <c>due-window</c> 1/18
+/// included, was measured with firing dark on BOTH conditions.
+/// </para>
+/// </param>
 public sealed record TypedMemEvalArm(
     PhaseThirtyFeatures Phase30,
     bool RescueShortOwnerResults = false,
@@ -81,7 +110,9 @@ public sealed record TypedMemEvalArm(
     bool ExpandFactsByPredicate = false,
     bool ResolveQueryRelations = false,
     bool RecallFanOut = false,
-    int? MaxDerivedFacts = null)
+    int? MaxDerivedFacts = null,
+    bool CurrentValidTimeOnly = false,
+    bool ProspectiveFiring = false)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -91,7 +122,7 @@ public sealed record TypedMemEvalArm(
         Phase30.IsDefault && !RescueShortOwnerResults && !FactWeightedBudget
         && !SupersedeReplacedFacts && !ResolveSupersessions
         && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut
-        && MaxDerivedFacts is null;
+        && MaxDerivedFacts is null && !CurrentValidTimeOnly && !ProspectiveFiring;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -120,6 +151,12 @@ public sealed record TypedMemEvalArm(
         // them apart would be a number with its story attached separately -- the defect this whole
         // type exists to close.
         if (MaxDerivedFacts is { } derived) parts.Add($"derived{derived.ToString(CultureInfo.InvariantCulture)}");
+        // Two tokens, never one. Firing CANNOT fire without current-valid-time, so a single "firing"
+        // token would name an arm that also changed how facts are filtered -- and an artifact that
+        // cannot distinguish "firing" from "firing plus a valid-time filter" cannot attribute a
+        // difference to either.
+        if (CurrentValidTimeOnly) parts.Add("vtcurrent");
+        if (ProspectiveFiring) parts.Add("firing");
         return string.Join("-", parts);
     }
 
@@ -133,5 +170,7 @@ public sealed record TypedMemEvalArm(
         $"expand-facts-by-predicate={ExpandFactsByPredicate} " +
         $"resolve-query-relations={ResolveQueryRelations} " +
         $"recall-fan-out={RecallFanOut} " +
-        $"max-derived-facts={(MaxDerivedFacts is { } d ? d.ToString(CultureInfo.InvariantCulture) : "null")}");
+        $"max-derived-facts={(MaxDerivedFacts is { } d ? d.ToString(CultureInfo.InvariantCulture) : "null")} " +
+        $"current-valid-time-only={CurrentValidTimeOnly} " +
+        $"prospective-firing={ProspectiveFiring}");
 }

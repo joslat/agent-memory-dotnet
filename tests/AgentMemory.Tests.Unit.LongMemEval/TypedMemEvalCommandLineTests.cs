@@ -199,6 +199,13 @@ public sealed class TypedMemEvalCommandLineTests
             // means "exclude", which is why it parses through ParseNonNegative rather than
             // ParsePositive.
             ["--max-derived-facts"] = "MaxDerivedFacts",
+            // FIRING (2026-09-15). Sixth reachable-but-not-fed instance: RecallOptions
+            // .ProspectiveFiring is public, assembler-consumed and unit-tested, and the harness's
+            // only RecallOptions construction set neither it nor ValidTime (default Ignore). The
+            // assembler gates firing on BOTH, so every prospective number was an off-state. Two
+            // entries, because an arm moving both could attribute a difference to neither.
+            ["--current-valid-time"] = "CurrentValidTimeOnly",
+            ["--prospective-firing"] = "ProspectiveFiring",
             // Stage 1 of the three-stage run protocol. Advertised, so it must be carried.
             ["--dry-run"] = "DryRun",
         };
