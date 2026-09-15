@@ -286,3 +286,63 @@ public sealed class EntityLinkingWiringTests
         Parse("--link-fact-entities").Arm.Describe()
             .Should().Contain("link-facts-to-entities=True");
 }
+
+/// <summary>
+/// Provenance must name the commit the RUN started on, not the one HEAD reached by the time it
+/// finished.
+/// </summary>
+/// <remarks>
+/// Caught on a live run rather than in review: the temporal band launched at <c>f520c7c</c> and two
+/// commits landed while it was still ingesting. Because the sha was read when each artifact was
+/// WRITTEN — four to six hours later, three times over for a banded <c>--runs 3</c> — the artifacts
+/// would have claimed a commit whose binary never executed. The project's own note on this field says
+/// the commit "is what makes a six-month-old number re-derivable at all", which is exactly the
+/// property a write-time read destroys.
+/// </remarks>
+public sealed class ProvenanceCommitCaptureTests
+{
+    [Fact]
+    public void TheShaIsCapturedOnceAtStartupRatherThanPerArtifact()
+    {
+        var field = typeof(TypedMemEvalProgram).GetField(
+            "StartupGitSha",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        field.Should().NotBeNull(
+            "the sha must live in a static initialiser that runs before the first run starts");
+        field!.IsInitOnly.Should().BeTrue(
+            "a mutable field could be reassigned mid-band and reintroduce the drift this closes");
+    }
+
+    /// <summary>Nothing reads the sha at write time any more.</summary>
+    /// <remarks>
+    /// The defect was a single call site, so a single call site is what must not come back. Asserted
+    /// against the source rather than behaviour because the failure is invisible at runtime — a wrong
+    /// commit is still a well-formed string.
+    /// </remarks>
+    [Fact]
+    public void NoProvenanceWriterCallsReadGitShaDirectly()
+    {
+        var source = FindSource("TypedMemEvalProgram.cs");
+
+        source.Should().NotContain("commit = ReadGitSha()",
+            "provenance must use the startup capture; reading HEAD when the artifact is written is "
+            + "the drift this closes");
+    }
+
+    private static string FindSource(string fileName)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "tools")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull("the repository root must be locatable from the test output");
+        var path = Path.Combine(
+            directory!.FullName, "tools", "AgentMemory.LongMemEval", fileName);
+
+        File.Exists(path).Should().BeTrue($"{fileName} must be where this test expects it");
+        return File.ReadAllText(path);
+    }
+}

@@ -489,7 +489,7 @@ internal static class TypedMemEvalProgram
                 oracle = options.Oracle,
                 control = options.Control,
             },
-            commit = ReadGitSha(),
+            commit = StartupGitSha,
             // Recorded gap, closed here rather than in the report: a run could not confirm from its
             // own artifact whether owner starvation occurred during it, which is what forced the
             // LongMemEval runs to stand in as evidence for a TypedMemEval claim. It lives in the
@@ -517,6 +517,30 @@ internal static class TypedMemEvalProgram
             JsonSerializer.Serialize(provenance, new JsonSerializerOptions { WriteIndented = true }) +
             Environment.NewLine);
     }
+
+    /// <summary>
+    /// The commit HEAD pointed at when this process started — captured ONCE, not per artifact.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Read at write time this was wrong, and measurably so.</b> Provenance is written when a run
+    /// ENDS, and these runs last four to six hours; a banded <c>--runs 3</c> invocation writes three
+    /// artifacts over half a day. Anything committed meanwhile moved HEAD, so the field recorded "the
+    /// commit that existed when the run finished" — which for a long run is a commit whose binary
+    /// never executed.
+    /// </para>
+    /// <para>
+    /// Caught on a live run: the temporal band launched at <c>f520c7c</c> and two commits landed while
+    /// it was ingesting, so its artifacts would have claimed code that was not in them. A static
+    /// initialiser runs before the first run starts, which is the earliest moment this can be true.
+    /// </para>
+    /// <para>
+    /// It is still a claim about the WORKING TREE rather than about the binary — a build from a dirty
+    /// tree records a clean sha. Narrowing that needs a build-stamped assembly attribute, which is a
+    /// larger change; this closes the failure that actually occurred.
+    /// </para>
+    /// </remarks>
+    private static readonly string? StartupGitSha = ReadGitSha();
 
     /// <summary>The commit this ran on, or null when it cannot be determined.</summary>
     /// <remarks>
