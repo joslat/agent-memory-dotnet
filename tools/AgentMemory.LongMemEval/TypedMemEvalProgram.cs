@@ -600,13 +600,29 @@ internal static class TypedMemEvalProgram
             return;
         }
 
-        Console.WriteLine(string.Create(
+        var header = string.Create(
             CultureInfo.InvariantCulture,
             $"typedmemeval: reachable ceiling — {ceiling.Fraction:P1} "
             + $"({ceiling.ReachableQuestions:F2} of {ceiling.Questions} questions reachable at "
             + $"k_ref={ceiling.KRef?.ToString(CultureInfo.InvariantCulture) ?? "?"}; "
-            + $"{ceiling.CappedQuestions} structurally capped). "
-            + $"Score {result.CorrectQuestions}/{ceiling.Questions} = "
+            + $"{ceiling.CappedQuestions} structurally capped).");
+
+        // The ceiling is declared over the WHOLE corpus, so a sampled run has no share-of-reachable:
+        // dividing this run's correct count by the corpus denominator would read 1/65 for a
+        // one-question stage-2 probe. The ceiling itself is still worth printing -- it is a property
+        // of the corpus and true whatever was sampled -- but the score line is withheld and says why.
+        if (result.ScoredQuestions < ceiling.Questions)
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{header} PARTIAL RUN ({result.ScoredQuestions} of {ceiling.Questions} scored) — "
+                + $"no share-of-reachable is reported; the ceiling's denominator is the whole corpus."));
+            return;
+        }
+
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{header} Score {result.CorrectQuestions}/{ceiling.Questions} = "
             + $"{ceiling.ShareOfReachable(result.CorrectQuestions):P1} OF REACHABLE."));
     }
 
