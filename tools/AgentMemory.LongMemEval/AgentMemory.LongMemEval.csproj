@@ -75,4 +75,29 @@
     <EmbeddedResource Include="Taxonomy\memory-type-map.json" />
   </ItemGroup>
 
+
+  <!--
+    STAMP THE BINARY WITH ITS OWN COMMIT.
+
+    Provenance used to read `.git/HEAD` at run time, which answers "what is checked out now", not
+    "what was this built from". A banded run on 2026-09-15 made the gap visible: three members, ONE
+    Release binary, and two different recorded commits, because branches moved between members.
+
+    `SourceRevisionId` is appended by the SDK to AssemblyInformationalVersion, so the assembly can be
+    asked what it was built from. Scoped to this tool rather than Directory.Build.props on purpose:
+    the shipped packages' InformationalVersion is public metadata under a locked API, and a
+    provenance fix has no business changing it.
+
+    ContinueOnError: a build outside a git checkout must still succeed and simply record nothing.
+  -->
+  <Target Name="StampBuildCommit" BeforeTargets="InitializeSourceControlInformation">
+    <Exec Command="git rev-parse HEAD"
+          ConsoleToMSBuild="true"
+          ContinueOnError="true"
+          StandardOutputImportance="low"
+          WorkingDirectory="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="ConsoleOutput" PropertyName="SourceRevisionId" />
+    </Exec>
+  </Target>
+
 </Project>

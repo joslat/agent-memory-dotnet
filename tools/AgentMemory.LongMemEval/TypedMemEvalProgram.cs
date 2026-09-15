@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Reflection;
 using System.Text.Json;
 using AgentEval.Memory.External.Models;
 using AgentEval.Memory.External.TypedMemEval;
@@ -489,7 +490,12 @@ internal static class TypedMemEvalProgram
                 oracle = options.Oracle,
                 control = options.Control,
             },
-            commit = StartupGitSha,
+            // The BINARY's commit -- what produced the numbers. Null when unstamped, never guessed.
+            commit = BuildCommitSha,
+            // The working tree at process start. Present so a reader can SEE when the two differ,
+            // which means the run used a binary that does not match the checkout. On the 2026-09-15
+            // band they differed between members of one band sharing one binary.
+            workingTreeHeadAtStart = StartupGitSha,
             // Recorded gap, closed here rather than in the report: a run could not confirm from its
             // own artifact whether owner starvation occurred during it, which is what forced the
             // LongMemEval runs to stand in as evidence for a TypedMemEval claim. It lives in the
@@ -541,6 +547,39 @@ internal static class TypedMemEvalProgram
     /// </para>
     /// </remarks>
     private static readonly string? StartupGitSha = ReadGitSha();
+
+    /// <summary>
+    /// The commit this ASSEMBLY was built from, or null when the build did not stamp one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read from the assembly's own <c>AssemblyInformationalVersion</c>, which the SDK suffixes with
+    /// <c>+&lt;SourceRevisionId&gt;</c>. This is the only value that answers "what produced these
+    /// numbers"; <see cref="StartupGitSha"/> answers "what was checked out when it ran", and those
+    /// are different questions that a long run makes visibly different.
+    /// </para>
+    /// <para>
+    /// <b>Null rather than a fallback to the working tree.</b> Falling back would restore exactly the
+    /// misleading value this replaces, and it would do so silently — a provenance field that is
+    /// sometimes the binary and sometimes the checkout is worse than one that is sometimes absent.
+    /// </para>
+    /// </remarks>
+    private static readonly string? BuildCommitSha = ReadBuildCommitSha();
+
+    private static string? ReadBuildCommitSha()
+    {
+        var informational = typeof(TypedMemEvalProgram).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (informational is null) return null;
+
+        var plus = informational.IndexOf('+', StringComparison.Ordinal);
+        if (plus < 0 || plus == informational.Length - 1) return null;
+
+        var sha = informational[(plus + 1)..].Trim();
+        // A 40-character hex sha or nothing: the suffix is free-form and a build could put anything
+        // there, and a provenance field that accepts anything is not a provenance field.
+        return sha.Length == 40 && sha.All(Uri.IsHexDigit) ? sha : null;
+    }
 
     /// <summary>The commit this ran on, or null when it cannot be determined.</summary>
     /// <remarks>

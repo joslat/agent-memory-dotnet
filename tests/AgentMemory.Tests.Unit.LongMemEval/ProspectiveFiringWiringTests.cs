@@ -346,3 +346,67 @@ public sealed class ProvenanceCommitCaptureTests
         return File.ReadAllText(path);
     }
 }
+
+/// <summary>
+/// The harness binary must carry the commit it was BUILT from, not the one checked out when it ran.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A banded run on 2026-09-15 made the difference visible: three members, <b>one</b> Release binary,
+/// and two different recorded commits — because branches moved between members while provenance was
+/// reading <c>.git/HEAD</c>. The first fix moved that read from artifact-write time to process start,
+/// which was strictly better and still answered the wrong question.
+/// </para>
+/// <para>
+/// The stamp is what answers "what produced these numbers". This test exists so it cannot quietly
+/// stop being applied: a build that loses the <c>SourceRevisionId</c> target would otherwise go on
+/// writing provenance with a null commit and nothing would say so.
+/// </para>
+/// </remarks>
+public sealed class BuildCommitStampTests
+{
+    [Fact]
+    public void TheHarnessAssemblyCarriesA40CharacterCommitSha()
+    {
+        var informational = typeof(TypedMemEvalProgram).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .SingleOrDefault()?.InformationalVersion;
+
+        informational.Should().NotBeNull();
+
+        var plus = informational!.IndexOf('+', StringComparison.Ordinal);
+        plus.Should().BeGreaterThan(0,
+            "the build must append +<SourceRevisionId>; without it provenance cannot name the binary "
+            + "that produced a number, and a long run's checkout will have moved on");
+
+        var sha = informational[(plus + 1)..];
+        sha.Should().HaveLength(40).And.Subject.Should().MatchRegex("^[0-9a-f]{40}$");
+    }
+
+    /// <summary>The provenance field reads that stamp rather than the working tree.</summary>
+    /// <remarks>
+    /// Asserted against the source because the failure is invisible in the output: a working-tree sha
+    /// is still a well-formed sha, and it is wrong in exactly the cases that matter — long runs, and
+    /// runs whose branch moved underneath them.
+    /// </remarks>
+    [Fact]
+    public void ProvenanceNamesTheBinaryNotTheCheckout()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "tools")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull();
+        var source = File.ReadAllText(Path.Combine(
+            directory!.FullName, "tools", "AgentMemory.LongMemEval", "TypedMemEvalProgram.cs"));
+
+        source.Should().Contain("commit = BuildCommitSha",
+            "the authoritative field must be the binary's stamp");
+        source.Should().Contain("workingTreeHeadAtStart = StartupGitSha",
+            "the checkout is kept as a SEPARATE diagnostic so a reader can see when the two differ — "
+            + "which means the run used a binary that does not match the tree");
+    }
+}
