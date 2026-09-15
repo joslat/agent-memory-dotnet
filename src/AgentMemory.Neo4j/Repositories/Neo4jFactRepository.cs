@@ -758,6 +758,51 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     }
 
     /// <inheritdoc/>
+    public async Task<ProspectiveDueResult> GetDueFactsAsOfAsync(
+        DateTimeOffset since,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        TimeSpan expiringWindow,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        var hasOwner = scope?.OwnerId is not null;
+        var includeShared = scope?.IncludeShared ?? false;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["since"] = since.ToString("O", culture),
+            // The horizon hangs off the VALID-time clock, not the machine's: an as-of read asks what
+            // was about to expire THEN, and measuring the window from now would answer a question
+            // nobody asked.
+            ["validAsOf"] = validAsOf.ToString("O", culture),
+            ["systemAsOf"] = systemAsOf.ToString("O", culture),
+            ["expiryHorizon"] = (validAsOf + expiringWindow).ToString("O", culture),
+            ["limit"] = limit,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            async Task<List<Fact>> SectionAsync(string cypher)
+            {
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(r => MapToFact(r["f"].As<INode>(), embedding: null)).ToList();
+            }
+
+            return new ProspectiveDueResult
+            {
+                Due = await SectionAsync(TemporalQueries.GetDueFactsAsOf(hasOwner, includeShared))
+                    .ConfigureAwait(false),
+                Expiring = await SectionAsync(TemporalQueries.GetExpiringFactsAsOf(hasOwner, includeShared))
+                    .ConfigureAwait(false),
+            };
+        }, cancellationToken).ConfigureAwait(false) ?? ProspectiveDueResult.Empty;
+    }
+
+    /// <inheritdoc/>
     public async Task<ProspectiveDueResult> GetDueFactsAsync(
         DateTimeOffset since,
         DateTimeOffset now,

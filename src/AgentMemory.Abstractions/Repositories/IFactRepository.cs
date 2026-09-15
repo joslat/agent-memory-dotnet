@@ -391,6 +391,41 @@ public interface IFactRepository
             "This IFactRepository implementation does not support derived (arithmetic) memory.");
 
     /// <summary>
+    /// D2. Prospective firing at a point in time — the bitemporal twin of
+    /// <see cref="GetDueFactsAsync"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Both clocks are NON-OPTIONAL</b>, exactly as on
+    /// <see cref="SearchByCanonicalPredicatesAsOfAsync"/>. A firing query that defaulted one of them
+    /// to "now" would fire reminders the system did not yet know about at the instant being asked
+    /// about, and the extra rows are indistinguishable from reminders that legitimately came due.
+    /// </para>
+    /// <para>
+    /// <b>The default returns EMPTY and never delegates to the live overload.</b> Delegating would
+    /// make an implementation that has not been taught the clocks look as though it had — the same
+    /// silent-off-state shape this codebase has now paid for seven times. An implementation either
+    /// answers the bitemporal question or says it cannot.
+    /// </para>
+    /// </remarks>
+    /// <param name="since">Opens the firing window — validity that opened at or before this is not due.</param>
+    /// <param name="validAsOf">Valid-time clock: the instant the caller is asking "what is due" AT.</param>
+    /// <param name="systemAsOf">Transaction-time clock: the fact must have been believed at this instant.</param>
+    /// <param name="expiringWindow">Horizon past <paramref name="validAsOf"/> for the expiring section.</param>
+    /// <param name="limit">Hard cap per section.</param>
+    /// <param name="scope">Isolation scope for the read.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<ProspectiveDueResult> GetDueFactsAsOfAsync(
+        DateTimeOffset since,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        TimeSpan expiringWindow,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(ProspectiveDueResult.Empty);
+
+    /// <summary>
     /// Facts that became due in <c>(since, now]</c> and facts expiring within
     /// <paramref name="expiringWindow"/> (30.7).
     /// </summary>

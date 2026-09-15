@@ -1330,6 +1330,37 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             traceRanked = BuildRankedItems(traces, traceScores, static t => t.TraceId);
         }
 
+        // D2. FIRING ON THE POINT-IN-TIME PATH.
+        //
+        // This block did not exist, and its absence made the feature unreachable on the one vertical
+        // it serves: prospective questions all arrive timestamped, so they all route here, where
+        // nothing fired however the caller configured it. Two independent reasons the ablation would
+        // have read "indistinguishable" -- no harness set the flag, and this path ignored it.
+        //
+        // THE CLOCKS ARE THE WHOLE POINT. Firing asks "what came due", and on an as-of read that is
+        // due AS OF `validAsOf`, not as of the machine. `_clock.UtcNow` appears nowhere below: using
+        // it would answer today's question against a past instant's evidence and look entirely
+        // correct doing so. `systemAsOf` bounds what was BELIEVED, so a reminder recorded after the
+        // transaction instant cannot fire from a read of before it.
+        //
+        // The ValidTimeMode gate the live path carries is NOT repeated: it exists there because live
+        // recall may ignore valid time and firing has no window to read when it does. A point-in-time
+        // recall is bound to a valid-time instant by construction -- the gate's condition is
+        // unconditionally true here, and re-testing it would refuse the feature for a reason that
+        // cannot arise.
+        var prospectiveAsOf = ProspectiveDueResult.Empty;
+        if (recallOpts.ProspectiveFiring)
+        {
+            prospectiveAsOf = await _longTerm.GetDueFactsAsOfAsync(
+                validAsOf - recallOpts.DueLookback,
+                validAsOf,
+                systemAsOf,
+                recallOpts.ExpiringWindow,
+                recallOpts.MaxDueItems,
+                scope,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         // 30.2, post-budget, mirroring the live path. This path assembles no relevant-messages section
         // at all (it passes Array.Empty to the budget above), so projection is told that honestly rather
         // than being handed the recent list twice.
@@ -1393,6 +1424,22 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 Diagnostics = recallOpts.IncludeDiagnostics
                     ? Diagnose(hasEmbedding && recallOpts.MaxTraces > 0,
                         recallOpts.MaxTraces, traces, traceRanked, minScore)
+                    : null
+            },
+            DueFacts = new MemoryContextSection<Fact>
+            {
+                Items = prospectiveAsOf.Due,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(recallOpts.ProspectiveFiring, recallOpts.MaxDueItems,
+                        prospectiveAsOf.Due, [], minScore)
+                    : null
+            },
+            ExpiringFacts = new MemoryContextSection<Fact>
+            {
+                Items = prospectiveAsOf.Expiring,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(recallOpts.ProspectiveFiring, recallOpts.MaxDueItems,
+                        prospectiveAsOf.Expiring, [], minScore)
                     : null
             },
             Truncated = truncated,

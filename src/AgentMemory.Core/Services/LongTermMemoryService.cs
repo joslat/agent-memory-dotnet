@@ -482,7 +482,28 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     /// embedding and applies no score floor, because firing selects by time. A reminder is off-topic by
     /// definition, and a similarity-scoped version could never surface the ones that matter most.
     /// </remarks>
-    public Task<ProspectiveDueResult> GetDueFactsAsync(
+     /// <inheritdoc/>
+    /// <remarks>
+    /// D2. The point-in-time twin, with the owner scope resolved through the same isolation policy.
+    /// Both clocks are forwarded unchanged: narrowing one here would make the repository's contract
+    /// untrue at the only layer that could still tell.
+    /// </remarks>
+    public Task<ProspectiveDueResult> GetDueFactsAsOfAsync(
+        DateTimeOffset since,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        TimeSpan expiringWindow,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(GetDueFactsAsOfAsync), MemoryOperationAccess.Tenant);
+        return _factRepo.GetDueFactsAsOfAsync(
+            since, validAsOf, systemAsOf, expiringWindow, limit, resolved, cancellationToken);
+    }
+
+   public Task<ProspectiveDueResult> GetDueFactsAsync(
         DateTimeOffset since,
         DateTimeOffset now,
         TimeSpan expiringWindow,
