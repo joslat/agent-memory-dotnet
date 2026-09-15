@@ -338,17 +338,26 @@ internal static class TypedMemEvalScoreboard
                 continue;
             }
 
-            // THE 2026-09-15 RULING: the dense boolean is a THREE-CLASS read, not a filter. The
-            // published flag is measured with ada-002 and flips on 4 of 35 shapes against 3-small --
-            // and neither embedder is ours. A shape that only one of them ranks is a fact about the
-            // embedder, so it is held apart rather than counted or discarded.
-            var verdict = TypedMemEvalDenseSecondOpinion.For(run.Vertical, shape)?.Class
-                // No second opinion for this shape: fall back to the published flag alone and say so
-                // by treating it as SENSITIVE, never as robust. One retriever is not a condition.
-                ?? (flag.Discriminates ? DenseRankingClass.RetrieverSensitive : DenseRankingClass.NonRanking);
+            // THE PUBLISHED VERDICT, read from the corpus the run loaded. 0.38 co-publishes
+            // `retriever_agreement`, which retires the derived table this used to consult -- and
+            // retires it for cause: the derived version called SIX shapes robust that the publisher
+            // calls retriever-sensitive, `prospective/due-window` among them.
+            var verdict = flag.Agreement;
 
             switch (verdict)
             {
+                case DenseRankingClass.Unknown:
+                    // No verdict readable. Not robust, not sensitive, not counted -- the same rule
+                    // an unclassified shape gets, for the same reason.
+                    unclassified.Add(shape);
+                    break;
+
+                case DenseRankingClass.NotApplicable:
+                    // Retrieval is UNDEFINED here, not zero. Counting it anywhere would put a
+                    // vacuously-perfect 1.000 into a column that claims to measure retrieval.
+                    unclassified.Add(shape);
+                    break;
+
                 case DenseRankingClass.NonRanking:
                     nonRanking.Add(shape);
                     break;
