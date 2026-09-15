@@ -263,6 +263,30 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 "ignored.");
         }
 
+        // PROSPECTIVE FIRING IS NOT IMPLEMENTED ON THE AS-OF PATH, so it joins the same refusal.
+        //
+        // The firing gate lives in AssembleContextAsync alone:
+        //     fireProspective = recallOpts.ProspectiveFiring
+        //                       && recallOpts.ValidTime == ValidTimeMode.Current;
+        // AssembleContextAsOfCoreAsync contains no firing block at all -- zero references to
+        // ProspectiveFiring, GetDueFactsAsync or a due section. A timestamped question therefore
+        // CANNOT fire however the arm is configured.
+        //
+        // Which makes this the dead-option shape exactly: wiring the flag (2026-09-15) made firing
+        // REQUESTABLE without making it REACHABLE here, and an arm named `vtcurrent-firing` that
+        // silently ran the ordinary as-of path would produce an off-state under an on-state's name
+        // -- and firing-ablation v2's pre-registered reading for "indistinguishable" is that it
+        // KILLS the feature's value claim. That verdict must never be reachable by accident.
+        if (_options.ProspectiveFiring)
+        {
+            throw new InvalidOperationException(
+                "Timestamped LongMemEval history anchors recall at RecallAsOfAsync, which does not " +
+                "implement prospective firing (the gate exists only on the live-recall path); " +
+                "refusing to run a firing arm whose configuration would silently do nothing. " +
+                "Firing must be implemented on the as-of path before it can be measured on a " +
+                "timestamped vertical.");
+        }
+
         var pairs = new (string UserMessage, string AssistantResponse)[history.Turns.Count];
         var timestamps = new DateTimeOffset[history.Turns.Count];
         for (var index = 0; index < history.Turns.Count; index++)
@@ -728,6 +752,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // compete for the ordinary fact budget and displace the source values they were
                 // computed from (arithmetic 30% -> 14%).
                 MaxDerivedFacts = _options.MaxDerivedFacts,
+                // FIRING. Both, because the assembler gates on both -- setting only ProspectiveFiring
+                // leaves the feature inert and would measure an off-state under an on-state's name.
+                ValidTime = _options.CurrentValidTimeOnly ? ValidTimeMode.Current : ValidTimeMode.Ignore,
+                ProspectiveFiring = _options.ProspectiveFiring,
                 MaxGraphRagItems = budget.GraphRag,
                 MinSimilarityScore = _options.MinSimilarityScore,
                 BlendMode = BlendModeFor(budget.GraphRag),
@@ -1994,6 +2022,20 @@ public sealed record LongMemEvalAdapterOptions
 
     /// <summary>G5. Returns every fact sharing a retrieved fact's canonical predicate.</summary>
     public bool ExpandFactsByPredicate { get; init; }
+
+    /// <summary>Restricts recall to facts whose valid-time window contains the present.</summary>
+    /// <remarks>
+    /// Separate from <see cref="ProspectiveFiring"/> on purpose: the assembler gates firing on BOTH,
+    /// so an arm that moved them together could not attribute a difference to either.
+    /// </remarks>
+    public bool CurrentValidTimeOnly { get; init; }
+
+    /// <summary>Volunteers facts that just became due or are about to expire, selected by time.</summary>
+    /// <remarks>
+    /// Never set by this harness before 2026-09-15, and neither was <c>ValidTime</c> -- so every
+    /// prospective number this project produced was taken with firing dark on both of its conditions.
+    /// </remarks>
+    public bool ProspectiveFiring { get; init; }
 
     /// <summary>J2.2. Also expands on relations resolved from the question text itself.</summary>
     public bool ResolveQueryRelations { get; init; }

@@ -68,6 +68,16 @@ internal static class TypedMemEvalProgram
         // W2. The read side of derived memory. `--arithmetic-memory` writes counts and sums and
         // NOTHING at recall read them, so they diluted the pool: 30% -> 14%. This budgets them.
         "--max-derived-facts",
+        // FIRING (2026-09-15). `RecallOptions.ProspectiveFiring` is public, consumed by the
+        // assembler and covered by three unit-test classes -- and the harness's single RecallOptions
+        // construction never set it, nor ValidTime (default Ignore). The assembler gates firing on
+        // BOTH, so every prospective number here was taken with the feature dark twice over. Two
+        // flags, because an ablation that moved both could attribute a difference to neither.
+        "--current-valid-time", "--prospective-firing",
+        // W-E1 (2026-09-15). SEVENTH reachable-but-never-fed lever: ExtractionOptions
+        // .LinkFactsToEntities is public and unit-tested, and no harness could set it -- so every
+        // store probe this project ran reports `0 entity(ies)` on every line, across every vertical.
+        "--link-fact-entities",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -133,6 +143,7 @@ internal static class TypedMemEvalProgram
                             phase30: options.Phase30,
                             rescueShortOwnerResults: options.RescueShortOwnerResults,
                             supersedeReplacedFacts: options.SupersedeReplacedFacts,
+                            linkFactsToEntities: options.LinkFactsToEntities,
                             resolveSupersessions: options.ResolveSupersessions,
                             recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
@@ -236,6 +247,8 @@ internal static class TypedMemEvalProgram
                         ExpandFactsByPredicate = options.ExpandFactsByPredicate,
                         ResolveQueryRelations = options.ResolveQueryRelations,
                         MaxDerivedFacts = options.MaxDerivedFacts,
+                        CurrentValidTimeOnly = options.CurrentValidTimeOnly,
+                        ProspectiveFiring = options.ProspectiveFiring,
                         MemoryMode = LongMemEvalMemoryMode.Structured,
                         MinSimilarityScore = 0,
                         ModelId = deployment,
@@ -462,6 +475,7 @@ internal static class TypedMemEvalProgram
                 arithmeticMemory = arm.Phase30.ArithmeticMemory,
                 rescueShortOwnerResults = arm.RescueShortOwnerResults,
                 supersedeReplacedFacts = arm.SupersedeReplacedFacts,
+                linkFactsToEntities = arm.LinkFactsToEntities,
                 resolveSupersessions = arm.ResolveSupersessions,
                 factWeightedBudget = arm.FactWeightedBudget,
                 schemaExtensions = arm.Phase30.Extensions,
@@ -475,7 +489,7 @@ internal static class TypedMemEvalProgram
                 oracle = options.Oracle,
                 control = options.Control,
             },
-            commit = ReadGitSha(),
+            commit = StartupGitSha,
             // Recorded gap, closed here rather than in the report: a run could not confirm from its
             // own artifact whether owner starvation occurred during it, which is what forced the
             // LongMemEval runs to stand in as evidence for a TypedMemEval claim. It lives in the
@@ -503,6 +517,30 @@ internal static class TypedMemEvalProgram
             JsonSerializer.Serialize(provenance, new JsonSerializerOptions { WriteIndented = true }) +
             Environment.NewLine);
     }
+
+    /// <summary>
+    /// The commit HEAD pointed at when this process started — captured ONCE, not per artifact.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Read at write time this was wrong, and measurably so.</b> Provenance is written when a run
+    /// ENDS, and these runs last four to six hours; a banded <c>--runs 3</c> invocation writes three
+    /// artifacts over half a day. Anything committed meanwhile moved HEAD, so the field recorded "the
+    /// commit that existed when the run finished" — which for a long run is a commit whose binary
+    /// never executed.
+    /// </para>
+    /// <para>
+    /// Caught on a live run: the temporal band launched at <c>f520c7c</c> and two commits landed while
+    /// it was ingesting, so its artifacts would have claimed code that was not in them. A static
+    /// initialiser runs before the first run starts, which is the earliest moment this can be true.
+    /// </para>
+    /// <para>
+    /// It is still a claim about the WORKING TREE rather than about the binary — a build from a dirty
+    /// tree records a clean sha. Narrowing that needs a build-stamped assembly attribute, which is a
+    /// larger change; this closes the failure that actually occurred.
+    /// </para>
+    /// </remarks>
+    private static readonly string? StartupGitSha = ReadGitSha();
 
     /// <summary>The commit this ran on, or null when it cannot be determined.</summary>
     /// <remarks>
@@ -933,7 +971,10 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--resolve-query-relations") >= 0,
             Array.IndexOf(args, "--recall-fan-out") >= 0,
             ParseNonNegative(Value("--max-derived-facts"), "--max-derived-facts"),
-            Array.IndexOf(args, "--dry-run") >= 0);
+            Array.IndexOf(args, "--dry-run") >= 0,
+            Array.IndexOf(args, "--current-valid-time") >= 0,
+            Array.IndexOf(args, "--prospective-firing") >= 0,
+            Array.IndexOf(args, "--link-fact-entities") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1092,7 +1133,14 @@ internal static class TypedMemEvalProgram
         // W2. Null = pre-existing (and measured-harmful); 0 = exclude; >0 = own budget.
         int? MaxDerivedFacts,
         // Stage 1 of the three-stage protocol; spends nothing and exits before the profile starts.
-        bool DryRun)
+        bool DryRun,
+        // FIRING. Separate because the engine gates firing on both, so only a third arm
+        // (valid-time on, firing off) can separate the two effects.
+        bool CurrentValidTimeOnly = false,
+        bool ProspectiveFiring = false,
+        // W-E1. An INGESTION lever: it changes the store, so an arm carrying it is a different
+        // corpus and can never be banded with one that does not.
+        bool LinkFactsToEntities = false)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1104,6 +1152,6 @@ internal static class TypedMemEvalProgram
         internal TypedMemEvalArm Arm =>
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
-                MaxDerivedFacts);
+                MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities);
     }
 }
