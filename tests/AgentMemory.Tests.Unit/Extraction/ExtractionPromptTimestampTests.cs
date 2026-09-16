@@ -55,4 +55,42 @@ public sealed class ExtractionPromptTimestampTests
             + "not an LLM-behaviour problem");
         text.Should().Contain("next Monday", "the turn's own text must survive alongside its date");
     }
+
+    /// <summary>
+    /// And the anchor INSTRUCTION reaches the same prompt, on the path the harness actually uses.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The batch extractor builds its own system prompt, so "the instruction text is correct" and
+    /// "the model is given the instruction" are two claims. This pins the second on
+    /// <c>LlmMultiSessionUnifiedMemoryExtractor</c> — the rung the benchmark runs — because a setting
+    /// honoured by only some extractors is worse than no setting, as that class's own comment says.
+    /// </para>
+    /// <para>
+    /// With this and the timestamp test above, every link is verified: the harness sets the mode, the
+    /// batch prompt carries the instruction, the call site passes the configured value, the batch text
+    /// carries each turn's date, and the instruction points at it. <b>The plumbing is sound end to
+    /// end, and the machine-anchored windows are therefore LLM behaviour.</b>
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TheBatchSystemPromptCarriesTheAnchorInstructionWhenExtractIsAsked()
+    {
+        var withExtract = LlmMultiSessionUnifiedMemoryExtractor.BuildSystemPrompt(
+            vocabulary: null,
+            assistantContent: AssistantContentMode.Ignore,
+            temporalValidity: TemporalValidityMode.Extract);
+
+        withExtract.Should().Contain("TIMESTAMP OF THE TURN THAT STATES IT",
+            "the rung the benchmark runs must carry the anchor, not only the single-session one");
+
+        var withIgnore = LlmMultiSessionUnifiedMemoryExtractor.BuildSystemPrompt(
+            vocabulary: null,
+            assistantContent: AssistantContentMode.Ignore,
+            temporalValidity: TemporalValidityMode.Ignore);
+
+        withIgnore.Should().NotContain("TIMESTAMP OF THE TURN",
+            "and Ignore must stay byte-identical, because prompt bytes are fingerprinted into every "
+            + "measured run in this track");
+    }
 }
