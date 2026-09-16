@@ -167,34 +167,48 @@ public sealed class ProspectiveFiringWiringTests
     }
 
     /// <summary>
-    /// A firing arm on a TIMESTAMPED vertical is REFUSED, because firing cannot reach that path.
+    /// A firing arm on a TIMESTAMPED vertical is now ACCEPTED, because firing reaches that path.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The gate <c>ProspectiveFiring &amp;&amp; ValidTime == Current</c> lives in
-    /// <c>AssembleContextAsync</c> alone. <c>AssembleContextAsOfCoreAsync</c> contains no firing
-    /// block — zero references to <c>ProspectiveFiring</c>, <c>GetDueFactsAsync</c> or a due section.
-    /// Every prospective question carries a <c>QuestionDate</c>, so every one of them routes through
-    /// <c>RecallAsOfAsync</c> and CANNOT fire however the arm is configured.
+    /// <b>This test previously asserted a REFUSAL, and the inversion is the point.</b> The refusal
+    /// existed because <c>AssembleContextAsOfCoreAsync</c> had no firing block at all, so an arm named
+    /// <c>vtcurrent-firing</c> would have run the ordinary as-of path and reported an off-state under
+    /// an on-state's name — reaching the ablation's "kills the value claim" verdict by accident.
     /// </para>
     /// <para>
-    /// So wiring the flag made firing <b>requestable</b> without making it <b>reachable</b>. An arm
-    /// named <c>vtcurrent-firing</c> that quietly ran the ordinary as-of path would report an
-    /// off-state under an on-state's name — and firing-ablation v2's pre-registered reading for
-    /// "indistinguishable" is that it KILLS the feature's value claim. That verdict must not be
-    /// reachable by accident, so the adapter refuses instead, alongside the GraphRAG refusal that
-    /// already existed for the same reason.
+    /// D2 built the capability rather than relaxing the check: <c>GetDueFactsAsOfAsync</c>, bounded by
+    /// BOTH clocks with the same two transaction predicates as <c>SearchFactsAsOf</c>, verified
+    /// against live Neo4j by four integration tests — including a control proving the exclusions are
+    /// the clocks doing work and not a query matching nothing. <b>The guard narrowed by truth, never
+    /// by relaxation</b>, which is the rule W1c set in this same method.
     /// </para>
     /// </remarks>
     [Fact]
-    public void AFiringArmOnATimestampedVerticalIsRefusedRatherThanSilentlyDark()
+    public void AFiringArmOnATimestampedVerticalIsNowAcceptedBecauseFiringReachesThatPath()
     {
         var adapter = Adapter(new LongMemEvalAdapterOptions { ProspectiveFiring = true });
 
         var inject = () => adapter.InjectTimestampedConversationHistory(History());
 
-        inject.Should().Throw<InvalidOperationException>()
-            .WithMessage("*does not implement prospective firing*");
+        inject.Should().NotThrow();
+    }
+
+    /// <summary>
+    /// GraphRAG on the as-of path is STILL refused — only the claim that became false was narrowed.
+    /// </summary>
+    /// <remarks>
+    /// Lifting one refusal must not loosen the other. GraphRAG-as-of remains unimplemented, so its
+    /// claim is still true and its guard still binds.
+    /// </remarks>
+    [Fact]
+    public void GraphRagOnTheAsOfPathIsStillRefused()
+    {
+        var adapter = Adapter(new LongMemEvalAdapterOptions { GraphRagItems = 5 });
+
+        var inject = () => adapter.InjectTimestampedConversationHistory(History());
+
+        inject.Should().Throw<InvalidOperationException>().WithMessage("*GraphRAG*");
     }
 
     /// <summary>The same history is accepted when firing is off, so nothing else regressed.</summary>
