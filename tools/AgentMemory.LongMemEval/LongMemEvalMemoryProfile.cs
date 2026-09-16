@@ -46,6 +46,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool supersedeReplacedFacts = false,
         bool linkFactsToEntities = false,
         bool nodeDistanceReranking = false,
+        bool temporalValidity = false,
         bool resolveSupersessions = false,
         // C-D finding (2026-09-05): RecallFanOutOptions.Enabled defaults false and NOTHING under
         // tools/ set it, so the feature built for multi-hop recall had never been switched on in a
@@ -92,6 +93,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     supersedeReplacedFacts,
                     linkFactsToEntities,
                     nodeDistanceReranking,
+                    temporalValidity,
                     resolveSupersessions,
                     recallFanOut,
                     phase30 ?? PhaseThirtyFeatures.AllOff,
@@ -127,6 +129,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool supersedeReplacedFacts,
         bool linkFactsToEntities,
         bool nodeDistanceReranking,
+        bool temporalValidity,
         bool resolveSupersessions,
         bool recallFanOut,
         PhaseThirtyFeatures phase30,
@@ -160,6 +163,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             supersedeReplacedFacts,
             linkFactsToEntities,
             nodeDistanceReranking,
+            temporalValidity,
             resolveSupersessions,
             recallFanOut,
             phase30,
@@ -204,6 +208,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool supersedeReplacedFacts,
         bool linkFactsToEntities,
         bool nodeDistanceReranking,
+        bool temporalValidity,
         bool resolveSupersessions,
         bool recallFanOut,
         PhaseThirtyFeatures phase30,
@@ -239,6 +244,14 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // apart. Null (the default) sends nothing and reproduces every sealed measurement; a
                 // value is best-effort, which is why whether it helps is measured rather than assumed.
                 options.Seed = extractionSeed;
+                // THE NINTH LEVER, and the precondition for the other two. Defaults to Ignore, and
+                // this harness never set it -- so NO fact in any run this project has made carries
+                // valid_from or valid_until. Firing requires `valid_from IS NOT NULL` and
+                // ValidTime=Current filters on `(valid_from IS NULL OR ...)`, which NULL satisfies,
+                // so BOTH were no-ops by construction. Off unless asked for.
+                options.TemporalValidity = temporalValidity
+                    ? TemporalValidityMode.Extract
+                    : TemporalValidityMode.Ignore;
             }
             : null;
         services.AddNeo4jAgentMemory(

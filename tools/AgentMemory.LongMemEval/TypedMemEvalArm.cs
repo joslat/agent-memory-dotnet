@@ -114,7 +114,8 @@ public sealed record TypedMemEvalArm(
     bool CurrentValidTimeOnly = false,
     bool ProspectiveFiring = false,
     bool LinkFactsToEntities = false,
-    bool NodeDistanceReranking = false)
+    bool NodeDistanceReranking = false,
+    bool TemporalValidity = false)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -125,7 +126,7 @@ public sealed record TypedMemEvalArm(
         && !SupersedeReplacedFacts && !ResolveSupersessions
         && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut
         && MaxDerivedFacts is null && !CurrentValidTimeOnly && !ProspectiveFiring
-        && !LinkFactsToEntities && !NodeDistanceReranking;
+        && !LinkFactsToEntities && !NodeDistanceReranking && !TemporalValidity;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -167,6 +168,9 @@ public sealed record TypedMemEvalArm(
         // The READ side of the identity edge. Only informative with `entlink`: the re-ranker's path
         // walks [:RELATED_TO|ABOUT*..4], and a store with no ABOUT edge gives it nothing to follow.
         if (NodeDistanceReranking) parts.Add("noderank");
+        // An INGESTION lever, and the precondition for firing: without validity windows no fact can
+        // ever be "due", so `vtcurrent` filters nothing and `firing` fires nothing.
+        if (TemporalValidity) parts.Add("tvalid");
         return string.Join("-", parts);
     }
 
@@ -184,5 +188,6 @@ public sealed record TypedMemEvalArm(
         $"current-valid-time-only={CurrentValidTimeOnly} " +
         $"prospective-firing={ProspectiveFiring} " +
         $"link-facts-to-entities={LinkFactsToEntities} " +
-        $"node-distance-reranking={NodeDistanceReranking}");
+        $"node-distance-reranking={NodeDistanceReranking} " +
+        $"temporal-validity={TemporalValidity}");
 }

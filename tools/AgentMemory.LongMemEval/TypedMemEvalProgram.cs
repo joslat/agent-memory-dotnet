@@ -85,6 +85,12 @@ internal static class TypedMemEvalProgram
         // project's history has had structural re-ranking on. E-1 wrote the first 739 ABOUT edges;
         // the consumer that traverses them has still never been switched on.
         "--node-distance-rerank",
+        // THE NINTH (2026-09-16), and the PRECONDITION for the other two. `LlmExtractionOptions
+        // .TemporalValidity` defaults to Ignore and this verb never set it, so NO fact in any run
+        // this project has made carries valid_from -- probed live: 22 facts, 0 with valid_from.
+        // Firing requires `valid_from IS NOT NULL`, and ValidTime=Current filters on
+        // `(valid_from IS NULL OR ...)` which NULL satisfies. So both were no-ops by construction.
+        "--temporal-validity",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -152,6 +158,7 @@ internal static class TypedMemEvalProgram
                             supersedeReplacedFacts: options.SupersedeReplacedFacts,
                             linkFactsToEntities: options.LinkFactsToEntities,
                             nodeDistanceReranking: options.NodeDistanceReranking,
+                            temporalValidity: options.TemporalValidity,
                             resolveSupersessions: options.ResolveSupersessions,
                             recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
@@ -485,6 +492,7 @@ internal static class TypedMemEvalProgram
                 supersedeReplacedFacts = arm.SupersedeReplacedFacts,
                 linkFactsToEntities = arm.LinkFactsToEntities,
                 nodeDistanceReranking = arm.NodeDistanceReranking,
+                temporalValidity = arm.TemporalValidity,
                 resolveSupersessions = arm.ResolveSupersessions,
                 factWeightedBudget = arm.FactWeightedBudget,
                 schemaExtensions = arm.Phase30.Extensions,
@@ -1022,7 +1030,8 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--current-valid-time") >= 0,
             Array.IndexOf(args, "--prospective-firing") >= 0,
             Array.IndexOf(args, "--link-fact-entities") >= 0,
-            Array.IndexOf(args, "--node-distance-rerank") >= 0);
+            Array.IndexOf(args, "--node-distance-rerank") >= 0,
+            Array.IndexOf(args, "--temporal-validity") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1222,7 +1231,9 @@ internal static class TypedMemEvalProgram
         // corpus and can never be banded with one that does not.
         bool LinkFactsToEntities = false,
         // The read side of the identity edge; only informative together with LinkFactsToEntities.
-        bool NodeDistanceReranking = false)
+        bool NodeDistanceReranking = false,
+        // Ingestion lever, and the precondition for firing and for valid-time filtering alike.
+        bool TemporalValidity = false)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1235,6 +1246,6 @@ internal static class TypedMemEvalProgram
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
                 MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities,
-                NodeDistanceReranking);
+                NodeDistanceReranking, TemporalValidity);
     }
 }

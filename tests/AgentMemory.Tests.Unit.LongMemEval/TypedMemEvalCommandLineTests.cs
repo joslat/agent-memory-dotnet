@@ -231,6 +231,10 @@ public sealed class TypedMemEvalCommandLineTests
             // verb could not set it -- so no benchmark run has ever had structural re-ranking on,
             // and until E-1 no store contained an ABOUT edge for it to follow either.
             ["--node-distance-rerank"] = "NodeDistanceReranking",
+            // THE NINTH, and the precondition for the other two: LlmExtractionOptions
+            // .TemporalValidity defaults to Ignore and this verb never set it, so no fact in any
+            // run carries valid_from -- making both firing and valid-time filtering no-ops.
+            ["--temporal-validity"] = "TemporalValidity",
             // Stage 1 of the three-stage run protocol. Advertised, so it must be carried.
             ["--dry-run"] = "DryRun",
         };
