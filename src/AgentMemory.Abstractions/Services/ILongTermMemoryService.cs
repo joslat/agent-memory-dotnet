@@ -368,6 +368,24 @@ public interface ILongTermMemoryService
         SearchFactsAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
 
     /// <summary>
+    /// D2. Prospective firing at a point in time. Both clocks non-optional; default returns empty.
+    /// </summary>
+    /// <remarks>
+    /// Firing existed only on live recall, so every point-in-time recall returned no reminders
+    /// whatever the caller configured — and prospective questions all arrive timestamped, which made
+    /// the one vertical firing exists to serve the one place it could never run.
+    /// </remarks>
+    Task<ProspectiveDueResult> GetDueFactsAsOfAsync(
+        DateTimeOffset since,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        TimeSpan expiringWindow,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(ProspectiveDueResult.Empty);
+
+    /// <summary>
     /// Facts that became due in <c>(since, now]</c>, and facts expiring soon (30.7).
     /// </summary>
     /// <remarks>
