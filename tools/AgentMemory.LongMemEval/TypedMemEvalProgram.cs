@@ -79,6 +79,12 @@ internal static class TypedMemEvalProgram
         // .LinkFactsToEntities is public and unit-tested, and no harness could set it -- so every
         // store probe this project ran reports `0 entity(ies)` on every line, across every vertical.
         "--link-fact-entities",
+        // WAVE E-1 FOLLOW-UP (2026-09-16). The READ side of the identity edge. `NodeDistanceReranker`
+        // traverses [:RELATED_TO|ABOUT*..4] and MemoryOptions.NodeDistanceReranking gates it -- set by
+        // the MCP host's env var and by nothing under this verb, so no benchmark run in this
+        // project's history has had structural re-ranking on. E-1 wrote the first 739 ABOUT edges;
+        // the consumer that traverses them has still never been switched on.
+        "--node-distance-rerank",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -145,6 +151,7 @@ internal static class TypedMemEvalProgram
                             rescueShortOwnerResults: options.RescueShortOwnerResults,
                             supersedeReplacedFacts: options.SupersedeReplacedFacts,
                             linkFactsToEntities: options.LinkFactsToEntities,
+                            nodeDistanceReranking: options.NodeDistanceReranking,
                             resolveSupersessions: options.ResolveSupersessions,
                             recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
@@ -477,6 +484,7 @@ internal static class TypedMemEvalProgram
                 rescueShortOwnerResults = arm.RescueShortOwnerResults,
                 supersedeReplacedFacts = arm.SupersedeReplacedFacts,
                 linkFactsToEntities = arm.LinkFactsToEntities,
+                nodeDistanceReranking = arm.NodeDistanceReranking,
                 resolveSupersessions = arm.ResolveSupersessions,
                 factWeightedBudget = arm.FactWeightedBudget,
                 schemaExtensions = arm.Phase30.Extensions,
@@ -1013,7 +1021,8 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--dry-run") >= 0,
             Array.IndexOf(args, "--current-valid-time") >= 0,
             Array.IndexOf(args, "--prospective-firing") >= 0,
-            Array.IndexOf(args, "--link-fact-entities") >= 0);
+            Array.IndexOf(args, "--link-fact-entities") >= 0,
+            Array.IndexOf(args, "--node-distance-rerank") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1179,7 +1188,9 @@ internal static class TypedMemEvalProgram
         bool ProspectiveFiring = false,
         // W-E1. An INGESTION lever: it changes the store, so an arm carrying it is a different
         // corpus and can never be banded with one that does not.
-        bool LinkFactsToEntities = false)
+        bool LinkFactsToEntities = false,
+        // The read side of the identity edge; only informative together with LinkFactsToEntities.
+        bool NodeDistanceReranking = false)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1191,6 +1202,7 @@ internal static class TypedMemEvalProgram
         internal TypedMemEvalArm Arm =>
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
-                MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities);
+                MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities,
+                NodeDistanceReranking);
     }
 }

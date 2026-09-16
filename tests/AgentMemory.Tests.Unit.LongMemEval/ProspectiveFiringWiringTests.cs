@@ -410,3 +410,67 @@ public sealed class BuildCommitStampTests
             + "which means the run used a binary that does not match the tree");
     }
 }
+
+/// <summary>
+/// The READ side of the identity edge — the eighth lever no harness could set.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <c>NodeDistanceReranker</c> walks <c>[:RELATED_TO|ABOUT*..4]</c>, gated on
+/// <c>MemoryOptions.NodeDistanceReranking</c>. That gate was set by the MCP host's environment
+/// variable and by nothing under the TypedMemEval verb, so <b>no benchmark run in this project's
+/// history has had structural re-ranking on</b> — and until Wave E-1 wrote 739 <c>ABOUT</c> edges,
+/// no store this library built contained one for it to follow.
+/// </para>
+/// <para>
+/// <b>The edge and its reader have never met.</b> E-1 measured the write side working (79% of facts
+/// linked) and the census flat — undercounts 14→14 — which says the join exists and recall ignores
+/// it. This is the lever that would stop it being ignored, and it is why the two options are only
+/// informative together: the edge without this gate has no reader, and this gate without the edge
+/// has nothing to follow.
+/// </para>
+/// </remarks>
+public sealed class NodeDistanceRerankingWiringTests
+{
+    private static TypedMemEvalProgram.TypedMemEvalRunOptions Parse(params string[] extra) =>
+        TypedMemEvalProgram.Parse(["--typedmemeval", "conjunction", .. extra]);
+
+    [Fact]
+    public void TheFlagIsAKnownOption() =>
+        TypedMemEvalProgram.KnownOptions.Should().Contain("--node-distance-rerank");
+
+    [Fact]
+    public void TheFlagReachesTheOptionsRecord() =>
+        Parse("--node-distance-rerank").NodeDistanceReranking.Should().BeTrue();
+
+    [Fact]
+    public void TheDefaultArmLeavesItOff()
+    {
+        var off = Parse();
+
+        off.NodeDistanceReranking.Should().BeFalse();
+        off.Arm.IsDefault.Should().BeTrue("every recorded measurement was taken without it");
+    }
+
+    /// <summary>
+    /// The pair gets a compound token, and each half is distinguishable on disk.
+    /// </summary>
+    /// <remarks>
+    /// Three artifacts must never be confusable: the edge with no reader (`entlink`), the reader with
+    /// no edge (`noderank`), and both (`entlink-noderank`). The middle one is the trap — it names a
+    /// feature while traversing a store that contains nothing for it to traverse.
+    /// </remarks>
+    [Fact]
+    public void EachHalfAndThePairAreDistinctTokens()
+    {
+        Parse("--link-fact-entities").Arm.FileToken().Should().Be("entlink");
+        Parse("--node-distance-rerank").Arm.FileToken().Should().Be("noderank");
+        Parse("--link-fact-entities", "--node-distance-rerank").Arm.FileToken()
+            .Should().Be("entlink-noderank");
+    }
+
+    [Fact]
+    public void TheDescriptionCarriesTheLever() =>
+        Parse("--node-distance-rerank").Arm.Describe()
+            .Should().Contain("node-distance-reranking=True");
+}

@@ -210,6 +210,11 @@ public sealed class TypedMemEvalCommandLineTests
             // public and unit-tested and no harness could set it, so every store probe reports
             // `0 entity(ies)` on every line. An INGESTION lever -- it changes the store, not the read.
             ["--link-fact-entities"] = "LinkFactsToEntities",
+            // WAVE E-1 FOLLOW-UP. EIGHTH reachable-but-never-fed lever: MemoryOptions
+            // .NodeDistanceReranking gates a traversal that walks [:RELATED_TO|ABOUT*..4], and this
+            // verb could not set it -- so no benchmark run has ever had structural re-ranking on,
+            // and until E-1 no store contained an ABOUT edge for it to follow either.
+            ["--node-distance-rerank"] = "NodeDistanceReranking",
             // Stage 1 of the three-stage run protocol. Advertised, so it must be carried.
             ["--dry-run"] = "DryRun",
         };

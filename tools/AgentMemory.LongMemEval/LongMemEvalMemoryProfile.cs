@@ -45,6 +45,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool rescueShortOwnerResults = false,
         bool supersedeReplacedFacts = false,
         bool linkFactsToEntities = false,
+        bool nodeDistanceReranking = false,
         bool resolveSupersessions = false,
         // C-D finding (2026-09-05): RecallFanOutOptions.Enabled defaults false and NOTHING under
         // tools/ set it, so the feature built for multi-hop recall had never been switched on in a
@@ -90,6 +91,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     rescueShortOwnerResults,
                     supersedeReplacedFacts,
                     linkFactsToEntities,
+                    nodeDistanceReranking,
                     resolveSupersessions,
                     recallFanOut,
                     phase30 ?? PhaseThirtyFeatures.AllOff,
@@ -124,6 +126,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool rescueShortOwnerResults,
         bool supersedeReplacedFacts,
         bool linkFactsToEntities,
+        bool nodeDistanceReranking,
         bool resolveSupersessions,
         bool recallFanOut,
         PhaseThirtyFeatures phase30,
@@ -156,6 +159,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             rescueShortOwnerResults,
             supersedeReplacedFacts,
             linkFactsToEntities,
+            nodeDistanceReranking,
             resolveSupersessions,
             recallFanOut,
             phase30,
@@ -199,6 +203,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool rescueShortOwnerResults,
         bool supersedeReplacedFacts,
         bool linkFactsToEntities,
+        bool nodeDistanceReranking,
         bool resolveSupersessions,
         bool recallFanOut,
         PhaseThirtyFeatures phase30,
@@ -258,6 +263,12 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // taking the path it was taken under; an ablation turns one on and re-runs the SAME
                 // frozen corpus and seed.
                 WorkingMemory = { Enabled = phase30.WorkingMemory },
+                // WAVE E-1 FOLLOW-UP. The READ side of the identity edge. Its traversal walks
+                // [:RELATED_TO|ABOUT*..4], and until E-1 no store this library built contained a
+                // single ABOUT edge -- so the re-ranker has always been weaker than its own query
+                // describes. This verb could not set it at all, so no benchmark run has ever had it
+                // on. Off unless asked for, and only informative alongside LinkFactsToEntities.
+                NodeDistanceReranking = nodeDistanceReranking,
                 Extraction =
                 {
                     DerivedMemory = { Enabled = phase30.ArithmeticMemory },
