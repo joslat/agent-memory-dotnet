@@ -564,6 +564,50 @@ public sealed class ScoreboardTests : IDisposable
             .Should().Be(placed.Length - 12, "the corpus heading must sit over the corpus column");
     }
 
+    /// <summary>
+    /// A run from a DIFFERENT provider build is not a band member.
+    /// </summary>
+    /// <remarks>
+    /// The model was an unstated invariant of every number this project has published. Corpus sha,
+    /// judge prompt, question set and store size can all match perfectly across two runs made by
+    /// different models — a deployment repointed under a fixed name is invisible to every one of
+    /// them. This is the field that sees it.
+    /// </remarks>
+    [Fact]
+    public void ARunFromADifferentProviderBuildDoesNotJoinTheBand()
+    {
+        Write("semantic", correct: 27, scored: 50, stamp: "a", started: "2026-09-15T01:00:00Z");
+        Write("semantic", correct: 45, scored: 50, stamp: "b", started: "2026-09-15T02:00:00Z",
+            providerBuild: "fp_a_different_backend");
+
+        Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic")
+            .BandMembers.Should().Be(1,
+                "two runs from different backend builds measured two different systems");
+    }
+
+    /// <summary>
+    /// Runs reporting NO build do not band — unknown is not agreement.
+    /// </summary>
+    /// <remarks>
+    /// The tempting reading is that two unknowns match. They do not: they are two runs about which
+    /// the question cannot be answered, and treating that as a match would let the gate certify
+    /// exactly the pairing it exists to catch. It is how the first temporal band admitted a
+    /// contaminated member — every field checked agreed, and the field that disagreed was not being
+    /// checked at all.
+    /// </remarks>
+    [Fact]
+    public void RunsWithNoReportedBuildDoNotBand()
+    {
+        Write("semantic", correct: 27, scored: 50, stamp: "a", started: "2026-09-15T01:00:00Z",
+            providerBuild: null);
+        Write("semantic", correct: 45, scored: 50, stamp: "b", started: "2026-09-15T02:00:00Z",
+            providerBuild: null);
+
+        Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic")
+            .BandMembers.Should().Be(1,
+                "neither run says which model produced it, so neither can be shown comparable");
+    }
+
     /// <summary>Ordinary ingestion drift still bands: the test is materiality, not equality.</summary>
     [Fact]
     public void SmallStoreDriftStillBands()
@@ -597,6 +641,9 @@ public sealed class ScoreboardTests : IDisposable
         int? corpusQuestions = null,
         string qidFingerprint = "qid-same",
         int storeFacts = 5000,
+        // A real run carries one. Tests that mean "a different model" or "no build
+        // reported" say so explicitly, because those are the two cases the gate exists for.
+        string? providerBuild = "fp_same_build",
         Dictionary<string, (int N, int Correct)>? shapes = null)
     {
         judge ??= new string('c', 64);
@@ -644,6 +691,7 @@ public sealed class ScoreboardTests : IDisposable
             ["vertical"] = vertical,
             ["startedUtc"] = started,
             ["arm"] = new Dictionary<string, object?> { ["token"] = arm },
+            ["providerBuilds"] = providerBuild is null ? null : new[] { providerBuild },
             ["supersessionStore"] = new Dictionary<string, object?>
             {
                 ["supersededByEdges"] = supersededByEdges,
