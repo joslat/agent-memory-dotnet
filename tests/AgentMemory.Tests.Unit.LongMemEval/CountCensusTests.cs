@@ -107,6 +107,28 @@ public sealed class CountCensusTests
         census.GoldTotal.Should().Be(2, "a denominator must not absorb rows it never measured");
     }
 
+    /// <summary>
+    /// Only shapes that count ITEMS are in the census.
+    /// </summary>
+    /// <remarks>
+    /// Run unrestricted over the existing artifacts, this census reported `arithmetic-sum` and
+    /// `arithmetic-delta` as carrying seven and eight overcounts. Their golds are magnitudes — 3,297
+    /// and 3,012 — so answering high is an arithmetic error, not two referents merged into one.
+    /// Firing the over-merge guard there is a category error, and a guard that fires on every
+    /// arithmetic run teaches its reader to skip the line.
+    /// </remarks>
+    [Theory]
+    [InlineData("conjunction-alias-then-count", true)]
+    [InlineData("conjunction-value-then-count", true)]
+    [InlineData("arithmetic-count", true)]
+    [InlineData("arithmetic-sum", false)]
+    [InlineData("arithmetic-delta", false)]
+    [InlineData("arithmetic-duration", false)]
+    [InlineData("conjunction-order-then-value", false)]
+    [InlineData(null, false)]
+    public void OnlyCountingShapesAreInTheCensus(string? shape, bool included) =>
+        TypedMemEvalCountCensus.IsCountingShape(shape).Should().Be(included);
+
     /// <summary>The guard is clear only when no overcount appears at all.</summary>
     [Fact]
     public void TheOverMergeGuardBindsOnASingleOvercount()

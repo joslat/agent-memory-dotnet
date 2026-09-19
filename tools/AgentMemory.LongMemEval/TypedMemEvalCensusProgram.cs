@@ -86,6 +86,11 @@ internal static class TypedMemEvalCensusProgram
 
             foreach (var shape in byShape)
             {
+                // Shapes whose answers are magnitudes rather than counts are not in this census at
+                // all, and are passed over in silence rather than reported as rows of zeros: they
+                // were never being measured, which is different from measuring nothing.
+                if (!TypedMemEvalCountCensus.IsCountingShape(shape.Key)) continue;
+
                 var census = TypedMemEvalCountCensus.Measure(
                     shape.Select(item => (Str(item, "GoldAnswer"), Str(item, "AgentResponse"))));
 

@@ -33,6 +33,30 @@ namespace AgentMemory.LongMemEval;
 internal static partial class TypedMemEvalCountCensus
 {
     /// <summary>
+    /// Whether a shape's answers are COUNTS OF ITEMS, and so inside this census.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A named suffix, not a heuristic, and the restriction is load-bearing.</b> Run unrestricted,
+    /// this census reports <c>arithmetic-sum</c> and <c>arithmetic-delta</c> as carrying seven and
+    /// eight "overcounts" — but their golds are magnitudes (3,297; 3,012), and answering 3,400 is an
+    /// arithmetic error, not two referents merged into one. Firing the over-merge guard there is a
+    /// category error, and a guard that cries wolf on every arithmetic run teaches its reader to skip
+    /// the line. This codebase already learned that elsewhere: a warning printed where a zero is the
+    /// correct and expected state is how a gate stops being read at all.
+    /// </para>
+    /// <para>
+    /// The over-merge signature is specific: identity capture that merges distinct referents makes a
+    /// COUNT OF THINGS rise past the number of things there are. That is only meaningful where the
+    /// answer counts items — <c>alias-then-count</c>, <c>value-then-count</c>, <c>arithmetic-count</c>
+    /// — so membership is decided by the shape's own name and nothing else.
+    /// </para>
+    /// </remarks>
+    internal static bool IsCountingShape(string? questionType) =>
+        questionType is { Length: > 0 }
+        && questionType.EndsWith("count", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The first integer in a counting answer, or null when it carries none.
     /// </summary>
     /// <remarks>
