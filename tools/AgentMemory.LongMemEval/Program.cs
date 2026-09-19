@@ -169,6 +169,14 @@ internal static class LongMemEvalProgram
             return await TypedMemEvalRegradeProgram.RunAsync(args).ConfigureAwait(false);
         }
 
+        if (args.Contains("--census", StringComparer.Ordinal))
+        {
+            // Recomputes the counting census from reports already on disk. No model, no container,
+            // no spend -- the statistic the identity preregs decide on, derived from runs that were
+            // already paid for instead of read off by hand.
+            return await TypedMemEvalCensusProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--typedmemeval", StringComparer.Ordinal))
         {
             // 30.9c. TypedMemEval verticals (embedded AgentEval corpora): typed-outcome runs,
@@ -496,7 +504,7 @@ internal static class LongMemEvalProgram
     private static readonly string[] KnownOptions =
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
-        "--procedural-benefit", "--typedmemeval", "--attempts", "--regrade", "--cell-probe", "--max-entries", "--skip-entries", "--dry-run", "--pair-with",
+        "--procedural-benefit", "--typedmemeval", "--census", "--attempts", "--regrade", "--cell-probe", "--max-entries", "--skip-entries", "--dry-run", "--pair-with",
         "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
         "--oracle-precision", "--distractor-sessions", "--gold-fraction", "--oracle-representation",
         "--capture-headroom", "--artifacts",
