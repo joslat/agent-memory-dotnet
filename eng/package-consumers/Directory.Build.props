@@ -10,7 +10,40 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!-- INERT WHEN UNSET.
+
+       These projects reference AgentMemory.* at $(ConsumerPackageVersion), which only
+       eng/verify-packages-install.sh supplies (from a freshly-packed artifacts directory, at
+       release time). Nothing else in the repo sets it, and the packages at that version do not
+       exist anywhere else - so from a clean checkout the reference has no version and restore
+       fails with NU1015.
+
+       That is not a latent bug in the release path; it is these projects being built by something
+       that was never meant to build them. Any repo-wide sweep does exactly that - CodeQL's
+       autobuild walks every project it can find, hits all four, and fails the run on a defect that
+       has nothing to do with the code being analysed.
+
+       So when the version is absent, the project collapses to an empty library: no package
+       references to resolve, no sources to compile. It restores and builds offline, contributes no
+       analysable code, and the sweep passes.
+
+       WHY THIS CANNOT SILENTLY NEUTER THE RELEASE CHECK: an inert project is a Library with no
+       entry point, and verify-packages-install.sh runs each consumer and asserts on its stdout. If
+       the version ever failed to reach these projects, `dotnet run` has nothing to run and the
+       script fails under `set -e` - it cannot pass quietly. (The script also refuses to start
+       without a version argument at all.) That check has caught a real blocker before - a stale
+       dependency pin at the 1.3.0 release, before anything was published - so it must keep failing
+       loudly, and it does. -->
+  <PropertyGroup>
+    <ConsumerIsInert Condition="'$(ConsumerPackageVersion)' == ''">true</ConsumerIsInert>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(ConsumerIsInert)' == 'true'">
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(ConsumerIsInert)' != 'true'">
     <!-- None of the AgentMemory.* packages reference the concrete logging implementation (only
          Logging.Abstractions), so a real consumer needs this to satisfy ILogger<T> at DI time. -->
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
