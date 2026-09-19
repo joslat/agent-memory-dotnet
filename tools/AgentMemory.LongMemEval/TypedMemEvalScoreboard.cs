@@ -151,7 +151,15 @@ internal static class TypedMemEvalScoreboard
     private static List<RunArtifacts> BandableWith(RunArtifacts head, List<RunArtifacts> candidates) =>
         candidates
             .Where(run =>
-                string.Equals(run.CorpusSha256, head.CorpusSha256, StringComparison.OrdinalIgnoreCase)
+                // THE HEAD IS ALWAYS ITS OWN MEMBER. Every test below asks whether ANOTHER run
+                // measured the same system, and a run trivially measured whatever it measured. The
+                // provider-build test made this load-bearing rather than pedantic: two unknown
+                // builds are deliberately not a match, so without this a run reporting no build
+                // excluded ITSELF and the row read n=0 -- a count no run can have.
+                // Record-struct equality: the head matches ITSELF, and not a merely similar
+                // sibling, because ByShape compares by reference as an interface member.
+                run.Equals(head)
+                || (string.Equals(run.CorpusSha256, head.CorpusSha256, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(run.JudgePromptFingerprint, head.JudgePromptFingerprint, StringComparison.Ordinal)
                 && run.QuestionIdFingerprint is not null
                 && string.Equals(run.QuestionIdFingerprint, head.QuestionIdFingerprint, StringComparison.Ordinal)
@@ -163,7 +171,8 @@ internal static class TypedMemEvalScoreboard
                 // the corpus, the judge, the question set and had zero agent failures, and still
                 // scored 18/50 against its siblings' 27-32 because it searched 10,324 facts to their
                 // ~5,150. Banding it in dragged the range from 10 points to 28.
-                && ComparableStore(run.StoreFacts, head.StoreFacts))
+                && ComparableStore(run.StoreFacts, head.StoreFacts)
+                && SameProviderBuild(run.ProviderBuilds, head.ProviderBuilds)))
             .ToList();
 
     /// <summary>Whether two runs' stores are close enough in size to be the same measurement.</summary>
@@ -173,6 +182,34 @@ internal static class TypedMemEvalScoreboard
     /// store that doubled. An unknown size on either side is NOT assumed comparable: a member that
     /// cannot show what it measured against does not join a band.
     /// </remarks>
+    /// <summary>
+    /// Whether two runs came from the same provider backend build.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The model was an unstated invariant of every number this project has published.</b> The
+    /// other fields in this gate — corpus sha, judge prompt, question set, store size — can match
+    /// perfectly across two runs made by different models, because a deployment can be repointed
+    /// under a fixed name and nothing in the artifact would notice. This is the field that notices.
+    /// </para>
+    /// <para>
+    /// <b>UNKNOWN IS NOT AGREEMENT, and that is the whole design.</b> An empty list means the
+    /// provider reported no build, and two such runs are not thereby comparable — they are two runs
+    /// about which the question cannot be answered. Treating unknown as a match would let the gate
+    /// certify exactly the pairing it exists to catch, which is how the first temporal band admitted
+    /// a contaminated member: every field it checked agreed, and the field that disagreed was not
+    /// being checked.
+    /// </para>
+    /// <para>
+    /// Runs before this field existed carry no build and therefore no longer band with each other.
+    /// That is correct rather than unfortunate: they were never known to be comparable, and the
+    /// scoreboard's job is to say so instead of assuming it.
+    /// </para>
+    /// </remarks>
+    private static bool SameProviderBuild(
+        IReadOnlyList<string> candidate, IReadOnlyList<string> head) =>
+        candidate.Count > 0 && head.Count > 0 && candidate.SequenceEqual(head, StringComparer.Ordinal);
+
     private static bool ComparableStore(int? candidate, int? head) =>
         candidate is { } c && head is { } h && h > 0
         && Math.Abs(c - h) / (double)h <= 0.25;
@@ -231,11 +268,23 @@ internal static class TypedMemEvalScoreboard
                     ? edgeCount
                     : null;
 
+            // THE BACKEND BUILD THE ANSWERS CAME FROM. Absent reads as EMPTY, which is "no build was
+            // reported" -- deliberately not a value, so it can never be mistaken for agreement.
+            IReadOnlyList<string> providerBuilds =
+                sidecar.TryGetProperty("providerBuilds", out var builds)
+                && builds.ValueKind == JsonValueKind.Array
+                    ? [.. builds.EnumerateArray()
+                        .Where(item => item.ValueKind == JsonValueKind.String)
+                        .Select(item => item.GetString()!)
+                        .OrderBy(build => build, StringComparer.Ordinal)]
+                    : [];
+
             var reportPath = Path.Combine(Path.GetDirectoryName(sidecarPath)!, reportName);
             if (!File.Exists(reportPath)) return null;
 
             using var reportDocument = JsonDocument.Parse(File.ReadAllBytes(reportPath));
-            return Read(slug, startedUtc, supersededByEdges, storeFacts, reportDocument.RootElement);
+            return Read(slug, startedUtc, supersededByEdges, storeFacts, providerBuilds,
+                reportDocument.RootElement);
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -247,7 +296,7 @@ internal static class TypedMemEvalScoreboard
 
     private static RunArtifacts? Read(
         string slug, DateTimeOffset startedUtc, int? supersededByEdges, int? storeFacts,
-        JsonElement report)
+        IReadOnlyList<string> providerBuilds, JsonElement report)
     {
         if (!report.TryGetProperty("TypedOutcomes", out var outcomes) ||
             !report.TryGetProperty("Provenance", out var provenance))
@@ -281,7 +330,10 @@ internal static class TypedMemEvalScoreboard
             AgentFailureQuestions: Int(report, "AgentFailureQuestions"),
             SupersededByEdges: supersededByEdges,
             StoreFacts: storeFacts,
-            ByShape: byShape);
+            ByShape: byShape)
+        {
+            ProviderBuilds = providerBuilds,
+        };
 
         // ValueKind-checked before every Try*: on a JSON null these accessors THROW rather than
         // returning false, and this method's callers treat a malformed artifact as unreadable, not
@@ -782,7 +834,19 @@ internal readonly record struct RunArtifacts(
     int AgentFailureQuestions,
     int? SupersededByEdges,
     int? StoreFacts,
-    IReadOnlyDictionary<string, ShapeTally> ByShape);
+    IReadOnlyDictionary<string, ShapeTally> ByShape)
+{
+    /// <summary>
+    /// The provider backend build(s) this run's answers came from, or empty when none was reported.
+    /// </summary>
+    /// <remarks>
+    /// Captured because the MODEL was an unstated invariant of every number this project has
+    /// published. The comparability gate checked corpus, judge prompt, question set and store size —
+    /// all of which can match perfectly across two runs made by different models. A deployment
+    /// changing under a fixed name is invisible to every other field here.
+    /// </remarks>
+    internal IReadOnlyList<string> ProviderBuilds { get; init; } = [];
+}
 
 /// <summary>One shape's tally, as the typed outcomes record it.</summary>
 internal readonly record struct ShapeTally(int N, int Correct, int Unrun);
