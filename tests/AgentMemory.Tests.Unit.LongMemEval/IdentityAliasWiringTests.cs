@@ -90,3 +90,66 @@ public sealed class IdentityAliasWiringTests
         Parse("--capture-identity-aliases").Arm.IsDefault.Should().BeFalse(
             "it changes what ingestion records, so its store is not the store the board was built on");
 }
+
+/// <summary>
+/// The predicate-vocabulary lever, which no measured run could switch on.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>This is why bitemporal has never been anything but an off-state.</b> Write-time supersession
+/// refuses any predicate outside the six the vocabulary declares single-valued
+/// (<c>belongs to · costs · expires · lives in · weighs · works at</c>), and without the vocabulary
+/// the extractor invents a predicate per sentence — measured at 700 facts under 421 distinct
+/// predicates. The bitemporal store holds 6,839 facts whose commonest predicates are speech acts:
+/// <c>came up with</c> ×1482, <c>said</c> ×1263. None can ever be recognised as replacing anything,
+/// so <c>:SUPERSEDED_BY</c> was unwritable by construction.
+/// </para>
+/// <para>
+/// The corpus does assert a genuinely single-valued state — "Alice Renwick is at Calderwick, as of
+/// February", later corrected to Lowick — and extraction rendered it <c>is at</c> ×198, which is not
+/// a declared surface form of <c>lives in</c>. <b>The fix is not to add it as one.</b> "Is at" is
+/// ambiguous between a residence and standing in a doorway, and making it single-valued would let a
+/// new one supersede the old, dropping a true fact from live recall for every consumer of this
+/// library. Steering extraction is the designed mechanism; widening the lexicon to fit one corpus is
+/// the tempting shortcut that damages everyone else.
+/// </para>
+/// </remarks>
+public sealed class PredicateVocabularyWiringTests
+{
+    private static TypedMemEvalProgram.TypedMemEvalRunOptions Parse(params string[] extra) =>
+        TypedMemEvalProgram.Parse(["--typedmemeval", "bitemporal", .. extra]);
+
+    [Fact]
+    public void TheFlagIsAKnownOption() =>
+        TypedMemEvalProgram.KnownOptions.Should().Contain("--predicate-vocabulary");
+
+    [Fact]
+    public void TheFlagReachesTheOptionsRecord() =>
+        Parse("--predicate-vocabulary").UsePredicateVocabulary.Should().BeTrue();
+
+    /// <summary>Off by default, so every sealed measurement keeps its path.</summary>
+    [Fact]
+    public void TheDefaultArmLeavesItOff()
+    {
+        var off = Parse();
+
+        off.UsePredicateVocabulary.Should().BeFalse();
+        off.Arm.IsDefault.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// A vocabulary-steered run is a different CORPUS and its filename must say so.
+    /// </summary>
+    [Fact]
+    public void AVocabularyArmIsItsOwnTokenBecauseItIsItsOwnCorpus()
+    {
+        Parse("--predicate-vocabulary").Arm.FileToken().Should().Be("vocab");
+        Parse("--predicate-vocabulary", "--supersede-replaced-facts").Arm.FileToken()
+            .Should().Be("supersede-vocab");
+    }
+
+    [Fact]
+    public void TheDescriptionCarriesTheLever() =>
+        Parse("--predicate-vocabulary").Arm.Describe()
+            .Should().Contain("use-predicate-vocabulary=True");
+}

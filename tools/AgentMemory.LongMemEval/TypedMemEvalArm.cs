@@ -117,7 +117,8 @@ public sealed record TypedMemEvalArm(
     bool NodeDistanceReranking = false,
     bool TemporalValidity = false,
     bool CaptureIdentityAliases = false,
-    bool ExpandFactsByIdentity = false)
+    bool ExpandFactsByIdentity = false,
+    bool UsePredicateVocabulary = false)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -129,7 +130,7 @@ public sealed record TypedMemEvalArm(
         && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut
         && MaxDerivedFacts is null && !CurrentValidTimeOnly && !ProspectiveFiring
         && !LinkFactsToEntities && !NodeDistanceReranking && !TemporalValidity
-        && !CaptureIdentityAliases && !ExpandFactsByIdentity;
+        && !CaptureIdentityAliases && !ExpandFactsByIdentity && !UsePredicateVocabulary;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -183,6 +184,9 @@ public sealed record TypedMemEvalArm(
         // `entlink-alias-aliashop`; any shorter arm measures a part that cannot work alone, which is
         // the mistake the first three identity arms made one at a time.
         if (ExpandFactsByIdentity) parts.Add("aliashop");
+        // An INGESTION lever, and the precondition for supersession: without a canonical predicate
+        // `CanSupersede` refuses, so `bitemporal` measures an off-state whatever its other flags say.
+        if (UsePredicateVocabulary) parts.Add("vocab");
         return string.Join("-", parts);
     }
 
@@ -203,5 +207,6 @@ public sealed record TypedMemEvalArm(
         $"node-distance-reranking={NodeDistanceReranking} " +
         $"temporal-validity={TemporalValidity} " +
         $"capture-identity-aliases={CaptureIdentityAliases} " +
-        $"expand-facts-by-identity={ExpandFactsByIdentity}");
+        $"expand-facts-by-identity={ExpandFactsByIdentity} " +
+        $"use-predicate-vocabulary={UsePredicateVocabulary}");
 }
