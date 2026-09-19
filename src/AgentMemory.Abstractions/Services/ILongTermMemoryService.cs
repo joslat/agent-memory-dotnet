@@ -388,6 +388,28 @@ public interface ILongTermMemoryService
         Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
 
     /// <summary>
+    /// E-1, bitemporally. The point-in-time twin of the alias hop, bounded by both clocks.
+    /// </summary>
+    /// <remarks>
+    /// An alias does not exempt a fact from time. Reaching a fact through a declared identity says
+    /// nothing about whether it was believed, or true, at the instant being reconstructed.
+    /// </remarks>
+    /// <param name="seedFactIds">The already-retrieved facts to expand from.</param>
+    /// <param name="validAsOf">Valid-time clock.</param>
+    /// <param name="systemAsOf">Transaction-time clock.</param>
+    /// <param name="limit">Hard cap on facts returned.</param>
+    /// <param name="scope">Isolation scope for the read.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<IReadOnlyList<Fact>> GetFactsSharingAliasedEntitiesAsOfAsync(
+        IReadOnlyList<string> seedFactIds,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
     /// D2. Prospective firing at a point in time. Both clocks non-optional; default returns empty.
     /// </summary>
     /// <remarks>

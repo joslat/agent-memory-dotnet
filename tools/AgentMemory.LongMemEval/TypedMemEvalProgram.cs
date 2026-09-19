@@ -168,7 +168,6 @@ internal static class TypedMemEvalProgram
                             nodeDistanceReranking: options.NodeDistanceReranking,
                             temporalValidity: options.TemporalValidity,
                             captureIdentityAliases: options.CaptureIdentityAliases,
-                            expandFactsByIdentity: options.ExpandFactsByIdentity,
                             resolveSupersessions: options.ResolveSupersessions,
                             recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);

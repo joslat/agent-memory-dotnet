@@ -493,6 +493,23 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     }
 
     /// <inheritdoc/>
+    /// <remarks>E-1's point-in-time twin. Same isolation resolution, both clocks forwarded unchanged.</remarks>
+    public Task<IReadOnlyList<Fact>> GetFactsSharingAliasedEntitiesAsOfAsync(
+        IReadOnlyList<string> seedFactIds,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(GetFactsSharingAliasedEntitiesAsOfAsync),
+            MemoryOperationAccess.Tenant);
+        return _factRepo.GetFactsSharingAliasedEntitiesAsOfAsync(
+            seedFactIds, validAsOf, systemAsOf, limit, resolved, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     /// <remarks>
     /// D2. The point-in-time twin, with the owner scope resolved through the same isolation policy.
     /// Both clocks are forwarded unchanged: narrowing one here would make the repository's contract

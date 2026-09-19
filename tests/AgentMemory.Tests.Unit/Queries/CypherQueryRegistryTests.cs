@@ -180,6 +180,28 @@ public sealed class CypherQueryRegistryTests
             .Should().Be("FactQueries.GetFactsSharingAliasedEntities");
 
     /// <summary>
+    /// The live hop and its bitemporal twin are told apart.
+    /// </summary>
+    /// <remarks>
+    /// They share the traversal and differ only in the clocks, so one fingerprint covering both would
+    /// report a point-in-time read and a live one as the same query — erasing the distinction the
+    /// twin exists to make, in the telemetry that would be used to check it.
+    /// </remarks>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void FingerprintFor_TellsTheLiveAliasHopFromItsAsOfTwin(bool hasOwner, bool includeShared)
+    {
+        CypherQueryRegistry
+            .FingerprintFor(FactQueries.GetFactsSharingAliasedEntitiesAsOf(hasOwner, includeShared))
+            .Should().Be("FactQueries.GetFactsSharingAliasedEntitiesAsOf");
+
+        CypherQueryRegistry
+            .FingerprintFor(FactQueries.GetFactsSharingAliasedEntities(hasOwner, includeShared))
+            .Should().NotBe("FactQueries.GetFactsSharingAliasedEntitiesAsOf");
+    }
+
+    /// <summary>
     /// It is not confused with the only other <c>:ABOUT</c> consumer.
     /// </summary>
     /// <remarks>

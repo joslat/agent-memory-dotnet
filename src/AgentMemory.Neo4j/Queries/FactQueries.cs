@@ -632,7 +632,51 @@ internal static class FactQueries
             WHERE seed.id IN $seedFactIds
               AND NOT f.id IN $seedFactIds
               AND e.aliases IS NOT NULL AND size(e.aliases) > 0
-              AND f.invalidated_at IS NULL" + DeltaOwner(hasOwnerFilter, includeShared) + @"
+              AND f.invalidated_at IS NULL"
+        + DeltaOwner(hasOwnerFilter, includeShared)
+        // EVERY NODE ON THE PATH IS SCOPED, not just the one returned. Scoping only `f` leaves the
+        // seed and the bridge entity unrestricted, so a caller passing a seed id from another owner
+        // could traverse that owner's private entity to reach facts. The repository takes seed ids as
+        // an argument, so "our own caller only ever passes its own facts" is a property of today's
+        // call site and not of the contract. A join is exactly where an owner boundary has to be
+        // re-asserted rather than assumed.
+        + DeltaOwner(hasOwnerFilter, includeShared, alias: "seed")
+        + DeltaOwner(hasOwnerFilter, includeShared, alias: "e") + @"
+            RETURN DISTINCT f LIMIT $limit";
+
+    /// <summary>
+    /// E-1, bitemporally. The point-in-time twin of <see cref="GetFactsSharingAliasedEntities"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The live overload judges belief by <c>invalidated_at IS NULL</c> — "believed NOW". Reusing it
+    /// from a point-in-time recall returns facts the system did not yet know, or had already retracted,
+    /// and does so silently: the extra rows look exactly like facts the alias legitimately reached.
+    /// </para>
+    /// <para>
+    /// <b>This is the same defect D2 exists to prevent, on a new path.</b> The firing query needed its
+    /// own as-of twin for exactly this reason, and the first cut of identity expansion wired the LIVE
+    /// query into <c>AssembleContextAsOfAsync</c> anyway. The predicates below are deliberately the
+    /// same two as <see cref="TemporalQueries.SearchFactsAsOf"/>, in the same order, so a fact's
+    /// eligibility cannot depend on which half of the recall reached it.
+    /// </para>
+    /// <para>
+    /// Valid time bounds the fact as well: a fact whose validity opens after the as-of instant, or
+    /// closed before it, was not true then and an alias does not make it so.
+    /// </para>
+    /// </remarks>
+    public static string GetFactsSharingAliasedEntitiesAsOf(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (seed:Fact)-[:ABOUT]->(e:Entity)<-[:ABOUT]-(f:Fact)
+            WHERE seed.id IN $seedFactIds
+              AND NOT f.id IN $seedFactIds
+              AND e.aliases IS NOT NULL AND size(e.aliases) > 0
+              AND f.created_at <= datetime($systemAsOf)
+              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($systemAsOf))
+              AND (f.valid_from IS NULL OR f.valid_from <= datetime($validAsOf))
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($validAsOf))"
+        + DeltaOwner(hasOwnerFilter, includeShared)
+        + DeltaOwner(hasOwnerFilter, includeShared, alias: "seed")
+        + DeltaOwner(hasOwnerFilter, includeShared, alias: "e") + @"
             RETURN DISTINCT f LIMIT $limit";
 
     // ── Delta recall (30.5) ────────────────────────────────────────────

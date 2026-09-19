@@ -824,11 +824,47 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
+        return await RunAliasHopAsync(
+            FactQueries.GetFactsSharingAliasedEntities(hasOwner, includeShared),
+            parameters, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Fact>> GetFactsSharingAliasedEntitiesAsOfAsync(
+        IReadOnlyList<string> seedFactIds,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(seedFactIds);
+        if (seedFactIds.Count == 0 || limit <= 0) return Array.Empty<Fact>();
+
+        var hasOwner = scope?.OwnerId is not null;
+        var includeShared = scope?.IncludeShared ?? false;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["seedFactIds"] = seedFactIds.ToList(),
+            ["limit"] = limit,
+            ["validAsOf"] = validAsOf.ToString("O", culture),
+            ["systemAsOf"] = systemAsOf.ToString("O", culture),
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await RunAliasHopAsync(
+            FactQueries.GetFactsSharingAliasedEntitiesAsOf(hasOwner, includeShared),
+            parameters, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Shared execution for the two alias-hop overloads, which differ only in their Cypher.</summary>
+    private async Task<IReadOnlyList<Fact>> RunAliasHopAsync(
+        string cypher, Dictionary<string, object?> parameters, CancellationToken cancellationToken)
+    {
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner
-                .RunAsync(FactQueries.GetFactsSharingAliasedEntities(hasOwner, includeShared), parameters)
-                .ConfigureAwait(false);
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             // Embeddings are not fetched: these facts arrive by traversal rather than by similarity,
             // so there is no score to carry and nothing downstream re-ranks them.

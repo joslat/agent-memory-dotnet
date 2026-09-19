@@ -112,7 +112,13 @@ internal static class CypherQueryRegistry
         if (Has("(seed:Fact)-[:ABOUT]->(e:Entity)<-[:ABOUT]-(f:Fact)") &&
             Has("size(e.aliases) > 0"))
         {
-            return "FactQueries.GetFactsSharingAliasedEntities";
+            // The two overloads share the traversal and differ only in the CLOCKS, which is exactly
+            // the pair a single fingerprint would collapse -- and collapsing them would report a
+            // point-in-time read and a live one as the same query, hiding the distinction the
+            // bitemporal twin exists to make.
+            return Has("f.created_at <= datetime($systemAsOf)")
+                ? "FactQueries.GetFactsSharingAliasedEntitiesAsOf"
+                : "FactQueries.GetFactsSharingAliasedEntities";
         }
 
         // PROSPECTIVE FIRING -- all four shapes. Method-built like the delta family, so they arrive

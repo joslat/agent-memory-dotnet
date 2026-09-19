@@ -156,13 +156,101 @@ public class IdentityExpansionIntegrationTests : IAsyncLifetime
         reached.Should().BeEmpty();
     }
 
-    private async Task SeedEntityAsync(string id, string[] aliases)
+    /// <summary>
+    /// The as-of hop returns only what was BELIEVED and TRUE at those instants.
+    /// </summary>
+    /// <remarks>
+    /// An alias does not exempt a fact from time. The live overload judges belief by
+    /// <c>invalidated_at IS NULL</c>, so reusing it from a point-in-time recall volunteers facts the
+    /// system did not yet know — and the extra rows are indistinguishable from ones the alias
+    /// legitimately reached.
+    /// </remarks>
+    [Fact]
+    public async Task TheAsOfHopExcludesWhatWasNotYetKnownOrNoLongerTrue()
+    {
+        await SeedEntityAsync("flat", aliases: ["the place on Ferrow Row"]);
+        await SeedFactAsync("seed", aboutEntity: "flat", createdAt: D(2025, 1, 1));
+        await SeedFactAsync("believed-and-true", aboutEntity: "flat", createdAt: D(2025, 1, 1));
+        // Recorded AFTER the transaction instant: the system did not know it yet.
+        await SeedFactAsync("not-yet-known", aboutEntity: "flat", createdAt: D(2025, 8, 1));
+        // Retracted before the transaction instant: no longer believed.
+        await SeedFactAsync("retracted-before", aboutEntity: "flat", createdAt: D(2025, 1, 1),
+            invalidatedAt: D(2025, 3, 1));
+        // Validity opens after the as-of instant: not true then.
+        await SeedFactAsync("not-yet-true", aboutEntity: "flat", createdAt: D(2025, 1, 1),
+            validFrom: D(2025, 9, 1));
+        // Validity closed before it: no longer true then.
+        await SeedFactAsync("no-longer-true", aboutEntity: "flat", createdAt: D(2025, 1, 1),
+            validUntil: D(2025, 3, 1));
+
+        var instant = D(2025, 6, 1);
+
+        var reached = (await _facts.GetFactsSharingAliasedEntitiesAsOfAsync(
+            ["seed"], validAsOf: instant, systemAsOf: instant, limit: 50,
+            scope: MemoryScope.For(Owner))).Select(f => f.FactId).ToArray();
+
+        reached.Should().Contain("believed-and-true");
+        reached.Should().NotContain("not-yet-known", "created_at is after the transaction instant");
+        reached.Should().NotContain("retracted-before", "invalidated_at precedes the transaction instant");
+        reached.Should().NotContain("not-yet-true", "valid_from is after the as-of instant");
+        reached.Should().NotContain("no-longer-true", "valid_until precedes the as-of instant");
+    }
+
+    /// <summary>
+    /// THE CONTROL: the live hop still sees what the as-of one filters.
+    /// </summary>
+    /// <remarks>
+    /// Without this, a query matching nothing at all would pass the test above for entirely the wrong
+    /// reason — excluding four facts by being broken rather than by being correct. The same trap D2's
+    /// integration test exists to avoid, where it caught a real one.
+    /// </remarks>
+    [Fact]
+    public async Task TheLiveHopStillSeesWhatTheAsOfOneFilters()
+    {
+        await SeedEntityAsync("flat", aliases: ["the place on Ferrow Row"]);
+        await SeedFactAsync("seed", aboutEntity: "flat", createdAt: D(2025, 1, 1));
+        await SeedFactAsync("not-yet-known", aboutEntity: "flat", createdAt: D(2025, 8, 1));
+
+        var reached = await _facts.GetFactsSharingAliasedEntitiesAsync(
+            ["seed"], limit: 50, scope: MemoryScope.For(Owner));
+
+        reached.Select(f => f.FactId).Should().Contain("not-yet-known",
+            "the live hop has no transaction clock, so the as-of exclusion above is the CLOCK doing "
+            + "work rather than the query matching nothing");
+    }
+
+    /// <summary>
+    /// A seed from another owner is not a way into this owner's graph.
+    /// </summary>
+    /// <remarks>
+    /// The scope predicate was applied only to the returned fact in the first cut, leaving the seed
+    /// and the bridge entity unrestricted. The repository takes seed ids as an argument, so "the
+    /// caller only ever passes its own facts" is a property of today's call site, not of the
+    /// contract — and a join is exactly where a boundary has to be re-asserted rather than assumed.
+    /// </remarks>
+    [Fact]
+    public async Task AForeignSeedCannotTraverseIntoAnotherOwnersGraph()
+    {
+        await SeedEntityAsync("theirs", aliases: ["their other name"], owner: "owner-other");
+        await SeedFactAsync("their-seed", aboutEntity: "theirs", owner: "owner-other");
+        await SeedFactAsync("their-fact", aboutEntity: "theirs", owner: "owner-other");
+
+        var reached = await _facts.GetFactsSharingAliasedEntitiesAsync(
+            ["their-seed"], limit: 50, scope: MemoryScope.For(Owner));
+
+        reached.Should().BeEmpty(
+            "every node on the path is scoped, not only the fact that is returned");
+    }
+
+    private static DateTimeOffset D(int y, int m, int d) => new(y, m, d, 0, 0, 0, TimeSpan.Zero);
+
+    private async Task SeedEntityAsync(string id, string[] aliases, string owner = Owner)
     {
         await using var session = _fixture.Driver.AsyncSession();
         await session.RunAsync(
             @"MERGE (e:Entity {id: $id})
               SET e.name = $id, e.owner_id = $owner, e.aliases = $aliases",
-            new { id, owner = Owner, aliases });
+            new { id, owner, aliases });
     }
 
     /// <summary>
@@ -171,18 +259,32 @@ public class IdentityExpansionIntegrationTests : IAsyncLifetime
     /// whatever the write path happens to produce today.
     /// </summary>
     private async Task SeedFactAsync(
-        string id, string aboutEntity, bool invalidated = false, string owner = Owner)
+        string id, string aboutEntity, bool invalidated = false, string owner = Owner,
+        DateTimeOffset? createdAt = null, DateTimeOffset? invalidatedAt = null,
+        DateTimeOffset? validFrom = null, DateTimeOffset? validUntil = null)
     {
         await using var session = _fixture.Driver.AsyncSession();
         await session.RunAsync(
             @"MERGE (f:Fact {id: $id})
               SET f.subject = $id, f.predicate = 'took_delivery_at', f.object = 'somewhere',
                   f.confidence = 0.9, f.owner_id = $owner,
-                  f.created_at = datetime(),
-                  f.invalidated_at = CASE WHEN $invalidated THEN datetime() ELSE null END
+                  f.created_at  = datetime($createdAt),
+                  f.valid_from  = CASE WHEN $validFrom IS NULL THEN null ELSE datetime($validFrom) END,
+                  f.valid_until = CASE WHEN $validUntil IS NULL THEN null ELSE datetime($validUntil) END,
+                  f.invalidated_at = CASE
+                      WHEN $invalidatedAt IS NOT NULL THEN datetime($invalidatedAt)
+                      WHEN $invalidated THEN datetime()
+                      ELSE null END
               WITH f
               MATCH (e:Entity {id: $aboutEntity})
               MERGE (f)-[:ABOUT]->(e)",
-            new { id, owner, invalidated, aboutEntity });
+            new
+            {
+                id, owner, invalidated, aboutEntity,
+                createdAt = (createdAt ?? DateTimeOffset.UtcNow).UtcDateTime.ToString("O"),
+                invalidatedAt = invalidatedAt?.UtcDateTime.ToString("O"),
+                validFrom = validFrom?.UtcDateTime.ToString("O"),
+                validUntil = validUntil?.UtcDateTime.ToString("O"),
+            });
     }
 }
