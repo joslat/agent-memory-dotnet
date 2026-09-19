@@ -101,6 +101,64 @@ public sealed class CypherQueryRegistryTests
         AllQueries.Select(q => q.Name).Should().NotContain(fragmentName);
     }
 
+    // ── Prospective firing: method-built, and previously unattributed ──
+
+    /// <summary>
+    /// Every firing shape is attributed, in every owner-scoping variant.
+    /// </summary>
+    /// <remarks>
+    /// These four are built by method rather than declared as constants, so the reflection map never
+    /// sees them and they fell through to <c>unknown</c>. An unattributed query is invisible to the
+    /// per-scenario query counts the hermetic perf gate compares against baseline — the firing path
+    /// could double its query load and the table would show nothing moved.
+    /// </remarks>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void FingerprintFor_AttributesEveryProspectiveFiringShape(bool hasOwner, bool includeShared)
+    {
+        CypherQueryRegistry.FingerprintFor(FactQueries.GetDueFacts(hasOwner, includeShared))
+            .Should().Be("FactQueries.GetDueFacts");
+        CypherQueryRegistry.FingerprintFor(FactQueries.GetExpiringFacts(hasOwner, includeShared))
+            .Should().Be("FactQueries.GetExpiringFacts");
+        CypherQueryRegistry.FingerprintFor(TemporalQueries.GetDueFactsAsOf(hasOwner, includeShared))
+            .Should().Be("TemporalQueries.GetDueFactsAsOf");
+        CypherQueryRegistry.FingerprintFor(TemporalQueries.GetExpiringFactsAsOf(hasOwner, includeShared))
+            .Should().Be("TemporalQueries.GetExpiringFactsAsOf");
+    }
+
+    /// <summary>
+    /// The live and as-of twins are told apart, and neither is confused with delta recall.
+    /// </summary>
+    /// <remarks>
+    /// Delta recall shares both of the obvious markers — <c>DeltaExpiredValidity</c> orders by the
+    /// same key and <c>DeltaNewValidity</c> bounds on the same <c>$since</c> — so a fingerprint
+    /// keyed on either alone would collapse three different queries into one name and report
+    /// confident nonsense instead of an honest <c>unknown</c>.
+    /// </remarks>
+    [Fact]
+    public void FingerprintFor_DoesNotConfuseFiringWithDeltaRecall()
+    {
+        var firing = new[]
+        {
+            CypherQueryRegistry.FingerprintFor(FactQueries.GetDueFacts(true, false)),
+            CypherQueryRegistry.FingerprintFor(FactQueries.GetExpiringFacts(true, false)),
+            CypherQueryRegistry.FingerprintFor(TemporalQueries.GetDueFactsAsOf(true, false)),
+            CypherQueryRegistry.FingerprintFor(TemporalQueries.GetExpiringFactsAsOf(true, false)),
+        };
+
+        firing.Should().OnlyHaveUniqueItems("the four shapes are four different queries");
+        firing.Should().NotContain(CypherQueryRegistry.UnknownFingerprint);
+
+        CypherQueryRegistry.FingerprintFor(FactQueries.DeltaExpiredValidity(true, false))
+            .Should().NotBe("FactQueries.GetExpiringFacts",
+                "delta recall orders by the same key but is a different query");
+        CypherQueryRegistry.FingerprintFor(FactQueries.DeltaNewlyDueProspective(true, false))
+            .Should().NotBe("FactQueries.GetDueFacts",
+                "delta recall bounds on the same $since but is a different query");
+    }
+
     // ── No duplicate names ──
 
     [Fact]

@@ -140,6 +140,56 @@ public sealed class AsOfProspectiveFiringTests
         context.ExpiringFacts.Items.Should().ContainSingle().Which.Subject.Should().Be("permit");
     }
 
+    /// <summary>
+    /// A fact that is BOTH relevant and due renders once, as volunteered.
+    /// </summary>
+    /// <remarks>
+    /// The live path has always de-duplicated this; the as-of path did not, so one fact could occupy
+    /// two sections. That breaks MemoryContext's contract, spends the context budget twice on one
+    /// fact, and — the part that matters for a reminder — makes something the system volunteered
+    /// look like a coincidence of what the user happened to ask.
+    /// </remarks>
+    [Fact]
+    public async Task AFactThatIsBothRelevantAndDueRendersOnlyAsDue()
+    {
+        var harness = new Harness();
+        harness.RelevantFacts = [Fact("renewal"), Fact("unrelated")];
+        harness.Returns(new ProspectiveDueResult { Due = [Fact("renewal")] });
+
+        var context = await harness.RecallAsOfAsync(firing: true, maxFacts: 10);
+
+        context.DueFacts.Items.Should().ContainSingle().Which.FactId.Should().Be("renewal");
+        context.RelevantFacts.Items.Select(f => f.FactId)
+            .Should().BeEquivalentTo(["unrelated"],
+                "the due fact renders in the volunteered section and nowhere else");
+    }
+
+    /// <summary>The expiring fact is de-duplicated on the same rule as the due one.</summary>
+    [Fact]
+    public async Task AFactThatIsBothRelevantAndExpiringRendersOnlyAsExpiring()
+    {
+        var harness = new Harness();
+        harness.RelevantFacts = [Fact("permit")];
+        harness.Returns(new ProspectiveDueResult { Expiring = [Fact("permit")] });
+
+        var context = await harness.RecallAsOfAsync(firing: true, maxFacts: 10);
+
+        context.ExpiringFacts.Items.Should().ContainSingle();
+        context.RelevantFacts.Items.Should().BeEmpty();
+    }
+
+    /// <summary>With firing OFF, nothing is removed — de-dup must not become a silent filter.</summary>
+    [Fact]
+    public async Task FiringOffLeavesTheRelevantFactsUntouched()
+    {
+        var harness = new Harness();
+        harness.RelevantFacts = [Fact("renewal"), Fact("unrelated")];
+
+        var context = await harness.RecallAsOfAsync(firing: false, maxFacts: 10);
+
+        context.RelevantFacts.Items.Should().HaveCount(2);
+    }
+
     /// <summary>The expiring window travels as a span, measured from the as-of instant downstream.</summary>
     [Fact]
     public async Task TheExpiringWindowIsForwardedAsConfigured()
@@ -178,12 +228,21 @@ public sealed class AsOfProspectiveFiringTests
 
         internal void Returns(ProspectiveDueResult result) => _result = result;
 
+        /// <summary>Facts the as-of semantic search will return, for the overlap test.</summary>
+        internal IReadOnlyList<Fact> RelevantFacts { get; set; } = [];
+
         internal Task<MemoryContext> RecallAsOfAsync(
             bool firing,
             TimeSpan? dueLookback = null,
             TimeSpan? expiringWindow = null,
-            DateTimeOffset? systemAsOf = null)
+            DateTimeOffset? systemAsOf = null,
+            int maxFacts = 0)
         {
+            LongTerm.SearchFactsAsOfAsync(
+                    Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(),
+                    Arg.Any<MemoryScope?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
+                .Returns(_ => Task.FromResult(RelevantFacts));
+
             var shortTerm = Substitute.For<IShortTermMemoryService>();
             shortTerm.GetRecentMessagesAsOfAsync(
                     Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(),
@@ -223,7 +282,7 @@ public sealed class AsOfProspectiveFiringTests
                     ProspectiveFiring = firing,
                     DueLookback = dueLookback ?? RecallOptions.Default.DueLookback,
                     ExpiringWindow = expiringWindow ?? RecallOptions.Default.ExpiringWindow,
-                    MaxFacts = 0,
+                    MaxFacts = maxFacts,
                     MaxEntities = 0,
                     MaxPreferences = 0,
                     MaxRecentMessages = 0,

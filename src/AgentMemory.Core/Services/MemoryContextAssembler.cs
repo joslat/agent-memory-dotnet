@@ -1315,21 +1315,6 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             truncated = fitted.Truncated;
         }
 
-        // Built after budgeting for the same reason as the live path: ContextRank is the post-budget
-        // position. Off by default — every section then keeps its Array.Empty default.
-        IReadOnlyList<MemoryContextRankedItem> entityRanked = Array.Empty<MemoryContextRankedItem>();
-        IReadOnlyList<MemoryContextRankedItem> preferenceRanked = Array.Empty<MemoryContextRankedItem>();
-        IReadOnlyList<MemoryContextRankedItem> factRanked = Array.Empty<MemoryContextRankedItem>();
-        IReadOnlyList<MemoryContextRankedItem> traceRanked = Array.Empty<MemoryContextRankedItem>();
-
-        if (recallOpts.IncludeDiagnostics)
-        {
-            entityRanked = BuildRankedItems(entities, entityScores, static e => e.EntityId);
-            preferenceRanked = BuildRankedItems(preferences, preferenceScores, static p => p.PreferenceId);
-            factRanked = BuildRankedItems(facts, factScores, static f => f.FactId);
-            traceRanked = BuildRankedItems(traces, traceScores, static t => t.TraceId);
-        }
-
         // D2. FIRING ON THE POINT-IN-TIME PATH.
         //
         // This block did not exist, and its absence made the feature unreachable on the one vertical
@@ -1359,6 +1344,47 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 recallOpts.MaxDueItems,
                 scope,
                 cancellationToken).ConfigureAwait(false);
+        }
+
+        // DE-DUP, exactly as the live path does it (see the `prospective.IsEmpty` block there).
+        // A fact that is BOTH relevant and newly due renders only as due: rendering it twice spends
+        // the budget twice on one fact and makes the reminder look like a coincidence of the query
+        // rather than something volunteered. MemoryContext's contract says it appears once.
+        //
+        // THIS RUNS BEFORE THE RANKED ITEMS ARE BUILT, which is why the whole firing block sits
+        // here rather than beside the projection call. ContextRank is the post-budget position, and
+        // a rank computed over facts that de-dup then removes points at nothing.
+        if (!prospectiveAsOf.IsEmpty)
+        {
+            var dueIds = prospectiveAsOf.Due.Select(f => f.FactId)
+                .Concat(prospectiveAsOf.Expiring.Select(f => f.FactId))
+                .ToHashSet(StringComparer.Ordinal);
+            if (dueIds.Count > 0 && facts.Count > 0)
+            {
+                var kept = facts.Where(f => !dueIds.Contains(f.FactId)).ToArray();
+                if (kept.Length != facts.Count)
+                {
+                    facts = kept;
+                    // Filtered in lockstep: a score left behind for a fact no longer in Items is a
+                    // ranked item pointing at nothing, which the projection layer reads.
+                    factScores = factScores.Where(s => !dueIds.Contains(s.Fact.FactId)).ToArray();
+                }
+            }
+        }
+
+        // Built after budgeting for the same reason as the live path: ContextRank is the post-budget
+        // position. Off by default — every section then keeps its Array.Empty default.
+        IReadOnlyList<MemoryContextRankedItem> entityRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> preferenceRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> factRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> traceRanked = Array.Empty<MemoryContextRankedItem>();
+
+        if (recallOpts.IncludeDiagnostics)
+        {
+            entityRanked = BuildRankedItems(entities, entityScores, static e => e.EntityId);
+            preferenceRanked = BuildRankedItems(preferences, preferenceScores, static p => p.PreferenceId);
+            factRanked = BuildRankedItems(facts, factScores, static f => f.FactId);
+            traceRanked = BuildRankedItems(traces, traceScores, static t => t.TraceId);
         }
 
         // 30.2, post-budget, mirroring the live path. This path assembles no relevant-messages section

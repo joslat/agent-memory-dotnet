@@ -100,6 +100,37 @@ internal static class CypherQueryRegistry
                 : "ReasoningQueries.SearchByTaskVector";
         }
 
+        // PROSPECTIVE FIRING -- all four shapes. Method-built like the delta family, so they arrive
+        // here with no constant to match and, left unregistered, report as `unknown`. That costs the
+        // per-scenario query attribution the hermetic perf gate reads, and the as-of pair is exactly
+        // the path the next measurement wave turns on.
+        //
+        // The pairs separate on the CLOCK, which is the thing that actually differs between them.
+        // Neither the RETURN clause nor the $since bound is used alone: delta recall shares both
+        // (DeltaExpiredValidity orders by the same key, DeltaNewValidity bounds on the same $since).
+        // What these four have and the delta family does not is $now / $validAsOf / $expiryHorizon.
+        if (Has("MATCH (f:Fact)"))
+        {
+            var boundByTransactionClock = Has("f.created_at <= datetime($systemAsOf)");
+
+            if (Has("f.valid_from IS NOT NULL") &&
+                Has("RETURN f ORDER BY f.valid_from DESC LIMIT $limit"))
+            {
+                if (boundByTransactionClock && Has("f.valid_from <= datetime($validAsOf)"))
+                    return "TemporalQueries.GetDueFactsAsOf";
+                if (Has("f.valid_from <= datetime($now)"))
+                    return "FactQueries.GetDueFacts";
+            }
+
+            if (Has("f.valid_until <= datetime($expiryHorizon)"))
+            {
+                if (boundByTransactionClock && Has("f.valid_until > datetime($validAsOf)"))
+                    return "TemporalQueries.GetExpiringFactsAsOf";
+                if (Has("f.valid_until > datetime($now)"))
+                    return "FactQueries.GetExpiringFacts";
+            }
+        }
+
         return UnknownFingerprint;
     }
 
