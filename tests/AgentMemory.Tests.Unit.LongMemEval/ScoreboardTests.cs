@@ -536,6 +536,34 @@ public sealed class ScoreboardTests : IDisposable
             "one member has no ranking verdict, so there is no ranking band to report");
     }
 
+    /// <summary>
+    /// The header sits over the columns it names.
+    /// </summary>
+    /// <remarks>
+    /// The header used to be a hand-aligned literal, so widening of-reachable to carry its band left
+    /// every heading over the wrong column — a table that is wrong in the one way nobody checks,
+    /// because it still looks like a table. Both lines are now built from the same widths; this
+    /// pins that they stay that way.
+    /// </remarks>
+    [Fact]
+    public void TheHeaderSitsOverTheColumnsItNames()
+    {
+        Write("semantic", correct: 45, scored: 50);
+
+        var writer = new StringWriter();
+        TypedMemEvalScoreboard.Print(TypedMemEvalScoreboard.Assemble(_directory, "default"), writer);
+
+        var lines = writer.ToString()
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        var header = lines.Single(l => l.Contains("of-reachable", StringComparison.Ordinal));
+        var placed = lines.Single(l => l.Contains("semantic", StringComparison.Ordinal));
+
+        // The corpus column is last and its cell is the 12-character short sha, so the row's final
+        // column starts at exactly Length - 12. The heading must start there too.
+        header.IndexOf("corpus", StringComparison.Ordinal)
+            .Should().Be(placed.Length - 12, "the corpus heading must sit over the corpus column");
+    }
+
     /// <summary>Ordinary ingestion drift still bands: the test is materiality, not equality.</summary>
     [Fact]
     public void SmallStoreDriftStillBands()

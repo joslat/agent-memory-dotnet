@@ -532,8 +532,13 @@ internal static class TypedMemEvalScoreboard
         // The judge is what every row must share; the releases are in the note above when they
         // differ, and repeating four 40-character build hashes here would bury the table.
         writer.WriteLine($"  judge {Short(scoreboard.JudgePromptFingerprint)}");
-        writer.WriteLine(
-            "  vertical          share-of-all (mean [range] n)   of-reachable   robust-ranking                     corpus");
+        // Built with the SAME widths as Format's data rows rather than hand-aligned, because a
+        // hand-aligned header drifts the moment a column changes -- widening of-reachable to carry
+        // its band would have left every heading sitting over the wrong column.
+        writer.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {"vertical",-16}  {"share-of-all (mean [range] n)",-30}   {"of-reachable [range]",-26}   "
+            + $"{"robust-ranking",-34}  corpus"));
 
         foreach (var row in scoreboard.Rows)
         {
