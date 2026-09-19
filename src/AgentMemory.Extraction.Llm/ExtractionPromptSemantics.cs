@@ -124,11 +124,38 @@ internal static class ExtractionPromptSemantics
         _ => string.Empty,
     };
 
+    /// <summary>
+    /// Asks for validity windows, <b>anchored to the turn that states them</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The anchor sentence is not decoration.</b> Without it the model has no stated reference
+    /// for a relative expression and dates it from its own notion of now. Measured 2026-09-16 on
+    /// the prospective corpus: 41 extracted windows, <b>0 before today, 26 exactly today, 15 in the
+    /// future</b>, against conversations anchored in the past. Every window was therefore useless to
+    /// a point-in-time read, and firing -- whose query asks for validity opening around the
+    /// question's instant -- could not match one.
+    /// </para>
+    /// <para>
+    /// The reference was always available: the conversation builder prefixes every turn with its
+    /// own ISO-8601 timestamp, unconditionally. The prompt simply never pointed at it.
+    /// </para>
+    /// <para>
+    /// <b>Safe to change.</b> Prompt bytes are fingerprinted into every measured run, but this
+    /// string appears only under <see cref="TemporalValidityMode.Extract"/> -- which no sealed
+    /// measurement has ever used, because nothing could set it until 2026-09-16. No recorded
+    /// number moves.
+    /// </para>
+    /// </remarks>
     internal static string TemporalValidityInstruction(TemporalValidityMode mode) => mode switch
     {
         TemporalValidityMode.Extract =>
             "\nWhere the conversation states or clearly implies how long a fact holds, add ISO-8601 " +
-            "\"valid_from\" and/or \"valid_until\" to that fact. Omit both when the fact has no stated " +
+            "\"valid_from\" and/or \"valid_until\" to that fact. RESOLVE EVERY RELATIVE " +
+            "EXPRESSION AGAINST THE TIMESTAMP OF THE TURN THAT STATES IT: each turn is " +
+            "prefixed with its own ISO-8601 time, so \"from next Monday\" means the Monday " +
+            "after THAT instant, never the Monday after today. A conversation from last " +
+            "spring records last spring's dates. Omit both when the fact has no stated " +
             "time bound - never guess an expiry, because an unbounded fact recorded as expiring is " +
             "worse than one recorded as permanent.",
         _ => string.Empty,

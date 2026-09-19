@@ -263,29 +263,19 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 "ignored.");
         }
 
-        // PROSPECTIVE FIRING IS NOT IMPLEMENTED ON THE AS-OF PATH, so it joins the same refusal.
+        // PROSPECTIVE FIRING: THE REFUSAL THAT WAS HERE IS GONE, BECAUSE ITS CLAIM BECAME FALSE.
         //
-        // The firing gate lives in AssembleContextAsync alone:
-        //     fireProspective = recallOpts.ProspectiveFiring
-        //                       && recallOpts.ValidTime == ValidTimeMode.Current;
-        // AssembleContextAsOfCoreAsync contains no firing block at all -- zero references to
-        // ProspectiveFiring, GetDueFactsAsync or a due section. A timestamped question therefore
-        // CANNOT fire however the arm is configured.
+        // It read: "RecallAsOfAsync ... does not implement prospective firing (the gate exists only
+        // on the live-recall path); refusing to run a firing arm whose configuration would silently
+        // do nothing." That was true on 2026-09-15 and is not true now. D2 implemented firing on the
+        // as-of path -- GetDueFactsAsOfAsync, bounded by BOTH clocks, with the same two transaction
+        // predicates as SearchFactsAsOf -- and it is verified against live Neo4j, not only at the
+        // service seam: four integration tests, including a control proving the exclusions are the
+        // clocks doing work rather than a query matching nothing.
         //
-        // Which makes this the dead-option shape exactly: wiring the flag (2026-09-15) made firing
-        // REQUESTABLE without making it REACHABLE here, and an arm named `vtcurrent-firing` that
-        // silently ran the ordinary as-of path would produce an off-state under an on-state's name
-        // -- and firing-ablation v2's pre-registered reading for "indistinguishable" is that it
-        // KILLS the feature's value claim. That verdict must never be reachable by accident.
-        if (_options.ProspectiveFiring)
-        {
-            throw new InvalidOperationException(
-                "Timestamped LongMemEval history anchors recall at RecallAsOfAsync, which does not " +
-                "implement prospective firing (the gate exists only on the live-recall path); " +
-                "refusing to run a firing arm whose configuration would silently do nothing. " +
-                "Firing must be implemented on the as-of path before it can be measured on a " +
-                "timestamped vertical.");
-        }
+        // NARROWED BY TRUTH, NOT BY RELAXATION -- the rule W1c set in this same method and this
+        // comment keeps. The GraphRAG refusal below is untouched: that capability is still absent,
+        // so its claim is still true.
 
         var pairs = new (string UserMessage, string AssistantResponse)[history.Turns.Count];
         var timestamps = new DateTimeOffset[history.Turns.Count];

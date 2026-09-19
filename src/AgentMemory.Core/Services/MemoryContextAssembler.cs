@@ -1315,6 +1315,63 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             truncated = fitted.Truncated;
         }
 
+        // D2. FIRING ON THE POINT-IN-TIME PATH.
+        //
+        // This block did not exist, and its absence made the feature unreachable on the one vertical
+        // it serves: prospective questions all arrive timestamped, so they all route here, where
+        // nothing fired however the caller configured it. Two independent reasons the ablation would
+        // have read "indistinguishable" -- no harness set the flag, and this path ignored it.
+        //
+        // THE CLOCKS ARE THE WHOLE POINT. Firing asks "what came due", and on an as-of read that is
+        // due AS OF `validAsOf`, not as of the machine. `_clock.UtcNow` appears nowhere below: using
+        // it would answer today's question against a past instant's evidence and look entirely
+        // correct doing so. `systemAsOf` bounds what was BELIEVED, so a reminder recorded after the
+        // transaction instant cannot fire from a read of before it.
+        //
+        // The ValidTimeMode gate the live path carries is NOT repeated: it exists there because live
+        // recall may ignore valid time and firing has no window to read when it does. A point-in-time
+        // recall is bound to a valid-time instant by construction -- the gate's condition is
+        // unconditionally true here, and re-testing it would refuse the feature for a reason that
+        // cannot arise.
+        var prospectiveAsOf = ProspectiveDueResult.Empty;
+        if (recallOpts.ProspectiveFiring)
+        {
+            prospectiveAsOf = await _longTerm.GetDueFactsAsOfAsync(
+                validAsOf - recallOpts.DueLookback,
+                validAsOf,
+                systemAsOf,
+                recallOpts.ExpiringWindow,
+                recallOpts.MaxDueItems,
+                scope,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        // DE-DUP, exactly as the live path does it (see the `prospective.IsEmpty` block there).
+        // A fact that is BOTH relevant and newly due renders only as due: rendering it twice spends
+        // the budget twice on one fact and makes the reminder look like a coincidence of the query
+        // rather than something volunteered. MemoryContext's contract says it appears once.
+        //
+        // THIS RUNS BEFORE THE RANKED ITEMS ARE BUILT, which is why the whole firing block sits
+        // here rather than beside the projection call. ContextRank is the post-budget position, and
+        // a rank computed over facts that de-dup then removes points at nothing.
+        if (!prospectiveAsOf.IsEmpty)
+        {
+            var dueIds = prospectiveAsOf.Due.Select(f => f.FactId)
+                .Concat(prospectiveAsOf.Expiring.Select(f => f.FactId))
+                .ToHashSet(StringComparer.Ordinal);
+            if (dueIds.Count > 0 && facts.Count > 0)
+            {
+                var kept = facts.Where(f => !dueIds.Contains(f.FactId)).ToArray();
+                if (kept.Length != facts.Count)
+                {
+                    facts = kept;
+                    // Filtered in lockstep: a score left behind for a fact no longer in Items is a
+                    // ranked item pointing at nothing, which the projection layer reads.
+                    factScores = factScores.Where(s => !dueIds.Contains(s.Fact.FactId)).ToArray();
+                }
+            }
+        }
+
         // Built after budgeting for the same reason as the live path: ContextRank is the post-budget
         // position. Off by default — every section then keeps its Array.Empty default.
         IReadOnlyList<MemoryContextRankedItem> entityRanked = Array.Empty<MemoryContextRankedItem>();
@@ -1393,6 +1450,22 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 Diagnostics = recallOpts.IncludeDiagnostics
                     ? Diagnose(hasEmbedding && recallOpts.MaxTraces > 0,
                         recallOpts.MaxTraces, traces, traceRanked, minScore)
+                    : null
+            },
+            DueFacts = new MemoryContextSection<Fact>
+            {
+                Items = prospectiveAsOf.Due,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(recallOpts.ProspectiveFiring, recallOpts.MaxDueItems,
+                        prospectiveAsOf.Due, [], minScore)
+                    : null
+            },
+            ExpiringFacts = new MemoryContextSection<Fact>
+            {
+                Items = prospectiveAsOf.Expiring,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(recallOpts.ProspectiveFiring, recallOpts.MaxDueItems,
+                        prospectiveAsOf.Expiring, [], minScore)
                     : null
             },
             Truncated = truncated,

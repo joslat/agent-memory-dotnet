@@ -113,13 +113,18 @@ public sealed record MemoryOptions
     /// every recorded measurement was taken without it.
     /// </para>
     /// <para>
-    /// <b>Its traversal names <c>:ABOUT</c>, but pipeline-built stores contain none.</b> The path
-    /// walks <c>[:RELATED_TO|ABOUT*..4]</c>, and while <c>ABOUT</c> is documented there as one of the
-    /// two edges carrying meaning between an entity and a fact, nothing in this library ever writes
-    /// one — the public <c>CreateAboutRelationshipAsync</c> verbs exist but no ingestion path calls
-    /// them. So on any store this library built, this re-ranker effectively traverses
-    /// <c>RELATED_TO</c> alone, and is weaker than its own query describes. <c>ABOUT</c> participates
-    /// only if a consumer created those links manually.
+    /// <b>Its traversal names <c>:ABOUT</c>, and whether the store contains any now DEPENDS ON
+    /// <see cref="ExtractionOptions.LinkFactsToEntities"/>.</b> The path walks
+    /// <c>[:RELATED_TO|ABOUT*..4]</c>. This note previously read "pipeline-built stores contain none",
+    /// which was true for as long as no ingestion path called
+    /// <c>CreateAboutRelationshipAsync</c> — verified at 26,887 of 26,887 facts unlinked. That
+    /// changed on 2026-09-15: with <c>LinkFactsToEntities</c> on, extraction writes the edge (measured
+    /// 739 edges over 874 facts, 79% linked). With it off, the store still contains none and this
+    /// re-ranker traverses <c>RELATED_TO</c> alone, weaker than its own query describes.
+    /// </para>
+    /// <para>
+    /// So the two options are only informative <b>together</b>: the edge without this gate has no
+    /// reader, and this gate without the edge has nothing to follow.
     /// </para>
     /// </remarks>
     public bool NodeDistanceReranking { get; set; }

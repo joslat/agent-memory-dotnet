@@ -477,6 +477,27 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
 
     /// <inheritdoc/>
     /// <remarks>
+    /// D2. The point-in-time twin, with the owner scope resolved through the same isolation policy.
+    /// Both clocks are forwarded unchanged: narrowing one here would make the repository's contract
+    /// untrue at the only layer that could still tell.
+    /// </remarks>
+    public Task<ProspectiveDueResult> GetDueFactsAsOfAsync(
+        DateTimeOffset since,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        TimeSpan expiringWindow,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(GetDueFactsAsOfAsync), MemoryOperationAccess.Tenant);
+        return _factRepo.GetDueFactsAsOfAsync(
+            since, validAsOf, systemAsOf, expiringWindow, limit, resolved, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// A straight forward to the repository, with the owner scope resolved through the isolation policy
     /// exactly as every other read here is. Note what this method does <b>not</b> do: it takes no query
     /// embedding and applies no score floor, because firing selects by time. A reminder is off-topic by

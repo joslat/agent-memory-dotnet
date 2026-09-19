@@ -113,7 +113,9 @@ public sealed record TypedMemEvalArm(
     int? MaxDerivedFacts = null,
     bool CurrentValidTimeOnly = false,
     bool ProspectiveFiring = false,
-    bool LinkFactsToEntities = false)
+    bool LinkFactsToEntities = false,
+    bool NodeDistanceReranking = false,
+    bool TemporalValidity = false)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -124,7 +126,7 @@ public sealed record TypedMemEvalArm(
         && !SupersedeReplacedFacts && !ResolveSupersessions
         && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut
         && MaxDerivedFacts is null && !CurrentValidTimeOnly && !ProspectiveFiring
-        && !LinkFactsToEntities;
+        && !LinkFactsToEntities && !NodeDistanceReranking && !TemporalValidity;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -163,6 +165,12 @@ public sealed record TypedMemEvalArm(
         // asked against, not how that store is read. Two arms differing by it are not two readings of
         // one corpus -- they are two corpora -- which is exactly why it must be nameable on disk.
         if (LinkFactsToEntities) parts.Add("entlink");
+        // The READ side of the identity edge. Only informative with `entlink`: the re-ranker's path
+        // walks [:RELATED_TO|ABOUT*..4], and a store with no ABOUT edge gives it nothing to follow.
+        if (NodeDistanceReranking) parts.Add("noderank");
+        // An INGESTION lever, and the precondition for firing: without validity windows no fact can
+        // ever be "due", so `vtcurrent` filters nothing and `firing` fires nothing.
+        if (TemporalValidity) parts.Add("tvalid");
         return string.Join("-", parts);
     }
 
@@ -179,5 +187,7 @@ public sealed record TypedMemEvalArm(
         $"max-derived-facts={(MaxDerivedFacts is { } d ? d.ToString(CultureInfo.InvariantCulture) : "null")} " +
         $"current-valid-time-only={CurrentValidTimeOnly} " +
         $"prospective-firing={ProspectiveFiring} " +
-        $"link-facts-to-entities={LinkFactsToEntities}");
+        $"link-facts-to-entities={LinkFactsToEntities} " +
+        $"node-distance-reranking={NodeDistanceReranking} " +
+        $"temporal-validity={TemporalValidity}");
 }

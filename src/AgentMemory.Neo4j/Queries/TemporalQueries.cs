@@ -10,6 +10,65 @@
 /// </summary>
 internal static class TemporalQueries
 {
+    /// <summary>
+    /// D2. Prospective firing bounded by BOTH clocks — the point-in-time twin of
+    /// <c>FactQueries.GetDueFacts</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The live firing query filters <c>invalidated_at IS NULL</c> — "believed NOW". Reusing it from a
+    /// point-in-time recall would fire reminders the system did not yet know about at the instant
+    /// being asked about, and would do so silently: the extra rows look exactly like reminders that
+    /// legitimately came due.
+    /// </para>
+    /// <para>
+    /// <b>Three clocks appear here and they answer different questions.</b> <c>$systemAsOf</c> bounds
+    /// what was BELIEVED; <c>$validAsOf</c> bounds what was TRUE; <c>$since</c> opens the firing
+    /// window. "I learned last week that the renewal is today" fires today and not last week, and an
+    /// as-of read of last Tuesday must not fire it at all.
+    /// </para>
+    /// <para>
+    /// The two transaction predicates are deliberately the SAME two as
+    /// <see cref="SearchFactsAsOf(bool, bool, int)"/>, in the same order, so the similarity half and
+    /// the firing half of one recall cannot disagree about what "as of" means. If one changes, both
+    /// must.
+    /// </para>
+    /// </remarks>
+    public static string GetDueFactsAsOf(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.created_at <= datetime($systemAsOf)
+              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($systemAsOf))
+              AND f.valid_from IS NOT NULL
+              AND f.valid_from > datetime($since)
+              AND f.valid_from <= datetime($validAsOf)"
+        + DeltaOwnerAsOf(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_from DESC LIMIT $limit";
+
+    /// <summary>
+    /// D2. Facts whose validity closes between the as-of instant and its expiry horizon, bounded by
+    /// the transaction clock.
+    /// </summary>
+    /// <remarks>
+    /// <c>valid_until &gt; $validAsOf</c> excludes what had already expired at that instant: reporting
+    /// it as "expiring" would be a tense error the reader acts on, and on a point-in-time read the
+    /// tense is the whole question.
+    /// </remarks>
+    public static string GetExpiringFactsAsOf(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.created_at <= datetime($systemAsOf)
+              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($systemAsOf))
+              AND f.valid_until IS NOT NULL
+              AND f.valid_until > datetime($validAsOf)
+              AND f.valid_until <= datetime($expiryHorizon)"
+        + DeltaOwnerAsOf(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_until ASC LIMIT $limit";
+
+    /// <summary>Owner filter for the <c>f</c>-aliased firing queries above.</summary>
+    private static string DeltaOwnerAsOf(bool hasOwnerFilter, bool includeShared) =>
+        !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+
     /// <summary>The owner/shared AsOf-search AND-clause for node alias <c>node</c>, or empty when unscoped (R1).</summary>
     private static string OwnerAnd(bool hasOwnerFilter, bool includeShared) =>
         !hasOwnerFilter ? string.Empty

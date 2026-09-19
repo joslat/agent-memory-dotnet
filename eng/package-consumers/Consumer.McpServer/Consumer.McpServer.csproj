@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <ItemGroup>
+  <!-- Inert when $(ConsumerPackageVersion) is unset - see Directory.Build.props. -->
+  <ItemGroup Condition="'$(ConsumerIsInert)' != 'true'">
     <PackageReference Include="AgentMemory" Version="$(ConsumerPackageVersion)" />
     <PackageReference Include="AgentMemory.McpServer" Version="$(ConsumerPackageVersion)" />
   </ItemGroup>

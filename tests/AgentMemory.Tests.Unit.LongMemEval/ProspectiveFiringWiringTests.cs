@@ -167,34 +167,48 @@ public sealed class ProspectiveFiringWiringTests
     }
 
     /// <summary>
-    /// A firing arm on a TIMESTAMPED vertical is REFUSED, because firing cannot reach that path.
+    /// A firing arm on a TIMESTAMPED vertical is now ACCEPTED, because firing reaches that path.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The gate <c>ProspectiveFiring &amp;&amp; ValidTime == Current</c> lives in
-    /// <c>AssembleContextAsync</c> alone. <c>AssembleContextAsOfCoreAsync</c> contains no firing
-    /// block — zero references to <c>ProspectiveFiring</c>, <c>GetDueFactsAsync</c> or a due section.
-    /// Every prospective question carries a <c>QuestionDate</c>, so every one of them routes through
-    /// <c>RecallAsOfAsync</c> and CANNOT fire however the arm is configured.
+    /// <b>This test previously asserted a REFUSAL, and the inversion is the point.</b> The refusal
+    /// existed because <c>AssembleContextAsOfCoreAsync</c> had no firing block at all, so an arm named
+    /// <c>vtcurrent-firing</c> would have run the ordinary as-of path and reported an off-state under
+    /// an on-state's name — reaching the ablation's "kills the value claim" verdict by accident.
     /// </para>
     /// <para>
-    /// So wiring the flag made firing <b>requestable</b> without making it <b>reachable</b>. An arm
-    /// named <c>vtcurrent-firing</c> that quietly ran the ordinary as-of path would report an
-    /// off-state under an on-state's name — and firing-ablation v2's pre-registered reading for
-    /// "indistinguishable" is that it KILLS the feature's value claim. That verdict must not be
-    /// reachable by accident, so the adapter refuses instead, alongside the GraphRAG refusal that
-    /// already existed for the same reason.
+    /// D2 built the capability rather than relaxing the check: <c>GetDueFactsAsOfAsync</c>, bounded by
+    /// BOTH clocks with the same two transaction predicates as <c>SearchFactsAsOf</c>, verified
+    /// against live Neo4j by four integration tests — including a control proving the exclusions are
+    /// the clocks doing work and not a query matching nothing. <b>The guard narrowed by truth, never
+    /// by relaxation</b>, which is the rule W1c set in this same method.
     /// </para>
     /// </remarks>
     [Fact]
-    public void AFiringArmOnATimestampedVerticalIsRefusedRatherThanSilentlyDark()
+    public void AFiringArmOnATimestampedVerticalIsNowAcceptedBecauseFiringReachesThatPath()
     {
         var adapter = Adapter(new LongMemEvalAdapterOptions { ProspectiveFiring = true });
 
         var inject = () => adapter.InjectTimestampedConversationHistory(History());
 
-        inject.Should().Throw<InvalidOperationException>()
-            .WithMessage("*does not implement prospective firing*");
+        inject.Should().NotThrow();
+    }
+
+    /// <summary>
+    /// GraphRAG on the as-of path is STILL refused — only the claim that became false was narrowed.
+    /// </summary>
+    /// <remarks>
+    /// Lifting one refusal must not loosen the other. GraphRAG-as-of remains unimplemented, so its
+    /// claim is still true and its guard still binds.
+    /// </remarks>
+    [Fact]
+    public void GraphRagOnTheAsOfPathIsStillRefused()
+    {
+        var adapter = Adapter(new LongMemEvalAdapterOptions { GraphRagItems = 5 });
+
+        var inject = () => adapter.InjectTimestampedConversationHistory(History());
+
+        inject.Should().Throw<InvalidOperationException>().WithMessage("*GraphRAG*");
     }
 
     /// <summary>The same history is accepted when firing is off, so nothing else regressed.</summary>
@@ -344,5 +358,185 @@ public sealed class ProvenanceCommitCaptureTests
 
         File.Exists(path).Should().BeTrue($"{fileName} must be where this test expects it");
         return File.ReadAllText(path);
+    }
+}
+
+/// <summary>
+/// The harness binary must carry the commit it was BUILT from, not the one checked out when it ran.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A banded run on 2026-09-15 made the difference visible: three members, <b>one</b> Release binary,
+/// and two different recorded commits — because branches moved between members while provenance was
+/// reading <c>.git/HEAD</c>. The first fix moved that read from artifact-write time to process start,
+/// which was strictly better and still answered the wrong question.
+/// </para>
+/// <para>
+/// The stamp is what answers "what produced these numbers". This test exists so it cannot quietly
+/// stop being applied: a build that loses the <c>SourceRevisionId</c> target would otherwise go on
+/// writing provenance with a null commit and nothing would say so.
+/// </para>
+/// </remarks>
+public sealed class BuildCommitStampTests
+{
+    [Fact]
+    public void TheHarnessAssemblyCarriesA40CharacterCommitSha()
+    {
+        var informational = typeof(TypedMemEvalProgram).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .SingleOrDefault()?.InformationalVersion;
+
+        informational.Should().NotBeNull();
+
+        var plus = informational!.IndexOf('+', StringComparison.Ordinal);
+        plus.Should().BeGreaterThan(0,
+            "the build must append +<SourceRevisionId>; without it provenance cannot name the binary "
+            + "that produced a number, and a long run's checkout will have moved on");
+
+        var sha = informational[(plus + 1)..];
+        sha.Should().HaveLength(40).And.Subject.Should().MatchRegex("^[0-9a-f]{40}$");
+    }
+
+    /// <summary>The provenance field reads that stamp rather than the working tree.</summary>
+    /// <remarks>
+    /// Asserted against the source because the failure is invisible in the output: a working-tree sha
+    /// is still a well-formed sha, and it is wrong in exactly the cases that matter — long runs, and
+    /// runs whose branch moved underneath them.
+    /// </remarks>
+    [Fact]
+    public void ProvenanceNamesTheBinaryNotTheCheckout()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "tools")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull();
+        var source = File.ReadAllText(Path.Combine(
+            directory!.FullName, "tools", "AgentMemory.LongMemEval", "TypedMemEvalProgram.cs"));
+
+        source.Should().Contain("commit = BuildCommitSha",
+            "the authoritative field must be the binary's stamp");
+        source.Should().Contain("workingTreeHeadAtStart = StartupGitSha",
+            "the checkout is kept as a SEPARATE diagnostic so a reader can see when the two differ — "
+            + "which means the run used a binary that does not match the tree");
+    }
+}
+
+/// <summary>
+/// The READ side of the identity edge — the eighth lever no harness could set.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <c>NodeDistanceReranker</c> walks <c>[:RELATED_TO|ABOUT*..4]</c>, gated on
+/// <c>MemoryOptions.NodeDistanceReranking</c>. That gate was set by the MCP host's environment
+/// variable and by nothing under the TypedMemEval verb, so <b>no benchmark run in this project's
+/// history has had structural re-ranking on</b> — and until Wave E-1 wrote 739 <c>ABOUT</c> edges,
+/// no store this library built contained one for it to follow.
+/// </para>
+/// <para>
+/// <b>The edge and its reader have never met.</b> E-1 measured the write side working (79% of facts
+/// linked) and the census flat — undercounts 14→14 — which says the join exists and recall ignores
+/// it. This is the lever that would stop it being ignored, and it is why the two options are only
+/// informative together: the edge without this gate has no reader, and this gate without the edge
+/// has nothing to follow.
+/// </para>
+/// </remarks>
+public sealed class NodeDistanceRerankingWiringTests
+{
+    private static TypedMemEvalProgram.TypedMemEvalRunOptions Parse(params string[] extra) =>
+        TypedMemEvalProgram.Parse(["--typedmemeval", "conjunction", .. extra]);
+
+    [Fact]
+    public void TheFlagIsAKnownOption() =>
+        TypedMemEvalProgram.KnownOptions.Should().Contain("--node-distance-rerank");
+
+    [Fact]
+    public void TheFlagReachesTheOptionsRecord() =>
+        Parse("--node-distance-rerank").NodeDistanceReranking.Should().BeTrue();
+
+    [Fact]
+    public void TheDefaultArmLeavesItOff()
+    {
+        var off = Parse();
+
+        off.NodeDistanceReranking.Should().BeFalse();
+        off.Arm.IsDefault.Should().BeTrue("every recorded measurement was taken without it");
+    }
+
+    /// <summary>
+    /// The pair gets a compound token, and each half is distinguishable on disk.
+    /// </summary>
+    /// <remarks>
+    /// Three artifacts must never be confusable: the edge with no reader (`entlink`), the reader with
+    /// no edge (`noderank`), and both (`entlink-noderank`). The middle one is the trap — it names a
+    /// feature while traversing a store that contains nothing for it to traverse.
+    /// </remarks>
+    [Fact]
+    public void EachHalfAndThePairAreDistinctTokens()
+    {
+        Parse("--link-fact-entities").Arm.FileToken().Should().Be("entlink");
+        Parse("--node-distance-rerank").Arm.FileToken().Should().Be("noderank");
+        Parse("--link-fact-entities", "--node-distance-rerank").Arm.FileToken()
+            .Should().Be("entlink-noderank");
+    }
+
+    [Fact]
+    public void TheDescriptionCarriesTheLever() =>
+        Parse("--node-distance-rerank").Arm.Describe()
+            .Should().Contain("node-distance-reranking=True");
+}
+
+/// <summary>
+/// <c>--runs</c> above 1 is refused: band members would share one store and degrade each other.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Measured on a temporal ×3 attempt stopped at run 3. All members ingest into the SAME container,
+/// so the store grows monotonically — run 1 searched 5,129 facts, run 2 searched 10,324. Owner
+/// scoping keeps results CORRECT (no foreign fact is ever returned) but the indexed path takes a
+/// <b>global</b> top-K and filters to the owner afterwards, so foreign rows consume the budget
+/// first. Mean returned fell 4.72 → 1.61, starved searches rose 5 → 29, and the scores fell with
+/// them: 54.0% then 36.0%, against 62.0% for the identical question set on an uncontaminated store.
+/// </para>
+/// <para>
+/// A band whose members degrade monotonically measures store growth — the one thing banding exists
+/// to rule out. The flag is refused rather than left to produce a plausible-looking band.
+/// </para>
+/// </remarks>
+public sealed class BandingStoreIsolationTests
+{
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void RunsAboveOneIsRefusedBecauseMembersWouldShareAStore(int runs)
+    {
+        var parse = () => TypedMemEvalProgram.Parse(
+            ["--typedmemeval", "temporal", "--random-seed", "20260821",
+             "--runs", runs.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+
+        parse.Should().Throw<ArgumentException>()
+            .WithMessage("*REFUSED*shared store*");
+    }
+
+    /// <summary>A single run is untouched — every sealed measurement was taken this way.</summary>
+    [Fact]
+    public void ASingleRunStillParses()
+    {
+        var parse = () => TypedMemEvalProgram.Parse(
+            ["--typedmemeval", "temporal", "--random-seed", "20260821", "--runs", "1"]);
+
+        parse.Should().NotThrow();
+    }
+
+    /// <summary>The seed check still fires first, so its message is not lost behind the new one.</summary>
+    [Fact]
+    public void TheUnseededBandStillFailsOnTheSeedFirst()
+    {
+        var parse = () => TypedMemEvalProgram.Parse(["--typedmemeval", "temporal", "--runs", "3"]);
+
+        parse.Should().Throw<ArgumentException>().WithMessage("*requires --random-seed*");
     }
 }

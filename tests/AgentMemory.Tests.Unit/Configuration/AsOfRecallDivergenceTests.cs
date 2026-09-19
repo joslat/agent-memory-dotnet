@@ -76,19 +76,27 @@ public sealed class AsOfRecallDivergenceTests
         // 30.7 prospective firing, live path only — a decision, recorded here because this guard
         // exists to stop such decisions being made by omission.
         //
-        // An as-of recall reconstructs what was known at a past instant. It is a forensic query, and
-        // volunteering "this is due now" into a historical reconstruction would splice present-tense
-        // urgency into an answer about the past — a reminder that is not merely irrelevant but
-        // actively misleading about which world it describes. Firing is therefore a live-recall
-        // feature, not an as-of one.
+        // D2, 2026-09-15 — THESE FOUR WERE REMOVED FROM THIS LIST, and the reasoning they carried is
+        // answered rather than deleted.
         //
-        // The four move together: the flag and the three settings that shape it are meaningless
-        // apart, so a future author wiring one into the as-of path will find the other three failing
-        // this list beside it.
-        "DueLookback",
-        "ExpiringWindow",
-        "MaxDueItems",
-        "ProspectiveFiring",
+        // The entry read: "an as-of recall reconstructs what was known at a past instant... volunteering
+        // 'this is due now' into a historical reconstruction would splice present-tense urgency into an
+        // answer about the past -- a reminder that is not merely irrelevant but actively misleading
+        // about which world it describes."
+        //
+        // That objection is correct, and it targets firing anchored to the MACHINE clock. The as-of
+        // implementation is not that: it fires over `(validAsOf - DueLookback, validAsOf]` bounded by
+        // `systemAsOf`, so it answers "what had just come due at that instant, given what was believed
+        // then" -- a forensic question, in the same tense as the rest of the reconstruction. `UtcNow`
+        // appears nowhere in it, and two tests fail if it reappears.
+        //
+        // The distinction was not available when the entry was written, because there was no
+        // point-in-time firing query to be anchored to anything. There is now
+        // (TemporalQueries.GetDueFactsAsOf), and the prospective vertical's questions are precisely
+        // "what was due as of this date" -- the one shape the old entry made unanswerable.
+        //
+        // Reversed under the 2026-09-15 ruling authorising firing-on-as-of, not on this desk's own
+        // judgement. If it is ever reverted, put all four back together: they are meaningless apart.
 
         // 30.8 legible forgetting, live path only — the same reasoning one step further.
         //

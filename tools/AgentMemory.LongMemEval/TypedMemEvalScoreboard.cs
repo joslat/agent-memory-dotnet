@@ -59,13 +59,13 @@ internal static class TypedMemEvalScoreboard
         ArgumentException.ThrowIfNullOrWhiteSpace(artifactsDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(armToken);
 
-        var latest = LatestRunPerVertical(artifactsDirectory, armToken);
+        var runs = RunsPerVertical(artifactsDirectory, armToken);
         var rows = new List<ScoreboardRow>();
 
         foreach (var descriptor in TypedMemEvalVerticals.All.OrderBy(v => v.Slug, StringComparer.Ordinal))
         {
-            rows.Add(latest.TryGetValue(descriptor.Slug, out var run)
-                ? Place(descriptor.Slug, run)
+            rows.Add(runs.TryGetValue(descriptor.Slug, out var list) && list.Count > 0
+                ? Place(descriptor.Slug, list[0], BandableWith(list[0], list))
                 // Never a zero: a vertical that was never run and a vertical that scored nothing look
                 // identical in a table of numbers, and they are opposites.
                 : ScoreboardRow.NotPlaced(descriptor.Slug, "no run on this arm against this build's corpus"));
@@ -83,10 +83,10 @@ internal static class TypedMemEvalScoreboard
     /// sidecar is <b>not placeable</b> — its arm cannot be established, and guessing "default" is how
     /// an ON-arm result ends up on an OFF-arm scoreboard.
     /// </remarks>
-    private static Dictionary<string, RunArtifacts> LatestRunPerVertical(string directory, string armToken)
+    private static Dictionary<string, List<RunArtifacts>> RunsPerVertical(string directory, string armToken)
     {
-        var newest = new Dictionary<string, RunArtifacts>(StringComparer.Ordinal);
-        if (!Directory.Exists(directory)) return newest;
+        var all = new Dictionary<string, List<RunArtifacts>>(StringComparer.Ordinal);
+        if (!Directory.Exists(directory)) return all;
 
         var buildCorpusSha = new Dictionary<string, string?>(StringComparer.Ordinal);
 
@@ -118,14 +118,64 @@ internal static class TypedMemEvalScoreboard
             // prospective as 0.0% -- a sample of one presented as a vertical.
             if (run.CorpusQuestions > 0 && run.SelectedQuestions < run.CorpusQuestions) continue;
 
-            if (!newest.TryGetValue(run.Vertical, out var existing) || run.StartedUtc > existing.StartedUtc)
+            if (!all.TryGetValue(run.Vertical, out var list))
             {
-                newest[run.Vertical] = run;
+                list = [];
+                all[run.Vertical] = list;
             }
+
+            list.Add(run);
         }
 
-        return newest;
+        // Newest first, so the head is the run a single-run row would have reported.
+        foreach (var list in all.Values) list.Sort((x, y) => y.StartedUtc.CompareTo(x.StartedUtc));
+        return all;
     }
+
+    /// <summary>
+    /// The runs that may be BANDED with the newest: same corpus, same judge, same question set.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Banding is not "several runs of this vertical". It is several runs of THE SAME MEASUREMENT, and
+    /// the question-id fingerprint is what says so — two seeds draw different questions, and averaging
+    /// those reports a number no single configuration ever produced. The corpus sha and judge
+    /// fingerprint are checked for the same reason they are checked everywhere else here.
+    /// </para>
+    /// <para>
+    /// <b>Why band at all.</b> Temporal ×3 on one binary, three separate stores, identical everything:
+    /// 54.0% / 58.0% / 64.0%. A board that printed whichever finished last would have shown any of the
+    /// three as "the" number, with a 10-point spread invisible behind it.
+    /// </para>
+    /// </remarks>
+    private static List<RunArtifacts> BandableWith(RunArtifacts head, List<RunArtifacts> candidates) =>
+        candidates
+            .Where(run =>
+                string.Equals(run.CorpusSha256, head.CorpusSha256, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(run.JudgePromptFingerprint, head.JudgePromptFingerprint, StringComparison.Ordinal)
+                && run.QuestionIdFingerprint is not null
+                && string.Equals(run.QuestionIdFingerprint, head.QuestionIdFingerprint, StringComparison.Ordinal)
+                && run.AgentFailureQuestions == 0
+                && run.ScoredQuestions > 0
+                // AND IT MUST HAVE MEASURED THE SAME SYSTEM. A run whose store held materially more
+                // facts than its siblings was reading a different index, and the difference does not
+                // show in any field above: the contaminated member of the first temporal band shared
+                // the corpus, the judge, the question set and had zero agent failures, and still
+                // scored 18/50 against its siblings' 27-32 because it searched 10,324 facts to their
+                // ~5,150. Banding it in dragged the range from 10 points to 28.
+                && ComparableStore(run.StoreFacts, head.StoreFacts))
+            .ToList();
+
+    /// <summary>Whether two runs' stores are close enough in size to be the same measurement.</summary>
+    /// <remarks>
+    /// A quarter is loose enough for the ordinary drift between ingestion runs of one corpus -- the
+    /// three clean temporal members span 5,146 to 5,201, about 1% -- and tight enough to reject a
+    /// store that doubled. An unknown size on either side is NOT assumed comparable: a member that
+    /// cannot show what it measured against does not join a band.
+    /// </remarks>
+    private static bool ComparableStore(int? candidate, int? head) =>
+        candidate is { } c && head is { } h && h > 0
+        && Math.Abs(c - h) / (double)h <= 0.25;
 
     private static RunArtifacts? ReadRun(string sidecarPath, string armToken)
     {
@@ -163,6 +213,15 @@ internal static class TypedMemEvalScoreboard
             // Read from the SIDECAR, not the report: the store probe is provenance, and a vertical
             // whose mechanism never fired is a fact about the run rather than about the answers.
             // Absent reads as null -- unknown, never as "it fired".
+            int? storeFacts =
+                sidecar.TryGetProperty("supersessionStore", out var storeForFacts)
+                && storeForFacts.ValueKind == JsonValueKind.Object
+                && storeForFacts.TryGetProperty("facts", out var factCount)
+                && factCount.ValueKind == JsonValueKind.Number
+                && factCount.TryGetInt32(out var facts)
+                    ? facts
+                    : null;
+
             int? supersededByEdges =
                 sidecar.TryGetProperty("supersessionStore", out var store)
                 && store.ValueKind == JsonValueKind.Object
@@ -176,7 +235,7 @@ internal static class TypedMemEvalScoreboard
             if (!File.Exists(reportPath)) return null;
 
             using var reportDocument = JsonDocument.Parse(File.ReadAllBytes(reportPath));
-            return Read(slug, startedUtc, supersededByEdges, reportDocument.RootElement);
+            return Read(slug, startedUtc, supersededByEdges, storeFacts, reportDocument.RootElement);
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -187,7 +246,8 @@ internal static class TypedMemEvalScoreboard
     }
 
     private static RunArtifacts? Read(
-        string slug, DateTimeOffset startedUtc, int? supersededByEdges, JsonElement report)
+        string slug, DateTimeOffset startedUtc, int? supersededByEdges, int? storeFacts,
+        JsonElement report)
     {
         if (!report.TryGetProperty("TypedOutcomes", out var outcomes) ||
             !report.TryGetProperty("Provenance", out var provenance))
@@ -213,12 +273,14 @@ internal static class TypedMemEvalScoreboard
             CorpusSha256: Str(outcomes, "CorpusSha256"),
             JudgePromptFingerprint: Str(outcomes, "JudgePromptFingerprint"),
             AgentEvalVersion: Str(provenance, "AgentEvalVersion"),
+            QuestionIdFingerprint: Str(provenance, "SelectedQuestionIdFingerprint"),
             SelectedQuestions: Int(report, "SelectedQuestions"),
             CorpusQuestions: Int(provenance, "DatasetQuestionCount"),
             ScoredQuestions: Int(report, "ScoredQuestions"),
             CorrectQuestions: Int(report, "CorrectQuestions"),
             AgentFailureQuestions: Int(report, "AgentFailureQuestions"),
             SupersededByEdges: supersededByEdges,
+            StoreFacts: storeFacts,
             ByShape: byShape);
 
         // ValueKind-checked before every Try*: on a JSON null these accessors THROW rather than
@@ -235,7 +297,7 @@ internal static class TypedMemEvalScoreboard
                 : null;
     }
 
-    private static ScoreboardRow Place(string slug, RunArtifacts run)
+    private static ScoreboardRow Place(string slug, RunArtifacts run, List<RunArtifacts> band)
     {
         // VOID first, before any arithmetic. Two paid runs in this project died mid-flight and
         // reported 7/39 as though it were a score; an agent failure is an absent measurement, not a
@@ -275,6 +337,20 @@ internal static class TypedMemEvalScoreboard
 
         var ranking = RankingOnly(run, sensitivity);
 
+        var banded = band.Count > 1;
+
+        double[]? reachableBand = banded && ceiling is { ReachableQuestions: > 0 } bandCeiling
+            ? [.. band.Select(m => bandCeiling.ShareOfReachable(m.CorrectQuestions))]
+            : null;
+        var bandedReachable = reachableBand is not null;
+
+        var memberRankings = banded
+            ? band.Select(m => RankingOnly(m, sensitivity)).ToArray()
+            : [];
+        var bandedRanking = memberRankings.Length > 1
+            && Array.TrueForAll(memberRankings, r => r.State == RankingState.Scored);
+        double[]? rankingBand = bandedRanking ? [.. memberRankings.Select(r => r.Score)] : null;
+
         return new ScoreboardRow(
             Vertical: slug,
             State: RowState.Placed,
@@ -283,7 +359,31 @@ internal static class TypedMemEvalScoreboard
             ShareOfReachable: shareOfReachable,
             Ceiling: ceiling,
             Ranking: ranking,
-            Reason: null);
+            Reason: null)
+        {
+            BandMembers = band.Count,
+            BandMinShare = banded ? band.Min(Share) : null,
+            BandMaxShare = banded ? band.Max(Share) : null,
+            BandMeanShare = banded ? band.Average(Share) : null,
+
+            // EVERY COLUMN BANDS, OR THE BAND LIES BY OMISSION. Banding share-of-all while leaving
+            // the other two at the head member's value prints one honest number beside two that
+            // look settled and are not -- and of-reachable is the same correct count over a smaller
+            // denominator, so it carries exactly the same spread. Members share a corpus sha, so
+            // they share a ceiling and a sensitivity map; the aggregation is defined.
+            BandMinReachable = bandedReachable ? reachableBand!.Min() : null,
+            BandMaxReachable = bandedReachable ? reachableBand!.Max() : null,
+            BandMeanReachable = bandedReachable ? reachableBand!.Average() : null,
+
+            // Ranking bands only when EVERY member produced a score. A band that silently skipped
+            // the members whose ranking verdict was unknown would report a narrower spread than the
+            // evidence supports, which is the failure this whole column exists to prevent.
+            BandMinRanking = bandedRanking ? rankingBand!.Min() : null,
+            BandMaxRanking = bandedRanking ? rankingBand!.Max() : null,
+            BandMeanRanking = bandedRanking ? rankingBand!.Average() : null,
+        };
+
+        static double Share(RunArtifacts m) => (double)m.CorrectQuestions / m.ScoredQuestions;
     }
 
     /// <summary>
@@ -338,17 +438,26 @@ internal static class TypedMemEvalScoreboard
                 continue;
             }
 
-            // THE 2026-09-15 RULING: the dense boolean is a THREE-CLASS read, not a filter. The
-            // published flag is measured with ada-002 and flips on 4 of 35 shapes against 3-small --
-            // and neither embedder is ours. A shape that only one of them ranks is a fact about the
-            // embedder, so it is held apart rather than counted or discarded.
-            var verdict = TypedMemEvalDenseSecondOpinion.For(run.Vertical, shape)?.Class
-                // No second opinion for this shape: fall back to the published flag alone and say so
-                // by treating it as SENSITIVE, never as robust. One retriever is not a condition.
-                ?? (flag.Discriminates ? DenseRankingClass.RetrieverSensitive : DenseRankingClass.NonRanking);
+            // THE PUBLISHED VERDICT, read from the corpus the run loaded. 0.38 co-publishes
+            // `retriever_agreement`, which retires the derived table this used to consult -- and
+            // retires it for cause: the derived version called SIX shapes robust that the publisher
+            // calls retriever-sensitive, `prospective/due-window` among them.
+            var verdict = flag.Agreement;
 
             switch (verdict)
             {
+                case DenseRankingClass.Unknown:
+                    // No verdict readable. Not robust, not sensitive, not counted -- the same rule
+                    // an unclassified shape gets, for the same reason.
+                    unclassified.Add(shape);
+                    break;
+
+                case DenseRankingClass.NotApplicable:
+                    // Retrieval is UNDEFINED here, not zero. Counting it anywhere would put a
+                    // vacuously-perfect 1.000 into a column that claims to measure retrieval.
+                    unclassified.Add(shape);
+                    break;
+
                 case DenseRankingClass.NonRanking:
                     nonRanking.Add(shape);
                     break;
@@ -423,8 +532,13 @@ internal static class TypedMemEvalScoreboard
         // The judge is what every row must share; the releases are in the note above when they
         // differ, and repeating four 40-character build hashes here would bury the table.
         writer.WriteLine($"  judge {Short(scoreboard.JudgePromptFingerprint)}");
-        writer.WriteLine(
-            "  vertical          share-of-all   share-of-reachable   robust-ranking                     corpus");
+        // Built with the SAME widths as Format's data rows rather than hand-aligned, because a
+        // hand-aligned header drifts the moment a column changes -- widening of-reachable to carry
+        // its band would have left every heading sitting over the wrong column.
+        writer.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {"vertical",-16}  {"share-of-all (mean [range] n)",-30}   {"of-reachable [range]",-26}   "
+            + $"{"robust-ranking",-34}  corpus"));
 
         foreach (var row in scoreboard.Rows)
         {
@@ -448,15 +562,40 @@ internal static class TypedMemEvalScoreboard
             RowState.OffState => $"  {name}  — ⛔ OFF-STATE: {row.Reason}",
             _ => string.Create(
                 CultureInfo.InvariantCulture,
-                $"  {name}  {Pct(row.ShareOfAll),12}   {Pct(row.ShareOfReachable),18}   "
-                + $"{Ranking(row.Ranking),-34}  {Short(row.Run!.Value.CorpusSha256)}"),
+                $"  {name}  {Share(row),-30}   {Reachable(row),-26}   "
+                + $"{Ranking(row),-34}  {Short(row.Run!.Value.CorpusSha256)}"),
         };
 
         static string Pct(double? value) =>
             value is { } v ? v.ToString("P1", CultureInfo.InvariantCulture) : "NOT KNOWN";
 
-        static string Ranking(RankingOnlyScore ranking)
+        // A banded cell reports the MEAN and the RANGE. An unbanded one reports the single number and
+        // is marked n=1, because the temporal band spread 10 points across three runs of one
+        // configuration -- a single number that does not say it is single invites being read as
+        // settled.
+        static string Share(ScoreboardRow row) =>
+            row.BandMembers > 1 && row.BandMeanShare is { } mean
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{mean:P1} [{row.BandMinShare!.Value:P1}-{row.BandMaxShare!.Value:P1}] n={row.BandMembers}")
+                : $"{Pct(row.ShareOfAll)} n=1";
+
+        // Of-reachable is the SAME correct count over a smaller denominator, so it inherits the
+        // spread exactly. Printing it bare beside a banded share-of-all was the inconsistency that
+        // let a head member's number read as the settled one.
+        static string Reachable(ScoreboardRow row) =>
+            row.BandMembers > 1 && row.BandMeanReachable is { } mean
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{mean:P1} [{row.BandMinReachable!.Value:P1}-{row.BandMaxReachable!.Value:P1}]")
+                : row.ShareOfReachable is null
+                    ? "NOT KNOWN"
+                    : $"{Pct(row.ShareOfReachable)}{(row.BandMembers > 1 ? " (head)" : " n=1")}";
+
+        static string Ranking(ScoreboardRow row)
         {
+            var ranking = row.Ranking;
+
             // The sensitive tail is APPENDED, never merged. A reader must be able to see that a
             // vertical's robust score rests on two shapes while a third flips with the embedder.
             var tail = ranking.SensitiveShapes.Count == 0
@@ -469,9 +608,16 @@ internal static class TypedMemEvalScoreboard
             {
                 RankingState.Unknown => "UNKNOWN",
                 RankingState.NotRankable => $"⛔ NO ROBUST SHAPE{tail}",
-                _ => string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"{ranking.Score:P1} ({ranking.Correct}/{ranking.Scored}, {ranking.RankingShapes} robust)") + tail,
+                // Banded when every member scored; otherwise the head value, marked as such so it
+                // is never mistaken for the band.
+                _ => (row.BandMembers > 1 && row.BandMeanRanking is { } mean
+                    ? string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{mean:P1} [{row.BandMinRanking!.Value:P1}-{row.BandMaxRanking!.Value:P1}], {ranking.RankingShapes} robust")
+                    : string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{ranking.Score:P1} ({ranking.Correct}/{ranking.Scored}, {ranking.RankingShapes} robust)")
+                      + (row.BandMembers > 1 ? " (head)" : string.Empty)) + tail,
             };
         }
     }
@@ -569,6 +715,27 @@ internal readonly record struct ScoreboardRow(
     RankingOnlyScore Ranking,
     string? Reason)
 {
+    /// <summary>How many runs of this exact measurement exist. 1 means the number is unbanded.</summary>
+    internal int BandMembers { get; init; } = 1;
+
+    internal double? BandMinShare { get; init; }
+
+    internal double? BandMaxShare { get; init; }
+
+    internal double? BandMeanShare { get; init; }
+
+    internal double? BandMinReachable { get; init; }
+
+    internal double? BandMaxReachable { get; init; }
+
+    internal double? BandMeanReachable { get; init; }
+
+    internal double? BandMinRanking { get; init; }
+
+    internal double? BandMaxRanking { get; init; }
+
+    internal double? BandMeanRanking { get; init; }
+
     internal static ScoreboardRow NotPlaced(string vertical, string reason) =>
         new(vertical, RowState.NotPlaced, null, null, null, null, RankingOnlyScore.Unknown(), reason);
 
@@ -607,12 +774,14 @@ internal readonly record struct RunArtifacts(
     string? CorpusSha256,
     string? JudgePromptFingerprint,
     string? AgentEvalVersion,
+    string? QuestionIdFingerprint,
     int SelectedQuestions,
     int CorpusQuestions,
     int ScoredQuestions,
     int CorrectQuestions,
     int AgentFailureQuestions,
     int? SupersededByEdges,
+    int? StoreFacts,
     IReadOnlyDictionary<string, ShapeTally> ByShape);
 
 /// <summary>One shape's tally, as the typed outcomes record it.</summary>

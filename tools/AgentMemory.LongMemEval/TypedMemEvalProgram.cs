@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Reflection;
 using System.Text.Json;
 using AgentEval.Memory.External.Models;
 using AgentEval.Memory.External.TypedMemEval;
@@ -78,6 +79,18 @@ internal static class TypedMemEvalProgram
         // .LinkFactsToEntities is public and unit-tested, and no harness could set it -- so every
         // store probe this project ran reports `0 entity(ies)` on every line, across every vertical.
         "--link-fact-entities",
+        // WAVE E-1 FOLLOW-UP (2026-09-16). The READ side of the identity edge. `NodeDistanceReranker`
+        // traverses [:RELATED_TO|ABOUT*..4] and MemoryOptions.NodeDistanceReranking gates it -- set by
+        // the MCP host's env var and by nothing under this verb, so no benchmark run in this
+        // project's history has had structural re-ranking on. E-1 wrote the first 739 ABOUT edges;
+        // the consumer that traverses them has still never been switched on.
+        "--node-distance-rerank",
+        // THE NINTH (2026-09-16), and the PRECONDITION for the other two. `LlmExtractionOptions
+        // .TemporalValidity` defaults to Ignore and this verb never set it, so NO fact in any run
+        // this project has made carries valid_from -- probed live: 22 facts, 0 with valid_from.
+        // Firing requires `valid_from IS NOT NULL`, and ValidTime=Current filters on
+        // `(valid_from IS NULL OR ...)` which NULL satisfies. So both were no-ops by construction.
+        "--temporal-validity",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -144,6 +157,8 @@ internal static class TypedMemEvalProgram
                             rescueShortOwnerResults: options.RescueShortOwnerResults,
                             supersedeReplacedFacts: options.SupersedeReplacedFacts,
                             linkFactsToEntities: options.LinkFactsToEntities,
+                            nodeDistanceReranking: options.NodeDistanceReranking,
+                            temporalValidity: options.TemporalValidity,
                             resolveSupersessions: options.ResolveSupersessions,
                             recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
@@ -476,6 +491,8 @@ internal static class TypedMemEvalProgram
                 rescueShortOwnerResults = arm.RescueShortOwnerResults,
                 supersedeReplacedFacts = arm.SupersedeReplacedFacts,
                 linkFactsToEntities = arm.LinkFactsToEntities,
+                nodeDistanceReranking = arm.NodeDistanceReranking,
+                temporalValidity = arm.TemporalValidity,
                 resolveSupersessions = arm.ResolveSupersessions,
                 factWeightedBudget = arm.FactWeightedBudget,
                 schemaExtensions = arm.Phase30.Extensions,
@@ -489,7 +506,12 @@ internal static class TypedMemEvalProgram
                 oracle = options.Oracle,
                 control = options.Control,
             },
-            commit = StartupGitSha,
+            // The BINARY's commit -- what produced the numbers. Null when unstamped, never guessed.
+            commit = BuildCommitSha,
+            // The working tree at process start. Present so a reader can SEE when the two differ,
+            // which means the run used a binary that does not match the checkout. On the 2026-09-15
+            // band they differed between members of one band sharing one binary.
+            workingTreeHeadAtStart = StartupGitSha,
             // Recorded gap, closed here rather than in the report: a run could not confirm from its
             // own artifact whether owner starvation occurred during it, which is what forced the
             // LongMemEval runs to stand in as evidence for a TypedMemEval claim. It lives in the
@@ -541,6 +563,39 @@ internal static class TypedMemEvalProgram
     /// </para>
     /// </remarks>
     private static readonly string? StartupGitSha = ReadGitSha();
+
+    /// <summary>
+    /// The commit this ASSEMBLY was built from, or null when the build did not stamp one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read from the assembly's own <c>AssemblyInformationalVersion</c>, which the SDK suffixes with
+    /// <c>+&lt;SourceRevisionId&gt;</c>. This is the only value that answers "what produced these
+    /// numbers"; <see cref="StartupGitSha"/> answers "what was checked out when it ran", and those
+    /// are different questions that a long run makes visibly different.
+    /// </para>
+    /// <para>
+    /// <b>Null rather than a fallback to the working tree.</b> Falling back would restore exactly the
+    /// misleading value this replaces, and it would do so silently — a provenance field that is
+    /// sometimes the binary and sometimes the checkout is worse than one that is sometimes absent.
+    /// </para>
+    /// </remarks>
+    private static readonly string? BuildCommitSha = ReadBuildCommitSha();
+
+    private static string? ReadBuildCommitSha()
+    {
+        var informational = typeof(TypedMemEvalProgram).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (informational is null) return null;
+
+        var plus = informational.IndexOf('+', StringComparison.Ordinal);
+        if (plus < 0 || plus == informational.Length - 1) return null;
+
+        var sha = informational[(plus + 1)..].Trim();
+        // A 40-character hex sha or nothing: the suffix is free-form and a build could put anything
+        // there, and a provenance field that accepts anything is not a provenance field.
+        return sha.Length == 40 && sha.All(Uri.IsHexDigit) ? sha : null;
+    }
 
     /// <summary>The commit this ran on, or null when it cannot be determined.</summary>
     /// <remarks>
@@ -974,7 +1029,9 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--dry-run") >= 0,
             Array.IndexOf(args, "--current-valid-time") >= 0,
             Array.IndexOf(args, "--prospective-firing") >= 0,
-            Array.IndexOf(args, "--link-fact-entities") >= 0);
+            Array.IndexOf(args, "--link-fact-entities") >= 0,
+            Array.IndexOf(args, "--node-distance-rerank") >= 0,
+            Array.IndexOf(args, "--temporal-validity") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -983,6 +1040,38 @@ internal static class TypedMemEvalProgram
             throw new ArgumentException(
                 "--runs above 1 requires --random-seed: unseeded runs draw different questions, and " +
                 "TypedMemEvalRunSet.Summarize refuses to band different samples.");
+        }
+
+        // --runs ABOVE 1 SHARES ONE STORE ACROSS BAND MEMBERS, AND THAT INVALIDATES THE BAND.
+        //
+        // Measured 2026-09-15 on a temporal x3 attempt, stopped at run 3. All three members ingest
+        // into the SAME container, so the store grows monotonically: run 1 searched 5,129 facts,
+        // run 2 searched 10,324. Owner scoping keeps the results CORRECT -- each question recalls
+        // under its own owner namespace and no foreign fact is ever returned -- but the indexed path
+        // asks for a GLOBAL top-K and filters to the owner afterwards, so foreign rows consume the
+        // budget before the filter runs. The yield collapsed with the growth:
+        //
+        //     run 1   150 searches   5 starved   mean returned 4.72
+        //     run 2   150 searches  29 starved   mean returned 1.61
+        //
+        // and the scores fell with it -- 54.0% then 36.0%, against 62.0% for the same question set,
+        // same seed, same judge and same corpus on an uncontaminated store. A band whose members
+        // degrade monotonically measures STORE GROWTH, not run-to-run variance, which is the one
+        // thing banding exists to measure.
+        //
+        // This refuses rather than silently banding: the fix is one process per member, which gets a
+        // fresh container from Testcontainers and reproduces the uncontaminated condition exactly.
+        // Making --runs itself allocate a store per member is the better repair and a larger one;
+        // until it exists, the flag must not look like it works.
+        if (options.Runs > 1)
+        {
+            throw new ArgumentException(
+                $"--runs {options.Runs.ToString(CultureInfo.InvariantCulture)} is REFUSED: every " +
+                "member would ingest into one shared store, and the indexed vector path takes a " +
+                "global top-K before filtering to the owner -- so each member retrieves worse than " +
+                "the last. Measured: mean returned 4.72 then 1.61, starved 5 then 29, scores 54.0% " +
+                "then 36.0% against 62.0% uncontaminated. Run one process per band member instead " +
+                "(each gets its own container), then band the artifacts.");
         }
         if (options.Control &&
             (options.Verticals.Count != 1 ||
@@ -1140,7 +1229,11 @@ internal static class TypedMemEvalProgram
         bool ProspectiveFiring = false,
         // W-E1. An INGESTION lever: it changes the store, so an arm carrying it is a different
         // corpus and can never be banded with one that does not.
-        bool LinkFactsToEntities = false)
+        bool LinkFactsToEntities = false,
+        // The read side of the identity edge; only informative together with LinkFactsToEntities.
+        bool NodeDistanceReranking = false,
+        // Ingestion lever, and the precondition for firing and for valid-time filtering alike.
+        bool TemporalValidity = false)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1152,6 +1245,7 @@ internal static class TypedMemEvalProgram
         internal TypedMemEvalArm Arm =>
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
-                MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities);
+                MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities,
+                NodeDistanceReranking, TemporalValidity);
     }
 }
