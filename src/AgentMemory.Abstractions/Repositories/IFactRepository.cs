@@ -426,6 +426,28 @@ public interface IFactRepository
         Task.FromResult(ProspectiveDueResult.Empty);
 
     /// <summary>
+    /// E-1. Facts reachable from <paramref name="seedFactIds"/> through an entity carrying a declared
+    /// alias — the facts filed under a different name for the same thing.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to empty rather than delegating to an unaliased traversal. A store that cannot make
+    /// this join should return nothing and let the caller measure a feature that is off, because a
+    /// fallback that walked every <c>:ABOUT</c> edge would answer a different question — "facts
+    /// sharing a subject" rather than "facts about the same thing under another name" — and would do
+    /// it silently, which is how this codebase has produced numbers for features that never ran.
+    /// </remarks>
+    /// <param name="seedFactIds">The already-retrieved facts to expand from.</param>
+    /// <param name="limit">Hard cap on facts returned.</param>
+    /// <param name="scope">Isolation scope for the read.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<IReadOnlyList<Fact>> GetFactsSharingAliasedEntitiesAsync(
+        IReadOnlyList<string> seedFactIds,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
     /// Facts that became due in <c>(since, now]</c> and facts expiring within
     /// <paramref name="expiringWindow"/> (30.7).
     /// </summary>

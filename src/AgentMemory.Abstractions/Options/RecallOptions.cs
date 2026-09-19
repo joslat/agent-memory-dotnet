@@ -281,4 +281,40 @@ public sealed record RecallOptions
     /// and nothing is a default here until it has been measured.
     /// </remarks>
     public bool ResolveQueryRelations { get; init; }
+
+    /// <summary>
+    /// E-1. Also returns facts filed under a <b>different name for the same thing</b>, when the
+    /// conversation declared the two names equal. Default off.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Similarity cannot cross an alias. "How many deliveries were taken at the new flat" does not
+    /// retrieve "took a delivery at the place on Ferrow Row", because as strings those have nothing
+    /// in common — and no embedding, threshold or re-ranker fixes that, since there is no similarity
+    /// to find. Three measured interventions confirmed it: the write-side edge left the census
+    /// exactly flat, and a hop re-ranker over the same edges made the vertical worse, because
+    /// re-ranking can only reorder candidates retrieval already returned.
+    /// </para>
+    /// <para>
+    /// <b>What makes this tractable is that the bridge is itself retrievable.</b> The declaration
+    /// ("the new flat is the place on Ferrow Row") contains the asked-about name, so similarity finds
+    /// THAT even when it cannot find the deliveries. One hop from it — out to the entity, back to the
+    /// entity's other facts — reaches everything filed under either name.
+    /// </para>
+    /// <para>
+    /// <b>Only entities carrying a declared alias are traversed</b>, which is the difference between
+    /// this and the re-ranker that harmed. Hopping every <c>:ABOUT</c> edge pulls in facts related by
+    /// nothing but sharing a subject, and measurably displaces better evidence; hopping only where an
+    /// identity was actually asserted adds the facts the question needs and no others.
+    /// </para>
+    /// </remarks>
+    public bool ExpandFactsByIdentity { get; init; }
+
+    /// <summary>Cap on facts returned by identity expansion.</summary>
+    /// <remarks>
+    /// An alias sits on an entity, and an entity can carry many facts, so an uncapped hop would let
+    /// one popular referent spend the whole budget. Separate from
+    /// <see cref="MaxExpandedFacts"/> so the two expansions cannot mask each other's cost.
+    /// </remarks>
+    public int MaxIdentityExpandedFacts { get; init; } = 50;
 }

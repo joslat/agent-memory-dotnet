@@ -786,6 +786,9 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 factScores = factResult.Scored;
             }
 
+            facts = await ExpandByIdentityAsync(facts, recallOpts, scope, cancellationToken)
+                .ConfigureAwait(false);
+
             if (tracesScoredTask is null)
             {
                 traces = await tracesTask.ConfigureAwait(false);
@@ -1280,11 +1283,15 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         }
         else
         {
-            // No predicate expansion on the point-in-time path, so unlike the live recall every fact here
-            // is scored and Items and Scored hold the same set.
+            // Predicate expansion does not run on the point-in-time path, so similarity accounts for
+            // every fact retrieved here. Identity expansion below can still append unscored ones, so
+            // Items and Scored are no longer guaranteed equal -- they were, before E-1.
             factScores = await factsScoredTask.ConfigureAwait(false);
             facts = factScores.Select(static scored => scored.Fact).ToArray();
         }
+
+        facts = await ExpandByIdentityAsync(facts, recallOpts, scope, cancellationToken)
+            .ConfigureAwait(false);
 
         IReadOnlyList<ReasoningTrace> traces;
         if (tracesScoredTask is null)
@@ -1794,4 +1801,49 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         section = Task.FromResult(empty);
         return true;
     }
+
+    /// <summary>
+    /// E-1. Widens the fact set with facts filed under another name for the same thing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Appended, never re-ranked. These facts arrive by traversing an asserted identity rather than by
+    /// similarity, so they carry no comparable score — exactly as predicate expansion's do — and
+    /// giving them a stand-in one would put a fabricated number into the ranking the diagnostics
+    /// report.
+    /// </para>
+    /// <para>
+    /// Shared by both recall paths on purpose. A retrieval semantic carried by the live path and not
+    /// its point-in-time twin is the defect shape this codebase has now paid for five times, most
+    /// recently when firing de-duplicated on one path and not the other.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<Fact>> ExpandByIdentityAsync(
+        IReadOnlyList<Fact> facts,
+        RecallOptions recallOpts,
+        MemoryScope? scope,
+        CancellationToken cancellationToken)
+    {
+        if (!recallOpts.ExpandFactsByIdentity || facts.Count == 0 || recallOpts.MaxIdentityExpandedFacts <= 0)
+            return facts;
+
+        var seedIds = facts.Select(static f => f.FactId).ToArray();
+        var expanded = await _longTerm.GetFactsSharingAliasedEntitiesAsync(
+            seedIds, recallOpts.MaxIdentityExpandedFacts, scope, cancellationToken).ConfigureAwait(false);
+
+        if (expanded.Count == 0) return facts;
+
+        // The query already excludes the seeds, but a repository is free to implement this any way it
+        // likes and a duplicated fact would be counted twice by exactly the aggregation questions this
+        // feature exists to answer.
+        var seen = new HashSet<string>(seedIds, StringComparer.Ordinal);
+        var widened = new List<Fact>(facts);
+        foreach (var fact in expanded)
+        {
+            if (seen.Add(fact.FactId)) widened.Add(fact);
+        }
+
+        return widened;
+    }
+
 }

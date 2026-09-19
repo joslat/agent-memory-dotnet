@@ -368,6 +368,26 @@ public interface ILongTermMemoryService
         SearchFactsAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
 
     /// <summary>
+    /// E-1. Facts filed under a different name for the same thing, reached from already-retrieved
+    /// facts through an entity carrying a declared alias.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to empty rather than to an unaliased traversal, for the reason the repository's own
+    /// default gives: a fallback that walked every <c>:ABOUT</c> edge would answer "facts sharing a
+    /// subject" instead, and would do it without saying so.
+    /// </remarks>
+    /// <param name="seedFactIds">The already-retrieved facts to expand from.</param>
+    /// <param name="limit">Hard cap on facts returned.</param>
+    /// <param name="scope">Isolation scope for the read.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<IReadOnlyList<Fact>> GetFactsSharingAliasedEntitiesAsync(
+        IReadOnlyList<string> seedFactIds,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
     /// D2. Prospective firing at a point in time. Both clocks non-optional; default returns empty.
     /// </summary>
     /// <remarks>

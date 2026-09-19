@@ -604,6 +604,37 @@ internal static class FactQueries
         + DeltaOwner(hasOwnerFilter, includeShared) + @"
             RETURN f ORDER BY f.valid_until ASC LIMIT $limit";
 
+    // ── Identity expansion (E-1) ───────────────────────────────────────
+
+    /// <summary>
+    /// E-1. Facts reachable from the seed facts through an entity that carries a <b>declared alias</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two hops, both over <c>:ABOUT</c>: seed fact → entity → the entity's other facts. This is the
+    /// join similarity cannot make, because the two surface names share no text to be similar on.
+    /// </para>
+    /// <para>
+    /// <b><c>e.aliases</c> being non-empty is the whole filter, and it is doing the real work.</b>
+    /// Without it this walks every <c>:ABOUT</c> edge and returns facts related by nothing more than
+    /// a shared subject — which is what the node-distance re-ranker did over these same edges, and it
+    /// measurably displaced better evidence. An alias is only ever written when a turn SAID two names
+    /// were one thing, so this traverses asserted identity and not incidental adjacency.
+    /// </para>
+    /// <para>
+    /// <c>DISTINCT</c> because two seeds commonly reach the same entity, and the seeds themselves are
+    /// excluded: they are already in the caller's list, and returning them again would spend the
+    /// expansion budget re-delivering what retrieval had.
+    /// </para>
+    /// </remarks>
+    public static string GetFactsSharingAliasedEntities(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (seed:Fact)-[:ABOUT]->(e:Entity)<-[:ABOUT]-(f:Fact)
+            WHERE seed.id IN $seedFactIds
+              AND NOT f.id IN $seedFactIds
+              AND e.aliases IS NOT NULL AND size(e.aliases) > 0
+              AND f.invalidated_at IS NULL" + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN DISTINCT f LIMIT $limit";
+
     // ── Delta recall (30.5) ────────────────────────────────────────────
 
     /// <summary>

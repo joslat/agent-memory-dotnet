@@ -59,7 +59,11 @@ internal sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEnti
         return await _runner.RunAsync(
             (_options.EntityExtractionPrompt ?? BuildSystemPrompt(_options.EntityTypes))
                 // Only when context is present, so a context-free prompt stays byte-identical (E2).
-                + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
+                + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty)
+                // This rung's own prompt already says "include aliases when mentioned" — vaguer than
+                // the shared wording and, being different, the reason the two rungs could diverge at
+                // all. The shared instruction is appended so all three say the same thing.
+                + ExtractionPromptSemantics.IdentityAliasInstruction(_options.CaptureIdentityAliases),
             "Extract entities from this conversation:",
             conversationText,
             ProjectEntities,

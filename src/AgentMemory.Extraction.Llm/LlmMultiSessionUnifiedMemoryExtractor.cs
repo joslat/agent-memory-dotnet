@@ -52,14 +52,16 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         MemoryPredicateVocabulary? vocabulary,
         AssistantContentMode assistantContent = AssistantContentMode.Ignore,
         TemporalValidityMode temporalValidity = TemporalValidityMode.Ignore,
-        ExtractionProvenanceMode provenance = ExtractionProvenanceMode.Batch)
+        ExtractionProvenanceMode provenance = ExtractionProvenanceMode.Batch,
+        bool captureIdentityAliases = false)
     {
         // Every shared instruction, appended in the same order every rung uses. A setting honoured by
         // only some extractors is worse than no setting - it makes behaviour depend on a performance
         // flag - and this rung was the one my first pass missed.
         var assistant = ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
             + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity)
-            + ExtractionPromptSemantics.ProvenanceInstruction(provenance);
+            + ExtractionPromptSemantics.ProvenanceInstruction(provenance)
+            + ExtractionPromptSemantics.IdentityAliasInstruction(captureIdentityAliases);
         var established = vocabulary?.Snapshot() ?? [];
         if (established.Count == 0)
             return SystemPrompt + assistant;
@@ -321,7 +323,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
             runner.RunAsync(
                 BuildSystemPrompt(
                     ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity,
-                    _options.Provenance),
+                    _options.Provenance, _options.CaptureIdentityAliases),
                 UserInstruction,
                 BuildBatchText(batch, _options.Provenance),
                 response => new[] { ProjectAndValidate(response, batch) },
@@ -469,7 +471,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
             // under-estimates by exactly the instruction it forgot.
             Encoding.UTF8.GetByteCount(BuildSystemPrompt(
                 ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity,
-                _options.Provenance)) +
+                _options.Provenance, _options.CaptureIdentityAliases)) +
             Encoding.UTF8.GetByteCount(UserInstruction) +
             Encoding.UTF8.GetByteCount(BuildBatchText(batch, _options.Provenance)) +
             35);

@@ -147,6 +147,40 @@ internal static class ExtractionPromptSemantics
     /// number moves.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Tells the model that a stated identity is an alias, and where to put it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The schema has always REQUIRED an <c>aliases</c> field on every entity, and the multi-session
+    /// prompt's only example of it is <c>"aliases":[]</c> — sitting directly above "use empty arrays
+    /// when a category has no supported memory". A required field whose sole example is empty, with
+    /// no definition anywhere in the prompt, is an instruction to emit nothing, and that is what
+    /// every run this project has made received.
+    /// </para>
+    /// <para>
+    /// <b>Capture, not inference.</b> The instruction deliberately names the sentence pattern rather
+    /// than asking the model to judge whether two things are "the same": every alias case in the
+    /// measured corpus states itself outright — <i>"The new flat is the place on Ferrow Row"</i> —
+    /// and a model asked to infer identity from similarity would merge distinct referents, which is
+    /// the over-merge failure the E-1 Goodhart guard watches for. Naming the pattern keeps the
+    /// evidence bar at "the conversation said so".
+    /// </para>
+    /// <para>
+    /// It lives here, not in one extractor, because this is the fifth time a semantic has been
+    /// carried by one rung and not its twin. The per-kind entity extractor already says "include
+    /// aliases when mentioned"; the batch rung the benchmark runs never did.
+    /// </para>
+    /// </remarks>
+    internal static string IdentityAliasInstruction(bool capture) => capture
+        ? "\nWhen a turn STATES that two names refer to one thing - \"the new flat is the place on "
+          + "Ferrow Row\", \"head office, i.e. the Calderwick office\" - emit ONE entity and put the "
+          + "other name in its \"aliases\". Record an alias ONLY when the conversation says the two "
+          + "are the same; never merge two names because they look or sound similar, and never "
+          + "because they appear together. Two distinct things recorded as one cannot be separated "
+          + "again, while two names left apart can still be joined later."
+        : string.Empty;
+
     internal static string TemporalValidityInstruction(TemporalValidityMode mode) => mode switch
     {
         TemporalValidityMode.Extract =>
