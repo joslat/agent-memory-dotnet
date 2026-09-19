@@ -457,6 +457,21 @@ query and 1.4.1's owner-scoped fallback (§3.3.2) — so starved multi-tenant ow
 two writers stamp validity bounds: `TemporalValidityMode.Extract` and supersession (for which the gate
 is redundant, since `invalidated_at` already removes superseded facts).
 
+**When supersession actually fires, which is narrower than it reads.** Two conditions, both easy to
+miss. It is **opt-in** — `ExtractionOptions.SupersedeReplacedFacts` defaults to `false` — and it
+applies only to predicates the relation vocabulary declares **single-valued**: `belongs to`, `costs`,
+`expires`, `lives in`, `weighs`, `works at`. Everything else is treated as multi-valued and a new
+assertion joins rather than replaces.
+
+That default is deliberate and worth keeping: getting it wrong in the *replacing* direction is a
+data-shaped defect, because storing "likes tea" would drop "likes coffee" from live recall with
+nothing marking that a true fact had been closed. The cost is that an extractor which invents a
+predicate per sentence produces nothing supersession can recognise, and writes no `SUPERSEDED_BY`
+edge at all — silently, and indistinguishably from having nothing to supersede. If supersession is
+enabled and nothing qualifies, the library logs one warning per batch naming the predicates it
+refused; `ExtractionOptions.UsePredicateVocabulary` is what steers extraction towards the declared
+relations in the first place.
+
 Honouring `valid_from` delivers the first two mechanisms of **prospective memory** — expression and
 gating (due-on-next-interaction semantics); acting at a time with no query is a scheduler and
 deliberately out of scope. *(CHANGELOG [Unreleased].)*
