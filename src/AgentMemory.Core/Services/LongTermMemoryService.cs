@@ -477,13 +477,6 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
 
     /// <inheritdoc/>
     /// <remarks>
-    /// A straight forward to the repository, with the owner scope resolved through the isolation policy
-    /// exactly as every other read here is. Note what this method does <b>not</b> do: it takes no query
-    /// embedding and applies no score floor, because firing selects by time. A reminder is off-topic by
-    /// definition, and a similarity-scoped version could never surface the ones that matter most.
-    /// </remarks>
-     /// <inheritdoc/>
-    /// <remarks>
     /// D2. The point-in-time twin, with the owner scope resolved through the same isolation policy.
     /// Both clocks are forwarded unchanged: narrowing one here would make the repository's contract
     /// untrue at the only layer that could still tell.
@@ -503,7 +496,14 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
             since, validAsOf, systemAsOf, expiringWindow, limit, resolved, cancellationToken);
     }
 
-   public Task<ProspectiveDueResult> GetDueFactsAsync(
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A straight forward to the repository, with the owner scope resolved through the isolation policy
+    /// exactly as every other read here is. Note what this method does <b>not</b> do: it takes no query
+    /// embedding and applies no score floor, because firing selects by time. A reminder is off-topic by
+    /// definition, and a similarity-scoped version could never surface the ones that matter most.
+    /// </remarks>
+    public Task<ProspectiveDueResult> GetDueFactsAsync(
         DateTimeOffset since,
         DateTimeOffset now,
         TimeSpan expiringWindow,

@@ -121,10 +121,10 @@ public sealed record MemoryOptions
     /// changed on 2026-09-15: with <c>LinkFactsToEntities</c> on, extraction writes the edge (measured
     /// 739 edges over 874 facts, 79% linked). With it off, the store still contains none and this
     /// re-ranker traverses <c>RELATED_TO</c> alone, weaker than its own query describes.
+    /// </para>
     /// <para>
     /// So the two options are only informative <b>together</b>: the edge without this gate has no
     /// reader, and this gate without the edge has nothing to follow.
-    /// </para>
     /// </para>
     /// </remarks>
     public bool NodeDistanceReranking { get; set; }

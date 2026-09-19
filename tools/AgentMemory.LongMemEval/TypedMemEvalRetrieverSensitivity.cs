@@ -143,18 +143,36 @@ internal static class TypedMemEvalRetrieverSensitivity
 
         foreach (var (shape, sensitivity) in shapes.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
-            var verdict = sensitivity.Discriminates
-                ? "ranks under dense"
-                : "⛔ NON-RANKING FOR US — dense retrieval cannot separate systems on this shape";
+            // THE PUBLISHED VERDICT LEADS. `discriminates_under_dense` answers a narrower question --
+            // can this shape separate two systems under a dense retriever at all -- and a shape can
+            // clear it while still moving a long way between retrievers. Printing only that flag is
+            // how a retriever-sensitive shape reads as safely rankable, which is the exact mistake
+            // that put six shapes in the wrong class here before `retriever_agreement` was published.
+            var verdict = sensitivity.Agreement switch
+            {
+                DenseRankingClass.Robust =>
+                    "ROBUST-RANKING — discriminates under both published retrievers",
+                DenseRankingClass.RetrieverSensitive =>
+                    "⚠ RETRIEVER-SENSITIVE — the verdict moves with the embedder; never load-bearing alone",
+                DenseRankingClass.NonRanking =>
+                    "⛔ NON-RANKING FOR US — dense retrieval cannot separate systems on this shape",
+                DenseRankingClass.NotApplicable =>
+                    "— NOT APPLICABLE — retrieval is undefined here (empty gold set), not merely unmeasured",
+                // Never reads as robust. An unreadable verdict is a reason to withhold, not to assume.
+                _ => "⛔ UNKNOWN — no published verdict could be read; NOT treated as robust",
+            };
 
             Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"typedmemeval: sensitivity {shape} — {verdict}"
-                + $" (headroom dense {Fmt(sensitivity.HeadroomDense)}, bm25 {Fmt(sensitivity.HeadroomBm25)})"));
+                + $" (dense {Describe(sensitivity.Discriminates)}, headroom dense {Fmt(sensitivity.HeadroomDense)}"
+                + $", second dense {Fmt(sensitivity.SecondDenseHeadroom)}, bm25 {Fmt(sensitivity.HeadroomBm25)})"));
         }
 
         static string Fmt(double? value) =>
             value is { } v ? v.ToString("F3", CultureInfo.InvariantCulture) : "?";
+
+        static string Describe(bool discriminates) => discriminates ? "discriminates" : "does not discriminate";
     }
 }
 

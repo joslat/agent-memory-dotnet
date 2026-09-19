@@ -457,6 +457,85 @@ public sealed class ScoreboardTests : IDisposable
         row.ShareOfAll.Should().BeApproximately(27 / 50.0, 1e-9);
     }
 
+    /// <summary>
+    /// The OF-REACHABLE column bands with the rest of the row.
+    /// </summary>
+    /// <remarks>
+    /// It is the same correct count over a smaller denominator, so it carries exactly the same
+    /// spread. Banding share-of-all while leaving this one at the head member's value printed one
+    /// honest number beside one that looked settled — and on the published temporal row the head's
+    /// of-reachable happened to equal the band MAXIMUM, which is the most flattering reading
+    /// available and the least defensible.
+    /// </remarks>
+    [Fact]
+    public void TheReachableColumnBandsWithTheRestOfTheRow()
+    {
+        Write("temporal", correct: 27, scored: 50, stamp: "a", started: "2026-09-15T01:00:00Z");
+        Write("temporal", correct: 29, scored: 50, stamp: "b", started: "2026-09-15T02:00:00Z");
+        Write("temporal", correct: 32, scored: 50, stamp: "c", started: "2026-09-15T03:00:00Z");
+
+        var row = Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "temporal");
+
+        row.BandMembers.Should().Be(3);
+        row.BandMeanReachable.Should().NotBeNull("of-reachable bands wherever share-of-all does");
+        row.BandMinReachable!.Value.Should().BeLessThan(row.BandMaxReachable!.Value);
+
+        // Asserted as a RATIO so the ceiling can be redrawn by the package without breaking this:
+        // share-of-reachable is correct/R, so mean/min collapses to a statement about the counts.
+        (row.BandMeanReachable!.Value / row.BandMinReachable.Value)
+            .Should().BeApproximately(((27 + 29 + 32) / 3.0) / 27, 1e-9);
+    }
+
+    /// <summary>
+    /// The RANKING column bands too, but only when every member produced a verdict.
+    /// </summary>
+    [Fact]
+    public void TheRankingColumnBandsWhenEveryMemberScored()
+    {
+        foreach (var (stamp, hour, correct) in new[] { ("a", "01", 3), ("b", "02", 6), ("c", "03", 9) })
+        {
+            Write("conjunction", correct: correct, scored: 65, stamp: stamp,
+                started: $"2026-09-15T{hour}:00:00Z",
+                shapes: new() { ["alias-then-count"] = (N: 15, Correct: correct) });
+        }
+
+        var row = Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "conjunction");
+
+        row.BandMembers.Should().Be(3);
+        row.BandMeanRanking.Should().BeApproximately((3 + 6 + 9) / 45.0, 1e-9);
+        row.BandMinRanking.Should().BeApproximately(3 / 15.0, 1e-9);
+        row.BandMaxRanking.Should().BeApproximately(9 / 15.0, 1e-9);
+    }
+
+    /// <summary>
+    /// A member with no ranking verdict collapses the ranking band rather than being skipped.
+    /// </summary>
+    /// <remarks>
+    /// Dropping it would report a spread narrower than the evidence supports — the band would be
+    /// computed over the members that happened to agree. Narrower-than-true is the one direction a
+    /// band must never err in, because it is the direction that makes a difference look real.
+    /// </remarks>
+    [Fact]
+    public void TheRankingBandCollapsesWhenAMemberHasNoVerdict()
+    {
+        Write("semantic", correct: 5, scored: 30, stamp: "a", started: "2026-09-15T01:00:00Z",
+            shapes: new() { ["co-reference"] = (N: 15, Correct: 5) });
+        Write("semantic", correct: 9, scored: 30, stamp: "b", started: "2026-09-15T02:00:00Z",
+            shapes: new() { ["co-reference"] = (N: 15, Correct: 9) });
+
+        // Same measurement by every field the band checks, but every one of ITS shapes is
+        // non-ranking, so it has no ranking score to contribute.
+        Write("semantic", correct: 15, scored: 30, stamp: "c", started: "2026-09-15T03:00:00Z",
+            shapes: new() { ["source-attribution"] = (N: 15, Correct: 15) });
+
+        var row = Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic");
+
+        row.BandMembers.Should().Be(3, "it is the same measurement by every field that decides that");
+        row.BandMeanShare.Should().NotBeNull("share-of-all is defined for all three");
+        row.BandMeanRanking.Should().BeNull(
+            "one member has no ranking verdict, so there is no ranking band to report");
+    }
+
     /// <summary>Ordinary ingestion drift still bands: the test is materiality, not equality.</summary>
     [Fact]
     public void SmallStoreDriftStillBands()

@@ -337,6 +337,20 @@ internal static class TypedMemEvalScoreboard
 
         var ranking = RankingOnly(run, sensitivity);
 
+        var banded = band.Count > 1;
+
+        double[]? reachableBand = banded && ceiling is { ReachableQuestions: > 0 } bandCeiling
+            ? [.. band.Select(m => bandCeiling.ShareOfReachable(m.CorrectQuestions))]
+            : null;
+        var bandedReachable = reachableBand is not null;
+
+        var memberRankings = banded
+            ? band.Select(m => RankingOnly(m, sensitivity)).ToArray()
+            : [];
+        var bandedRanking = memberRankings.Length > 1
+            && Array.TrueForAll(memberRankings, r => r.State == RankingState.Scored);
+        double[]? rankingBand = bandedRanking ? [.. memberRankings.Select(r => r.Score)] : null;
+
         return new ScoreboardRow(
             Vertical: slug,
             State: RowState.Placed,
@@ -348,10 +362,28 @@ internal static class TypedMemEvalScoreboard
             Reason: null)
         {
             BandMembers = band.Count,
-            BandMinShare = band.Count > 1 ? band.Min(m => (double)m.CorrectQuestions / m.ScoredQuestions) : null,
-            BandMaxShare = band.Count > 1 ? band.Max(m => (double)m.CorrectQuestions / m.ScoredQuestions) : null,
-            BandMeanShare = band.Count > 1 ? band.Average(m => (double)m.CorrectQuestions / m.ScoredQuestions) : null,
+            BandMinShare = banded ? band.Min(Share) : null,
+            BandMaxShare = banded ? band.Max(Share) : null,
+            BandMeanShare = banded ? band.Average(Share) : null,
+
+            // EVERY COLUMN BANDS, OR THE BAND LIES BY OMISSION. Banding share-of-all while leaving
+            // the other two at the head member's value prints one honest number beside two that
+            // look settled and are not -- and of-reachable is the same correct count over a smaller
+            // denominator, so it carries exactly the same spread. Members share a corpus sha, so
+            // they share a ceiling and a sensitivity map; the aggregation is defined.
+            BandMinReachable = bandedReachable ? reachableBand!.Min() : null,
+            BandMaxReachable = bandedReachable ? reachableBand!.Max() : null,
+            BandMeanReachable = bandedReachable ? reachableBand!.Average() : null,
+
+            // Ranking bands only when EVERY member produced a score. A band that silently skipped
+            // the members whose ranking verdict was unknown would report a narrower spread than the
+            // evidence supports, which is the failure this whole column exists to prevent.
+            BandMinRanking = bandedRanking ? rankingBand!.Min() : null,
+            BandMaxRanking = bandedRanking ? rankingBand!.Max() : null,
+            BandMeanRanking = bandedRanking ? rankingBand!.Average() : null,
         };
+
+        static double Share(RunArtifacts m) => (double)m.CorrectQuestions / m.ScoredQuestions;
     }
 
     /// <summary>
@@ -525,8 +557,8 @@ internal static class TypedMemEvalScoreboard
             RowState.OffState => $"  {name}  — ⛔ OFF-STATE: {row.Reason}",
             _ => string.Create(
                 CultureInfo.InvariantCulture,
-                $"  {name}  {Share(row),-30}   {Pct(row.ShareOfReachable),12}   "
-                + $"{Ranking(row.Ranking),-34}  {Short(row.Run!.Value.CorpusSha256)}"),
+                $"  {name}  {Share(row),-30}   {Reachable(row),-26}   "
+                + $"{Ranking(row),-34}  {Short(row.Run!.Value.CorpusSha256)}"),
         };
 
         static string Pct(double? value) =>
@@ -543,8 +575,22 @@ internal static class TypedMemEvalScoreboard
                     $"{mean:P1} [{row.BandMinShare!.Value:P1}-{row.BandMaxShare!.Value:P1}] n={row.BandMembers}")
                 : $"{Pct(row.ShareOfAll)} n=1";
 
-        static string Ranking(RankingOnlyScore ranking)
+        // Of-reachable is the SAME correct count over a smaller denominator, so it inherits the
+        // spread exactly. Printing it bare beside a banded share-of-all was the inconsistency that
+        // let a head member's number read as the settled one.
+        static string Reachable(ScoreboardRow row) =>
+            row.BandMembers > 1 && row.BandMeanReachable is { } mean
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{mean:P1} [{row.BandMinReachable!.Value:P1}-{row.BandMaxReachable!.Value:P1}]")
+                : row.ShareOfReachable is null
+                    ? "NOT KNOWN"
+                    : $"{Pct(row.ShareOfReachable)}{(row.BandMembers > 1 ? " (head)" : " n=1")}";
+
+        static string Ranking(ScoreboardRow row)
         {
+            var ranking = row.Ranking;
+
             // The sensitive tail is APPENDED, never merged. A reader must be able to see that a
             // vertical's robust score rests on two shapes while a third flips with the embedder.
             var tail = ranking.SensitiveShapes.Count == 0
@@ -557,9 +603,16 @@ internal static class TypedMemEvalScoreboard
             {
                 RankingState.Unknown => "UNKNOWN",
                 RankingState.NotRankable => $"⛔ NO ROBUST SHAPE{tail}",
-                _ => string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"{ranking.Score:P1} ({ranking.Correct}/{ranking.Scored}, {ranking.RankingShapes} robust)") + tail,
+                // Banded when every member scored; otherwise the head value, marked as such so it
+                // is never mistaken for the band.
+                _ => (row.BandMembers > 1 && row.BandMeanRanking is { } mean
+                    ? string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{mean:P1} [{row.BandMinRanking!.Value:P1}-{row.BandMaxRanking!.Value:P1}], {ranking.RankingShapes} robust")
+                    : string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{ranking.Score:P1} ({ranking.Correct}/{ranking.Scored}, {ranking.RankingShapes} robust)")
+                      + (row.BandMembers > 1 ? " (head)" : string.Empty)) + tail,
             };
         }
     }
@@ -665,6 +718,18 @@ internal readonly record struct ScoreboardRow(
     internal double? BandMaxShare { get; init; }
 
     internal double? BandMeanShare { get; init; }
+
+    internal double? BandMinReachable { get; init; }
+
+    internal double? BandMaxReachable { get; init; }
+
+    internal double? BandMeanReachable { get; init; }
+
+    internal double? BandMinRanking { get; init; }
+
+    internal double? BandMaxRanking { get; init; }
+
+    internal double? BandMeanRanking { get; init; }
 
     internal static ScoreboardRow NotPlaced(string vertical, string reason) =>
         new(vertical, RowState.NotPlaced, null, null, null, null, RankingOnlyScore.Unknown(), reason);

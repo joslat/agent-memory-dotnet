@@ -10,7 +10,6 @@
 /// </summary>
 internal static class TemporalQueries
 {
-    /// <summary>The owner/shared AsOf-search AND-clause for node alias <c>node</c>, or empty when unscoped (R1).</summary>
     /// <summary>
     /// D2. Prospective firing bounded by BOTH clocks — the point-in-time twin of
     /// <c>FactQueries.GetDueFacts</c>.
@@ -70,6 +69,7 @@ internal static class TemporalQueries
             : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
                             : " AND f.owner_id = $ownerId";
 
+    /// <summary>The owner/shared AsOf-search AND-clause for node alias <c>node</c>, or empty when unscoped (R1).</summary>
     private static string OwnerAnd(bool hasOwnerFilter, bool includeShared) =>
         !hasOwnerFilter ? string.Empty
         : includeShared ? "\n              AND (node.owner_id = $ownerId OR node.owner_id IS NULL)"
