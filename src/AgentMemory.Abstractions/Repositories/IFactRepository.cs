@@ -426,6 +426,53 @@ public interface IFactRepository
         Task.FromResult(ProspectiveDueResult.Empty);
 
     /// <summary>
+    /// E-1. Facts reachable from <paramref name="seedFactIds"/> through an entity carrying a declared
+    /// alias — the facts filed under a different name for the same thing.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to empty rather than delegating to an unaliased traversal. A store that cannot make
+    /// this join should return nothing and let the caller measure a feature that is off, because a
+    /// fallback that walked every <c>:ABOUT</c> edge would answer a different question — "facts
+    /// sharing a subject" rather than "facts about the same thing under another name" — and would do
+    /// it silently, which is how this codebase has produced numbers for features that never ran.
+    /// </remarks>
+    /// <param name="seedFactIds">The already-retrieved facts to expand from.</param>
+    /// <param name="limit">Hard cap on facts returned.</param>
+    /// <param name="scope">Isolation scope for the read.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<IReadOnlyList<Fact>> GetFactsSharingAliasedEntitiesAsync(
+        IReadOnlyList<string> seedFactIds,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
+    /// E-1, bitemporally. The point-in-time twin: facts reached through a declared alias that were
+    /// both BELIEVED and TRUE at the given instants.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the live overload rather than defaulting to it. Delegating would return facts the
+    /// system did not yet know at <paramref name="systemAsOf"/>, and the extra rows are
+    /// indistinguishable from ones the alias legitimately reached — which is the failure mode D2 was
+    /// built to prevent, and which this feature reproduced on its first cut.
+    /// </remarks>
+    /// <param name="seedFactIds">The already-retrieved facts to expand from.</param>
+    /// <param name="validAsOf">Valid-time clock — what was true in the world then.</param>
+    /// <param name="systemAsOf">Transaction-time clock — what the system believed then.</param>
+    /// <param name="limit">Hard cap on facts returned.</param>
+    /// <param name="scope">Isolation scope for the read.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<IReadOnlyList<Fact>> GetFactsSharingAliasedEntitiesAsOfAsync(
+        IReadOnlyList<string> seedFactIds,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
     /// Facts that became due in <c>(since, now]</c> and facts expiring within
     /// <paramref name="expiringWindow"/> (30.7).
     /// </summary>

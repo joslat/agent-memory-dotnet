@@ -210,6 +210,14 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
         // 1. Embed + upsert entities; build a name→persisted Entity map for relationship resolution.
         var persistedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
+
+        // COUNTED SEPARATELY FROM THE MAP, because E-1 made the map's keys and its entities two
+        // different quantities: it is keyed by name AND by every captured alias, so one entity with
+        // two names occupies two slots. Reporting the map's Count as the entity count would inflate
+        // ingestion telemetry by exactly the number of aliases captured -- and the store probes the
+        // alias measurement itself reads are built on these counts, so the feature would have
+        // corrupted the census meant to judge it.
+        var persistedEntityIds = new HashSet<string>(StringComparer.Ordinal);
         var entityInputs = prepared.Entities.Select(pair =>
         {
             var effectiveTrustLevel = MaxTrustLevel(pair.Value.Metadata.GetTrustLevel(), trustLevel);
@@ -223,6 +231,28 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         async Task RecordPersistedEntityAsync(string name, Entity persisted)
         {
             persistedEntityMap[name] = persisted;
+            persistedEntityIds.Add(persisted.EntityId);
+
+            // E-1. THE MAP IS WHAT DECIDES WHETHER A FACT FINDS ITS ENTITY, and it was keyed by the
+            // extracted NAME alone. So a store could hold an entity that knows "head office" is also
+            // "the Calderwick office" and still never link the facts phrased the second way --
+            // exactly the one-directional loss the alias census measured, where 14 of 15 answers
+            // undercounted and none ever over-counted.
+            //
+            // Unconditional on purpose: with no aliases captured this loop does nothing, so it
+            // cannot move any measurement taken before aliases existed. Whether aliases are captured
+            // at all is LlmExtractionOptions.CaptureIdentityAliases, one layer up.
+            //
+            // A NAME NEVER LOSES TO AN ALIAS. If two entities claim one string -- one as its name,
+            // one as an alias -- the name is the stronger claim and keeps the slot. TryAdd, not
+            // assignment, so the first alias to claim a free slot keeps it and ordering cannot
+            // silently decide which entity a fact attaches to.
+            foreach (var alias in persisted.Aliases)
+            {
+                if (!string.IsNullOrWhiteSpace(alias))
+                    persistedEntityMap.TryAdd(alias, persisted);
+            }
+
             RecordSuccess(outcomes, MemoryItemKind.Entity, name, persisted.EntityId);
 
             foreach (var msgId in ExplicitProvenanceMessageIds(_entityRepository, sourceMessageIds))
@@ -863,7 +893,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
         return new PersistenceResult
         {
-            EntityCount = persistedEntityMap.Count,
+            EntityCount = persistedEntityIds.Count,
             FactCount = persistedFactCount,
             PreferenceCount = persistedPrefCount,
             RelationshipCount = persistedRelCount,

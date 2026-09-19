@@ -734,6 +734,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // G5 "hard" tier: a relation returned whole, for the aggregation
                 // questions top-K structurally cannot answer.
                 ExpandFactsByPredicate = _options.ExpandFactsByPredicate,
+                // E-1. The read side of the alias: two hops over :ABOUT, restricted to entities
+                // that carry a declared alias. Similarity cannot cross an alias at all, so without
+                // this the aliased fact is never a candidate and no re-ranking can rescue it.
+                ExpandFactsByIdentity = _options.ExpandFactsByIdentity,
                 // J2.2: also expand on the relations the question itself names, for
                 // the multi-relation case top-K structurally cannot nominate.
                 ResolveQueryRelations = _options.ResolveQueryRelations,
@@ -2012,6 +2016,9 @@ public sealed record LongMemEvalAdapterOptions
 
     /// <summary>G5. Returns every fact sharing a retrieved fact's canonical predicate.</summary>
     public bool ExpandFactsByPredicate { get; init; }
+
+    /// <summary>E-1. Expand candidates across entities carrying a declared alias.</summary>
+    public bool ExpandFactsByIdentity { get; init; }
 
     /// <summary>Restricts recall to facts whose valid-time window contains the present.</summary>
     /// <remarks>

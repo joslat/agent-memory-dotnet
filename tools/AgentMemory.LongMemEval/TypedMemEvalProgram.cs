@@ -85,6 +85,14 @@ internal static class TypedMemEvalProgram
         // project's history has had structural re-ranking on. E-1 wrote the first 739 ABOUT edges;
         // the consumer that traverses them has still never been switched on.
         "--node-distance-rerank",
+        // E-1 (2026-09-19), and the ELEVENTH reachable-but-never-fed lever. The `aliases` field is
+        // REQUIRED by the extraction schema and plumbed end to end -- ExtractedEntity.Aliases ->
+        // Entity.Aliases -> GetByNameAsync(includeAliases) -- but the multi-session prompt's only
+        // example of it is `"aliases":[]`, so nothing ever told the model to fill it.
+        "--capture-identity-aliases",
+        // The READ side of the alias, and the hop the corpus actually needs: similarity cannot cross
+        // "the new flat" -> "the place on Ferrow Row" at all, because there is no similarity to find.
+        "--expand-by-identity",
         // THE NINTH (2026-09-16), and the PRECONDITION for the other two. `LlmExtractionOptions
         // .TemporalValidity` defaults to Ignore and this verb never set it, so NO fact in any run
         // this project has made carries valid_from -- probed live: 22 facts, 0 with valid_from.
@@ -159,6 +167,7 @@ internal static class TypedMemEvalProgram
                             linkFactsToEntities: options.LinkFactsToEntities,
                             nodeDistanceReranking: options.NodeDistanceReranking,
                             temporalValidity: options.TemporalValidity,
+                            captureIdentityAliases: options.CaptureIdentityAliases,
                             resolveSupersessions: options.ResolveSupersessions,
                             recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
@@ -260,6 +269,7 @@ internal static class TypedMemEvalProgram
                         // The levers this verb never fed. Defaults stay false, so an unflagged run
                         // is byte-identical to every sealed measurement before it.
                         ExpandFactsByPredicate = options.ExpandFactsByPredicate,
+                        ExpandFactsByIdentity = options.ExpandFactsByIdentity,
                         ResolveQueryRelations = options.ResolveQueryRelations,
                         MaxDerivedFacts = options.MaxDerivedFacts,
                         CurrentValidTimeOnly = options.CurrentValidTimeOnly,
@@ -289,6 +299,7 @@ internal static class TypedMemEvalProgram
             LongMemEvalFactObjectShape? objectShape = null;
             LongMemEvalSubjectAmbiguity? subjectAmbiguity = null;
             LongMemEvalPredicateDensity? predicateDensity = null;
+            LongMemEvalIdentityStore? identityStore = null;
             if (profile is not null && !options.Oracle)
             {
                 try
@@ -303,6 +314,8 @@ internal static class TypedMemEvalProgram
                         .ReadSubjectAmbiguityAsync(CancellationToken.None).ConfigureAwait(false);
                     predicateDensity = await storeProbe
                         .ReadPredicateDensityAsync(CancellationToken.None).ConfigureAwait(false);
+                    identityStore = await storeProbe
+                        .ReadIdentityStoreAsync(CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -318,13 +331,14 @@ internal static class TypedMemEvalProgram
             var destination = Persist(
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
-                renderSummary, supersessionStore);
+                renderSummary, supersessionStore, identityStore);
             PrintReachableCeiling(descriptor, result);
             TypedMemEvalRetrieverSensitivity.Print(descriptor);
             TypedMemEvalFloorReport.Print(result, options.Arm.FileToken());
             PrintPredicateDensity(predicateDensity);
             PrintExpansionYield(options, result);
             PrintGoldValueCoverage(goldValueProbe, probeRan: !options.Oracle);
+            PrintIdentityStore(options, identityStore);
             PrintSupersessionStore(supersessionStore);
             PrintObjectShape(objectShape);
             PrintSubjectAmbiguity(subjectAmbiguity);
@@ -371,7 +385,8 @@ internal static class TypedMemEvalProgram
         DateTimeOffset startedUtc,
         LongMemEvalVectorYieldSummary? vectorYield,
         LongMemEvalSupersessionRenderSummary? renderSummary,
-        LongMemEvalSupersessionStore? supersessionStore)
+        LongMemEvalSupersessionStore? supersessionStore,
+        LongMemEvalIdentityStore? identityStore)
     {
         // The arm is stamped into the FILENAME, not into the report body. The serialized type is
         // AgentEval's ExternalBenchmarkResult and its Options is their fixed record with no extension
@@ -396,7 +411,7 @@ internal static class TypedMemEvalProgram
 
         WriteProvenance(
             destination, arm, descriptor, options, runIndex, startedUtc, vectorYield, renderSummary,
-            supersessionStore);
+            supersessionStore, identityStore);
         return destination;
     }
 
@@ -425,7 +440,8 @@ internal static class TypedMemEvalProgram
         DateTimeOffset startedUtc,
         LongMemEvalVectorYieldSummary? vectorYield,
         LongMemEvalSupersessionRenderSummary? renderSummary,
-        LongMemEvalSupersessionStore? supersessionStore)
+        LongMemEvalSupersessionStore? supersessionStore,
+        LongMemEvalIdentityStore? identityStore)
     {
         // Built before the object rather than inline: an anonymous type inside a conditional has no
         // natural type to infer, so `condition ? null : new { ... }` does not compile. Hoisting it
@@ -467,6 +483,8 @@ internal static class TypedMemEvalProgram
             storeBlock = new
             {
                 supersededByEdges = supersessionStore.SupersededByEdges,
+                aliasedEntities = identityStore?.AliasedEntities,
+                aboutEdges = identityStore?.AboutEdges,
                 facts = supersessionStore.Facts,
                 invalidatedFacts = supersessionStore.InvalidatedFacts,
                 topPredicates = supersessionStore.TopPredicates
@@ -493,6 +511,8 @@ internal static class TypedMemEvalProgram
                 linkFactsToEntities = arm.LinkFactsToEntities,
                 nodeDistanceReranking = arm.NodeDistanceReranking,
                 temporalValidity = arm.TemporalValidity,
+                captureIdentityAliases = arm.CaptureIdentityAliases,
+                expandFactsByIdentity = arm.ExpandFactsByIdentity,
                 resolveSupersessions = arm.ResolveSupersessions,
                 factWeightedBudget = arm.FactWeightedBudget,
                 schemaExtensions = arm.Phase30.Extensions,
@@ -893,6 +913,48 @@ internal static class TypedMemEvalProgram
     }
 
     /// <summary>
+    /// E-1. Announces what the store holds on the identity axis, loudly when the arm asked for
+    /// aliases and got none.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the line that decides whether the rest of the run means anything.</b> Identity
+    /// expansion traverses only entities carrying a declared alias; with zero of them the hop is
+    /// inert and the arm measures its own off-state — the exact condition arms B and C each paid
+    /// ~5.7h to discover. It is printed for every arm, because a zero is the expected and correct
+    /// state where aliases were not requested, and only a warning where they were.
+    /// </remarks>
+    private static void PrintIdentityStore(
+        TypedMemEvalRunOptions options, LongMemEvalIdentityStore? store)
+    {
+        if (store is not { } identity) return;
+
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"typedmemeval: identity store — {identity.AliasedEntities} of {identity.Entities} " +
+            $"entity(ies) carry an alias, {identity.AboutEdges} :ABOUT edge(s)"));
+
+        foreach (var sample in identity.Samples)
+            Console.WriteLine($"typedmemeval:   alias — {sample.Trim()}");
+
+        if (options.CaptureIdentityAliases && identity.AliasedEntities == 0)
+        {
+            Console.Error.WriteLine(
+                "typedmemeval: ⛔ OFF-STATE — this arm asked for identity capture and the store holds "
+                + "NO aliased entity. The expansion hop traverses only aliased entities, so it "
+                + "followed nothing: any score below is this feature switched off, not this feature "
+                + "measured. Record it as the cannot-capture finding rather than as a result.");
+        }
+
+        if (options.ExpandFactsByIdentity && identity.AboutEdges == 0)
+        {
+            Console.Error.WriteLine(
+                "typedmemeval: ⛔ OFF-STATE — the hop was requested and the store holds NO :ABOUT "
+                + "edge, so there is nothing to traverse. --expand-by-identity needs "
+                + "--link-fact-entities.");
+        }
+    }
+
+    /// <summary>
     /// Announces the render-state gate at the console, loudly when it fails.
     /// </summary>
     /// <remarks>
@@ -1031,7 +1093,9 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--prospective-firing") >= 0,
             Array.IndexOf(args, "--link-fact-entities") >= 0,
             Array.IndexOf(args, "--node-distance-rerank") >= 0,
-            Array.IndexOf(args, "--temporal-validity") >= 0);
+            Array.IndexOf(args, "--temporal-validity") >= 0,
+            Array.IndexOf(args, "--capture-identity-aliases") >= 0,
+            Array.IndexOf(args, "--expand-by-identity") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1233,7 +1297,14 @@ internal static class TypedMemEvalProgram
         // The read side of the identity edge; only informative together with LinkFactsToEntities.
         bool NodeDistanceReranking = false,
         // Ingestion lever, and the precondition for firing and for valid-time filtering alike.
-        bool TemporalValidity = false)
+        bool TemporalValidity = false,
+        // E-1 INGESTION lever: it changes what extraction records, so an arm carrying it is a
+        // different store and may never be banded with one that does not.
+        bool CaptureIdentityAliases = false,
+        // E-1 READ lever. Requires both of the above to mean anything: the hop walks :ABOUT (so it
+        // needs --link-fact-entities) and only through entities carrying an alias (so it needs
+        // --capture-identity-aliases). The whole intervention is all three together.
+        bool ExpandFactsByIdentity = false)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1246,6 +1317,7 @@ internal static class TypedMemEvalProgram
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
                 MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities,
-                NodeDistanceReranking, TemporalValidity);
+                NodeDistanceReranking, TemporalValidity, CaptureIdentityAliases,
+                ExpandFactsByIdentity);
     }
 }

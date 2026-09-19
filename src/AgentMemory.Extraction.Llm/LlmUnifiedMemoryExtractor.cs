@@ -62,7 +62,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
         var results = await _runner.RunAsync(
             BuildSystemPrompt(
                 _options.AssistantContent, _options.EntityTypes, _options.TemporalValidity,
-                _options.Provenance)
+                _options.Provenance, _options.CaptureIdentityAliases)
                 // Appended only when context is actually present, so a context-free prompt stays
                 // byte-for-byte what every sealed measurement was taken under (E2).
                 + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
@@ -174,7 +174,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
         AssistantContentMode assistantContent,
         IReadOnlyList<string> entityTypes,
         TemporalValidityMode temporalValidity,
-        ExtractionProvenanceMode provenance)
+        ExtractionProvenanceMode provenance,
+        bool captureIdentityAliases = false)
     {
         var types = entityTypes is { Count: > 0 } ? entityTypes : LlmEntityExtractor.DefaultEntityTypes;
         return SystemPromptPrefix
@@ -182,6 +183,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
             + SystemPromptSuffix
             + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
             + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity)
-            + ExtractionPromptSemantics.ProvenanceInstruction(provenance);
+            + ExtractionPromptSemantics.ProvenanceInstruction(provenance)
+            + ExtractionPromptSemantics.IdentityAliasInstruction(captureIdentityAliases);
     }
 }

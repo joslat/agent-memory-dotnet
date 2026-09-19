@@ -69,6 +69,35 @@ public sealed class LlmExtractionOptions
     public TemporalValidityMode TemporalValidity { get; set; } = TemporalValidityMode.Ignore;
 
     /// <summary>
+    /// Records identities the conversation <b>states</b> — "the new flat is the place on Ferrow Row"
+    /// — as aliases on the entity, so two surface names for one referent become one entity (E-1).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is capture, not inference.</b> <c>ExtractionOptions.LinkFactsToEntities</c>'s remarks say alias
+    /// resolution is a separate thing this codebase had not built; measuring the corpus showed that
+    /// the hard version of it is not what the questions need. Every alias case in the conjunction
+    /// vertical declares itself in a gold session, in as many words: <i>"Head office is the
+    /// Calderwick office."</i> Nothing has to be guessed from name similarity — which could never
+    /// work anyway, since those two strings are no more alike than any other pair.
+    /// </para>
+    /// <para>
+    /// <b>The field was plumbed end to end and never fed.</b> <c>ExtractedEntity.Aliases</c> flows
+    /// into <c>Entity.Aliases</c>, resolution merges them, and <c>GetByNameAsync</c> matches them —
+    /// but the multi-session prompt's only example is <c>"aliases":[]</c>, immediately under "use
+    /// empty arrays when a category has no supported memory", and nothing anywhere tells the model
+    /// what an alias is. The per-kind extractor says "Include aliases when mentioned"; the batch
+    /// extractor the benchmark actually runs says nothing. One instruction, two rungs, and the
+    /// measured one was the silent rung.
+    /// </para>
+    /// <para>
+    /// Off by default: it changes what ingestion records, and every measurement on record was taken
+    /// without it.
+    /// </para>
+    /// </remarks>
+    public bool CaptureIdentityAliases { get; set; }
+
+    /// <summary>
     /// How precisely a stored fact or preference is bound to the turn that stated it.
     /// </summary>
     /// <remarks>

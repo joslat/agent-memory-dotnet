@@ -604,6 +604,81 @@ internal static class FactQueries
         + DeltaOwner(hasOwnerFilter, includeShared) + @"
             RETURN f ORDER BY f.valid_until ASC LIMIT $limit";
 
+    // ── Identity expansion (E-1) ───────────────────────────────────────
+
+    /// <summary>
+    /// E-1. Facts reachable from the seed facts through an entity that carries a <b>declared alias</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two hops, both over <c>:ABOUT</c>: seed fact → entity → the entity's other facts. This is the
+    /// join similarity cannot make, because the two surface names share no text to be similar on.
+    /// </para>
+    /// <para>
+    /// <b><c>e.aliases</c> being non-empty is the whole filter, and it is doing the real work.</b>
+    /// Without it this walks every <c>:ABOUT</c> edge and returns facts related by nothing more than
+    /// a shared subject — which is what the node-distance re-ranker did over these same edges, and it
+    /// measurably displaced better evidence. An alias is only ever written when a turn SAID two names
+    /// were one thing, so this traverses asserted identity and not incidental adjacency.
+    /// </para>
+    /// <para>
+    /// <c>DISTINCT</c> because two seeds commonly reach the same entity, and the seeds themselves are
+    /// excluded: they are already in the caller's list, and returning them again would spend the
+    /// expansion budget re-delivering what retrieval had.
+    /// </para>
+    /// </remarks>
+    public static string GetFactsSharingAliasedEntities(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (seed:Fact)-[:ABOUT]->(e:Entity)<-[:ABOUT]-(f:Fact)
+            WHERE seed.id IN $seedFactIds
+              AND NOT f.id IN $seedFactIds
+              AND e.aliases IS NOT NULL AND size(e.aliases) > 0
+              AND f.invalidated_at IS NULL"
+        + DeltaOwner(hasOwnerFilter, includeShared)
+        // EVERY NODE ON THE PATH IS SCOPED, not just the one returned. Scoping only `f` leaves the
+        // seed and the bridge entity unrestricted, so a caller passing a seed id from another owner
+        // could traverse that owner's private entity to reach facts. The repository takes seed ids as
+        // an argument, so "our own caller only ever passes its own facts" is a property of today's
+        // call site and not of the contract. A join is exactly where an owner boundary has to be
+        // re-asserted rather than assumed.
+        + DeltaOwner(hasOwnerFilter, includeShared, alias: "seed")
+        + DeltaOwner(hasOwnerFilter, includeShared, alias: "e") + @"
+            RETURN DISTINCT f LIMIT $limit";
+
+    /// <summary>
+    /// E-1, bitemporally. The point-in-time twin of <see cref="GetFactsSharingAliasedEntities"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The live overload judges belief by <c>invalidated_at IS NULL</c> — "believed NOW". Reusing it
+    /// from a point-in-time recall returns facts the system did not yet know, or had already retracted,
+    /// and does so silently: the extra rows look exactly like facts the alias legitimately reached.
+    /// </para>
+    /// <para>
+    /// <b>This is the same defect D2 exists to prevent, on a new path.</b> The firing query needed its
+    /// own as-of twin for exactly this reason, and the first cut of identity expansion wired the LIVE
+    /// query into <c>AssembleContextAsOfAsync</c> anyway. The predicates below are deliberately the
+    /// same two as <see cref="TemporalQueries.SearchFactsAsOf"/>, in the same order, so a fact's
+    /// eligibility cannot depend on which half of the recall reached it.
+    /// </para>
+    /// <para>
+    /// Valid time bounds the fact as well: a fact whose validity opens after the as-of instant, or
+    /// closed before it, was not true then and an alias does not make it so.
+    /// </para>
+    /// </remarks>
+    public static string GetFactsSharingAliasedEntitiesAsOf(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (seed:Fact)-[:ABOUT]->(e:Entity)<-[:ABOUT]-(f:Fact)
+            WHERE seed.id IN $seedFactIds
+              AND NOT f.id IN $seedFactIds
+              AND e.aliases IS NOT NULL AND size(e.aliases) > 0
+              AND f.created_at <= datetime($systemAsOf)
+              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($systemAsOf))
+              AND (f.valid_from IS NULL OR f.valid_from <= datetime($validAsOf))
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($validAsOf))"
+        + DeltaOwner(hasOwnerFilter, includeShared)
+        + DeltaOwner(hasOwnerFilter, includeShared, alias: "seed")
+        + DeltaOwner(hasOwnerFilter, includeShared, alias: "e") + @"
+            RETURN DISTINCT f LIMIT $limit";
+
     // ── Delta recall (30.5) ────────────────────────────────────────────
 
     /// <summary>

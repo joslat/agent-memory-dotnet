@@ -1,3 +1,4 @@
+using System.Diagnostics;
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -719,6 +720,12 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 tracesScoredTask ?? (Task)tracesTask,
             ];
 
+            // E-1. The identity hop is a SECOND round-trip that depends on the fact section, so it
+            // cannot be one of the sections raced above -- it does not exist until they return. Left
+            // unmeasured it would spend the caller's budget twice over, so the time already spent is
+            // measured here and the hop gets only what is left.
+            var budgetClock = recallOpts.LatencyBudget is null ? null : Stopwatch.StartNew();
+
             // Rank 13. With no budget this is the original unconditional wait, byte for byte.
             if (recallOpts.LatencyBudget is { } latencyBudget
                 && await WaitWithinBudgetAsync(sections, latencyBudget, cancellationToken).ConfigureAwait(false))
@@ -785,6 +792,11 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 facts = factResult.Facts;
                 factScores = factResult.Scored;
             }
+
+            facts = await ExpandByIdentityAsync(
+                facts, recallOpts, scope, cancellationToken,
+                remaining: Remaining(recallOpts.LatencyBudget, budgetClock))
+                .ConfigureAwait(false);
 
             if (tracesScoredTask is null)
             {
@@ -1280,11 +1292,16 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         }
         else
         {
-            // No predicate expansion on the point-in-time path, so unlike the live recall every fact here
-            // is scored and Items and Scored hold the same set.
+            // Predicate expansion does not run on the point-in-time path, so similarity accounts for
+            // every fact retrieved here. Identity expansion below can still append unscored ones, so
+            // Items and Scored are no longer guaranteed equal -- they were, before E-1.
             factScores = await factsScoredTask.ConfigureAwait(false);
             facts = factScores.Select(static scored => scored.Fact).ToArray();
         }
+
+        facts = await ExpandByIdentityAsync(
+            facts, recallOpts, scope, cancellationToken, (validAsOf, systemAsOf))
+            .ConfigureAwait(false);
 
         IReadOnlyList<ReasoningTrace> traces;
         if (tracesScoredTask is null)
@@ -1793,5 +1810,93 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         if (section.IsCompletedSuccessfully) return false;
         section = Task.FromResult(empty);
         return true;
+    }
+
+    /// <summary>
+    /// E-1. Widens the fact set with facts filed under another name for the same thing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Appended, never re-ranked. These facts arrive by traversing an asserted identity rather than by
+    /// similarity, so they carry no comparable score — exactly as predicate expansion's do — and
+    /// giving them a stand-in one would put a fabricated number into the ranking the diagnostics
+    /// report.
+    /// </para>
+    /// <para>
+    /// Shared by both recall paths on purpose. A retrieval semantic carried by the live path and not
+    /// its point-in-time twin is the defect shape this codebase has now paid for five times, most
+    /// recently when firing de-duplicated on one path and not the other.
+    /// </para>
+    /// </remarks>
+    /// <summary>What is left of a latency budget after the sections that raced against it.</summary>
+    /// <remarks>Null budget means unbudgeted, which stays unbudgeted — the pre-E-1 behaviour exactly.</remarks>
+    private static TimeSpan? Remaining(TimeSpan? budget, Stopwatch? clock) =>
+        budget is { } total && clock is not null ? total - clock.Elapsed : null;
+
+    private async Task<IReadOnlyList<Fact>> ExpandByIdentityAsync(
+        IReadOnlyList<Fact> facts,
+        RecallOptions recallOpts,
+        MemoryScope? scope,
+        CancellationToken cancellationToken,
+        (DateTimeOffset Valid, DateTimeOffset System)? asOf = null,
+        TimeSpan? remaining = null)
+    {
+        if (!recallOpts.ExpandFactsByIdentity || facts.Count == 0 || recallOpts.MaxIdentityExpandedFacts <= 0)
+            return facts;
+
+        // Budget already gone: do not start another query. A dropped expansion costs candidates,
+        // which is exactly what a latency budget is for -- unlike a dropped reminder, which is
+        // silence, and is why firing is deliberately NOT budgeted.
+        if (remaining is { } left && left <= TimeSpan.Zero) return facts;
+
+        var seedIds = facts.Select(static f => f.FactId).ToArray();
+
+        // AN ALIAS DOES NOT EXEMPT A FACT FROM TIME. The live overload judges belief by
+        // `invalidated_at IS NULL` -- "believed NOW" -- so reaching it from a point-in-time recall
+        // returns facts the system did not yet know, and the extra rows look exactly like ones the
+        // alias legitimately reached. The first cut of this feature did precisely that, which is the
+        // same defect D2 exists to prevent, reproduced on a new path a fortnight later.
+        using var expiry = remaining is { } budget
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : null;
+        expiry?.CancelAfter(remaining!.Value);
+        var token = expiry?.Token ?? cancellationToken;
+
+        IReadOnlyList<Fact> expanded;
+        try
+        {
+            expanded = await FetchAsync(token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (expiry is { IsCancellationRequested: true }
+                                                 && !cancellationToken.IsCancellationRequested)
+        {
+            // OUR timer, not the caller's cancellation: the two are told apart deliberately, because
+            // returning the un-expanded facts is correct for one and swallowing a real cancellation
+            // would be wrong for the other.
+            _logger.LogDebug("Identity expansion exceeded the remaining latency budget; skipped.");
+            return facts;
+        }
+
+        async Task<IReadOnlyList<Fact>> FetchAsync(CancellationToken ct) => asOf is { } clocks
+            ? await _longTerm.GetFactsSharingAliasedEntitiesAsOfAsync(
+                seedIds, clocks.Valid, clocks.System, recallOpts.MaxIdentityExpandedFacts, scope, ct)
+                .ConfigureAwait(false)
+            : await _longTerm.GetFactsSharingAliasedEntitiesAsync(
+                seedIds, recallOpts.MaxIdentityExpandedFacts, scope, ct)
+                .ConfigureAwait(false);
+
+        if (expanded.Count == 0) return facts;
+
+        // The query already excludes the seeds, but a repository is free to implement this any way it
+        // likes and a duplicated fact would be counted twice by exactly the aggregation questions this
+        // feature exists to answer.
+        var seen = new HashSet<string>(seedIds, StringComparer.Ordinal);
+        var widened = new List<Fact>(facts);
+        foreach (var fact in expanded)
+        {
+            if (seen.Add(fact.FactId)) widened.Add(fact);
+        }
+
+        return widened;
     }
 }

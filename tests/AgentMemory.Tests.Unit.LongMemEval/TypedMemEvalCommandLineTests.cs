@@ -235,6 +235,12 @@ public sealed class TypedMemEvalCommandLineTests
             // .TemporalValidity defaults to Ignore and this verb never set it, so no fact in any
             // run carries valid_from -- making both firing and valid-time filtering no-ops.
             ["--temporal-validity"] = "TemporalValidity",
+            // E-1. The eleventh dark lever and its reader. Two properties, not one: capture is an
+            // INGESTION change and the hop is a RETRIEVAL change, so an arm carrying only one of
+            // them measures a part that cannot work alone -- which is what the first three identity
+            // arms each did, one part at a time, for three null results.
+            ["--capture-identity-aliases"] = "CaptureIdentityAliases",
+            ["--expand-by-identity"] = "ExpandFactsByIdentity",
             // Stage 1 of the three-stage run protocol. Advertised, so it must be carried.
             ["--dry-run"] = "DryRun",
         };

@@ -92,6 +92,7 @@ public sealed class GraphRagWiringTests
         bool temporalValidity = false,
         bool resolveSupersessions = false,
         bool recallFanOut = false,
+        bool captureIdentityAliases = false,
         int? extractionSeed = null,
         PhaseThirtyFeatures? phase30 = null) =>
         LongMemEvalMemoryProfile.ConfigureServices(
@@ -115,6 +116,7 @@ public sealed class GraphRagWiringTests
                 temporalValidity: temporalValidity,
                 resolveSupersessions: resolveSupersessions,
                 recallFanOut: recallFanOut,
+                captureIdentityAliases: captureIdentityAliases,
                 phase30: phase30 ?? PhaseThirtyFeatures.AllOff,
                 graphRagIndexName: graphRagIndexName,
                 extractionSeed: extractionSeed)

@@ -803,6 +803,77 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<Fact>> GetFactsSharingAliasedEntitiesAsync(
+        IReadOnlyList<string> seedFactIds,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(seedFactIds);
+
+        // No seeds is not an empty traversal, it is no traversal: the query would match every aliased
+        // entity's facts with nothing anchoring them to the question.
+        if (seedFactIds.Count == 0 || limit <= 0) return Array.Empty<Fact>();
+
+        var hasOwner = scope?.OwnerId is not null;
+        var includeShared = scope?.IncludeShared ?? false;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["seedFactIds"] = seedFactIds.ToList(),
+            ["limit"] = limit,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await RunAliasHopAsync(
+            FactQueries.GetFactsSharingAliasedEntities(hasOwner, includeShared),
+            parameters, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Fact>> GetFactsSharingAliasedEntitiesAsOfAsync(
+        IReadOnlyList<string> seedFactIds,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(seedFactIds);
+        if (seedFactIds.Count == 0 || limit <= 0) return Array.Empty<Fact>();
+
+        var hasOwner = scope?.OwnerId is not null;
+        var includeShared = scope?.IncludeShared ?? false;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["seedFactIds"] = seedFactIds.ToList(),
+            ["limit"] = limit,
+            ["validAsOf"] = validAsOf.ToString("O", culture),
+            ["systemAsOf"] = systemAsOf.ToString("O", culture),
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await RunAliasHopAsync(
+            FactQueries.GetFactsSharingAliasedEntitiesAsOf(hasOwner, includeShared),
+            parameters, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Shared execution for the two alias-hop overloads, which differ only in their Cypher.</summary>
+    private async Task<IReadOnlyList<Fact>> RunAliasHopAsync(
+        string cypher, Dictionary<string, object?> parameters, CancellationToken cancellationToken)
+    {
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            // Embeddings are not fetched: these facts arrive by traversal rather than by similarity,
+            // so there is no score to carry and nothing downstream re-ranks them.
+            return (IReadOnlyList<Fact>)records
+                .Select(r => MapToFact(r["f"].As<INode>(), embedding: null)).ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? Array.Empty<Fact>();
+    }
+
+    /// <inheritdoc/>
     public async Task<ProspectiveDueResult> GetDueFactsAsync(
         DateTimeOffset since,
         DateTimeOffset now,

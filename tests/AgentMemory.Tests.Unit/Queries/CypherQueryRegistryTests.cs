@@ -159,6 +159,61 @@ public sealed class CypherQueryRegistryTests
                 "delta recall bounds on the same $since but is a different query");
     }
 
+    // ── E-1 identity expansion: method-built, therefore unattributed unless registered ──
+
+    /// <summary>
+    /// The identity hop is attributed, in every owner-scoping variant.
+    /// </summary>
+    /// <remarks>
+    /// Added because the firing family two commits earlier had exactly this hole, and a new
+    /// method-built query inherits it by default. The hop runs once per recall when the feature is
+    /// on, so an unattributed one would leave the hermetic gate's per-scenario query counts unable to
+    /// see a whole extra query.
+    /// </remarks>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void FingerprintFor_AttributesTheIdentityExpansionHop(bool hasOwner, bool includeShared) =>
+        CypherQueryRegistry
+            .FingerprintFor(FactQueries.GetFactsSharingAliasedEntities(hasOwner, includeShared))
+            .Should().Be("FactQueries.GetFactsSharingAliasedEntities");
+
+    /// <summary>
+    /// The live hop and its bitemporal twin are told apart.
+    /// </summary>
+    /// <remarks>
+    /// They share the traversal and differ only in the clocks, so one fingerprint covering both would
+    /// report a point-in-time read and a live one as the same query — erasing the distinction the
+    /// twin exists to make, in the telemetry that would be used to check it.
+    /// </remarks>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void FingerprintFor_TellsTheLiveAliasHopFromItsAsOfTwin(bool hasOwner, bool includeShared)
+    {
+        CypherQueryRegistry
+            .FingerprintFor(FactQueries.GetFactsSharingAliasedEntitiesAsOf(hasOwner, includeShared))
+            .Should().Be("FactQueries.GetFactsSharingAliasedEntitiesAsOf");
+
+        CypherQueryRegistry
+            .FingerprintFor(FactQueries.GetFactsSharingAliasedEntities(hasOwner, includeShared))
+            .Should().NotBe("FactQueries.GetFactsSharingAliasedEntitiesAsOf");
+    }
+
+    /// <summary>
+    /// It is not confused with the only other <c>:ABOUT</c> consumer.
+    /// </summary>
+    /// <remarks>
+    /// <c>NodeDistanceQueries</c> walks the same edge type, and is the traversal this feature
+    /// deliberately is NOT — collapsing the two into one fingerprint would report the harmful
+    /// adjacency hop and the identity hop as the same query.
+    /// </remarks>
+    [Fact]
+    public void FingerprintFor_DoesNotConfuseTheIdentityHopWithNodeDistance() =>
+        CypherQueryRegistry.FingerprintFor(NodeDistanceQueries.DistanceToCandidates)
+            .Should().NotBe("FactQueries.GetFactsSharingAliasedEntities");
+
     // ── No duplicate names ──
 
     [Fact]
