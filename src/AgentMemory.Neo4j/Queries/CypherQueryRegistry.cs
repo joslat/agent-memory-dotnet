@@ -100,6 +100,21 @@ internal static class CypherQueryRegistry
                 : "ReasoningQueries.SearchByTaskVector";
         }
 
+        // E-1 IDENTITY EXPANSION. Method-built like the firing family, so it reaches here with no
+        // constant to match -- and this file is where that was fixed for firing one commit ago, which
+        // is the only reason it was noticed for this one. An unattributed query is invisible to the
+        // per-scenario query counts the hermetic perf gate reads, and this hop adds a query per recall.
+        //
+        // The two-hop ABOUT pattern with the aliases guard is unique to it: nothing else in the
+        // codebase traverses (:Fact)-[:ABOUT]->(:Entity)<-[:ABOUT]-(:Fact), and the node-distance
+        // re-ranker -- the only other ABOUT consumer -- goes through shortestPath over a variable
+        // length pattern instead.
+        if (Has("(seed:Fact)-[:ABOUT]->(e:Entity)<-[:ABOUT]-(f:Fact)") &&
+            Has("size(e.aliases) > 0"))
+        {
+            return "FactQueries.GetFactsSharingAliasedEntities";
+        }
+
         // PROSPECTIVE FIRING -- all four shapes. Method-built like the delta family, so they arrive
         // here with no constant to match and, left unregistered, report as `unknown`. That costs the
         // per-scenario query attribution the hermetic perf gate reads, and the as-of pair is exactly

@@ -1845,5 +1845,4 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 
         return widened;
     }
-
 }
