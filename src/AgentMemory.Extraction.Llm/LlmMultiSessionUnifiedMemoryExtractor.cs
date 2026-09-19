@@ -338,7 +338,76 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         return projected.Single();
     }
 
-    private static IReadOnlyDictionary<string, UnifiedExtractionResult> ProjectAndValidate(
+    /// <summary>
+    /// Keeps only the aliases the conversation actually DECLARES — both names in one turn.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Measured, not anticipated.</b> The stage-1 probe captured two aliases. One was
+    /// <c>"Calderwick office" = "Head office"</c>, declared outright in a turn and exactly the pair
+    /// this feature exists for. The other was <c>"Thorne Bramkjar" = "Bram Thornevund"</c> — two
+    /// people whose names share components, and whom the corpus never once mentions in the same
+    /// sentence. The model invented it from resemblance, which the prompt forbids in as many words.
+    /// </para>
+    /// <para>
+    /// So the prompt is not where this can be enforced. The instruction is already explicit and was
+    /// overridden anyway, in the same shape as the anchored-validity failure where every link was
+    /// verified and the model still did as it pleased. <b>Co-occurrence in one turn is checkable in
+    /// code, and "the conversation said so" becomes a property of the text rather than a promise
+    /// about the model.</b>
+    /// </para>
+    /// <para>
+    /// ONE TURN, not one session: the declaration is a sentence ("the new flat is the place on
+    /// Ferrow Row"), and two names merely appearing in the same session are not a statement that
+    /// they are the same thing. Over-merging is the failure that cannot be undone — two distinct
+    /// referents recorded as one cannot be separated again — so the bar is set where the evidence
+    /// is, and a legitimate alias that fails it is simply captured later when it is stated again.
+    /// </para>
+    /// <para>
+    /// Unconditional: with no aliases emitted it filters nothing, and no measurement on record
+    /// contains a captured alias, so nothing sealed moves.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<string> SupportedAliases(
+        string name,
+        IReadOnlyList<string>? aliases,
+        string? sourceSession,
+        IReadOnlyDictionary<string, string[]> sessionText)
+    {
+        if (aliases is not { Count: > 0 }) return [];
+        if (sourceSession is null || !sessionText.TryGetValue(sourceSession, out var turns)) return [];
+
+        var kept = new List<string>(aliases.Count);
+        foreach (var alias in aliases)
+        {
+            if (string.IsNullOrWhiteSpace(alias)) continue;
+            // An entity "aliased" to its own name is noise, not an identity.
+            if (string.Equals(alias, name, StringComparison.OrdinalIgnoreCase)) continue;
+
+            // THE SENTENCE, NOT THE TURN. The turn was the first bar and it was measured to be too
+            // weak: the re-probe still captured "Thorne Bramkjar = Bram Thornevund", two people who
+            // never share a sentence anywhere in the corpus but do share these chatty turns, which
+            // name several people apiece. A declaration is a sentence -- "head office is the
+            // Calderwick office" -- so that is where the evidence has to be.
+            if (turns.Any(turn => Sentences(turn).Any(sentence =>
+                    sentence.Contains(name, StringComparison.OrdinalIgnoreCase) &&
+                    sentence.Contains(alias, StringComparison.OrdinalIgnoreCase))))
+            {
+                kept.Add(alias);
+            }
+        }
+
+        return kept;
+
+        // Split on terminators only. Not a linguistic sentence splitter and not trying to be: the
+        // question is whether two names sit in one assertion, and over-splitting errs towards
+        // REJECTING an alias, which is the safe direction. Two referents merged into one cannot be
+        // separated again; an alias missed here is captured the next time it is stated.
+        static IEnumerable<string> Sentences(string text) =>
+            text.Split(['.', '!', '?', ';'], StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    internal static IReadOnlyDictionary<string, UnifiedExtractionResult> ProjectAndValidate(
         LlmExtractionResponse response,
         IReadOnlyList<ExtractionRequest> batch)
     {
@@ -356,6 +425,11 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
             _ => new Accumulator(),
             StringComparer.Ordinal);
 
+        var sessionText = sourceSessions.ToDictionary(
+            item => item.Alias,
+            item => item.Request.Messages.Select(m => m.Content ?? string.Empty).ToArray(),
+            StringComparer.Ordinal);
+
         foreach (var item in response.Entities ?? [])
         {
             var target = GetAccumulator(results, item.SourceSession);
@@ -367,7 +441,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                     Subtype = item.Subtype,
                     Description = item.Description,
                     Confidence = item.Confidence,
-                    Aliases = item.Aliases,
+                    Aliases = SupportedAliases(item.Name, item.Aliases, item.SourceSession, sessionText),
                 });
         }
         foreach (var item in response.Facts ?? [])

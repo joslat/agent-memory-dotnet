@@ -299,6 +299,7 @@ internal static class TypedMemEvalProgram
             LongMemEvalFactObjectShape? objectShape = null;
             LongMemEvalSubjectAmbiguity? subjectAmbiguity = null;
             LongMemEvalPredicateDensity? predicateDensity = null;
+            LongMemEvalIdentityStore? identityStore = null;
             if (profile is not null && !options.Oracle)
             {
                 try
@@ -313,6 +314,8 @@ internal static class TypedMemEvalProgram
                         .ReadSubjectAmbiguityAsync(CancellationToken.None).ConfigureAwait(false);
                     predicateDensity = await storeProbe
                         .ReadPredicateDensityAsync(CancellationToken.None).ConfigureAwait(false);
+                    identityStore = await storeProbe
+                        .ReadIdentityStoreAsync(CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -328,13 +331,14 @@ internal static class TypedMemEvalProgram
             var destination = Persist(
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
-                renderSummary, supersessionStore);
+                renderSummary, supersessionStore, identityStore);
             PrintReachableCeiling(descriptor, result);
             TypedMemEvalRetrieverSensitivity.Print(descriptor);
             TypedMemEvalFloorReport.Print(result, options.Arm.FileToken());
             PrintPredicateDensity(predicateDensity);
             PrintExpansionYield(options, result);
             PrintGoldValueCoverage(goldValueProbe, probeRan: !options.Oracle);
+            PrintIdentityStore(options, identityStore);
             PrintSupersessionStore(supersessionStore);
             PrintObjectShape(objectShape);
             PrintSubjectAmbiguity(subjectAmbiguity);
@@ -381,7 +385,8 @@ internal static class TypedMemEvalProgram
         DateTimeOffset startedUtc,
         LongMemEvalVectorYieldSummary? vectorYield,
         LongMemEvalSupersessionRenderSummary? renderSummary,
-        LongMemEvalSupersessionStore? supersessionStore)
+        LongMemEvalSupersessionStore? supersessionStore,
+        LongMemEvalIdentityStore? identityStore)
     {
         // The arm is stamped into the FILENAME, not into the report body. The serialized type is
         // AgentEval's ExternalBenchmarkResult and its Options is their fixed record with no extension
@@ -406,7 +411,7 @@ internal static class TypedMemEvalProgram
 
         WriteProvenance(
             destination, arm, descriptor, options, runIndex, startedUtc, vectorYield, renderSummary,
-            supersessionStore);
+            supersessionStore, identityStore);
         return destination;
     }
 
@@ -435,7 +440,8 @@ internal static class TypedMemEvalProgram
         DateTimeOffset startedUtc,
         LongMemEvalVectorYieldSummary? vectorYield,
         LongMemEvalSupersessionRenderSummary? renderSummary,
-        LongMemEvalSupersessionStore? supersessionStore)
+        LongMemEvalSupersessionStore? supersessionStore,
+        LongMemEvalIdentityStore? identityStore)
     {
         // Built before the object rather than inline: an anonymous type inside a conditional has no
         // natural type to infer, so `condition ? null : new { ... }` does not compile. Hoisting it
@@ -477,6 +483,8 @@ internal static class TypedMemEvalProgram
             storeBlock = new
             {
                 supersededByEdges = supersessionStore.SupersededByEdges,
+                aliasedEntities = identityStore?.AliasedEntities,
+                aboutEdges = identityStore?.AboutEdges,
                 facts = supersessionStore.Facts,
                 invalidatedFacts = supersessionStore.InvalidatedFacts,
                 topPredicates = supersessionStore.TopPredicates
@@ -901,6 +909,48 @@ internal static class TypedMemEvalProgram
                 $"typedmemeval:   \"{pair.Subject}\" | {pair.PredicateKey} | " +
                 $"{pair.Objects.Count} distinct objects | {pair.DistinctEntities} entity(ies) " +
                 $"→ {string.Join(" / ", pair.Objects.Take(4))}");
+        }
+    }
+
+    /// <summary>
+    /// E-1. Announces what the store holds on the identity axis, loudly when the arm asked for
+    /// aliases and got none.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the line that decides whether the rest of the run means anything.</b> Identity
+    /// expansion traverses only entities carrying a declared alias; with zero of them the hop is
+    /// inert and the arm measures its own off-state — the exact condition arms B and C each paid
+    /// ~5.7h to discover. It is printed for every arm, because a zero is the expected and correct
+    /// state where aliases were not requested, and only a warning where they were.
+    /// </remarks>
+    private static void PrintIdentityStore(
+        TypedMemEvalRunOptions options, LongMemEvalIdentityStore? store)
+    {
+        if (store is not { } identity) return;
+
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"typedmemeval: identity store — {identity.AliasedEntities} of {identity.Entities} " +
+            $"entity(ies) carry an alias, {identity.AboutEdges} :ABOUT edge(s)"));
+
+        foreach (var sample in identity.Samples)
+            Console.WriteLine($"typedmemeval:   alias — {sample.Trim()}");
+
+        if (options.CaptureIdentityAliases && identity.AliasedEntities == 0)
+        {
+            Console.Error.WriteLine(
+                "typedmemeval: ⛔ OFF-STATE — this arm asked for identity capture and the store holds "
+                + "NO aliased entity. The expansion hop traverses only aliased entities, so it "
+                + "followed nothing: any score below is this feature switched off, not this feature "
+                + "measured. Record it as the cannot-capture finding rather than as a result.");
+        }
+
+        if (options.ExpandFactsByIdentity && identity.AboutEdges == 0)
+        {
+            Console.Error.WriteLine(
+                "typedmemeval: ⛔ OFF-STATE — the hop was requested and the store holds NO :ABOUT "
+                + "edge, so there is nothing to traverse. --expand-by-identity needs "
+                + "--link-fact-entities.");
         }
     }
 

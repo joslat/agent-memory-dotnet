@@ -44,6 +44,22 @@ internal interface ILongMemEvalGraphProbe
         => Task.FromResult(new LongMemEvalSupersessionStore(0, 0, 0, []));
 
     /// <summary>
+    /// E-1. What the store holds on the IDENTITY axis: aliases captured, and edges to follow them by.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the stage-1 falsifier, and it costs nothing.</b> Identity expansion traverses only
+    /// entities carrying a declared alias, so zero aliased entities means the hop has nothing to
+    /// follow and the arm is measuring an off-state — a fact a store query settles in milliseconds,
+    /// and which arms B and C each spent ~5.7h discovering the hard way.
+    /// <para>
+    /// The quantity did not exist before E-1: every store this project has built reports zero, because
+    /// the prompt's only example of the required <c>aliases</c> field was an empty array.
+    /// </para>
+    /// </remarks>
+    Task<LongMemEvalIdentityStore> ReadIdentityStoreAsync(CancellationToken cancellationToken)
+        => Task.FromResult(new LongMemEvalIdentityStore(0, 0, 0, []));
+
+    /// <summary>
     /// Classifies what actually sits in fact OBJECTS, to tell "stored at the wrong grain" from
     /// "never captured".
     /// </summary>
@@ -411,6 +427,47 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
         return new LongMemEvalSupersessionStore(edges, facts, invalidated, predicates);
     }
 
+    /// <inheritdoc/>
+    public async Task<LongMemEvalIdentityStore> ReadIdentityStoreAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var session = driver.AsyncSession();
+
+        return await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(IdentityStoreQuery).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
+            return new LongMemEvalIdentityStore(
+                record["entities"].As<int>(),
+                record["aliased"].As<int>(),
+                record["aboutEdges"].As<int>(),
+                record["samples"].As<List<object>>()
+                    .Select(value => value?.ToString() ?? string.Empty)
+                    .Where(value => value.Length > 0)
+                    .ToArray());
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Counts entities, aliased entities and <c>:ABOUT</c> edges, and samples the aliases themselves.
+    /// </summary>
+    /// <remarks>
+    /// The SAMPLES are the part that cannot be faked by a count. A non-zero aliased-entity number
+    /// says the model emitted something into the field; only reading the values says whether it
+    /// emitted an identity the conversation stated ("head office" / "the Calderwick office") or a
+    /// resemblance it invented — and inventing them is the over-merge failure the Goodhart guard
+    /// exists to catch, which a count alone would report as success.
+    /// </remarks>
+    private const string IdentityStoreQuery = @"
+        MATCH (e:Entity)
+        WITH count(e) AS entities,
+             count(CASE WHEN e.aliases IS NOT NULL AND size(e.aliases) > 0 THEN 1 END) AS aliased,
+             collect(CASE WHEN e.aliases IS NOT NULL AND size(e.aliases) > 0
+                          THEN e.name + ' = ' + reduce(a = '', x IN e.aliases | a + x + ' ') END) AS allSamples
+        OPTIONAL MATCH ()-[r:ABOUT]->(:Entity)
+        RETURN entities, aliased, count(r) AS aboutEdges,
+               [s IN allSamples WHERE s IS NOT NULL][..8] AS samples";
+
     public async Task<IReadOnlyDictionary<string, int>?> ReadRelationFactCountsAsync(
         string ownerId,
         IReadOnlyList<string> predicateKeys,
@@ -724,6 +781,28 @@ internal sealed record LongMemEvalSupersessionStore(
     int Facts,
     int InvalidatedFacts,
     IReadOnlyList<(string Predicate, int Count)> TopPredicates);
+
+/// <summary>E-1. What the store holds on the identity axis.</summary>
+/// <param name="Entities">Total entity nodes.</param>
+/// <param name="AliasedEntities">
+/// Entities carrying at least one declared alias. <b>Zero is the falsifier</b>: identity expansion
+/// traverses only these, so a zero here means the hop has nothing to follow and the arm measured an
+/// off-state, whatever its score says.
+/// </param>
+/// <param name="AboutEdges">
+/// <c>:ABOUT</c> edges, which the hop travels along. Aliases without edges is as inert as edges
+/// without aliases — the pair that arms B and C each had one half of.
+/// </param>
+/// <param name="Samples">
+/// A few aliases verbatim. A count says the model wrote something; only the values say whether it
+/// wrote an identity the conversation STATED or one it invented from resemblance, and the second is
+/// the over-merge failure a count alone would report as success.
+/// </param>
+internal sealed record LongMemEvalIdentityStore(
+    int Entities,
+    int AliasedEntities,
+    int AboutEdges,
+    IReadOnlyList<string> Samples);
 
 /// <summary>What kind of content reaches fact objects.</summary>
 /// <param name="AmountBearing">
