@@ -179,7 +179,7 @@ internal static class TypedMemEvalProgram
                     assembledResults.AddRange(await RunVerticalAsync(
                             vertical, options, answerChatClient, judgeChatClient, deployment, profile,
                             vectorYield,
-                            () => ProviderBuildsOf(
+                            TypedMemEvalProviderBuilds.StartVertical(
                                 answerChatClient, judgeChatClient, extractionChatClient))
                         .ConfigureAwait(false));
                 }
@@ -213,9 +213,9 @@ internal static class TypedMemEvalProgram
         string deployment,
         LongMemEvalMemoryProfile? profile,
         LongMemEvalVectorYieldListener? vectorYield,
-        // Deferred on purpose: the builds accumulate DURING the run, so a list captured before it
-        // started would record an empty set and the artifact would claim no build was reported.
-        Func<IReadOnlyList<string>> providerBuilds)
+        // Scoped to THIS vertical: the meters are created once and reused across an `all`
+        // invocation, so reading their totals here would report builds earlier verticals saw.
+        TypedMemEvalProviderBuilds providerBuilds)
     {
         var descriptor = TypedMemEvalVerticals.For(vertical);
 
@@ -337,7 +337,7 @@ internal static class TypedMemEvalProgram
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                 renderSummary, supersessionStore, identityStore,
-                providerBuilds());
+                providerBuilds.Snapshot());
             PrintReachableCeiling(descriptor, result);
             TypedMemEvalRetrieverSensitivity.Print(descriptor);
             TypedMemEvalFloorReport.Print(result, options.Arm.FileToken());
@@ -393,7 +393,7 @@ internal static class TypedMemEvalProgram
         LongMemEvalSupersessionRenderSummary? renderSummary,
         LongMemEvalSupersessionStore? supersessionStore,
         LongMemEvalIdentityStore? identityStore,
-        IReadOnlyList<string> providerBuilds)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? providerBuilds)
     {
         // The arm is stamped into the FILENAME, not into the report body. The serialized type is
         // AgentEval's ExternalBenchmarkResult and its Options is their fixed record with no extension
@@ -438,35 +438,6 @@ internal static class TypedMemEvalProgram
     /// options are recorded, which cannot contain a secret because no secret is ever a CLI argument.
     /// </para>
     /// </remarks>
-    /// <summary>
-    /// The distinct backend builds every metered client saw, sorted so the value is stable.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Answer, judge and extraction together, because all three shape a score and any of them
-    /// changing makes two runs incomparable. A run that saw more than one build is already suspect
-    /// and says so by carrying both.
-    /// </para>
-    /// <para>
-    /// <b>This is not a deployment name and not a secret.</b> The provider's
-    /// <c>system_fingerprint</c> identifies a backend BUILD, not an endpoint, an account or a
-    /// resource — which is why it can be written to an artifact that exists to be shared, while the
-    /// deployment name deliberately never is.
-    /// </para>
-    /// <para>
-    /// Empty when the provider reported nothing. Absence is recorded as absence: "no build was
-    /// reported" and "the build was X" are different facts, and a placeholder would let a report
-    /// claim a comparability it cannot support.
-    /// </para>
-    /// </remarks>
-    private static IReadOnlyList<string> ProviderBuildsOf(params LongMemEvalChatCallMeter?[] meters) =>
-        meters
-            .Where(meter => meter is not null)
-            .SelectMany(meter => meter!.Snapshot().ProviderBuilds.Keys)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(build => build, StringComparer.Ordinal)
-            .ToArray();
-
     private static void WriteProvenance(
         string reportPath,
         TypedMemEvalArm arm,
@@ -478,7 +449,7 @@ internal static class TypedMemEvalProgram
         LongMemEvalSupersessionRenderSummary? renderSummary,
         LongMemEvalSupersessionStore? supersessionStore,
         LongMemEvalIdentityStore? identityStore,
-        IReadOnlyList<string> providerBuilds)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? providerBuilds)
     {
         // Built before the object rather than inline: an anonymous type inside a conditional has no
         // natural type to infer, so `condition ? null : new { ... }` does not compile. Hoisting it
@@ -520,7 +491,7 @@ internal static class TypedMemEvalProgram
         // was harmless while the deployment never changed. It is not a name and not a secret: it is
         // the provider's `system_fingerprint`, which identifies a backend build rather than an
         // endpoint or an account.
-        var providerBuildBlock = providerBuilds.Count > 0 ? providerBuilds : null;
+        var providerBuildBlock = providerBuilds;
 
         object? storeBlock = null;
         if (supersessionStore is not null)

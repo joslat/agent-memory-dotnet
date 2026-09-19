@@ -207,8 +207,26 @@ internal static class TypedMemEvalScoreboard
     /// </para>
     /// </remarks>
     private static bool SameProviderBuild(
-        IReadOnlyList<string> candidate, IReadOnlyList<string> head) =>
-        candidate.Count > 0 && head.Count > 0 && candidate.SequenceEqual(head, StringComparer.Ordinal);
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? candidate,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? head)
+    {
+        // Unknown on either side is not agreement, and a role present in one run and absent from the
+        // other is a different configuration rather than a detail: answer and judge on one build with
+        // extraction on another is not the same system as the reverse, and a flattened comparison
+        // could not tell them apart.
+        if (candidate is null || head is null || candidate.Count != head.Count) return false;
+
+        foreach (var (role, builds) in candidate)
+        {
+            if (!head.TryGetValue(role, out var other)
+                || !builds.SequenceEqual(other, StringComparer.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private static bool ComparableStore(int? candidate, int? head) =>
         candidate is { } c && head is { } h && h > 0
@@ -268,16 +286,16 @@ internal static class TypedMemEvalScoreboard
                     ? edgeCount
                     : null;
 
-            // THE BACKEND BUILD THE ANSWERS CAME FROM. Absent reads as EMPTY, which is "no build was
-            // reported" -- deliberately not a value, so it can never be mistaken for agreement.
-            IReadOnlyList<string> providerBuilds =
-                sidecar.TryGetProperty("providerBuilds", out var builds)
-                && builds.ValueKind == JsonValueKind.Array
-                    ? [.. builds.EnumerateArray()
-                        .Where(item => item.ValueKind == JsonValueKind.String)
-                        .Select(item => item.GetString()!)
-                        .OrderBy(build => build, StringComparer.Ordinal)]
-                    : [];
+            // THE BACKEND BUILDS THIS RUN USED, BY ROLE. Null means unknown, and unknown is the
+            // only safe reading of anything that is not a well-formed map of role to string list:
+            // silently dropping a malformed entry would turn `["fp_a", 123]` into the valid identity
+            // `["fp_a"]` and let it band. The run's SCORE is still fine -- only its comparability is
+            // unaccounted for -- so the artifact stays placeable and simply never bands.
+            IReadOnlyDictionary<string, IReadOnlyList<string>>? providerBuilds = null;
+            if (sidecar.TryGetProperty("providerBuilds", out var builds))
+            {
+                providerBuilds = ReadProviderBuilds(builds);
+            }
 
             var reportPath = Path.Combine(Path.GetDirectoryName(sidecarPath)!, reportName);
             if (!File.Exists(reportPath)) return null;
@@ -294,9 +312,43 @@ internal static class TypedMemEvalScoreboard
         }
     }
 
+    /// <summary>
+    /// Reads the by-role build map, or null for anything that is not exactly one.
+    /// </summary>
+    /// <remarks>
+    /// Whole-field rejection, not element filtering. A reader that skipped the bad element would
+    /// manufacture a clean identity out of a damaged artifact, which is worse than admitting it
+    /// cannot tell — and the surrounding reader already treats a malformed sidecar as something it
+    /// declines to interpret rather than something it repairs.
+    /// </remarks>
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>>? ReadProviderBuilds(
+        JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return null;
+
+        var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var role in element.EnumerateObject())
+        {
+            if (role.Value.ValueKind != JsonValueKind.Array) return null;
+
+            var values = new List<string>();
+            foreach (var item in role.Value.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String) return null;
+                values.Add(item.GetString()!);
+            }
+
+            if (values.Count == 0) return null;
+            values.Sort(StringComparer.Ordinal);
+            result[role.Name] = values;
+        }
+
+        return result.Count > 0 ? result : null;
+    }
+
     private static RunArtifacts? Read(
         string slug, DateTimeOffset startedUtc, int? supersededByEdges, int? storeFacts,
-        IReadOnlyList<string> providerBuilds, JsonElement report)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? providerBuilds, JsonElement report)
     {
         if (!report.TryGetProperty("TypedOutcomes", out var outcomes) ||
             !report.TryGetProperty("Provenance", out var provenance))
@@ -845,7 +897,7 @@ internal readonly record struct RunArtifacts(
     /// all of which can match perfectly across two runs made by different models. A deployment
     /// changing under a fixed name is invisible to every other field here.
     /// </remarks>
-    internal IReadOnlyList<string> ProviderBuilds { get; init; } = [];
+    internal IReadOnlyDictionary<string, IReadOnlyList<string>>? ProviderBuilds { get; init; }
 }
 
 /// <summary>One shape's tally, as the typed outcomes record it.</summary>

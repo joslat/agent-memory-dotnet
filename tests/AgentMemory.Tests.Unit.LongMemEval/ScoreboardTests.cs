@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AgentEval.Memory.External.TypedMemEval;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
@@ -608,6 +609,46 @@ public sealed class ScoreboardTests : IDisposable
                 "neither run says which model produced it, so neither can be shown comparable");
     }
 
+    /// <summary>
+    /// A run whose ROLES saw different builds does not band, even when the set matches.
+    /// </summary>
+    /// <remarks>
+    /// Answer and judge on A with extraction on B, and the reverse, are different systems and both
+    /// flatten to the same set of two. Keeping the roles apart is what makes the field able to tell
+    /// them apart at all.
+    /// </remarks>
+    [Fact]
+    public void ARunWhoseRolesSawDifferentBuildsDoesNotBand()
+    {
+        Write("semantic", correct: 27, scored: 50, stamp: "a", started: "2026-09-15T01:00:00Z");
+        WriteRaw("semantic", correct: 45, scored: 50, stamp: "b", started: "2026-09-15T02:00:00Z",
+            providerBuilds: """{"answer":["fp_same_build"],"judge":["fp_other"]}""");
+
+        Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic")
+            .BandMembers.Should().Be(1, "the judge saw a different backend");
+    }
+
+    /// <summary>
+    /// A malformed build field reads as UNKNOWN, never as a repaired identity.
+    /// </summary>
+    /// <remarks>
+    /// Dropping the bad element would turn <c>["fp_a", 123]</c> into the valid identity
+    /// <c>["fp_a"]</c> and let a damaged artifact band. The run keeps its score — only its
+    /// comparability is unaccounted for.
+    /// </remarks>
+    [Fact]
+    public void AMalformedBuildFieldIsUnknownRatherThanRepaired()
+    {
+        Write("semantic", correct: 27, scored: 50, stamp: "a", started: "2026-09-15T01:00:00Z");
+        WriteRaw("semantic", correct: 45, scored: 50, stamp: "b", started: "2026-09-15T02:00:00Z",
+            providerBuilds: """{"answer":["fp_same_build",123]}""");
+
+        var row = Row(TypedMemEvalScoreboard.Assemble(_directory, "default"), "semantic");
+
+        row.BandMembers.Should().Be(1);
+        row.State.Should().Be(RowState.Placed, "the score is still sound; only comparability is not");
+    }
+
     /// <summary>Ordinary ingestion drift still bands: the test is materiality, not equality.</summary>
     [Fact]
     public void SmallStoreDriftStillBands()
@@ -623,6 +664,19 @@ public sealed class ScoreboardTests : IDisposable
 
     private static ScoreboardRow Row(Scoreboard scoreboard, string vertical) =>
         scoreboard.Rows.Single(row => row.Vertical == vertical);
+
+    /// <summary>Writes a sidecar with a hand-shaped <c>providerBuilds</c>, for the malformed cases.</summary>
+    private void WriteRaw(
+        string vertical, int correct, int scored, string stamp, string started, string providerBuilds)
+    {
+        Write(vertical, correct: correct, scored: scored, stamp: stamp, started: started);
+        var sidecarPath = Path.Combine(
+            _directory, $"typedmemeval-{vertical}-default-{stamp}.provenance.json");
+        var text = File.ReadAllText(sidecarPath);
+        var doc = JsonNode.Parse(text)!;
+        doc["providerBuilds"] = JsonNode.Parse(providerBuilds);
+        File.WriteAllText(sidecarPath, doc.ToJsonString());
+    }
 
     /// <summary>Writes a report and its provenance sidecar, the way a real run leaves them.</summary>
     private void Write(
@@ -691,7 +745,15 @@ public sealed class ScoreboardTests : IDisposable
             ["vertical"] = vertical,
             ["startedUtc"] = started,
             ["arm"] = new Dictionary<string, object?> { ["token"] = arm },
-            ["providerBuilds"] = providerBuild is null ? null : new[] { providerBuild },
+            // By role, as a real run writes it: a flat list cannot tell "answer on A, extraction on
+            // B" from its reverse, and those are different systems.
+            ["providerBuilds"] = providerBuild is null
+                ? null
+                : new Dictionary<string, object?>
+                {
+                    ["answer"] = new[] { providerBuild },
+                    ["judge"] = new[] { providerBuild },
+                },
             ["supersessionStore"] = new Dictionary<string, object?>
             {
                 ["supersededByEdges"] = supersededByEdges,
