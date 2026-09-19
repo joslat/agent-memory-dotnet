@@ -47,6 +47,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool linkFactsToEntities = false,
         bool nodeDistanceReranking = false,
         bool temporalValidity = false,
+        bool captureIdentityAliases = false,
+        bool expandFactsByIdentity = false,
         bool resolveSupersessions = false,
         // C-D finding (2026-09-05): RecallFanOutOptions.Enabled defaults false and NOTHING under
         // tools/ set it, so the feature built for multi-hop recall had never been switched on in a
@@ -94,6 +96,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     linkFactsToEntities,
                     nodeDistanceReranking,
                     temporalValidity,
+                    captureIdentityAliases,
+                    expandFactsByIdentity,
                     resolveSupersessions,
                     recallFanOut,
                     phase30 ?? PhaseThirtyFeatures.AllOff,
@@ -130,6 +134,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool linkFactsToEntities,
         bool nodeDistanceReranking,
         bool temporalValidity,
+        bool captureIdentityAliases,
+        bool expandFactsByIdentity,
         bool resolveSupersessions,
         bool recallFanOut,
         PhaseThirtyFeatures phase30,
@@ -164,6 +170,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             linkFactsToEntities,
             nodeDistanceReranking,
             temporalValidity,
+            captureIdentityAliases,
+            expandFactsByIdentity,
             resolveSupersessions,
             recallFanOut,
             phase30,
@@ -209,6 +217,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool linkFactsToEntities,
         bool nodeDistanceReranking,
         bool temporalValidity,
+        bool captureIdentityAliases,
+        bool expandFactsByIdentity,
         bool resolveSupersessions,
         bool recallFanOut,
         PhaseThirtyFeatures phase30,
@@ -252,6 +262,14 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.TemporalValidity = temporalValidity
                     ? TemporalValidityMode.Extract
                     : TemporalValidityMode.Ignore;
+                // E-1, and the ELEVENTH reachable-but-never-fed lever. `ExtractedEntity.Aliases`
+                // flows into `Entity.Aliases`, resolution merges them and `GetByNameAsync` matches
+                // them -- the field is plumbed end to end. What was missing is anything telling the
+                // model to fill it: the multi-session prompt's only example is `"aliases":[]`, right
+                // under "use empty arrays when a category has no supported memory". So every store
+                // this project has built records the corpus's stated identities -- "the new flat is
+                // the place on Ferrow Row" -- as ordinary prose and never as an alias.
+                options.CaptureIdentityAliases = captureIdentityAliases;
             }
             : null;
         services.AddNeo4jAgentMemory(

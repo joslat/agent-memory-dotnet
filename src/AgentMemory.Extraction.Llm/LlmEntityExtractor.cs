@@ -57,13 +57,10 @@ internal sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEnti
     {
         var conversationText = ConversationTextBuilder.BuildWindow(window, numbered: false);
         return await _runner.RunAsync(
-            (_options.EntityExtractionPrompt ?? BuildSystemPrompt(_options.EntityTypes))
+            (_options.EntityExtractionPrompt
+                 ?? BuildSystemPrompt(_options.EntityTypes, _options.CaptureIdentityAliases))
                 // Only when context is present, so a context-free prompt stays byte-identical (E2).
-                + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty)
-                // This rung's own prompt already says "include aliases when mentioned" — vaguer than
-                // the shared wording and, being different, the reason the two rungs could diverge at
-                // all. The shared instruction is appended so all three say the same thing.
-                + ExtractionPromptSemantics.IdentityAliasInstruction(_options.CaptureIdentityAliases),
+                + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract entities from this conversation:",
             conversationText,
             ProjectEntities,
@@ -76,7 +73,8 @@ internal sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEnti
     /// get their canonical descriptions; any custom type is listed with a generic descriptor. Newlines are
     /// normalized to LF so the output is stable regardless of source line endings.
     /// </summary>
-    internal static string BuildSystemPrompt(IReadOnlyList<string> entityTypes)
+    internal static string BuildSystemPrompt(
+        IReadOnlyList<string> entityTypes, bool captureIdentityAliases = false)
     {
         var types = entityTypes is { Count: > 0 } ? entityTypes : DefaultEntityTypes;
         var typeLines = string.Join("\n", types.Select(FormatTypeLine));
@@ -105,11 +103,17 @@ internal sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEnti
             - Return {"entities": []} if nothing found
             """;
 
+        // This rung's footer already says "include aliases when mentioned" -- vaguer than the shared
+        // wording, and being DIFFERENT wording is precisely how the three rungs came to disagree about
+        // what an alias is. The shared instruction is appended so all three say the same thing, and it
+        // appends nothing when the feature is off, leaving this prompt byte-identical to what every
+        // sealed measurement used.
         return string.Join("\n",
             header.Replace("\r\n", "\n"),
             typeLines,
             "",
-            footer.Replace("\r\n", "\n"));
+            footer.Replace("\r\n", "\n"))
+            + ExtractionPromptSemantics.IdentityAliasInstruction(captureIdentityAliases);
     }
 
     private static string FormatTypeLine(string type)

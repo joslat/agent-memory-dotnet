@@ -47,6 +47,25 @@ public sealed class IdentityAliasInstructionTests
             .Should().Be(capture);
     }
 
+    /// <summary>
+    /// The per-kind entity rung, threaded the same way — not appended at its call site.
+    /// </summary>
+    /// <remarks>
+    /// It took the instruction at the call site in the first cut of this change, which worked and was
+    /// still wrong: a semantic reachable through <c>BuildSystemPrompt</c> on two rungs and only through
+    /// a private call path on the third is a divergence waiting to happen, and it cannot be tested the
+    /// way its siblings are. Caught reviewing my own diff for exactly this shape.
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ThePerKindEntityRungCarriesTheSameInstruction(bool capture)
+    {
+        LlmEntityExtractor.BuildSystemPrompt(LlmEntityExtractor.DefaultEntityTypes, capture)
+            .Contains("STATES that two names refer to one thing", StringComparison.Ordinal)
+            .Should().Be(capture);
+    }
+
     /// <summary>The unified rung is not allowed to differ from the batch one.</summary>
     [Theory]
     [InlineData(true)]

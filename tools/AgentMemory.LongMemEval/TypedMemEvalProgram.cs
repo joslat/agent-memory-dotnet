@@ -85,6 +85,14 @@ internal static class TypedMemEvalProgram
         // project's history has had structural re-ranking on. E-1 wrote the first 739 ABOUT edges;
         // the consumer that traverses them has still never been switched on.
         "--node-distance-rerank",
+        // E-1 (2026-09-19), and the ELEVENTH reachable-but-never-fed lever. The `aliases` field is
+        // REQUIRED by the extraction schema and plumbed end to end -- ExtractedEntity.Aliases ->
+        // Entity.Aliases -> GetByNameAsync(includeAliases) -- but the multi-session prompt's only
+        // example of it is `"aliases":[]`, so nothing ever told the model to fill it.
+        "--capture-identity-aliases",
+        // The READ side of the alias, and the hop the corpus actually needs: similarity cannot cross
+        // "the new flat" -> "the place on Ferrow Row" at all, because there is no similarity to find.
+        "--expand-by-identity",
         // THE NINTH (2026-09-16), and the PRECONDITION for the other two. `LlmExtractionOptions
         // .TemporalValidity` defaults to Ignore and this verb never set it, so NO fact in any run
         // this project has made carries valid_from -- probed live: 22 facts, 0 with valid_from.
@@ -159,6 +167,8 @@ internal static class TypedMemEvalProgram
                             linkFactsToEntities: options.LinkFactsToEntities,
                             nodeDistanceReranking: options.NodeDistanceReranking,
                             temporalValidity: options.TemporalValidity,
+                            captureIdentityAliases: options.CaptureIdentityAliases,
+                            expandFactsByIdentity: options.ExpandFactsByIdentity,
                             resolveSupersessions: options.ResolveSupersessions,
                             recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
@@ -260,6 +270,7 @@ internal static class TypedMemEvalProgram
                         // The levers this verb never fed. Defaults stay false, so an unflagged run
                         // is byte-identical to every sealed measurement before it.
                         ExpandFactsByPredicate = options.ExpandFactsByPredicate,
+                        ExpandFactsByIdentity = options.ExpandFactsByIdentity,
                         ResolveQueryRelations = options.ResolveQueryRelations,
                         MaxDerivedFacts = options.MaxDerivedFacts,
                         CurrentValidTimeOnly = options.CurrentValidTimeOnly,
@@ -493,6 +504,8 @@ internal static class TypedMemEvalProgram
                 linkFactsToEntities = arm.LinkFactsToEntities,
                 nodeDistanceReranking = arm.NodeDistanceReranking,
                 temporalValidity = arm.TemporalValidity,
+                captureIdentityAliases = arm.CaptureIdentityAliases,
+                expandFactsByIdentity = arm.ExpandFactsByIdentity,
                 resolveSupersessions = arm.ResolveSupersessions,
                 factWeightedBudget = arm.FactWeightedBudget,
                 schemaExtensions = arm.Phase30.Extensions,
@@ -1031,7 +1044,9 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--prospective-firing") >= 0,
             Array.IndexOf(args, "--link-fact-entities") >= 0,
             Array.IndexOf(args, "--node-distance-rerank") >= 0,
-            Array.IndexOf(args, "--temporal-validity") >= 0);
+            Array.IndexOf(args, "--temporal-validity") >= 0,
+            Array.IndexOf(args, "--capture-identity-aliases") >= 0,
+            Array.IndexOf(args, "--expand-by-identity") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1233,7 +1248,14 @@ internal static class TypedMemEvalProgram
         // The read side of the identity edge; only informative together with LinkFactsToEntities.
         bool NodeDistanceReranking = false,
         // Ingestion lever, and the precondition for firing and for valid-time filtering alike.
-        bool TemporalValidity = false)
+        bool TemporalValidity = false,
+        // E-1 INGESTION lever: it changes what extraction records, so an arm carrying it is a
+        // different store and may never be banded with one that does not.
+        bool CaptureIdentityAliases = false,
+        // E-1 READ lever. Requires both of the above to mean anything: the hop walks :ABOUT (so it
+        // needs --link-fact-entities) and only through entities carrying an alias (so it needs
+        // --capture-identity-aliases). The whole intervention is all three together.
+        bool ExpandFactsByIdentity = false)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1246,6 +1268,7 @@ internal static class TypedMemEvalProgram
             new(Phase30, RescueShortOwnerResults, SupersedeReplacedFacts, FactWeightedBudget,
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
                 MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities,
-                NodeDistanceReranking, TemporalValidity);
+                NodeDistanceReranking, TemporalValidity, CaptureIdentityAliases,
+                ExpandFactsByIdentity);
     }
 }

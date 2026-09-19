@@ -115,7 +115,9 @@ public sealed record TypedMemEvalArm(
     bool ProspectiveFiring = false,
     bool LinkFactsToEntities = false,
     bool NodeDistanceReranking = false,
-    bool TemporalValidity = false)
+    bool TemporalValidity = false,
+    bool CaptureIdentityAliases = false,
+    bool ExpandFactsByIdentity = false)
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -126,7 +128,8 @@ public sealed record TypedMemEvalArm(
         && !SupersedeReplacedFacts && !ResolveSupersessions
         && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut
         && MaxDerivedFacts is null && !CurrentValidTimeOnly && !ProspectiveFiring
-        && !LinkFactsToEntities && !NodeDistanceReranking && !TemporalValidity;
+        && !LinkFactsToEntities && !NodeDistanceReranking && !TemporalValidity
+        && !CaptureIdentityAliases && !ExpandFactsByIdentity;
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -171,6 +174,15 @@ public sealed record TypedMemEvalArm(
         // An INGESTION lever, and the precondition for firing: without validity windows no fact can
         // ever be "due", so `vtcurrent` filters nothing and `firing` fires nothing.
         if (TemporalValidity) parts.Add("tvalid");
+        // E-1, and an INGESTION lever: it changes what extraction records, so two arms differing by
+        // it are two stores and may never be banded together.
+        if (CaptureIdentityAliases) parts.Add("alias");
+        // The READ side of the alias. It traverses :ABOUT, so it is only informative alongside
+        // `entlink` -- with no ABOUT edge there is nothing to hop -- and only useful alongside
+        // `alias`, since the hop is restricted to entities that carry one. The full intervention is
+        // `entlink-alias-aliashop`; any shorter arm measures a part that cannot work alone, which is
+        // the mistake the first three identity arms made one at a time.
+        if (ExpandFactsByIdentity) parts.Add("aliashop");
         return string.Join("-", parts);
     }
 
@@ -189,5 +201,7 @@ public sealed record TypedMemEvalArm(
         $"prospective-firing={ProspectiveFiring} " +
         $"link-facts-to-entities={LinkFactsToEntities} " +
         $"node-distance-reranking={NodeDistanceReranking} " +
-        $"temporal-validity={TemporalValidity}");
+        $"temporal-validity={TemporalValidity} " +
+        $"capture-identity-aliases={CaptureIdentityAliases} " +
+        $"expand-facts-by-identity={ExpandFactsByIdentity}");
 }
