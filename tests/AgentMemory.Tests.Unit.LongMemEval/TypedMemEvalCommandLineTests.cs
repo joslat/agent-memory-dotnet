@@ -241,6 +241,10 @@ public sealed class TypedMemEvalCommandLineTests
             // arms each did, one part at a time, for three null results.
             ["--capture-identity-aliases"] = "CaptureIdentityAliases",
             ["--expand-by-identity"] = "ExpandFactsByIdentity",
+            // The THIRTEENTH dark lever, and the one that explains bitemporal's permanent
+            // off-state: supersession requires a CANONICAL single-valued predicate, extraction
+            // invents one per sentence without this, and no run could turn it on.
+            ["--predicate-vocabulary"] = "UsePredicateVocabulary",
             // Stage 1 of the three-stage run protocol. Advertised, so it must be carried.
             ["--dry-run"] = "DryRun",
         };

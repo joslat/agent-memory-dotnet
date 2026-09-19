@@ -93,6 +93,13 @@ internal static class TypedMemEvalProgram
         // The READ side of the alias, and the hop the corpus actually needs: similarity cannot cross
         // "the new flat" -> "the place on Ferrow Row" at all, because there is no similarity to find.
         "--expand-by-identity",
+        // THE THIRTEENTH reachable-but-never-fed lever, and the one that explains bitemporal's
+        // permanent off-state. `usePredicateVocabulary` exists on the profile, defaults FALSE, and
+        // this verb could not set it -- so every TypedMemEval run ever made extracted free-form
+        // predicates. Write-time supersession refuses any predicate outside the six the vocabulary
+        // declares single-valued, so `:SUPERSEDED_BY` could never be written, and the vertical whose
+        // whole subject is supersession has been measuring its own off-state by construction.
+        "--predicate-vocabulary",
         // THE NINTH (2026-09-16), and the PRECONDITION for the other two. `LlmExtractionOptions
         // .TemporalValidity` defaults to Ignore and this verb never set it, so NO fact in any run
         // this project has made carries valid_from -- probed live: 22 facts, 0 with valid_from.
@@ -168,6 +175,7 @@ internal static class TypedMemEvalProgram
                             nodeDistanceReranking: options.NodeDistanceReranking,
                             temporalValidity: options.TemporalValidity,
                             captureIdentityAliases: options.CaptureIdentityAliases,
+                            usePredicateVocabulary: options.UsePredicateVocabulary,
                             resolveSupersessions: options.ResolveSupersessions,
                             recallFanOut: options.RecallFanOut)
                         .ConfigureAwait(false);
@@ -178,7 +186,9 @@ internal static class TypedMemEvalProgram
                 {
                     assembledResults.AddRange(await RunVerticalAsync(
                             vertical, options, answerChatClient, judgeChatClient, deployment, profile,
-                            vectorYield)
+                            vectorYield,
+                            TypedMemEvalProviderBuilds.StartVertical(
+                                answerChatClient, judgeChatClient, extractionChatClient))
                         .ConfigureAwait(false));
                 }
 
@@ -210,7 +220,10 @@ internal static class TypedMemEvalProgram
         IChatClient judgeChatClient,
         string deployment,
         LongMemEvalMemoryProfile? profile,
-        LongMemEvalVectorYieldListener? vectorYield)
+        LongMemEvalVectorYieldListener? vectorYield,
+        // Scoped to THIS vertical: the meters are created once and reused across an `all`
+        // invocation, so reading their totals here would report builds earlier verticals saw.
+        TypedMemEvalProviderBuilds providerBuilds)
     {
         var descriptor = TypedMemEvalVerticals.For(vertical);
 
@@ -331,7 +344,8 @@ internal static class TypedMemEvalProgram
             var destination = Persist(
                 result, descriptor, options, runIndex, startedUtc,
                 vectorYield is null ? null : LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
-                renderSummary, supersessionStore, identityStore);
+                renderSummary, supersessionStore, identityStore,
+                providerBuilds.Snapshot());
             PrintReachableCeiling(descriptor, result);
             TypedMemEvalRetrieverSensitivity.Print(descriptor);
             TypedMemEvalFloorReport.Print(result, options.Arm.FileToken());
@@ -386,7 +400,8 @@ internal static class TypedMemEvalProgram
         LongMemEvalVectorYieldSummary? vectorYield,
         LongMemEvalSupersessionRenderSummary? renderSummary,
         LongMemEvalSupersessionStore? supersessionStore,
-        LongMemEvalIdentityStore? identityStore)
+        LongMemEvalIdentityStore? identityStore,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? providerBuilds)
     {
         // The arm is stamped into the FILENAME, not into the report body. The serialized type is
         // AgentEval's ExternalBenchmarkResult and its Options is their fixed record with no extension
@@ -411,7 +426,7 @@ internal static class TypedMemEvalProgram
 
         WriteProvenance(
             destination, arm, descriptor, options, runIndex, startedUtc, vectorYield, renderSummary,
-            supersessionStore, identityStore);
+            supersessionStore, identityStore, providerBuilds);
         return destination;
     }
 
@@ -441,7 +456,8 @@ internal static class TypedMemEvalProgram
         LongMemEvalVectorYieldSummary? vectorYield,
         LongMemEvalSupersessionRenderSummary? renderSummary,
         LongMemEvalSupersessionStore? supersessionStore,
-        LongMemEvalIdentityStore? identityStore)
+        LongMemEvalIdentityStore? identityStore,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? providerBuilds)
     {
         // Built before the object rather than inline: an anonymous type inside a conditional has no
         // natural type to infer, so `condition ? null : new { ... }` does not compile. Hoisting it
@@ -477,6 +493,14 @@ internal static class TypedMemEvalProgram
             };
         }
 
+        // THE BACKEND BUILD THE ANSWERS CAME FROM. `ProviderBuildId`'s own remarks call this "the only
+        // thing that can tell a reader two runs were never comparable" -- and until now this verb
+        // wrote it nowhere, so every number it produced was silent about which model made it. That
+        // was harmless while the deployment never changed. It is not a name and not a secret: it is
+        // the provider's `system_fingerprint`, which identifies a backend build rather than an
+        // endpoint or an account.
+        var providerBuildBlock = providerBuilds;
+
         object? storeBlock = null;
         if (supersessionStore is not null)
         {
@@ -499,6 +523,7 @@ internal static class TypedMemEvalProgram
             vertical = descriptor.Slug,
             startedUtc = startedUtc.ToString("O", CultureInfo.InvariantCulture),
             run = runIndex,
+            providerBuilds = providerBuildBlock,
             arm = new
             {
                 token = arm.FileToken(),
@@ -512,6 +537,7 @@ internal static class TypedMemEvalProgram
                 nodeDistanceReranking = arm.NodeDistanceReranking,
                 temporalValidity = arm.TemporalValidity,
                 captureIdentityAliases = arm.CaptureIdentityAliases,
+                usePredicateVocabulary = arm.UsePredicateVocabulary,
                 expandFactsByIdentity = arm.ExpandFactsByIdentity,
                 resolveSupersessions = arm.ResolveSupersessions,
                 factWeightedBudget = arm.FactWeightedBudget,
@@ -1095,7 +1121,8 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--node-distance-rerank") >= 0,
             Array.IndexOf(args, "--temporal-validity") >= 0,
             Array.IndexOf(args, "--capture-identity-aliases") >= 0,
-            Array.IndexOf(args, "--expand-by-identity") >= 0);
+            Array.IndexOf(args, "--expand-by-identity") >= 0,
+            Array.IndexOf(args, "--predicate-vocabulary") >= 0);
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1304,7 +1331,12 @@ internal static class TypedMemEvalProgram
         // E-1 READ lever. Requires both of the above to mean anything: the hop walks :ABOUT (so it
         // needs --link-fact-entities) and only through entities carrying an alias (so it needs
         // --capture-identity-aliases). The whole intervention is all three together.
-        bool ExpandFactsByIdentity = false)
+        bool ExpandFactsByIdentity = false,
+        // INGESTION lever. Steers extraction towards the declared relation vocabulary instead of a
+        // predicate invented per sentence -- measured at 700 facts under 421 distinct predicates.
+        // It is the precondition for supersession: `CanSupersede` requires a CANONICAL single-valued
+        // predicate, and a free-form one can never be recognised as replacing anything.
+        bool UsePredicateVocabulary = false)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1318,6 +1350,6 @@ internal static class TypedMemEvalProgram
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
                 MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities,
                 NodeDistanceReranking, TemporalValidity, CaptureIdentityAliases,
-                ExpandFactsByIdentity);
+                ExpandFactsByIdentity, UsePredicateVocabulary);
     }
 }
