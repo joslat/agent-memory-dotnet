@@ -136,7 +136,15 @@ jobs:
         run: |
           mkdir -p /tmp/pack-verify
           while IFS='|' read -r package_id project; do
-            [[ -z "$package_id" || "$package_id" == \#* ]] && continue
+            [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
+            # An empty path is never a no-op here: `dotnet pack ""` resolves to the SOLUTION and
+            # packs the entire repository -- samples, tools, the held packages -- and exits 0. That
+            # is how a HELD line slipped past this loop while the two beside it were updated, and it
+            # made a step whose whole promise is "exactly what release packs" quietly pack far more.
+            if [[ -z "$project" ]]; then
+              echo "::error::eng/release-packages.txt line for '$package_id' has no project path."
+              exit 1
+            fi
             dotnet pack "$project" -c Release --no-build -o /tmp/pack-verify
           done < eng/release-packages.txt
 

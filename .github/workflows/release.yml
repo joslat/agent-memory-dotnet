@@ -141,6 +141,12 @@ jobs:
         run: |
           while IFS='|' read -r package_id project; do
             [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
+            # Same guard as CI's dry run: an empty path packs the whole solution and succeeds, which
+            # at release time would publish artifacts nobody listed.
+            if [[ -z "$project" ]]; then
+              echo "::error::eng/release-packages.txt line for '$package_id' has no project path."
+              exit 1
+            fi
             dotnet pack "$project" -c Release --no-build \
               -p:Version=${{ steps.version.outputs.version }} \
               -o artifacts
