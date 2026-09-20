@@ -164,6 +164,15 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
             // context would look complete.
             var ids = ExtractIds(context.Session, context.Agent);
 
+            // THE TENANT'S STORE SCOPE, REOPENED. The base opens one for the duration of its own
+            // method, so by the time this runs it has already been disposed -- module contributors
+            // would resolve the ambient store context and get the DEFAULT store while the core block
+            // beside them came from the tenant's. Nothing would fail; a multi-tenant host would just
+            // be served another tenant's default, which is the worst way for this to be wrong.
+            // Threading IMemoryStoreContext into the constructor was necessary and not sufficient:
+            // holding the dependency is not the same as being inside the scope.
+            using var storeScope = ApplyStoreContext(ids.applicationId);
+
             var request = new ContextRequest
             {
                 SessionId = ids.sessionId,

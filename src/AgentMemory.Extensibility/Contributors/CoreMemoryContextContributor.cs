@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -42,8 +42,7 @@ public sealed class CoreMemoryContextContributor(IMemoryContextAssembler assembl
     public ContextContributorDescriptor Descriptor { get; } = new(
         ContributorId,
         new HashSet<string>(StringComparer.Ordinal) { SectionType },
-        Priority: 0,
-        Mandatory: true);
+        Priority: 0);
 
     /// <inheritdoc/>
     /// <remarks>Always. Core memory is not a routing decision in Slice A.</remarks>

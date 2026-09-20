@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Extensibility.Context;
 
 namespace AgentMemory.Extensibility.Capabilities;
@@ -43,13 +43,16 @@ public interface IContextContributor
 /// Render order, ascending. The core contributor sits at 0 so module sections append after it —
 /// which is what keeps an empty module set byte-identical to the provider being composed.
 /// </param>
-/// <param name="Mandatory">
-/// Whether omitting it invalidates the envelope. A mandatory contributor's omission is surfaced to
-/// the reader rather than absorbed silently.
-/// </param>
+/// <remarks>
+/// <b>There is deliberately no <c>Mandatory</c> flag.</b> One stood here, documented as "a mandatory
+/// contributor's omission is surfaced to the reader rather than absorbed silently" — and nothing
+/// read it. A module author would have set it, been told by the doc comment what it did, and got
+/// silence. What "surfaced" should mean is a decision for the slice that adds routing, since that is
+/// where an envelope can be rejected; until something can honour it, the honest surface is not to
+/// offer it. Omissions already carry a reason, which is what a reader actually has to work with.
+/// </remarks>
 [Experimental("AMEXT001")]
 public sealed record ContextContributorDescriptor(
     string Id,
     IReadOnlySet<string> SectionTypes,
-    int Priority = 100,
-    bool Mandatory = false);
+    int Priority = 100);

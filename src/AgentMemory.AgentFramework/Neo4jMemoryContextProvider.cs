@@ -746,7 +746,18 @@ public class Neo4jMemoryContextProvider : AIContextProvider
     // restored once this hook returns. Mutating a singleton context is only safe for one application per
     // host; register a scoped IMemoryStoreContext to route per request, or use MemoryOwnerScopingAgent
     // (#90) to guarantee the scope spans the complete invocation including the tool-calling loop.
-    private IDisposable? ApplyStoreContext(string? applicationId) =>
+    /// <summary>
+    /// Opens the tenant's store scope, or returns null when there is no application to scope to.
+    /// </summary>
+    /// <remarks>
+    /// <b>Protected because retrieval that happens outside this scope reads the WRONG STORE.</b> The
+    /// scope this returns is disposed when the method that opened it returns, so a subclass doing its
+    /// own retrieval after calling <c>base.ProvideAIContextAsync</c> is no longer inside it -- every
+    /// call succeeds and a multi-tenant host quietly serves the default store. Holding the store
+    /// DEPENDENCY is not the same as being inside the SCOPE, and only the second one is what makes a
+    /// query land on the right tenant.
+    /// </remarks>
+    protected IDisposable? ApplyStoreContext(string? applicationId) =>
         applicationId is not null && _storeContext is IWritableMemoryStoreContext writable
             ? writable.BeginStoreScope(applicationId)
             : null;
