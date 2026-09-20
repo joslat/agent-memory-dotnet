@@ -1,6 +1,7 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using AgentMemory.AgentFramework;
+using AgentMemory.AgentFramework.Mapping;
 using AgentMemory.AgentFramework.Security;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Extensibility.Context;
@@ -42,7 +43,11 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
     private readonly IContextCompiler _compiler;
     private readonly ILogger<ExtensibleMemoryContextProvider> _logger;
     private readonly bool _hasModuleContributors;
-    private readonly IMemoryContextAdmissionPolicy? _admissionPolicy;
+
+    // The one id the module compilation path never runs. Static because it never varies, and named
+    // because "the core contributor" appears in three decisions in this file and must mean one thing.
+    private static readonly IReadOnlySet<string> CoreContributorExclusion =
+        new HashSet<string>(StringComparer.Ordinal) { CoreMemoryContextContributor.ContributorId };
 
     /// <summary>Creates the provider. Base dependencies are the shipped provider's, unchanged.</summary>
     public ExtensibleMemoryContextProvider(
@@ -78,7 +83,6 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         ArgumentNullException.ThrowIfNull(moduleContributors);
         _compiler = compiler ?? throw new ArgumentNullException(nameof(compiler));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _admissionPolicy = admissionPolicy;
 
         // The CORE contributor is not a module. It exists for hosts that compile context instead of
         // inheriting it; if its presence flipped this provider into compile-and-append, core memory
@@ -111,7 +115,12 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         if (!_hasModuleContributors) return coreContext;
 
         var envelope = await CompileModulesAsync(context, cancellationToken).ConfigureAwait(false);
-        var moduleText = RenderModuleSections(envelope, _admissionPolicy, _logger);
+        // THE BASE'S EFFECTIVE POLICY, not the constructor argument. They differ precisely when no
+        // policy was supplied: the base substitutes a default and this class used to keep the null,
+        // so a directly constructed provider gated CORE memory and admitted MODULE text unchecked --
+        // the #92 gate missing from the least trusted surface in the class, which is the one place it
+        // is least affordable. Reading it from the base is also why there is no second default here.
+        var moduleText = RenderModuleSections(envelope, AdmissionPolicy, FormatOptions, _logger);
 
         // NOTHING APPENDED MEANS NOTHING CHANGED. Returning the core AIContext itself, rather than a
         // copy with equal fields, is what makes the empty-module case identical instead of merely
@@ -164,7 +173,15 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
                 Query = turn.LastOrDefault()?.Text,
             };
 
-            return await _compiler.CompileAsync(request, cancellationToken).ConfigureAwait(false);
+            // CORE IS EXCLUDED BECAUSE IT WAS ALREADY RENDERED, by `base` at the top of the turn.
+            // A host that also calls AddCoreMemoryContributor() -- supported, and the natural thing
+            // to do after reading the SDK docs -- puts the core contributor in the same container
+            // this compiler reads. Without the exclusion it would run a SECOND full assembly, a live
+            // query and an embedding call per turn, and the section would then be dropped by
+            // RenderModuleSections: paid work, discarded, with nothing in any log to show for it.
+            return await _compiler
+                .CompileAsync(request, CoreContributorExclusion, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -184,7 +201,8 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
     /// </summary>
     private static string RenderModuleSections(
         ContextEnvelope? envelope,
-        IMemoryContextAdmissionPolicy? admissionPolicy,
+        IMemoryContextAdmissionPolicy admissionPolicy,
+        ContextFormatOptions formatOptions,
         ILogger logger)
     {
         if (envelope is null) return string.Empty;
@@ -205,31 +223,26 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
             // reading an external store is a longer reach than recall has. Every item is put through
             // the same admission policy recalled memory is, and a refused item is dropped and logged
             // rather than trimmed or silently admitted.
+            // THE SAME ADMISSION FUNCTION RECALLED MEMORY GOES THROUGH, not a second one shaped like
+            // it. The hand-rolled loop that stood here built its MemoryAdmissionContext without
+            // `Mode` or `MinimumTrustForAdmissionBypass`, so a host running SecurityMode=Strict had
+            // it honoured for core memory and silently ignored for module text -- the setting whose
+            // entire purpose is to exclude instruction-like content, not reaching the newest and
+            // least trusted surface in the provider. Calling AdmitItem makes that class of omission
+            // impossible rather than fixed: there is one place the options are read.
+            //
+            // Its log lines say "recalled memory item"; the category is the module's section type, so
+            // the entry is still unambiguous, and sharing the security decision is worth more than
+            // the wording. Untrusted is not a guess -- module content is third-party by definition.
             var admitted = new List<ContextItem>(section.Items.Count);
             foreach (var item in section.Items)
             {
-                if (admissionPolicy is null)
+                if (MafTypeMapper.AdmitItem(
+                        section.TypeId, item.Text, MemoryTrustLevel.Untrusted,
+                        formatOptions, admissionPolicy, logger))
                 {
                     admitted.Add(item);
-                    continue;
                 }
-
-                var decision = admissionPolicy.Evaluate(new MemoryAdmissionContext
-                {
-                    Category = section.TypeId,
-                    Content = item.Text,
-                    TrustLevel = MemoryTrustLevel.Untrusted,
-                });
-
-                if (decision.Include)
-                {
-                    admitted.Add(item);
-                    continue;
-                }
-
-                logger.LogWarning(
-                    "Module section '{SectionType}' item refused by the admission policy: {Reason}",
-                    section.TypeId, decision.ExclusionReason ?? "instruction-like content");
             }
 
             // A section whose every item was refused contributes no header either: a heading with

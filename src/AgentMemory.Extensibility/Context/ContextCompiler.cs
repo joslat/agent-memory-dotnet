@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -12,7 +12,23 @@ namespace AgentMemory.Extensibility.Context;
 public interface IContextCompiler
 {
     /// <summary>Compiles one envelope.</summary>
-    Task<ContextEnvelope> CompileAsync(ContextRequest request, CancellationToken cancellationToken = default);
+    /// <param name="request">The context request.</param>
+    /// <param name="excludedContributorIds">
+    /// Contributors that must not run at all for this compilation.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// <b>Excluded is not the same as omitted.</b> An excluded contributor was never in scope, so it
+    /// produces no section AND no omission -- an omission would tell a reader that something was
+    /// tried and did not arrive. The case this exists for is a caller that has ALREADY obtained a
+    /// contributor's content by another route: the Agent Framework provider inherits core memory from
+    /// the shipped provider, and without this the core contributor would run a second full assembly
+    /// -- a live query and an embedding call -- whose section the caller then discards.
+    /// </remarks>
+    Task<ContextEnvelope> CompileAsync(
+        ContextRequest request,
+        IReadOnlySet<string>? excludedContributorIds = null,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -51,7 +67,9 @@ public sealed class ContextCompiler(
 
     /// <inheritdoc/>
     public async Task<ContextEnvelope> CompileAsync(
-        ContextRequest request, CancellationToken cancellationToken = default)
+        ContextRequest request,
+        IReadOnlySet<string>? excludedContributorIds = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -71,6 +89,11 @@ public sealed class ContextCompiler(
         foreach (var contributor in _contributors)
         {
             var id = contributor.Descriptor.Id;
+
+            // SKIPPED BEFORE APPLIESASYNC, because the cost this avoids is the contributor's own
+            // work. Recording nothing is deliberate: see the interface remarks.
+            if (excludedContributorIds is not null && excludedContributorIds.Contains(id)) continue;
+
             cancellationToken.ThrowIfCancellationRequested();
 
             try

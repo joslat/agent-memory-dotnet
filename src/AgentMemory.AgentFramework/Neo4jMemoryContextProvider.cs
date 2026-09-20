@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -87,6 +87,38 @@ public class Neo4jMemoryContextProvider : AIContextProvider
 
     /// <summary>Identifies this provider in the MAF pipeline for introspection.</summary>
     public string StateKey => "Neo4jMemory";
+
+    /// <summary>
+    /// The admission policy this provider ACTUALLY applies, never null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Exposed for the same reason <see cref="ExtractIds"/> is: so a derived provider cannot end up
+    /// with a SECOND answer to a question this one has already answered. The constructor substitutes
+    /// a default when the caller passes none, so the raw constructor argument and the effective
+    /// policy are different values -- and a subclass that kept the argument would gate nothing on the
+    /// direct-construction path while this class gated everything.
+    /// </para>
+    /// <para>
+    /// Deriving the default again in the subclass would compile and behave identically today, which
+    /// is what makes it the worse option: it is two places that must agree about who may put text in
+    /// an instruction block, and the comment on the field above records that this component has
+    /// already been bitten once by exactly that split.
+    /// </para>
+    /// </remarks>
+    protected IMemoryContextAdmissionPolicy AdmissionPolicy => _admissionPolicy;
+
+    /// <summary>
+    /// The context format options this provider ACTUALLY uses, never null.
+    /// </summary>
+    /// <remarks>
+    /// Exposed for the same reason as <see cref="AdmissionPolicy"/>, and it matters for the same
+    /// reason: the constructor substitutes a fresh instance when the caller passes none, so the
+    /// argument and the effective value differ exactly on the direct-construction path. These options
+    /// carry <c>SecurityMode</c> and <c>MinimumTrustForAdmissionBypass</c> -- a subclass that admitted
+    /// content without them would ignore a host's Strict setting while this class honoured it.
+    /// </remarks>
+    protected ContextFormatOptions FormatOptions => _formatOptions;
 
     protected override async ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context,

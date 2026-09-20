@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Domain;
+﻿using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extensibility.Capabilities;
@@ -107,7 +107,7 @@ public sealed class ContextCompilerTests
         await cts.CancelAsync();
 
         var act = () => Compiler(new StubContributor("notes", applies: true))
-            .CompileAsync(Request(), cts.Token);
+            .CompileAsync(Request(), null, cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
