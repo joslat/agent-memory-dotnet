@@ -34,6 +34,7 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 public sealed class ModuleTenantScopeTests
 {
     private const string Tenant = "tenant-a";
+    private const string Owner = "user-a";
 
     /// <summary>The contributor observes the tenant's application id while it runs.</summary>
     [Fact]
@@ -66,14 +67,55 @@ public sealed class ModuleTenantScopeTests
         store.ApplicationId.Should().BeNull("the scope must not outlive the turn that opened it");
     }
 
+    /// <summary>The OWNER seam, which the first version of this fix missed entirely.</summary>
+    /// <remarks>
+    /// The base brackets its recall with BOTH an store scope and an owner scope. Re-entering only the
+    /// store one left module retrieval running under the previous or default owner — an isolation
+    /// failure, not merely a wrong-store one, and invisible because half the scoping worked.
+    /// </remarks>
+    [Fact]
+    public async Task AModuleRunsInsideTheOwnerScope()
+    {
+        var store = new RecordingStoreContext();
+        var owner = new RecordingOwnerContext();
+        var contributor = new StoreObservingContributor(store, owner);
+        var harness = new Harness(store, owner, contributor);
+
+        await harness.Provider.InvokingAsync(harness.Context, CancellationToken.None);
+
+        contributor.ObservedUserId.Should().Be(
+            Owner, "a module must retrieve under the same owner the core block did");
+    }
+
+    /// <summary>The owner scope is released with the turn, like the store one.</summary>
+    [Fact]
+    public async Task TheOwnerScopeIsReleasedWhenTheTurnEnds()
+    {
+        var store = new RecordingStoreContext();
+        var owner = new RecordingOwnerContext();
+        var harness = new Harness(store, owner, new StoreObservingContributor(store, owner));
+
+        await harness.Provider.InvokingAsync(harness.Context, CancellationToken.None);
+
+        owner.UserId.Should().BeNull("an owner scope left open would pin this owner onto the next turn");
+    }
+
     private sealed class RecordingStoreContext : IWritableMemoryStoreContext
     {
         public string? ApplicationId { get; set; }
     }
 
-    private sealed class StoreObservingContributor(IMemoryStoreContext store) : IContextContributor
+    private sealed class RecordingOwnerContext : IWritableMemoryOwnerContext
+    {
+        public string? UserId { get; set; }
+    }
+
+    private sealed class StoreObservingContributor(
+        IMemoryStoreContext store, IMemoryOwnerContext? owner = null) : IContextContributor
     {
         internal string? ObservedApplicationId { get; private set; }
+
+        internal string? ObservedUserId { get; private set; }
 
         public ContextContributorDescriptor Descriptor { get; } =
             new("observer", new HashSet<string>(StringComparer.Ordinal) { "observer.section" });
@@ -84,6 +126,7 @@ public sealed class ModuleTenantScopeTests
         {
             // Exactly what a module doing its own retrieval would read.
             ObservedApplicationId = store.ApplicationId;
+            ObservedUserId = owner?.UserId;
             return Task.FromResult<ContextSection?>(new ContextSection(
                 "observer.section", "observer", 1, [new ContextItem("o1", "observed")]));
         }
@@ -99,6 +142,14 @@ public sealed class ModuleTenantScopeTests
         internal AIContextProvider.InvokingContext Context { get; }
 
         internal Harness(IWritableMemoryStoreContext store, params IContextContributor[] contributors)
+            : this(store, null, contributors)
+        {
+        }
+
+        internal Harness(
+            IWritableMemoryStoreContext store,
+            IWritableMemoryOwnerContext? owner,
+            params IContextContributor[] contributors)
         {
             var memory = Substitute.For<IMemoryService>();
             memory.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
@@ -134,7 +185,8 @@ public sealed class ModuleTenantScopeTests
                 compiler,
                 contributors,
                 NullLogger<AgentMemory.Extensibility.AgentFramework.ExtensibleMemoryContextProvider>.Instance,
-                storeContext: store);
+                storeContext: store,
+                ownerContext: owner);
 
             var session = new TestAgentSession();
             session.StateBag.SetValue(
@@ -142,6 +194,9 @@ public sealed class ModuleTenantScopeTests
                 System.Text.Json.JsonSerializerOptions.Default);
             session.StateBag.SetValue(
                 agentOptions.DefaultSessionIdKey, "s-1",
+                System.Text.Json.JsonSerializerOptions.Default);
+            session.StateBag.SetValue(
+                agentOptions.DefaultUserIdKey, Owner,
                 System.Text.Json.JsonSerializerOptions.Default);
 
             Context = new AIContextProvider.InvokingContext(

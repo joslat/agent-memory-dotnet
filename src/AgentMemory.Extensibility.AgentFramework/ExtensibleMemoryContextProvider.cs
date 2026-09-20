@@ -164,14 +164,18 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
             // context would look complete.
             var ids = ExtractIds(context.Session, context.Agent);
 
-            // THE TENANT'S STORE SCOPE, REOPENED. The base opens one for the duration of its own
-            // method, so by the time this runs it has already been disposed -- module contributors
-            // would resolve the ambient store context and get the DEFAULT store while the core block
-            // beside them came from the tenant's. Nothing would fail; a multi-tenant host would just
-            // be served another tenant's default, which is the worst way for this to be wrong.
-            // Threading IMemoryStoreContext into the constructor was necessary and not sufficient:
-            // holding the dependency is not the same as being inside the scope.
-            using var storeScope = ApplyStoreContext(ids.applicationId);
+            // EVERY AMBIENT SCOPE THE BASE RETRIEVES INSIDE, REOPENED -- store AND owner. The base
+            // opens both for the duration of its own method, so by the time this runs both are
+            // disposed: a module resolving the ambient contexts would read the DEFAULT store and the
+            // PREVIOUS owner while the core block beside it used this turn's. Nothing fails; a
+            // multi-tenant host is served the wrong store, and owner isolation does not hold for
+            // whatever the module retrieved.
+            //
+            // Threading the contexts into the constructor was necessary and not sufficient: holding
+            // the dependency is not the same as being inside the scope. One call rather than two,
+            // because the first version of this fix re-entered the store scope and missed the owner
+            // one -- and half the scopes restored looks exactly like all of them.
+            using var scopes = BeginRetrievalScopes(ids.applicationId, ids.userId);
 
             var request = new ContextRequest
             {

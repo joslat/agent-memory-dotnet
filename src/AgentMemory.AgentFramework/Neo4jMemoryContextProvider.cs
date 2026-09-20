@@ -747,17 +747,57 @@ public class Neo4jMemoryContextProvider : AIContextProvider
     // host; register a scoped IMemoryStoreContext to route per request, or use MemoryOwnerScopingAgent
     // (#90) to guarantee the scope spans the complete invocation including the tool-calling loop.
     /// <summary>
-    /// Opens the tenant's store scope, or returns null when there is no application to scope to.
+    /// Re-enters EVERY ambient scope this provider's own retrieval runs inside.
     /// </summary>
     /// <remarks>
-    /// <b>Protected because retrieval that happens outside this scope reads the WRONG STORE.</b> The
-    /// scope this returns is disposed when the method that opened it returns, so a subclass doing its
-    /// own retrieval after calling <c>base.ProvideAIContextAsync</c> is no longer inside it -- every
-    /// call succeeds and a multi-tenant host quietly serves the default store. Holding the store
-    /// DEPENDENCY is not the same as being inside the SCOPE, and only the second one is what makes a
-    /// query land on the right tenant.
+    /// <para>
+    /// <b>For a subclass that retrieves after <c>base.ProvideAIContextAsync</c> has returned.</b> Both
+    /// scopes this provider uses are opened with <c>using</c> for the duration of the method that
+    /// opens them, so by then both are disposed: retrieval outside them reads the DEFAULT store and
+    /// the PREVIOUS owner. Nothing throws. A multi-tenant host is served another tenant's store, and
+    /// owner isolation -- the property the whole scoping seam exists to provide -- silently does not
+    /// hold for whatever the subclass retrieved.
+    /// </para>
+    /// <para>
+    /// <b>One helper for both, deliberately, and the store-only one is private again.</b> This was
+    /// first fixed by exposing the store scope alone; the owner scope beside it was missed, and a
+    /// subclass re-entering half of them is in some ways worse off than one re-entering none, because
+    /// the half that works makes the whole look handled. A single call cannot be half-used, and the
+    /// next ambient scope added to this class belongs here rather than in a second accessor.
+    /// </para>
+    /// <para>
+    /// Disposed in reverse order of opening, matching how the nested <c>using</c>s unwind.
+    /// </para>
     /// </remarks>
-    protected IDisposable? ApplyStoreContext(string? applicationId) =>
+    protected IDisposable? BeginRetrievalScopes(string? applicationId, string? userId)
+    {
+        var storeScope = ApplyStoreContext(applicationId);
+        var ownerScope = _ownerContext?.BeginOwnerScope(userId);
+
+        if (storeScope is null && ownerScope is null) return null;
+        return new CompositeScope(ownerScope, storeScope);
+    }
+
+    /// <summary>Disposes the scopes it was given, innermost first.</summary>
+    private sealed class CompositeScope(IDisposable? inner, IDisposable? outer) : IDisposable
+    {
+        public void Dispose()
+        {
+            // Innermost first, so the unwind matches nested `using`s. Both are attempted even if the
+            // first throws -- leaving an ambient scope open would pin one owner or store onto
+            // whatever ran next on this context, which is the failure this class exists to prevent.
+            try
+            {
+                inner?.Dispose();
+            }
+            finally
+            {
+                outer?.Dispose();
+            }
+        }
+    }
+
+    private IDisposable? ApplyStoreContext(string? applicationId) =>
         applicationId is not null && _storeContext is IWritableMemoryStoreContext writable
             ? writable.BeginStoreScope(applicationId)
             : null;
