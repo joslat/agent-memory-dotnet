@@ -249,9 +249,21 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
             // nothing under it tells the model a section exists and says nothing about it.
             if (admitted.Count == 0) continue;
 
+            // DELIMITED AND ESCAPED, exactly as recalled memory is (#92 Phase 1). Admission alone is
+            // not the boundary: in Permissive -- the DEFAULT -- instruction-like content is admitted
+            // and flagged, and it is the delimiter that makes that safe, because the wrapper escapes
+            // `<` and `>` so a module cannot close the block early or forge one of its own. Appending
+            // the raw text, as this did, meant the newest untrusted surface in the provider was the
+            // only one reaching the prompt undelimited.
+            //
+            // One wrapped block per SECTION, not per item, which is the shape recalled memory uses:
+            // it joins a category's texts and wraps once. The category attribute carries the section
+            // type, so the plain "### <type>" heading that stood here is gone rather than kept
+            // alongside it -- two ways of naming the same thing is how a second rendering path starts.
             if (builder.Length > 0) builder.AppendLine().AppendLine();
-            builder.Append("### ").AppendLine(section.TypeId);
-            foreach (var item in admitted) builder.AppendLine(item.Text);
+            builder.Append(MafTypeMapper.WrapUntrustedContent(
+                section.TypeId,
+                string.Join(Environment.NewLine, admitted.Select(i => i.Text))));
         }
 
         return builder.ToString().TrimEnd();
