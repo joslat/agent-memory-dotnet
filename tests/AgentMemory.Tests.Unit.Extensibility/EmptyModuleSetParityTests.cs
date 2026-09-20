@@ -310,7 +310,7 @@ public sealed class ModuleAdmissionTests
                 compiler,
                 contributors,
                 NullLogger<AgentMemory.Extensibility.AgentFramework.ExtensibleMemoryContextProvider>.Instance,
-                policy);
+                admissionPolicy: policy);
 
             Context = new AIContextProvider.InvokingContext(
                 Substitute.For<AIAgent>(),

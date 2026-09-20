@@ -57,9 +57,23 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         IContextCompiler compiler,
         IEnumerable<Capabilities.IContextContributor> moduleContributors,
         ILogger<ExtensibleMemoryContextProvider> logger,
+        // EVERY OPTIONAL DEPENDENCY THE BASE TAKES, THREADED THROUGH.
+        //
+        // Omitting them does not fail to compile and does not fail a test that builds both providers
+        // by hand -- it silently DEGRADES the provider a host actually resolves. Dropping
+        // IMemoryStoreContext puts a multi-tenant host on the wrong store; dropping
+        // IMemoryContextAdmissionPolicy removes the #92 gate from CORE memory, which is the opposite
+        // of what this class claims to preserve; dropping MemoryToolFactory takes the agent's memory
+        // tools away. "The extensible provider IS the shipped provider" is only true if it is
+        // constructed like one.
+        AgentMemory.Abstractions.Services.IMemoryStoreContext? storeContext = null,
+        AgentMemory.Abstractions.Services.IWritableMemoryOwnerContext? ownerContext = null,
+        AgentMemory.AgentFramework.Tools.MemoryToolFactory? toolFactory = null,
+        AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy = null,
         IMemoryContextAdmissionPolicy? admissionPolicy = null)
         : base(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions,
-               agentOptions, baseLogger)
+               agentOptions, baseLogger, storeContext, ownerContext, toolFactory, recallPolicy,
+               admissionPolicy)
     {
         ArgumentNullException.ThrowIfNull(moduleContributors);
         _compiler = compiler ?? throw new ArgumentNullException(nameof(compiler));
