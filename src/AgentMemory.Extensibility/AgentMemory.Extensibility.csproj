@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AgentMemory.Extensibility</RootNamespace>
+    <AssemblyName>AgentMemory.Extensibility</AssemblyName>
+    <Description>Experimental module SDK for AgentMemory for .NET: context contributors, the context envelope, and the compiler that assembles them. Ships on a 0.x line and is marked [Experimental] while the contracts settle.</Description>
+    <PackageTags>agent-memory;ai;llm;memory;extensibility;modules</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- A 0.x LINE, DELIBERATELY, against the 1.5.0 the rest of src/ carries.
+
+       The core library's public surface was locked under SemVer by the 1.0 lockdown (#75 to #81), and
+       anything shipped at 1.x is frozen from the day it lands. These contracts are not settled: the
+       module descriptor in particular is frozen on first ship by design, and one external module has
+       yet to compile against it. A 0.x line says that in the only place a package consumer reliably
+       reads (the version), and `[Experimental]` says it again at the call site.
+
+       The attribute comes off when a second, independent module passes conformance (spec decision 5),
+       not on a date. -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ABSTRACTIONS ONLY, and this is enforced by a test rather than by intention.
+
+         Nothing the SDK needs lives in Core: `IMemoryContextAssembler` is an Abstractions interface,
+         and `ChatMessage` comes from Microsoft.Extensions.AI.Abstractions, which Abstractions already
+         references. Keeping it this way is what lets a host on a different storage backend consume
+         the SDK without dragging the Neo4j-backed Core in behind it. -->
+    <ProjectReference Include="..\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Logging abstractions only. The SDK logs; it never configures logging, and a host that has
+         already chosen a provider must not have a second one arrive behind a memory package. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+    <!-- Abstractions again: the SDK offers registration helpers, it does not build a container. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+    <InternalsVisibleTo Include="AgentMemory.Extensibility.AgentFramework" />
+  </ItemGroup>
+
+</Project>

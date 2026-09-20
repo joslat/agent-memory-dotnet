@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AgentMemory.Extensibility.AgentFramework</RootNamespace>
+    <AssemblyName>AgentMemory.Extensibility.AgentFramework</AssemblyName>
+    <Description>Microsoft Agent Framework surface for the AgentMemory module SDK: an AIContextProvider that composes the shipped provider and appends module sections. Experimental, 0.x line.</Description>
+    <PackageTags>agent-memory;ai;llm;memory;extensibility;agent-framework;maf</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- A LAYERED ADAPTER: this adapter depends on another adapter, which docs/architecture.md 2.2
+         says does not happen. The precedent is AgentMemory.AgentFramework.Nams, and the reason is
+         the same here: the whole point of this package is to COMPOSE the shipped MAF provider rather
+         than re-implement it, so it must reference it. The 2.2 clause is updated in this PR rather
+         than the exception being left silent. -->
+    <ProjectReference Include="..\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
+    <ProjectReference Include="..\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+  </ItemGroup>
+
+</Project>

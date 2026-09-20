@@ -18,7 +18,20 @@ namespace AgentMemory.AgentFramework;
 /// <summary>
 /// MAF context provider that injects relevant memory into the agent's context before each run.
 /// </summary>
-public sealed class Neo4jMemoryContextProvider : AIContextProvider
+// UNSEALED FOR THE EXTENSIBILITY PROVIDER, deliberately and narrowly.
+//
+// `AIContextProvider.InvokingAsync` post-processes whatever `ProvideAIContextAsync` returns: it
+// stamps `_attribution` with the provider's own type and merges the turn's messages. So a provider
+// that COMPOSES this one and calls its public `InvokingAsync` gets that processing applied twice --
+// measured, not assumed: the composed result carried the outer type's attribution and a duplicated
+// turn message. Delegation by composition therefore cannot be byte-identical, which is the one
+// property the extensibility provider exists to guarantee.
+//
+// Inheriting lets the derived provider call `base.ProvideAIContextAsync` for the core block: one
+// provider instance, one attribution stamp, one merge. Unsealing is not a breaking change -- no
+// existing consumer can be broken by a type becoming inheritable -- and the alternative was to
+// re-render core memory, which the 1.0 lockdown and the #92 drift note both argue against.
+public class Neo4jMemoryContextProvider : AIContextProvider
 {
     private readonly IMemoryService _memoryService;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
