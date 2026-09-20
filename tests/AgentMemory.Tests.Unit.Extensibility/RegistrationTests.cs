@@ -6,6 +6,7 @@ using AgentMemory.Extensibility.Context;
 using AgentMemory.Extensibility.Contributors;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
@@ -213,6 +214,42 @@ public sealed class FrameworkRegistrationTests
         scope.ServiceProvider
             .GetServices<AgentMemory.AgentFramework.Neo4jMemoryContextProvider>()
             .Should().ContainSingle();
+    }
+
+    /// <summary>
+    /// Registration order does not decide which provider the host gets.
+    /// </summary>
+    /// <remarks>
+    /// The two registrations compose from either direction, and by different mechanisms: the core
+    /// uses <c>TryAddScoped</c>, so it no-ops when this package went first, and this package uses
+    /// <c>Replace</c>, so it wins when the core went first. Neither fact is obvious from reading one
+    /// of them, and if either changed the failure would be silent -- a host would resolve the shipped
+    /// provider, every call would succeed, and module sections would simply never appear.
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RegistrationOrderDoesNotChangeWhichProviderWins(bool extensibilityFirst)
+    {
+        var services = Services();
+
+        if (extensibilityFirst)
+        {
+            services.AddAgentMemoryFrameworkExtensibility();
+            services.TryAddScoped<AgentMemory.AgentFramework.Neo4jMemoryContextProvider>();
+        }
+        else
+        {
+            services.TryAddScoped<AgentMemory.AgentFramework.Neo4jMemoryContextProvider>();
+            services.AddAgentMemoryFrameworkExtensibility();
+        }
+
+        using var provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true });
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<AgentMemory.AgentFramework.Neo4jMemoryContextProvider>()
+            .Should().BeOfType<AgentMemory.Extensibility.AgentFramework.ExtensibleMemoryContextProvider>();
     }
 
     /// <summary>
