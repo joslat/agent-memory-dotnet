@@ -8,9 +8,9 @@ namespace AgentMemory.Extensibility.Context;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b><see cref="Owner"/> is what the host CLAIMS, never what gets used.</b> The compiler resolves it
-/// through the isolation policy and records the result in <see cref="ContextSnapshot.Owner"/>.
-/// A module never sees an owner it supplied echoed back as authoritative.
+/// <b><see cref="Owner"/> enters the compiler as what the host CLAIMS, never what gets used.</b>
+/// The compiler resolves it through the isolation policy before contributor code sees it, and
+/// records that resolved result in <see cref="ContextSnapshot.Owner"/>.
 /// </para>
 /// <para>
 /// <b>Every field here is read by something.</b> The design's larger request carries purpose, action
@@ -27,7 +27,7 @@ public sealed record ContextRequest
     /// <summary>The session whose context is being assembled.</summary>
     public required string SessionId { get; init; }
 
-    /// <summary>The owner the host claims. Resolved through the isolation policy before use.</summary>
+    /// <summary>The owner the host claims on input. Resolved through the isolation policy before use.</summary>
     public string? Owner { get; init; }
 
     /// <summary>The conversation, when the host distinguishes it from the session.</summary>

@@ -159,6 +159,31 @@ public sealed class ContextCompilerTests
         envelope.Snapshot.Owner.Should().Be("resolved-owner");
     }
 
+    /// <summary>
+    /// Contributors see the RESOLVED owner, not the host's claim.
+    /// </summary>
+    /// <remarks>
+    /// Resolving only for the snapshot would look secure in diagnostics while still letting a module
+    /// retrieve on the untrusted claim. The policy boundary has to wrap contributor execution too.
+    /// </remarks>
+    [Fact]
+    public async Task ContributorsReceiveTheResolvedOwner()
+    {
+        var contributor = new CapturingContributor("notes");
+        var policy = Substitute.For<IMemoryIsolationPolicy>();
+        policy.ResolveReadScope(
+                Arg.Any<MemoryScope?>(), Arg.Any<string?>(), Arg.Any<string>(),
+                Arg.Any<MemoryOperationAccess>())
+            .Returns(MemoryScope.For("resolved-owner"));
+
+        var compiler = new ContextCompiler(
+            [contributor], policy, TimeProvider.System, NullLogger<ContextCompiler>.Instance);
+
+        await compiler.CompileAsync(new ContextRequest { SessionId = "s-1", Owner = "claimed-owner" });
+
+        contributor.SeenOwners.Should().ContainInOrder("resolved-owner", "resolved-owner");
+    }
+
     /// <summary>The snapshot records the clocks the request pinned.</summary>
     [Fact]
     public async Task TheSnapshotCarriesTheAsOfPins()
@@ -202,6 +227,27 @@ public sealed class ContextCompilerTests
 
         public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("the module's store is down");
+    }
+
+    private sealed class CapturingContributor(string id) : IContextContributor
+    {
+        public List<string?> SeenOwners { get; } = [];
+
+        public ContextContributorDescriptor Descriptor { get; } =
+            new(id, new HashSet<string>(StringComparer.Ordinal) { $"{id}.section" });
+
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken)
+        {
+            SeenOwners.Add(request.Owner);
+            return ValueTask.FromResult(true);
+        }
+
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken)
+        {
+            SeenOwners.Add(request.Owner);
+            return Task.FromResult<ContextSection?>(
+                new ContextSection($"{id}.section", id, 1, [new ContextItem(null, "x")]));
+        }
     }
 }
 

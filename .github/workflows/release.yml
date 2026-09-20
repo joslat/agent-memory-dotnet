@@ -58,24 +58,33 @@ jobs:
           missing=0
 
           while IFS='|' read -r package_id project; do
-            [[ -z "$package_id" || "$package_id" == \#* ]] && continue
+            [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
             if [[ ! -f "$project" ]]; then
               echo "::error::eng/release-packages.txt references a missing project: $project"
               missing=1
             fi
           done < eng/release-packages.txt
 
-          manifest_ids="$(grep -v '^#' eng/release-packages.txt | grep -v '^$' | cut -d'|' -f1 | sort)"
+          published_ids="$(grep -v '^#' eng/release-packages.txt | grep -v '^$' | grep -v '^HELD:' | cut -d'|' -f1 | sort)"
+          held_ids="$(grep '^HELD:' eng/release-packages.txt | cut -d':' -f2 | sort)"
+          accounted_ids="$(printf '%s\n%s\n' "$published_ids" "$held_ids" | grep -v '^$' | sort -u)"
           actual_ids="$(find src -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"
-          unlisted="$(comm -23 <(echo "$actual_ids") <(echo "$manifest_ids"))"
+          unlisted="$(comm -23 <(echo "$actual_ids") <(echo "$accounted_ids"))"
           if [[ -n "$unlisted" ]]; then
-            echo "::error::src/ project(s) not listed in eng/release-packages.txt:"
+            echo "::error::src/ project(s) neither listed nor HELD in eng/release-packages.txt:"
             echo "$unlisted"
             missing=1
           fi
 
+          orphan_held="$(comm -13 <(echo "$actual_ids") <(echo "$held_ids" | grep -v '^$'))"
+          if [[ -n "$orphan_held" ]]; then
+            echo "::error::HELD entries with no project under src/:"
+            echo "$orphan_held"
+            missing=1
+          fi
+
           [[ "$missing" -eq 0 ]] || exit 1
-          echo "eng/release-packages.txt matches src/*/ exactly."
+          echo "eng/release-packages.txt accounts for every src/*/ project."
 
       - name: Unit + SemanticKernel tests
         run: >
@@ -131,7 +140,7 @@ jobs:
       - name: Pack explicit packages
         run: |
           while IFS='|' read -r package_id project; do
-            [[ -z "$package_id" || "$package_id" == \#* ]] && continue
+            [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
             dotnet pack "$project" -c Release --no-build \
               -p:Version=${{ steps.version.outputs.version }} \
               -o artifacts

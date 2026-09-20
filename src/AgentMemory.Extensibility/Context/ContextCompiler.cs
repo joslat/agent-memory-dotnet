@@ -55,6 +55,16 @@ public sealed class ContextCompiler(
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // THE OWNER IS RESOLVED BEFORE ANY CONTRIBUTOR SEES THE REQUEST. Passing the host's claimed
+        // owner to contributor code and only recording the resolved owner in the snapshot would still
+        // let a module query on the untrusted claim, which is the boundary this policy exists to set.
+        var resolved = isolationPolicy.ResolveReadScope(
+            explicitScope: null,
+            ownerId: request.Owner,
+            operationName: nameof(CompileAsync),
+            access: MemoryOperationAccess.Tenant);
+        var resolvedRequest = request with { Owner = resolved.OwnerId };
+
         var sections = new List<ContextSection>();
         var omissions = new List<ContextOmission>();
 
@@ -65,13 +75,13 @@ public sealed class ContextCompiler(
 
             try
             {
-                if (!await contributor.AppliesAsync(request, cancellationToken).ConfigureAwait(false))
+                if (!await contributor.AppliesAsync(resolvedRequest, cancellationToken).ConfigureAwait(false))
                 {
                     omissions.Add(new ContextOmission(id, ContextOmissionReason.NotApplicable));
                     continue;
                 }
 
-                var section = await contributor.ContributeAsync(request, cancellationToken)
+                var section = await contributor.ContributeAsync(resolvedRequest, cancellationToken)
                     .ConfigureAwait(false);
 
                 // A contributor that applied and returned nothing is NOT the same as one that did not
@@ -104,12 +114,6 @@ public sealed class ContextCompiler(
         // configured isolation mode, and the envelope records the decision. Copying the claim through
         // would have made a field documented as evidence of enforcement into a restatement of the
         // input -- true-looking, and unable to show that anything had been enforced.
-        var resolved = isolationPolicy.ResolveReadScope(
-            explicitScope: null,
-            ownerId: request.Owner,
-            operationName: nameof(CompileAsync),
-            access: MemoryOperationAccess.Tenant);
-
         var snapshot = new ContextSnapshot(resolved.OwnerId, request.AsOf, request.SystemAsOf);
         return new ContextEnvelope(request, snapshot, sections, omissions, timeProvider.GetUtcNow());
     }
