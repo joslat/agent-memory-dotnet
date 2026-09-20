@@ -76,7 +76,7 @@ jobs:
             missing=1
           fi
 
-          orphan_held="$(comm -13 <(echo "$actual_ids") <(echo "$held_ids" | grep -v '^$'))"
+          orphan_held="$(comm -23 <(echo "$held_ids" | grep -v '^$') <(echo "$actual_ids"))"
           if [[ -n "$orphan_held" ]]; then
             echo "::error::HELD entries with no project under src/:"
             echo "$orphan_held"
