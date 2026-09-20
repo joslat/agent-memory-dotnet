@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extensibility;
+using AgentMemory.Extensibility.AgentFramework;
 using AgentMemory.Extensibility.Capabilities;
 using AgentMemory.Extensibility.Context;
 using AgentMemory.Extensibility.Contributors;
@@ -129,5 +130,93 @@ public sealed class RegistrationTests
         public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<ContextSection?>(
                 new ContextSection($"{id}.section", id, 1, [new ContextItem(null, "x")]));
+    }
+}
+
+/// <summary>
+/// The Agent Framework registration: the seam without which this package does nothing.
+/// </summary>
+/// <remarks>
+/// The first cut registered a compiler and contributors and left the agent using the SHIPPED
+/// provider — every call succeeded and module sections never reached a prompt. That is the
+/// reachable-but-never-fed defect in registration form, and it is the reason these exist.
+/// </remarks>
+public sealed class FrameworkRegistrationTests
+{
+    private static ServiceCollection Services()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IMemoryService>());
+        services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IEmbeddingOrchestrator>());
+        services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IClock>());
+        services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IIdGenerator>());
+        services.AddSingleton(Microsoft.Extensions.Options.Options.Create(
+            new AgentMemory.Abstractions.Options.MemoryOptions()));
+        services.AddSingleton(Microsoft.Extensions.Options.Options.Create(
+            new AgentMemory.AgentFramework.ContextFormatOptions()));
+        services.AddSingleton(Microsoft.Extensions.Options.Options.Create(
+            new AgentMemory.AgentFramework.AgentFrameworkOptions()));
+        services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IMemoryContextAssembler>());
+        return services;
+    }
+
+    /// <summary>A host resolving the shipped provider gets the extended one.</summary>
+    [Fact]
+    public void TheShippedProviderTypeResolvesToTheExtensibleOne()
+    {
+        var services = Services();
+        services.AddScoped<AgentMemory.AgentFramework.Neo4jMemoryContextProvider>();
+        services.AddAgentMemoryFrameworkExtensibility();
+
+        using var provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true });
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<AgentMemory.AgentFramework.Neo4jMemoryContextProvider>()
+            .Should().BeOfType<AgentMemory.Extensibility.AgentFramework.ExtensibleMemoryContextProvider>(
+                "otherwise the agent keeps using the shipped provider and module sections never appear");
+    }
+
+    /// <summary>
+    /// Exactly one provider, so core memory is never rendered twice.
+    /// </summary>
+    [Fact]
+    public void ThereIsExactlyOneProviderRegistration()
+    {
+        var services = Services();
+        services.AddScoped<AgentMemory.AgentFramework.Neo4jMemoryContextProvider>();
+        services.AddAgentMemoryFrameworkExtensibility();
+
+        using var provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true });
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider
+            .GetServices<AgentMemory.AgentFramework.Neo4jMemoryContextProvider>()
+            .Should().ContainSingle();
+    }
+
+    /// <summary>
+    /// The graph builds with scope validation on.
+    /// </summary>
+    /// <remarks>
+    /// The first cut registered the compiler and contributors as singletons while Core registers the
+    /// assembler scoped — a captive dependency that either refuses to build here or silently outlives
+    /// its request. This repository has paid for one of those before.
+    /// </remarks>
+    [Fact]
+    public void TheGraphSurvivesScopeValidation()
+    {
+        var services = Services();
+        services.AddScoped<AgentMemory.AgentFramework.Neo4jMemoryContextProvider>();
+        services.AddAgentMemoryFrameworkExtensibility();
+        services.AddCoreMemoryContributor();
+
+        using var provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IContextCompiler>().Should().NotBeNull();
     }
 }

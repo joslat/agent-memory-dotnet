@@ -32,7 +32,12 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton<IContextCompiler, ContextCompiler>();
+
+        // SCOPED, to match what it consumes. Core registers `IMemoryContextAssembler` scoped, so a
+        // singleton compiler or contributor would capture a scoped dependency: with scope validation
+        // the graph refuses to build, and without it the captured assembler outlives its request.
+        // This repository has paid for a captive dependency once already (the Diffbot typed client).
+        services.TryAddScoped<IContextCompiler, ContextCompiler>();
         return services;
     }
 
@@ -48,7 +53,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.AddSingleton<IContextContributor, T>();
+        services.AddScoped<IContextContributor, T>();
         return services;
     }
 
@@ -66,7 +71,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.AddSingleton<IContextContributor, Contributors.CoreMemoryContextContributor>();
+        services.AddScoped<IContextContributor, Contributors.CoreMemoryContextContributor>();
         return services;
     }
 }

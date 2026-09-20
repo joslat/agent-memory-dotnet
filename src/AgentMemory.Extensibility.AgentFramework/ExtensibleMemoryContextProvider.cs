@@ -130,20 +130,17 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         {
             var turn = context.AIContext?.Messages?.ToArray() ?? [];
 
+            // THE SAME IDENTITY THE BASE USES, from the base. ExtractIds is protected precisely so
+            // this cannot become a second derivation: a module that retrieved against a different
+            // session id than core did would be worse than one that retrieved nothing, because the
+            // context would look complete.
+            var ids = ExtractIds(context.Session, context.Agent);
+
             var request = new ContextRequest
             {
-                // SLICE A CARRIES NO RESOLVED IDS, and says so rather than guessing them.
-                //
-                // The shipped provider reads session, conversation, user and application through its
-                // own private ExtractIds. Re-deriving them here would be a second identity path, and a
-                // second path is precisely what this provider exists to avoid — it is the same
-                // argument that made the core block delegated rather than re-rendered.
-                //
-                // It costs nothing today because core comes from delegation and no module exists to
-                // need ids. The seam that shares ExtractIds belongs with the slice that ships a module
-                // and can test it; inventing a SessionId now would put a wrong value on the wire and
-                // make the wrongness invisible.
-                SessionId = string.Empty,
+                SessionId = ids.sessionId,
+                ConversationId = ids.conversationId,
+                Owner = ids.userId,
                 RecentTurn = turn,
                 Query = turn.LastOrDefault()?.Text,
             };

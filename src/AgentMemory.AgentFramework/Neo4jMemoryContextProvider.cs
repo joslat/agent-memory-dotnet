@@ -681,7 +681,13 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         return storedMessages;
     }
 
-    private (string sessionId, string conversationId, string? userId, string? applicationId) ExtractIds(
+    /// <remarks>
+    /// <b>Protected so a derived provider shares this exact path rather than re-deriving it.</b>
+    /// A second identity derivation is the same defect class as a second rendering path: it looks
+    /// right, drifts quietly, and the drift shows up as a module retrieving another session's memory
+    /// or none at all. Exposed to subclasses only — still not public surface.
+    /// </remarks>
+    protected (string sessionId, string conversationId, string? userId, string? applicationId) ExtractIds(
         AgentSession? session,
         AIAgent? agent)
     {

@@ -45,9 +45,15 @@ public sealed class ContextCompilerTests
 
         envelope.Sections.Should().BeEmpty();
         envelope.Omissions.Should().HaveCount(2);
-        envelope.Omissions.Should().OnlyContain(o => o.Reason == ContextOmissionReason.NotApplicable);
-        envelope.Omissions.Single(o => o.ContributorId == "found-nothing").Detail
-            .Should().NotBeNull("the two are told apart by detail, not merged into one reason");
+
+        // BY REASON, not by a detail string. The first version of this test asserted both were
+        // NotApplicable and called the difference "told apart by detail" -- which encoded the defect
+        // rather than catching it: a caller switching on the reason, which is what a typed reason is
+        // for, could not have told them apart at all.
+        envelope.Omissions.Single(o => o.ContributorId == "did-not-apply").Reason
+            .Should().Be(ContextOmissionReason.NotApplicable);
+        envelope.Omissions.Single(o => o.ContributorId == "found-nothing").Reason
+            .Should().Be(ContextOmissionReason.SearchedAndEmpty);
     }
 
     /// <summary>

@@ -71,13 +71,12 @@ public sealed class ContextCompiler(
                     .ConfigureAwait(false);
 
                 // A contributor that applied and returned nothing is NOT the same as one that did not
-                // apply, and the envelope says which: "searched and found nothing" against "was never
-                // asked". Collapsing them is how a reader stops being able to tell whether an answer
-                // was complete.
+                // apply, and the envelope says which by REASON rather than by a detail string: a
+                // caller switching on the reason could not tell them apart when both said
+                // NotApplicable, which made the public contract contradict its own documentation.
                 if (section is null)
                 {
-                    omissions.Add(new ContextOmission(
-                        id, ContextOmissionReason.NotApplicable, "applied, produced no section"));
+                    omissions.Add(new ContextOmission(id, ContextOmissionReason.SearchedAndEmpty));
                     continue;
                 }
 

@@ -81,8 +81,14 @@ public sealed record ContextOmission(string ContributorId, ContextOmissionReason
 [Experimental("AMEXT001")]
 public enum ContextOmissionReason
 {
-    /// <summary>The request did not match the contributor's applicability. Not a failure.</summary>
+    /// <summary>The request did not match the contributor's applicability. It never ran.</summary>
     NotApplicable,
+
+    /// <summary>
+    /// It ran and found nothing. <b>Not the same as not applying</b>, and the difference decides
+    /// whether an answer was complete: "nothing to say about this" against "never asked".
+    /// </summary>
+    SearchedAndEmpty,
 
     /// <summary>The token or item budget was exhausted before this contributor ran.</summary>
     Budget,
