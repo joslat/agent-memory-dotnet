@@ -48,7 +48,10 @@ jobs:
           missing=0
 
           while IFS='|' read -r package_id project; do
-            [[ -z "$package_id" || "$package_id" == \#* ]] && continue
+            # HELD: entries name a project that is deliberately NOT published, so they carry no path
+            # and must be skipped here. Missing this is what made the first cut of this change fail:
+            # the file's two readers have to agree about its grammar, and only one of them was updated.
+            [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
             if [[ ! -f "$project" ]]; then
               echo "::error::eng/release-packages.txt references a missing project: $project"
               missing=1
