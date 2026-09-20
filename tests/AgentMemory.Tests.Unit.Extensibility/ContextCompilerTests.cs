@@ -1,7 +1,11 @@
+using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Services;
 using AgentMemory.Extensibility.Capabilities;
 using AgentMemory.Extensibility.Context;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 
 namespace AgentMemory.Tests.Unit.Extensibility;
@@ -13,8 +17,19 @@ public sealed class ContextCompilerTests
 {
     private static ContextRequest Request() => new() { SessionId = "s-1", Query = "anything?" };
 
+    /// <summary>A policy that passes the claimed owner through, so these tests isolate the compiler.</summary>
+    private static IMemoryIsolationPolicy PassThroughPolicy()
+    {
+        var policy = Substitute.For<IMemoryIsolationPolicy>();
+        policy.ResolveReadScope(
+                Arg.Any<MemoryScope?>(), Arg.Any<string?>(), Arg.Any<string>(),
+                Arg.Any<MemoryOperationAccess>())
+            .Returns(call => MemoryScope.For(call.ArgAt<string?>(1) ?? "anonymous"));
+        return policy;
+    }
+
     private static ContextCompiler Compiler(params IContextContributor[] contributors) =>
-        new(contributors, TimeProvider.System, NullLogger<ContextCompiler>.Instance);
+        new(contributors, PassThroughPolicy(), TimeProvider.System, NullLogger<ContextCompiler>.Instance);
 
     /// <summary>A contributor that applies and produces lands as a section.</summary>
     [Fact]
@@ -115,6 +130,32 @@ public sealed class ContextCompilerTests
 
         envelope.Sections.Select(s => s.ContributorId)
             .Should().ContainInOrder("mmm", "zzz", "aaa");
+    }
+
+    /// <summary>
+    /// The snapshot records the RESOLVED owner, not the one the host claimed.
+    /// </summary>
+    /// <remarks>
+    /// The field is documented as evidence that isolation acted. Copying the request through would
+    /// make it a restatement of the input that looks like enforcement — and the one thing a caller
+    /// would use it for is confirming enforcement happened.
+    /// </remarks>
+    [Fact]
+    public async Task TheSnapshotCarriesTheResolvedOwnerNotTheClaimedOne()
+    {
+        var policy = Substitute.For<IMemoryIsolationPolicy>();
+        policy.ResolveReadScope(
+                Arg.Any<MemoryScope?>(), Arg.Any<string?>(), Arg.Any<string>(),
+                Arg.Any<MemoryOperationAccess>())
+            .Returns(MemoryScope.For("resolved-owner"));
+
+        var compiler = new ContextCompiler(
+            [], policy, TimeProvider.System, NullLogger<ContextCompiler>.Instance);
+
+        var envelope = await compiler.CompileAsync(
+            new ContextRequest { SessionId = "s-1", Owner = "claimed-owner" });
+
+        envelope.Snapshot.Owner.Should().Be("resolved-owner");
     }
 
     /// <summary>The snapshot records the clocks the request pinned.</summary>

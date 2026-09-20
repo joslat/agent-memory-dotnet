@@ -27,6 +27,15 @@ public sealed class RegistrationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IMemoryContextAssembler>());
+        // The SDK REQUIRES an isolation policy and deliberately does not default one: silently
+        // installing a policy that decides who can read what is not a memory package's call. A real
+        // host gets it from AddNeo4jAgentMemory; these tests supply it explicitly for the same reason.
+        var isolation = Substitute.For<AgentMemory.Abstractions.Services.IMemoryIsolationPolicy>();
+        isolation.ResolveReadScope(
+                Arg.Any<AgentMemory.Abstractions.Options.MemoryScope?>(), Arg.Any<string?>(),
+                Arg.Any<string>(), Arg.Any<AgentMemory.Abstractions.Domain.MemoryOperationAccess>())
+            .Returns(call => AgentMemory.Abstractions.Options.MemoryScope.For(call.ArgAt<string?>(1) ?? "anonymous"));
+        services.AddSingleton(isolation);
         return services;
     }
 
@@ -158,6 +167,15 @@ public sealed class FrameworkRegistrationTests
         services.AddSingleton(Microsoft.Extensions.Options.Options.Create(
             new AgentMemory.AgentFramework.AgentFrameworkOptions()));
         services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IMemoryContextAssembler>());
+        // The SDK REQUIRES an isolation policy and deliberately does not default one: silently
+        // installing a policy that decides who can read what is not a memory package's call. A real
+        // host gets it from AddNeo4jAgentMemory; these tests supply it explicitly for the same reason.
+        var isolation = Substitute.For<AgentMemory.Abstractions.Services.IMemoryIsolationPolicy>();
+        isolation.ResolveReadScope(
+                Arg.Any<AgentMemory.Abstractions.Options.MemoryScope?>(), Arg.Any<string?>(),
+                Arg.Any<string>(), Arg.Any<AgentMemory.Abstractions.Domain.MemoryOperationAccess>())
+            .Returns(call => AgentMemory.Abstractions.Options.MemoryScope.For(call.ArgAt<string?>(1) ?? "anonymous"));
+        services.AddSingleton(isolation);
         return services;
     }
 

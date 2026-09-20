@@ -172,8 +172,14 @@ public sealed class EmptyModuleSetParityTests
                 memory, embeddings, clock, ids, memoryOptions, formatOptions, agentOptions,
                 NullLogger<Neo4jMemoryContextProvider>.Instance);
 
+            var policy = Substitute.For<IMemoryIsolationPolicy>();
+            policy.ResolveReadScope(
+                    Arg.Any<MemoryScope?>(), Arg.Any<string?>(), Arg.Any<string>(),
+                    Arg.Any<MemoryOperationAccess>())
+                .Returns(call => MemoryScope.For(call.ArgAt<string?>(1) ?? "anonymous"));
+
             var compiler = new ContextCompiler(
-                contributors, TimeProvider.System, NullLogger<ContextCompiler>.Instance);
+                contributors, policy, TimeProvider.System, NullLogger<ContextCompiler>.Instance);
 
             // The SUBJECT: the same provider, extended. One instance, one attribution stamp.
             Provider = new AgentMemory.Extensibility.AgentFramework.ExtensibleMemoryContextProvider(

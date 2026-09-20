@@ -1,4 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Services;
 using AgentMemory.Extensibility.Capabilities;
 using Microsoft.Extensions.Logging;
 
@@ -36,6 +39,7 @@ public interface IContextCompiler
 [Experimental("AMEXT001")]
 public sealed class ContextCompiler(
     IEnumerable<IContextContributor> contributors,
+    IMemoryIsolationPolicy isolationPolicy,
     TimeProvider timeProvider,
     ILogger<ContextCompiler> logger) : IContextCompiler
 {
@@ -95,7 +99,18 @@ public sealed class ContextCompiler(
             }
         }
 
-        var snapshot = new ContextSnapshot(request.Owner, request.AsOf, request.SystemAsOf);
+        // THE OWNER IS RESOLVED, NOT ECHOED, which is what the snapshot's own contract says it is.
+        // The request carries what the HOST claims; the policy decides what that means under the
+        // configured isolation mode, and the envelope records the decision. Copying the claim through
+        // would have made a field documented as evidence of enforcement into a restatement of the
+        // input -- true-looking, and unable to show that anything had been enforced.
+        var resolved = isolationPolicy.ResolveReadScope(
+            explicitScope: null,
+            ownerId: request.Owner,
+            operationName: nameof(CompileAsync),
+            access: MemoryOperationAccess.Tenant);
+
+        var snapshot = new ContextSnapshot(resolved.OwnerId, request.AsOf, request.SystemAsOf);
         return new ContextEnvelope(request, snapshot, sections, omissions, timeProvider.GetUtcNow());
     }
 }
