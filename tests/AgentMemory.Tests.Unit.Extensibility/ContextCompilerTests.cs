@@ -2,6 +2,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extensibility.Capabilities;
+using AgentMemory.Extensibility.Contributors;
 using AgentMemory.Extensibility.Context;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -201,5 +202,57 @@ public sealed class ContextCompilerTests
 
         public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("the module's store is down");
+    }
+}
+
+/// <summary>
+/// The core contributor's mapping onto the existing recall request.
+/// </summary>
+public sealed class CoreContributorTests
+{
+    /// <summary>
+    /// Recall options are left at the DEFAULT INSTANCE so the host's configuration still applies.
+    /// </summary>
+    /// <remarks>
+    /// The assembler falls back to <c>MemoryOptions.Recall</c> only when the request's Options is the
+    /// Default instance by reference. Passing a copy of the defaults would look identical and would
+    /// silently opt the host out of its own configuration — a defect invisible in any assertion about
+    /// field values, which is why this one asserts the reference.
+    /// </remarks>
+    [Fact]
+    public async Task TheRecallRequestKeepsTheDefaultOptionsReference()
+    {
+        var assembler = Substitute.For<IMemoryContextAssembler>();
+        assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new MemoryContext { SessionId = "s-1", AssembledAtUtc = DateTimeOffset.UnixEpoch });
+
+        await new CoreMemoryContextContributor(assembler)
+            .ContributeAsync(new ContextRequest { SessionId = "s-1" }, CancellationToken.None);
+
+        await assembler.Received(1).AssembleContextAsync(
+            Arg.Is<RecallRequest>(r => ReferenceEquals(r.Options, RecallOptions.Default)),
+            Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>A point-in-time request uses the as-of overload with BOTH clocks.</summary>
+    [Fact]
+    public async Task APointInTimeRequestUsesBothClocks()
+    {
+        var assembler = Substitute.For<IMemoryContextAssembler>();
+        var valid = new DateTimeOffset(2026, 5, 20, 0, 0, 0, TimeSpan.Zero);
+        assembler.AssembleContextAsOfAsync(
+                Arg.Any<RecallRequest>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new MemoryContext { SessionId = "s-1", AssembledAtUtc = DateTimeOffset.UnixEpoch });
+
+        await new CoreMemoryContextContributor(assembler).ContributeAsync(
+            new ContextRequest { SessionId = "s-1", AsOf = valid }, CancellationToken.None);
+
+        // SystemAsOf defaults to AsOf rather than to the machine clock: answering "what was true
+        // then, as believed now" is the defect the two-clock contract exists to prevent.
+        await assembler.Received(1).AssembleContextAsOfAsync(
+            Arg.Any<RecallRequest>(), valid, valid, Arg.Any<CancellationToken>());
+        await assembler.DidNotReceive().AssembleContextAsync(
+            Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>());
     }
 }

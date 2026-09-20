@@ -56,6 +56,11 @@ public sealed class CoreMemoryContextContributor(IMemoryContextAssembler assembl
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // OPTIONS ARE LEFT UNSET ON PURPOSE, and this is load-bearing rather than an omission.
+        // The assembler falls back to the host's configured `MemoryOptions.Recall` only when the
+        // request's Options is the Default INSTANCE by reference. Passing anything here -- even a
+        // copy of the defaults -- silently opts the host out of its own configuration, because a
+        // copy is not that reference. A future reader tempted to "complete" this object should not.
         var recall = new RecallRequest
         {
             SessionId = request.SessionId,
