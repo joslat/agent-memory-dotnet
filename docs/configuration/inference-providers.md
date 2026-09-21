@@ -49,6 +49,13 @@ Four rules govern this, and the second is the one that matters most:
 
 For Azure, the "model" is a **deployment name**. Everywhere else it is a model id.
 
+> **`_2` and `_3` are carried for contract parity and nothing in AgentMemory reads them yet.** They
+> exist so one operator configures this repository and AgentEval identically — a value that works
+> there must not fail closed here. But setting `BITDEER_MODEL_2` changes nothing about an
+> AgentMemory run today: the benchmark arms select by ingestion and retrieval tokens, not by a
+> second chat model. Stated rather than implied, because a setting that looks live and is not is
+> worse than one that is plainly documented as reserved.
+
 ## Embeddings, and why the dimension is not optional
 
 AgentMemory's vector search is core, so every provider needs an embedding model — and the

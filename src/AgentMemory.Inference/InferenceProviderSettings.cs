@@ -35,13 +35,24 @@ public sealed record InferenceProviderSettings
     /// The second comparison slot. Falls back to the primary rather than to null.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The contract's own words: where a provider defines no other default these fall back to the
     /// primary model "rather than to something the operator did not ask for". A null here would make
     /// a comparison run silently one arm short.
+    /// </para>
+    /// <para>
+    /// <b>Carried for contract parity; NO consumer in this repository yet.</b> The variables exist
+    /// because an operator configures this repository and AgentEval identically, and dropping them
+    /// would make a value that works there fail closed here. But setting <c>BITDEER_MODEL_2</c>
+    /// changes nothing about an AgentMemory run today — the benchmark arms select by ingestion and
+    /// retrieval tokens, not by a second chat model. Said out loud because a resolved-and-unread
+    /// value that LOOKS live is this repository's most-repeated defect, and the honest version is to
+    /// name it rather than to quietly remove the operator's setting.
+    /// </para>
     /// </remarks>
     public string? Model2 { get; init; }
 
-    /// <summary>The third comparison slot. Same fallback rule as <see cref="Model2"/>.</summary>
+    /// <summary>The third comparison slot. Same fallback rule and same parity note as <see cref="Model2"/>.</summary>
     public string? Model3 { get; init; }
 
     /// <summary>How this provider came to be chosen.</summary>
@@ -163,7 +174,18 @@ public sealed record InferenceProviderSettings
             };
 
             var embeddings = EmbeddingIdentity is { } e ? $" + {e}" : " (no embeddings)";
-            return $"{DisplayName} — {ModelIdentity}{embeddings} at {SafeEndpoint} ({how})";
+
+            // WHERE THE EMBEDDINGS GO, when that is not where the chat goes. The override block
+            // exists precisely to split them -- "chat on Bitdeer, embeddings on a local Ollama" --
+            // and a banner that named only the chat host would be silent about the half of the
+            // configuration the operator went out of their way to change.
+            var elsewhere =
+                SafeEmbeddingEndpoint is { } embeddingEndpoint
+                && !string.Equals(embeddingEndpoint, SafeEndpoint, StringComparison.Ordinal)
+                    ? $", embeddings at {embeddingEndpoint}"
+                    : string.Empty;
+
+            return $"{DisplayName} — {ModelIdentity}{embeddings} at {SafeEndpoint}{elsewhere} ({how})";
         }
     }
 

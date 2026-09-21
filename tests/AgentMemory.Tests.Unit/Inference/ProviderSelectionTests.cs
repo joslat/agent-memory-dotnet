@@ -402,6 +402,31 @@ public sealed class ProviderSelectionTests
             .And.Contain("Bitdeer AI Model Studio");
     }
 
+    /// <summary>
+    /// The banner says where the embeddings go when that is not where the chat goes.
+    /// </summary>
+    /// <remarks>
+    /// The override block exists precisely to split them. A banner naming only the chat host would
+    /// be silent about the half of the configuration the operator went out of their way to change —
+    /// and <c>SafeEmbeddingEndpoint</c> existed, documented, read by nothing, until this test.
+    /// </remarks>
+    [Fact]
+    public void TheBannerNamesASeparateEmbeddingHost()
+    {
+        var split = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("AI_EMBEDDING_PROVIDER", "openai-compatible"),
+            ("AI_EMBEDDING_ENDPOINT", "http://localhost:11434/v1"),
+            ("AI_EMBEDDING_API_KEY", "no-key-needed"),
+            ("AI_EMBEDDING_MODEL", "nomic-embed-text"))).Settings!;
+
+        split.Summary.Should().Contain("embeddings at http://localhost:11434");
+
+        // And it stays quiet when both halves are on the same host, rather than repeating itself.
+        InferenceProviderEnvironment.Resolve(Env(("BITDEER_API_KEY", "k")))
+            .Settings!.Summary.Should().NotContain("embeddings at");
+    }
+
     /// <summary>The settings never print the key, however they are stringified.</summary>
     [Fact]
     public void SettingsRedactTheKeyWhenPrinted()
