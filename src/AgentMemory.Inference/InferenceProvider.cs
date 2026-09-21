@@ -1,4 +1,4 @@
-namespace AgentMemory.Inference;
+﻿namespace AgentMemory.Inference;
 
 /// <summary>The inference host a chat or embedding client talks to.</summary>
 /// <remarks>
@@ -33,4 +33,22 @@ public enum InferenceProvider
 
     /// <summary>Any other OpenAI-compatible host: Ollama, LM Studio, vLLM, a gateway.</summary>
     OpenAICompatible,
+}
+
+/// <summary>How the provider was chosen.</summary>
+/// <remarks>
+/// Printed in the banner, because "which host answered" and "why that host" are different questions
+/// and an operator debugging a surprising result needs the second one. A run that auto-detected
+/// Azure because a stale variable was still set looks identical to one that chose it.
+/// </remarks>
+public enum InferenceProviderSelection
+{
+    /// <summary>Nothing selected and nothing detected.</summary>
+    None = 0,
+
+    /// <summary><c>AI_INFERENCE_PROVIDER</c> named it.</summary>
+    Explicit,
+
+    /// <summary>The selector was unset; the first provider with complete credentials won.</summary>
+    AutoDetected,
 }

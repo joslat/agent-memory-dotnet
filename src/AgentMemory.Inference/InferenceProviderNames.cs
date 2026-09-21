@@ -1,4 +1,4 @@
-namespace AgentMemory.Inference;
+﻿namespace AgentMemory.Inference;
 
 /// <summary>
 /// The operator-facing token for each provider, in BOTH directions.
@@ -41,23 +41,43 @@ public static class InferenceProviderNames
             nameof(provider), provider, "No operator token is defined for this provider.");
     }
 
-    /// <summary>Parses an operator-supplied token. Case- and whitespace-insensitive.</summary>
+    /// <summary>The human-readable provider name, for banners.</summary>
+    /// <remarks>
+    /// The same strings the reference implementation prints, so an operator reading a banner from
+    /// either repository sees the same host named the same way.
+    /// </remarks>
+    public static string DisplayNameOf(InferenceProvider provider) => provider switch
+    {
+        InferenceProvider.AzureOpenAI => "Azure OpenAI",
+        InferenceProvider.Bitdeer => "Bitdeer AI Model Studio",
+        InferenceProvider.OpenAI => "OpenAI",
+        InferenceProvider.Foundry => "Azure AI Foundry (OpenAI-compatible endpoint)",
+        InferenceProvider.OpenAICompatible => "OpenAI-compatible endpoint",
+        _ => "no provider configured",
+    };
+
+    /// <summary>
+    /// Parses an operator-supplied token, tolerating the spellings the reference accepts.
+    /// </summary>
+    /// <remarks>
+    /// <b>The alternative spellings are parity, not politeness.</b> The whole point of copying this
+    /// contract is that an operator moving between the two repositories configures them identically;
+    /// a value that works in one and fails closed in the other is exactly the surprise the shared
+    /// contract exists to prevent. <c>azure-openai</c> is the obvious thing to type.
+    /// </remarks>
     public static bool TryParse(string? token, out InferenceProvider provider)
     {
-        var trimmed = token?.Trim();
-        if (!string.IsNullOrEmpty(trimmed))
+        provider = token?.Trim().ToLowerInvariant() switch
         {
-            foreach (var entry in Table)
-            {
-                if (string.Equals(entry.Token, trimmed, StringComparison.OrdinalIgnoreCase))
-                {
-                    provider = entry.Provider;
-                    return true;
-                }
-            }
-        }
+            "azure" or "azure-openai" or "azureopenai" => InferenceProvider.AzureOpenAI,
+            "bitdeer" => InferenceProvider.Bitdeer,
+            "openai" => InferenceProvider.OpenAI,
+            "foundry" or "azure-foundry" or "azure-ai-foundry" => InferenceProvider.Foundry,
+            "openai-compatible" or "openai_compatible" or "compatible" or "openai-compat"
+                => InferenceProvider.OpenAICompatible,
+            _ => InferenceProvider.None,
+        };
 
-        provider = InferenceProvider.None;
-        return false;
+        return provider != InferenceProvider.None;
     }
 }

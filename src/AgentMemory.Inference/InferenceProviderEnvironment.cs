@@ -1,4 +1,4 @@
-namespace AgentMemory.Inference;
+﻿namespace AgentMemory.Inference;
 
 /// <summary>The outcome of reading the environment: settings, or the reason there are none.</summary>
 /// <remarks>
@@ -16,6 +16,12 @@ public sealed record InferenceResolution
 
     /// <summary>Why embeddings are unconfigured, or null when they are configured.</summary>
     public string? EmbeddingDiagnostic { get; init; }
+
+    /// <summary>
+    /// Why the judge override was refused, or null. A refused override means NO judge, not the
+    /// subject's own model: a run must not come to grade itself because a URL was mistyped.
+    /// </summary>
+    public string? JudgeDiagnostic { get; init; }
 
     /// <summary>Whether a chat provider resolved.</summary>
     public bool IsConfigured => Settings is not null;
@@ -87,6 +93,11 @@ public static class InferenceProviderEnvironment
 
         public string? DefaultEmbeddingModel { get; init; }
 
+        /// <summary>Comparison-slot defaults. Null means "fall back to the primary model".</summary>
+        public string? DefaultModel2 { get; init; }
+
+        public string? DefaultModel3 { get; init; }
+
         /// <summary>True when the host may be keyless (a local server on loopback).</summary>
         public bool KeyOptional { get; init; }
 
@@ -136,6 +147,8 @@ public static class InferenceProviderEnvironment
             ModelVariable = "AZURE_OPENAI_DEPLOYMENT",
             EmbeddingModelVariable = "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
             DefaultEmbeddingModel = "text-embedding-ada-002",
+            DefaultModel2 = "gpt-4o-mini",
+            DefaultModel3 = "gpt-4.1",
         },
         new()
         {
@@ -241,13 +254,16 @@ public static class InferenceProviderEnvironment
                 ? Failure(
                     $"{SelectorVariable}={InferenceProviderNames.ToToken(chosen)} but "
                     + $"{Plural(missing.Length, "variable is", "variables are")} not set: {string.Join(", ", missing)}.")
-                : Build(read, spec);
+                : Build(read, spec, InferenceProviderSelection.Explicit);
         }
 
         // RULE 3. Fixed order, first complete one wins.
         foreach (var spec in Specs)
         {
-            if (!MissingRequired(read, spec).Any()) return Build(read, spec);
+            if (!MissingRequired(read, spec).Any())
+            {
+                return Build(read, spec, InferenceProviderSelection.AutoDetected);
+            }
         }
 
         // RULE 4. Nothing is complete; if something was attempted, name what THAT provider is missing.
@@ -271,7 +287,8 @@ public static class InferenceProviderEnvironment
             + $"Or name one explicitly with {SelectorVariable}.");
     }
 
-    private static InferenceResolution Build(Func<string, string?> read, ProviderSpec spec)
+    private static InferenceResolution Build(
+        Func<string, string?> read, ProviderSpec spec, InferenceProviderSelection selection)
     {
         var endpoint = (spec.EndpointVariable is { } v ? Value(read, v) : null) ?? spec.DefaultEndpoint;
         var model = Value(read, spec.ModelVariable) ?? spec.DefaultModel;
@@ -293,7 +310,7 @@ public static class InferenceProviderEnvironment
         }
 
         var (embedding, embeddingDiagnostic) = ResolveEmbeddings(read, spec, endpoint, apiKey);
-        var judge = ResolveJudge(read);
+        var (judge, judgeDiagnostic) = ResolveJudge(read);
 
         var settings = new InferenceProviderSettings
         {
@@ -301,8 +318,12 @@ public static class InferenceProviderEnvironment
             Endpoint = endpoint,
             ApiKey = apiKey,
             Model = model,
-            Model2 = Value(read, spec.Model2Variable),
-            Model3 = Value(read, spec.Model3Variable),
+            // FALL BACK TO THE PRIMARY, never to null: the contract says a slot with no default of
+            // its own takes the primary model "rather than something the operator did not ask for",
+            // and a null here makes a comparison run quietly one arm short.
+            Model2 = Value(read, spec.Model2Variable) ?? spec.DefaultModel2 ?? model,
+            Model3 = Value(read, spec.Model3Variable) ?? spec.DefaultModel3 ?? model,
+            Selection = selection,
             ExtractionModel = Value(read, ExtractionModelVariable)
                 // The Azure alias is honoured ONLY under Azure: the same name on a Bitdeer machine
                 // would be a leftover from a deleted deployment, not an instruction.
@@ -323,8 +344,9 @@ public static class InferenceProviderEnvironment
         return new InferenceResolution
         {
             Settings = settings,
-            Diagnostic = $"Using {settings.DisplayName}.",
+            Diagnostic = $"Using {settings.Summary}.",
             EmbeddingDiagnostic = embeddingDiagnostic,
+            JudgeDiagnostic = judgeDiagnostic,
         };
     }
 
@@ -421,26 +443,56 @@ public static class InferenceProviderEnvironment
         InferenceProvider Provider, string? Endpoint, string? ApiKey, string? Model);
 
     /// <summary>The judge override: the generic block, else AgentEval's Azure-shaped one.</summary>
-    private static JudgeHalf ResolveJudge(Func<string, string?> read)
+    /// <remarks>
+    /// <b>THE JUDGE ENDPOINT GOES THROUGH THE SAME POLICY AS EVERY OTHER ONE.</b> This is the one
+    /// path that still names a host directly — naming a judge endpoint is the entire point of it —
+    /// and it is therefore the one path where the endpoint rules are easiest to forget. The port
+    /// guide records that exact bug happening in the reference implementation: the judge branch
+    /// built its client directly, accepted a plain-http remote endpoint, and sent the judge key in
+    /// cleartext while the generic path refused the same URL. A refused judge override returns NO
+    /// judge rather than a silently-downgraded one: falling back to the subject's own model would
+    /// mean a run graded itself because a URL was mistyped.
+    /// </remarks>
+    private static (JudgeHalf Half, string? Diagnostic) ResolveJudge(Func<string, string?> read)
     {
-        if (JudgeBlock.All(v => Value(read, v) is not null)
-            && InferenceProviderNames.TryParse(Value(read, "AI_JUDGE_PROVIDER"), out var provider))
+        if (JudgeBlock.All(v => Value(read, v) is not null))
         {
-            return new JudgeHalf(
-                provider, Value(read, "AI_JUDGE_ENDPOINT"),
-                Value(read, "AI_JUDGE_API_KEY"), Value(read, "AI_JUDGE_MODEL"));
+            if (!InferenceProviderNames.TryParse(Value(read, "AI_JUDGE_PROVIDER"), out var provider))
+            {
+                return (NoJudge,
+                    $"AI_JUDGE_PROVIDER is '{Value(read, "AI_JUDGE_PROVIDER")}', which is not a provider. "
+                    + $"Expected one of: {string.Join(", ", InferenceProviderNames.AllTokens)}.");
+            }
+
+            var endpoint = Value(read, "AI_JUDGE_ENDPOINT")!;
+            if (!InferenceEndpoints.TryValidate(endpoint, "AI_JUDGE_ENDPOINT", out var judgeError))
+            {
+                return (NoJudge, judgeError);
+            }
+
+            return (new JudgeHalf(
+                provider, endpoint,
+                Value(read, "AI_JUDGE_API_KEY"), Value(read, "AI_JUDGE_MODEL")), null);
         }
 
         // Honoured for AgentEval parity so one operator configures both repositories identically.
         if (AzureJudgeBlock.All(v => Value(read, v) is not null))
         {
-            return new JudgeHalf(
-                InferenceProvider.AzureOpenAI, Value(read, "AZURE_OPENAI_JUDGE_ENDPOINT"),
-                Value(read, "AZURE_OPENAI_JUDGE_API_KEY"), Value(read, "AZURE_OPENAI_JUDGE_DEPLOYMENT"));
+            var endpoint = Value(read, "AZURE_OPENAI_JUDGE_ENDPOINT")!;
+            if (!InferenceEndpoints.TryValidate(endpoint, "AZURE_OPENAI_JUDGE_ENDPOINT", out var azureError))
+            {
+                return (NoJudge, azureError);
+            }
+
+            return (new JudgeHalf(
+                InferenceProvider.AzureOpenAI, endpoint,
+                Value(read, "AZURE_OPENAI_JUDGE_API_KEY"), Value(read, "AZURE_OPENAI_JUDGE_DEPLOYMENT")), null);
         }
 
-        return new JudgeHalf(InferenceProvider.None, null, null, null);
+        return (NoJudge, null);
     }
+
+    private static JudgeHalf NoJudge => new(InferenceProvider.None, null, null, null);
 
     private static IEnumerable<string> MissingRequired(Func<string, string?> read, ProviderSpec spec) =>
         spec.RequiredVariables.Where(v => Value(read, v) is null);

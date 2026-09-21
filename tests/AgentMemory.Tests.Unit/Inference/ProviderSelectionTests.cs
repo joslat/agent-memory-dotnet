@@ -1,4 +1,4 @@
-using AgentMemory.Inference;
+﻿using AgentMemory.Inference;
 using FluentAssertions;
 using Xunit;
 
@@ -281,6 +281,125 @@ public sealed class ProviderSelectionTests
             ("AZURE_OPENAI_EXTRACTION_DEPLOYMENT", "legacy-extract")));
 
         resolution.Settings!.EffectiveExtractionModel.Should().Be(expected);
+    }
+
+    /// <summary>
+    /// The alternative selector spellings the reference accepts are accepted here too.
+    /// </summary>
+    /// <remarks>
+    /// Parity, not politeness. The point of copying this contract is that one operator configures
+    /// both repositories identically; a value that works there and fails closed here is exactly the
+    /// surprise a shared contract exists to prevent.
+    /// </remarks>
+    [Theory]
+    [InlineData("azure")]
+    [InlineData("azure-openai")]
+    [InlineData("azureopenai")]
+    [InlineData("AZURE")]
+    public void TheAzureSpellingsAllResolveAzure(string token)
+    {
+        InferenceProviderEnvironment.Resolve(Env(
+            ("AI_INFERENCE_PROVIDER", token),
+            ("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com/"),
+            ("AZURE_OPENAI_API_KEY", "k"),
+            ("AZURE_OPENAI_DEPLOYMENT", "d")))
+            .Settings!.Provider.Should().Be(InferenceProvider.AzureOpenAI);
+    }
+
+    /// <summary>Same for the other providers' alternative spellings.</summary>
+    [Theory]
+    [InlineData("foundry", InferenceProvider.Foundry)]
+    [InlineData("azure-foundry", InferenceProvider.Foundry)]
+    [InlineData("azure-ai-foundry", InferenceProvider.Foundry)]
+    [InlineData("openai-compatible", InferenceProvider.OpenAICompatible)]
+    [InlineData("openai_compatible", InferenceProvider.OpenAICompatible)]
+    [InlineData("compatible", InferenceProvider.OpenAICompatible)]
+    [InlineData("openai-compat", InferenceProvider.OpenAICompatible)]
+    public void TheOtherSpellingsResolveToo(string token, InferenceProvider expected)
+    {
+        InferenceProviderNames.TryParse(token, out var parsed).Should().BeTrue();
+        parsed.Should().Be(expected);
+    }
+
+    /// <summary>
+    /// A JUDGE ENDPOINT GOES THROUGH THE SAME POLICY AS EVERY OTHER ONE.
+    /// </summary>
+    /// <remarks>
+    /// The port guide records this exact bug in the reference implementation: the judge branch built
+    /// its client directly, so it accepted a plain-http remote endpoint and sent the judge key in
+    /// cleartext while the generic path refused the same URL. It is the one path that still names a
+    /// host directly, which is precisely why the rule is easy to forget there.
+    /// </remarks>
+    [Fact]
+    public void ACleartextJudgeEndpointIsRefused()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("AI_JUDGE_PROVIDER", "openai"),
+            ("AI_JUDGE_ENDPOINT", "http://remote-judge/v1"),
+            ("AI_JUDGE_API_KEY", "sk-judge-secret"),
+            ("AI_JUDGE_MODEL", "gpt-4o")));
+
+        resolution.Settings!.HasJudgeOverride.Should().BeFalse(
+            "a refused override means NO judge, never a silently downgraded one");
+        resolution.JudgeDiagnostic.Should().Contain("cleartext").And.NotContain("sk-judge-secret");
+    }
+
+    /// <summary>An https judge endpoint is accepted, so the refusal above is about the scheme.</summary>
+    [Fact]
+    public void AnHttpsJudgeEndpointIsAccepted()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("AI_JUDGE_PROVIDER", "openai"),
+            ("AI_JUDGE_ENDPOINT", "https://api.openai.com/v1"),
+            ("AI_JUDGE_API_KEY", "sk-judge"),
+            ("AI_JUDGE_MODEL", "gpt-4o")));
+
+        resolution.Settings!.HasJudgeOverride.Should().BeTrue();
+        resolution.JudgeDiagnostic.Should().BeNull();
+    }
+
+    /// <summary>The comparison slots fall back to the primary, never to null.</summary>
+    [Fact]
+    public void TheComparisonSlotsFallBackToThePrimary()
+    {
+        var settings = InferenceProviderEnvironment.Resolve(Env(("BITDEER_API_KEY", "k"))).Settings!;
+
+        settings.Model2.Should().Be(settings.Model);
+        settings.Model3.Should().Be(settings.Model);
+    }
+
+    /// <summary>Azure's comparison slots have their own defaults, as the reference defines them.</summary>
+    [Fact]
+    public void AzureComparisonSlotsUseItsOwnDefaults()
+    {
+        var settings = InferenceProviderEnvironment.Resolve(Env(
+            ("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com/"),
+            ("AZURE_OPENAI_API_KEY", "k"),
+            ("AZURE_OPENAI_DEPLOYMENT", "my-deployment"))).Settings!;
+
+        settings.Model2.Should().Be("gpt-4o-mini");
+        settings.Model3.Should().Be("gpt-4.1");
+    }
+
+    /// <summary>The banner records HOW the provider was chosen, not only which one.</summary>
+    /// <remarks>
+    /// A run that auto-detected Azure from a stale variable nobody unset looks identical, in every
+    /// other respect, to one that chose it.
+    /// </remarks>
+    [Fact]
+    public void SelectionRecordsWhetherItWasChosenOrDetected()
+    {
+        InferenceProviderEnvironment.Resolve(Env(("BITDEER_API_KEY", "k")))
+            .Settings!.Selection.Should().Be(InferenceProviderSelection.AutoDetected);
+
+        var explicitly = InferenceProviderEnvironment.Resolve(Env(
+            ("AI_INFERENCE_PROVIDER", "bitdeer"), ("BITDEER_API_KEY", "k"))).Settings!;
+
+        explicitly.Selection.Should().Be(InferenceProviderSelection.Explicit);
+        explicitly.Summary.Should().Contain("AI_INFERENCE_PROVIDER=bitdeer")
+            .And.Contain("Bitdeer AI Model Studio");
     }
 
     /// <summary>The settings never print the key, however they are stringified.</summary>

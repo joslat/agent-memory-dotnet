@@ -1,4 +1,4 @@
-namespace AgentMemory.Inference;
+﻿namespace AgentMemory.Inference;
 
 /// <summary>
 /// Everything needed to build chat and embedding clients, with no SDK type in sight.
@@ -31,11 +31,21 @@ public sealed record InferenceProviderSettings
     /// <summary>The primary chat model, or for Azure the deployment name.</summary>
     public required string Model { get; init; }
 
-    /// <summary>The second comparison slot, kept for AgentEval contract parity.</summary>
+    /// <summary>
+    /// The second comparison slot. Falls back to the primary rather than to null.
+    /// </summary>
+    /// <remarks>
+    /// The contract's own words: where a provider defines no other default these fall back to the
+    /// primary model "rather than to something the operator did not ask for". A null here would make
+    /// a comparison run silently one arm short.
+    /// </remarks>
     public string? Model2 { get; init; }
 
-    /// <summary>The third comparison slot, kept for AgentEval contract parity.</summary>
+    /// <summary>The third comparison slot. Same fallback rule as <see cref="Model2"/>.</summary>
     public string? Model3 { get; init; }
+
+    /// <summary>How this provider came to be chosen.</summary>
+    public InferenceProviderSelection Selection { get; init; } = InferenceProviderSelection.None;
 
     /// <summary>
     /// The extraction model, when the operator named one.
@@ -129,11 +139,33 @@ public sealed record InferenceProviderSettings
     public string? SafeEmbeddingEndpoint =>
         string.IsNullOrWhiteSpace(EmbeddingEndpoint) ? null : InferenceEndpoints.Sanitize(EmbeddingEndpoint);
 
-    /// <summary>A one-line description for a startup banner.</summary>
-    public string DisplayName =>
-        EmbeddingIdentity is { } embedding
-            ? $"{ModelIdentity} + {embedding} at {SafeEndpoint}"
-            : $"{ModelIdentity} at {SafeEndpoint} (no embeddings)";
+    /// <summary>The provider's human-readable name, as the reference prints it.</summary>
+    public string DisplayName => InferenceProviderNames.DisplayNameOf(Provider);
+
+    /// <summary>
+    /// The full one-line banner: what answered, where, and WHY that host.
+    /// </summary>
+    /// <remarks>
+    /// The selection clause is not decoration. "Which host answered" and "why that one" are separate
+    /// questions, and a run that auto-detected Azure from a stale variable someone forgot to unset
+    /// looks identical, in every other respect, to one that chose it deliberately.
+    /// </remarks>
+    public string Summary
+    {
+        get
+        {
+            var how = Selection switch
+            {
+                InferenceProviderSelection.Explicit =>
+                    $"{InferenceProviderEnvironment.SelectorVariable}={InferenceProviderNames.ToToken(Provider)}",
+                InferenceProviderSelection.AutoDetected => "auto-detected",
+                _ => "unselected",
+            };
+
+            var embeddings = EmbeddingIdentity is { } e ? $" + {e}" : " (no embeddings)";
+            return $"{DisplayName} — {ModelIdentity}{embeddings} at {SafeEndpoint} ({how})";
+        }
+    }
 
     /// <summary>Redacted. See the remarks on the type.</summary>
     public override string ToString() =>

@@ -85,7 +85,7 @@ await RunAsync(host.Services, modelSettings);
 static async Task RunAsync(IServiceProvider root, InferenceProviderSettings modelSettings)
 {
     Console.WriteLine("=== AgentMemory for .NET — Shopping Assistant (MAF 1.9.0) — live model ===");
-    Console.WriteLine($"    {modelSettings.DisplayName}\n");
+    Console.WriteLine($"    {modelSettings.Summary}\n");
 
     await using var scope = root.CreateAsyncScope();
     var sp = scope.ServiceProvider;

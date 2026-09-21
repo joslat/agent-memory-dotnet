@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Inference;
 using Microsoft.Extensions.AI;
 
@@ -101,6 +101,6 @@ public static class RealModel
     public static void PrintModelBanner(InferenceProviderSettings settings, TextWriter? writer = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        (writer ?? Console.Out).WriteLine($"[model] {settings.DisplayName}");
+        (writer ?? Console.Out).WriteLine($"[model] {settings.Summary}");
     }
 }
