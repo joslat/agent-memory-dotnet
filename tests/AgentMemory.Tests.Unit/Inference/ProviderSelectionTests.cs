@@ -503,6 +503,60 @@ public sealed class ProviderSelectionTests
         resolution.JudgeDiagnostic.Should().BeNull();
     }
 
+    /// <summary>
+    /// The dimension parses identically whatever culture the machine is set to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A fail-closed rule that depends on the operator's locale is not a fail-closed rule, and the
+    /// parse is now explicitly <see cref="System.Globalization.CultureInfo.InvariantCulture"/> with
+    /// <see cref="System.Globalization.NumberStyles.None"/>. Cultures chosen for genuinely different
+    /// conventions: German swaps the separators, French groups with a non-breaking space, Arabic
+    /// (Egypt) is right-to-left.
+    /// </para>
+    /// <para>
+    /// <b>Honest about what this does and does not catch.</b> It was written in response to a review
+    /// note claiming some cultures would read <c>1,024</c> as 1024 — they do not. The default
+    /// <c>int.TryParse(string, out int)</c> uses <c>NumberStyles.Integer</c>, which does NOT include
+    /// <c>AllowThousands</c>, so separators were already rejected everywhere. Red-probed: reverting
+    /// to the default overload fails none of these cases. The fix is still worth having — it states
+    /// the intent instead of relying on a default, and matches the culture-invariant sweep this
+    /// repository already did once — but this test pins the CONTRACT, not a bug that existed.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("de-DE")]
+    [InlineData("fr-FR")]
+    [InlineData("ar-EG")]
+    [InlineData("en-US")]
+    [InlineData("")]
+    public void TheDimensionParsesTheSameInEveryCulture(string culture)
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture =
+                System.Globalization.CultureInfo.GetCultureInfo(culture);
+
+            InferenceProviderEnvironment.Resolve(Env(
+                ("BITDEER_API_KEY", "k"), ("AI_EMBEDDING_DIMENSIONS", "768")))
+                .Settings!.EmbeddingDimensions.Should().Be(768, "a plain integer is read everywhere");
+
+            // And the refusals stay refusals: a grouping separator is not a number here, in any locale.
+            InferenceProviderEnvironment.Resolve(Env(
+                ("BITDEER_API_KEY", "k"), ("AI_EMBEDDING_DIMENSIONS", "1,024")))
+                .Settings!.HasEmbeddings.Should().BeFalse();
+
+            InferenceProviderEnvironment.Resolve(Env(
+                ("BITDEER_API_KEY", "k"), ("AI_EMBEDDING_DIMENSIONS", "1.024")))
+                .Settings!.HasEmbeddings.Should().BeFalse();
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
     /// <summary>The settings never print the key, however they are stringified.</summary>
     [Fact]
     public void SettingsRedactTheKeyWhenPrinted()

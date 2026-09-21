@@ -1,4 +1,6 @@
-﻿namespace AgentMemory.Inference;
+﻿using System.Globalization;
+
+namespace AgentMemory.Inference;
 
 /// <summary>The outcome of reading the environment: settings, or the reason there are none.</summary>
 /// <remarks>
@@ -542,8 +544,24 @@ public static class InferenceProviderEnvironment
         return string.IsNullOrWhiteSpace(raw) ? null : raw.Trim();
     }
 
+    /// <summary>
+    /// A positive whole number, parsed the same way on every machine.
+    /// </summary>
+    /// <remarks>
+    /// <b>Invariant culture and <see cref="NumberStyles.None"/>, both deliberate.</b> The default
+    /// overload reads the CURRENT culture's <c>NumberFormatInfo</c>, so the same variable could parse
+    /// on one machine and not another — and this feeds <c>AI_EMBEDDING_DIMENSIONS</c>, where the
+    /// whole contract is that a value is either read exactly or refused. A fail-closed rule that
+    /// depends on the operator's locale is not one. <c>None</c> additionally rejects signs and
+    /// separators outright, so <c>-1</c> and <c>1,024</c> fail at the parse rather than at the
+    /// positivity check — the refusal then says "not a positive whole number" for the same reason it
+    /// is true, in every culture. This repository has already swept for culture-dependent formatting
+    /// once (#69); this is the same class arriving in a new package.
+    /// </remarks>
     private static int? PositiveInt(string? raw) =>
-        int.TryParse(raw, out var parsed) && parsed > 0 ? parsed : null;
+        int.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
+            ? parsed
+            : null;
 
     private static bool IsTruthy(string? raw) =>
         raw is not null
