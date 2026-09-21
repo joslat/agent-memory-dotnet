@@ -12,14 +12,13 @@ people who could try them were people who would have built one anyway.
 dotnet tool install -g AgentMemory.McpHost
 ```
 
-You need a Neo4j 5.26 instance and an Azure OpenAI embedding deployment. If you have neither, the
+You need a Neo4j 5.26 instance and one inference provider (Azure OpenAI, Bitdeer, OpenAI, Foundry or any OpenAI-compatible host). If you have neither, the
 compose file below starts the database and the server together.
 
 ## Run
 
 ```bash
-export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
-export AZURE_OPENAI_API_KEY=<key>
+export BITDEER_API_KEY=<key>          # chat + embeddings; one variable
 export NEO4J_PASSWORD=<password>
 
 agent-memory-mcp                      # stdio, for a desktop MCP client
@@ -40,8 +39,7 @@ indexes.
     "agent-memory": {
       "command": "agent-memory-mcp",
       "env": {
-        "AZURE_OPENAI_ENDPOINT": "https://<resource>.openai.azure.com/",
-        "AZURE_OPENAI_API_KEY": "<key>",
+        "BITDEER_API_KEY": "<key>",
         "NEO4J_PASSWORD": "<password>"
       }
     }
@@ -73,7 +71,7 @@ tool escapes classification altogether.
 ## Docker
 
 ```bash
-AZURE_OPENAI_ENDPOINT=... AZURE_OPENAI_API_KEY=... \
+BITDEER_API_KEY=... \
   docker compose -f tools/AgentMemory.McpHost/docker-compose.yml up
 ```
 
@@ -87,12 +85,41 @@ inside it, which is the most common way a correctly built image looks broken fro
 
 ## Configuration
 
+### Inference provider
+
+The server needs **one** provider, and it needs embeddings — retrieval is its whole job, so a server
+that starts without an embedding model does not fail, it answers "nothing found" forever. It fails
+closed at startup instead, naming exactly what is missing.
+
+Providers are auto-detected in this order, first complete one wins:
+
+| Provider | Set this |
+|---|---|
+| Azure OpenAI | `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_DEPLOYMENT` |
+| Bitdeer | `BITDEER_API_KEY` — that alone gets chat *and* embeddings |
+| OpenAI | `OPENAI_API_KEY` |
+| Foundry | `FOUNDRY_ENDPOINT` + `FOUNDRY_API_KEY` + `FOUNDRY_MODEL` |
+| OpenAI-compatible | `OPENAI_COMPATIBLE_ENDPOINT` + `OPENAI_COMPATIBLE_MODEL` (Ollama, LM Studio, vLLM) |
+
+**Azure is first on purpose.** A server configured before this existed keeps working with no edit.
+
+Name one explicitly with `AI_INFERENCE_PROVIDER=azure|bitdeer|openai|foundry|openai-compatible`. An
+explicit choice that is missing variables **fails** rather than falling through to another host —
+falling through would send your API key somewhere you did not pick.
+
+`AI_EMBEDDING_DIMENSIONS` is required when the embedding model's width is not one this package knows.
+It is never guessed: the width defines the Neo4j vector index, and a wrong one does not throw — it
+builds an index that cannot match its own writes, which surfaces later as recall that finds nothing.
+
+The full contract, including pointing embeddings at a different host from chat, is in
+[`docs/configuration/inference-providers.md`](../../docs/configuration/inference-providers.md).
+
+### Everything else
+
 | Variable | Default | |
 |---|---|---|
-| `AZURE_OPENAI_ENDPOINT` | — | **required** |
-| `AZURE_OPENAI_API_KEY` | — | **required** |
 | `NEO4J_PASSWORD` | — | **required** |
-| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | `text-embedding-3-small` | |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | `text-embedding-ada-002` | azure only |
 | `NEO4J_URI` | `bolt://localhost:7687` | |
 | `NEO4J_USERNAME` | `neo4j` | |
 | `NEO4J_DATABASE` | `neo4j` | |

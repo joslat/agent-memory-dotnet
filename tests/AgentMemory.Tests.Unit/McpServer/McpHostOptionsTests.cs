@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Options;
+﻿using AgentMemory.Abstractions.Options;
 using AgentMemory.McpHost;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
@@ -24,13 +24,26 @@ namespace AgentMemory.Tests.Unit.McpServer;
 /// </remarks>
 public sealed class McpHostOptionsTests
 {
-    /// <summary>Only the three genuinely required variables, so a test states its own inputs.</summary>
+    /// <summary>
+    /// The genuinely required variables, so a test states its own inputs.
+    /// </summary>
+    /// <remarks>
+    /// Azure rather than the shorter Bitdeer configuration on purpose: this host's backward
+    /// compatibility is the thing most worth keeping under test, and an operator whose server was
+    /// configured before the provider layer has exactly these set.
+    /// <para>
+    /// <c>AZURE_OPENAI_DEPLOYMENT</c> is new here. The host previously read only the endpoint, the
+    /// key and an embedding deployment, because embeddings were all it built; it now resolves a full
+    /// provider, and Azure is not complete without a chat deployment.
+    /// </para>
+    /// </remarks>
     private static Func<string, string?> Env(params (string Key, string Value)[] extra)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["AZURE_OPENAI_ENDPOINT"] = "https://example.openai.azure.com/",
             ["AZURE_OPENAI_API_KEY"] = "key",
+            ["AZURE_OPENAI_DEPLOYMENT"] = "gpt-4o-mini",
             ["NEO4J_PASSWORD"] = "password",
         };
         foreach (var (key, value) in extra) values[key] = value;
@@ -73,6 +86,7 @@ public sealed class McpHostOptionsTests
     [Theory]
     [InlineData("AZURE_OPENAI_ENDPOINT")]
     [InlineData("AZURE_OPENAI_API_KEY")]
+    [InlineData("AZURE_OPENAI_DEPLOYMENT")]
     [InlineData("NEO4J_PASSWORD")]
     public void EachRequiredVariableIsRequiredByName(string variable)
     {
@@ -85,6 +99,68 @@ public sealed class McpHostOptionsTests
         var act = () => Parse([], missing);
 
         act.Should().Throw<ArgumentException>().WithMessage($"*{variable}*");
+    }
+
+    /// <summary>An Azure-configured server resolves Azure, unchanged.</summary>
+    [Fact]
+    public void AnAzureConfiguredServerStillResolvesAzure()
+    {
+        var options = Parse([], Env());
+
+        options.Inference.Provider.Should().Be(AgentMemory.Inference.InferenceProvider.AzureOpenAI);
+        options.Inference.EmbeddingDimensions.Should().Be(1536, "ada-002 is Azure's embedding default");
+    }
+
+    /// <summary>One Bitdeer variable configures the whole server.</summary>
+    [Fact]
+    public void OneBitdeerVariableIsEnough()
+    {
+        Func<string, string?> env = name => name switch
+        {
+            "BITDEER_API_KEY" => "k",
+            "NEO4J_PASSWORD" => "password",
+            _ => null,
+        };
+
+        var options = Parse([], env);
+
+        options.Inference.Provider.Should().Be(AgentMemory.Inference.InferenceProvider.Bitdeer);
+        options.Inference.EmbeddingDimensions.Should().Be(1024, "bge-m3 is 1024-wide, not 1536");
+    }
+
+    /// <summary>With no provider at all, the server refuses to start and says what to set.</summary>
+    [Fact]
+    public void NoProviderIsRefusedWithTheOptionList()
+    {
+        Func<string, string?> env = name => name == "NEO4J_PASSWORD" ? "password" : null;
+
+        var act = () => Parse([], env);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*BITDEER_API_KEY*");
+    }
+
+    /// <summary>
+    /// A provider whose embedding width is unknown is refused rather than started.
+    /// </summary>
+    /// <remarks>
+    /// This server only retrieves. Starting it on a store whose vector index does not match the
+    /// model writing into it produces "nothing found" indefinitely, which from an MCP client is
+    /// indistinguishable from an empty memory.
+    /// </remarks>
+    [Fact]
+    public void AnUnknownEmbeddingWidthIsRefused()
+    {
+        Func<string, string?> env = name => name switch
+        {
+            "BITDEER_API_KEY" => "k",
+            "BITDEER_EMBEDDING_MODEL" => "some/unlisted-embedding-model",
+            "NEO4J_PASSWORD" => "password",
+            _ => null,
+        };
+
+        var act = () => Parse([], env);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*AI_EMBEDDING_DIMENSIONS*");
     }
 
     [Fact]

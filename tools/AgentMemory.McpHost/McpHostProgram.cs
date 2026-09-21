@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Services;
+﻿using AgentMemory.Abstractions.Services;
 using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.McpServer;
@@ -66,6 +66,12 @@ internal static class McpHostProgram
             neo4j.Username = options.Neo4jUsername;
             neo4j.Password = options.Neo4jPassword;
             neo4j.Database = options.Neo4jDatabase;
+
+            // THE VECTOR WIDTH COMES FROM THE MODEL THAT WRITES THE VECTORS. It used to be left at
+            // the 1536 default, which happened to match Azure's ada-002 and every other deployment
+            // anyone ran this against. A 1024-wide model on that store does not error -- it writes
+            // vectors the index cannot match, and the server answers "nothing found" forever.
+            neo4j.EmbeddingDimensions = options.Inference.EmbeddingDimensions!.Value;
         });
         // 25.4. Was `AddAgentMemoryCore(_ => { })` -- an empty configure lambda, so every MCP server
         // ran on stock memory defaults with no way for an operator to change recall depth, similarity
@@ -75,9 +81,10 @@ internal static class McpHostProgram
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
         builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
-            new AzureOpenAIClient(new Uri(options.AzureEndpoint), new AzureKeyCredential(options.AzureApiKey))
-                .GetEmbeddingClient(options.EmbeddingDeployment)
-                .AsIEmbeddingGenerator());
+            AgentMemory.Inference.InferenceClientFactory.TryCreateEmbeddingGenerator(
+                options.Inference, out var embeddingGenerator, out var embeddingDiagnostic)
+                ? embeddingGenerator
+                : throw new InvalidOperationException(embeddingDiagnostic));
 
         var mcp = builder.Services.AddMcpServer();
         if (options.Transport == McpHostTransport.Http) mcp.WithHttpTransport();

@@ -21,8 +21,6 @@
 
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
-    <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,6 +34,10 @@
     <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extraction.Llm\AgentMemory.Extraction.Llm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentMemory.Inference\AgentMemory.Inference.csproj" />
   </ItemGroup>
 
 </Project>
