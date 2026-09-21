@@ -414,7 +414,22 @@ public static class InferenceProviderEnvironment
         }
 
         // THE DIMENSION IS STORE-DEFINING, so an explicit value wins and an unknown one stops here.
-        var dimensions = PositiveInt(Value(read, EmbeddingDimensionsVariable));
+        //
+        // AN EXPLICIT VALUE THAT CANNOT BE PARSED IS A FAILURE, NOT AN ABSENCE. Falling back to the
+        // table on `AI_EMBEDDING_DIMENSIONS=512.0` would take the operator's deliberate override,
+        // discard it for a typo, and build the store at a width they did not choose -- silently, and
+        // in the one place this package refuses to guess. "Set but unreadable" and "not set" are
+        // different states and only the second may fall through.
+        var rawDimensions = Value(read, EmbeddingDimensionsVariable);
+        if (rawDimensions is not null && PositiveInt(rawDimensions) is null)
+        {
+            return (none,
+                $"{EmbeddingDimensionsVariable} is set but is not a positive whole number. The "
+                + "embedding width defines the vector index, so a value that cannot be read is "
+                + "refused rather than ignored in favour of the built-in table.");
+        }
+
+        var dimensions = PositiveInt(rawDimensions);
         if (dimensions is null && !TryKnownDimensions(model, out dimensions))
         {
             return (none,
@@ -455,6 +470,29 @@ public static class InferenceProviderEnvironment
     /// </remarks>
     private static (JudgeHalf Half, string? Diagnostic) ResolveJudge(Func<string, string?> read)
     {
+        // A PARTIAL BLOCK IS THE DANGEROUS CASE, because it looks configured from the outside. An
+        // operator who set three of the four believes the judge is independent; silently running the
+        // subject as its own judge produces a self-graded score that reads like an arm's-length one.
+        // Same rule the embedding override already follows: name what is missing, yield no judge.
+        var judgeDeclared = JudgeBlock.Where(v => Value(read, v) is not null).ToArray();
+        if (judgeDeclared.Length > 0 && judgeDeclared.Length < JudgeBlock.Length)
+        {
+            return (NoJudge,
+                "The judge override block is incomplete: "
+                + $"{string.Join(", ", JudgeBlock.Where(v => Value(read, v) is null))} not set. "
+                + $"All of {string.Join(", ", JudgeBlock)} are required together.");
+        }
+
+        var azureJudgeDeclared = AzureJudgeBlock.Where(v => Value(read, v) is not null).ToArray();
+        if (judgeDeclared.Length == 0
+            && azureJudgeDeclared.Length > 0 && azureJudgeDeclared.Length < AzureJudgeBlock.Length)
+        {
+            return (NoJudge,
+                "The Azure-shaped judge override block is incomplete: "
+                + $"{string.Join(", ", AzureJudgeBlock.Where(v => Value(read, v) is null))} not set. "
+                + $"All of {string.Join(", ", AzureJudgeBlock)} are required together.");
+        }
+
         if (JudgeBlock.All(v => Value(read, v) is not null))
         {
             if (!InferenceProviderNames.TryParse(Value(read, "AI_JUDGE_PROVIDER"), out var provider))

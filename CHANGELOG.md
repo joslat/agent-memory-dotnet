@@ -36,8 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1024-wide model that default builds a vector index that cannot match its own writes, with no error
   at any point.
 - One SDK version set across the repository (`Microsoft.Extensions.AI.OpenAI` 10.8.3,
-  `Azure.AI.OpenAI` 2.8.0-beta.1, `OpenAI` 2.12.0 referenced explicitly); three consumers previously
-  carried three different pairs.
+  `Azure.AI.OpenAI` **2.1.0**, `OpenAI` 2.12.0 referenced explicitly); three consumers previously
+  carried three different pairs. `Azure.AI.OpenAI` is the newest *stable* release — 2.7/2.8/2.9 are
+  all prerelease, and a shipped package may not depend on one.
 
 ### Note
 

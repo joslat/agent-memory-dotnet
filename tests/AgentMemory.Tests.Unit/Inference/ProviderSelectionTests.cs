@@ -427,6 +427,82 @@ public sealed class ProviderSelectionTests
             .Settings!.Summary.Should().NotContain("embeddings at");
     }
 
+    /// <summary>
+    /// An explicit dimension that cannot be read is refused, not quietly replaced by the table.
+    /// </summary>
+    /// <remarks>
+    /// "Set but unreadable" and "not set" are different states, and only the second may fall
+    /// through. Taking a deliberate override, discarding it for a typo, and building the store at a
+    /// width the operator did not choose is the exact silent-wrong-index failure this package
+    /// refuses to make anywhere else.
+    /// </remarks>
+    [Theory]
+    [InlineData("512.0")]
+    [InlineData("1,024")]
+    [InlineData("many")]
+    [InlineData("0")]
+    [InlineData("-1")]
+    public void AnUnreadableExplicitDimensionIsRefused(string value)
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("AI_EMBEDDING_DIMENSIONS", value)));
+
+        resolution.Settings!.HasEmbeddings.Should().BeFalse(
+            "it must not fall back to the table's 1024 for BAAI/bge-m3");
+        resolution.EmbeddingDiagnostic.Should().Contain("AI_EMBEDDING_DIMENSIONS");
+    }
+
+    /// <summary>
+    /// A PARTIAL judge override fails closed by name rather than looking like it took effect.
+    /// </summary>
+    /// <remarks>
+    /// The dangerous case: an operator who set three of the four believes the judge is independent.
+    /// Silently running the subject as its own judge produces a self-graded score that reads exactly
+    /// like an arm's-length one.
+    /// </remarks>
+    [Fact]
+    public void APartialJudgeOverrideFailsClosed()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("AI_JUDGE_PROVIDER", "openai"),
+            ("AI_JUDGE_ENDPOINT", "https://api.openai.com/v1"),
+            ("AI_JUDGE_API_KEY", "sk-judge")));
+
+        resolution.Settings!.HasJudgeOverride.Should().BeFalse();
+        resolution.JudgeDiagnostic.Should().Contain("AI_JUDGE_MODEL");
+        resolution.JudgeDiagnostic.Should().NotContain("sk-judge");
+    }
+
+    /// <summary>The Azure-shaped judge block gets the same treatment.</summary>
+    [Fact]
+    public void APartialAzureJudgeOverrideFailsClosed()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("AZURE_OPENAI_JUDGE_ENDPOINT", "https://judge.openai.azure.com/"),
+            ("AZURE_OPENAI_JUDGE_API_KEY", "sk-judge")));
+
+        resolution.Settings!.HasJudgeOverride.Should().BeFalse();
+        resolution.JudgeDiagnostic.Should().Contain("AZURE_OPENAI_JUDGE_DEPLOYMENT");
+    }
+
+    /// <summary>No judge variables at all is silence, not a complaint.</summary>
+    /// <remarks>
+    /// The counterpart that stops the two above from passing by refusing everything: running the
+    /// judge on the subject's model is the documented DEFAULT, and only a half-set override is an
+    /// error.
+    /// </remarks>
+    [Fact]
+    public void NoJudgeOverrideIsNotAnError()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(("BITDEER_API_KEY", "k")));
+
+        resolution.Settings!.HasJudgeOverride.Should().BeFalse();
+        resolution.JudgeDiagnostic.Should().BeNull();
+    }
+
     /// <summary>The settings never print the key, however they are stringified.</summary>
     [Fact]
     public void SettingsRedactTheKeyWhenPrinted()
