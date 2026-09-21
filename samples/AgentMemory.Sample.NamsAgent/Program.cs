@@ -44,6 +44,8 @@ if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var
     return;
 }
 
+RealModel.PrintModelBanner(modelSettings);
+
 var namsApiKey = Environment.GetEnvironmentVariable("NAMS_API_KEY");
 if (string.IsNullOrWhiteSpace(namsApiKey))
 {

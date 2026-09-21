@@ -35,6 +35,8 @@ if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var
     return;
 }
 
+RealModel.PrintModelBanner(modelSettings);
+
 // ── 0. Build host ─────────────────────────────────────────────────────────────
 var builder = Host.CreateApplicationBuilder(args);
 

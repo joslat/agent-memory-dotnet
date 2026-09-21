@@ -38,6 +38,12 @@ builder.Services.AddNeo4jAgentMemory(neo4j =>
     neo4j.Username = builder.Configuration["Neo4j:Username"] ?? "neo4j";
     neo4j.Password = builder.Configuration["Neo4j:Password"] ?? "password";
     neo4j.Database = builder.Configuration["Neo4j:Database"] ?? "neo4j";
+
+    // THE STORE DIMENSION COMES FROM THE RESOLVED MODEL, not from the Neo4j default. This sample
+    // was missed by the pass that added the line everywhere else, because it names its lambda
+    // `neo4j` rather than `options` -- a 1024-wide model against the 1536 default builds a vector
+    // index that cannot match its own writes, and nothing errors.
+    neo4j.EmbeddingDimensions = modelSettings.EmbeddingDimensions!.Value;
 });
 
 // Register core memory services
