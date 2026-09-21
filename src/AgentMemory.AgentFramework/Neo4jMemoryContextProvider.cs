@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -18,7 +18,20 @@ namespace AgentMemory.AgentFramework;
 /// <summary>
 /// MAF context provider that injects relevant memory into the agent's context before each run.
 /// </summary>
-public sealed class Neo4jMemoryContextProvider : AIContextProvider
+// UNSEALED FOR THE EXTENSIBILITY PROVIDER, deliberately and narrowly.
+//
+// `AIContextProvider.InvokingAsync` post-processes whatever `ProvideAIContextAsync` returns: it
+// stamps `_attribution` with the provider's own type and merges the turn's messages. So a provider
+// that COMPOSES this one and calls its public `InvokingAsync` gets that processing applied twice --
+// measured, not assumed: the composed result carried the outer type's attribution and a duplicated
+// turn message. Delegation by composition therefore cannot be byte-identical, which is the one
+// property the extensibility provider exists to guarantee.
+//
+// Inheriting lets the derived provider call `base.ProvideAIContextAsync` for the core block: one
+// provider instance, one attribution stamp, one merge. Unsealing is not a breaking change -- no
+// existing consumer can be broken by a type becoming inheritable -- and the alternative was to
+// re-render core memory, which the 1.0 lockdown and the #92 drift note both argue against.
+public class Neo4jMemoryContextProvider : AIContextProvider
 {
     private readonly IMemoryService _memoryService;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
@@ -74,6 +87,38 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
 
     /// <summary>Identifies this provider in the MAF pipeline for introspection.</summary>
     public string StateKey => "Neo4jMemory";
+
+    /// <summary>
+    /// The admission policy this provider ACTUALLY applies, never null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Exposed for the same reason <see cref="ExtractIds"/> is: so a derived provider cannot end up
+    /// with a SECOND answer to a question this one has already answered. The constructor substitutes
+    /// a default when the caller passes none, so the raw constructor argument and the effective
+    /// policy are different values -- and a subclass that kept the argument would gate nothing on the
+    /// direct-construction path while this class gated everything.
+    /// </para>
+    /// <para>
+    /// Deriving the default again in the subclass would compile and behave identically today, which
+    /// is what makes it the worse option: it is two places that must agree about who may put text in
+    /// an instruction block, and the comment on the field above records that this component has
+    /// already been bitten once by exactly that split.
+    /// </para>
+    /// </remarks>
+    protected IMemoryContextAdmissionPolicy AdmissionPolicy => _admissionPolicy;
+
+    /// <summary>
+    /// The context format options this provider ACTUALLY uses, never null.
+    /// </summary>
+    /// <remarks>
+    /// Exposed for the same reason as <see cref="AdmissionPolicy"/>, and it matters for the same
+    /// reason: the constructor substitutes a fresh instance when the caller passes none, so the
+    /// argument and the effective value differ exactly on the direct-construction path. These options
+    /// carry <c>SecurityMode</c> and <c>MinimumTrustForAdmissionBypass</c> -- a subclass that admitted
+    /// content without them would ignore a host's Strict setting while this class honoured it.
+    /// </remarks>
+    protected ContextFormatOptions FormatOptions => _formatOptions;
 
     protected override async ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context,
@@ -668,7 +713,13 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         return storedMessages;
     }
 
-    private (string sessionId, string conversationId, string? userId, string? applicationId) ExtractIds(
+    /// <remarks>
+    /// <b>Protected so a derived provider shares this exact path rather than re-deriving it.</b>
+    /// A second identity derivation is the same defect class as a second rendering path: it looks
+    /// right, drifts quietly, and the drift shows up as a module retrieving another session's memory
+    /// or none at all. Exposed to subclasses only — still not public surface.
+    /// </remarks>
+    protected (string sessionId, string conversationId, string? userId, string? applicationId) ExtractIds(
         AgentSession? session,
         AIAgent? agent)
     {
@@ -695,6 +746,57 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     // restored once this hook returns. Mutating a singleton context is only safe for one application per
     // host; register a scoped IMemoryStoreContext to route per request, or use MemoryOwnerScopingAgent
     // (#90) to guarantee the scope spans the complete invocation including the tool-calling loop.
+    /// <summary>
+    /// Re-enters EVERY ambient scope this provider's own retrieval runs inside.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>For a subclass that retrieves after <c>base.ProvideAIContextAsync</c> has returned.</b> Both
+    /// scopes this provider uses are opened with <c>using</c> for the duration of the method that
+    /// opens them, so by then both are disposed: retrieval outside them reads the DEFAULT store and
+    /// the PREVIOUS owner. Nothing throws. A multi-tenant host is served another tenant's store, and
+    /// owner isolation -- the property the whole scoping seam exists to provide -- silently does not
+    /// hold for whatever the subclass retrieved.
+    /// </para>
+    /// <para>
+    /// <b>One helper for both, deliberately, and the store-only one is private again.</b> This was
+    /// first fixed by exposing the store scope alone; the owner scope beside it was missed, and a
+    /// subclass re-entering half of them is in some ways worse off than one re-entering none, because
+    /// the half that works makes the whole look handled. A single call cannot be half-used, and the
+    /// next ambient scope added to this class belongs here rather than in a second accessor.
+    /// </para>
+    /// <para>
+    /// Disposed in reverse order of opening, matching how the nested <c>using</c>s unwind.
+    /// </para>
+    /// </remarks>
+    protected IDisposable? BeginRetrievalScopes(string? applicationId, string? userId)
+    {
+        var storeScope = ApplyStoreContext(applicationId);
+        var ownerScope = _ownerContext?.BeginOwnerScope(userId);
+
+        if (storeScope is null && ownerScope is null) return null;
+        return new CompositeScope(ownerScope, storeScope);
+    }
+
+    /// <summary>Disposes the scopes it was given, innermost first.</summary>
+    private sealed class CompositeScope(IDisposable? inner, IDisposable? outer) : IDisposable
+    {
+        public void Dispose()
+        {
+            // Innermost first, so the unwind matches nested `using`s. Both are attempted even if the
+            // first throws -- leaving an ambient scope open would pin one owner or store onto
+            // whatever ran next on this context, which is the failure this class exists to prevent.
+            try
+            {
+                inner?.Dispose();
+            }
+            finally
+            {
+                outer?.Dispose();
+            }
+        }
+    }
+
     private IDisposable? ApplyStoreContext(string? applicationId) =>
         applicationId is not null && _storeContext is IWritableMemoryStoreContext writable
             ? writable.BeginStoreScope(applicationId)

@@ -16,7 +16,7 @@ expected="$(mktemp)"
 actual="$(mktemp)"
 
 while IFS='|' read -r package_id project; do
-  [[ -z "$package_id" || "$package_id" == \#* ]] && continue
+  [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
   printf '%s.%s.nupkg\n' "$package_id" "$VERSION"
 done < "$MANIFEST" | sort > "$expected"
 

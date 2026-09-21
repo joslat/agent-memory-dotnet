@@ -1,4 +1,4 @@
-namespace AgentMemory.Core.Security;
+﻿namespace AgentMemory.Core.Security;
 
 /// <summary>
 /// Delimits and escapes untrusted recalled content (an entity/fact/preference/trace/GraphRAG block, which
@@ -20,7 +20,16 @@ internal static class RecalledMemoryDelimiter
     /// where richer detection is warranted, <see cref="InstructionLikeContentDetector"/>.
     /// </summary>
     public static string Wrap(string category, string content) =>
-        $"""<recalled_memory category="{category}">{Escape(content)}</recalled_memory>""";
+        $"""<recalled_memory category="{EscapeAttribute(category)}">{Escape(content)}</recalled_memory>""";
+
+    // THE CATEGORY IS INTERPOLATED INTO AN ATTRIBUTE, so it needs the quote escaped as well as the
+    // angle brackets. For years every caller passed a built-in constant and this was unreachable;
+    // module-defined section types made the category caller-supplied, and an id containing a quote
+    // could then close the attribute and forge wrapper metadata around content that was itself
+    // escaped correctly. Escaped here rather than at that one call site, because the precondition
+    // "callers pass a trusted category" was never written down and the next caller will not know it.
+    private static string EscapeAttribute(string value) =>
+        Escape(value).Replace("\"", "&quot;");
 
     private static string Escape(string content) =>
         content.Replace("<", "&lt;").Replace(">", "&gt;");

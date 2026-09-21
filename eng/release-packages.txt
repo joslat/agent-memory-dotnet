@@ -1,6 +1,15 @@
 # Canonical inventory of packages published to NuGet on release.
 # Format: <PackageId>|<ProjectPath>
 # Adding a project under src/ does NOT publish it — it must be listed here first.
+#
+# A project may instead be declared HELD:<PackageId> to say it exists under src/ and is deliberately
+# NOT published on this release line. The consistency check accounts for it either way, so a new
+# project can never be forgotten — only listed, or held on purpose with a reason.
+#
+# Why that is needed at all: the release packs every listed project with -p:Version=<tag>, which
+# overrides the project's own <Version>. A package on a different version line cannot ride this
+# release without being restamped to the core version, and restamping an experimental 0.x contract
+# to 1.x would SemVer-lock it on the day it shipped — the exact thing its 0.x line exists to avoid.
 AgentMemory|src/AgentMemory/AgentMemory.csproj
 AgentMemory.Abstractions|src/AgentMemory.Abstractions/AgentMemory.Abstractions.csproj
 AgentMemory.AgentFramework|src/AgentMemory.AgentFramework/AgentMemory.AgentFramework.csproj
@@ -20,3 +29,12 @@ AgentMemory.Nams|src/AgentMemory.Nams/AgentMemory.Nams.csproj
 AgentMemory.Neo4j|src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj
 AgentMemory.Observability|src/AgentMemory.Observability/AgentMemory.Observability.csproj
 AgentMemory.SemanticKernel|src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj
+
+# ── Held back from the core release line ──────────────────────────────────────
+# The extensibility SDK ships 0.x with [Experimental("AMEXT001")] while its contracts settle
+# (spec decision 5: the attribute comes off when a second independent module passes conformance).
+# Packing it at the core's version would freeze it at 1.x, and publishing an experimental SDK
+# automatically with every core release is the wrong cadence besides. It gets its own release when
+# there is something to release.
+HELD:AgentMemory.Extensibility
+HELD:AgentMemory.Extensibility.AgentFramework

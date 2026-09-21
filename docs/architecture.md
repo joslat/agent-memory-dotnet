@@ -141,6 +141,19 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 on Core, never on Neo4j or on each other. Neo4j depends on Core and Abstractions as its own, separate
 branch. Core depends on Abstractions. Never the reverse. See the diagram below.
 
+**One deliberate exception: layered adapters.** An adapter may depend on another adapter when its
+whole purpose is to *extend* it rather than to reimplement it. Two exist:
+`AgentMemory.AgentFramework.Nams` → `AgentMemory.AgentFramework`, and
+`AgentMemory.Extensibility.AgentFramework` → `AgentMemory.AgentFramework`. The second is the sharper
+case: it *inherits* the shipped MAF provider so the core context block comes from `base`, which is
+what makes an empty module set byte-identical rather than merely equivalent. The alternative — a
+parallel provider that re-renders core memory — is the second rendering path this codebase has
+already recorded as the place the #92 admission gate drifts.
+
+The rule the exception does **not** relax: a layered adapter still never depends on `Neo4j`, and
+`AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
+references rather than left to intention.
+
 ```mermaid
 graph TD
     MAF["MAF Adapter<br/>(Phase 3)"] --> Core

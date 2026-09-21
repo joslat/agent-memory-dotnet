@@ -27,6 +27,8 @@
     <Project Path="src/AgentMemory.McpServer/AgentMemory.McpServer.csproj" />
     <Project Path="src/AgentMemory.Nams/AgentMemory.Nams.csproj" />
     <Project Path="src/AgentMemory.AgentFramework.Nams/AgentMemory.AgentFramework.Nams.csproj" />
+    <Project Path="src/AgentMemory.Extensibility/AgentMemory.Extensibility.csproj" />
+    <Project Path="src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj" />
     <Project Path="src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.Nams.csproj" />
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
     <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />
@@ -43,6 +45,7 @@
     <Project Path="tests/AgentMemory.Tests.Performance/AgentMemory.Tests.Performance.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit/AgentMemory.Tests.Unit.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit.LongMemEval/AgentMemory.Tests.Unit.LongMemEval.csproj" />
+    <Project Path="tests/AgentMemory.Tests.Unit.Extensibility/AgentMemory.Tests.Unit.Extensibility.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit.SemanticKernel/AgentMemory.Tests.Unit.SemanticKernel.csproj" />
   </Folder>
 </Solution>
