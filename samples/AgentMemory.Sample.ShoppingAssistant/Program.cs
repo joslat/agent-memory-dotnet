@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // AgentMemory for .NET — Shopping Assistant Sample (MAF 1.9.0)
 //
 // The .NET port of the official Neo4j Agent Memory "retail assistant" example for the Microsoft
@@ -15,10 +15,10 @@
 // This sample calls a REAL Azure OpenAI chat model and a REAL Azure OpenAI embedding model — no
 // mocks. The agent decides on its own when to call the memory tools and the product tools; nothing
 // here is scripted. Requires:
-//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
-//   AZURE_OPENAI_API_KEY                (required — no live-model fallback)
-//   AZURE_OPENAI_DEPLOYMENT             (chat deployment name; default: gpt-4o-mini)
-//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002,
+//   ONE inference provider, auto-detected: Azure OpenAI, Bitdeer, OpenAI, Foundry, or any
+//   OpenAI-compatible host. The shortest is BITDEER_API_KEY, which gets chat and embeddings.
+//   An existing AZURE_OPENAI_ENDPOINT/_API_KEY/_DEPLOYMENT setup still works unchanged.
+//   Name one explicitly with AI_INFERENCE_PROVIDER; see docs/configuration/inference-providers.md.
 //                                        1536-dim — matches the Neo4j vector index default)
 //   Neo4j__Uri      (default: bolt://localhost:7687)
 //   Neo4j__Username (default: neo4j)
@@ -37,13 +37,16 @@ using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Sample.ShoppingAssistant;
+using AgentMemory.Inference;
 using AgentMemory.Samples.Shared;
 
-if (!RealAzureOpenAI.TryCreate(out var azureClient, out var chatDeployment, out var embeddingDeployment))
+if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var modelSettings))
 {
-    RealAzureOpenAI.PrintMissingCredentials("AgentMemory for .NET — Shopping Assistant (MAF 1.9.0)");
+    RealModel.PrintMissingProvider("AgentMemory for .NET — Shopping Assistant (MAF 1.9.0)");
     return;
 }
+
+RealModel.PrintModelBanner(modelSettings);
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.SetMinimumLevel(LogLevel.Warning); // keep the demo output readable
@@ -53,14 +56,19 @@ builder.Services.AddNeo4jAgentMemory(options =>
     options.Uri      = builder.Configuration["Neo4j:Uri"]      ?? "bolt://localhost:7687";
     options.Username = builder.Configuration["Neo4j:Username"] ?? "neo4j";
     options.Password = builder.Configuration["Neo4j:Password"] ?? "password";
+    // THE STORE DIMENSION COMES FROM THE RESOLVED MODEL, not from the Neo4j default. Every
+    // sample used to run on Azure's text-embedding-ada-002 at 1536, which is also that default,
+    // so nobody had to say it. Bitdeer's default embedding model is 1024-wide: leaving this unset
+    // builds a vector index that does not match what writes into it, and nothing says so.
+    options.EmbeddingDimensions = modelSettings.EmbeddingDimensions!.Value;
 });
 builder.Services.AddAgentMemoryCore(_ => { });
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
-    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
+    embeddingGenerator);
 builder.Services.AddSingleton<IChatClient>(
-    new MemoryTraceChatClient(azureClient.GetChatClient(chatDeployment).AsIChatClient()));
+    new MemoryTraceChatClient(chatClient));
 builder.Services.AddAgentMemoryFramework(options =>
 {
     options.AutoExtractOnPersist             = true;
@@ -72,12 +80,12 @@ builder.Services.AddAgentMemoryFramework(options =>
 using var host = builder.Build();
 await using var hostDisposal = (IAsyncDisposable)host;
 
-await RunAsync(host.Services, chatDeployment, embeddingDeployment);
+await RunAsync(host.Services, modelSettings);
 
-static async Task RunAsync(IServiceProvider root, string chatDeployment, string embeddingDeployment)
+static async Task RunAsync(IServiceProvider root, InferenceProviderSettings modelSettings)
 {
-    Console.WriteLine("=== AgentMemory for .NET — Shopping Assistant (MAF 1.9.0) — live Azure OpenAI ===");
-    Console.WriteLine($"    chat deployment: {chatDeployment}   embedding deployment: {embeddingDeployment}\n");
+    Console.WriteLine("=== AgentMemory for .NET — Shopping Assistant (MAF 1.9.0) — live model ===");
+    Console.WriteLine($"    {modelSettings.Summary}\n");
 
     await using var scope = root.CreateAsyncScope();
     var sp = scope.ServiceProvider;

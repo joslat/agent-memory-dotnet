@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
 using Azure;
@@ -37,15 +37,12 @@ internal static class LongMemEvalTimeGroundedOracleProgram
     {
         try
         {
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
-            var azure = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+            var model = HarnessClients.Create();
 
             using var judgeCalls = new LongMemEvalChatCallMeter(
-                azure.GetChatClient(deployment).AsIChatClient());
+                model.CreateJudgeClient());
             using var answerCalls = new LongMemEvalChatCallMeter(
-                azure.GetChatClient(deployment).AsIChatClient());
+                model.CreateAnswerClient());
 
             Console.WriteLine(
                 "longmemeval: time-grounded oracle -- gold context only, no Neo4j, no extraction, "

@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Options;
+﻿using AgentMemory.Abstractions.Options;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
@@ -56,22 +56,17 @@ internal static class LongMemEvalPreparedPairProgram
                     "longmemeval: warning: content evidence retains public dataset questions, recalled text, and model answers; keep the output gitignored.");
             }
 
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
-            var embeddingDeployment =
-                RequiredEnvironment("AZURE_OPENAI_EMBEDDING_DEPLOYMENT");
+            var model = HarnessClients.Create();
+            // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
+            // backend build but not the HOST; the same model id on two providers is not the
+            // same measurement, and without this the two artifacts are indistinguishable.
+            var deployment = model.AnswerIdentity;
+            var embeddingDeployment = model.EmbeddingIdentity;
             var extractionDeployment =
-                Environment.GetEnvironmentVariable("AZURE_OPENAI_EXTRACTION_DEPLOYMENT")
-                ?? deployment;
-            var azureClient = new AzureOpenAIClient(
-                new Uri(endpoint),
-                new AzureKeyCredential(apiKey));
-            var embeddingGenerator = azureClient
-                .GetEmbeddingClient(embeddingDeployment)
-                .AsIEmbeddingGenerator();
+                model.Settings.EffectiveExtractionModel;
+            var embeddingGenerator = model.CreateEmbeddings();
             var embeddingDimensions = await LongMemEvalRuntime
-                .ProbeEmbeddingDimensionsAsync(embeddingGenerator)
+                .ProbeEmbeddingDimensionsAsync(embeddingGenerator, model.Settings.EmbeddingDimensions)
                 .ConfigureAwait(false);
             var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
                 options.DatasetPath,
@@ -108,8 +103,12 @@ internal static class LongMemEvalPreparedPairProgram
                 datasetSha256,
                 agentEvalRevision,
                 deployment,
-                deployment,
-                extractionDeployment,
+                // THE JUDGE'S OWN IDENTITY, not the answer model's. These were the same string
+                // while one deployment served both roles; AI_JUDGE_* made them separable, and a
+                // manifest that still names the answer model would assert a run was graded by
+                // something it was not -- which is the one thing provenance exists to prevent.
+                model.JudgeIdentity,
+                model.ExtractionIdentity,
                 embeddingDeployment,
                 embeddingDimensions,
                 options.MaxRelevantMessages,
@@ -167,7 +166,7 @@ internal static class LongMemEvalPreparedPairProgram
             }
             using var extractionCalls = new LongMemEvalChatCallMeter(
                 new ProviderCompatibleExtractionChatClient(
-                    azureClient.GetChatClient(extractionDeployment).AsIChatClient()));
+                    model.CreateExtractionClient()));
             LongMemEvalPreparationManifest manifest;
             IReadOnlyList<LongMemEvalRefusedEvidence.RefusedSession> refusedEvidence = [];
             IReadOnlyList<LongMemEvalPreparedCorpusDrift.Difference> reuseDrift = [];
@@ -240,7 +239,7 @@ internal static class LongMemEvalPreparedPairProgram
                         new PreparedCorpusIdentity
                         {
                             DatasetSha256 = datasetSha256,
-                            ExtractionModelId = extractionDeployment,
+                            ExtractionModelId = model.ExtractionIdentity,
                             EmbeddingModelId = embeddingDeployment,
                             EmbeddingDimensions = embeddingDimensions,
                             AssistantContent = options.AssistantContent.ToString(),
@@ -421,7 +420,7 @@ internal static class LongMemEvalPreparedPairProgram
                             datasetSha256,
                             agentEvalRevision,
                             answerModelId = deployment,
-                            extractionModelId = extractionDeployment,
+                            extractionModelId = model.ExtractionIdentity,
                             embeddingModelId = embeddingDeployment,
                             embeddingDimensions,
                             options.MaxRelevantMessages,
@@ -671,8 +670,11 @@ internal static class LongMemEvalPreparedPairProgram
                     agentEvalRevision,
                     preparationId,
                     deployment,
-                    deployment,
-                    extractionDeployment,
+                    // The SECOND manifest call site. The first was fixed by a targeted edit that
+                    // could not see this one; the source guard found it. Same reasoning: these two
+                    // were one string while a single deployment served both roles.
+                    model.JudgeIdentity,
+                    model.ExtractionIdentity,
                     embeddingDeployment,
                     embeddingDimensions,
                     options.MaxRelevantMessages,
@@ -749,7 +751,7 @@ internal static class LongMemEvalPreparedPairProgram
                     preparationId,
                     options,
                     benchmarkOptions,
-                    azureClient,
+                    model,
                     embeddingGenerator,
                     extractionDeployment,
                     deployment,
@@ -763,7 +765,7 @@ internal static class LongMemEvalPreparedPairProgram
                     preparationId,
                     options,
                     benchmarkOptions,
-                    azureClient,
+                    model,
                     embeddingGenerator,
                     extractionDeployment,
                     deployment,
@@ -1004,7 +1006,7 @@ internal static class LongMemEvalPreparedPairProgram
         string scopeRunId,
         PreparedPairOptions options,
         ExternalBenchmarkOptions benchmarkOptions,
-        AzureOpenAIClient azureClient,
+        HarnessClients model,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         string extractionDeployment,
         string deployment,
@@ -1015,22 +1017,22 @@ internal static class LongMemEvalPreparedPairProgram
         // owner post-filter starvation figure rested on one hand measurement of one path.
         using var vectorYield = new LongMemEvalVectorYieldListener();
         using var answerCalls = new LongMemEvalChatCallMeter(
-            azureClient.GetChatClient(deployment).AsIChatClient());
+            model.CreateAnswerClient());
         // 27.4. Metered separately from the answer calls: the arms differ by one model call per
         // question, and folding that into the answer meter would make the call accounting -- which
         // exists to catch exactly this -- unable to reconcile.
         using var queryCalls = new LongMemEvalChatCallMeter(
-            azureClient.GetChatClient(deployment).AsIChatClient());
+            model.CreateAnswerClient());
         var formulator = options.QueryFormulation == LongMemEvalQueryFormulation.Verbatim
             ? null
             : new LongMemEvalQueryFormulator(queryCalls, options.QueryFormulation);
         using var judgeCalls = new LongMemEvalChatCallMeter(
-            azureClient.GetChatClient(deployment).AsIChatClient());
+            model.CreateJudgeClient());
         using var diagnosticCalls = new LongMemEvalChatCallMeter(
-            azureClient.GetChatClient(deployment).AsIChatClient());
+            model.CreateAnswerClient());
         using var evaluationExtractionCalls = new LongMemEvalChatCallMeter(
             new ProviderCompatibleExtractionChatClient(
-                azureClient.GetChatClient(extractionDeployment).AsIChatClient()));
+                model.CreateExtractionClient()));
         var total = Stopwatch.StartNew();
         var profileStartup = Stopwatch.StartNew();
         await using var profile = await LongMemEvalMemoryProfile.StartAsync(

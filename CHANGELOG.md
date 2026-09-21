@@ -6,6 +6,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`AgentMemory.Inference` (new package).** One environment contract for every inference host:
+  `AI_INFERENCE_PROVIDER` selects `azure`, `bitdeer`, `openai`, `foundry` or `openai-compatible`,
+  and a resolver turns it into chat and embedding clients over two protocol families. The library
+  packages still construct no model client and are unchanged; this is for hosts. Use it with
+  `services.AddAgentMemoryInferenceFromEnvironment()`, which fails at registration rather than at
+  first use.
+- **Bitdeer support.** `BITDEER_API_KEY` alone configures chat (`zai-org/GLM-5.3-Flash`) and
+  embeddings (`BAAI/bge-m3`).
+- **Embedding dimensions are resolved, never guessed.** The width is store-defining — it builds the
+  Neo4j vector index — so an unknown model fails closed with the reason rather than defaulting.
+  `AI_EMBEDDING_DIMENSIONS` sets it explicitly and overrides the shipped table.
+- **Run identity is `model@provider`** (`model@provider/dims` for embeddings) everywhere a measured
+  number is written, extending the provenance stamp added in 1.5.0. The same model id served by two
+  hosts is not the same measurement.
+- Docs: [`docs/configuration/inference-providers.md`](docs/configuration/inference-providers.md) is
+  the operator contract.
+
+### Changed
+
+- **The samples, `agent-memory-mcp` and the benchmark harness read the provider contract** instead
+  of `AZURE_OPENAI_*` directly. **Azure-only machines are unaffected:** Azure is first in
+  auto-detect and a test pins that a machine with only `AZURE_OPENAI_ENDPOINT` / `_API_KEY` /
+  `_DEPLOYMENT` resolves exactly as before.
+- **Samples and `agent-memory-mcp` now set `Neo4jOptions.EmbeddingDimensions` from the resolved
+  model.** They previously relied on the 1536 default matching Azure's `text-embedding-ada-002`. On a
+  1024-wide model that default builds a vector index that cannot match its own writes, with no error
+  at any point.
+- One SDK version set across the repository (`Microsoft.Extensions.AI.OpenAI` 10.8.3,
+  `Azure.AI.OpenAI` **2.1.0**, `OpenAI` 2.12.0 referenced explicitly); three consumers previously
+  carried three different pairs. `Azure.AI.OpenAI` is the newest *stable* release — 2.7/2.8/2.9 are
+  all prerelease, and a shipped package may not depend on one.
+
+### Note
+
+Changing embedding model changes the store: 1536-wide and 1024-wide vectors cannot share an index,
+so moving from `text-embedding-ada-002` to `BAAI/bge-m3` is a rebuild, not a configuration change.
+
 ## [1.5.0] - 2026-08-26
 
 ### Added

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
 using Azure;
@@ -37,13 +37,10 @@ internal static class LongMemEvalUpstreamOracleProgram
     {
         try
         {
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
-            var azure = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+            var model = HarnessClients.Create();
 
-            using var judge = new LongMemEvalChatCallMeter(azure.GetChatClient(deployment).AsIChatClient());
-            using var answer = new LongMemEvalChatCallMeter(azure.GetChatClient(deployment).AsIChatClient());
+            using var judge = new LongMemEvalChatCallMeter(model.CreateJudgeClient());
+            using var answer = new LongMemEvalChatCallMeter(model.CreateAnswerClient());
 
             var dataset = LongMemEvalDatasetLocator.Resolve(
                     Value(args, "--dataset"), Environment.GetEnvironmentVariable)

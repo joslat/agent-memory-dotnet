@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // AgentMemory for .NET — NamsAgent Sample (MAF 1.9.0)
 //
 // The NAMS-backed equivalent of AgentWithMemory: a ChatClientAgent whose memory lives in the real
@@ -19,9 +19,10 @@
 // provenance tools), but this sample deliberately doesn't use any of them — routine memory must never
 // depend on a model deciding to call a tool. This sample calls a REAL Azure OpenAI chat model — no
 // mock. Requires:
-//   AZURE_OPENAI_ENDPOINT   (required, e.g. https://<resource>.openai.azure.com/)
-//   AZURE_OPENAI_API_KEY    (required — no live-model fallback)
-//   AZURE_OPENAI_DEPLOYMENT (chat deployment name; default: gpt-4o-mini)
+//   ONE inference provider, auto-detected: Azure OpenAI, Bitdeer, OpenAI, Foundry, or any
+//   OpenAI-compatible host. The shortest is BITDEER_API_KEY, which gets chat and embeddings.
+//   An existing AZURE_OPENAI_ENDPOINT/_API_KEY/_DEPLOYMENT setup still works unchanged.
+//   Name one explicitly with AI_INFERENCE_PROVIDER; see docs/configuration/inference-providers.md.
 //   NAMS_API_KEY            (required — your NAMS SaaS API key)
 //   NAMS_WORKSPACE_ID       (optional — only needed for an account-wide/admin key; a
 //                            workspace-scoped key already carries its workspace implicitly)
@@ -37,11 +38,13 @@ using AgentMemory.AgentFramework.Nams;
 using AgentMemory.Nams;
 using AgentMemory.Samples.Shared;
 
-if (!RealAzureOpenAI.TryCreate(out var azureClient, out var chatDeployment, out _))
+if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var modelSettings))
 {
-    RealAzureOpenAI.PrintMissingCredentials("AgentMemory for .NET — NamsAgent Sample (MAF 1.9.0)");
+    RealModel.PrintMissingProvider("AgentMemory for .NET — NamsAgent Sample (MAF 1.9.0)");
     return;
 }
+
+RealModel.PrintModelBanner(modelSettings);
 
 var namsApiKey = Environment.GetEnvironmentVariable("NAMS_API_KEY");
 if (string.IsNullOrWhiteSpace(namsApiKey))
@@ -68,7 +71,7 @@ builder.Services.AddNamsAgentMemory(o =>
 builder.Services.AddAgentMemoryFramework();
 builder.Services.AddNamsAgentMemoryFramework();
 builder.Services.AddSingleton<IChatClient>(
-    new MemoryTraceChatClient(azureClient.GetChatClient(chatDeployment).AsIChatClient()));
+    new MemoryTraceChatClient(chatClient));
 
 var host = builder.Build();
 await using var hostDisposal = (IAsyncDisposable)host; // dispose the DI container (HttpClient, etc.) on exit

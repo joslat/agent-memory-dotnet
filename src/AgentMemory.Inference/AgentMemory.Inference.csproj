@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AgentMemory.Inference</RootNamespace>
+    <AssemblyName>AgentMemory.Inference</AssemblyName>
+    <Description>Provider-agnostic inference configuration for AgentMemory: one environment contract that resolves Azure OpenAI, Bitdeer, OpenAI, Foundry or any OpenAI-compatible host into chat and embedding clients.</Description>
+    <PackageTags>agent-memory;ai;llm;inference;openai;azure;bitdeer;embeddings</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- THE ONE PINNED SET. Before this package, three consumers carried three different pairs
+         (Samples.Shared 10.8.3/2.1.0, LongMemEval and McpHost 10.6.0/2.8.0-beta.1), which is how a
+         client built in one place behaved differently from the same client built in another. They
+         align to these in the same change. `OpenAI` is referenced EXPLICITLY rather than taken
+         transitively: the two SDKs above pull different versions of it (2.12.0 and 2.10.0), so
+         whichever won was decided by restore order rather than by anyone.
+
+         Azure.AI.OpenAI is pinned to 2.1.0 because that is the newest STABLE release — 2.7/2.8/2.9
+         are all beta. This package SHIPS, and NuGet refuses to pack a stable release with a
+         prerelease dependency (NU5104); the tools that previously carried 2.8.0-beta.1 were never
+         packed, so nothing enforced it on them. Taking their pin would have made the one shared set
+         unpackable, which is the constraint that decides this, not preference. -->
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.3" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.8.3" />
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+    <PackageReference Include="OpenAI" Version="2.12.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- DELIBERATELY NO AgentMemory.* PROJECT REFERENCE. Any host can use this package, and the
+         library stays model-free. Applying the resolved dimension to Neo4jOptions is the HOST's job
+         (samples, McpHost), not this package's — a package that reached into Neo4j options would
+         make "configure a provider" and "configure a store" the same decision. -->
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+  </ItemGroup>
+
+</Project>

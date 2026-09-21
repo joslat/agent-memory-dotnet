@@ -1,4 +1,4 @@
-# AgentWithMemory Golden Path
+﻿# AgentWithMemory Golden Path
 
 This is the flagship Microsoft Agent Framework sample for Agent Memory for .NET. It mirrors the official MAF memory shape while using durable Neo4j-backed memory:
 
@@ -13,8 +13,8 @@ This is the flagship Microsoft Agent Framework sample for Agent Memory for .NET.
 
 This sample calls a **real** Azure OpenAI chat model and a **real** Azure OpenAI embedding model —
 there is no mock `IChatClient` and no offline stub fallback. `RealAzureOpenAI.TryCreate` (from the
-shared `AgentMemory.Samples.Shared` project) resolves `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY`
-/ `AZURE_OPENAI_DEPLOYMENT` / `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` from the environment and fails fast
+shared `AgentMemory.Samples.Shared` project) resolves whichever inference provider is configured
+-- Azure OpenAI, Bitdeer, OpenAI, Foundry or any OpenAI-compatible host -- and fails fast
 with setup instructions if credentials are missing. The chat client is wrapped in
 `MemoryTraceChatClient`, which prints the `<recalled_memory>` blocks the context provider injects
 before each live model call, in light blue. If Neo4j is unavailable, the sample reports the connection
@@ -65,4 +65,4 @@ The live Neo4j integration shakedown includes coverage for this identity pattern
 
 ## VS Code Run Task
 
-Use the `AgentMemory: golden path sample (local Neo4j)` task to run this sample against a local Neo4j instance. The task prompts for Neo4j connection settings; Azure OpenAI credentials (`AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY`) must already be set in the environment.
+Use the `AgentMemory: golden path sample (local Neo4j)` task to run this sample against a local Neo4j instance. The task prompts for Neo4j connection settings; an inference provider (`BITDEER_API_KEY`, or an existing `AZURE_OPENAI_*` setup, or any other) must already be set in the environment -- see [`docs/configuration/inference-providers.md`](../../docs/configuration/inference-providers.md).

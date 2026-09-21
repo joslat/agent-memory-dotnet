@@ -9,14 +9,17 @@ using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Samples.Shared;
 
 // This demo calls a REAL Azure OpenAI embedding model — no mocks. Requires:
-//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
-//   AZURE_OPENAI_API_KEY                (required — no offline-stub fallback)
-//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
-if (!RealAzureOpenAI.TryCreate(out var azureClient, out _, out var embeddingDeployment))
+//   ONE inference provider, auto-detected: Azure OpenAI, Bitdeer, OpenAI, Foundry, or any
+//   OpenAI-compatible host. The shortest is BITDEER_API_KEY, which gets chat and embeddings.
+//   An existing AZURE_OPENAI_ENDPOINT/_API_KEY/_DEPLOYMENT setup still works unchanged.
+//   Name one explicitly with AI_INFERENCE_PROVIDER; see docs/configuration/inference-providers.md.
+if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var modelSettings))
 {
-    RealAzureOpenAI.PrintMissingCredentials("Aspire Demo — Agent Memory scripted run");
+    RealModel.PrintMissingProvider("Aspire Demo — Agent Memory scripted run");
     return;
 }
+
+RealModel.PrintModelBanner(modelSettings);
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -25,6 +28,11 @@ builder.Services.AddNeo4jAgentMemory(options =>
     options.Uri = builder.Configuration["Neo4j:Uri"] ?? "bolt://localhost:7687";
     options.Username = builder.Configuration["Neo4j:Username"] ?? "neo4j";
     options.Password = builder.Configuration["Neo4j:Password"] ?? "password";
+    // THE STORE DIMENSION COMES FROM THE RESOLVED MODEL, not from the Neo4j default. Every
+    // sample used to run on Azure's text-embedding-ada-002 at 1536, which is also that default,
+    // so nobody had to say it. Bitdeer's default embedding model is 1024-wide: leaving this unset
+    // builds a vector index that does not match what writes into it, and nothing says so.
+    options.EmbeddingDimensions = modelSettings.EmbeddingDimensions!.Value;
     options.Database = builder.Configuration["Neo4j:Database"] ?? "neo4j";
 });
 
@@ -32,7 +40,7 @@ builder.Services.AddAgentMemoryCore(_ => { });
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
-    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
+    embeddingGenerator);
 builder.Services.AddSingleton<IGraphRagContextSource, DisabledGraphRagContextSource>();
 builder.Services.AddSingleton<IMemoryExtractionPipeline, DisabledMemoryExtractionPipeline>();
 

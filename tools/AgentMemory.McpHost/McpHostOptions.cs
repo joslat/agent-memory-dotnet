@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.McpServer;
 using Microsoft.Extensions.Logging;
@@ -33,9 +33,16 @@ internal enum McpHostTransport
 /// </remarks>
 internal sealed record McpHostOptions
 {
-    internal required string AzureEndpoint { get; init; }
-    internal required string AzureApiKey { get; init; }
-    internal required string EmbeddingDeployment { get; init; }
+    /// <summary>
+    /// The resolved inference provider. Embeddings come from here; so does the store's vector width.
+    /// </summary>
+    /// <remarks>
+    /// This used to be three Azure-shaped strings, and they are gone rather than kept beside the new
+    /// field: an operator pointing this server at Bitdeer must not also have to satisfy Azure
+    /// variables that nothing reads. Azure remains the first provider auto-detect tries, so a server
+    /// already configured with AZURE_OPENAI_* keeps working with no edit.
+    /// </remarks>
+    internal required AgentMemory.Inference.InferenceProviderSettings Inference { get; init; }
 
     internal required string Neo4jUri { get; init; }
     internal required string Neo4jUsername { get; init; }
@@ -95,6 +102,29 @@ internal sealed record McpHostOptions
         }
         bool Flag(string name) => Array.IndexOf(args, name) >= 0;
 
+        static AgentMemory.Inference.InferenceProviderSettings ResolveInference(
+            Func<string, string?> environment)
+        {
+            var resolution = AgentMemory.Inference.InferenceProviderEnvironment.Resolve(environment);
+
+            // BOTH HALVES ARE REQUIRED HERE, and they fail separately so the message can say which.
+            // This server's entire job is retrieval, so starting without an embedding model would not
+            // fail -- it would return nothing, which reads from an MCP client as "the memory is empty".
+            if (resolution.Settings is not { } settings)
+            {
+                throw new ArgumentException(resolution.Diagnostic);
+            }
+
+            if (!settings.HasEmbeddings)
+            {
+                throw new ArgumentException(
+                    resolution.EmbeddingDiagnostic
+                    ?? "An embedding model is required and none is configured.");
+            }
+
+            return settings;
+        }
+
         string Required(string variable, string what) =>
             environment(variable) is { Length: > 0 } value
                 ? value
@@ -104,11 +134,7 @@ internal sealed record McpHostOptions
 
         return new McpHostOptions
         {
-            AzureEndpoint = Required("AZURE_OPENAI_ENDPOINT", "e.g. https://<resource>.openai.azure.com/"),
-            AzureApiKey = Required("AZURE_OPENAI_API_KEY", "the embedding provider key"),
-            EmbeddingDeployment = environment("AZURE_OPENAI_EMBEDDING_DEPLOYMENT") is { Length: > 0 } d
-                ? d
-                : "text-embedding-3-small",
+            Inference = ResolveInference(environment),
 
             Neo4jUri = environment("NEO4J_URI") is { Length: > 0 } uri ? uri : "bolt://localhost:7687",
             Neo4jUsername = environment("NEO4J_USERNAME") is { Length: > 0 } u ? u : "neo4j",
@@ -227,12 +253,26 @@ internal sealed record McpHostOptions
                            [--server-name agent-memory] [--log-level information]
 
         Required environment:
-          AZURE_OPENAI_ENDPOINT              https://<resource>.openai.azure.com/
-          AZURE_OPENAI_API_KEY               embedding provider key
           NEO4J_PASSWORD                     Neo4j password
+          ... and ONE inference provider (below). Embeddings are required: this
+              server's job is retrieval, and without them it answers "nothing found".
+
+        Inference provider - pick one, auto-detected in this order:
+          AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT
+          BITDEER_API_KEY                    (that alone: chat + embeddings)
+          OPENAI_API_KEY
+          FOUNDRY_ENDPOINT + FOUNDRY_API_KEY + FOUNDRY_MODEL
+          OPENAI_COMPATIBLE_ENDPOINT + OPENAI_COMPATIBLE_MODEL   (Ollama, LM Studio, vLLM)
+
+          AI_INFERENCE_PROVIDER              name one explicitly: azure|bitdeer|
+                                             openai|foundry|openai-compatible
+          AI_EMBEDDING_DIMENSIONS            required if the embedding model's width
+                                             is not known to the package (it is never
+                                             guessed: a wrong width builds a vector
+                                             index that cannot match its own writes)
 
         Optional environment (defaults shown):
-          AZURE_OPENAI_EMBEDDING_DEPLOYMENT  text-embedding-3-small
+          AZURE_OPENAI_EMBEDDING_DEPLOYMENT  text-embedding-ada-002  (azure only)
           NEO4J_URI                          bolt://localhost:7687
           NEO4J_USERNAME                     neo4j
           NEO4J_DATABASE                     neo4j

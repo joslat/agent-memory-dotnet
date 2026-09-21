@@ -1,4 +1,4 @@
-# NamsAgent Sample
+﻿# NamsAgent Sample
 
 The NAMS-backed sibling of [AgentWithMemory](../AgentMemory.Sample.AgentWithMemory/README.md) — the same
 canonical Microsoft Agent Framework "agent with memory" shape, but memory lives in the real
@@ -68,9 +68,8 @@ trace client works identically for either backend with no changes.
 ### Required environment variables
 
 ```text
-AZURE_OPENAI_ENDPOINT    (required, e.g. https://<resource>.openai.azure.com/)
-AZURE_OPENAI_API_KEY     (required — no live-model fallback)
-AZURE_OPENAI_DEPLOYMENT  (optional, default gpt-4o-mini)
+BITDEER_API_KEY          (or any provider; an existing AZURE_OPENAI_* setup still works)
+                         see docs/configuration/inference-providers.md
 NAMS_API_KEY             (required — your NAMS SaaS API key)
 NAMS_WORKSPACE_ID        (optional — only needed for an account-wide/admin key; a workspace-scoped
                           key already carries its workspace implicitly)

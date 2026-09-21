@@ -1,4 +1,4 @@
-# AgentMemory for .NET — Samples
+﻿# AgentMemory for .NET — Samples
 
 Runnable samples for **AgentMemory for .NET**, a Neo4j-backed agent-memory library for the
 [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/) (MAF) and
@@ -70,10 +70,11 @@ no sample in this repo uses `StubEmbeddingGenerator` anymore.
 docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5.26
 
 # Required for every sample below (chat deployment only matters for the first five):
-export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
-export AZURE_OPENAI_API_KEY=...
-export AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini                     # optional, this is the default
-export AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002 # optional, this is the default
+export BITDEER_API_KEY=...            # chat + embeddings, one variable
+
+# Or any other provider: OPENAI_API_KEY, an existing AZURE_OPENAI_* setup (still works
+# unchanged), FOUNDRY_*, or OPENAI_COMPATIBLE_* for Ollama / LM Studio / vLLM.
+# Full contract: docs/configuration/inference-providers.md
 
 # Defaults: bolt://localhost:7687, neo4j/password (override via Neo4j__Uri / Neo4j__Username / Neo4j__Password)
 dotnet run --project samples/AgentMemory.Sample.AgentWithMemory

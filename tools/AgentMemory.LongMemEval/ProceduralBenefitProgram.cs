@@ -1,4 +1,4 @@
-using Azure;
+﻿using Azure;
 using Azure.AI.OpenAI;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -45,16 +45,15 @@ internal static class ProceduralBenefitProgram
         var attempts = ParseAttempts(args);
         var log = Console.Out;
 
-        var endpoint = Required("AZURE_OPENAI_ENDPOINT");
-        var apiKey = Required("AZURE_OPENAI_API_KEY");
-        var deployment = Required("AZURE_OPENAI_DEPLOYMENT");
-        var embeddingDeployment = Required("AZURE_OPENAI_EMBEDDING_DEPLOYMENT");
-
-        var azure = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
-        var chatClient = azure.GetChatClient(deployment).AsIChatClient();
-        var embeddings = azure.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator();
+        var model = HarnessClients.Create();
+        // THE RUN IDENTITY, not a deployment name: PR #224 stamped the model and the backend
+        // build but not the HOST, and the same model id on two providers is not the same run.
+        var deployment = model.AnswerIdentity;
+        var embeddingDeployment = model.EmbeddingIdentity;
+        var chatClient = model.CreateAnswerClient();
+        var embeddings = model.CreateEmbeddings();
         var dimensions = await LongMemEvalRuntime
-            .ProbeEmbeddingDimensionsAsync(embeddings).ConfigureAwait(false);
+            .ProbeEmbeddingDimensionsAsync(embeddings, model.Settings.EmbeddingDimensions).ConfigureAwait(false);
 
         await using var profile = await LongMemEvalMemoryProfile.StartAsync(
             embeddings,

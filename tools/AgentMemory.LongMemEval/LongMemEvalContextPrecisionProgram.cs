@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
 using Azure;
@@ -48,12 +48,13 @@ internal static class LongMemEvalContextPrecisionProgram
         {
             var options = Parse(args);
 
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
-            var azureClient = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+            var model = HarnessClients.Create();
+            // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
+            // backend build but not the HOST; the same model id on two providers is not the
+            // same measurement, and without this the two artifacts are indistinguishable.
+            var deployment = model.AnswerIdentity;
             using var chatClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateAnswerClient());
 
             var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
                 options.DatasetPath, options.Questions, options.Seed,

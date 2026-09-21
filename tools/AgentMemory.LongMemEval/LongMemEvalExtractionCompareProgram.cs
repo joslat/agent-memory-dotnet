@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Azure;
 using Azure.AI.OpenAI;
 using Microsoft.Extensions.AI;
@@ -136,30 +136,19 @@ internal static class LongMemEvalExtractionCompareProgram
         var seed = parsedOptions.Seed;
         var output = ResolveOutputPath(parsedOptions, DateTimeOffset.UtcNow);
 
-        var endpoint = Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT");
-        var apiKey = Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY");
-        var deployment = Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT");
-        if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(apiKey) ||
-            string.IsNullOrWhiteSpace(deployment))
-        {
-            Console.Error.WriteLine(
-                "extraction-compare: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY and "
-                + "AZURE_OPENAI_DEPLOYMENT must be set.");
-            return 1;
-        }
+        var model = HarnessClients.Create();
 
         var slices = LoadSlices(datasetPath, units, seed, turns);
         Console.WriteLine(
             $"extraction-compare: {slices.Count} units, seed {seed}, identical messages to both paths.");
 
-        var azureClient = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
         var extractionDeployment =
-            Environment.GetEnvironmentVariable("AZURE_OPENAI_EXTRACTION_DEPLOYMENT") ?? deployment;
+            model.Settings.EffectiveExtractionModel;
         // Same wrapper the prepared-pair path uses. The deployment rejects an explicit temperature of
         // 0 ("only the default (1) value is supported"), and this is where that is already handled -
         // reaching for a second workaround would have measured a different client than every other run.
         var chatClient = new ProviderCompatibleExtractionChatClient(
-            azureClient.GetChatClient(extractionDeployment).AsIChatClient());
+            model.CreateExtractionClient());
 
         if (repeat)
         {

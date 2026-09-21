@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -41,16 +41,16 @@ internal static class ProcedureRetrievalProgram
             var thresholds = ParseThresholds(args);
             var artifacts = Value(args, "--artifacts") ?? Path.Combine("artifacts", "evaluation");
 
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
-            var embeddingDeployment = RequiredEnvironment("AZURE_OPENAI_EMBEDDING_DEPLOYMENT");
+            var model = HarnessClients.Create();
+            // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
+            // backend build but not the HOST; the same model id on two providers is not the
+            // same measurement, and without this the two artifacts are indistinguishable.
+            var deployment = model.AnswerIdentity;
 
-            var azure = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
-            var embeddings = azure.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator();
-            using var chat = azure.GetChatClient(deployment).AsIChatClient();
+            var embeddings = model.CreateEmbeddings();
+            using var chat = model.CreateAnswerClient();
             var dimensions = await LongMemEvalRuntime
-                .ProbeEmbeddingDimensionsAsync(embeddings).ConfigureAwait(false);
+                .ProbeEmbeddingDimensionsAsync(embeddings, model.Settings.EmbeddingDimensions).ConfigureAwait(false);
 
             await using var profile = await LongMemEvalMemoryProfile.StartAsync(
                 embeddings,

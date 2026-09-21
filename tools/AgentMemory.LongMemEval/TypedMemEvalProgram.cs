@@ -121,14 +121,15 @@ internal static class TypedMemEvalProgram
             // nothing -- a dry run that spends anything is not the thing the protocol asked for.
             if (options.DryRun) return DryRun(options);
 
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
-            var azureClient = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+            var model = HarnessClients.Create();
+            // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
+            // backend build but not the HOST; the same model id on two providers is not the
+            // same measurement, and without this the two artifacts are indistinguishable.
+            var deployment = model.AnswerIdentity;
             using var answerChatClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateAnswerClient());
             using var judgeChatClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateJudgeClient());
 
             // The oracle arm reads projected gold directly: no memory store, no embeddings, no
             // container. Everything below the profile exists only for the memory arm.
@@ -146,18 +147,14 @@ internal static class TypedMemEvalProgram
             {
                 if (!options.Oracle)
                 {
-                    var embeddingDeployment = RequiredEnvironment("AZURE_OPENAI_EMBEDDING_DEPLOYMENT");
                     extractionDeployment =
-                        Environment.GetEnvironmentVariable("AZURE_OPENAI_EXTRACTION_DEPLOYMENT")
-                        ?? deployment;
+                        model.Settings.EffectiveExtractionModel;
                     extractionChatClient = new LongMemEvalChatCallMeter(
                         new ProviderCompatibleExtractionChatClient(
-                            azureClient.GetChatClient(extractionDeployment).AsIChatClient()));
-                    var embeddingGenerator = azureClient
-                        .GetEmbeddingClient(embeddingDeployment)
-                        .AsIEmbeddingGenerator();
+                            model.CreateExtractionClient()));
+                    var embeddingGenerator = model.CreateEmbeddings();
                     var embeddingDimensions = await LongMemEvalRuntime
-                        .ProbeEmbeddingDimensionsAsync(embeddingGenerator)
+                        .ProbeEmbeddingDimensionsAsync(embeddingGenerator, model.Settings.EmbeddingDimensions)
                         .ConfigureAwait(false);
                     profile = await LongMemEvalMemoryProfile
                         .StartAsync(

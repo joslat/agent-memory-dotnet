@@ -1,4 +1,4 @@
-# Copilot Studio custom connector (D6)
+﻿# Copilot Studio custom connector (D6)
 
 A custom-connector definition pointing Microsoft Copilot Studio at the AgentMemory MCP server, so a
 Copilot Studio agent gets persistent graph-backed memory across sessions.
@@ -30,9 +30,8 @@ dotnet tool install --global AgentMemory.McpHost
 # NEO4J_PASSWORD is required and the host refuses to start without it.
 export NEO4J_URI=bolt://your-neo4j:7687
 export NEO4J_PASSWORD=...
-export AZURE_OPENAI_ENDPOINT=...
-export AZURE_OPENAI_API_KEY=...
-export AZURE_OPENAI_EMBEDDING_DEPLOYMENT=...
+export BITDEER_API_KEY=...            # or any provider; see
+#   docs/configuration/inference-providers.md
 
 agent-memory-mcp --transport http --url http://0.0.0.0:8080
 ```

@@ -13,8 +13,26 @@ internal static class LongMemEvalRuntime
         return new DefaultTemperatureChatClient(inner);
     }
 
+    /// <summary>
+    /// Asks the live provider how wide its embeddings are, and checks the answer against what was
+    /// configured.
+    /// </summary>
+    /// <param name="generator">The embedding generator.</param>
+    /// <param name="expected">
+    /// The width the provider contract resolved, when there is one. A MISMATCH THROWS.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// <b>The probe stays the value used, and the resolved one is the check.</b> The probe is ground
+    /// truth — it asks the model that will actually write the vectors — but it is one call, made
+    /// once, and it cannot notice that the store was BUILT at a different width. The resolved value
+    /// is what configures the store. When they disagree, one of them is wrong about an index that
+    /// cannot report its own corruption, so this refuses rather than picking a winner: the shipped
+    /// dimensions table has a bad row, or AI_EMBEDDING_DIMENSIONS is set to the wrong number.
+    /// </remarks>
     internal static async Task<int> ProbeEmbeddingDimensionsAsync(
         IEmbeddingGenerator<string, Embedding<float>> generator,
+        int? expected = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(generator);
@@ -33,6 +51,16 @@ internal static class LongMemEvalRuntime
         {
             throw new InvalidOperationException(
                 "The real embedding provider returned an empty embedding for the dimension probe.");
+        }
+
+        if (expected is { } configured && configured != dimensions)
+        {
+            throw new InvalidOperationException(
+                $"The embedding model returned {dimensions}-wide vectors but the provider contract "
+                + $"resolved {configured}. The store's vector index is built from the resolved value, "
+                + "so continuing would write vectors it cannot match. Either the shipped "
+                + "known-dimensions table has a wrong row for this model, or AI_EMBEDDING_DIMENSIONS "
+                + "is set to the wrong number.");
         }
 
         return dimensions;

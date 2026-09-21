@@ -1,4 +1,4 @@
-# AgentMemory LongMemEval
+﻿# AgentMemory LongMemEval
 
 Opt-in operator tooling for a public, sampled LongMemEval-S memory-quality characterization through
 [AgentEval](https://agenteval.dev/). The runner uses the official question and type-specific judge
@@ -57,10 +57,13 @@ instead of by silently leaving the full history in model context.
 - Docker
 - the real `longmemeval_s_cleaned.json` dataset from
   <https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/tree/main>
-- `AZURE_OPENAI_ENDPOINT`
-- `AZURE_OPENAI_API_KEY`
-- `AZURE_OPENAI_DEPLOYMENT`
-- `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
+- **One inference provider.** `BITDEER_API_KEY` alone is enough; an existing
+  `AZURE_OPENAI_ENDPOINT` / `_API_KEY` / `_DEPLOYMENT` setup also works unchanged.
+  See [`docs/configuration/inference-providers.md`](../../docs/configuration/inference-providers.md).
+- Optional roles: `AGENTMEMORY_EXTRACTION_MODEL`, and `AI_JUDGE_*` to run the judge on a
+  different host from the subject. Without them the judge runs on the model under test.
+- Every number is stamped `model@provider`, embeddings `model@provider/dims`: the same model
+  id on two hosts is not the same measurement.
 
 No embedded or synthetic dataset fallback exists. The tool exits nonzero when data or credentials
 are missing.

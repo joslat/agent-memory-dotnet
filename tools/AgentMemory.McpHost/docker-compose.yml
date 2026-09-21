@@ -1,7 +1,10 @@
 # A complete, runnable stack: Neo4j plus the MCP server, from nothing.
 #
-#   AZURE_OPENAI_ENDPOINT=... AZURE_OPENAI_API_KEY=... \
+#   BITDEER_API_KEY=... \
 #     docker compose -f tools/AgentMemory.McpHost/docker-compose.yml up
+#
+# Any supported provider works; that one needs a single variable. An existing
+# AZURE_OPENAI_* environment still works unchanged -- Azure is tried first.
 #
 # Then point an MCP client at http://localhost:5233.
 services:
