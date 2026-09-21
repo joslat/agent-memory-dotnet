@@ -1,4 +1,4 @@
-# Shopping Assistant — AgentMemory + Microsoft Agent Framework
+﻿# Shopping Assistant — AgentMemory + Microsoft Agent Framework
 
 The **.NET reimplementation of the official Neo4j Agent Memory "retail assistant"** example for the Microsoft
 Agent Framework
@@ -30,10 +30,11 @@ graph traversal**, backed by durable Neo4j memory.
 docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5.26
 
 # Required — this sample calls a real Azure OpenAI model, there is no mock fallback
-export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
-export AZURE_OPENAI_API_KEY=...
-export AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini                     # optional, this is the default
-export AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002 # optional, this is the default
+export BITDEER_API_KEY=...            # chat + embeddings, one variable
+
+# Or any other provider: OPENAI_API_KEY, an existing AZURE_OPENAI_* setup (still works
+# unchanged), FOUNDRY_*, or OPENAI_COMPATIBLE_* for Ollama / LM Studio / vLLM.
+# Full contract: docs/configuration/inference-providers.md
 
 dotnet run --project samples/AgentMemory.Sample.ShoppingAssistant
 # Overrides: Neo4j__Uri / Neo4j__Username / Neo4j__Password

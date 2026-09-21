@@ -86,7 +86,7 @@
       }
     },
     {
-      "label": "AgentMemory: golden path sample (local Neo4j)",
+      "label": "AgentMemory: golden path sample (local Neo4j) — optional, requires a model",
       "type": "shell",
       "command": "dotnet",
       "args": [
