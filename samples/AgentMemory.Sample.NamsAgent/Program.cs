@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // AgentMemory for .NET — NamsAgent Sample (MAF 1.9.0)
 //
 // The NAMS-backed equivalent of AgentWithMemory: a ChatClientAgent whose memory lives in the real
@@ -37,9 +37,9 @@ using AgentMemory.AgentFramework.Nams;
 using AgentMemory.Nams;
 using AgentMemory.Samples.Shared;
 
-if (!RealAzureOpenAI.TryCreate(out var azureClient, out var chatDeployment, out _))
+if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var modelSettings))
 {
-    RealAzureOpenAI.PrintMissingCredentials("AgentMemory for .NET — NamsAgent Sample (MAF 1.9.0)");
+    RealModel.PrintMissingProvider("AgentMemory for .NET — NamsAgent Sample (MAF 1.9.0)");
     return;
 }
 
@@ -68,7 +68,7 @@ builder.Services.AddNamsAgentMemory(o =>
 builder.Services.AddAgentMemoryFramework();
 builder.Services.AddNamsAgentMemoryFramework();
 builder.Services.AddSingleton<IChatClient>(
-    new MemoryTraceChatClient(azureClient.GetChatClient(chatDeployment).AsIChatClient()));
+    new MemoryTraceChatClient(chatClient));
 
 var host = builder.Build();
 await using var hostDisposal = (IAsyncDisposable)host; // dispose the DI container (HttpClient, etc.) on exit

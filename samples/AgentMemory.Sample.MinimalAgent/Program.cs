@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // Neo4j Agent Memory — Minimal MAF Sample
 //
 // Prerequisites:
@@ -28,9 +28,9 @@ using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Samples.Shared;
 
-if (!RealAzureOpenAI.TryCreate(out var azureClient, out _, out var embeddingDeployment))
+if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var modelSettings))
 {
-    RealAzureOpenAI.PrintMissingCredentials("Neo4j Agent Memory — Minimal MAF Sample");
+    RealModel.PrintMissingProvider("Neo4j Agent Memory — Minimal MAF Sample");
     return;
 }
 
@@ -44,6 +44,11 @@ builder.Services.AddNeo4jAgentMemory(options =>
     options.Uri      = builder.Configuration["Neo4j:Uri"]      ?? "bolt://localhost:7687";
     options.Username = builder.Configuration["Neo4j:Username"] ?? "neo4j";
     options.Password = builder.Configuration["Neo4j:Password"] ?? "password";
+    // THE STORE DIMENSION COMES FROM THE RESOLVED MODEL, not from the Neo4j default. Every
+    // sample used to run on Azure's text-embedding-ada-002 at 1536, which is also that default,
+    // so nobody had to say it. Bitdeer's default embedding model is 1024-wide: leaving this unset
+    // builds a vector index that does not match what writes into it, and nothing says so.
+    options.EmbeddingDimensions = modelSettings.EmbeddingDimensions!.Value;
 });
 
 // ── 2. Core memory services ───────────────────────────────────────────────────
@@ -60,7 +65,7 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
 builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
-    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
+    embeddingGenerator);
 
 // ── 3. MAF adapter ────────────────────────────────────────────────────────────
 builder.Services.AddAgentMemoryFramework(options =>

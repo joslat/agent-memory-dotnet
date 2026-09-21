@@ -1,4 +1,4 @@
-using Microsoft.Extensions.AI;
+﻿using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,12 +13,14 @@ using AgentMemory.Samples.Shared;
 //   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
 //   AZURE_OPENAI_API_KEY                (required — no offline-stub fallback)
 //   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
-if (!RealAzureOpenAI.TryCreate(out var azureClient, out _, out var embeddingDeployment))
+if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var modelSettings))
 {
     // stdout is reserved for the MCP JSON-RPC stream — the message must go to stderr.
-    RealAzureOpenAI.PrintMissingCredentials("AgentMemory MCP Host", Console.Error);
+    RealModel.PrintMissingProvider("AgentMemory MCP Host", Console.Error);
     return;
 }
+
+RealModel.PrintModelBanner(modelSettings);
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -45,7 +47,7 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
 builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
-    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
+    embeddingGenerator);
 
 // Configure MCP server with stdio transport and all memory tools
 builder.Services
