@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using Azure;
 using Azure.AI.OpenAI;
@@ -40,18 +40,19 @@ internal static class LongMemEvalOracleDecompositionProgram
         {
             var options = Parse(args);
 
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
-            var azureClient = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+            var model = HarnessClients.Create();
+            // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
+            // backend build but not the HOST; the same model id on two providers is not the
+            // same measurement, and without this the two artifacts are indistinguishable.
+            var deployment = model.AnswerIdentity;
 
             // Metered separately per arm. A single meter would report a total that cannot be checked
             // against either arm's expected count, and the expected counts differ by construction
             // (monolithic 2; decomposed subQuestions + 3).
             using var monolithicClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateAnswerClient());
             using var decomposedClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateAnswerClient());
 
             var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
                 options.DatasetPath,

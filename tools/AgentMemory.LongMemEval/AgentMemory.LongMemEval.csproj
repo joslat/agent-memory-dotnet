@@ -37,8 +37,6 @@
       TypedMemEvalCorpus/TypedMemEvalVerticals at run time, which is what made this a one-line bump.
     -->
     <PackageReference Include="AgentEval" Version="0.38.0-beta" />
-    <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
     <!--
       A real tokenizer, for the publication path only. The chars/4 heuristic stays for RATIOS between
@@ -99,5 +97,9 @@
       <Output TaskParameter="ConsoleOutput" PropertyName="SourceRevisionId" />
     </Exec>
   </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentMemory.Inference\AgentMemory.Inference.csproj" />
+  </ItemGroup>
 
 </Project>

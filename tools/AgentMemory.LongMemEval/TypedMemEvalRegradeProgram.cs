@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -160,12 +160,9 @@ internal static class TypedMemEvalRegradeProgram
                     : null,
             };
 
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
-            var azureClient = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+            var model = HarnessClients.Create();
             using var judgeChatClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateJudgeClient());
 
             var adapter = new TypedMemEvalReplayAdapter(storedRows, modelId);
             var runner = new TypedMemEvalRunner(judgeChatClient);

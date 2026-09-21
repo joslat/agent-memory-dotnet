@@ -6,9 +6,10 @@
 //   • .NET 9 SDK
 //
 // This sample calls a REAL Azure OpenAI embedding model — no mocks. Requires:
-//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
-//   AZURE_OPENAI_API_KEY                (required — no offline-stub fallback)
-//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
+//   ONE inference provider, auto-detected: Azure OpenAI, Bitdeer, OpenAI, Foundry, or any
+//   OpenAI-compatible host. The shortest is BITDEER_API_KEY, which gets chat and embeddings.
+//   An existing AZURE_OPENAI_ENDPOINT/_API_KEY/_DEPLOYMENT setup still works unchanged.
+//   Name one explicitly with AI_INFERENCE_PROVIDER; see docs/configuration/inference-providers.md.
 //
 // Configure the connection via appsettings.json or environment variables:
 //   Neo4j__Uri      (default: bolt://localhost:7687)

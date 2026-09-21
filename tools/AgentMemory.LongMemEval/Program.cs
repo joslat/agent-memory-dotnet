@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
@@ -196,32 +196,27 @@ internal static class LongMemEvalProgram
                     "longmemeval: warning: content evidence retains public dataset questions, recalled text, and model answers; keep the output gitignored.");
             }
 
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
-            var embeddingDeployment =
-                RequiredEnvironment("AZURE_OPENAI_EMBEDDING_DEPLOYMENT");
+            var model = HarnessClients.Create();
+            // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
+            // backend build but not the HOST; the same model id on two providers is not the
+            // same measurement, and without this the two artifacts are indistinguishable.
+            var deployment = model.AnswerIdentity;
+            var embeddingDeployment = model.EmbeddingIdentity;
             var extractionDeployment =
-                Environment.GetEnvironmentVariable("AZURE_OPENAI_EXTRACTION_DEPLOYMENT")
-                ?? deployment;
-            var azureClient = new AzureOpenAIClient(
-                new Uri(endpoint),
-                new AzureKeyCredential(apiKey));
+                model.Settings.EffectiveExtractionModel;
             using var answerChatClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateAnswerClient());
             using var judgeChatClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateJudgeClient());
             using var diagnosticChatClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateAnswerClient());
             using var extractionChatClient = options.MemoryMode.UsesExtraction()
                 ? new LongMemEvalChatCallMeter(new ProviderCompatibleExtractionChatClient(
-                    azureClient.GetChatClient(extractionDeployment).AsIChatClient()))
+                    model.CreateExtractionClient()))
                 : null;
-            var embeddingGenerator = azureClient
-                .GetEmbeddingClient(embeddingDeployment)
-                .AsIEmbeddingGenerator();
+            var embeddingGenerator = model.CreateEmbeddings();
             var embeddingDimensions = await LongMemEvalRuntime
-                .ProbeEmbeddingDimensionsAsync(embeddingGenerator)
+                .ProbeEmbeddingDimensionsAsync(embeddingGenerator, model.Settings.EmbeddingDimensions)
                 .ConfigureAwait(false);
 
             var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
@@ -745,11 +740,23 @@ internal static class LongMemEvalProgram
         preparation path under a hard deadline, projects full cold-build time, cleans up, and emits no report.
 
 
-        Requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT,
-        and AZURE_OPENAI_EMBEDDING_DEPLOYMENT.
-        Uses real LongMemEval data, a pinned Neo4j 5.26 container, real Azure OpenAI embeddings,
-        and the same Azure deployment for answers and AgentEval's type-specific judge.
-        Structured/hybrid extraction may use AZURE_OPENAI_EXTRACTION_DEPLOYMENT; it defaults to the answer deployment.
+        Requires ONE inference provider, auto-detected in this order:
+          AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT
+          BITDEER_API_KEY                      (that alone: chat + embeddings)
+          OPENAI_API_KEY
+          FOUNDRY_ENDPOINT + FOUNDRY_API_KEY + FOUNDRY_MODEL
+          OPENAI_COMPATIBLE_ENDPOINT + OPENAI_COMPATIBLE_MODEL
+        Name one explicitly with AI_INFERENCE_PROVIDER. An explicit choice that is missing
+        variables FAILS rather than falling through to a host you did not pick.
+
+        Uses real LongMemEval data, a pinned Neo4j 5.26 container, and real embeddings.
+        Roles: AGENTMEMORY_EXTRACTION_MODEL overrides the extraction model (default: the
+        answer model). AI_JUDGE_PROVIDER/_ENDPOINT/_API_KEY/_MODEL point the judge at a
+        different host entirely; without them the judge runs on the answer model, which is
+        worth knowing when reading a score it produced.
+
+        Every number is stamped model@provider, and embeddings model@provider/dims. The
+        same model id served by two hosts is not the same measurement.
         """);
 
     private sealed record Options(

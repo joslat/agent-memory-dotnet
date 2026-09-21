@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
 using AgentMemory.Abstractions.Domain;
@@ -53,21 +53,22 @@ internal static class LongMemEvalRepresentationProgram
         {
             var options = Parse(args);
 
-            var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
-            var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
-            var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
+            var model = HarnessClients.Create();
+            // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
+            // backend build but not the HOST; the same model id on two providers is not the
+            // same measurement, and without this the two artifacts are indistinguishable.
+            var deployment = model.AnswerIdentity;
             var extractionDeployment =
-                Environment.GetEnvironmentVariable("AZURE_OPENAI_EXTRACTION_DEPLOYMENT") ?? deployment;
-            var azureClient = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+                model.Settings.EffectiveExtractionModel;
 
             using var answerClient = new LongMemEvalChatCallMeter(
-                azureClient.GetChatClient(deployment).AsIChatClient());
+                model.CreateAnswerClient());
             // The same wrapper the prepared-pair path uses: this deployment rejects an explicit
             // temperature of 0, and reaching for a second workaround would measure a different client
             // than every other recorded run.
             using var extractionClient = new LongMemEvalChatCallMeter(
                 new ProviderCompatibleExtractionChatClient(
-                    azureClient.GetChatClient(extractionDeployment).AsIChatClient()));
+                    model.CreateExtractionClient()));
 
             var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
                 options.DatasetPath, options.Questions, options.Seed,

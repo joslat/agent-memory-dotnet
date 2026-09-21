@@ -16,9 +16,10 @@
 //
 // Requires a real Azure OpenAI embedding model — trace recall is a VECTOR search
 // over the task text, so a procedure stored without an embedding is invisible:
-//   AZURE_OPENAI_ENDPOINT               (required)
-//   AZURE_OPENAI_API_KEY                (required)
-//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (default: text-embedding-ada-002)
+//   ONE inference provider, auto-detected: Azure OpenAI, Bitdeer, OpenAI, Foundry, or any
+//   OpenAI-compatible host. The shortest is BITDEER_API_KEY, which gets chat and embeddings.
+//   An existing AZURE_OPENAI_ENDPOINT/_API_KEY/_DEPLOYMENT setup still works unchanged.
+//   Name one explicitly with AI_INFERENCE_PROVIDER; see docs/configuration/inference-providers.md.
 //
 // Connection via appsettings.json or environment variables:
 //   Neo4j__Uri      (default: bolt://localhost:7687)

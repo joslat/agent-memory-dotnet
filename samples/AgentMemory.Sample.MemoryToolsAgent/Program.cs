@@ -13,10 +13,10 @@
 // autonomously. This sample also invokes a few tools directly first, to show the tool mechanics
 // executing against real Neo4j memory independent of the model. This sample calls a REAL Azure
 // OpenAI chat model and a REAL Azure OpenAI embedding model — no mocks. Requires:
-//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
-//   AZURE_OPENAI_API_KEY                (required — no live-model fallback)
-//   AZURE_OPENAI_DEPLOYMENT             (chat deployment name; default: gpt-4o-mini)
-//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
+//   ONE inference provider, auto-detected: Azure OpenAI, Bitdeer, OpenAI, Foundry, or any
+//   OpenAI-compatible host. The shortest is BITDEER_API_KEY, which gets chat and embeddings.
+//   An existing AZURE_OPENAI_ENDPOINT/_API_KEY/_DEPLOYMENT setup still works unchanged.
+//   Name one explicitly with AI_INFERENCE_PROVIDER; see docs/configuration/inference-providers.md.
 //   Neo4j__Uri      (default: bolt://localhost:7687)
 //   Neo4j__Username (default: neo4j)
 //   Neo4j__Password (default: password)
