@@ -19,6 +19,7 @@ AgentMemory.Core|src/AgentMemory.Core/AgentMemory.Core.csproj
 AgentMemory.Enrichment|src/AgentMemory.Enrichment/AgentMemory.Enrichment.csproj
 AgentMemory.Extraction.AzureLanguage|src/AgentMemory.Extraction.AzureLanguage/AgentMemory.Extraction.AzureLanguage.csproj
 AgentMemory.Extraction.Llm|src/AgentMemory.Extraction.Llm/AgentMemory.Extraction.Llm.csproj
+AgentMemory.Inference|src/AgentMemory.Inference/AgentMemory.Inference.csproj
 AgentMemory.McpServer|src/AgentMemory.McpServer/AgentMemory.McpServer.csproj
 # The one packable project outside src/: a DotnetTool, not a library. It is not referenced by any
 # eng/package-consumers/ project because a tool package cannot be a PackageReference -- it is
