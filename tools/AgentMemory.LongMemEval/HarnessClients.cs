@@ -1,4 +1,4 @@
-using AgentMemory.Inference;
+﻿using AgentMemory.Inference;
 using Microsoft.Extensions.AI;
 
 namespace AgentMemory.LongMemEval;
@@ -52,6 +52,22 @@ internal sealed class HarnessClients
                 ?? "An embedding model is required and none is configured.");
         }
 
+        return new HarnessClients(settings);
+    }
+
+    /// <summary>
+    /// Builds the harness view over settings already in hand, rather than reading the environment.
+    /// </summary>
+    /// <remarks>
+    /// The same reasoning that gives the resolver a <c>Func&lt;string,string?&gt;</c> overload:
+    /// anything that can be handed its inputs does not need process-wide environment mutation to be
+    /// tested, and the run identities are exactly the part worth testing without a key. Without this
+    /// seam the identities could only be exercised by a live run, which is how the judge identity
+    /// came to be wrong in the manifest without anything noticing.
+    /// </remarks>
+    internal static HarnessClients ForSettings(InferenceProviderSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
         return new HarnessClients(settings);
     }
 

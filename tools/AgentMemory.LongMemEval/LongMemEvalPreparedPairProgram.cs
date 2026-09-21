@@ -103,8 +103,12 @@ internal static class LongMemEvalPreparedPairProgram
                 datasetSha256,
                 agentEvalRevision,
                 deployment,
-                deployment,
-                extractionDeployment,
+                // THE JUDGE'S OWN IDENTITY, not the answer model's. These were the same string
+                // while one deployment served both roles; AI_JUDGE_* made them separable, and a
+                // manifest that still names the answer model would assert a run was graded by
+                // something it was not -- which is the one thing provenance exists to prevent.
+                model.JudgeIdentity,
+                model.ExtractionIdentity,
                 embeddingDeployment,
                 embeddingDimensions,
                 options.MaxRelevantMessages,
@@ -235,7 +239,7 @@ internal static class LongMemEvalPreparedPairProgram
                         new PreparedCorpusIdentity
                         {
                             DatasetSha256 = datasetSha256,
-                            ExtractionModelId = extractionDeployment,
+                            ExtractionModelId = model.ExtractionIdentity,
                             EmbeddingModelId = embeddingDeployment,
                             EmbeddingDimensions = embeddingDimensions,
                             AssistantContent = options.AssistantContent.ToString(),
@@ -416,7 +420,7 @@ internal static class LongMemEvalPreparedPairProgram
                             datasetSha256,
                             agentEvalRevision,
                             answerModelId = deployment,
-                            extractionModelId = extractionDeployment,
+                            extractionModelId = model.ExtractionIdentity,
                             embeddingModelId = embeddingDeployment,
                             embeddingDimensions,
                             options.MaxRelevantMessages,
@@ -666,8 +670,11 @@ internal static class LongMemEvalPreparedPairProgram
                     agentEvalRevision,
                     preparationId,
                     deployment,
-                    deployment,
-                    extractionDeployment,
+                    // The SECOND manifest call site. The first was fixed by a targeted edit that
+                    // could not see this one; the source guard found it. Same reasoning: these two
+                    // were one string while a single deployment served both roles.
+                    model.JudgeIdentity,
+                    model.ExtractionIdentity,
                     embeddingDeployment,
                     embeddingDimensions,
                     options.MaxRelevantMessages,
