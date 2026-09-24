@@ -432,3 +432,6 @@ FodyWeavers.xsd
 # covered by the /strategy/ rule above). Generated benchmark runs go to artifacts/perf/,
 # covered by the existing artifacts/ rule. Committed Class A baselines belong under
 # eng/perf/baselines/ and are deliberately TRACKED.
+
+# DemoBrain: Avalonia brain visualization prototype - local-only for now (not part of the published repo)
+/demobrain/
