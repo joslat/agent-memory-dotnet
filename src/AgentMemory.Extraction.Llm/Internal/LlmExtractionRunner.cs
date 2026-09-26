@@ -350,7 +350,14 @@ internal sealed class LlmExtractionRunner
 
         try
         {
-            var dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json, JsonOptions);
+            LlmExtractionResponse? dto;
+            // Date drops from this read are recorded only if it succeeds: when it fails, the salvage pass
+            // reads every item again and records each drop once.
+            using (var held = PeriodDateConverter.HoldDrops())
+            {
+                dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json, JsonOptions);
+                held.Commit();
+            }
             return dto is null
                 ? new(ParseStatus.Unusable, null, [], "the reply was JSON null")
                 : new(ParseStatus.Ok, dto, [], null);

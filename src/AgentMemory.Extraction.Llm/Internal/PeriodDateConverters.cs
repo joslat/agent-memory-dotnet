@@ -190,7 +190,17 @@ internal abstract partial class PeriodDateConverter(PeriodEdge edge, string fiel
         text.Equals("none", StringComparison.OrdinalIgnoreCase) ||
         text.Equals("n/a", StringComparison.OrdinalIgnoreCase);
 
-    private static void Dropped(string field, string reason) =>
+    private static void Dropped(string field, string reason)
+    {
+        if (Pending.Value is { } buffer)
+        {
+            buffer.Add((field, reason));
+            return;
+        }
+        Record(field, reason);
+    }
+
+    private static void Record(string field, string reason) =>
         Activity.Current?.AddEvent(new ActivityEvent(
             "memory.extract.date_dropped",
             tags: new ActivityTagsCollection
@@ -198,6 +208,33 @@ internal abstract partial class PeriodDateConverter(PeriodEdge edge, string fiel
                 ["memory.extract.field"] = field,
                 ["memory.extract.reason"] = reason,
             }));
+
+    // The parser reads a reply twice when the whole-document read fails (once whole, then item by item to
+    // salvage what it can), so drops seen in the first read are held and recorded only if that read is the
+    // one that counts; otherwise the salvage pass records each drop once.
+    private static readonly AsyncLocal<List<(string Field, string Reason)>?> Pending = new();
+
+    /// <summary>Holds date drops until <see cref="PendingDrops.Commit"/> (the read counted) or disposal (it did not).</summary>
+    internal static PendingDrops HoldDrops()
+    {
+        var previous = Pending.Value;
+        Pending.Value = [];
+        return new PendingDrops(previous);
+    }
+
+    internal sealed class PendingDrops(List<(string Field, string Reason)>? previous) : IDisposable
+    {
+        private readonly List<(string Field, string Reason)> _held = Pending.Value!;
+
+        public void Commit()
+        {
+            Pending.Value = previous;
+            foreach (var (field, reason) in _held) Dropped(field, reason);
+            _held.Clear();
+        }
+
+        public void Dispose() => Pending.Value = previous;
+    }
 
     // YYYY, YYYY-MM or YYYY-MM-DD; month and day may be written without a leading zero. ASCII digits.
     [GeneratedRegex(@"^(?<y>[0-9]{4})(?:-(?<m>[0-9]{1,2})(?:-(?<d>[0-9]{1,2}))?)?$", RegexOptions.CultureInvariant)]

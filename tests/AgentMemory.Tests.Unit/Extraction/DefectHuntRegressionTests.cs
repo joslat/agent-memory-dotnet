@@ -167,4 +167,29 @@ public sealed class DefectHuntRegressionTests
 
         result.Should().BeNull("\"Priya's mom\" describes someone through Priya; it is not Priya");
     }
+
+    // ---- L4 (D16): a salvaged reply records each dropped date once ----
+
+    [Theory]
+    [InlineData("\"high\"", 1)]   // one item fails the schema: whole read fails, salvage re-reads everything
+    [InlineData("0.9", 1)]          // the whole read succeeds
+    public void A_dropped_date_is_recorded_once_whichever_read_counts(string secondConfidence, int expected)
+    {
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == nameof(DefectHuntRegressionTests),
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+        };
+        ActivitySource.AddActivityListener(listener);
+        using var source = new ActivitySource(nameof(DefectHuntRegressionTests));
+        using var span = source.StartActivity("parse")!;
+        var reply = "{\"entities\":[],\"preferences\":[],\"relations\":[],\"facts\":["
+            + "{\"subject\":\"Alice\",\"predicate\":\"works_at\",\"object\":\"Acme\",\"confidence\":0.9,\"valid_until\":\"sometime soon\"},"
+            + "{\"subject\":\"Alice\",\"predicate\":\"likes\",\"object\":\"tea\",\"confidence\":" + secondConfidence + "}]}";
+
+        var parsed = AgentMemory.Extraction.Llm.Internal.LlmExtractionRunner.Parse(reply);
+
+        parsed.IsUsable.Should().BeTrue();
+        span.Events.Count(e => e.Name == "memory.extract.date_dropped").Should().Be(expected);
+    }
 }
