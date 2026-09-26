@@ -73,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Fan-out legs are embedded in one request.** When recall fan-out splits a question into sub-queries,
+  each leg's query was embedded in its own request, one after another, after the main query: three
+  sequential round trips on a two-part question (measured ~110 ms against a local model, ~2.6 s against
+  a hosted one). The legs now go out together; if that request fails, each leg is embedded on its own
+  as before.
+
 - **The samples, `agent-memory-mcp` and the benchmark harness read the provider contract** instead
   of `AZURE_OPENAI_*` directly. **Azure-only machines are unaffected:** Azure is first in
   auto-detect and a test pins that a machine with only `AZURE_OPENAI_ENDPOINT` / `_API_KEY` /

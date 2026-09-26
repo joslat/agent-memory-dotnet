@@ -125,6 +125,29 @@ public sealed class RecallFanOutOnPathTests
     // ── R1: contributions must accumulate across legs ───────────────────
 
     [Fact]
+    public async Task AllLegsAreEmbeddedInOneRequest_AndRetrieveTheSameAsOneByOne()
+    {
+        // D10: the legs used to be embedded one request at a time, back to back.
+        ArrangeFacts(
+            monolithic: [(F("m", "mono"), 0.9)],
+            legOne: [(F("a", "from leg one"), 0.8)],
+            legTwo: [(F("b", "from leg two"), 0.8)]);
+        _embeddings.EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.Arg<IReadOnlyList<string>>()
+                .Select(text => text == "leg one" ? new[] { 1f, 0f, 0f, 0f } : new[] { 0f, 1f, 0f, 0f })
+                .ToList());
+
+        var context = await CreateSut().AssembleContextAsync(Compound(), CancellationToken.None);
+
+        await _embeddings.Received(1).EmbedBatchAsync(
+            Arg.Is<IReadOnlyList<string>>(texts => texts.SequenceEqual(new[] { "leg one", "leg two" })),
+            Arg.Any<CancellationToken>());
+        await _embeddings.DidNotReceive().EmbedAsync("leg one", Arg.Any<CancellationToken>());
+        await _embeddings.DidNotReceive().EmbedAsync("leg two", Arg.Any<CancellationToken>());
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().Contain(["a", "b"]);
+    }
+
+    [Fact]
     public async Task EveryLegsContributionSurvives_NotJustTheLast()
     {
         // R1. Each leg's merge was fed the ORIGINAL monolithic scored list, so all but the final
