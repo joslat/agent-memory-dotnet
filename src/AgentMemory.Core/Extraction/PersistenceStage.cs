@@ -253,6 +253,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     persistedEntityMap.TryAdd(alias, persisted);
             }
 
+            // I-2. A canonical fact names the entity by its resolved name, which may be none of the
+            // strings this extraction produced ("Tomás" resolved to "Tomás Silva"): the name must find
+            // the entity too, or the fact would lose its ABOUT edge. Gated so the default map is unchanged.
+            if (_options.CanonicalFactSubjects && !string.IsNullOrWhiteSpace(persisted.Name))
+                persistedEntityMap.TryAdd(persisted.Name, persisted);
+
             RecordSuccess(outcomes, MemoryItemKind.Entity, name, persisted.EntityId);
 
             foreach (var msgId in ExplicitProvenanceMessageIds(_entityRepository, sourceMessageIds))
@@ -344,10 +350,20 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         var supersessionEligible = 0;
         var supersessionRefusals = 0;
 
+        // I-2. The name a subject or object is stored under: the resolved entity's, when it resolved to one.
+        string CanonicalName(string surface) =>
+            _options.CanonicalFactSubjects && !string.IsNullOrWhiteSpace(surface) &&
+            persistedEntityMap.TryGetValue(surface, out var resolved) && !string.IsNullOrWhiteSpace(resolved.Name)
+                ? resolved.Name
+                : surface;
+
         async Task<(Fact Item, string SourceKey)?> PrepareFactAsync(PreparedFact preparedFact)
         {
             var extracted = preparedFact.Item;
+            // The source key stays the words as extracted: outcomes are keyed by the input item.
             var factSourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
+            var subject = CanonicalName(extracted.Subject);
+            var @object = CanonicalName(extracted.Object);
             try
             {
                 // Trust is monotonic for owner-scoped facts. The pre-fetch deliberately excludes shared
@@ -357,7 +373,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 Fact? existingFact = string.IsNullOrEmpty(ownerId)
                     ? null
                     : await _factRepository.FindByTripleAsync(
-                        extracted.Subject, extracted.Predicate, extracted.Object,
+                        subject, extracted.Predicate, @object,
                         MemoryScope.For(ownerId, includeShared: false), cancellationToken).ConfigureAwait(false);
                 // Per-item refinement before the existing per-batch composition. At defaults SourceRole
                 // is null on every item and this is the identity, so the trust a host sees is byte-for-
@@ -374,13 +390,21 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 var factMetadata = existingFact is null
                     ? MemoryTrustMetadataExtensions.CreateWithTrustLevel(effectiveFactTrustLevel)
                     : existingFact.Metadata.WithTrustLevel(effectiveFactTrustLevel);
+                if (!string.Equals(subject, extracted.Subject, StringComparison.Ordinal) ||
+                    !string.Equals(@object, extracted.Object, StringComparison.Ordinal))
+                {
+                    var surfaces = new Dictionary<string, object>(factMetadata);
+                    if (!string.Equals(subject, extracted.Subject, StringComparison.Ordinal)) surfaces["subject_surface"] = extracted.Subject;
+                    if (!string.Equals(@object, extracted.Object, StringComparison.Ordinal)) surfaces["object_surface"] = extracted.Object;
+                    factMetadata = surfaces;
+                }
 
                 return (new Fact
                 {
                     FactId = _idGenerator.GenerateId(),
-                    Subject = existingFact?.Subject ?? extracted.Subject,
+                    Subject = existingFact?.Subject ?? subject,
                     Predicate = existingFact?.Predicate ?? extracted.Predicate,
-                    Object = existingFact?.Object ?? extracted.Object,
+                    Object = existingFact?.Object ?? @object,
                     Confidence = extracted.Confidence,
                     ValidFrom = extracted.ValidFrom,
                     ValidUntil = extracted.ValidUntil,

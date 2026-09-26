@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ExtractionOptions.CanonicalFactSubjects` (dark): one person, one fact subject.** Extraction writes
+  the words used, so "Tomás | moved to | analytics team" and facts about "Tomás Silva" had two subjects
+  for one person. On, a fact's subject and object are stored by the resolved entity's name (the words
+  used are kept as `subject_surface` / `object_surface`), so mentions merge into one fact and keep their
+  ABOUT edges. Names that resolved to no entity are kept as written.
+
 - **`AgentMemoryChatHistory`: chat history without the injected memory.** MAF's default
   `InMemoryChatHistoryProvider` stores the memory a context provider injected, so every turn's recalled
   blocks were sent again on every later turn (measured: 17 messages instead of 8 on the third call).

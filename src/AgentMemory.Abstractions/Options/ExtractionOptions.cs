@@ -142,6 +142,15 @@ public sealed class ExtractionOptions
     public bool LinkFactsToEntities { get; set; }
 
     /// <summary>
+    /// Store a fact's subject and object by the RESOLVED entity's name (dark, default false). Extraction
+    /// writes what was said, so "Tomás | moved to | analytics team" and "Tomás Silva | moved to | analytics
+    /// team" were two facts about one person; with this on both are stored as the second, and MERGE keeps
+    /// one. The wording used is kept as <c>subject_surface</c> / <c>object_surface</c> in the fact's metadata.
+    /// Names that resolved to no entity (for example "user") are kept as written.
+    /// </summary>
+    public bool CanonicalFactSubjects { get; set; }
+
+    /// <summary>
     /// Skips the extraction call entirely for turns that cannot carry a fact — greetings, thanks,
     /// bare acknowledgement (E4).
     /// </summary>
