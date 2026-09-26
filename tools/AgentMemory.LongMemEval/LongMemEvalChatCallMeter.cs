@@ -119,7 +119,8 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         var materializedMessages =
             messages as IReadOnlyList<ChatMessage> ?? messages.ToArray();
         var purpose = ClassifyPurpose(materializedMessages);
-        var activity = Activity.Current;
+        // The batch extractor's own span, not the per-attempt span the call runs inside.
+        var activity = AgentMemory.Extraction.Llm.Internal.LlmExtractionRunner.CallerActivity(Activity.Current);
         var estimatedInputTokens = EstimatedInputTokens(activity) ??
             EstimateInputTokens(materializedMessages, purpose);
         var retry = RecordActivityCall(activity, purpose) || IsParseRetry(materializedMessages, purpose);

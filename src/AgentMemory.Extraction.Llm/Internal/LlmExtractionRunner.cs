@@ -58,7 +58,7 @@ internal sealed class LlmExtractionRunner
         for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var span = AgentMemoryDiagnostics.Source.StartActivity("memory.extract.attempt");
+            using var span = AgentMemoryDiagnostics.Source.StartActivity(AttemptSpanName);
             span?.SetTag("memory.extract.attempt", attempt);
 
             var response = await GetResponseWithTransportRetryAsync(
@@ -130,6 +130,20 @@ internal sealed class LlmExtractionRunner
             throw new FormatException($"LLM extraction exhausted its attempts without usable JSON: {lastError}.");
 
         return Array.Empty<T>();
+    }
+
+    /// <summary>The span wrapped around each model call.</summary>
+    internal const string AttemptSpanName = "memory.extract.attempt";
+
+    /// <summary>
+    /// The activity an extraction call belongs to: <paramref name="current"/> with any attempt span above it
+    /// skipped. Meters that read the extractor's span (its tags, its call count) from inside the chat client
+    /// must go through this, because the chat call now runs one level deeper, inside its attempt span.
+    /// </summary>
+    internal static Activity? CallerActivity(Activity? current)
+    {
+        while (current?.OperationName == AttemptSpanName) current = current.Parent;
+        return current;
     }
 
     /// <summary>Output-token ceiling for a truncation retry (the retry doubles what the cut-off reply used).</summary>

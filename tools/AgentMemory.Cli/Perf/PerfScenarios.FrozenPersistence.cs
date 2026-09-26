@@ -11,7 +11,15 @@ public static partial class PerfScenarios
     private const int FrozenFactCount = 2;
     private const int FrozenPreferenceCount = 1;
     private const int FrozenRelationshipCount = 1;
+    // Entities are not in the persistence batch: each new entity carries the vector resolution already
+    // computed for its name (the semantic matcher's), so only facts and preferences are embedded there.
+    // Before that reuse this was FrozenEntityCount + FrozenFactCount + FrozenPreferenceCount: the two
+    // names went out twice, for identical vectors.
     private const int FrozenLearnedEmbeddingCount =
+        FrozenFactCount + FrozenPreferenceCount;
+    // Every learned item links back to its source message -- entities included. Its own constant: it
+    // used to share FrozenLearnedEmbeddingCount, which was only right while both counts happened to match.
+    private const int FrozenProvenanceCount =
         FrozenEntityCount + FrozenFactCount + FrozenPreferenceCount;
     private const int FrozenEmbeddingRequestCount = FrozenResolutionEmbeddingCount + 1;
     private const int FrozenResolutionEmbeddingCount = FrozenEntityCount;
@@ -158,14 +166,14 @@ public static partial class PerfScenarios
             preferences != FrozenPreferenceCount ||
             relationships != FrozenRelationshipCount ||
             relationshipSources != FrozenRelationshipCount ||
-            provenance != FrozenLearnedEmbeddingCount ||
+            provenance != FrozenProvenanceCount ||
             crossOwnerEdges != 0)
         {
             throw new InvalidOperationException(
                 $"PERF-W-08 graph read-back failed (messages={messages}/1, entities/facts/preferences/" +
                 $"relationships={entities}/{facts}/{preferences}/{relationships}, expected " +
                 $"{FrozenEntityCount}/{FrozenFactCount}/{FrozenPreferenceCount}/" +
-                $"{FrozenRelationshipCount}; provenance={provenance}/{FrozenLearnedEmbeddingCount}, " +
+                $"{FrozenRelationshipCount}; provenance={provenance}/{FrozenProvenanceCount}, " +
                 $"relationship_sources={relationshipSources}/{FrozenRelationshipCount}, " +
                 $"cross_owner_edges={crossOwnerEdges}/0).");
         }
