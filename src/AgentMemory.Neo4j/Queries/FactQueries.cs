@@ -827,6 +827,22 @@ internal static class FactQueries
     /// but no seek is claimed for them.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The object of the owner's most recently stated live fact whose subject and predicate keys are in
+    /// the given sets (I-5: the name the user gave). Keyed, so a stored "User" or "is_named" still matches.
+    /// </summary>
+    public const string FindLatestObject = @"
+            MATCH (f:Fact)
+            WHERE f.owner_id = $ownerId
+              AND f.subject_key IN $subjectKeys
+              AND f.predicate_key IN $predicateKeys
+              AND f.invalidated_at IS NULL
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($now))
+              AND f.object IS NOT NULL
+            RETURN f.object AS object
+            ORDER BY coalesce(f.updated_at, f.created_at) DESC
+            LIMIT 1";
+
     public static string FindByTriple(bool hasOwnerFilter, bool includeShared)
     {
         // owner_key, not owner_id: only owner_key is part of the merge-key index, and only a filter

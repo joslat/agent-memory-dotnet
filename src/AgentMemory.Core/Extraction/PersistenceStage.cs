@@ -365,25 +365,27 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // I-5. "user" is the owner: once the user has said their name, what they say about themselves is
         // stored under it. Read only when this extraction has something to rewrite.
         var userName = _options.ResolveUserToName && !string.IsNullOrWhiteSpace(ownerId) &&
-                       prepared.Facts.Any(f => !UserNames.IsNamingFact(f.Item) &&
-                                               (UserNames.IsUser(f.Item.Subject) || UserNames.IsUser(f.Item.Object)))
+                       prepared.Facts.Any(f => UserNames.MeansUser(f.Item, subject: true) || UserNames.MeansUser(f.Item, subject: false))
             ? await UserNameAsync(prepared.Facts, ownerId!, cancellationToken).ConfigureAwait(false)
             : null;
 
         // The one place a stored subject or object is decided: the fact's preparation and the batch
         // distinctness guard both call it, so they cannot disagree about which facts become one node.
-        string StoredName(ExtractedFact fact, string surface) =>
-            userName is not null && UserNames.IsUser(surface) && !UserNames.IsNamingFact(fact)
+        string StoredName(ExtractedFact fact, bool subject)
+        {
+            var surface = subject ? fact.Subject : fact.Object;
+            return userName is not null && UserNames.MeansUser(fact, subject)
                 ? CanonicalName(userName)
                 : CanonicalName(surface);
+        }
 
         async Task<(Fact Item, string SourceKey)?> PrepareFactAsync(PreparedFact preparedFact)
         {
             var extracted = preparedFact.Item;
             // The source key stays the words as extracted: outcomes are keyed by the input item.
             var factSourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
-            var subject = StoredName(extracted, extracted.Subject);
-            var @object = StoredName(extracted, extracted.Object);
+            var subject = StoredName(extracted, subject: true);
+            var @object = StoredName(extracted, subject: false);
             try
             {
                 // Trust is monotonic for owner-scoped facts. The pre-fetch deliberately excludes shared
@@ -575,6 +577,15 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 var losers = await _factRepository.FindSupersededCandidatesAsync(
                     winner.FactId, winner.Subject, winner.Predicate, winner.Object, scope,
                     cancellationToken).ConfigureAwait(false);
+                // I-5. A fact now stored under the user's name also replaces what was stored before the
+                // name was known, under the words used then ("user | lives in | Lisbon").
+                if (winner.Metadata.TryGetValue("subject_surface", out var surface) && surface is string said &&
+                    UserNames.IsSelf(said))
+                {
+                    losers = [.. losers, .. await _factRepository.FindSupersededCandidatesAsync(
+                        winner.FactId, said, winner.Predicate, winner.Object, scope,
+                        cancellationToken).ConfigureAwait(false)];
+                }
 
                 foreach (var loser in losers)
                 {
@@ -616,15 +627,17 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         static (string Subject, string Predicate, string Object, string? OwnerId) FactKey(Fact fact) =>
             (fact.Subject, fact.Predicate, fact.Object, fact.OwnerId);
 
-        // Distinct as STORED: canonical names applied, compared on the storage MERGE key. Two facts that the
+        // Distinct as STORED: canonical names applied, compared on the storage MERGE key (values by
+        // CanonicalValue, the predicate by Canonical, which folds "_" and "-": "works_at" and "works at"
+        // are one key, exactly as Neo4jFactRepository computes it). Two facts that the
         // extraction phrased apart but that land on one node ("Tomás | works at | Acme" and "Tomás Silva |
         // Works at | Acme" under canonical subjects) must take the sequential path, where the second one's
         // pre-fetch sees the first; batched, the MERGE folds them and the batch replays both (review round 2).
         var distinctExtractedTriples = prepared.Facts
             .Select(fact => (
-                MemoryTripleCanonicalizer.CanonicalValue(StoredName(fact.Item, fact.Item.Subject)),
-                MemoryTripleCanonicalizer.CanonicalValue(fact.Item.Predicate),
-                MemoryTripleCanonicalizer.CanonicalValue(StoredName(fact.Item, fact.Item.Object))))
+                MemoryTripleCanonicalizer.CanonicalValue(StoredName(fact.Item, subject: true)),
+                MemoryTripleCanonicalizer.Canonical(fact.Item.Predicate),
+                MemoryTripleCanonicalizer.CanonicalValue(StoredName(fact.Item, subject: false))))
             .Distinct()
             .Count() == prepared.Facts.Count;
         var fusedFactRepository = _options.UseCoalescedPersistenceTransactions
@@ -1044,40 +1057,69 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         var stated = facts.Select(f => f.Item).LastOrDefault(UserNames.IsNamingFact)?.Object;
         if (!string.IsNullOrWhiteSpace(stated)) return stated.Trim();
 
-        var stored = await _factRepository.GetBySubjectAsync(
-            UserNames.User, MemoryScope.For(ownerId, includeShared: false), cancellationToken).ConfigureAwait(false);
-        return stored
-            .Where(f => f.InvalidatedAtUtc is null && UserNames.IsNamingPredicate(f.Predicate) && !string.IsNullOrWhiteSpace(f.Object))
-            .OrderByDescending(f => f.CreatedAtUtc)
-            .Select(f => f.Object.Trim())
-            .FirstOrDefault();
+        // Best-effort: a failed lookup leaves the facts under the words used, it never fails the persist.
+        try
+        {
+            var stored = await _factRepository.FindLatestObjectAsync(
+                UserNames.SelfWords, UserNames.NamingPredicates, MemoryScope.For(ownerId, includeShared: false),
+                cancellationToken).ConfigureAwait(false);
+            return string.IsNullOrWhiteSpace(stored) ? null : stored.Trim();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read the user's name for owner {Owner}; facts keep the words used.", ownerId);
+            return null;
+        }
     }
 
     /// <summary>I-5: the words that mean the user, and the fact that names them.</summary>
     internal static class UserNames
     {
-        internal const string User = "user";
+        /// <summary>Words that can mean the speaker as a subject.</summary>
+        internal static readonly string[] SelfWords = ["user", "the user", "i", "me", "myself"];
 
-        private static readonly HashSet<string> Self = new(StringComparer.Ordinal) { "user", "the user", "i", "me", "myself" };
+        /// <summary>
+        /// Words that mean the speaker as an OBJECT. Not "I"/"me": as an object they are as often
+        /// something else ("lives in | ME", Maine), and the extractor is asked to say "user" anyway.
+        /// </summary>
+        private static readonly HashSet<string> UserAsObject = new(StringComparer.Ordinal) { "user", "the user" };
 
-        private static readonly HashSet<string> Naming = new(StringComparer.Ordinal)
-        {
-            "is named", "name is", "has name", "named", "is called", "goes by", "has the name",
-        };
+        private static readonly HashSet<string> Self = new(SelfWords, StringComparer.Ordinal);
 
-        internal static bool IsUser(string? value) => Self.Contains(MemoryTripleCanonicalizer.CanonicalValue(value));
+        internal static readonly string[] NamingPredicates =
+            ["is named", "name is", "has name", "named", "is called", "goes by", "has the name"];
+
+        private static readonly HashSet<string> Naming = new(NamingPredicates, StringComparer.Ordinal);
+
+        internal static bool IsSelf(string? value) => Self.Contains(MemoryTripleCanonicalizer.CanonicalValue(value));
 
         internal static bool IsNamingPredicate(string? predicate) => Naming.Contains(MemoryTripleCanonicalizer.Canonical(predicate));
 
-        internal static bool IsNamingFact(ExtractedFact fact) => IsUser(fact.Subject) && IsNamingPredicate(fact.Predicate);
+        internal static bool IsNamingFact(ExtractedFact fact) => IsSelf(fact.Subject) && IsNamingPredicate(fact.Predicate);
+
+        /// <summary>
+        /// Whether this slot of the fact is the user and may be stored under their name: never in the
+        /// naming fact itself, never in what the assistant said about itself ("I | recommend | …"), and
+        /// as an object only "user" / "the user", and only when the subject is not itself the user.
+        /// </summary>
+        internal static bool MeansUser(ExtractedFact fact, bool subject)
+        {
+            if (IsNamingFact(fact)) return false;
+            if (string.Equals(fact.SourceRole, "assistant", StringComparison.OrdinalIgnoreCase)) return false;
+            return subject
+                ? IsSelf(fact.Subject)
+                : UserAsObject.Contains(MemoryTripleCanonicalizer.CanonicalValue(fact.Object)) && !IsSelf(fact.Subject);
+        }
     }
 
     /// <summary>
     /// I-6: one fact per statement within an extraction. Two facts are the same statement in other words
     /// when they are at least <paramref name="threshold"/> similar AND <see cref="MayBeOneStatement"/>:
     /// similarity alone scores "has 2 kids" / "has 3 kids" and "is vegetarian" / "is not vegetarian" as
-    /// near-identical. The kept phrasing is the more trusted (the user's over the assistant's), then the
-    /// more confident, then the first; it takes over a validity window or source turn only the other had.
+    /// near-identical. The kept phrasing is the user's over the assistant's, then the more confident, then
+    /// the first; it takes over a validity window or source turn only the other had, unless only the
+    /// assistant said it.
     /// Each dropped fact gets a <see cref="IngestionItemStatus.Skipped"/> outcome naming the kept one, and
     /// the span records how many were merged (<c>memory.persist.facts_merged</c>).
     /// </summary>
@@ -1099,13 +1141,15 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 continue;
             }
             var (winner, loser) = Prefer(fact.Item, kept[twin].Item) ? (fact, kept[twin]) : (kept[twin], fact);
+            // What only the assistant said is not carried into the user's words.
+            var carry = !IsAssistant(loser.Item);
             kept[twin] = winner with
             {
                 Item = winner.Item with
                 {
-                    ValidFrom = winner.Item.ValidFrom ?? loser.Item.ValidFrom,
-                    ValidUntil = winner.Item.ValidUntil ?? loser.Item.ValidUntil,
-                    SourceTurn = winner.Item.SourceTurn ?? loser.Item.SourceTurn,
+                    ValidFrom = winner.Item.ValidFrom ?? (carry ? loser.Item.ValidFrom : null),
+                    ValidUntil = winner.Item.ValidUntil ?? (carry ? loser.Item.ValidUntil : null),
+                    SourceTurn = winner.Item.SourceTurn ?? (carry ? loser.Item.SourceTurn : null),
                 },
             };
             merged.Add(new IngestionItemOutcome
@@ -1122,15 +1166,16 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             System.Diagnostics.Activity.Current?.SetTag("memory.persist.facts_merged", merged.Count);
         return (kept, merged);
 
-        // The user's own words over the assistant's paraphrase (trust is what a merge must not lower),
-        // then confidence; the earlier phrasing on a tie.
+        // The user's own words over the assistant's paraphrase of them (what memory records is what the
+        // user said), then confidence; the earlier phrasing on a tie.
         static bool Prefer(ExtractedFact candidate, ExtractedFact current)
         {
-            var candidateIsAssistant = string.Equals(candidate.SourceRole, "assistant", StringComparison.OrdinalIgnoreCase);
-            var currentIsAssistant = string.Equals(current.SourceRole, "assistant", StringComparison.OrdinalIgnoreCase);
-            if (candidateIsAssistant != currentIsAssistant) return currentIsAssistant;
+            if (IsAssistant(candidate) != IsAssistant(current)) return IsAssistant(current);
             return candidate.Confidence > current.Confidence;
         }
+
+        static bool IsAssistant(ExtractedFact fact) =>
+            string.Equals(fact.SourceRole, "assistant", StringComparison.OrdinalIgnoreCase);
     }
 
     private static readonly HashSet<string> NegationWords = new(StringComparer.OrdinalIgnoreCase)
@@ -1147,6 +1192,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     internal static bool MayBeOneStatement(ExtractedFact left, ExtractedFact right)
     {
         static string Key(string value) => MemoryTripleCanonicalizer.CanonicalValue(value);
+        // The fact that names the user is how the name is found in every later session: never merged away.
+        if (UserNames.IsNamingFact(left) || UserNames.IsNamingFact(right)) return false;
         if (Key(left.Subject) != Key(right.Subject)) return false;
         if (Key(left.Predicate) != Key(right.Predicate) && Key(left.Object) != Key(right.Object)) return false;
         if (Numbers(left) != Numbers(right) || Negations(left) != Negations(right)) return false;

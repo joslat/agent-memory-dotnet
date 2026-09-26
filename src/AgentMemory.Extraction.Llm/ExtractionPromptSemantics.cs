@@ -172,22 +172,6 @@ internal static class ExtractionPromptSemantics
     /// aliases when mentioned"; the batch rung the benchmark runs never did.
     /// </para>
     /// </remarks>
-    /// <summary>
-    /// I-5: asks for the user's own name as a fact, so persistence can store what the user says about
-    /// themselves under that name (<c>ExtractionOptions.ResolveUserToName</c>). Empty when off, so the
-    /// prompt stays byte-for-byte what it was.
-    /// </summary>
-    /// <remarks>
-    /// Capture, not inference, for the same reason as aliases: only a name the user states. A model
-    /// asked to guess which person in the conversation is the user would bind a sister's name to the
-    /// speaker.
-    /// </remarks>
-    internal static string UserNameInstruction(bool capture) => capture
-        ? "\nRefer to the person speaking to the assistant as \"user\". When the user STATES their own "
-          + "name (\"I'm Dana\", \"call me Dee\"), also add the fact {\"subject\":\"user\",\"predicate\":"
-          + "\"is named\",\"object\":\"<the name as they said it>\"}. Never add it for anyone else's name."
-        : string.Empty;
-
     internal static string IdentityAliasInstruction(bool capture) => capture
         ? "\nWhen a turn STATES that two names refer to one thing - \"the new flat is the place on "
           + "Ferrow Row\", \"head office, i.e. the Calderwick office\" - emit ONE entity and put the "
@@ -195,6 +179,30 @@ internal static class ExtractionPromptSemantics
           + "are the same; never merge two names because they look or sound similar, and never "
           + "because they appear together. Two distinct things recorded as one cannot be separated "
           + "again, while two names left apart can still be joined later."
+        : string.Empty;
+
+    /// <summary>
+    /// I-5: asks for the user's own name as a fact, so persistence can store what the user says about
+    /// themselves under that name (<c>ExtractionOptions.ResolveUserToName</c>). Empty when off, so the
+    /// prompt stays byte-for-byte what it was.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Capture, not inference, for the same reason as aliases: only a name the user states. A model
+    /// asked to guess which person in the conversation is the user would bind a sister's name to the
+    /// speaker.
+    /// </para>
+    /// <para>
+    /// Described in words, not as a literal JSON object: each rung has its own fact schema (the
+    /// multi-session rung requires <c>source_session</c> on every fact), and a literal would teach the
+    /// model a fact without it.
+    /// </para>
+    /// </remarks>
+    internal static string UserNameInstruction(bool capture) => capture
+        ? "\nRefer to the person speaking to the assistant as \"user\". When the user STATES their own "
+          + "name (\"I'm Dana\", \"call me Dee\"), also add a fact whose subject is \"user\", whose "
+          + "predicate is \"is named\" and whose object is the name as they said it, with every other "
+          + "field a fact needs. Never add it for anyone else's name."
         : string.Empty;
 
     internal static string TemporalValidityInstruction(TemporalValidityMode mode) => mode switch

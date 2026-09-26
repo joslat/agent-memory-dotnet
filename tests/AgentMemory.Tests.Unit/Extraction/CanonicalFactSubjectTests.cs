@@ -85,8 +85,11 @@ public sealed class CanonicalFactSubjectTests
         _upserted.Should().OnlyContain(f => !f.Metadata.ContainsKey("subject_surface") && !f.Metadata.ContainsKey("object_surface"));
     }
 
-    [Fact]
-    public async Task Two_phrasings_that_become_one_fact_are_written_one_after_the_other_on_the_default_batch_path()
+    [Theory]
+    [InlineData("Tomás", "works at", "Tomás Silva", "Works at")]
+    [InlineData("Tomás Silva", "works_at", "Tomás Silva", "works at")]   // review round 3: the storage key folds separators
+    public async Task Two_phrasings_that_become_one_fact_are_written_one_after_the_other_on_the_default_batch_path(
+        string firstSubject, string firstPredicate, string secondSubject, string secondPredicate)
     {
         // Review round 2: "Tomás | works at | Acme" and "Tomás Silva | Works at | Acme" were distinct as
         // extracted, so they were batched; canonicalized they are one MERGE key, the batch folded them, and
@@ -112,8 +115,8 @@ public sealed class CanonicalFactSubjectTests
             ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Tomás"] = tomas, ["Tomás Silva"] = tomas },
             FilteredFacts =
             [
-                new ExtractedFact { Subject = "Tomás", Predicate = "works at", Object = "Acme", Confidence = 0.9 },
-                new ExtractedFact { Subject = "Tomás Silva", Predicate = "Works at", Object = "Acme", Confidence = 0.9 },
+                new ExtractedFact { Subject = firstSubject, Predicate = firstPredicate, Object = "Acme", Confidence = 0.9 },
+                new ExtractedFact { Subject = secondSubject, Predicate = secondPredicate, Object = "Acme", Confidence = 0.9 },
             ],
         }, ownerId: "owner-1", cancellationToken: CancellationToken.None);
 
@@ -121,9 +124,9 @@ public sealed class CanonicalFactSubjectTests
         // Sequential: the second one's pre-fetch runs after the first write, so it can see it.
         Received.InOrder(() =>
         {
-            facts.FindByTripleAsync("Tomás Silva", "works at", "Acme", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            facts.FindByTripleAsync("Tomás Silva", firstPredicate, "Acme", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
             facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
-            facts.FindByTripleAsync("Tomás Silva", "Works at", "Acme", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            facts.FindByTripleAsync("Tomás Silva", secondPredicate, "Acme", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
             facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
         });
     }

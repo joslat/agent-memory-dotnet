@@ -24,6 +24,14 @@ internal static class TurnExtraction
         ILogger logger,
         CancellationToken cancellationToken)
     {
+        // Here, not at each entry point, so every one of them honours it (review round 3: two did not).
+        if (options.ExtractFromUserMessagesOnly)
+        {
+            var said = request.Messages.Where(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (said.Count == 0) return;
+            request = request with { Messages = said };
+        }
+
         if (options.ExtractInBackground && background is not null)
         {
             // The caller's ambient owner and store scope (AsyncLocal) travel with the work, so it writes

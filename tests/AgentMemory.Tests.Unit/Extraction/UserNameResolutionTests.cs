@@ -28,8 +28,9 @@ public sealed class UserNameResolutionTests
         entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<Entity>());
         _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
             .Returns(call => { _upserted.Add(call.Arg<Fact>()); return call.Arg<Fact>(); });
-        _facts.GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
+        _facts.FindLatestObjectAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<IReadOnlyCollection<string>>(),
+                Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>(null));
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
         embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
         var clock = Substitute.For<IClock>();
@@ -61,16 +62,15 @@ public sealed class UserNameResolutionTests
 
     private Fact Stored(string predicate) => _upserted.Single(f => f.Predicate == predicate);
 
-    private void OwnerIsAlreadyNamed(string name, DateTimeOffset? invalidatedAt = null) =>
-        _facts.GetBySubjectAsync("user", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Fact>>(
-            [
-                new Fact
-                {
-                    FactId = "naming", Subject = "user", Predicate = "is named", Object = name, Confidence = 1,
-                    CreatedAtUtc = DateTimeOffset.UnixEpoch, InvalidatedAtUtc = invalidatedAt,
-                },
-            ]));
+    private void OwnerIsAlreadyNamed(string name) =>
+        _facts.FindLatestObjectAsync(
+                Arg.Is<IReadOnlyCollection<string>>(s => s.Contains("user")),
+                Arg.Is<IReadOnlyCollection<string>>(p => p.Contains("is named")),
+                Arg.Is<MemoryScope>(scope => scope.OwnerId == "owner-1"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>(name));
+
+    private Task NoLookup() => _facts.DidNotReceiveWithAnyArgs()
+        .FindLatestObjectAsync(default!, default!, default!, default);
 
     [Fact]
     public async Task A_name_stated_in_the_turn_names_the_users_facts()
@@ -84,7 +84,7 @@ public sealed class UserNameResolutionTests
         Stored("works at").Metadata["subject_surface"].Should().Be("user");
         Stored("is sister of").Object.Should().Be("Dana");
         Stored("is named").Subject.Should().Be("user", "the naming fact is how the name is found again");
-        await _facts.DidNotReceiveWithAnyArgs().GetBySubjectAsync(default!, default, default);
+        await NoLookup();
     }
 
     [Fact]
@@ -98,15 +98,75 @@ public sealed class UserNameResolutionTests
         Stored("is learning").Subject.Should().Be("Dana");
     }
 
+    // ---- review round 3 ----
+
     [Fact]
-    public async Task An_invalidated_name_is_not_used()
+    public async Task A_failed_name_lookup_leaves_the_words_used_and_the_persist_succeeds()
     {
         var sut = Sut(resolve: true);
-        OwnerIsAlreadyNamed("Dana", invalidatedAt: DateTimeOffset.UnixEpoch);
+        _facts.FindLatestObjectAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<IReadOnlyCollection<string>>(),
+                Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<string?>(new TimeoutException("read timed out")));
 
         await sut.PersistAsync(Extraction(F("user", "is learning", "cello")), ownerId: "owner-1", cancellationToken: CancellationToken.None);
 
         Stored("is learning").Subject.Should().Be("user");
+    }
+
+    [Fact]
+    public async Task I_and_me_as_objects_and_the_assistants_own_I_are_not_the_user()
+    {
+        var sut = Sut(resolve: true);
+        OwnerIsAlreadyNamed("Dana");
+
+        await sut.PersistAsync(Extraction(
+            F("user", "lives in", "ME"),
+            F("I", "recommend", "Hotel Lisboa") with { SourceRole = "assistant" },
+            F("account", "has role", "user")),
+            ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        Stored("lives in").Should().Match<Fact>(f => f.Subject == "Dana" && f.Object == "ME", "Maine is not the user");
+        Stored("recommend").Subject.Should().Be("I", "the assistant's first person is not the user's");
+        Stored("has role").Object.Should().Be("Dana", "\"user\" as an object is the user");
+    }
+
+    [Fact]
+    public async Task A_fact_now_under_the_name_also_replaces_what_was_stored_as_user()
+    {
+        var sut = Sut(resolve: true);
+        OwnerIsAlreadyNamed("Dana");
+        _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
+
+        await new PersistenceStage(Substitute.For<IEmbeddingOrchestrator>(), Substitute.For<IEntityRepository>(), _facts,
+                Substitute.For<IPreferenceRepository>(), Substitute.For<IRelationshipRepository>(), Substitute.For<IClock>(),
+                new SequentialIds(), NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
+                Options.Create(new ExtractionOptions { ResolveUserToName = true, SupersedeReplacedFacts = true, EnableBatchMemoryUpserts = false }))
+            .PersistAsync(Extraction(F("user", "lives_in", "Porto")), ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        await _facts.Received(1).FindSupersededCandidatesAsync(Arg.Any<string>(), "user", "lives_in", "Porto",
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    private sealed class SequentialIds : IIdGenerator
+    {
+        private int _next;
+        public string GenerateId() => $"id-{Interlocked.Increment(ref _next)}";
+    }
+
+    [Fact]
+    public void The_fact_that_names_the_user_is_never_merged_away()
+    {
+        PersistenceStage.MayBeOneStatement(F("user", "is named", "Dana"), F("user", "is", "Dana")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void The_instruction_describes_the_fact_rather_than_giving_a_literal_one()
+    {
+        // The multi-session rung requires source_session on every fact; a literal object without it
+        // teaches the model a fact that fails that rung's validation.
+        ExtractionPromptSemantics.UserNameInstruction(true).Should().NotContain("{\"subject\"");
     }
 
     [Fact]
@@ -142,7 +202,7 @@ public sealed class UserNameResolutionTests
             ownerId: "owner-1", cancellationToken: CancellationToken.None);
 
         Stored("works at").Subject.Should().Be("user");
-        await _facts.DidNotReceiveWithAnyArgs().GetBySubjectAsync(default!, default, default);
+        await NoLookup();
     }
 
     [Fact]
@@ -151,7 +211,7 @@ public sealed class UserNameResolutionTests
         await Sut(resolve: true).PersistAsync(Extraction(F("Lena", "lives in", "Berlin")),
             ownerId: "owner-1", cancellationToken: CancellationToken.None);
 
-        await _facts.DidNotReceiveWithAnyArgs().GetBySubjectAsync(default!, default, default);
+        await NoLookup();
     }
 
     // ---- the prompt side: every extractor rung asks for the name, or none changes ----

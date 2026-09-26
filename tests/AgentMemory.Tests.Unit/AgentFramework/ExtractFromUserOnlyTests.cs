@@ -80,4 +80,40 @@ public sealed class ExtractFromUserOnlyTests
 
         request!.Messages.Should().HaveCount(2);
     }
+
+    // Review round 3: the chat-history provider and the facade ignored the flag. All three now extract
+    // through TurnExtraction, which applies it once.
+
+    private static Message M(string role, string content) => new()
+    {
+        MessageId = Guid.NewGuid().ToString("N"), SessionId = "s1", ConversationId = "c1", Role = role, Content = content,
+        TimestampUtc = DateTimeOffset.UnixEpoch,
+    };
+
+    [Fact]
+    public async Task The_shared_dispatcher_keeps_only_what_the_user_said()
+    {
+        var memory = Substitute.For<IMemoryService>();
+        ExtractionRequest? seen = null;
+        memory.ExtractAndPersistAsync(Arg.Do<ExtractionRequest>(r => seen = r), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ExtractionResult { SourceMessageIds = [] }));
+
+        await TurnExtraction.ExtractAsync(memory,
+            new ExtractionRequest { Messages = [M("user", "I moved to Porto."), M("assistant", "You work at Northwind, right?")], SessionId = "s1" },
+            new AgentFrameworkOptions { ExtractFromUserMessagesOnly = true }, null, NullLogger.Instance, CancellationToken.None);
+
+        seen!.Messages.Select(m => m.Content).Should().Equal("I moved to Porto.");
+    }
+
+    [Fact]
+    public async Task A_turn_with_nothing_the_user_said_extracts_nothing()
+    {
+        var memory = Substitute.For<IMemoryService>();
+
+        await TurnExtraction.ExtractAsync(memory,
+            new ExtractionRequest { Messages = [M("assistant", "Here is a summary of your week.")], SessionId = "s1" },
+            new AgentFrameworkOptions { ExtractFromUserMessagesOnly = true }, null, NullLogger.Instance, CancellationToken.None);
+
+        await memory.DidNotReceiveWithAnyArgs().ExtractAndPersistAsync(default!, default);
+    }
 }

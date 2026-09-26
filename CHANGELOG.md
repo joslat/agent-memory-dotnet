@@ -25,15 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profile listed both. `CaptureUserName` asks every extractor rung for a `user | is named | <name>` fact
   when the user states their name; `ResolveUserToName` then stores facts whose subject or object is
   "user" (or "I", "me") under that name, taken from the same extraction or, in a later session, from
-  the owner's latest stored naming fact. Until a name is known nothing changes; the words used are kept
-  as `subject_surface` / `object_surface`; with `CanonicalFactSubjects` the name resolves to the known
-  person's full name. Measured on one two-session conversation: without it 3 facts about "Dana" and 5
+  the owner's latest live stored naming fact (one keyed read, `IFactRepository.FindLatestObjectAsync`,
+  whatever casing or separators the extractor used; a failed read leaves the words used). Rewritten:
+  "user"/"I"/"me" as a subject, "user"/"the user" as an object; never what the assistant said about
+  itself, never the naming fact itself, which is also never merged away. A fact now stored under the
+  name also supersedes (for single-valued relations) what was stored under "user" before the name was
+  known. Until a name is known nothing changes; the words used are kept as `subject_surface` /
+  `object_surface`; with `CanonicalFactSubjects` the name resolves to the known person's full name. Measured on one two-session conversation: without it 3 facts about "Dana" and 5
   about "user"; with it all 8 under "Dana", including the second session's.
 - **`AgentFrameworkOptions.ExtractFromUserMessagesOnly` (dark): learn from what the user said.** With
   auto-extraction on, the agent's reply was extracted too, so every time the agent repeated a fact back
   ("you live in Porto, right?") the fact's mention count went up, and a summary reply re-learned the
   profile as new rephrased facts. On, only the turn's request messages are extracted; the reply is still
-  stored as a message. Measured on one six-turn conversation: 11 facts with the reply (three rephrased
+  stored as a message. Applied by every entry point that extracts on persist (the context provider, the
+  chat-history provider, the facade). Measured on one six-turn conversation: 11 facts with the reply (three rephrased
   duplicates, "lives in Porto" at 3 mentions from echoes alone) against 8 facts, one mention each,
   without. Off by default because an agent that states new facts itself (tool results, lookups) would
   no longer have them extracted.
@@ -149,7 +154,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every prompt) and marks it due, so the owner's next read rebuilds it from what remains rather than
   going without a profile until the owner writes again; a rebuild on read that fails (a read-only
   connection, a timeout) never fails recall, and serves no block (or, with
-  `ClearOnRebuildFailure = false`, the stored one); new facts reach it (the most recently touched win a
+  `ClearOnRebuildFailure = false`, the stored one), and is not retried for that owner for a minute; new facts reach it (the most recently touched win a
   slot, while the text keeps a stable order). Semantic Kernel renders the block even when similarity
   found nothing, which is the question it exists to answer.
   **Upgrading a database that already ran the tier** (it was opt-in before): the constraint cannot be

@@ -167,4 +167,45 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
 
         (await read.Should().NotThrowAsync()).Subject.Should().BeNull("the stored block asserts an expired fact");
     }
+
+    [Fact]
+    public async Task A_rebuild_that_failed_is_not_retried_on_every_recall()
+    {
+        // Review round 3: with the block due and the write failing, every recall ran the rebuild's reads,
+        // a failing write and a warning, for as long as the cause lasted.
+        await _facts.UpsertAsync(NewFact("Acme", validUntil: _clock.UtcNow.AddHours(1)));
+        await WorkingMemory().RebuildAsync("alice");
+        _clock.UtcNow = _clock.UtcNow.AddHours(2);
+        var runner = new CountingReadOnlyRunner(_fixture.TransactionRunner);
+        var backoff = new WorkingMemoryRebuildBackoff();
+        Neo4jWorkingMemoryService Service() => new(runner, _clock, new Ids(), Options.Create(_options),
+            NullLogger<Neo4jWorkingMemoryService>.Instance, backoff);
+
+        await Service().GetAsync("alice");
+        await Service().GetAsync("alice");
+        runner.WriteAttempts.Should().Be(1, "the second recall waits out the backoff");
+
+        _clock.UtcNow += WorkingMemoryRebuildBackoff.Delay;
+        await Service().GetAsync("alice");
+        runner.WriteAttempts.Should().Be(2, "after the backoff the rebuild is tried again");
+    }
+
+    private sealed class CountingReadOnlyRunner(INeo4jTransactionRunner inner) : INeo4jTransactionRunner
+    {
+        public int WriteAttempts;
+        public Task<T> ReadAsync<T>(Func<global::Neo4j.Driver.IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(work, cancellationToken);
+        public Task ReadAsync(Func<global::Neo4j.Driver.IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(work, cancellationToken);
+        public Task<T> WriteAsync<T>(Func<global::Neo4j.Driver.IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref WriteAttempts);
+            throw new InvalidOperationException("Writing is not allowed on this connection.");
+        }
+        public Task WriteAsync(Func<global::Neo4j.Driver.IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref WriteAttempts);
+            throw new InvalidOperationException("Writing is not allowed on this connection.");
+        }
+    }
 }

@@ -180,6 +180,37 @@ public interface IFactRepository
     Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The object of the owner's most recently stated live fact with one of <paramref name="subjects"/>
+    /// and one of <paramref name="predicates"/>, compared case- and separator-insensitively; null when
+    /// there is none. Used to find the name the user gave (<c>ExtractionOptions.ResolveUserToName</c>).
+    /// </summary>
+    /// <remarks>
+    /// The default reads every fact of each subject and filters in memory; a store should answer it
+    /// with one keyed read.
+    /// </remarks>
+    async Task<string?> FindLatestObjectAsync(
+        IReadOnlyCollection<string> subjects,
+        IReadOnlyCollection<string> predicates,
+        MemoryScope scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subjects);
+        ArgumentNullException.ThrowIfNull(predicates);
+        var predicateKeys = predicates.Select(Normalize).ToHashSet(StringComparer.Ordinal);
+        var found = new List<Fact>();
+        foreach (var subject in subjects)
+            found.AddRange(await GetBySubjectAsync(subject, scope, cancellationToken).ConfigureAwait(false));
+        return found
+            .Where(f => f.InvalidatedAtUtc is null && predicateKeys.Contains(Normalize(f.Predicate)) && !string.IsNullOrWhiteSpace(f.Object))
+            .OrderByDescending(f => f.CreatedAtUtc)
+            .Select(f => f.Object)
+            .FirstOrDefault();
+
+        static string Normalize(string value) =>
+            string.Join(' ', value.ToLowerInvariant().Split([' ', '_', '-'], StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    /// <summary>
     /// Bitemporal fact search (D6): <paramref name="asOf"/> is the <b>valid-time</b> clock (a fact's
     /// <c>valid_from</c>/<c>valid_until</c> — "what was true"); <paramref name="systemAsOf"/> is the
     /// <b>transaction-time</b> clock (<c>created_at</c>/<c>invalidated_at</c> — "what we believed"), and

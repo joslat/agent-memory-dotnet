@@ -34,14 +34,17 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
     private readonly IIdGenerator _ids;
     private readonly WorkingMemoryOptions _options;
     private readonly ILogger<Neo4jWorkingMemoryService> _logger;
+    private readonly WorkingMemoryRebuildBackoff? _backoff;
 
     public Neo4jWorkingMemoryService(
         INeo4jTransactionRunner tx,
         IClock clock,
         IIdGenerator ids,
         IOptions<MemoryOptions> options,
-        ILogger<Neo4jWorkingMemoryService> logger)
+        ILogger<Neo4jWorkingMemoryService> logger,
+        WorkingMemoryRebuildBackoff? backoff = null)
     {
+        _backoff = backoff;
         ArgumentNullException.ThrowIfNull(options);
         _tx = tx;
         _clock = clock;
@@ -108,10 +111,15 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         // cleared: rebuild once and serve the rebuilt block. Rare by construction: at most once per boundary.
         if (block.ValidUntil is { } boundary && boundary <= _clock.UtcNow)
         {
+            // A rebuild that just failed for this owner is not retried on every recall: that would be a
+            // failing write and a warning per turn, forever, for as long as the cause lasts.
+            if (_backoff?.IsWaiting(ownerId, _clock.UtcNow) == true)
+                return _options.ClearOnRebuildFailure ? null : block.Block;
             try
             {
                 await RebuildAsync(ownerId, cancellationToken).ConfigureAwait(false);
                 block = await ReadBlockAsync(ownerId, cancellationToken).ConfigureAwait(false);
+                _backoff?.Succeeded(ownerId);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -126,6 +134,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 _logger.LogWarning(exception,
                     "Working-memory rebuild on read failed for owner {Owner}; recall continues without a rebuilt block.",
                     ownerId);
+                _backoff?.Failed(ownerId, _clock.UtcNow);
                 return _options.ClearOnRebuildFailure ? null : block.Block;
             }
         }

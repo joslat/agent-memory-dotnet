@@ -131,6 +131,7 @@ public static class ServiceCollectionExtensions
         // 30.4. Registered unconditionally and self-gated on WorkingMemoryOptions.Enabled -- the
         // reranker pattern, so IOptions reconfiguration works.
         services.TryAddScoped<IWorkingMemoryService, Services.Neo4jWorkingMemoryService>();
+        services.TryAddSingleton<Services.WorkingMemoryRebuildBackoff>();
 
         // 30.4b. MergeEntitiesAsync's rebuild seam is hooked INSIDE Neo4jEntityRepository, not by
         // decorating IEntityRepository here. A decorator implementing only IEntityRepository strips

@@ -1153,6 +1153,30 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<string?> FindLatestObjectAsync(
+        IReadOnlyCollection<string> subjects, IReadOnlyCollection<string> predicates, MemoryScope scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subjects);
+        ArgumentNullException.ThrowIfNull(predicates);
+        ArgumentNullException.ThrowIfNull(scope);
+        if (!scope.HasOwnerFilter || subjects.Count == 0 || predicates.Count == 0) return null;
+
+        var parameters = new Dictionary<string, object>
+        {
+            ["ownerId"] = scope.OwnerId!,
+            ["subjectKeys"] = subjects.Select(MemoryTripleCanonicalizer.CanonicalValue).Distinct().ToList(),
+            ["predicateKeys"] = predicates.Select(MemoryTripleCanonicalizer.Canonical).Distinct().ToList(),
+            ["now"] = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+        };
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(FactQueries.FindLatestObject, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Count == 0 ? null : records[0]["object"].As<string?>();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
         bool hasOwner = scope?.HasOwnerFilter == true;
