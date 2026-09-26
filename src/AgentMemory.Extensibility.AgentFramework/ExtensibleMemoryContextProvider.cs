@@ -75,10 +75,11 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         AgentMemory.Abstractions.Services.IWritableMemoryOwnerContext? ownerContext = null,
         AgentMemory.AgentFramework.Tools.MemoryToolFactory? toolFactory = null,
         AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy = null,
-        IMemoryContextAdmissionPolicy? admissionPolicy = null)
+        IMemoryContextAdmissionPolicy? admissionPolicy = null,
+        IBackgroundExtraction? backgroundExtraction = null)
         : base(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions,
                agentOptions, baseLogger, storeContext, ownerContext, toolFactory, recallPolicy,
-               admissionPolicy)
+               admissionPolicy, backgroundExtraction)
     {
         ArgumentNullException.ThrowIfNull(moduleContributors);
         _compiler = compiler ?? throw new ArgumentNullException(nameof(compiler));
