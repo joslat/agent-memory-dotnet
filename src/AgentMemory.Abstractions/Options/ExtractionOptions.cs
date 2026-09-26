@@ -266,6 +266,19 @@ public sealed class EntityResolutionOptions
     /// without rewriting its aliases or embedding.
     /// </summary>
     public double PartialNameMatchConfidence { get; set; } = 0.9;
+
+    /// <summary>
+    /// Resolution candidates without vectors, and the semantic stage through the entity vector index
+    /// (dark, default false). By default every live entity of the mention's type is loaded WITH its
+    /// vector on every extraction: measured, an owner with 5,000 people cost 666–804 ms for that read
+    /// and 0.8–1.2 s per resolution, growing linearly. On: the string matchers get ids, names and
+    /// aliases only, the semantic matcher gets the index's top <see cref="SemanticCandidateLimit"/>
+    /// most similar entities, and whatever a string matcher resolves to is read back in full.
+    /// </summary>
+    public bool IndexedCandidates { get; set; }
+
+    /// <summary>How many index neighbours the semantic stage considers when <see cref="IndexedCandidates"/> is on.</summary>
+    public int SemanticCandidateLimit { get; set; } = 20;
 }
 
 /// <summary>Controls validation rules applied to extracted entity candidates.</summary>

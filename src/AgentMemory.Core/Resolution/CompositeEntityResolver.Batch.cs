@@ -144,7 +144,9 @@ internal sealed partial class CompositeEntityResolver
         // type. (An earlier note here said type-strict=false was unimplementable "because the repository
         // has no unfiltered GetAll contract" -- true, but the wrong contract to want: the widening is
         // bounded by name, not unbounded over the graph.)
-        return await _entityRepository.GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
+        return _options.EntityResolution.IndexedCandidates
+            ? await _entityRepository.GetByTypeWithoutEmbeddingAsync(type, scope, cancellationToken).ConfigureAwait(false)
+            : await _entityRepository.GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
     }
 
     private void EndBatch(CandidateBatchState state)

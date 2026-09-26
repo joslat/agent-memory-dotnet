@@ -479,13 +479,15 @@ public static partial class PerfScenarios
             : 0;
 
         var expectedEmbeddingMs = checked((long)preset.EmbeddingDelay.TotalMilliseconds);
-        const long expectedDatabaseCalls = 7;
+        // 8 since the working-memory profile tier is on by default (2026-09-26): recall reads the owner's
+        // profile block, one more transaction and one more query, which must degrade like the rest.
+        const long expectedDatabaseCalls = 8;
         var expectedDatabaseMs = checked(
             expectedDatabaseCalls * (long)preset.DatabaseDelay.TotalMilliseconds);
         if (embeddingCalls != 1 || embeddingMs != expectedEmbeddingMs ||
             databaseCalls != expectedDatabaseCalls || databaseMs != expectedDatabaseMs ||
             embeddingSpans != 1 || transactionSpans != expectedDatabaseCalls ||
-            accessTracked != 25 || queries != 9)
+            accessTracked != 25 || queries != 10)
         {
             throw new InvalidOperationException(
                 $"PERF-R-07 did not record its degraded dependency shape " +
@@ -493,7 +495,7 @@ public static partial class PerfScenarios
                 $"1/{expectedEmbeddingMs}; database delay calls/ms={databaseCalls}/{databaseMs}, " +
                 $"expected {expectedDatabaseCalls}/{expectedDatabaseMs}; embedding spans=" +
                 $"{embeddingSpans}/1; transaction spans={transactionSpans}/{expectedDatabaseCalls}; " +
-                $"access_tracking.items={accessTracked}/25; neo4j.queries={queries}/9). The scenario " +
+                $"access_tracking.items={accessTracked}/25; neo4j.queries={queries}/10). The scenario " +
                 "would not grade timeouts or graceful degradation reliably.");
         }
     }

@@ -252,14 +252,12 @@ session every turn's recalled blocks pile up in the thread and are replayed as s
 history to what the user and the agent said:
 
 ```csharp
-ChatHistoryProvider = new InMemoryChatHistoryProvider(new InMemoryChatHistoryProviderOptions
-{
-    StorageInputRequestMessageFilter = messages => messages.Where(
-        m => m.GetAgentRequestMessageSourceType() == AgentRequestMessageSourceType.External),
-}),
+AIContextProviders  = [memoryProvider],
+ChatHistoryProvider = AgentMemoryChatHistory.CreateInMemoryProvider(),
 ```
 
-`Neo4jChatHistoryProvider` already applies this filter. Recalled conversation turns are placed before
+(`AgentMemoryChatHistory.ExcludeInjectedContext` is the filter on its own, for a history provider of your
+own.) `Neo4jChatHistoryProvider` already stores through it. Recalled conversation turns are placed before
 the live thread, oldest first, behind a one-line framing message (not counted against
 `MaxChatHistoryMessages`). With `Neo4jMemoryContextProvider`, turns the session's history already carries
 are not recalled again; `NamsMemoryContextProvider` does not deduplicate against history yet.

@@ -113,7 +113,10 @@ internal static class CypherQueryRegistry
             if (Has("MATCH (t:ReasoningTrace)")) return "ReasoningQueries.OwnerScopedScan" + asOf;
         }
 
-        // Entity resolution's candidate set: every live entity of one type for the owner (with vectors).
+        // Entity resolution's candidate set: every live entity of one type for the owner (with vectors,
+        // or without them when the semantic stage goes through the index).
+        if (Has("MATCH (e:Entity {type: $type})") && Has("RETURN e {"))
+            return "EntityQueries.GetByTypeWithoutEmbedding";
         if (Has("MATCH (e:Entity {type: $type})") && Has("RETURN e"))
             return "EntityQueries.GetByType";
 

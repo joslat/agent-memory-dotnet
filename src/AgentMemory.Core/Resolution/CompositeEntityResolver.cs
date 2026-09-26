@@ -90,11 +90,17 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
 
         foreach (var matcher in matchers)
         {
-            resolutionResult = await matcher.TryMatchAsync(extractedEntity, candidates, cancellationToken)
+            var offered = await CandidatesForAsync(matcher, extractedEntity, candidates, embeddings, scope, cancellationToken)
+                .ConfigureAwait(false);
+            resolutionResult = await matcher.TryMatchAsync(extractedEntity, offered, cancellationToken)
                 .ConfigureAwait(false);
 
             if (resolutionResult is not null)
             {
+                resolutionResult = resolutionResult with
+                {
+                    ResolvedEntity = await InFullAsync(resolutionResult.ResolvedEntity, cancellationToken).ConfigureAwait(false),
+                };
                 _logger.LogDebug(
                     "Entity '{Name}' matched via {MatchType} with confidence {Confidence:F3}.",
                     extractedEntity.Name, resolutionResult.MatchType, resolutionResult.Confidence);
@@ -189,10 +195,12 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
 
         foreach (var matcher in matchers)
         {
-            var match = await matcher.TryMatchAsync(probe, candidates, cancellationToken)
+            var offered = await CandidatesForAsync(matcher, probe, candidates, _embeddingOrchestrator, scope, cancellationToken)
+                .ConfigureAwait(false);
+            var match = await matcher.TryMatchAsync(probe, offered, cancellationToken)
                 .ConfigureAwait(false);
             if (match is not null && !results.Any(e => e.EntityId == match.ResolvedEntity.EntityId))
-                results.Add(match.ResolvedEntity);
+                results.Add(await InFullAsync(match.ResolvedEntity, cancellationToken).ConfigureAwait(false));
         }
 
         return results;
@@ -258,6 +266,57 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
             extracted.Name, byType.Count, combined.Count);
 
         return combined;
+    }
+
+    /// <summary>
+    /// The candidates a matcher sees. Unchanged unless <see cref="EntityResolutionOptions.IndexedCandidates"/>
+    /// is on; then the string matchers get the vector-free candidate set and the semantic matcher gets the
+    /// entity vector index's nearest neighbours of the mention (owner-scoped, above the semantic threshold,
+    /// restricted like the candidate set: same type, or, without type-strict filtering, same type or the
+    /// mention's name or alias).
+    /// </summary>
+    private async Task<IReadOnlyList<Entity>> CandidatesForAsync(
+        IEntityMatcher matcher,
+        ExtractedEntity extracted,
+        IReadOnlyList<Entity> candidates,
+        IEmbeddingOrchestrator embeddings,
+        MemoryScope? scope,
+        CancellationToken cancellationToken)
+    {
+        var resolution = _options.EntityResolution;
+        if (!resolution.IndexedCandidates || matcher.MatchType != EntityMatchType.Semantic)
+            return candidates;
+        if (string.IsNullOrWhiteSpace(extracted.Name))
+            return [];
+
+        // The same call the semantic matcher makes, through the same memo: one embedding, not two.
+        var vector = await embeddings.EmbedEntityAsync(extracted.Name, cancellationToken).ConfigureAwait(false);
+        if (vector.Length == 0)
+            return [];
+
+        var hits = await _entityRepository
+            .SearchByVectorAsync(vector, resolution.SemanticCandidateLimit, resolution.SemanticMatchThreshold, scope, cancellationToken)
+            .ConfigureAwait(false);
+        return hits
+            .Select(hit => hit.Entity)
+            .Where(entity =>
+                string.Equals(entity.Type, extracted.Type, StringComparison.OrdinalIgnoreCase) ||
+                (!resolution.TypeStrictFiltering &&
+                 (string.Equals(entity.Name, extracted.Name, StringComparison.OrdinalIgnoreCase) ||
+                  entity.Aliases.Any(alias => string.Equals(alias, extracted.Name, StringComparison.OrdinalIgnoreCase)))))
+            .ToList();
+    }
+
+    /// <summary>
+    /// A match from the vector-free candidate set, read back in full before anything uses it: the merge
+    /// and SAME_AS paths write the matched entity, and writing it without its vector would erase the
+    /// stored one. A no-op when the match already carries its vector (or the option is off).
+    /// </summary>
+    private async Task<Entity> InFullAsync(Entity matched, CancellationToken cancellationToken)
+    {
+        if (!_options.EntityResolution.IndexedCandidates || matched.Embedding is not null)
+            return matched;
+        return await _entityRepository.GetByIdAsync(matched.EntityId, cancellationToken).ConfigureAwait(false) ?? matched;
     }
 
     private IReadOnlyList<IEntityMatcher> BuildMatchers(IEmbeddingOrchestrator embeddings)

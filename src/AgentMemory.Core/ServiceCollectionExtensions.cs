@@ -155,6 +155,9 @@ public static class ServiceCollectionExtensions
                      o.Extraction.EntityResolution.PartialNameMatchConfidence < o.Extraction.AutoMergeThreshold,
                 "MemoryOptions.Extraction.EntityResolution.PartialNameMatchConfidence must be below AutoMergeThreshold when EnablePartialNameMatch and EnableAutoMerge are on.")
             .Validate(
+                o => o.Extraction.EntityResolution.SemanticCandidateLimit > 0,
+                "MemoryOptions.Extraction.EntityResolution.SemanticCandidateLimit must be positive.")
+            .Validate(
                 o => o.Extraction.EntityResolution.PartialNameMatchTypes is not null,
                 "MemoryOptions.Extraction.EntityResolution.PartialNameMatchTypes must not be null.")
             // 30.2/30.3. Every other numeric option here is validated; these were not, and a threshold

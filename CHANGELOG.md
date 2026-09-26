@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`AgentMemoryChatHistory`: chat history without the injected memory.** MAF's default
+  `InMemoryChatHistoryProvider` stores the memory a context provider injected, so every turn's recalled
+  blocks were sent again on every later turn (measured: 17 messages instead of 8 on the third call).
+  `AgentMemoryChatHistory.CreateInMemoryProvider()` is that history without them;
+  `ExcludeInjectedContext` is the filter on its own, and `Neo4jChatHistoryProvider` stores through it.
+  The samples use it.
+- **`EntityResolutionOptions.IndexedCandidates` (dark): resolution that scales with the owner's
+  entities.** By default every live entity of a mention's type is loaded with its vector on every
+  extraction: an owner with 5,000 people cost 0.8–1.2 s per resolution. On, the string matchers get the
+  candidates without vectors (`IEntityRepository.GetByTypeWithoutEmbeddingAsync`, a default-bodied
+  addition), the semantic matcher gets the entity vector index's nearest neighbours
+  (`SemanticCandidateLimit`, default 20), and a match is read back in full before anything writes it.
+
 - **A local embedding model is one variable away.** `AgentMemory.Inference` gains an `ollama` provider
   (`http://127.0.0.1:11434/v1`, no key, `bge-m3` by default, `OLLAMA_MODEL` for chat; used only when
   named, never auto-detected), and `AI_EMBEDDING_PROVIDER` alone now moves embeddings to another
@@ -72,6 +85,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   additionally logs the first 2,000 characters of an unusable reply.
 
 ### Changed
+
+- **The working-memory profile tier is on by default.** A compiled "about this user" block (stable facts,
+  active preferences, salient entities; at most 300 tokens) is now built after each write and rendered
+  ahead of recall. Without it a new session asked "what do you know about me?" answered "a pretty thin
+  file": a generic question's embedding matches few stored facts. With it the same question returned the
+  user's name, job, employer, manager, family and preferences (3 of 3 runs), at the same answer time.
+  `MinFactMentionCount` defaults to 1 (at 2 a short relationship's block held no facts). Costs: about
+  300 prompt tokens per turn and a rebuild after each write. `WorkingMemory.Enabled = false` restores the
+  previous behaviour.
 
 - **Fan-out legs are embedded in one request.** When recall fan-out splits a question into sub-queries,
   each leg's query was embedded in its own request, one after another, after the main query: three

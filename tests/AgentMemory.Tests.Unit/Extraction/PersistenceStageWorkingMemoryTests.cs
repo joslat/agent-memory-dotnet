@@ -131,7 +131,10 @@ public sealed class PersistenceStageWorkingMemoryTests
     [Fact]
     public async Task TheTierOff_DoesNotRebuild()
     {
-        await CreateSut(new MemoryOptions()).PersistAsync(WithOneFact(), ownerId: "alice");
+        var off = new MemoryOptions();
+        off.WorkingMemory.Enabled = false;
+
+        await CreateSut(off).PersistAsync(WithOneFact(), ownerId: "alice");
 
         await _workingMemory.DidNotReceive().RebuildAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
