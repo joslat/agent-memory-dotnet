@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name also supersedes (for single-valued relations) what was stored under "user" before the name was
   known. Until a name is known nothing changes; the words used are kept as `subject_surface` /
   `object_surface`; with `CanonicalFactSubjects` the name resolves to the known person's full name. The
+  Relationships too: "user -WORKS_AT-> Fabrikam" was dropped at extraction ("source entity 'user' not
+  resolved"); with the option it starts at the user's person entity (the one named in the same turn,
+  else the stored one). Live: "I'm Ana, I work at Fabrikam in Madrid; my brother Tiago lives in Lyon"
+  stored all three relationships from Ana, none skipped. The
   instruction only adds the naming fact: an earlier wording ("refer to the person speaking as user") made
   the model return nothing for book passages ("fictional text; no user memory"), 6 of 18 chunks; now 1 of
   18, as without the option. Measured on one two-session conversation: without it 3 facts about "Dana" and 5

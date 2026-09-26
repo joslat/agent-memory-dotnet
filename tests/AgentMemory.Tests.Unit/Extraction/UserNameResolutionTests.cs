@@ -214,6 +214,89 @@ public sealed class UserNameResolutionTests
         await NoLookup();
     }
 
+    // ---- I-7: relationships from "user" ----
+
+    private static Entity Person(string id, string name) => new()
+    {
+        EntityId = id, Name = name, Type = "PERSON", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch,
+    };
+
+    private (PersistenceStage Sut, IRelationshipRepository Relationships, IEntityRepository Entities) WithRelationships(bool resolve)
+    {
+        var relationships = Substitute.For<IRelationshipRepository>();
+        relationships.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<Relationship>());
+        var entities = Substitute.For<IEntityRepository>();
+        entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<Entity>());
+        entities.GetByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>([]));
+        _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<Fact>());
+        _facts.FindLatestObjectAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<IReadOnlyCollection<string>>(),
+                Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>(null));
+        var embeddings = Substitute.For<IEmbeddingOrchestrator>();
+        embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
+        var ids = Substitute.For<IIdGenerator>();
+        ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
+        var sut = new PersistenceStage(embeddings, entities, _facts, Substitute.For<IPreferenceRepository>(), relationships,
+            Substitute.For<IClock>(), ids, NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
+            Options.Create(new ExtractionOptions { ResolveUserToName = resolve, EnableBatchMemoryUpserts = false }));
+        return (sut, relationships, entities);
+    }
+
+    private static ExtractionStageResult WorksAt(params (string Name, Entity Entity)[] resolved)
+    {
+        var map = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Northwind"] = new()
+        {
+            EntityId = "entity-northwind", Name = "Northwind", Type = "ORGANIZATION", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        } };
+        foreach (var (name, entity) in resolved) map[name] = entity;
+        return new ExtractionStageResult
+        {
+            SourceMessageIds = ["message-1"],
+            ResolvedEntityMap = map,
+            FilteredRelationships = [new ExtractedRelationship { SourceEntity = "user", TargetEntity = "Northwind", RelationshipType = "WORKS_AT", Confidence = 0.9 }],
+        };
+    }
+
+    [Fact]
+    public async Task A_relationship_from_user_starts_at_the_person_named_in_the_same_turn()
+    {
+        var (sut, relationships, _) = WithRelationships(resolve: true);
+        var extraction = WorksAt(("Dana", Person("entity-dana", "Dana"))) with { FilteredFacts = [F("user", "is named", "Dana")] };
+
+        await sut.PersistAsync(extraction, ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        await relationships.Received(1).UpsertAsync(
+            Arg.Is<Relationship>(r => r.SourceEntityId == "entity-dana" && r.TargetEntityId == "entity-northwind"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_relationship_from_user_in_a_later_session_starts_at_the_stored_person()
+    {
+        var (sut, relationships, entities) = WithRelationships(resolve: true);
+        _facts.FindLatestObjectAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<IReadOnlyCollection<string>>(),
+                Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>("Dana"));
+        entities.GetByNameAsync("Dana", Arg.Any<bool>(), Arg.Is<MemoryScope?>(s => s!.OwnerId == "owner-1"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>([Person("entity-dana", "Dana")]));
+
+        await sut.PersistAsync(WorksAt(), ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        await relationships.Received(1).UpsertAsync(
+            Arg.Is<Relationship>(r => r.SourceEntityId == "entity-dana"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Without_a_known_person_a_relationship_from_user_is_skipped_as_before()
+    {
+        var (sut, relationships, _) = WithRelationships(resolve: true);
+
+        var result = await sut.PersistAsync(WorksAt(), ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        await relationships.DidNotReceiveWithAnyArgs().UpsertAsync(default!, default);
+        result.Outcomes.Should().Contain(o => o.Kind == MemoryItemKind.Relationship && o.Status == IngestionItemStatus.Skipped);
+    }
+
     // ---- the prompt side: every extractor rung asks for the name, or none changes ----
 
     private static IEnumerable<(string Rung, string Prompt)> AllRungPrompts(bool capture)

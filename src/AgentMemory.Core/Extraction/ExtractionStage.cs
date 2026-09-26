@@ -328,7 +328,12 @@ internal sealed class ExtractionStage : IExtractionStage
                 continue;
             }
 
-            if (!resolvedEntityMap.ContainsKey(extracted.SourceEntity))
+            // I-7: an endpoint that is the user ("user -WORKS_AT-> Fabrikam") is not an extracted entity; with
+            // ResolveUserToName, persistence maps it to the user's person entity, so it is not dropped here.
+            bool IsUserEndpoint(string endpoint, bool source) =>
+                _options.ResolveUserToName && PersistenceStage.UserNames.MeansUserEndpoint(endpoint, source);
+
+            if (!resolvedEntityMap.ContainsKey(extracted.SourceEntity) && !IsUserEndpoint(extracted.SourceEntity, source: true))
             {
                 _logger.LogWarning(
                     "Skipping relationship — source entity '{Source}' not resolved.",
@@ -345,7 +350,7 @@ internal sealed class ExtractionStage : IExtractionStage
                 continue;
             }
 
-            if (!resolvedEntityMap.ContainsKey(extracted.TargetEntity))
+            if (!resolvedEntityMap.ContainsKey(extracted.TargetEntity) && !IsUserEndpoint(extracted.TargetEntity, source: false))
             {
                 _logger.LogWarning(
                     "Skipping relationship — target entity '{Target}' not resolved.",

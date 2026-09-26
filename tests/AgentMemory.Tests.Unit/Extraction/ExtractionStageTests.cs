@@ -781,6 +781,29 @@ public sealed class ExtractionStageTests
             o.ErrorCode == MemoryErrorCodes.RelationshipEndpointUnresolved);
     }
 
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public async Task ExtractAsync_AUserEndpoint_IsKeptForPersistence_OnlyWithResolveUserToName(bool resolve, int kept)
+    {
+        // I-7: "user -WORKS_AT-> Fabrikam" was dropped here, because "user" is not an extracted entity.
+        var entityExt = Substitute.For<IEntityExtractor>();
+        entityExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { new ExtractedEntity { Name = "Fabrikam", Type = "ORGANIZATION", Confidence = 0.9 } });
+        var relExt = Substitute.For<IRelationshipExtractor>();
+        relExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedRelationship { SourceEntity = "user", TargetEntity = "Fabrikam", RelationshipType = "WORKS_AT", Confidence = 0.9 },
+            });
+
+        var sut = CreateSut(entityExtractors: new[] { entityExt }, relExtractors: new[] { relExt },
+            options: new ExtractionOptions { ResolveUserToName = resolve });
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.FilteredRelationships.Should().HaveCount(kept);
+    }
+
     [Fact]
     public async Task ExtractAsync_FailFast_ExtractorThrows_ThrowsMemoryIngestionExceptionWithOutcomes()
     {

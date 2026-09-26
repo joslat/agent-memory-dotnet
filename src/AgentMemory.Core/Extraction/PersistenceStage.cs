@@ -365,7 +365,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // I-5. "user" is the owner: once the user has said their name, what they say about themselves is
         // stored under it. Read only when this extraction has something to rewrite.
         var userName = _options.ResolveUserToName && !string.IsNullOrWhiteSpace(ownerId) &&
-                       prepared.Facts.Any(f => UserNames.MeansUser(f.Item, subject: true) || UserNames.MeansUser(f.Item, subject: false))
+                       (prepared.Facts.Any(f => UserNames.MeansUser(f.Item, subject: true) || UserNames.MeansUser(f.Item, subject: false)) ||
+                        extraction.FilteredRelationships.Any(r => UserNames.MeansUserEndpoint(r.SourceEntity, source: true) ||
+                                                                  UserNames.MeansUserEndpoint(r.TargetEntity, source: false)))
             ? await UserNameAsync(prepared.Facts, ownerId!, cancellationToken).ConfigureAwait(false)
             : null;
 
@@ -819,13 +821,41 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 await PersistPreferenceIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
         }
         // 4. Persist relationships — resolve entity IDs from the upserted entity map.
+        // I-7. "user" as an endpoint is the user's person entity: the one this extraction wrote under their
+        // name, else the stored one (read once, best-effort). Unknown name or entity: skipped as before.
+        Entity? userEntity = null;
+        var userEntityRead = false;
+        async Task<Entity?> UserEntityAsync()
+        {
+            if (userEntityRead || userName is null) return userEntity;
+            userEntityRead = true;
+            if (persistedEntityMap.TryGetValue(userName, out var inThisExtraction)) return userEntity = inThisExtraction;
+            try
+            {
+                var named = await _entityRepository.GetByNameAsync(
+                    userName, includeAliases: true, MemoryScope.For(ownerId!, includeShared: false), cancellationToken).ConfigureAwait(false);
+                return userEntity = named.FirstOrDefault(e => string.Equals(e.Type, "PERSON", StringComparison.OrdinalIgnoreCase))
+                                    ?? (named.Count == 1 ? named[0] : null);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not read the user's entity for owner {Owner}; relationships from \"user\" are skipped.", ownerId);
+                return null;
+            }
+        }
+        async Task<Entity?> EndpointAsync(string name, bool source) =>
+            persistedEntityMap.TryGetValue(name, out var entity) ? entity
+            : UserNames.MeansUserEndpoint(name, source) ? await UserEntityAsync().ConfigureAwait(false)
+            : null;
+
         var relationshipInputs = new List<(Relationship Item, string SourceKey)>(
             extraction.FilteredRelationships.Count);
         foreach (var extracted in extraction.FilteredRelationships)
         {
             var relSourceKey = $"{extracted.SourceEntity}-{extracted.RelationshipType}->{extracted.TargetEntity}";
 
-            if (!persistedEntityMap.TryGetValue(extracted.SourceEntity, out var sourceEntity))
+            if (await EndpointAsync(extracted.SourceEntity, source: true).ConfigureAwait(false) is not { } sourceEntity)
             {
                 _logger.LogWarning(
                     "Skipping relationship — source entity '{Source}' was not persisted.",
@@ -842,7 +872,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 continue;
             }
 
-            if (!persistedEntityMap.TryGetValue(extracted.TargetEntity, out var targetEntity))
+            if (await EndpointAsync(extracted.TargetEntity, source: false).ConfigureAwait(false) is not { } targetEntity)
             {
                 _logger.LogWarning(
                     "Skipping relationship — target entity '{Target}' was not persisted.",
@@ -1093,6 +1123,13 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         private static readonly HashSet<string> Naming = new(NamingPredicates, StringComparer.Ordinal);
 
         internal static bool IsSelf(string? value) => Self.Contains(MemoryTripleCanonicalizer.CanonicalValue(value));
+
+        /// <summary>
+        /// I-7: whether a relationship endpoint is the user, by the same rule as a fact's slots: any self word
+        /// as the source, only "user" / "the user" as the target.
+        /// </summary>
+        internal static bool MeansUserEndpoint(string? endpoint, bool source) =>
+            source ? IsSelf(endpoint) : UserAsObject.Contains(MemoryTripleCanonicalizer.CanonicalValue(endpoint));
 
         internal static bool IsNamingPredicate(string? predicate) => Naming.Contains(MemoryTripleCanonicalizer.Canonical(predicate));
 
