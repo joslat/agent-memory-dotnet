@@ -88,6 +88,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Background writes land in the right store.** The access-tracking and enrichment consumers start in
+  their constructor, so they inherited the store routing of whichever request first built the
+  singleton: in a host with several application stores, access stamps and enrichment for application B
+  were written to application A's store for the life of the process. Each batch now carries the
+  application id it was queued under, and the consumer applies it around the write.
+
 - **The agent answers the user's new message, not an old one.** Recalled conversation turns were
   returned newest first, and MAF appends a context provider's messages after the request, so they came
   after the user's new message. The last user turn the model read was an old one, and a live agent

@@ -13,7 +13,11 @@ namespace AgentMemory.Core.Enrichment;
 /// <summary>
 /// Represents a single queued enrichment work item.
 /// </summary>
-internal record EnrichmentItem(string EntityId, int RetryCount = 0, ActivityContext Origin = default);
+/// <summary>
+/// An entity to enrich, its retry count, the trace that queued it, and the application store it belongs
+/// to (the worker writes there, not to whichever store was active when the queue was built).
+/// </summary>
+internal record EnrichmentItem(string EntityId, int RetryCount = 0, ActivityContext Origin = default, string? ApplicationId = null);
 
 /// <summary>
 /// Non-blocking background queue that runs enrichment providers asynchronously.
@@ -22,6 +26,7 @@ internal record EnrichmentItem(string EntityId, int RetryCount = 0, ActivityCont
 /// </summary>
 internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDisposable, IAsyncDisposable
 {
+    private readonly IMemoryStoreContext? _storeContext;
     private readonly Channel<EnrichmentItem> _channel;
     private readonly IReadOnlyList<IEnrichmentService> _enrichmentServices;
     private readonly IEntityRepository _entityRepository;
@@ -47,8 +52,10 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
         IEnumerable<IEnrichmentService> enrichmentServices,
         IEntityRepository entityRepository,
         IOptions<EnrichmentQueueOptions> options,
-        ILogger<BackgroundEnrichmentQueue> logger)
+        ILogger<BackgroundEnrichmentQueue> logger,
+        IMemoryStoreContext? storeContext = null)
     {
+        _storeContext = storeContext;
         _enrichmentServices = enrichmentServices.ToList().AsReadOnly();
         _entityRepository = entityRepository;
         _options = options.Value;
@@ -77,7 +84,8 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
     public Task EnqueueAsync(string entityId, CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled || _disposed) return Task.CompletedTask;
-        _channel.Writer.TryWrite(new EnrichmentItem(entityId, Origin: Activity.Current?.Context ?? default));
+        _channel.Writer.TryWrite(new EnrichmentItem(entityId, Origin: Activity.Current?.Context ?? default,
+            ApplicationId: _storeContext?.ApplicationId));
         return Task.CompletedTask;
     }
 
@@ -86,7 +94,8 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
     {
         if (!_options.Enabled || _disposed) return Task.CompletedTask;
         foreach (var id in entityIds)
-            _channel.Writer.TryWrite(new EnrichmentItem(id, Origin: Activity.Current?.Context ?? default));
+            _channel.Writer.TryWrite(new EnrichmentItem(id, Origin: Activity.Current?.Context ?? default,
+                ApplicationId: _storeContext?.ApplicationId));
         return Task.CompletedTask;
     }
 
@@ -165,6 +174,9 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
             "memory.background.enrichment", ActivityKind.Internal, parentContext: default,
             links: item.Origin == default ? null : [new ActivityLink(item.Origin)]);
         span?.SetTag("memory.background.retry", item.RetryCount);
+        // The entity's own store, set explicitly (null included): the worker started in the constructor's
+        // execution context and would otherwise read and write whichever store was active back then.
+        using var store = (_storeContext as IWritableMemoryStoreContext)?.BeginStoreScope(item.ApplicationId);
         var entity = await _entityRepository.GetByIdAsync(item.EntityId, cancellationToken).ConfigureAwait(false);
         if (entity is null)
         {

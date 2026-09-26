@@ -45,8 +45,13 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
 {
     private readonly Channel<TrackedBatch> _channel;
 
-    /// <summary>A batch and the trace it came from, so the background write links back to its recall.</summary>
-    private sealed record TrackedBatch(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> Nodes, ActivityContext Origin);
+    /// <summary>
+    /// A batch, the trace it came from (so the background write links back to its recall), and the
+    /// application store it was recalled from (so the write lands there, not in whichever store was
+    /// active when this singleton was built).
+    /// </summary>
+    private sealed record TrackedBatch(
+        IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> Nodes, ActivityContext Origin, string? ApplicationId);
     private readonly IServiceProvider _rootProvider;
     private readonly ILogger<MemoryAccessTrackingChannel> _logger;
     private readonly Task _consumer;
@@ -97,8 +102,14 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
         Interlocked.Increment(ref _enqueued);
         // Returns true even when the item is dropped, under DropWrite. The drop is counted by the
         // itemDropped callback above, not here -- see the comment on the channel construction.
-        if (!_channel.Writer.TryWrite(new TrackedBatch(nodes, Activity.Current?.Context ?? default))) OnDropped();
+        var batch = new TrackedBatch(nodes, Activity.Current?.Context ?? default, StoreContext?.ApplicationId);
+        if (!_channel.Writer.TryWrite(batch)) OnDropped();
     }
+
+    // Resolved on first use from the root provider (a singleton; its value is per async flow). Null in a
+    // host without store routing, where there is only one store.
+    private IMemoryStoreContext? StoreContext => _storeContext ??= _rootProvider.GetService<IMemoryStoreContext>();
+    private IMemoryStoreContext? _storeContext;
 
     /// <summary>Counts a dropped batch and says so, rarely enough not to become the noise itself.</summary>
     private void OnDropped()
@@ -156,6 +167,10 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
             // codebase has already paid for once (the captive HttpClient in the Diffbot registration).
             // Creating it here rather than taking a factory is what lets the scope actually be disposed
             // when the write completes.
+            // The store this batch was recalled from, set explicitly (null included): the consumer started
+            // in its constructor's execution context and would otherwise route every write to the store
+            // that was active when the singleton was first built.
+            using var store = (StoreContext as IWritableMemoryStoreContext)?.BeginStoreScope(tracked.ApplicationId);
             using var scope = _rootProvider.CreateScope();
             var decay = scope.ServiceProvider.GetService<IMemoryDecayService>();
             if (decay is null) return;
