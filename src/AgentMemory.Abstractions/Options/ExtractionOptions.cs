@@ -151,6 +151,22 @@ public sealed class ExtractionOptions
     public bool CanonicalFactSubjects { get; set; }
 
     /// <summary>
+    /// Merge near-identical facts produced by ONE extraction (dark, default false). A single message
+    /// produced "moved to | analytics team" and "moved to | analytics", and "requested help with" next to
+    /// "needs help with": same fact, two phrasings, two nodes. On, a fact whose vector is at least
+    /// <see cref="WithinExtractionDuplicateThreshold"/> similar to another fact of the same extraction is
+    /// dropped in favour of the more confident one. Facts from different extractions are never merged here.
+    /// </summary>
+    public bool DeduplicateWithinExtraction { get; set; }
+
+    /// <summary>
+    /// Cosine similarity at which two facts of one extraction count as the same (default 0.93). Measured
+    /// with bge-m3: duplicate phrasings scored 0.912–0.996, the closest distinct pair ("is mentor of" /
+    /// "is manager of" the same person) 0.879; 0.93 merges the clear duplicates with a 0.05 margin.
+    /// </summary>
+    public double WithinExtractionDuplicateThreshold { get; set; } = 0.93;
+
+    /// <summary>
     /// Skips the extraction call entirely for turns that cannot carry a fact — greetings, thanks,
     /// bare acknowledgement (E4).
     /// </summary>

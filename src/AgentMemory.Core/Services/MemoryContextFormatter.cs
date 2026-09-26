@@ -32,10 +32,13 @@ internal static class MemoryContextFormatter
     public static string FormatRecallResult(
         RecallResult result, MemoryContextFormatterOptions? options = null, ILogger? logger = null)
     {
-        if (result.TotalItemsRetrieved == 0)
+        var opts = options ?? new MemoryContextFormatterOptions();
+        // The profile block is not an "item retrieved": it is exactly what answers a question that
+        // matched nothing ("what do you know about me?"), so it keeps the context alive on its own.
+        var hasProfile = opts.IncludeWorkingMemory && !string.IsNullOrWhiteSpace(result.Context.WorkingMemoryBlock);
+        if (result.TotalItemsRetrieved == 0 && !hasProfile)
             return string.Empty;
 
-        var opts = options ?? new MemoryContextFormatterOptions();
         var ctx = result.Context;
         var sb = new StringBuilder();
         sb.AppendLine("## Memory Context");

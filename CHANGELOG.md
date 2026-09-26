@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ExtractionOptions.DeduplicateWithinExtraction` (dark): one fact per statement.** A single message
+  produced "moved to | analytics team" and "moved to | analytics": same fact, two nodes. On, a fact at
+  least `WithinExtractionDuplicateThreshold` (0.93) similar to another fact of the same extraction is
+  dropped in favour of the more confident one. The threshold is measured: duplicate phrasings scored
+  0.912–0.996 with bge-m3, the closest distinct pair ("mentor of" / "manager of" one person) 0.879.
+
 - **`ExtractionOptions.CanonicalFactSubjects` (dark): one person, one fact subject.** Extraction writes
   the words used, so "Tomás | moved to | analytics team" and facts about "Tomás Silva" had two subjects
   for one person. On, a fact's subject and object are stored by the resolved entity's name (the words
@@ -100,6 +106,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MinFactMentionCount` defaults to 1 (at 2 a short relationship's block held no facts). Costs: about
   300 prompt tokens per turn and a rebuild after each write. `WorkingMemory.Enabled = false` restores the
   previous behaviour.
+  With the tier on, the Neo4j package activates its schema extension (`working-memory`, the
+  `:User.identifier` constraint that makes the per-owner write race-safe) so the two cannot disagree.
+  The block keeps itself current: it records the next moment a fact in it can expire or start and is
+  rebuilt on the first read after it; a prune clears the block of the owners it touched (a hard prune
+  must not leave the removed text in every prompt); new facts reach it (the most recently touched win a
+  slot, while the text keeps a stable order). Semantic Kernel renders the block even when similarity
+  found nothing, which is the question it exists to answer.
 
 - **Fan-out legs are embedded in one request.** When recall fan-out splits a question into sub-queries,
   each leg's query was embedded in its own request, one after another, after the main query: three

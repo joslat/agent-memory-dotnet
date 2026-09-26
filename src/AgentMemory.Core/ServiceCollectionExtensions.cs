@@ -155,6 +155,9 @@ public static class ServiceCollectionExtensions
                      o.Extraction.EntityResolution.PartialNameMatchConfidence < o.Extraction.AutoMergeThreshold,
                 "MemoryOptions.Extraction.EntityResolution.PartialNameMatchConfidence must be below AutoMergeThreshold when EnablePartialNameMatch and EnableAutoMerge are on.")
             .Validate(
+                o => o.Extraction.WithinExtractionDuplicateThreshold is > 0 and <= 1,
+                "MemoryOptions.Extraction.WithinExtractionDuplicateThreshold must be in (0, 1].")
+            .Validate(
                 o => o.Extraction.EntityResolution.SemanticCandidateLimit > 0,
                 "MemoryOptions.Extraction.EntityResolution.SemanticCandidateLimit must be positive.")
             .Validate(

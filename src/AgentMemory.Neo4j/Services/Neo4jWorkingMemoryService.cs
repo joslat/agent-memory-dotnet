@@ -58,7 +58,10 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
 
         var now = _clock.UtcNow;
         var text = await ComposeAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
-        var hash = Hash(text);
+        var validUntil = await NextValidityBoundaryAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
+        // The boundary is part of what is stored, so it is part of the hash: a rebuild whose text is
+        // unchanged but whose next boundary moved still writes.
+        var hash = Hash(validUntil is null ? text : $"{text}\n@{validUntil}");
 
         // Hash short-circuit: a rebuild that changes nothing writes nothing, so built_at moves only
         // when the CONTENT moves. Without this, every write burst would churn a transaction and
@@ -85,6 +88,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 id = _ids.GenerateId(),
                 block = text,
                 hash,
+                validUntil,
                 now = now.ToString("O", CultureInfo.InvariantCulture),
             }).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
@@ -99,26 +103,55 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
     {
         if (ShouldSkip(ownerId)) return null;
 
-        return await _tx.ReadAsync(async runner =>
+        var block = await ReadBlockAsync(ownerId, cancellationToken).ConfigureAwait(false);
+        // A fact in the block expired (or a future one became valid) since it was built: rebuild once and
+        // serve the rebuilt block. Rare by construction: it happens at most once per boundary.
+        if (block.ValidUntil is { } boundary && boundary <= _clock.UtcNow)
+        {
+            await RebuildAsync(ownerId, cancellationToken).ConfigureAwait(false);
+            block = await ReadBlockAsync(ownerId, cancellationToken).ConfigureAwait(false);
+        }
+        return block.Block;
+    }
+
+    private async Task<string?> NextValidityBoundaryAsync(string ownerId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(WorkingMemoryQueries.NextValidityBoundary, new
+            {
+                ownerId,
+                now = now.ToString("O", CultureInfo.InvariantCulture),
+            }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Count == 0 || records[0]["boundary"] is null
+                ? null
+                : Neo4jDateTimeHelper.ReadNullableDateTimeOffset(records[0]["boundary"])?.ToString("O", CultureInfo.InvariantCulture);
+        }, cancellationToken).ConfigureAwait(false);
+
+    private async Task<(WorkingMemoryBlock? Block, DateTimeOffset? ValidUntil)> ReadBlockAsync(
+        string ownerId, CancellationToken cancellationToken) =>
+        await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 WorkingMemoryQueries.GetBlock, new { ownerId }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
-            if (records.Count == 0) return null;
+            if (records.Count == 0) return ((WorkingMemoryBlock?)null, (DateTimeOffset?)null);
 
             var text = records[0]["block"].As<string?>();
-            if (string.IsNullOrEmpty(text)) return null;
+            if (string.IsNullOrEmpty(text)) return (null, null);
 
-            return new WorkingMemoryBlock
+            var validUntil = records[0].Keys.Contains("validUntil")
+                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(records[0]["validUntil"])
+                : null;
+            return (new WorkingMemoryBlock
             {
                 OwnerId = ownerId,
                 Text = text,
                 BuiltAtUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(records[0]["builtAt"])
                              ?? _clock.UtcNow,
                 ContentHash = records[0]["hash"].As<string?>() ?? Hash(text),
-            };
+            }, validUntil);
         }, cancellationToken).ConfigureAwait(false);
-    }
 
     /// <inheritdoc/>
     public async Task ClearAsync(string ownerId, CancellationToken cancellationToken = default)

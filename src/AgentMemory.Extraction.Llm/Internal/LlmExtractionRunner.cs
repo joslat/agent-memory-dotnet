@@ -432,8 +432,14 @@ internal sealed class LlmExtractionRunner
         {
             try
             {
+                // A dropped date is recorded only for an item that is kept: an item that fails to read is
+                // dropped whole, and its own entry in `dropped` already says why.
+                using var held = PeriodDateConverter.HoldDrops();
                 if (element.Deserialize<T>(JsonOptions) is { } item)
+                {
                     into.Add(item);
+                    held.Commit();
+                }
             }
             catch (Exception ex) when (IsReadFailure(ex))
             {

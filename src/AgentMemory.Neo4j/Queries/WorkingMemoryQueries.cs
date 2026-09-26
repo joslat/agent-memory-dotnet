@@ -21,15 +21,23 @@ namespace AgentMemory.Neo4j.Queries;
 internal static class WorkingMemoryQueries
 {
     /// <summary>Stable facts: live, currently valid, salient, deterministically ordered.</summary>
+    /// <remarks>
+    /// Two orders, on purpose. WHICH facts get a slot: the most mentioned, then the most recently touched,
+    /// so a new job or city reaches the block instead of the oldest facts holding every slot forever.
+    /// HOW they are written: by creation, so re-mentioning a fact that is already in the block does not
+    /// reshuffle the text (a reshuffled text defeats the hash short-circuit and prompt-prefix caching).
+    /// </remarks>
     public const string SelectStableFacts = @"
             MATCH (f:Fact {owner_id: $ownerId})
             WHERE f.invalidated_at IS NULL
               AND (f.valid_from  IS NULL OR f.valid_from  <= datetime($now))
               AND (f.valid_until IS NULL OR f.valid_until >  datetime($now))
               AND coalesce(f.mention_count, 1) >= $minMentions
+            WITH f
+            ORDER BY coalesce(f.mention_count, 1) DESC, coalesce(f.updated_at, f.created_at) DESC, f.id ASC
+            LIMIT $limit
             RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object
-            ORDER BY coalesce(f.mention_count, 1) DESC, f.created_at ASC, f.id ASC
-            LIMIT $limit";
+            ORDER BY f.created_at ASC, f.id ASC";
 
     /// <summary>Active preferences: live and above the confidence floor.</summary>
     public const string SelectActivePreferences = @"
@@ -80,6 +88,33 @@ internal static class WorkingMemoryQueries
                 u.working_memory = $block,
                 u.working_memory_built_at = datetime($now),
                 u.working_memory_hash = $hash,
+                u.working_memory_valid_until = CASE WHEN $validUntil IS NULL THEN null ELSE datetime($validUntil) END,
+                u.updated_at = datetime($now)";
+
+    /// <summary>
+    /// The next moment the block's content can change by itself: the earliest future
+    /// <c>valid_from</c> or <c>valid_until</c> among the owner's live facts (null when none). Stored with
+    /// the block; a read after it rebuilds, so a fact that expired is never served from a block built
+    /// before it did.
+    /// </summary>
+    public const string NextValidityBoundary = @"
+            MATCH (f:Fact {owner_id: $ownerId})
+            WHERE f.invalidated_at IS NULL
+            WITH [x IN [f.valid_from, f.valid_until] WHERE x IS NOT NULL AND x > datetime($now)] AS upcoming
+            UNWIND upcoming AS boundary
+            RETURN min(boundary) AS boundary";
+
+    /// <summary>
+    /// Clears every owner's block (a prune across all owners). Each is rebuilt on its owner's next
+    /// write; until then recall runs without it, which is the behaviour before the tier existed.
+    /// </summary>
+    public const string ClearAllBlocks = @"
+            MATCH (u:User)
+            WHERE u.working_memory IS NOT NULL
+            SET u.working_memory = null,
+                u.working_memory_built_at = null,
+                u.working_memory_hash = null,
+                u.working_memory_valid_until = null,
                 u.updated_at = datetime($now)";
 
     /// <summary>Reads the stored block.</summary>
@@ -88,7 +123,8 @@ internal static class WorkingMemoryQueries
             WHERE u.working_memory IS NOT NULL
             RETURN u.working_memory AS block,
                    u.working_memory_built_at AS builtAt,
-                   u.working_memory_hash AS hash";
+                   u.working_memory_hash AS hash,
+                   u.working_memory_valid_until AS validUntil";
 
     /// <summary>Reads only the stored hash, for the rebuild short-circuit.</summary>
     public const string GetBlockHash = @"
@@ -108,5 +144,6 @@ internal static class WorkingMemoryQueries
             SET u.working_memory = null,
                 u.working_memory_built_at = null,
                 u.working_memory_hash = null,
+                u.working_memory_valid_until = null,
                 u.updated_at = datetime($now)";
 }

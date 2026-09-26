@@ -288,7 +288,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // 30.4 / 30.6. Off unless the run asks for them, so every sealed measurement keeps
                 // taking the path it was taken under; an ablation turns one on and re-runs the SAME
                 // frozen corpus and seed.
-                WorkingMemory = { Enabled = phase30.WorkingMemory },
+                // MinFactMentionCount pinned to the 2 the measured wm arm ran with (the library default became 1).
+                WorkingMemory = { Enabled = phase30.WorkingMemory, MinFactMentionCount = 2 },
                 // WAVE E-1 FOLLOW-UP. The READ side of the identity edge. Its traversal walks
                 // [:RELATED_TO|ABOUT*..4], and until E-1 no store this library built contained a
                 // single ABOUT edge -- so the re-ranker has always been weaker than its own query

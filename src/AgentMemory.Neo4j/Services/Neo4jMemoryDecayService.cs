@@ -24,13 +24,16 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
     private readonly IClock _clock;
     private readonly MemoryDecayOptions _options;
     private readonly ILogger<Neo4jMemoryDecayService> _logger;
+    private readonly bool _workingMemoryEnabled;
 
     public Neo4jMemoryDecayService(
         INeo4jTransactionRunner tx,
         IClock clock,
         IOptions<MemoryDecayOptions> options,
-        ILogger<Neo4jMemoryDecayService> logger)
+        ILogger<Neo4jMemoryDecayService> logger,
+        IOptions<MemoryOptions>? memoryOptions = null)
     {
+        _workingMemoryEnabled = memoryOptions?.Value.WorkingMemory.Enabled ?? false;
         _tx = tx ?? throw new ArgumentNullException(nameof(tx));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _options = (options ?? throw new ArgumentNullException(nameof(options))).Value;
@@ -84,6 +87,17 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
                 var records = await cursor.ToListAsync().ConfigureAwait(false);
                 if (records.Count > 0)
                     total += Convert.ToInt32(records[0]["pruned"]);
+            }
+
+            // The working-memory block is compiled from these facts, preferences and entities. After a
+            // prune (a hard one is storage reclamation, including for erasure) it must not keep serving
+            // the removed text: cleared in the same transaction, rebuilt on the owner's next write.
+            if (total > 0 && _workingMemoryEnabled)
+            {
+                var clear = new Dictionary<string, object?> { ["now"] = now };
+                if (hasOwner) clear["ownerId"] = scope!.OwnerId;
+                await runner.RunAsync(hasOwner ? WorkingMemoryQueries.ClearBlock : WorkingMemoryQueries.ClearAllBlocks, clear)
+                    .ConfigureAwait(false);
             }
 
             _logger.LogInformation(

@@ -190,12 +190,14 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         var probe = new ExtractedEntity { Name = name, Type = type };
 
         var candidates = await GetCandidatesAsync(probe, scope, cancellationToken).ConfigureAwait(false);
-        var matchers = BuildMatchers(_embeddingOrchestrator);
+        // One memo for the matchers and the index lookup: the mention is embedded once.
+        var embeddings = new EmbeddingMemo(_embeddingOrchestrator, null);
+        var matchers = BuildMatchers(embeddings);
         var results = new List<Entity>();
 
         foreach (var matcher in matchers)
         {
-            var offered = await CandidatesForAsync(matcher, probe, candidates, _embeddingOrchestrator, scope, cancellationToken)
+            var offered = await CandidatesForAsync(matcher, probe, candidates, embeddings, scope, cancellationToken)
                 .ConfigureAwait(false);
             var match = await matcher.TryMatchAsync(probe, offered, cancellationToken)
                 .ConfigureAwait(false);
@@ -297,8 +299,21 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         var hits = await _entityRepository
             .SearchByVectorAsync(vector, resolution.SemanticCandidateLimit, resolution.SemanticMatchThreshold, scope, cancellationToken)
             .ConfigureAwait(false);
-        return hits
-            .Select(hit => hit.Entity)
+        var fromIndex = new List<Entity>(hits.Count);
+        foreach (var (hit, _) in hits)
+        {
+            var entity = hit;
+            // A host that omits vectors from recall gets hits without them, and the semantic matcher
+            // skips a candidate without a vector: read it in full, or semantic resolution silently stops.
+            if (entity.Embedding is null)
+                entity = await _entityRepository.GetByIdAsync(entity.EntityId, cancellationToken).ConfigureAwait(false) ?? entity;
+            // This turn may already have merged into the entity (a string match auto-merged an alias):
+            // the index returns the stored copy, so continuing from it would drop that merge on write.
+            if (candidates.FirstOrDefault(c => c.EntityId == entity.EntityId) is { } current)
+                entity = current with { Embedding = entity.Embedding };
+            fromIndex.Add(entity);
+        }
+        return fromIndex
             .Where(entity =>
                 string.Equals(entity.Type, extracted.Type, StringComparison.OrdinalIgnoreCase) ||
                 (!resolution.TypeStrictFiltering &&

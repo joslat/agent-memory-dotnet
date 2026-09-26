@@ -28,11 +28,29 @@ public static class AgentMemoryChatHistory
     /// An <see cref="InMemoryChatHistoryProvider"/> that does not store injected memory. Pass it as
     /// <c>ChatClientAgentOptions.ChatHistoryProvider</c> next to an AgentMemory context provider.
     /// </summary>
-    /// <param name="options">Further options (a chat reducer, a state key…); its storage filter is set here.</param>
+    /// <param name="options">
+    /// Further options (a chat reducer, a state key…). Not modified: a copy is used. A storage filter of
+    /// your own is kept and runs after this one, on what remains.
+    /// </param>
     public static InMemoryChatHistoryProvider CreateInMemoryProvider(InMemoryChatHistoryProviderOptions? options = null)
     {
-        options ??= new InMemoryChatHistoryProviderOptions();
-        options.StorageInputRequestMessageFilter = ExcludeInjectedContext;
-        return new InMemoryChatHistoryProvider(options);
+        var own = options?.StorageInputRequestMessageFilter;
+        var copy = new InMemoryChatHistoryProviderOptions
+        {
+            ChatReducer = options?.ChatReducer,
+            ReducerTriggerEvent = options?.ReducerTriggerEvent ?? new InMemoryChatHistoryProviderOptions().ReducerTriggerEvent,
+            StateKey = options?.StateKey,
+            StateInitializer = options?.StateInitializer,
+            JsonSerializerOptions = options?.JsonSerializerOptions,
+            ProvideOutputMessageFilter = options?.ProvideOutputMessageFilter,
+            StorageInputResponseMessageFilter = options?.StorageInputResponseMessageFilter,
+            StorageInputRequestMessageFilter = StorageFilter(own),
+        };
+        return new InMemoryChatHistoryProvider(copy);
     }
+
+    /// <summary>The storage filter: injected context out first, then the caller's own filter (if any).</summary>
+    internal static Func<IEnumerable<ChatMessage>, IEnumerable<ChatMessage>> StorageFilter(
+        Func<IEnumerable<ChatMessage>, IEnumerable<ChatMessage>>? own) =>
+        own is null ? ExcludeInjectedContext : messages => own(ExcludeInjectedContext(messages));
 }

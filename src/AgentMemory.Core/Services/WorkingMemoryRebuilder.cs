@@ -88,6 +88,10 @@ internal sealed class WorkingMemoryRebuilder
         {
             await _workingMemory!.RebuildAsync(ownerId, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception exception)
         {
             _logger.LogWarning(

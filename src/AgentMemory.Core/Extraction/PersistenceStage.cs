@@ -137,6 +137,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
 
         var prepared = await PrepareEmbeddingsAsync(extraction, cancellationToken).ConfigureAwait(false);
+        if (_options.DeduplicateWithinExtraction && prepared.Facts.Count > 1)
+            prepared = prepared with { Facts = WithoutNearDuplicates(prepared.Facts, _options.WithinExtractionDuplicateThreshold) };
         if (_options.FailureMode == IngestionFailureMode.FailFast)
         {
             try
@@ -1023,6 +1025,36 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         IReadOnlyList<IngestionItemOutcome> Outcomes);
 
     private sealed record PreparedFact(ExtractedFact Item, float[] Embedding);
+
+    /// <summary>
+    /// I-6: one fact per statement within an extraction. A fact at least <paramref name="threshold"/>
+    /// similar to one already kept is the same statement in other words; the more confident of the two is
+    /// kept (the first on a tie). Facts without a vector are always kept. Records how many were merged on
+    /// the current span (<c>memory.persist.facts_merged</c>).
+    /// </summary>
+    private static IReadOnlyList<PreparedFact> WithoutNearDuplicates(IReadOnlyList<PreparedFact> facts, double threshold)
+    {
+        var kept = new List<PreparedFact>(facts.Count);
+        var merged = 0;
+        foreach (var fact in facts)
+        {
+            var twin = fact.Embedding is { Length: > 0 }
+                ? kept.FindIndex(k => k.Embedding is { Length: > 0 } && k.Embedding.Length == fact.Embedding.Length &&
+                                      Resolution.SemanticMatchEntityMatcher.CosineSimilarity(k.Embedding, fact.Embedding) >= threshold)
+                : -1;
+            if (twin < 0)
+            {
+                kept.Add(fact);
+                continue;
+            }
+            merged++;
+            if (fact.Item.Confidence > kept[twin].Item.Confidence)
+                kept[twin] = fact;
+        }
+        if (merged > 0)
+            System.Diagnostics.Activity.Current?.SetTag("memory.persist.facts_merged", merged);
+        return kept;
+    }
 
     private sealed record PreparedPreference(ExtractedPreference Item, float[] Embedding);
 

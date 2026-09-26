@@ -70,6 +70,8 @@ internal sealed record PerfBaselineDocument(
             QualityTolerance: tolerance,
             Scenarios: scenarios,
             Quality: new PerfQualityBaseline(
+                RetrievalMeasurement: QualityGate.DeterministicPlumbingMeasurement,
+                SemanticQualityClaim: false,
                 RecallAtK: Required(quality, "recallAtK").GetDouble(),
                 Mrr: Required(quality, "mrr").GetDouble(),
                 CasesWithViolations: Required(quality, "casesWithViolations").GetInt32(),
@@ -117,6 +119,10 @@ internal sealed record PerfBaselineDocument(
 internal sealed record PerfScenarioBaseline(IReadOnlyDictionary<string, long> Counters);
 
 internal sealed record PerfQualityBaseline(
+    // Carried on every refresh: without them a 1.000 in this file reads as a semantic-quality claim, and a
+    // baseline update used to drop them silently (restored by hand twice).
+    string RetrievalMeasurement,
+    bool SemanticQualityClaim,
     double RecallAtK,
     double Mrr,
     int CasesWithViolations,

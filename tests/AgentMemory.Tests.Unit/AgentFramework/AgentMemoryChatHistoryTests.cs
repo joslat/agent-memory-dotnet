@@ -22,17 +22,27 @@ public sealed class AgentMemoryChatHistoryTests
     }
 
     [Fact]
-    public void The_in_memory_provider_stores_through_the_filter_and_keeps_other_options()
+    public void The_callers_options_are_not_modified()
     {
-        var options = new InMemoryChatHistoryProviderOptions { StateKey = "custom" };
+        Func<IEnumerable<ChatMessage>, IEnumerable<ChatMessage>> own = messages => messages;
+        var options = new InMemoryChatHistoryProviderOptions { StateKey = "custom", StorageInputRequestMessageFilter = own };
 
-        var provider = AgentMemoryChatHistory.CreateInMemoryProvider(options);
+        AgentMemoryChatHistory.CreateInMemoryProvider(options).Should().NotBeNull();
 
-        provider.Should().NotBeNull();
-        options.StorageInputRequestMessageFilter.Should().NotBeNull();
+        options.StorageInputRequestMessageFilter.Should().BeSameAs(own);
         options.StateKey.Should().Be("custom");
+    }
+
+    [Fact]
+    public void A_filter_of_the_callers_own_is_kept_and_runs_on_what_remains()
+    {
+        var said = new ChatMessage(ChatRole.User, "my card number is 4111");
+        var tool = new ChatMessage(ChatRole.Tool, "tool output");
         var recalled = new ChatMessage(ChatRole.System, "memory")
             .WithAgentRequestMessageSource(AgentRequestMessageSourceType.AIContextProvider, "AgentMemory");
-        options.StorageInputRequestMessageFilter!([recalled]).Should().BeEmpty();
+        // The host's own rule: never store tool output.
+        var filter = AgentMemoryChatHistory.StorageFilter(messages => messages.Where(m => m.Role != ChatRole.Tool));
+
+        filter([said, tool, recalled]).Should().Equal(said);
     }
 }

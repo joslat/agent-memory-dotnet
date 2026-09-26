@@ -45,7 +45,10 @@ internal sealed class WorkingMemorySchemaExtension : ISchemaExtension
 
     internal const string UserLabel = "User";
 
-    public string Id => "working-memory";
+    /// <summary>The extension's id, as <c>Neo4jOptions.Extensions</c> names it.</summary>
+    public const string ExtensionId = "working-memory";
+
+    public string Id => ExtensionId;
 
     public int Version => 1;
 

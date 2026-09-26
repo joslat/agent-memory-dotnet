@@ -137,13 +137,13 @@ public class CliExtensionMigrationIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task MigrateWithoutTheFlagAppliesNoExtensionDdl()
     {
-        // The off state. An operator who does not ask for extensions must get exactly the base
-        // sequence, or every existing deployment's next migrate run silently gains schema nobody
-        // requested.
+        // The off state for OPTIONAL extensions. An operator who does not ask for one gets the base
+        // sequence plus the schema of what is on by default: since 2026-09-26 that is the working-memory
+        // profile tier, whose :User.identifier constraint makes its per-owner MERGE race-safe.
         var (exitCode, output) = await RunCliAsync("migrate");
 
         exitCode.Should().Be(0, "the migrate run failed:\n{0}", output);
-        (await AppliedExtensionIdsAsync()).Should().BeEmpty();
+        (await AppliedExtensionIdsAsync()).Should().BeEquivalentTo(["working-memory"]);
         (await PresentIndexesAsync(ArithmeticIndexes)).Should().BeEmpty();
     }
 
@@ -178,12 +178,12 @@ public class CliExtensionMigrationIntegrationTests : IAsyncLifetime
         // The realistic adoption path: a database has been migrating for months, then someone turns on
         // an extension. It must apply that extension's scripts and leave everything else alone.
         await RunCliAsync("migrate");
-        (await AppliedExtensionIdsAsync()).Should().BeEmpty();
+        (await AppliedExtensionIdsAsync()).Should().BeEquivalentTo(["working-memory"], "the default tier's schema");
 
         var (exitCode, output) = await RunCliAsync("migrate", "--extensions", "arithmetic");
 
         exitCode.Should().Be(0, "the follow-up migrate run failed:\n{0}", output);
-        (await AppliedExtensionIdsAsync()).Should().BeEquivalentTo(["arithmetic"]);
+        (await AppliedExtensionIdsAsync()).Should().BeEquivalentTo(["working-memory", "arithmetic"]);
         (await PresentIndexesAsync(ArithmeticIndexes)).Should().BeEquivalentTo(ArithmeticIndexes);
     }
 }
