@@ -85,7 +85,9 @@ public static class RealModel
         w.WriteLine("      BITDEER_API_KEY=<key>                      (chat + embeddings, nothing else needed)");
         w.WriteLine("      OPENAI_API_KEY=<key>");
         w.WriteLine("      AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT");
-        w.WriteLine("      OPENAI_COMPATIBLE_ENDPOINT + OPENAI_COMPATIBLE_MODEL   (Ollama, LM Studio, vLLM)");
+        w.WriteLine("      OPENAI_COMPATIBLE_ENDPOINT + OPENAI_COMPATIBLE_MODEL   (LM Studio, vLLM)");
+        w.WriteLine("      AI_INFERENCE_PROVIDER=ollama + OLLAMA_MODEL             (a local Ollama)");
+        w.WriteLine("    Embeddings on a local bge-m3, chat unchanged: AI_EMBEDDING_PROVIDER=ollama");
         w.WriteLine();
         w.WriteLine($"    Choose explicitly with {InferenceProviderEnvironment.SelectorVariable}="
                     + $"{string.Join("|", InferenceProviderNames.AllTokens)}.");

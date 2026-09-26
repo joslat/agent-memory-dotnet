@@ -33,7 +33,9 @@ docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/passwor
 export BITDEER_API_KEY=...            # chat + embeddings, one variable
 
 # Or any other provider: OPENAI_API_KEY, an existing AZURE_OPENAI_* setup (still works
-# unchanged), FOUNDRY_*, or OPENAI_COMPATIBLE_* for Ollama / LM Studio / vLLM.
+# unchanged), FOUNDRY_*, OPENAI_COMPATIBLE_* for LM Studio / vLLM, or
+# AI_INFERENCE_PROVIDER=ollama + OLLAMA_MODEL for a local Ollama.
+# Embeddings on a local bge-m3 while chat stays remote: AI_EMBEDDING_PROVIDER=ollama
 # Full contract: docs/configuration/inference-providers.md
 
 dotnet run --project samples/AgentMemory.Sample.ShoppingAssistant

@@ -266,6 +266,117 @@ public sealed class ProviderSelectionTests
         resolution.EmbeddingDiagnostic.Should().Contain("AI_EMBEDDING_PROVIDER");
     }
 
+    /// <summary>A key travels with its endpoint: an override endpoint never receives the named provider's key.</summary>
+    [Fact]
+    public void An_override_endpoint_never_receives_the_named_providers_own_key()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "bitdeer-secret"),
+            ("AI_EMBEDDING_PROVIDER", "bitdeer"),
+            ("AI_EMBEDDING_ENDPOINT", "https://gateway.example/v1")));
+
+        resolution.Settings!.HasEmbeddings.Should().BeFalse("the Bitdeer key was not issued for gateway.example");
+        resolution.Settings.EmbeddingApiKey.Should().NotBe("bitdeer-secret");
+        resolution.EmbeddingDiagnostic.Should().Contain("AI_EMBEDDING_API_KEY");
+    }
+
+    [Fact]
+    public void An_override_endpoint_with_its_own_key_is_used()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "bitdeer-secret"),
+            ("AI_EMBEDDING_PROVIDER", "bitdeer"),
+            ("AI_EMBEDDING_ENDPOINT", "https://gateway.example/v1"),
+            ("AI_EMBEDDING_API_KEY", "gateway-key")));
+
+        resolution.Settings!.EmbeddingEndpoint.Should().Be("https://gateway.example/v1");
+        resolution.Settings.EmbeddingApiKey.Should().Be("gateway-key");
+    }
+
+    [Fact]
+    public void A_keyless_provider_at_an_override_endpoint_never_borrows_the_chat_key()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("OPENAI_COMPATIBLE_ENDPOINT", "https://gw-a.example/v1"),
+            ("OPENAI_COMPATIBLE_API_KEY", "key-for-a"),
+            ("OPENAI_COMPATIBLE_MODEL", "chat-model"),
+            ("AI_EMBEDDING_PROVIDER", "openai-compatible"),
+            ("AI_EMBEDDING_ENDPOINT", "https://gw-b.example/v1"),
+            ("AI_EMBEDDING_MODEL", "nomic-embed-text")));
+
+        resolution.Settings!.EmbeddingEndpoint.Should().Be("https://gw-b.example/v1");
+        resolution.Settings.EmbeddingApiKey.Should().NotBe("key-for-a");
+    }
+
+    [Fact]
+    public void A_refused_endpoint_names_the_variable_it_came_from()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("AI_EMBEDDING_PROVIDER", "ollama"),
+            ("OLLAMA_ENDPOINT", "http://10.0.0.5:11434/v1")));
+
+        resolution.Settings!.HasEmbeddings.Should().BeFalse("http to a non-loopback host is refused");
+        resolution.EmbeddingDiagnostic.Should().Contain("OLLAMA_ENDPOINT").And.NotContain("AI_EMBEDDING_ENDPOINT");
+    }
+
+    [Fact]
+    public void Ollama_is_never_auto_detected()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(("OLLAMA_MODEL", "qwen3:8b")));
+
+        resolution.IsConfigured.Should().BeFalse("OLLAMA_MODEL is set by other tools; it does not choose a provider");
+        resolution.Diagnostic.Should().Contain("AI_INFERENCE_PROVIDER=ollama");
+    }
+
+    [Fact]
+    public void An_ollama_leftover_never_hides_a_half_configured_provider()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("AZURE_OPENAI_ENDPOINT", "https://x.openai.azure.com"),
+            ("OLLAMA_MODEL", "qwen3:8b")));
+
+        resolution.IsConfigured.Should().BeFalse();
+        resolution.Diagnostic.Should().Contain("azure looks half-configured");
+    }
+
+    [Fact]
+    public void Named_ollama_chat_needs_its_model_and_uses_the_loopback_default()
+    {
+        var missing = InferenceProviderEnvironment.Resolve(Env(("AI_INFERENCE_PROVIDER", "ollama")));
+        missing.IsConfigured.Should().BeFalse();
+        missing.Diagnostic.Should().Contain("OLLAMA_MODEL");
+
+        var named = InferenceProviderEnvironment.Resolve(Env(("AI_INFERENCE_PROVIDER", "ollama"), ("OLLAMA_MODEL", "qwen3:8b")));
+        named.Settings!.Provider.Should().Be(InferenceProvider.Ollama);
+        named.Settings.Endpoint.Should().Be("http://127.0.0.1:11434/v1");
+        named.Settings.EmbeddingModel.Should().Be("bge-m3");
+        named.Settings.EmbeddingDimensions.Should().Be(1024);
+    }
+
+    [Fact]
+    public void A_named_embedding_provider_without_a_default_model_fails_by_name()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("FOUNDRY_ENDPOINT", "https://x.services.ai.azure.com"),
+            ("FOUNDRY_API_KEY", "f"),
+            ("AI_EMBEDDING_PROVIDER", "foundry")));
+
+        resolution.Settings!.HasEmbeddings.Should().BeFalse();
+        resolution.EmbeddingDiagnostic.Should().Contain("FOUNDRY_EMBEDDING_MODEL");
+    }
+
+    [Theory]
+    [InlineData("bge-m3")]
+    [InlineData("bge-m3:latest")]
+    [InlineData("BAAI/bge-m3")]
+    public void Every_name_of_bge_m3_is_1024_wide(string model)
+    {
+        KnownEmbeddingDimensions.TryGet(model, out var dims).Should().BeTrue();
+        dims.Should().Be(1024);
+    }
+
     [Fact]
     public void A_local_server_never_pre_empts_a_configured_hosted_provider()
     {

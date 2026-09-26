@@ -31,7 +31,7 @@ public enum InferenceProvider
     /// <summary>Azure AI Foundry. Azure protocol.</summary>
     Foundry,
 
-    /// <summary>Any other OpenAI-compatible host: Ollama, LM Studio, vLLM, a gateway.</summary>
+    /// <summary>Any other OpenAI-compatible host: LM Studio, vLLM, a gateway (or Ollama at a custom address).</summary>
     OpenAICompatible,
 
     /// <summary>

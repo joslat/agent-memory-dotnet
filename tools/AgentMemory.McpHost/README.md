@@ -99,11 +99,13 @@ Providers are auto-detected in this order, first complete one wins:
 | Bitdeer | `BITDEER_API_KEY` — that alone gets chat *and* embeddings |
 | OpenAI | `OPENAI_API_KEY` |
 | Foundry | `FOUNDRY_ENDPOINT` + `FOUNDRY_API_KEY` + `FOUNDRY_MODEL` |
-| OpenAI-compatible | `OPENAI_COMPATIBLE_ENDPOINT` + `OPENAI_COMPATIBLE_MODEL` (Ollama, LM Studio, vLLM) |
+| OpenAI-compatible | `OPENAI_COMPATIBLE_ENDPOINT` + `OPENAI_COMPATIBLE_MODEL` (LM Studio, vLLM) |
 
 **Azure is first on purpose.** A server configured before this existed keeps working with no edit.
+**Ollama is never auto-detected:** name it with `AI_INFERENCE_PROVIDER=ollama` (+ `OLLAMA_MODEL`), or
+move only embeddings to a local bge-m3 with `AI_EMBEDDING_PROVIDER=ollama`.
 
-Name one explicitly with `AI_INFERENCE_PROVIDER=azure|bitdeer|openai|foundry|openai-compatible`. An
+Name one explicitly with `AI_INFERENCE_PROVIDER=azure|bitdeer|openai|foundry|openai-compatible|ollama`. An
 explicit choice that is missing variables **fails** rather than falling through to another host —
 falling through would send your API key somewhere you did not pick.
 

@@ -26,8 +26,10 @@ downstream sees the `Microsoft.Extensions.AI` interfaces and cannot tell which p
 `AI_INFERENCE_PROVIDER` ∈ `azure` · `bitdeer` · `openai` · `foundry` · `openai-compatible` · `ollama`.
 
 Leave it unset and providers are auto-detected in a fixed order — **Azure → Bitdeer → OpenAI →
-Foundry → OpenAI-compatible → Ollama** — first one with complete credentials wins. A local server
-comes last, so it never pre-empts a hosted provider that is fully configured.
+Foundry → OpenAI-compatible** — first one with complete credentials wins. **Ollama is never
+auto-detected**: other tools set `OLLAMA_MODEL` and `OLLAMA_API_KEY`, and a leftover must not choose a
+provider or hide a half-configured one. Name it (`AI_INFERENCE_PROVIDER=ollama` or
+`AI_EMBEDDING_PROVIDER=ollama`).
 
 Four rules govern this, and the second is the one that matters most:
 
@@ -49,6 +51,7 @@ Four rules govern this, and the second is the one that matters most:
 | `openai` | `OPENAI_API_KEY` | `OPENAI_BASE_URL` (`https://api.openai.com/v1`), `OPENAI_MODEL` (`gpt-4o-mini`), `_2`, `_3` |
 | `foundry` | `FOUNDRY_ENDPOINT`, `FOUNDRY_API_KEY`, `FOUNDRY_MODEL` | `FOUNDRY_MODEL_2`, `_3` |
 | `openai-compatible` | `OPENAI_COMPATIBLE_ENDPOINT`, `OPENAI_COMPATIBLE_MODEL` | `OPENAI_COMPATIBLE_API_KEY` (`no-key-needed` for a keyless local server), `_2`, `_3` |
+| `ollama` (only when named) | `AI_INFERENCE_PROVIDER=ollama`, `OLLAMA_MODEL` | `OLLAMA_ENDPOINT` (`http://127.0.0.1:11434/v1`), `OLLAMA_API_KEY` (none), `_2`, `_3` |
 
 For Azure, the "model" is a **deployment name**. Everywhere else it is a model id.
 
@@ -108,13 +111,19 @@ AI_EMBEDDING_ENDPOINT=http://127.0.0.1:1234/v1
 AI_EMBEDDING_MODEL=nomic-embed-text
 ```
 
-Nothing is ever borrowed from the **chat** provider: a key is sent only to the host it was issued for,
-and a value the named provider cannot supply fails the embedding half by name. So does a block
-without `AI_EMBEDDING_PROVIDER`.
+Nothing is ever borrowed from the **chat** provider, and **a key travels with its endpoint**: with
+`AI_EMBEDDING_ENDPOINT` set, the key comes only from `AI_EMBEDDING_API_KEY` (or none, for a keyless
+provider), never from the named provider's own key variable, which goes only to that provider's own
+endpoint. A value that cannot be supplied fails the embedding half by name; so does a block without
+`AI_EMBEDDING_PROVIDER`.
+
+> **`ollama` is this repository's addition**; AgentEval's contract does not know the token yet, so a
+> machine configured with it runs AgentMemory but not AgentEval until AgentEval adds it.
 
 > **Local bge-m3 is the same model.** Ollama's `bge-m3` returns the same vectors as Bitdeer's
 > `BAAI/bge-m3` (cosine 1.0000 on the same text, 1024-wide), so a store built with one works with the
-> other, no re-embedding. Measured on one dev machine (RTX 3070 Ti, i7-12700K): **52 ms** per short
+> other, no re-embedding. Measurement runs still stamp the provider in their identity
+> (`bge-m3@ollama` vs `BAAI/bge-m3@bitdeer`) and treat the two as different runs, which is correct. Measured on one dev machine (RTX 3070 Ti, i7-12700K): **52 ms** per short
 > text on the GPU, **70 ms** CPU-only, against **1.3 s** typical (**5.4 s** p95) for the hosted call.
 > The first call after the model loads takes about 2.4 s.
 

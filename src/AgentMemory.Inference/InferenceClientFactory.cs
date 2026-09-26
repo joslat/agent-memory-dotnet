@@ -14,7 +14,7 @@ namespace AgentMemory.Inference;
 /// <para>
 /// <b>Azure protocol</b> (<c>azure</c>, <c>foundry</c>) goes through <see cref="AzureOpenAIClient"/>,
 /// where the model argument is a DEPLOYMENT name. <b>OpenAI protocol</b> (<c>bitdeer</c>,
-/// <c>openai</c>, <c>openai-compatible</c>) goes through <see cref="OpenAIClient"/> with an explicit
+/// <c>openai</c>, <c>openai-compatible</c>, <c>ollama</c>) goes through <see cref="OpenAIClient"/> with an explicit
 /// endpoint, where it is a model id. Everything downstream sees
 /// <see cref="IChatClient"/>/<see cref="IEmbeddingGenerator{TInput,TEmbedding}"/> and cannot tell
 /// which family produced it — which is the point, and the reason the library needs no changes at all.

@@ -54,7 +54,7 @@ public static class InferenceProviderNames
         InferenceProvider.OpenAI => "OpenAI",
         InferenceProvider.Foundry => "Azure AI Foundry (OpenAI-compatible endpoint)",
         InferenceProvider.OpenAICompatible => "OpenAI-compatible endpoint",
-        InferenceProvider.Ollama => "Ollama (local)",
+        InferenceProvider.Ollama => "Ollama",
         _ => "no provider configured",
     };
 

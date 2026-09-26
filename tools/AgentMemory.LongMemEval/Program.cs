@@ -746,7 +746,9 @@ internal static class LongMemEvalProgram
           OPENAI_API_KEY
           FOUNDRY_ENDPOINT + FOUNDRY_API_KEY + FOUNDRY_MODEL
           OPENAI_COMPATIBLE_ENDPOINT + OPENAI_COMPATIBLE_MODEL
-        Name one explicitly with AI_INFERENCE_PROVIDER. An explicit choice that is missing
+        Name one explicitly with AI_INFERENCE_PROVIDER (ollama is used only when named).
+        AI_EMBEDDING_PROVIDER=ollama moves embeddings to a local bge-m3; runs then stamp
+        bge-m3@ollama, a different run identity from BAAI/bge-m3@bitdeer. An explicit choice that is missing
         variables FAILS rather than falling through to a host you did not pick.
 
         Uses real LongMemEval data, a pinned Neo4j 5.26 container, and real embeddings.

@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **A local embedding model is one variable away.** `AgentMemory.Inference` gains an `ollama` provider
-  (`http://127.0.0.1:11434/v1`, no key, `bge-m3` by default, `OLLAMA_MODEL` for chat; last in
-  auto-detect order), and `AI_EMBEDDING_PROVIDER` alone now moves embeddings to another provider,
-  filling what is not set from that provider's own variables and defaults (never from the chat
-  provider: a key only goes to the host it was issued for). `AI_EMBEDDING_PROVIDER=ollama` puts
+  (`http://127.0.0.1:11434/v1`, no key, `bge-m3` by default, `OLLAMA_MODEL` for chat; used only when
+  named, never auto-detected), and `AI_EMBEDDING_PROVIDER` alone now moves embeddings to another
+  provider, filling what is not set from that provider's own variables and defaults (never from the
+  chat provider; with `AI_EMBEDDING_ENDPOINT` set, the key comes only from `AI_EMBEDDING_API_KEY`, so
+  a key only goes to the host it was issued for). `AI_EMBEDDING_PROVIDER=ollama` puts
   embeddings on a local bge-m3 while chat stays remote; `=bitdeer` moves them back. Ollama's `bge-m3`
   returns the same vectors as `BAAI/bge-m3` (measured cosine 1.0000), so an existing store keeps
   working. Measured per short text: 52 ms local (GPU), 70 ms CPU-only, 1.3 s typical for the hosted call.
