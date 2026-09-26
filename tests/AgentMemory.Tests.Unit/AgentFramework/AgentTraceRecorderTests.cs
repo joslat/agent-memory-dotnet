@@ -82,10 +82,37 @@ public sealed class AgentTraceRecorderTests
             }));
     }
 
-    private AgentTraceRecorder CreateSut(bool persist = true) => new(
+    private AgentTraceRecorder CreateSut(bool persist = true, IMemoryOwnerContext? ownerContext = null) => new(
         _reasoningService, _clock, _idGenerator,
         Options.Create(new AgentFrameworkOptions { PersistReasoningTraces = persist }),
-        NullLogger<AgentTraceRecorder>.Instance);
+        NullLogger<AgentTraceRecorder>.Instance, ownerContext);
+
+    [Fact]
+    public async Task A_trace_started_without_an_owner_takes_the_ambient_owner_scope()
+    {
+        // Found live: under strict isolation every trace write inside a turn's owner scope failed with
+        // "StartTraceAsync requires an owner scope", because the recorder passed no owner and the reasoning
+        // service does not read the ambient one.
+        var owner = Substitute.For<IMemoryOwnerContext>();
+        owner.UserId.Returns("alice");
+
+        await CreateSut(ownerContext: owner).StartTraceAsync("s1", "plan a trip");
+
+        await _reasoningService.Received(1).StartTraceAsync("s1", "plan a trip",
+            Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), "alice", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task An_explicit_owner_wins_over_the_ambient_one()
+    {
+        var owner = Substitute.For<IMemoryOwnerContext>();
+        owner.UserId.Returns("alice");
+
+        await CreateSut(ownerContext: owner).StartTraceAsync("s1", "plan a trip", ownerId: "bob");
+
+        await _reasoningService.Received(1).StartTraceAsync("s1", "plan a trip",
+            Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), "bob", Arg.Any<CancellationToken>());
+    }
 
     [Fact]
     public async Task PersistDisabled_DoesNotCallReasoningService_ReturnsSyntheticRecords()

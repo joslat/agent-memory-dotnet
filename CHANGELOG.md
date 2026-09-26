@@ -183,6 +183,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`AgentTraceRecorder` records traces under the turn's owner.** It passed no owner unless given one, and
+  the reasoning service does not read the ambient owner scope, so under strict multi-tenant isolation every
+  trace write inside a provider's turn failed with "StartTraceAsync requires an owner scope". It now falls
+  back to `IMemoryOwnerContext` (an explicit owner still wins).
+
 - **A failed extraction or persistence is visible in the trace.** Both are swallowed so the turn still
   succeeds, but their spans ended with no status: the `memory.store.extract` span (or the ingest hook,
   for a persistence failure) now records the exception type and an error status, as does an extraction
