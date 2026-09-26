@@ -61,9 +61,19 @@ internal sealed class LlmExtractionRunner
             using var span = AgentMemoryDiagnostics.Source.StartActivity(AttemptSpanName);
             span?.SetTag("memory.extract.attempt", attempt);
 
-            var response = await GetResponseWithTransportRetryAsync(
-                    chatMessages, chatOptions, cancellationToken)
-                .ConfigureAwait(false);
+            ChatResponse response;
+            try
+            {
+                response = await GetResponseWithTransportRetryAsync(
+                        chatMessages, chatOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Transport retries exhausted: the attempt failed, and its span says so before it ends.
+                MemoryTelemetry.RecordException(span, ex);
+                throw;
+            }
             var raw = response.Text;
             span?.SetTag("memory.extract.finish_reason", response.FinishReason?.Value);
             span?.SetTag("memory.extract.output_tokens", response.Usage?.OutputTokenCount);

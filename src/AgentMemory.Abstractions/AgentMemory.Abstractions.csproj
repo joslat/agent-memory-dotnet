@@ -22,6 +22,7 @@
          details of the packages that emit spans; only the span names and attribute keys are public. -->
     <InternalsVisibleTo Include="AgentMemory.Core" />
     <InternalsVisibleTo Include="AgentMemory.AgentFramework" />
+    <InternalsVisibleTo Include="AgentMemory.Extraction.Llm" />
   </ItemGroup>
 
 </Project>

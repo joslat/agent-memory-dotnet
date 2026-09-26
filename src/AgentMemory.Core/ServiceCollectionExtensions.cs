@@ -147,6 +147,13 @@ public static class ServiceCollectionExtensions
                 o => !o.Extraction.EntityResolution.EnablePartialNameMatch ||
                      o.Extraction.EntityResolution.PartialNameMatchConfidence >= o.Extraction.SameAsThreshold,
                 "MemoryOptions.Extraction.EntityResolution.PartialNameMatchConfidence must be at least SameAsThreshold when EnablePartialNameMatch is on.")
+            // At or above AutoMergeThreshold a unique partial match would MERGE "Priya" into "Priya Nair" as
+            // an alias; once a second Priya is known, the exact matcher then resolves "Priya" through that
+            // alias and the ambiguity check never runs: the feature's "never guess" rule would be defeated.
+            .Validate(
+                o => !o.Extraction.EntityResolution.EnablePartialNameMatch || !o.Extraction.EnableAutoMerge ||
+                     o.Extraction.EntityResolution.PartialNameMatchConfidence < o.Extraction.AutoMergeThreshold,
+                "MemoryOptions.Extraction.EntityResolution.PartialNameMatchConfidence must be below AutoMergeThreshold when EnablePartialNameMatch and EnableAutoMerge are on.")
             .Validate(
                 o => o.Extraction.EntityResolution.PartialNameMatchTypes is not null,
                 "MemoryOptions.Extraction.EntityResolution.PartialNameMatchTypes must not be null.")

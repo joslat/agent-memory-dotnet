@@ -94,6 +94,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failed extraction or persistence is visible in the trace.** Both are swallowed so the turn still
+  succeeds, but their spans ended with no status: the `memory.store.extract` span (or the ingest hook,
+  for a persistence failure) now records the exception type and an error status, as does an extraction
+  attempt whose transport retries ran out.
+- **A partial name can never auto-merge.** With `PartialNameMatchConfidence` at or above
+  `AutoMergeThreshold`, "Priya" was merged into "Priya Nair" as an alias, so a later "Priya" resolved
+  through the alias and the ambiguity check never ran. Validation now refuses that combination.
+- **"Priya's mom" is not Priya.** A relational name ("X's mom") is no longer a partial-name candidate
+  for X.
+
 - **Background writes land in the right store.** The access-tracking and enrichment consumers start in
   their constructor, so they inherited the store routing of whichever request first built the
   singleton: in a host with several application stores, access stamps and enrichment for application B

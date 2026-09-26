@@ -51,7 +51,7 @@ internal sealed class PartialNameEntityMatcher : IEntityMatcher
             // city is not part of "Paris Hilton" the person.
             if (!string.Equals(existing.Type, candidate.Type, StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (!NamesOf(existing).Any(name => IsPartial(mention, Words(name))))
+            if (!NamesOf(existing).Where(name => !IsRelational(name)).Any(name => IsPartial(mention, Words(name))))
                 continue;
             if (matches.All(m => m.EntityId != existing.EntityId))
                 matches.Add(existing);
@@ -97,6 +97,15 @@ internal sealed class PartialNameEntityMatcher : IEntityMatcher
         foreach (var alias in entity.Aliases)
             yield return alias;
     }
+
+    /// <summary>
+    /// A name that describes someone through another person ("Priya's mom"): its words contain the other
+    /// person's name, but it is not that person, so it is never a partial-name candidate.
+    /// </summary>
+    internal static bool IsRelational(string? name) =>
+        name is not null &&
+        (name.Contains("'s ", StringComparison.OrdinalIgnoreCase) || name.Contains("\u2019s ", StringComparison.OrdinalIgnoreCase) ||
+         name.EndsWith("'s", StringComparison.OrdinalIgnoreCase) || name.EndsWith("\u2019s", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>True when one word set is a proper subset of the other.</summary>
     internal static bool IsPartial(IReadOnlySet<string> a, IReadOnlySet<string> b) =>

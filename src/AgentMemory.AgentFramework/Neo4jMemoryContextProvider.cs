@@ -759,6 +759,8 @@ public class Neo4jMemoryContextProvider : AIContextProvider
                 }
                 catch (Exception ex)
                 {
+                    // Swallowed (the turn succeeded), but not invisible: the ingest hook span says so.
+                    MemoryTelemetry.RecordException(System.Diagnostics.Activity.Current, ex);
                     _logger.LogWarning(ex,
                         "Extraction failed for session {SessionId}; messages were persisted.", sessionId);
                 }
@@ -770,6 +772,7 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         }
         catch (Exception ex)
         {
+            MemoryTelemetry.RecordException(System.Diagnostics.Activity.Current, ex);
             _logger.LogWarning(ex,
                 "Failed to persist messages after run for session {SessionId}.", sessionId);
         }
