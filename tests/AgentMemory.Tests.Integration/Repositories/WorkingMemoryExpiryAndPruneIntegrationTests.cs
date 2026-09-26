@@ -1,6 +1,7 @@
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Neo4j.Services;
 using AgentMemory.Tests.Integration.Fixtures;
@@ -44,10 +45,29 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
     public Task InitializeAsync() => _fixture.CleanDatabaseAsync();
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private Neo4jWorkingMemoryService WorkingMemory() => new(
-        _fixture.TransactionRunner, _clock, new Ids(), Options.Create(_options), NullLogger<Neo4jWorkingMemoryService>.Instance);
+    /// <summary>A connection that can read but not write: a reader role, read-only routing, a lock timeout.</summary>
+    private sealed class ReadOnlyRunner(INeo4jTransactionRunner inner) : INeo4jTransactionRunner
+    {
+        public Task<T> ReadAsync<T>(Func<global::Neo4j.Driver.IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(work, cancellationToken);
+        public Task ReadAsync(Func<global::Neo4j.Driver.IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(work, cancellationToken);
+        public Task<T> WriteAsync<T>(Func<global::Neo4j.Driver.IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Writing is not allowed on this connection.");
+        public Task WriteAsync(Func<global::Neo4j.Driver.IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Writing is not allowed on this connection.");
+    }
 
-    private Fact NewFact(string @object, DateTimeOffset? validUntil = null) => new()
+    private Neo4jWorkingMemoryService WorkingMemory(INeo4jTransactionRunner? runner = null) => new(
+        runner ?? _fixture.TransactionRunner, _clock, new Ids(), Options.Create(_options), NullLogger<Neo4jWorkingMemoryService>.Instance);
+
+    private Neo4jMemoryDecayService HardPrune() => new(
+        _fixture.TransactionRunner, _clock,
+        Options.Create(new MemoryDecayOptions { DecayHalfLifeDays = 1, MinRetentionScore = 0.5, NonDestructive = false }),
+        NullLogger<Neo4jMemoryDecayService>.Instance,
+        Options.Create(_options));
+
+    private Fact NewFact(string @object, DateTimeOffset? validUntil = null, string owner = "alice") => new()
     {
         FactId = Guid.NewGuid().ToString("N"),
         Subject = "user",
@@ -56,7 +76,7 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
         Confidence = 0.95,
         CreatedAtUtc = _clock.UtcNow.AddDays(-1),
         ValidUntil = validUntil,
-        OwnerId = "alice",
+        OwnerId = owner,
     };
 
     [Fact]
@@ -83,13 +103,68 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
         await workingMemory.RebuildAsync("alice");
         (await workingMemory.GetAsync("alice")).Should().NotBeNull();
 
-        var decay = new Neo4jMemoryDecayService(
-            _fixture.TransactionRunner, _clock,
-            Options.Create(new MemoryDecayOptions { DecayHalfLifeDays = 1, MinRetentionScore = 0.5, NonDestructive = false }),
-            NullLogger<Neo4jMemoryDecayService>.Instance,
-            Options.Create(_options));
-        (await decay.PruneExpiredMemoriesAsync(MemoryScope.For("alice", includeShared: false))).Should().BeGreaterThan(0);
+        (await HardPrune().PruneExpiredMemoriesAsync(MemoryScope.For("alice", includeShared: false))).Should().BeGreaterThan(0);
 
         (await workingMemory.GetAsync("alice")).Should().BeNull("the pruned fact's text must not survive in the block");
+    }
+
+    [Fact]
+    public async Task After_a_prune_the_next_read_serves_what_remains()
+    {
+        // Review round 2: the prune cleared the block and nothing rebuilt it until the owner wrote again,
+        // so an owner who only reads ("what do you know about me?") got no profile at all.
+        var workingMemory = WorkingMemory();
+        await _facts.UpsertAsync(NewFact("Acme") with { CreatedAtUtc = _clock.UtcNow.AddYears(-5) });
+        await _facts.UpsertAsync(NewFact("Globex") with { CreatedAtUtc = _clock.UtcNow });
+        await workingMemory.RebuildAsync("alice");
+
+        await HardPrune().PruneExpiredMemoriesAsync(MemoryScope.For("alice", includeShared: false));
+
+        var block = await workingMemory.GetAsync("alice");
+        block!.Text.Should().Contain("Globex").And.NotContain("Acme");
+    }
+
+    [Fact]
+    public async Task A_prune_across_owners_leaves_every_other_owner_with_a_profile()
+    {
+        // The nightly unscoped prune clears every block when any owner lost something.
+        var workingMemory = WorkingMemory();
+        await _facts.UpsertAsync(NewFact("Acme") with { CreatedAtUtc = _clock.UtcNow.AddYears(-5) });
+        await _facts.UpsertAsync(NewFact("Initech", owner: "bob") with { CreatedAtUtc = _clock.UtcNow });
+        await workingMemory.RebuildAsync("alice");
+        await workingMemory.RebuildAsync("bob");
+
+        (await HardPrune().PruneExpiredMemoriesAsync()).Should().BeGreaterThan(0);
+
+        (await workingMemory.GetAsync("bob"))!.Text.Should().Contain("Initech");
+        (await workingMemory.GetAsync("alice")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_block_that_is_empty_until_a_future_fact_starts_is_rebuilt_when_it_starts()
+    {
+        // The owner's only fact starts on Monday: the rebuild stores no text and Monday as the boundary.
+        // The boundary was dropped with the empty text, so the block stayed empty after Monday.
+        var workingMemory = WorkingMemory();
+        await _facts.UpsertAsync(NewFact("Acme") with { ValidFrom = _clock.UtcNow.AddDays(2) });
+        await workingMemory.RebuildAsync("alice");
+        (await workingMemory.GetAsync("alice")).Should().BeNull();
+
+        _clock.UtcNow = _clock.UtcNow.AddDays(3);
+
+        (await workingMemory.GetAsync("alice"))!.Text.Should().Contain("Acme");
+    }
+
+    [Fact]
+    public async Task A_rebuild_on_read_that_cannot_write_does_not_fail_recall()
+    {
+        // Review round 2: GetAsync became a write on the recall path, outside the rebuilder's never-throw.
+        await _facts.UpsertAsync(NewFact("Acme", validUntil: _clock.UtcNow.AddHours(1)));
+        await WorkingMemory().RebuildAsync("alice");
+        _clock.UtcNow = _clock.UtcNow.AddHours(2);
+
+        var read = async () => await WorkingMemory(new ReadOnlyRunner(_fixture.TransactionRunner)).GetAsync("alice");
+
+        (await read.Should().NotThrowAsync()).Subject.Should().BeNull("the stored block asserts an expired fact");
     }
 }

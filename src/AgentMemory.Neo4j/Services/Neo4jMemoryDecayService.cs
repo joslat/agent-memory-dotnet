@@ -91,7 +91,7 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
 
             // The working-memory block is compiled from these facts, preferences and entities. After a
             // prune (a hard one is storage reclamation, including for erasure) it must not keep serving
-            // the removed text: cleared in the same transaction, rebuilt on the owner's next write.
+            // the removed text: cleared in the same transaction, and rebuilt on the owner's next read.
             if (total > 0 && _workingMemoryEnabled)
             {
                 var clear = new Dictionary<string, object?> { ["now"] = now };

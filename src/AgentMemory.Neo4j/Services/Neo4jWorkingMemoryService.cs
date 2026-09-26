@@ -104,12 +104,30 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         if (ShouldSkip(ownerId)) return null;
 
         var block = await ReadBlockAsync(ownerId, cancellationToken).ConfigureAwait(false);
-        // A fact in the block expired (or a future one became valid) since it was built: rebuild once and
-        // serve the rebuilt block. Rare by construction: it happens at most once per boundary.
+        // A fact in the block expired (or a future one became valid) since it was built, or the block was
+        // cleared: rebuild once and serve the rebuilt block. Rare by construction: at most once per boundary.
         if (block.ValidUntil is { } boundary && boundary <= _clock.UtcNow)
         {
-            await RebuildAsync(ownerId, cancellationToken).ConfigureAwait(false);
-            block = await ReadBlockAsync(ownerId, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await RebuildAsync(ownerId, cancellationToken).ConfigureAwait(false);
+                block = await ReadBlockAsync(ownerId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                // This is the recall path: a rebuild that cannot write (a read-only connection, a timeout,
+                // a lock) must not fail recall. What is served instead follows ClearOnRebuildFailure, the
+                // same choice the write path makes: nothing rather than a block that may assert an expired
+                // fact, unless the host prefers the stale block.
+                _logger.LogWarning(exception,
+                    "Working-memory rebuild on read failed for owner {Owner}; recall continues without a rebuilt block.",
+                    ownerId);
+                return _options.ClearOnRebuildFailure ? null : block.Block;
+            }
         }
         return block.Block;
     }
@@ -137,12 +155,14 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return ((WorkingMemoryBlock?)null, (DateTimeOffset?)null);
 
-            var text = records[0]["block"].As<string?>();
-            if (string.IsNullOrEmpty(text)) return (null, null);
-
             var validUntil = records[0].Keys.Contains("validUntil")
                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(records[0]["validUntil"])
                 : null;
+            // No text is no block, but the boundary still counts: a block that is empty today because its
+            // only fact starts on Monday must be rebuilt on Monday.
+            var text = records[0]["block"].As<string?>();
+            if (string.IsNullOrEmpty(text)) return (null, validUntil);
+
             return (new WorkingMemoryBlock
             {
                 OwnerId = ownerId,

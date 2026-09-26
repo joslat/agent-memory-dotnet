@@ -97,4 +97,10 @@ public static class MemoryErrorCodes
 
     /// <summary>Creating an <c>EXTRACTED_FROM</c> provenance edge failed for an otherwise-persisted item.</summary>
     public const string ProvenancePersistenceFailed   = "MEMORY_PROVENANCE_PERSISTENCE_FAILED";
+
+    /// <summary>
+    /// A fact was not written on its own because the same extraction stated it in other words; the kept
+    /// phrasing carries it (<c>ExtractionOptions.DeduplicateWithinExtraction</c>).
+    /// </summary>
+    public const string FactMergedWithinExtraction    = "MEMORY_FACT_MERGED_WITHIN_EXTRACTION";
 }

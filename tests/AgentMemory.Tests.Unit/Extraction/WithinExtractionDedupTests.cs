@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -72,5 +73,89 @@ public sealed class WithinExtractionDedupTests
         await Sut(dedup: false).PersistAsync(Extraction(), ownerId: "owner-1", cancellationToken: CancellationToken.None);
 
         _upserted.Should().HaveCount(3);
+    }
+
+    // ---- review round 2: similarity alone is not "the same statement" ----
+
+    private static ExtractedFact F(string subject, string predicate, string @object) =>
+        new() { Subject = subject, Predicate = predicate, Object = @object, Confidence = 0.9 };
+
+    [Theory]
+    [InlineData("user", "has", "2 kids", "user", "has", "3 kids")]
+    [InlineData("user", "is", "vegetarian", "user", "is not", "vegetarian")]
+    [InlineData("user", "eats", "meat", "user", "doesn't eat", "meat")]
+    [InlineData("user", "started on", "2024-03-01", "user", "started on", "2024-04-01")]
+    [InlineData("Tomás Silva", "moved to", "analytics", "Tomás Pereira", "moved to", "analytics")]
+    [InlineData("user", "works as", "data engineer at Northwind", "user", "works at", "Northwind")]
+    public void Facts_that_differ_in_what_they_say_are_never_one_statement(
+        string s1, string p1, string o1, string s2, string p2, string o2)
+    {
+        PersistenceStage.MayBeOneStatement(F(s1, p1, o1), F(s2, p2, o2)).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Tomás Silva", "moved to", "analytics", "Tomás Silva", "moved to", "analytics team")]
+    [InlineData("user", "requested help with", "the dashboard", "user", "needs help with", "the dashboard")]
+    public void Rephrasings_of_one_slot_may_be_one_statement(string s1, string p1, string o1, string s2, string p2, string o2)
+    {
+        PersistenceStage.MayBeOneStatement(F(s1, p1, o1), F(s2, p2, o2)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Different_validity_windows_are_different_statements()
+    {
+        var march = F("user", "lives in", "Porto") with { ValidFrom = DateTimeOffset.Parse("2026-03-01T00:00:00Z") };
+        var april = march with { ValidFrom = DateTimeOffset.Parse("2026-04-01T00:00:00Z") };
+
+        PersistenceStage.MayBeOneStatement(march, april).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_merged_phrasing_is_reported_and_the_users_words_and_date_survive()
+    {
+        // The assistant's paraphrase is the more confident one, and only the user's phrasing carried a date.
+        var extraction = new ExtractionStageResult
+        {
+            SourceMessageIds = ["message-1"],
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase),
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics", Confidence = 0.8,
+                    SourceRole = "user", ValidFrom = DateTimeOffset.Parse("2026-09-01T00:00:00Z") },
+                new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics team", Confidence = 0.95,
+                    SourceRole = "assistant" },
+            ],
+        };
+
+        var result = await Sut(dedup: true).PersistAsync(extraction, ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        var stored = _upserted.Should().ContainSingle().Subject;
+        stored.Object.Should().Be("analytics", "the user's own words beat the assistant's paraphrase");
+        stored.ValidFrom.Should().Be(DateTimeOffset.Parse("2026-09-01T00:00:00Z"));
+        var merged = result.Outcomes.Should().ContainSingle(o => o.Status == IngestionItemStatus.Skipped).Subject;
+        merged.SourceKey.Should().Be("Tomás Silva moved to analytics team");
+        merged.ErrorCode.Should().Be(MemoryErrorCodes.FactMergedWithinExtraction);
+    }
+
+    [Fact]
+    public async Task The_dropped_phrasings_date_is_kept_when_the_winner_has_none()
+    {
+        var extraction = new ExtractionStageResult
+        {
+            SourceMessageIds = ["message-1"],
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase),
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics", Confidence = 0.8,
+                    ValidFrom = DateTimeOffset.Parse("2026-09-01T00:00:00Z") },
+                new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics team", Confidence = 0.9 },
+            ],
+        };
+
+        await Sut(dedup: true).PersistAsync(extraction, ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        var stored = _upserted.Should().ContainSingle().Subject;
+        stored.Object.Should().Be("analytics team");
+        stored.ValidFrom.Should().Be(DateTimeOffset.Parse("2026-09-01T00:00:00Z"));
     }
 }

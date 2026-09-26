@@ -105,8 +105,8 @@ internal static class WorkingMemoryQueries
             RETURN min(boundary) AS boundary";
 
     /// <summary>
-    /// Clears every owner's block (a prune across all owners). Each is rebuilt on its owner's next
-    /// write; until then recall runs without it, which is the behaviour before the tier existed.
+    /// Clears every owner's block (a prune across all owners), leaving each one due for a rebuild on
+    /// its owner's next read. See <see cref="ClearBlock"/>.
     /// </summary>
     public const string ClearAllBlocks = @"
             MATCH (u:User)
@@ -114,13 +114,16 @@ internal static class WorkingMemoryQueries
             SET u.working_memory = null,
                 u.working_memory_built_at = null,
                 u.working_memory_hash = null,
-                u.working_memory_valid_until = null,
+                u.working_memory_valid_until = datetime($now),
                 u.updated_at = datetime($now)";
 
-    /// <summary>Reads the stored block.</summary>
+    /// <summary>
+    /// Reads the stored block, and its validity boundary even when there is no text: an empty or
+    /// cleared block still says when it must be rebuilt.
+    /// </summary>
     public const string GetBlock = @"
             MATCH (u:User {identifier: $ownerId})
-            WHERE u.working_memory IS NOT NULL
+            WHERE u.working_memory IS NOT NULL OR u.working_memory_valid_until IS NOT NULL
             RETURN u.working_memory AS block,
                    u.working_memory_built_at AS builtAt,
                    u.working_memory_hash AS hash,
@@ -138,12 +141,17 @@ internal static class WorkingMemoryQueries
     /// Removing the properties rather than the node: upstream owns <c>:User</c>, and deleting an
     /// identity node because our derived block failed to rebuild would destroy something that is not
     /// ours to destroy.
+    /// <para>
+    /// The text goes (a pruned or erased fact must not be served) but the block is marked due: its
+    /// validity boundary is set to now, so the owner's next read rebuilds it from what remains rather
+    /// than going without a profile until the owner happens to write again.
+    /// </para>
     /// </remarks>
     public const string ClearBlock = @"
             MATCH (u:User {identifier: $ownerId})
             SET u.working_memory = null,
                 u.working_memory_built_at = null,
                 u.working_memory_hash = null,
-                u.working_memory_valid_until = null,
+                u.working_memory_valid_until = datetime($now),
                 u.updated_at = datetime($now)";
 }

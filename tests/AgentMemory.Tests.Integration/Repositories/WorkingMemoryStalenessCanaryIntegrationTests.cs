@@ -193,13 +193,17 @@ public class WorkingMemoryStalenessCanaryIntegrationTests : IAsyncLifetime
 
         await _workingMemory.ClearAsync("alice");
 
-        (await _workingMemory.GetAsync("alice")).Should().BeNull();
-        var nodes = await _fixture.TransactionRunner.ReadAsync(async runner =>
+        var (nodes, storedText) = await _fixture.TransactionRunner.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync("MATCH (u:User {identifier: 'alice'}) RETURN count(u) AS c");
+            var cursor = await runner.RunAsync(
+                "MATCH (u:User {identifier: 'alice'}) RETURN count(u) AS c, collect(u.working_memory)[0] AS text");
             var record = await cursor.SingleAsync();
-            return global::Neo4j.Driver.ValueExtensions.As<long>(record["c"]);
+            return (global::Neo4j.Driver.ValueExtensions.As<long>(record["c"]),
+                    global::Neo4j.Driver.ValueExtensions.As<string?>(record["text"]));
         });
         nodes.Should().Be(1, "the identity node survives; only our derived properties are cleared");
+        storedText.Should().BeNull("the cleared text is gone from the store");
+        // Cleared is due, not absent: the next read rebuilds from the facts that remain.
+        (await _workingMemory.GetAsync("alice"))!.Text.Should().Contain("Acme");
     }
 }

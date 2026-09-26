@@ -84,4 +84,47 @@ public sealed class CanonicalFactSubjectTests
         _upserted.Single(f => f.Predicate == "moved to").Subject.Should().Be("Tomás");
         _upserted.Should().OnlyContain(f => !f.Metadata.ContainsKey("subject_surface") && !f.Metadata.ContainsKey("object_surface"));
     }
+
+    [Fact]
+    public async Task Two_phrasings_that_become_one_fact_are_written_one_after_the_other_on_the_default_batch_path()
+    {
+        // Review round 2: "Tomás | works at | Acme" and "Tomás Silva | Works at | Acme" were distinct as
+        // extracted, so they were batched; canonicalized they are one MERGE key, the batch folded them, and
+        // the replay upserted both again (mention count 4 for 2 mentions).
+        var facts = Substitute.For<IFactRepository, IBatchMemoryRepository<Fact>>();
+        facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<Fact>());
+        var batch = (IBatchMemoryRepository<Fact>)facts;
+        var entities = Substitute.For<IEntityRepository>();
+        entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<Entity>());
+        var embeddings = Substitute.For<IEmbeddingOrchestrator>();
+        embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
+        var ids = Substitute.For<IIdGenerator>();
+        ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
+        var sut = new PersistenceStage(embeddings, entities, facts, Substitute.For<IPreferenceRepository>(),
+            Substitute.For<IRelationshipRepository>(), Substitute.For<IClock>(), ids, NullLogger<PersistenceStage>.Instance,
+            new PassThroughMemoryPersistenceTransaction(),
+            Options.Create(new ExtractionOptions { CanonicalFactSubjects = true }));
+        var tomas = new Entity { EntityId = "entity-tomas", Name = "Tomás Silva", Type = "PERSON", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+
+        await sut.PersistAsync(new ExtractionStageResult
+        {
+            SourceMessageIds = ["message-1"],
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Tomás"] = tomas, ["Tomás Silva"] = tomas },
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "Tomás", Predicate = "works at", Object = "Acme", Confidence = 0.9 },
+                new ExtractedFact { Subject = "Tomás Silva", Predicate = "Works at", Object = "Acme", Confidence = 0.9 },
+            ],
+        }, ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        await batch.DidNotReceiveWithAnyArgs().UpsertBatchAsync(default!, default);
+        // Sequential: the second one's pre-fetch runs after the first write, so it can see it.
+        Received.InOrder(() =>
+        {
+            facts.FindByTripleAsync("Tomás Silva", "works at", "Acme", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+            facts.FindByTripleAsync("Tomás Silva", "Works at", "Acme", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        });
+    }
 }

@@ -49,6 +49,11 @@ internal static class CliSchemaExtensions
     /// whatever else was configured", which is not what anyone typing it intends and cannot be un-said
     /// from the command line.
     /// </para>
+    /// <para>
+    /// The one exception is what the library itself turns on: while the working-memory profile tier is
+    /// enabled (the default), its <c>working-memory</c> schema is added after this runs, whatever the list
+    /// says, because the tier's per-owner MERGE is only race-safe with its constraint.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">An id no shipped extension declares.</exception>
     public static void Apply(Neo4jOptions options, string? argument)

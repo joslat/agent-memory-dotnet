@@ -70,8 +70,13 @@ internal sealed record PerfBaselineDocument(
             QualityTolerance: tolerance,
             Scenarios: scenarios,
             Quality: new PerfQualityBaseline(
-                RetrievalMeasurement: QualityGate.DeterministicPlumbingMeasurement,
-                SemanticQualityClaim: false,
+                // Read from the summary that was measured, so the baseline cannot claim a different kind
+                // of measurement than the run it was refreshed from. Summaries older than the labels were
+                // all deterministic plumbing.
+                RetrievalMeasurement: quality.TryGetProperty("retrievalMeasurement", out var measurement)
+                    ? measurement.GetString() ?? QualityGate.DeterministicPlumbingMeasurement
+                    : QualityGate.DeterministicPlumbingMeasurement,
+                SemanticQualityClaim: quality.TryGetProperty("semanticQualityClaim", out var claim) && claim.GetBoolean(),
                 RecallAtK: Required(quality, "recallAtK").GetDouble(),
                 Mrr: Required(quality, "mrr").GetDouble(),
                 CasesWithViolations: Required(quality, "casesWithViolations").GetInt32(),

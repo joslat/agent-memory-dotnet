@@ -27,6 +27,9 @@ public interface IWorkingMemoryService
     /// <summary>The stored block, or null when none exists or the tier is disabled.</summary>
     Task<WorkingMemoryBlock?> GetAsync(string ownerId, CancellationToken cancellationToken = default);
 
-    /// <summary>Removes the stored block. Used when a rebuild fails and staleness must not persist.</summary>
+    /// <summary>
+    /// Removes the stored block's text. Used when a rebuild fails and staleness must not persist; the
+    /// block is rebuilt from what remains on the owner's next <see cref="GetAsync"/>.
+    /// </summary>
     Task ClearAsync(string ownerId, CancellationToken cancellationToken = default);
 }

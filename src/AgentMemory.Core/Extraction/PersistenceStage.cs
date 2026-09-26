@@ -138,7 +138,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
         var prepared = await PrepareEmbeddingsAsync(extraction, cancellationToken).ConfigureAwait(false);
         if (_options.DeduplicateWithinExtraction && prepared.Facts.Count > 1)
-            prepared = prepared with { Facts = WithoutNearDuplicates(prepared.Facts, _options.WithinExtractionDuplicateThreshold) };
+        {
+            var (kept, merged) = WithoutNearDuplicates(prepared.Facts, _options.WithinExtractionDuplicateThreshold);
+            prepared = prepared with { Facts = kept, Outcomes = [.. prepared.Outcomes, .. merged] };
+        }
         if (_options.FailureMode == IngestionFailureMode.FailFast)
         {
             try
@@ -598,10 +601,17 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         static (string Subject, string Predicate, string Object, string? OwnerId) FactKey(Fact fact) =>
             (fact.Subject, fact.Predicate, fact.Object, fact.OwnerId);
 
-        var distinctExtractedTriples = extraction.FilteredFacts
-            .Select(fact => (fact.Subject, fact.Predicate, fact.Object))
-            .Distinct(FactTripleComparer.OrdinalIgnoreCase)
-            .Count() == extraction.FilteredFacts.Count;
+        // Distinct as STORED: canonical names applied, compared on the storage MERGE key. Two facts that the
+        // extraction phrased apart but that land on one node ("Tomás | works at | Acme" and "Tomás Silva |
+        // Works at | Acme" under canonical subjects) must take the sequential path, where the second one's
+        // pre-fetch sees the first; batched, the MERGE folds them and the batch replays both (review round 2).
+        var distinctExtractedTriples = prepared.Facts
+            .Select(fact => (
+                MemoryTripleCanonicalizer.CanonicalValue(CanonicalName(fact.Item.Subject)),
+                MemoryTripleCanonicalizer.CanonicalValue(fact.Item.Predicate),
+                MemoryTripleCanonicalizer.CanonicalValue(CanonicalName(fact.Item.Object))))
+            .Distinct()
+            .Count() == prepared.Facts.Count;
         var fusedFactRepository = _options.UseCoalescedPersistenceTransactions
             ? _factRepository as IFusedBatchMemoryRepository<Fact> : null;
         var batchFactRepository = _factRepository as IBatchMemoryRepository<Fact>;
@@ -1001,23 +1011,6 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         return new PreparedEmbeddings(entities, facts, preferences, outcomes);
     }
 
-    private sealed class FactTripleComparer : IEqualityComparer<(string Subject, string Predicate, string Object)>
-    {
-        public static FactTripleComparer OrdinalIgnoreCase { get; } = new();
-
-        public bool Equals(
-            (string Subject, string Predicate, string Object) left,
-            (string Subject, string Predicate, string Object) right) =>
-            StringComparer.OrdinalIgnoreCase.Equals(left.Subject, right.Subject) &&
-            StringComparer.OrdinalIgnoreCase.Equals(left.Predicate, right.Predicate) &&
-            StringComparer.OrdinalIgnoreCase.Equals(left.Object, right.Object);
-
-        public int GetHashCode((string Subject, string Predicate, string Object) value) =>
-            HashCode.Combine(
-                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Subject),
-                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Predicate),
-                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Object));
-    }
     private sealed record PreparedEmbeddings(
         IReadOnlyDictionary<string, Entity> Entities,
         IReadOnlyList<PreparedFact> Facts,
@@ -1027,19 +1020,24 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private sealed record PreparedFact(ExtractedFact Item, float[] Embedding);
 
     /// <summary>
-    /// I-6: one fact per statement within an extraction. A fact at least <paramref name="threshold"/>
-    /// similar to one already kept is the same statement in other words; the more confident of the two is
-    /// kept (the first on a tie). Facts without a vector are always kept. Records how many were merged on
-    /// the current span (<c>memory.persist.facts_merged</c>).
+    /// I-6: one fact per statement within an extraction. Two facts are the same statement in other words
+    /// when they are at least <paramref name="threshold"/> similar AND <see cref="MayBeOneStatement"/>:
+    /// similarity alone scores "has 2 kids" / "has 3 kids" and "is vegetarian" / "is not vegetarian" as
+    /// near-identical. The kept phrasing is the more trusted (the user's over the assistant's), then the
+    /// more confident, then the first; it takes over a validity window or source turn only the other had.
+    /// Each dropped fact gets a <see cref="IngestionItemStatus.Skipped"/> outcome naming the kept one, and
+    /// the span records how many were merged (<c>memory.persist.facts_merged</c>).
     /// </summary>
-    private static IReadOnlyList<PreparedFact> WithoutNearDuplicates(IReadOnlyList<PreparedFact> facts, double threshold)
+    private static (IReadOnlyList<PreparedFact> Kept, IReadOnlyList<IngestionItemOutcome> Merged) WithoutNearDuplicates(
+        IReadOnlyList<PreparedFact> facts, double threshold)
     {
         var kept = new List<PreparedFact>(facts.Count);
-        var merged = 0;
+        var merged = new List<IngestionItemOutcome>();
         foreach (var fact in facts)
         {
             var twin = fact.Embedding is { Length: > 0 }
                 ? kept.FindIndex(k => k.Embedding is { Length: > 0 } && k.Embedding.Length == fact.Embedding.Length &&
+                                      MayBeOneStatement(k.Item, fact.Item) &&
                                       Resolution.SemanticMatchEntityMatcher.CosineSimilarity(k.Embedding, fact.Embedding) >= threshold)
                 : -1;
             if (twin < 0)
@@ -1047,13 +1045,71 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 kept.Add(fact);
                 continue;
             }
-            merged++;
-            if (fact.Item.Confidence > kept[twin].Item.Confidence)
-                kept[twin] = fact;
+            var (winner, loser) = Prefer(fact.Item, kept[twin].Item) ? (fact, kept[twin]) : (kept[twin], fact);
+            kept[twin] = winner with
+            {
+                Item = winner.Item with
+                {
+                    ValidFrom = winner.Item.ValidFrom ?? loser.Item.ValidFrom,
+                    ValidUntil = winner.Item.ValidUntil ?? loser.Item.ValidUntil,
+                    SourceTurn = winner.Item.SourceTurn ?? loser.Item.SourceTurn,
+                },
+            };
+            merged.Add(new IngestionItemOutcome
+            {
+                Kind = MemoryItemKind.Fact,
+                Stage = IngestionStage.Persistence,
+                Status = IngestionItemStatus.Skipped,
+                SourceKey = $"{loser.Item.Subject} {loser.Item.Predicate} {loser.Item.Object}",
+                ErrorCode = MemoryErrorCodes.FactMergedWithinExtraction,
+                ErrorMessage = $"Same statement as '{winner.Item.Subject} {winner.Item.Predicate} {winner.Item.Object}' in this extraction.",
+            });
         }
-        if (merged > 0)
-            System.Diagnostics.Activity.Current?.SetTag("memory.persist.facts_merged", merged);
-        return kept;
+        if (merged.Count > 0)
+            System.Diagnostics.Activity.Current?.SetTag("memory.persist.facts_merged", merged.Count);
+        return (kept, merged);
+
+        // The user's own words over the assistant's paraphrase (trust is what a merge must not lower),
+        // then confidence; the earlier phrasing on a tie.
+        static bool Prefer(ExtractedFact candidate, ExtractedFact current)
+        {
+            var candidateIsAssistant = string.Equals(candidate.SourceRole, "assistant", StringComparison.OrdinalIgnoreCase);
+            var currentIsAssistant = string.Equals(current.SourceRole, "assistant", StringComparison.OrdinalIgnoreCase);
+            if (candidateIsAssistant != currentIsAssistant) return currentIsAssistant;
+            return candidate.Confidence > current.Confidence;
+        }
+    }
+
+    private static readonly HashSet<string> NegationWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "not", "no", "never", "none", "nothing", "nobody", "neither", "nor", "without", "cannot", "non",
+    };
+
+    /// <summary>
+    /// Whether two facts CAN be one statement phrased twice, whatever their similarity: the same subject,
+    /// only one of predicate and object worded differently, the same numbers, the same negations, and no
+    /// conflicting validity window. Conservative on purpose: a missed merge leaves a duplicate line, a wrong
+    /// one loses a fact.
+    /// </summary>
+    internal static bool MayBeOneStatement(ExtractedFact left, ExtractedFact right)
+    {
+        static string Key(string value) => MemoryTripleCanonicalizer.CanonicalValue(value);
+        if (Key(left.Subject) != Key(right.Subject)) return false;
+        if (Key(left.Predicate) != Key(right.Predicate) && Key(left.Object) != Key(right.Object)) return false;
+        if (Numbers(left) != Numbers(right) || Negations(left) != Negations(right)) return false;
+        return Agree(left.ValidFrom, right.ValidFrom) && Agree(left.ValidUntil, right.ValidUntil);
+
+        static bool Agree(DateTimeOffset? a, DateTimeOffset? b) => a is null || b is null || a == b;
+
+        static string Numbers(ExtractedFact fact) => string.Join(
+            ",", System.Text.RegularExpressions.Regex.Matches($"{fact.Predicate} {fact.Object}", "[0-9]+").Select(m => m.Value));
+
+        static string Negations(ExtractedFact fact) => string.Join(
+            ",", System.Text.RegularExpressions.Regex.Split(
+                    $"{fact.Predicate} {fact.Object}".Replace("n't", " not", StringComparison.OrdinalIgnoreCase), "[^A-Za-z]+")
+                .Where(NegationWords.Contains)
+                .Select(word => word.ToLowerInvariant())
+                .Order(StringComparer.Ordinal));
     }
 
     private sealed record PreparedPreference(ExtractedPreference Item, float[] Embedding);

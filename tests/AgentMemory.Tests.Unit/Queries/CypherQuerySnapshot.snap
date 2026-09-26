@@ -1212,7 +1212,7 @@ MATCH (u:User)
             SET u.working_memory = null,
                 u.working_memory_built_at = null,
                 u.working_memory_hash = null,
-                u.working_memory_valid_until = null,
+                u.working_memory_valid_until = datetime($now),
                 u.updated_at = datetime($now)
 
 ## WorkingMemoryQueries.ClearBlock
@@ -1220,12 +1220,12 @@ MATCH (u:User {identifier: $ownerId})
             SET u.working_memory = null,
                 u.working_memory_built_at = null,
                 u.working_memory_hash = null,
-                u.working_memory_valid_until = null,
+                u.working_memory_valid_until = datetime($now),
                 u.updated_at = datetime($now)
 
 ## WorkingMemoryQueries.GetBlock
 MATCH (u:User {identifier: $ownerId})
-            WHERE u.working_memory IS NOT NULL
+            WHERE u.working_memory IS NOT NULL OR u.working_memory_valid_until IS NOT NULL
             RETURN u.working_memory AS block,
                    u.working_memory_built_at AS builtAt,
                    u.working_memory_hash AS hash,

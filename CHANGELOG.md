@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropped in favour of the more confident one. The threshold is measured: duplicate phrasings scored
   0.912–0.996 with bge-m3, the closest distinct pair ("mentor of" / "manager of" one person) 0.879.
 
+  Similarity alone is not enough: two facts merge only when they share a subject, differ in one of
+  predicate and object, carry the same numbers and negations, and have no conflicting validity window
+  ("has 2 kids" / "has 3 kids" and "is vegetarian" / "is not vegetarian" score as near-identical). The
+  user's phrasing is kept over the assistant's, then the more confident; it takes over a date or source
+  turn only the other had, and the dropped one is reported as a `Skipped` outcome
+  (`MemoryErrorCodes.FactMergedWithinExtraction`).
 - **`ExtractionOptions.CanonicalFactSubjects` (dark): one person, one fact subject.** Extraction writes
   the words used, so "Tomás | moved to | analytics team" and facts about "Tomás Silva" had two subjects
   for one person. On, a fact's subject and object are stored by the resolved entity's name (the words
@@ -117,10 +123,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   With the tier on, the Neo4j package activates its schema extension (`working-memory`, the
   `:User.identifier` constraint that makes the per-owner write race-safe) so the two cannot disagree.
   The block keeps itself current: it records the next moment a fact in it can expire or start and is
-  rebuilt on the first read after it; a prune clears the block of the owners it touched (a hard prune
-  must not leave the removed text in every prompt); new facts reach it (the most recently touched win a
+  rebuilt on the first read after it, including a block that is empty until a future fact starts; a
+  prune or a failed rebuild removes the block's text (a hard prune must not leave the removed text in
+  every prompt) and marks it due, so the owner's next read rebuilds it from what remains rather than
+  going without a profile until the owner writes again; a rebuild on read that fails (a read-only
+  connection, a timeout) never fails recall, and serves no block (or, with
+  `ClearOnRebuildFailure = false`, the stored one); new facts reach it (the most recently touched win a
   slot, while the text keeps a stable order). Semantic Kernel renders the block even when similarity
   found nothing, which is the question it exists to answer.
+  **Upgrading a database that already ran the tier** (it was opt-in before): the constraint cannot be
+  created while two `:User` nodes share an `identifier`. Check with
+  `MATCH (u:User) WITH u.identifier AS id, count(*) AS n WHERE n > 1 RETURN id, n` and merge any
+  duplicates before `migrate`.
 
 - **Fan-out legs are embedded in one request.** When recall fan-out splits a question into sub-queries,
   each leg's query was embedded in its own request, one after another, after the main query: three
