@@ -112,11 +112,14 @@ public sealed class WorkingMemoryTests
     }
 
     [Fact]
-    public void TheTierIsOffByDefault()
+    public void TheTierIsOnByDefault()
     {
+        // Flipped 2026-09-26 on live evidence: without it a new session could not answer "what do you
+        // know about me?" (a generic question's embedding matches few stored facts).
         var options = new WorkingMemoryOptions();
 
-        options.Enabled.Should().BeFalse();
+        options.Enabled.Should().BeTrue();
+        options.MinFactMentionCount.Should().Be(1);
         options.RebuildOnWrite.Should().BeTrue("but only matters once Enabled is true");
         options.ClearOnRebuildFailure.Should().BeTrue(
             "absence degrades to today's behaviour; staleness manufactures knowledge-update errors");

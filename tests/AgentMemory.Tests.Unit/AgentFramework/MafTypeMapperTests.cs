@@ -163,8 +163,8 @@ public sealed class MafTypeMapperTests
 
         var result = MafTypeMapper.ToContextMessages(context);
 
-        result.Should().HaveCount(2); // prefix + message
-        result[1].Text.Should().Be("Hi");
+        result.Should().HaveCount(3); // prefix + framing + message
+        result[2].Text.Should().Be("Hi");
     }
 
     [Fact]
@@ -280,7 +280,7 @@ public sealed class MafTypeMapperTests
         var result = MafTypeMapper.ToContextMessages(context,
             new ContextFormatOptions { MaxChatHistoryMessages = 5, ContextPrefix = "" });
 
-        result.Should().HaveCount(5);
+        result.Should().HaveCount(6); // the recalled-turn framing + the 5 kept turns
     }
 
     [Fact]
@@ -348,7 +348,7 @@ public sealed class MafTypeMapperTests
         result.Any(m => m.Text != null && m.Text.Contains("Known facts") && m.Text.Contains("works_at")).Should().BeTrue("the fact block must survive the budget");
         // #91: prefix/entities/facts are NOT subtracted from the chat budget anymore -- prefix(1) +
         // entities(1) + facts(1) + 5 most-recent chat messages (the full configured chat budget) = 8.
-        result.Should().HaveCount(8);
+        result.Should().HaveCount(9); // one more than before: the recalled-turn framing
     }
 
     // ── #91: MaxChatHistoryMessages bounds ONLY recalled chat history, not the complete context ────

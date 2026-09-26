@@ -262,10 +262,13 @@ internal sealed record McpHostOptions
           BITDEER_API_KEY                    (that alone: chat + embeddings)
           OPENAI_API_KEY
           FOUNDRY_ENDPOINT + FOUNDRY_API_KEY + FOUNDRY_MODEL
-          OPENAI_COMPATIBLE_ENDPOINT + OPENAI_COMPATIBLE_MODEL   (Ollama, LM Studio, vLLM)
+          OPENAI_COMPATIBLE_ENDPOINT + OPENAI_COMPATIBLE_MODEL   (LM Studio, vLLM)
 
           AI_INFERENCE_PROVIDER              name one explicitly: azure|bitdeer|
-                                             openai|foundry|openai-compatible
+                                             openai|foundry|openai-compatible|ollama
+                                             (ollama is used only when named, with OLLAMA_MODEL)
+          AI_EMBEDDING_PROVIDER              embeddings elsewhere, e.g. =ollama for a
+                                             local bge-m3 while chat stays remote
           AI_EMBEDDING_DIMENSIONS            required if the embedding model's width
                                              is not known to the package (it is never
                                              guessed: a wrong width builds a vector

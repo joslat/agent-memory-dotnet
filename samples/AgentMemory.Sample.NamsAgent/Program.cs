@@ -100,6 +100,9 @@ static async Task RunAsync(IServiceProvider root)
             Instructions = "You are a friendly assistant with durable, NAMS-backed long-term memory.",
         },
         AIContextProviders = [memoryProvider],
+        // Keep the recalled memory out of the stored conversation (MAF's default history stores it,
+        // and every later turn would carry it again).
+        ChatHistoryProvider = AgentMemoryChatHistory.CreateInMemoryProvider(),
     });
 
     const string applicationId = "agent-memory-dotnet-nams-sample";

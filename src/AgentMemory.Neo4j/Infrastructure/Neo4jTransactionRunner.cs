@@ -65,6 +65,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
             return await work(ambient).ConfigureAwait(false);
 
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
+        activity?.SetTag("db.system", "neo4j");
         activity?.SetTag("db.mode", "read");
         var payload = activity is null ? null : new PayloadAccumulator();
         var transactionEntryStartedAt = activity is null ? 0 : Stopwatch.GetTimestamp();
@@ -81,7 +82,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error);
+            MemoryTelemetry.RecordException(activity, ex);
             _logger.LogError(ex, "Error executing read transaction.");
             throw;
         }
@@ -107,6 +108,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
             return await work(ambient).ConfigureAwait(false);
 
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
+        activity?.SetTag("db.system", "neo4j");
         activity?.SetTag("db.mode", "write");
         var payload = activity is null ? null : new PayloadAccumulator();
         var transactionEntryStartedAt = activity is null ? 0 : Stopwatch.GetTimestamp();
@@ -121,7 +123,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error);
+            MemoryTelemetry.RecordException(activity, ex);
             _logger.LogError(ex, "Error executing write transaction.");
             throw;
         }
@@ -143,6 +145,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
             return await work(cancellationToken).ConfigureAwait(false);
 
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
+        activity?.SetTag("db.system", "neo4j");
         activity?.SetTag("db.mode", "write");
         activity?.SetTag("db.transaction.logical_unit", true);
         var payload = activity is null ? null : new PayloadAccumulator();
@@ -175,7 +178,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error);
+            MemoryTelemetry.RecordException(activity, ex);
             Exception? rollbackFailure = null;
             if (transaction is not null)
             {
@@ -200,9 +203,11 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         finally
         {
             _ambientWriteTransaction.Value = null;
+            // Query spans are closed before the transaction is disposed, so a failing dispose cannot
+            // leave them open.
+            TagPayload(activity, payload);
             if (transaction is not null)
                 await transaction.DisposeAsync().ConfigureAwait(false);
-            TagPayload(activity, payload);
         }
     }
 
@@ -229,7 +234,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         long transactionEntryStartedAt) =>
         transaction is null
             ? work
-            : runner =>
+            : Attempted(transaction, payload!, runner =>
             {
                 // The driver's public API exposes acquisition counts and a timeout, but not wait duration.
                 // This upper-bound estimate starts immediately before ExecuteRead/WriteAsync and stops when
@@ -239,10 +244,35 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
                     "db.transaction_entry_ms_est",
                     Stopwatch.GetElapsedTime(transactionEntryStartedAt).TotalMilliseconds);
                 return work(new CountingQueryRunner(runner, mode, transaction, payload!));
-            };
+            });
+
+    /// <summary>
+    /// Counts how many times the driver invoked the transaction callback: a managed transaction retries
+    /// transient failures by calling it again, invisibly. Tagged as <c>db.attempts</c> and
+    /// <c>db.retries</c>, with a <c>db.attempt</c> event per call.
+    /// </summary>
+    private static Func<IAsyncQueryRunner, Task<T>> Attempted<T>(
+        Activity transaction, PayloadAccumulator payload, Func<IAsyncQueryRunner, Task<T>> work)
+    {
+        int attempts = 0;
+        return runner =>
+        {
+            var n = Interlocked.Increment(ref attempts);
+            transaction.SetTag("db.attempts", n);
+            transaction.SetTag("db.retries", n - 1);
+            if (n > 1)
+            {
+                // The failed attempt's unread results died with it: their spans end here, not after the retry.
+                payload.CloseOpenQueries();
+                transaction.AddEvent(new ActivityEvent("db.attempt", tags: new ActivityTagsCollection { ["db.attempt"] = n }));
+            }
+            return work(runner);
+        };
+    }
 
     private static void TagPayload(Activity? activity, PayloadAccumulator? payload)
     {
+        payload?.CloseOpenQueries();
 
         if (activity is null || payload is null) return;
         activity.SetTag("db.records", payload.RecordCount);
@@ -271,6 +301,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
             _mode = mode;
             _parent = transaction.Context;
             _payload = payload;
+            payload.Track(this);
         }
 
         public Task<IResultCursor> RunAsync(string query) =>
@@ -289,12 +320,41 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
             string queryText,
             Func<Task<IResultCursor>> run)
         {
-            using var activity = AgentMemoryDiagnostics.Source.StartActivity(
+            // Not `using`: the span ends when the result has been READ (consumed or exhausted), not when
+            // the driver returned a cursor, which was before the server had streamed anything (W14).
+            // A new query on this runner means the previous results were buffered by the driver: their
+            // spans end now, not at commit (a result nobody reads would otherwise span the whole unit).
+            CloseOpenQueries();
+            var activity = AgentMemoryDiagnostics.Source.StartActivity(
                 "memory.db.query", ActivityKind.Client, _parent);
+            var fingerprint = activity is null ? null : CypherQueryRegistry.FingerprintFor(queryText);
+            activity?.SetTag("db.system", "neo4j");
             activity?.SetTag("db.mode", _mode);
-            activity?.SetTag("db.query.fingerprint", CypherQueryRegistry.FingerprintFor(queryText));
-            var cursor = await run().ConfigureAwait(false);
-            return new CountingResultCursor(cursor, _payload);
+            activity?.SetTag("db.query.fingerprint", fingerprint);
+            activity?.SetTag("db.operation.name", fingerprint);
+            IResultCursor cursor;
+            try
+            {
+                cursor = await run().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                MemoryTelemetry.RecordException(activity, ex);
+                activity?.Dispose();
+                throw;
+            }
+            var counting = new CountingResultCursor(cursor, _payload, activity);
+            if (activity is not null) _open.Enqueue(counting);
+            return counting;
+        }
+
+        // Query spans still open when the transaction ends (a caller that neither consumed nor read to
+        // the end) are closed with it, so no span outlives its transaction.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<CountingResultCursor> _open = new();
+
+        internal void CloseOpenQueries()
+        {
+            while (_open.TryDequeue(out var cursor)) cursor.Abandon();
         }
 
         // Forwarded, not swallowed. The wrapper must be indistinguishable from the runner it replaces:
@@ -316,11 +376,14 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
     {
         private readonly IResultCursor _inner;
         private readonly PayloadAccumulator _payload;
+        private readonly Activity? _query;
+        private long _rows;
 
-        public CountingResultCursor(IResultCursor inner, PayloadAccumulator payload)
+        public CountingResultCursor(IResultCursor inner, PayloadAccumulator payload, Activity? query)
         {
             _inner = inner;
             _payload = payload;
+            _query = query;
         }
 
         public IRecord Current => _inner.Current;
@@ -329,15 +392,54 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
 
         public Task<string[]> KeysAsync() => _inner.KeysAsync();
 
-        public Task<IResultSummary> ConsumeAsync() => _inner.ConsumeAsync();
+        public async Task<IResultSummary> ConsumeAsync()
+        {
+            IResultSummary summary;
+            try
+            {
+                summary = await _inner.ConsumeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                MemoryTelemetry.RecordException(_query, ex);
+                End();
+                throw;
+            }
+            // The server's own clock: time until the first record was available, and until the result was
+            // consumed. Read from the summary the caller asked for -- never an extra call to get it.
+            if (_query is not null && !_query.IsStopped)
+            {
+                _query.SetTag("db.server.available_ms", summary.ResultAvailableAfter.TotalMilliseconds);
+                _query.SetTag("db.server.consumed_ms", summary.ResultConsumedAfter.TotalMilliseconds);
+            }
+            End();
+            return summary;
+        }
 
         public Task<IRecord> PeekAsync() => _inner.PeekAsync();
 
         public async Task<bool> FetchAsync()
         {
-            var fetched = await _inner.FetchAsync().ConfigureAwait(false);
+            bool fetched;
+            try
+            {
+                fetched = await _inner.FetchAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                MemoryTelemetry.RecordException(_query, ex);
+                End();
+                throw;
+            }
             if (fetched)
+            {
                 _payload.Add(_inner.Current);
+                _rows++;
+            }
+            else
+            {
+                End();
+            }
             return fetched;
         }
 
@@ -350,13 +452,33 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
                 {
                     var record = enumerator.Current;
                     _payload.Add(record);
+                    _rows++;
                     yield return record;
                 }
             }
             finally
             {
                 await enumerator.DisposeAsync().ConfigureAwait(false);
+                End();
             }
+        }
+
+        private void End()
+        {
+            if (_query is null || _query.IsStopped) return;
+            _query.SetTag("db.rows", _rows);
+            _query.Dispose();
+        }
+
+        /// <summary>
+        /// Ends the span of a result its caller stopped reading: <c>db.result.read</c> is <c>none</c> when
+        /// no record was read, <c>partial</c> when some were (a single fetch, a cancelled read).
+        /// </summary>
+        internal void Abandon()
+        {
+            if (_query is null || _query.IsStopped) return;
+            _query.SetTag("db.result.read", Interlocked.Read(ref _rows) > 0 ? "partial" : "none");
+            End();
         }
     }
 
@@ -364,6 +486,14 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
     {
         private long _recordCount;
         private long _bytesEstimate;
+        private readonly System.Collections.Concurrent.ConcurrentQueue<CountingQueryRunner> _runners = new();
+
+        public void Track(CountingQueryRunner runner) => _runners.Enqueue(runner);
+
+        public void CloseOpenQueries()
+        {
+            foreach (var runner in _runners) runner.CloseOpenQueries();
+        }
 
         public long RecordCount => Interlocked.Read(ref _recordCount);
 

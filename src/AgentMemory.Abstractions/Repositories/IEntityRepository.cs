@@ -67,6 +67,20 @@ public interface IEntityRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// <see cref="GetByTypeAsync"/> without the vectors (<see cref="Entity.Embedding"/> is null): the
+    /// entity-resolution candidate set when the semantic stage goes through the vector index. The default
+    /// body reads everything and drops the vectors; a backend overrides it to not read them at all.
+    /// </summary>
+    async Task<IReadOnlyList<Entity>> GetByTypeWithoutEmbeddingAsync(
+        string type,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        var entities = await GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
+        return entities.Select(entity => entity with { Embedding = null }).ToList();
+    }
+
+    /// <summary>
     /// Adds or updates a batch of entities atomically.
     /// </summary>
     Task<IReadOnlyList<Entity>> UpsertBatchAsync(

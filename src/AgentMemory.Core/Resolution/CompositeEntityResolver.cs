@@ -70,7 +70,7 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
     /// behavior) or for fail-fast ExtractionStage, which must remain side-effect free until
     /// PersistenceStage opens the logical transaction.
     /// </summary>
-    private async Task<Entity> ResolveEntityCoreAsync(
+    private async Task<(Entity Entity, bool Created)> ResolveEntityCoreAsync(
         ExtractedEntity extractedEntity,
         IReadOnlyList<string> sourceMessageIds,
         MemoryScope? scope,
@@ -80,16 +80,27 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         var candidates = await GetCandidatesAsync(extractedEntity, scope, cancellationToken)
             .ConfigureAwait(false);
 
-        var matchers = BuildMatchers();
+        // The semantic matcher embeds the mention to compare it; when nothing matches, persistence used
+        // to embed the SAME name again for the new entity (one remote round trip each, measured ~1 s).
+        // The memo keeps that vector so the new entity is created with it.
+        var batch = _candidateBatch.Value;
+        var embeddings = new EmbeddingMemo(_embeddingOrchestrator, batch is null ? null : batch.VectorFor);
+        var matchers = BuildMatchers(embeddings);
         EntityResolutionResult? resolutionResult = null;
 
         foreach (var matcher in matchers)
         {
-            resolutionResult = await matcher.TryMatchAsync(extractedEntity, candidates, cancellationToken)
+            var offered = await CandidatesForAsync(matcher, extractedEntity, candidates, embeddings, scope, cancellationToken)
+                .ConfigureAwait(false);
+            resolutionResult = await matcher.TryMatchAsync(extractedEntity, offered, cancellationToken)
                 .ConfigureAwait(false);
 
             if (resolutionResult is not null)
             {
+                resolutionResult = resolutionResult with
+                {
+                    ResolvedEntity = await InFullAsync(resolutionResult.ResolvedEntity, cancellationToken).ConfigureAwait(false),
+                };
                 _logger.LogDebug(
                     "Entity '{Name}' matched via {MatchType} with confidence {Confidence:F3}.",
                     extractedEntity.Name, resolutionResult.MatchType, resolutionResult.Confidence);
@@ -98,8 +109,10 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         }
 
         if (resolutionResult is null)
-            return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, persistResolution, cancellationToken)
-                .ConfigureAwait(false);
+            return (await CreateNewEntityAsync(
+                    extractedEntity, sourceMessageIds, scope, persistResolution,
+                    embeddings.Computed(extractedEntity.Name), cancellationToken)
+                .ConfigureAwait(false), true);
 
         var matched = resolutionResult.ResolvedEntity;
 
@@ -138,9 +151,9 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
                 mergedEntity = mergedEntity with { Embedding = freshEmbedding };
             }
 
-            return persistResolution
+            return (persistResolution
                 ? await _entityRepository.UpsertAsync(mergedEntity, cancellationToken).ConfigureAwait(false)
-                : mergedEntity;
+                : mergedEntity, false);
         }
 
         // >= SameAsThreshold and < AutoMergeThreshold: flag for SAME_AS — caller handles relationship
@@ -150,7 +163,7 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
                 "Entity '{Candidate}' is SAME_AS '{Existing}' (confidence {Confidence:F3}). Returning existing without merge.",
                 extractedEntity.Name, matched.Name, resolutionResult.Confidence);
 
-            return matched;
+            return (matched, false);
         }
 
         // Below SameAsThreshold: create new entity
@@ -158,8 +171,10 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
             "No match above SameAs threshold for '{Name}' — creating new entity.",
             extractedEntity.Name);
 
-        return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, persistResolution, cancellationToken)
-            .ConfigureAwait(false);
+        return (await CreateNewEntityAsync(
+                extractedEntity, sourceMessageIds, scope, persistResolution,
+                embeddings.Computed(extractedEntity.Name), cancellationToken)
+            .ConfigureAwait(false), true);
     }
 
     /// <inheritdoc/>
@@ -175,15 +190,17 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         var probe = new ExtractedEntity { Name = name, Type = type };
 
         var candidates = await GetCandidatesAsync(probe, scope, cancellationToken).ConfigureAwait(false);
-        var matchers = BuildMatchers();
+        var matchers = BuildMatchers(_embeddingOrchestrator);
         var results = new List<Entity>();
 
         foreach (var matcher in matchers)
         {
-            var match = await matcher.TryMatchAsync(probe, candidates, cancellationToken)
+            var offered = await CandidatesForAsync(matcher, probe, candidates, _embeddingOrchestrator, scope, cancellationToken)
+                .ConfigureAwait(false);
+            var match = await matcher.TryMatchAsync(probe, offered, cancellationToken)
                 .ConfigureAwait(false);
             if (match is not null && !results.Any(e => e.EntityId == match.ResolvedEntity.EntityId))
-                results.Add(match.ResolvedEntity);
+                results.Add(await InFullAsync(match.ResolvedEntity, cancellationToken).ConfigureAwait(false));
         }
 
         return results;
@@ -251,20 +268,81 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         return combined;
     }
 
-    private IReadOnlyList<IEntityMatcher> BuildMatchers()
+    /// <summary>
+    /// The candidates a matcher sees. Unchanged unless <see cref="EntityResolutionOptions.IndexedCandidates"/>
+    /// is on; then the string matchers get the vector-free candidate set and the semantic matcher gets the
+    /// entity vector index's nearest neighbours of the mention (owner-scoped, above the semantic threshold,
+    /// restricted like the candidate set: same type, or, without type-strict filtering, same type or the
+    /// mention's name or alias).
+    /// </summary>
+    private async Task<IReadOnlyList<Entity>> CandidatesForAsync(
+        IEntityMatcher matcher,
+        ExtractedEntity extracted,
+        IReadOnlyList<Entity> candidates,
+        IEmbeddingOrchestrator embeddings,
+        MemoryScope? scope,
+        CancellationToken cancellationToken)
+    {
+        var resolution = _options.EntityResolution;
+        if (!resolution.IndexedCandidates || matcher.MatchType != EntityMatchType.Semantic)
+            return candidates;
+        if (string.IsNullOrWhiteSpace(extracted.Name))
+            return [];
+
+        // The same call the semantic matcher makes, through the same memo: one embedding, not two.
+        var vector = await embeddings.EmbedEntityAsync(extracted.Name, cancellationToken).ConfigureAwait(false);
+        if (vector.Length == 0)
+            return [];
+
+        var hits = await _entityRepository
+            .SearchByVectorAsync(vector, resolution.SemanticCandidateLimit, resolution.SemanticMatchThreshold, scope, cancellationToken)
+            .ConfigureAwait(false);
+        return hits
+            .Select(hit => hit.Entity)
+            .Where(entity =>
+                string.Equals(entity.Type, extracted.Type, StringComparison.OrdinalIgnoreCase) ||
+                (!resolution.TypeStrictFiltering &&
+                 (string.Equals(entity.Name, extracted.Name, StringComparison.OrdinalIgnoreCase) ||
+                  entity.Aliases.Any(alias => string.Equals(alias, extracted.Name, StringComparison.OrdinalIgnoreCase)))))
+            .ToList();
+    }
+
+    /// <summary>
+    /// A match from the vector-free candidate set, read back in full before anything uses it: the merge
+    /// and SAME_AS paths write the matched entity, and writing it without its vector would erase the
+    /// stored one. A no-op when the match already carries its vector (or the option is off).
+    /// </summary>
+    private async Task<Entity> InFullAsync(Entity matched, CancellationToken cancellationToken)
+    {
+        if (!_options.EntityResolution.IndexedCandidates || matched.Embedding is not null)
+            return matched;
+        return await _entityRepository.GetByIdAsync(matched.EntityId, cancellationToken).ConfigureAwait(false) ?? matched;
+    }
+
+    private IReadOnlyList<IEntityMatcher> BuildMatchers(IEmbeddingOrchestrator embeddings)
+    {
+        // The string matchers, then the one that needs a vector. Derived, not listed twice: the name
+        // probe (PrepareNameEmbeddingsAsync) must agree exactly with what resolution will try first.
+        var matchers = new List<IEntityMatcher>(BuildStringMatchers(recordAmbiguity: true));
+        if (_options.EntityResolution.EnableSemanticMatch)
+            matchers.Add(new SemanticMatchEntityMatcher(embeddings, _options.EntityResolution));
+        return matchers;
+    }
+
+    /// <summary>
+    /// The matchers that need no embedding, in resolution order. A partial-name match comes before the
+    /// semantic matcher, so a mention it resolves spares the embedding round trip.
+    /// </summary>
+    private IReadOnlyList<IEntityMatcher> BuildStringMatchers(bool recordAmbiguity)
     {
         var matchers = new List<IEntityMatcher>();
         var resOpts = _options.EntityResolution;
-
         if (resOpts.EnableExactMatch)
             matchers.Add(new ExactMatchEntityMatcher());
-
         if (resOpts.EnableFuzzyMatch)
             matchers.Add(new FuzzyMatchEntityMatcher(resOpts));
-
-        if (resOpts.EnableSemanticMatch)
-            matchers.Add(new SemanticMatchEntityMatcher(_embeddingOrchestrator, resOpts));
-
+        if (resOpts.EnablePartialNameMatch)
+            matchers.Add(new PartialNameEntityMatcher(resOpts, _logger, recordAmbiguity));
         return matchers;
     }
 
@@ -273,6 +351,7 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         IReadOnlyList<string> sourceMessageIds,
         MemoryScope? scope,
         bool persistResolution,
+        float[]? nameEmbedding,
         CancellationToken cancellationToken)
     {
         var entity = new Entity
@@ -294,8 +373,14 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
             CreatedAtUtc = _clock.UtcNow
         };
 
-        return persistResolution
+        var stored = persistResolution
             ? await _entityRepository.UpsertAsync(entity, cancellationToken).ConfigureAwait(false)
             : entity;
+
+        // The vector of exactly this name, when resolution already computed it: the same text persistence
+        // would embed, so handing it over saves that round trip. It rides on the RETURNED entity only.
+        // What resolution itself sees -- the stored node and the batch snapshot -- stays vector-less until
+        // persistence writes it, exactly as before, so later matches in the same turn are unchanged.
+        return nameEmbedding is { Length: > 0 } ? stored with { Embedding = nameEmbedding } : stored;
     }
 }

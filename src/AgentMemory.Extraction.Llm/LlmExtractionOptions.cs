@@ -18,6 +18,12 @@ public sealed class LlmExtractionOptions
     public int MaxRetries { get; set; } = 2;
 
     /// <summary>
+    /// Log the first 2,000 characters of a reply that could not be used (Warning level). Off by default:
+    /// the reply is model output about the user's conversation, so it is content, not telemetry.
+    /// </summary>
+    public bool LogRawResponseOnFailure { get; set; }
+
+    /// <summary>
     /// Whether extraction requests should ask the chat provider for a JSON response.
     /// Disable only for providers that do not support the portable response-format hint.
     /// </summary>

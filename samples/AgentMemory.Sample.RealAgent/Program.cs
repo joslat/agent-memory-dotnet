@@ -127,6 +127,9 @@ static async Task RunAsync(IServiceProvider root)
                 Tools = [.. memoryTools],
             },
             AIContextProviders = [memoryProvider],
+            // Keep the recalled memory out of the stored conversation (MAF's default history stores it,
+            // and every later turn would carry it again).
+            ChatHistoryProvider = AgentMemoryChatHistory.CreateInMemoryProvider(),
         })
         .AsBuilder()
         .UseOpenTelemetry()

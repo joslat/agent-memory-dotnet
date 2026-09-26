@@ -44,8 +44,10 @@ public sealed class ProjectionOffByteIdentityTests
         "a650ab4fb7400a399c9ef94b71b95d83df8acc54b9e91e3edd0df7884ab116d4";
     private const string FormatterGraphFirstSha256 =
         "53949444dc08c8948280231b0c43de0d7e31cfbfe8d3baf3fdd66bcb484fb725";
+    // Re-pinned 2026-09-26 (A9): recalled turns are now emitted oldest first behind a framing message, so
+    // the provider can place them before the live thread. A deliberate change of this surface, not drift.
     private const string MafContextMessagesSha256 =
-        "e7f50e0b94494502d24e8bd6393fc7200481db9dbde2afc02a551a96797ad40e";
+        "a89404782f7a61def3eff853ec8f08d952b86dffd0bda2852b3bc8b132e42224";
 
     private static readonly DateTimeOffset Stamp =
         new(2026, 3, 4, 5, 6, 7, TimeSpan.Zero);

@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`AgentMemoryChatHistory`: chat history without the injected memory.** MAF's default
+  `InMemoryChatHistoryProvider` stores the memory a context provider injected, so every turn's recalled
+  blocks were sent again on every later turn (measured: 17 messages instead of 8 on the third call).
+  `AgentMemoryChatHistory.CreateInMemoryProvider()` is that history without them;
+  `ExcludeInjectedContext` is the filter on its own, and `Neo4jChatHistoryProvider` stores through it.
+  The samples use it.
+- **`EntityResolutionOptions.IndexedCandidates` (dark): resolution that scales with the owner's
+  entities.** By default every live entity of a mention's type is loaded with its vector on every
+  extraction: an owner with 5,000 people cost 0.8–1.2 s per resolution. On, the string matchers get the
+  candidates without vectors (`IEntityRepository.GetByTypeWithoutEmbeddingAsync`, a default-bodied
+  addition), the semantic matcher gets the entity vector index's nearest neighbours
+  (`SemanticCandidateLimit`, default 20), and a match is read back in full before anything writes it.
+
+- **A local embedding model is one variable away.** `AgentMemory.Inference` gains an `ollama` provider
+  (`http://127.0.0.1:11434/v1`, no key, `bge-m3` by default, `OLLAMA_MODEL` for chat; used only when
+  named, never auto-detected), and `AI_EMBEDDING_PROVIDER` alone now moves embeddings to another
+  provider, filling what is not set from that provider's own variables and defaults (never from the
+  chat provider; with `AI_EMBEDDING_ENDPOINT` set, the key comes only from `AI_EMBEDDING_API_KEY`, so
+  a key only goes to the host it was issued for). `AI_EMBEDDING_PROVIDER=ollama` puts
+  embeddings on a local bge-m3 while chat stays remote; `=bitdeer` moves them back. Ollama's `bge-m3`
+  returns the same vectors as `BAAI/bge-m3` (measured cosine 1.0000), so an existing store keeps
+  working. Measured per short text: 52 ms local (GPU), 70 ms CPU-only, 1.3 s typical for the hosted call.
+
 - **`AgentMemory.Inference` (new package).** One environment contract for every inference host:
   `AI_INFERENCE_PROVIDER` selects `azure`, `bitdeer`, `openai`, `foundry` or `openai-compatible`,
   and a resolver turns it into chat and embedding clients over two protocol families. The library
@@ -24,8 +47,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hosts is not the same measurement.
 - Docs: [`docs/configuration/inference-providers.md`](docs/configuration/inference-providers.md) is
   the operator contract.
+- **Partial-name entity resolution (opt-in).** `EntityResolutionOptions.EnablePartialNameMatch`
+  resolves a partial person name to the **one** known person whose name contains it as whole words,
+  or is contained by it: "Priya" → "Priya Nair". Before, a first name alone matched nothing (not
+  equal, token-sort ratio 67 < 85, a one-word embedding below 0.8), so every later mention created a
+  second person. The matcher never guesses: with two Priyas known it declines, records a
+  `memory.resolve.partial_name_ambiguous` activity event so a host can ask which one was meant, and
+  leaves the decision to the remaining matchers exactly as with the option off.
+  People only by default (`PartialNameMatchTypes`): "Microsoft" and "Microsoft Research" are
+  different organizations. Reported as `EntityMatchType.PartialName` (new member, value 4) at
+  `PartialNameMatchConfidence` (default 0.9, the SAME_AS band: resolves without rewriting aliases).
+  Off by default.
+- **Embedding cache (opt-in).** `MemoryOptions.EmbeddingCacheCapacity` remembers the vectors of the
+  most recently embedded texts (LRU, container-wide, in memory). Measured on a live turn: the user's
+  message was embedded twice (as the recall query and again when stored), and known entity names were
+  re-embedded every turn they were mentioned, each a ~1 s round trip for an identical vector. `0`, the
+  default, disables it.
+- **A complete, correlated trace per turn** ([`docs/observability.md`](docs/observability.md)). One
+  vocabulary, `MemoryTelemetry`, names every span and attribute. New spans: `memory.hook.recall` and
+  `memory.hook.ingest` (the PRE/POST hooks, with session and conversation, and only *whether* the turn
+  was owner- and app-scoped: those ids are tenant data; the session id is read from W3C baggage when a
+  host propagates one), `memory.route` (the recall policy's
+  decision), `memory.compose` (admission and formatting) and `memory.embed` (inputs, cache hits, sent).
+  Recall legs carry `memory.type` and `memory.results.count`. Neo4j spans carry `db.system`,
+  `db.operation.name`, `db.rows`, the server's own timings when the caller consumes the summary, and
+  `db.attempts` / `db.retries` (managed-transaction retries were invisible). Failures record the exception
+  *type* (`error.type` + an `exception` event), never its message. Background access tracking and
+  enrichment run in their own traces **linked** to the recall or ingestion that queued them. AgentMemory's
+  own queries that no marker recognised are named `unregistered:<index-or-label>:<hash>` (literals and
+  numbers normalised) instead of one `unknown` bucket (a live session had 340 of them; now 0); Cypher passed
+  to the graph-query service is never given a structural name. `memory.compose` counts admission flags, exclusions and dedup drops.
+  Nothing is recorded without a listener.
+- **`memory.extract.attempt` spans.** Every extraction model call is a span tagged with its outcome
+  (`ok`, `salvaged`, `syntax_error`, `schema_error`, `truncated`, `filtered`), the provider's finish
+  reason, output tokens, items kept and dropped, and the error in words. A failed extraction is no
+  longer only "raw length 2,354" in a log line. `LlmExtractionOptions.LogRawResponseOnFailure` (off)
+  additionally logs the first 2,000 characters of an unusable reply.
 
 ### Changed
+
+- **The working-memory profile tier is on by default.** A compiled "about this user" block (stable facts,
+  active preferences, salient entities; at most 300 tokens) is now built after each write and rendered
+  ahead of recall. Without it a new session asked "what do you know about me?" answered "a pretty thin
+  file": a generic question's embedding matches few stored facts. With it the same question returned the
+  user's name, job, employer, manager, family and preferences (3 of 3 runs), at the same answer time.
+  `MinFactMentionCount` defaults to 1 (at 2 a short relationship's block held no facts). Costs: about
+  300 prompt tokens per turn and a rebuild after each write. `WorkingMemory.Enabled = false` restores the
+  previous behaviour.
+
+- **Fan-out legs are embedded in one request.** When recall fan-out splits a question into sub-queries,
+  each leg's query was embedded in its own request, one after another, after the main query: three
+  sequential round trips on a two-part question (measured ~110 ms against a local model, ~2.6 s against
+  a hosted one). The legs now go out together; if that request fails, each leg is embedded on its own
+  as before.
 
 - **The samples, `agent-memory-mcp` and the benchmark harness read the provider contract** instead
   of `AZURE_OPENAI_*` directly. **Azure-only machines are unaffected:** Azure is first in
@@ -39,6 +113,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Azure.AI.OpenAI` **2.1.0**, `OpenAI` 2.12.0 referenced explicitly); three consumers previously
   carried three different pairs. `Azure.AI.OpenAI` is the newest *stable* release — 2.7/2.8/2.9 are
   all prerelease, and a shipped package may not depend on one.
+
+### Fixed
+
+- **A failed extraction or persistence is visible in the trace.** Both are swallowed so the turn still
+  succeeds, but their spans ended with no status: the `memory.store.extract` span (or the ingest hook,
+  for a persistence failure) now records the exception type and an error status, as does an extraction
+  attempt whose transport retries ran out.
+- **A partial name can never auto-merge.** With `PartialNameMatchConfidence` at or above
+  `AutoMergeThreshold`, "Priya" was merged into "Priya Nair" as an alias, so a later "Priya" resolved
+  through the alias and the ambiguity check never ran. Validation now refuses that combination.
+- **"Priya's mom" is not Priya.** A relational name ("X's mom") is no longer a partial-name candidate
+  for X.
+
+- **Background writes land in the right store.** The access-tracking and enrichment consumers start in
+  their constructor, so they inherited the store routing of whichever request first built the
+  singleton: in a host with several application stores, access stamps and enrichment for application B
+  were written to application A's store for the life of the process. Each batch now carries the
+  application id it was queued under, and the consumer applies it around the write.
+
+- **The agent answers the user's new message, not an old one.** Recalled conversation turns were
+  returned newest first, and MAF appends a context provider's messages after the request, so they came
+  after the user's new message. The last user turn the model read was an old one, and a live agent
+  answered it instead. Recalled turns now go before the live thread (after any leading system messages
+  the host supplied), in the order they happened, behind a one-line framing message (recalled text is
+  reference data, not instructions). Memory blocks stay where they were, except on hosts that render
+  them at the user role: those move to just before the user's message, so the question is always the
+  last user message. Applies to `Neo4jMemoryContextProvider` and `NamsMemoryContextProvider` alike (one
+  shared placement rule).
+- **Recalled history no longer repeats the session's own chat history.** MAF hands a context provider
+  only the caller's new messages, so `DeduplicateRecalledHistory` compared recalled turns against the new
+  message alone and every turn the session's history already carried was sent twice. The dedup now sees
+  the whole request (`Neo4jMemoryContextProvider`; the NAMS provider has no history dedup). `docs/agent-framework.md` shows how to keep recalled memory out of MAF's in-memory
+  chat history, which stores injected messages by default.
+
+- **LLM extraction no longer discards a whole response over one partial date.** With
+  `TemporalValidityMode.Extract`, a model that knows only the month correctly writes ISO-8601
+  `"valid_from": "2026-08"`. System.Text.Json accepts only full dates (by design, upstream), so the
+  typed parse threw, the runner re-prompted with a misleading "not valid JSON", the model repeated the
+  date, and every entity, fact and preference of the turn was lost. Measured live: 2 of 4 runs of one
+  sentence stored nothing. `valid_from` / `valid_until` are now read leniently: `YYYY`, `YYYY-MM`,
+  `YYYY-MM-DD` and full timestamps; a month or year means the **start** of the period for
+  `valid_from` and the **end** of it for `valid_until`; an unreadable value drops only that date
+  (recorded as a `memory.extract.date_dropped` activity event) and keeps the fact.
+- **Validity dates are UTC, and an end date includes its last day.** A date-only value was read at the
+  machine's *local* midnight, so the same extraction stored different instants on machines in different
+  time zones. A value without an offset now means that date/time in UTC. A full date as `valid_until`
+  (`"2026-08-15"`) now means the end of that day, not its first instant. Free-text dates are read only
+  when they state their year, so nothing is filled in from the machine clock.
+- **One unreadable item no longer costs the whole extraction.** A reply that is valid JSON with an
+  item the schema cannot hold (a confidence written as `"high"`, an unreadable date) is now salvaged
+  item by item: the readable entities, facts, preferences and relations are kept, and each dropped
+  item is named by its path.
+- **The repair prompt says what was actually wrong, and no longer grows.** On an unusable reply the
+  runner used to say "That response was not valid JSON" (it usually was valid) and echo the whole
+  reply back, so each retry cost more than the last and the model repeated its mistake. It now sends
+  one replaced message naming the problem ("`facts[0].confidence`: The JSON value could not be
+  converted to System.Double"), without echoing the reply. **Measurement note:** this changes the
+  bytes of retry attempts only; a run whose every reply parsed first time is unaffected.
+- **Truncated replies get room to finish; refusals are not retried.** A reply cut off by the output
+  limit (`finish_reason = length`) is retried with twice the output tokens it used (ceiling 32,768)
+  instead of an identical request. A content-filter stop is not retried at all.
+- **New entities in one extraction are embedded in one request.** Resolution embedded each name the
+  string matchers could not resolve in its own ~1 s round trip, sequentially. Those names are now
+  embedded together up front; names already known cost no request.
+- **A `memory.db.query` span ends when its result is read**, not when the driver returns a cursor (before
+  the server had streamed anything); a result nobody finishes reading ends when the next query starts, a
+  retry begins, or its transaction ends (`db.result.read = none | partial`).
+- **Background queues no longer inherit the trace of whoever created them.** The access-tracking and
+  enrichment consumers started inside the constructing caller's execution context, so every later
+  background write became a child span of whichever request first built the singleton.
+- **An entity created by resolution keeps the vector resolution already computed for its name.** The
+  semantic matcher embedded the mention and discarded the vector; persistence then embedded the same
+  name again. One remote round trip saved per new entity, identical vectors. Resolution itself is
+  unchanged: the stored node and the turn's candidate set see the new entity without a vector until
+  persistence writes it, as before, so later mentions in the same turn match exactly as they did.
 
 ### Note
 

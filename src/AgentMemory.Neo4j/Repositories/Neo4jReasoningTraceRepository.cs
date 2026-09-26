@@ -252,7 +252,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         // measurable on the fact path only, and invisible here. Started AFTER the degraded-embedding
         // short-circuit above, so a search that never reached the index does not publish a zero-yield
         // reading it never earned.
-        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.trace_vector");
+        using var activity = MemoryTelemetry.StartRecallSpan("memory.recall.trace_vector");
         _logger.LogDebug("Vector search reasoning traces, successFilter={Filter}, limit={Limit}, owner={Owner}",
             successFilter, limit, scope?.OwnerId);
 
@@ -374,7 +374,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
         // Same yield signal as the live path, under its own span name: a point-in-time recall and a live
         // one answer different questions, and folding them into one name would make either unreadable.
-        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.trace_vector_as_of");
+        using var activity = MemoryTelemetry.StartRecallSpan("memory.recall.trace_vector_as_of");
         _logger.LogDebug("Temporal vector search reasoning traces as of {AsOf}, successFilter={Filter}, limit={Limit}, owner={Owner}",
             asOf, successFilter, limit, scope?.OwnerId);
 

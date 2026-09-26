@@ -5,6 +5,8 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <!-- RecalledTurns: where recalled conversation goes in a MAF request, shared with the NAMS provider. -->
+    <InternalsVisibleTo Include="AgentMemory.AgentFramework.Nams" />
     <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
   </ItemGroup>
   <ItemGroup>

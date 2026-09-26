@@ -231,6 +231,54 @@ public sealed class EntityResolutionOptions
     public double FuzzyMatchThreshold { get; set; } = 0.85;
     /// <summary>Minimum cosine similarity for a semantic match to be considered.</summary>
     public double SemanticMatchThreshold { get; set; } = 0.8;
+
+    /// <summary>
+    /// Resolve a partial name to the <b>one</b> known entity whose name contains it as whole words,
+    /// or is contained by it: "Priya" → "Priya Nair", "Priya Nair" → "Priya". Off by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A first name alone never reaches the full name through the other matchers: it is not equal,
+    /// its token-sort ratio is far below <see cref="FuzzyMatchThreshold"/> ("Priya" vs "Priya Nair"
+    /// scores 67), and a one-word embedding rarely clears <see cref="SemanticMatchThreshold"/>. So every
+    /// conversation that says "Priya" after introducing "Priya Nair" created a second person.
+    /// </para>
+    /// <para>
+    /// <b>Ambiguity is never guessed.</b> When two or more same-type entities qualify ("Priya" with
+    /// both "Priya Nair" and "Priya Shah" known) the matcher declines and records a
+    /// <c>memory.resolve.partial_name_ambiguous</c> activity event, so the host can ask which one
+    /// was meant instead of the store silently attaching facts to the wrong person.
+    /// </para>
+    /// <para>
+    /// Applies only to <see cref="PartialNameMatchTypes"/> (people by default): for organizations
+    /// "Microsoft" and "Microsoft Research" are different entities, which a word-subset rule cannot tell.
+    /// </para>
+    /// </remarks>
+    public bool EnablePartialNameMatch { get; set; }
+
+    /// <summary>Entity types partial-name matching applies to (case-insensitive). Default: <c>PERSON</c>.</summary>
+    public IList<string> PartialNameMatchTypes { get; set; } = new List<string> { "PERSON" };
+
+    /// <summary>
+    /// Confidence reported for a unique partial-name match. The default, 0.9, sits in the SAME_AS band
+    /// (between <see cref="ExtractionOptions.SameAsThreshold"/> and
+    /// <see cref="ExtractionOptions.AutoMergeThreshold"/>): the mention resolves to the existing entity
+    /// without rewriting its aliases or embedding.
+    /// </summary>
+    public double PartialNameMatchConfidence { get; set; } = 0.9;
+
+    /// <summary>
+    /// Resolution candidates without vectors, and the semantic stage through the entity vector index
+    /// (dark, default false). By default every live entity of the mention's type is loaded WITH its
+    /// vector on every extraction: measured, an owner with 5,000 people cost 666–804 ms for that read
+    /// and 0.8–1.2 s per resolution, growing linearly. On: the string matchers get ids, names and
+    /// aliases only, the semantic matcher gets the index's top <see cref="SemanticCandidateLimit"/>
+    /// most similar entities, and whatever a string matcher resolves to is read back in full.
+    /// </summary>
+    public bool IndexedCandidates { get; set; }
+
+    /// <summary>How many index neighbours the semantic stage considers when <see cref="IndexedCandidates"/> is on.</summary>
+    public int SemanticCandidateLimit { get; set; } = 20;
 }
 
 /// <summary>Controls validation rules applied to extracted entity candidates.</summary>

@@ -15,5 +15,11 @@ public enum EntityMatchType
     Semantic = 2,
 
     /// <summary>No match — a new entity was created.</summary>
-    New = 3
+    New = 3,
+
+    /// <summary>
+    /// Partial-name match: the only known entity whose name contains the mention as whole words, or is
+    /// contained by it ("Priya" ↔ "Priya Nair"). See <c>EntityResolutionOptions.EnablePartialNameMatch</c>.
+    /// </summary>
+    PartialName = 4
 }

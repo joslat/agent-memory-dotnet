@@ -18,6 +18,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
     <InternalsVisibleTo Include="AgentMemory.LongMemEval" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.LongMemEval" />
   </ItemGroup>
 
 </Project>

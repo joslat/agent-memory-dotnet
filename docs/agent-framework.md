@@ -244,6 +244,26 @@ Console.WriteLine(await agent.RunAsync("What do you know about my travel prefere
 [MAF context-providers guide](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/context-providers?pivots=programming-language-csharp)
 uses. From there, MAF drives the provider's before/after hooks on every `RunAsync`.
 
+### Keeping recalled memory out of the session's chat history
+
+MAF's default chat history (`InMemoryChatHistoryProvider`) stores every request message except the ones
+it loaded itself, which includes the memory a context provider injected for that turn. Over a long
+session every turn's recalled blocks pile up in the thread and are replayed as stale context. Keep the
+history to what the user and the agent said:
+
+```csharp
+AIContextProviders  = [memoryProvider],
+ChatHistoryProvider = AgentMemoryChatHistory.CreateInMemoryProvider(),
+```
+
+(`AgentMemoryChatHistory.ExcludeInjectedContext` is the filter on its own, for a history provider of your
+own.) `Neo4jChatHistoryProvider` already stores through it. Recalled conversation turns are placed before
+the live thread, oldest first, behind a one-line framing message (not counted against
+`MaxChatHistoryMessages`). With `Neo4jMemoryContextProvider`, turns the session's history already carries
+are not recalled again; `NamsMemoryContextProvider` does not deduplicate against history yet.
+(With `RequirePerServiceCallChatHistoryPersistence`, MAF loads history inside the chat client, after the
+context providers ran, so the dedup cannot see it and the history lands ahead of the recalled turns.)
+
 ### Identity and scoping
 
 `WithMemoryIdentity(userId, sessionId, conversationId?, applicationId?)` stamps the run's identity onto

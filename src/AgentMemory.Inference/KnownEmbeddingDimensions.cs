@@ -33,6 +33,10 @@ public static class KnownEmbeddingDimensions
 
         // Common local models
         ["nomic-embed-text"] = 768,
+        // Ollama's name for BAAI/bge-m3: verified 2026-09-26 against the host, 1024-d and the same vectors
+        // as Bitdeer's (cosine 1.0000 on the same text), so either serves one store.
+        ["bge-m3"] = 1024,
+        ["bge-m3:latest"] = 1024,
 
         // NOT LISTED, DELIBERATELY: the Nemotron-3-Embed family. Its dimensions were not confirmed
         // against the host, and a plausible-looking number here would be worse than its absence --

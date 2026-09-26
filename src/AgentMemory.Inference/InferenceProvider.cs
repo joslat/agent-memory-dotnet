@@ -31,8 +31,13 @@ public enum InferenceProvider
     /// <summary>Azure AI Foundry. Azure protocol.</summary>
     Foundry,
 
-    /// <summary>Any other OpenAI-compatible host: Ollama, LM Studio, vLLM, a gateway.</summary>
+    /// <summary>Any other OpenAI-compatible host: LM Studio, vLLM, a gateway (or Ollama at a custom address).</summary>
     OpenAICompatible,
+
+    /// <summary>
+    /// A local Ollama server: http://127.0.0.1:11434/v1, no key, <c>bge-m3</c> for embeddings by default.
+    /// </summary>
+    Ollama,
 }
 
 /// <summary>How the provider was chosen.</summary>

@@ -224,7 +224,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         // starvation (OwnerVectorOverFetch documents the measurement) — and until this span, nothing
         // reported it. Started AFTER the degraded-embedding short-circuit above, so a search that never
         // reached the index does not publish a zero-yield reading it never earned.
-        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.entity_vector");
+        using var activity = MemoryTelemetry.StartRecallSpan("memory.recall.entity_vector");
         _logger.LogDebug("Vector search entities, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
@@ -398,6 +398,24 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, ReadEmbedding(node));
             }).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<Entity>> GetByTypeWithoutEmbeddingAsync(string type, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        var cypher = EntityQueries.GetByTypeWithoutEmbedding(hasOwner, includeShared);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["type"] = type, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { type }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records
+                .Select(r => MapToEntity(r["e"].As<Dictionary<string, object>>(), embedding: null))
+                .ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -901,7 +919,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         // from out here, from a real starvation. Separating the two needs either a second query or a
         // wider projection; both cost more than the ambiguity, and inventing a distinction we did not
         // measure would be worse than admitting it.
-        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.entity_similar_vector");
+        using var activity = MemoryTelemetry.StartRecallSpan("memory.recall.entity_similar_vector");
         _logger.LogDebug("Finding similar entities for {EntityId}, minSimilarity={MinSimilarity}, limit={Limit}, owner={Owner}",
             entityId, minSimilarity, limit, scope?.OwnerId);
 
@@ -1001,7 +1019,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         // Its own span, not the live one: a point-in-time search discards everything created after the
         // cutoff on top of the owner post-filter, so folding its yield in with live recall would blame
         // the owner filter for a temporal exclusion.
-        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.entity_vector_as_of");
+        using var activity = MemoryTelemetry.StartRecallSpan("memory.recall.entity_vector_as_of");
         _logger.LogDebug("Temporal vector search entities as of {AsOf}, limit={Limit}, owner={Owner}", asOf, limit, scope?.OwnerId);
 
         var cypher = TemporalQueries.SearchEntitiesAsOf(hasOwner, includeShared, topK);

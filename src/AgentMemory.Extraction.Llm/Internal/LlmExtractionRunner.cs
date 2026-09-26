@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text.Json;
+using AgentMemory.Abstractions.Diagnostics;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -47,41 +49,138 @@ internal sealed class LlmExtractionRunner
             new(ChatRole.System, systemPrompt),
             new(ChatRole.User, $"{userInstruction}\n\n{conversationText}")
         };
+        const int BaseMessages = 2;
         var chatOptions = BuildChatOptions(responseFormat);
 
         int maxAttempts = _options.MaxRetries < 0 ? 1 : _options.MaxRetries + 1;
+        string? lastError = null;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            using var span = AgentMemoryDiagnostics.Source.StartActivity(AttemptSpanName);
+            span?.SetTag("memory.extract.attempt", attempt);
 
-            var response = await GetResponseWithTransportRetryAsync(
-                    chatMessages, chatOptions, cancellationToken)
-                .ConfigureAwait(false);
+            ChatResponse response;
+            try
+            {
+                response = await GetResponseWithTransportRetryAsync(
+                        chatMessages, chatOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Transport retries exhausted: the attempt failed, and its span says so before it ends.
+                MemoryTelemetry.RecordException(span, ex);
+                throw;
+            }
             var raw = response.Text;
+            span?.SetTag("memory.extract.finish_reason", response.FinishReason?.Value);
+            span?.SetTag("memory.extract.output_tokens", response.Usage?.OutputTokenCount);
 
-            if (TryParse(raw, out var dto))
-                return project(dto!);
+            // A refusal is not a formatting problem: asking again gets the same refusal.
+            if (response.FinishReason == ChatFinishReason.ContentFilter)
+            {
+                lastError = "the provider's content filter stopped the reply";
+                Record(span, "filtered", lastError);
+                _logger.LogWarning("LLM extraction stopped by the content filter (attempt {Attempt}); not retrying.", attempt);
+                if (failOnParseExhaustion)
+                    throw new ContentFilteredException($"LLM extraction produced no usable JSON: {lastError}.");
+                return Array.Empty<T>();
+            }
 
+            var parsed = Parse(raw);
+            if (parsed.IsUsable)
+            {
+                span?.SetTag("memory.extract.items.kept", parsed.KeptItems);
+                span?.SetTag("memory.extract.items.dropped", parsed.Dropped.Count);
+                Record(span, parsed.Status == ParseStatus.Ok ? "ok" : "salvaged",
+                    parsed.Dropped.Count > 0 ? parsed.Error : null);
+                if (parsed.Dropped.Count > 0)
+                {
+                    _logger.LogWarning(
+                        "LLM extraction kept {Kept} item(s) and dropped {Dropped} unreadable one(s): {Error}",
+                        parsed.KeptItems, parsed.Dropped.Count, parsed.Error);
+                }
+                return project(parsed.Response!);
+            }
+
+            bool truncated = response.FinishReason == ChatFinishReason.Length;
+            lastError = truncated ? "the reply was cut off before the JSON was complete" : parsed.Error;
+            Record(span, truncated ? "truncated" : parsed.Status == ParseStatus.Salvaged ? "schema_error" : "syntax_error",
+                lastError);
             _logger.LogWarning(
-                "LLM extraction returned unparseable JSON (attempt {Attempt}/{MaxAttempts}); raw length {Length}.",
-                attempt, maxAttempts, raw?.Length ?? 0);
+                "LLM extraction reply unusable (attempt {Attempt}/{MaxAttempts}, finish {Finish}, length {Length}): {Error}",
+                attempt, maxAttempts, response.FinishReason?.Value, raw?.Length ?? 0, lastError);
+            if (_options.LogRawResponseOnFailure && raw is not null)
+            {
+                _logger.LogWarning("Unusable extraction reply (first 2,000 chars): {Raw}",
+                    raw.Length <= 2000 ? raw : raw[..2000]);
+            }
 
             if (attempt < maxAttempts)
             {
-                // Re-prompt: echo the bad response and ask explicitly for strict JSON.
-                chatMessages.Add(new(ChatRole.Assistant, raw ?? string.Empty));
-                chatMessages.Add(new(ChatRole.User,
-                    "That response was not valid JSON. Reply with ONLY the JSON object — no markdown fences, no prose."));
+                // One repair message, replaced (never accumulated) each attempt, naming the actual problem.
+                // The bad reply is NOT echoed back: it grew every retry by the size of the failure, and a
+                // truncated or schema-broken document gives the model nothing useful to copy.
+                chatMessages.RemoveRange(BaseMessages, chatMessages.Count - BaseMessages);
+                if (truncated && ((int?)response.Usage?.OutputTokenCount ?? chatOptions.MaxOutputTokens) is { } used && used > 0)
+                {
+                    // Room to finish: double what the cut-off reply used. When neither the usage nor a cap
+                    // is known, no limit is set -- guessing one could hand the retry LESS room than the
+                    // provider default that cut the first reply off.
+                    chatOptions.MaxOutputTokens = Math.Min(MaxOutputTokenCeiling,
+                        Math.Max(chatOptions.MaxOutputTokens ?? 0, used) * 2);
+                    span?.SetTag("memory.extract.next_max_output_tokens", chatOptions.MaxOutputTokens);
+                }
+                chatMessages.Add(new(ChatRole.User, RepairInstruction(lastError!, truncated)));
             }
         }
         if (failOnParseExhaustion)
-            throw new FormatException("LLM extraction exhausted its parse retries without valid JSON.");
-
+            throw new FormatException($"LLM extraction exhausted its attempts without usable JSON: {lastError}.");
 
         return Array.Empty<T>();
     }
 
+    /// <summary>The span wrapped around each model call.</summary>
+    internal const string AttemptSpanName = "memory.extract.attempt";
+
+    /// <summary>
+    /// The activity an extraction call belongs to: <paramref name="current"/> with any attempt span above it
+    /// skipped. Meters that read the extractor's span (its tags, its call count) from inside the chat client
+    /// must go through this, because the chat call now runs one level deeper, inside its attempt span.
+    /// </summary>
+    internal static Activity? CallerActivity(Activity? current)
+    {
+        while (current?.OperationName == AttemptSpanName) current = current.Parent;
+        return current;
+    }
+
+    /// <summary>Output-token ceiling for a truncation retry (the retry doubles what the cut-off reply used).</summary>
+    internal const int MaxOutputTokenCeiling = 32_768;
+
+    /// <summary>The fixed opening of every repair message, so meters can recognise a parse retry.</summary>
+    internal const string RepairLead = "Your previous reply could not be used:";
+
+    internal static string RepairInstruction(string error, bool truncated) =>
+        truncated
+            ? $"{RepairLead} {error}. Reply again with ONLY the JSON object — no markdown fences, no prose — "
+              + "and keep it compact so it fits."
+            : $"{RepairLead} {error}. Reply again with ONLY the JSON object — no markdown fences, no prose.";
+
+    /// <summary>True when a chat message is a repair instruction this runner wrote (a parse retry).</summary>
+    internal static bool IsRepairInstruction(ChatMessage message) =>
+        message.Role == ChatRole.User &&
+        (message.Text?.StartsWith(RepairLead, StringComparison.Ordinal) ?? false);
+
+    private static void Record(Activity? span, string outcome, string? error)
+    {
+        if (span is null) return;
+        span.SetTag("memory.extract.outcome", outcome);
+        if (error is not null) span.SetTag("memory.extract.error", error);
+        if (outcome is "syntax_error" or "schema_error" or "truncated" or "filtered")
+            span.SetStatus(ActivityStatusCode.Error, outcome);
+    }
 
     /// <summary>
     /// Calls the provider, retrying transport failures with backoff.
@@ -191,21 +290,174 @@ internal sealed class LlmExtractionRunner
     }
 
     /// <summary>Attempts to parse a (possibly fenced/prose-wrapped) model response into the shared DTO.</summary>
+    /// <remarks>True exactly when the runner would use the reply (<see cref="ParseResult.IsUsable"/>).</remarks>
     internal static bool TryParse(string? raw, out LlmExtractionResponse? dto)
     {
-        dto = null;
+        var parsed = Parse(raw);
+        dto = parsed.Response;
+        return parsed.IsUsable;
+    }
+
+    internal enum ParseStatus
+    {
+        /// <summary>The whole document deserialised.</summary>
+        Ok,
+
+        /// <summary>The document was well-formed JSON but some items were not; the readable items were kept.</summary>
+        Salvaged,
+
+        /// <summary>No JSON object could be read at all.</summary>
+        Unusable,
+    }
+
+    internal sealed record ParseResult(
+        ParseStatus Status,
+        LlmExtractionResponse? Response,
+        IReadOnlyList<string> Dropped,
+        string? Error)
+    {
+        // Null-safe: the serializer leaves a list null when the model writes "facts": null.
+        public int KeptItems => Response is null
+            ? 0
+            : (Response.Entities?.Count ?? 0) + (Response.Facts?.Count ?? 0) +
+              (Response.Preferences?.Count ?? 0) + (Response.Relations?.Count ?? 0);
+
+        /// <summary>
+        /// Worth projecting: a clean parse (even an empty one — "nothing to extract" is an answer), or a
+        /// salvage that kept something. A salvage that dropped every item is a failure to repair.
+        /// </summary>
+        public bool IsUsable => Status == ParseStatus.Ok ||
+                                (Status == ParseStatus.Salvaged && (KeptItems > 0 || Dropped.Count == 0));
+    }
+
+    /// <summary>
+    /// Parses a model response, telling a <b>syntax</b> failure (no readable JSON) from a <b>schema</b>
+    /// failure (well-formed JSON with an item the DTO cannot hold).
+    /// </summary>
+    /// <remarks>
+    /// Before this, one unreadable field — a date the model wrote as <c>"2026-08"</c>, a confidence
+    /// written as <c>"high"</c> — failed the whole typed deserialisation, was reported as "not valid
+    /// JSON", and discarded every other entity, fact and preference in the reply. Now a schema failure
+    /// is salvaged item by item: each array element is read on its own, the readable ones are kept,
+    /// and each dropped one is named by its path so the repair message (if one is needed) can say
+    /// exactly what was wrong.
+    /// </remarks>
+    internal static ParseResult Parse(string? raw)
+    {
         var json = ExtractJson(raw);
-        if (json is null) return false;
+        if (json is null)
+            return new(ParseStatus.Unusable, null, [], "the reply contained no JSON object");
 
         try
         {
-            dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json, JsonOptions);
-            return dto is not null;
+            LlmExtractionResponse? dto;
+            // Date drops from this read are recorded only if it succeeds: when it fails, the salvage pass
+            // reads every item again and records each drop once.
+            using (var held = PeriodDateConverter.HoldDrops())
+            {
+                dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json, JsonOptions);
+                held.Commit();
+            }
+            return dto is null
+                ? new(ParseStatus.Unusable, null, [], "the reply was JSON null")
+                : new(ParseStatus.Ok, dto, [], null);
         }
-        catch (JsonException)
+        catch (Exception typed) when (IsReadFailure(typed))
         {
-            return false;
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(json);
+            }
+            catch (JsonException syntax)
+            {
+                return new(ParseStatus.Unusable, null, [], $"the reply is not valid JSON ({Describe(syntax)})");
+            }
+
+            using (document)
+                return Salvage(document.RootElement, typed);
         }
+    }
+
+    private static ParseResult Salvage(JsonElement root, Exception typed)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            return new(ParseStatus.Unusable, null, [],
+                $"expected a JSON object but the reply is a JSON {root.ValueKind.ToString().ToLowerInvariant()}");
+
+        var response = new LlmExtractionResponse();
+        var dropped = new List<string>();
+        foreach (var property in root.EnumerateObject())
+        {
+            // Case-insensitive, like the serializer's own property matching.
+            switch (property.Name.ToLowerInvariant())
+            {
+                case "entities": ReadItems(property, response.Entities, dropped); break;
+                case "facts": ReadItems(property, response.Facts, dropped); break;
+                case "preferences": ReadItems(property, response.Preferences, dropped); break;
+                case "relations": ReadItems(property, response.Relations, dropped); break;
+                case "processed_source_sessions":
+                    // A control field, not an item: the batch extractor validates its acknowledgement
+                    // against it, so an unreadable one is a reply to repair, not one to half-accept.
+                    try
+                    {
+                        response.ProcessedSourceSessions = property.Value.Deserialize<List<string>>(JsonOptions);
+                    }
+                    catch (Exception ex) when (IsReadFailure(ex))
+                    {
+                        return new(ParseStatus.Unusable, null, [], $"{property.Name}: {Describe(ex)}");
+                    }
+                    break;
+            }
+        }
+
+        var error = dropped.Count > 0
+            ? string.Join("; ", dropped.Take(3)) + (dropped.Count > 3 ? $"; and {dropped.Count - 3} more" : string.Empty)
+            : Describe(typed);
+        return new(ParseStatus.Salvaged, response, dropped, error);
+    }
+
+    private static void ReadItems<T>(JsonProperty property, List<T> into, List<string> dropped)
+    {
+        if (property.Value.ValueKind == JsonValueKind.Null)
+            return;
+        if (property.Value.ValueKind != JsonValueKind.Array)
+        {
+            dropped.Add($"{property.Name}: expected an array");
+            return;
+        }
+
+        int index = 0;
+        foreach (var element in property.Value.EnumerateArray())
+        {
+            try
+            {
+                if (element.Deserialize<T>(JsonOptions) is { } item)
+                    into.Add(item);
+            }
+            catch (Exception ex) when (IsReadFailure(ex))
+            {
+                var at = ex is JsonException { Path: { Length: > 1 } path } ? path[1..] : string.Empty;   // "$.valid_from" -> ".valid_from"
+                dropped.Add($"{property.Name}[{index}]{at}: {Describe(ex)}");
+            }
+            index++;
+        }
+    }
+
+    /// <summary>
+    /// What reading a value can throw: the serializer's own JsonException, and what a converter or a
+    /// number parse may raise inside it. Anything else (out of memory, a bug) still propagates.
+    /// </summary>
+    private static bool IsReadFailure(Exception ex) =>
+        ex is JsonException or FormatException or OverflowException or InvalidOperationException or ArgumentException;
+
+    /// <summary>The serializer's message without its trailing "Path: ... | LineNumber: ..." noise.</summary>
+    private static string Describe(Exception ex)
+    {
+        var message = ex.Message;
+        var cut = message.IndexOf(" Path:", StringComparison.Ordinal);
+        if (cut < 0) cut = message.IndexOf(" LineNumber:", StringComparison.Ordinal);
+        return (cut > 0 ? message[..cut] : message).TrimEnd('.', ' ');
     }
 
     /// <summary>

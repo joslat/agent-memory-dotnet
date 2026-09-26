@@ -51,8 +51,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         // history would now have it silently excluded too -- treating provider-injected context as
         // ephemeral (not history) is the correct default for this library, but it is a real behavior
         // change from MAF's own out-of-the-box default for that uncommon case.
-        : base(null, static msgs => msgs.Where(
-            m => m.GetAgentRequestMessageSourceType() == AgentRequestMessageSourceType.External), null)
+        : base(null, AgentMemoryChatHistory.ExcludeInjectedContext, null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));

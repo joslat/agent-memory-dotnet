@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Diagnostics;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Services;
@@ -14,18 +15,22 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
 {
     private readonly IEmbeddingGenerator<string, Embedding<float>> _generator;
     private readonly ILogger<EmbeddingOrchestrator> _logger;
+    private readonly EmbeddingVectorCache _cache;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EmbeddingOrchestrator"/> class.
     /// </summary>
     /// <param name="generator">The underlying embedding generator used to produce vectors.</param>
     /// <param name="logger">The logger used to record generation failures.</param>
+    /// <param name="cache">Remembered vectors (<see cref="Abstractions.Options.MemoryOptions.EmbeddingCacheCapacity"/>); none when null.</param>
     public EmbeddingOrchestrator(
         IEmbeddingGenerator<string, Embedding<float>> generator,
-        ILogger<EmbeddingOrchestrator> logger)
+        ILogger<EmbeddingOrchestrator> logger,
+        EmbeddingVectorCache? cache = null)
     {
         _generator = generator;
         _logger = logger;
+        _cache = cache ?? EmbeddingVectorCache.Disabled;
     }
 
     /// <inheritdoc/>
@@ -34,10 +39,23 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
         if (string.IsNullOrWhiteSpace(text))
             return Array.Empty<float>();
 
+        var input = CapInputLength(text);
+        using var span = AgentMemoryDiagnostics.Source.StartActivity(MemoryTelemetry.EmbedSpan);
+        span?.SetTag(MemoryTelemetry.EmbedInputs, 1);
+        if (_cache.TryGet(input, out var cached))
+        {
+            span?.SetTag(MemoryTelemetry.EmbedCacheHits, 1);
+            span?.SetTag(MemoryTelemetry.EmbedSent, 0);
+            return cached;
+        }
+        span?.SetTag(MemoryTelemetry.EmbedSent, 1);
+
         try
         {
-            var result = await _generator.GenerateAsync([CapInputLength(text)], cancellationToken: cancellationToken).ConfigureAwait(false);
-            return result[0].Vector.ToArray();
+            var result = await _generator.GenerateAsync([input], cancellationToken: cancellationToken).ConfigureAwait(false);
+            var vector = result[0].Vector.ToArray();
+            _cache.Set(input, vector);
+            return vector;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -45,6 +63,7 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
         }
         catch (Exception ex)
         {
+            MemoryTelemetry.RecordException(span, ex);
             _logger.LogWarning(ex, "Embedding generation failed for text (length={Len}); returning empty vector.", text.Length);
             return Array.Empty<float>();
         }
@@ -63,17 +82,30 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
         for (int i = 0; i < results.Length; i++)
             results[i] = Array.Empty<float>();
 
+        // Only inputs that are neither blank nor already remembered are sent.
+        using var span = AgentMemoryDiagnostics.Source.StartActivity(MemoryTelemetry.EmbedSpan);
+        span?.SetTag(MemoryTelemetry.EmbedInputs, texts.Count);
+        int cacheHits = 0;
         var nonBlankIndices = new List<int>(texts.Count);
         var nonBlankTexts = new List<string>(texts.Count);
         for (int i = 0; i < texts.Count; i++)
         {
             if (!string.IsNullOrWhiteSpace(texts[i]))
             {
+                var input = CapInputLength(texts[i]);
+                if (_cache.TryGet(input, out var cached))
+                {
+                    results[i] = cached;
+                    cacheHits++;
+                    continue;
+                }
                 nonBlankIndices.Add(i);
-                nonBlankTexts.Add(CapInputLength(texts[i]));
+                nonBlankTexts.Add(input);
             }
         }
 
+        span?.SetTag(MemoryTelemetry.EmbedCacheHits, cacheHits);
+        span?.SetTag(MemoryTelemetry.EmbedSent, nonBlankTexts.Count);
         if (nonBlankTexts.Count == 0)
             return results;
 
@@ -89,7 +121,10 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
                     generated.Count, nonBlankTexts.Count);
             }
             for (int j = 0; j < nonBlankIndices.Count && j < generated.Count; j++)
+            {
                 results[nonBlankIndices[j]] = generated[j].Vector.ToArray();
+                _cache.Set(nonBlankTexts[j], results[nonBlankIndices[j]]);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

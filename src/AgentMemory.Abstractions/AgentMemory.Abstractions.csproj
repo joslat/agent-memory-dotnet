@@ -18,6 +18,11 @@
     <!-- SchemaConstants (internal Neo4j backend label/property/edge strings) is consumed by the Neo4j
          provider package. Targeted grant only. -->
     <InternalsVisibleTo Include="AgentMemory.Neo4j" />
+    <!-- MemoryTelemetry's helpers (exception recording, recall-span typing, baggage) are implementation
+         details of the packages that emit spans; only the span names and attribute keys are public. -->
+    <InternalsVisibleTo Include="AgentMemory.Core" />
+    <InternalsVisibleTo Include="AgentMemory.AgentFramework" />
+    <InternalsVisibleTo Include="AgentMemory.Extraction.Llm" />
   </ItemGroup>
 
 </Project>

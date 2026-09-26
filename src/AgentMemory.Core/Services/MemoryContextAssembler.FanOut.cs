@@ -76,6 +76,41 @@ internal sealed partial class MemoryContextAssembler
         IReadOnlyList<LegContribution> Legs);
 
     /// <summary>
+    /// Embeds, in one request, the query text of every leg that carries no vector of its own (D10).
+    /// Returns an empty map when there is at most one such leg or the batch fails: the caller then
+    /// embeds leg by leg, exactly as it did before.
+    /// </summary>
+    private async Task<Dictionary<string, float[]>> PrepareLegEmbeddingsAsync(
+        IReadOnlyList<RecallSubQuery> legs, CancellationToken cancellationToken)
+    {
+        var prepared = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        var texts = legs
+            .Where(leg => leg.QueryEmbedding is null || leg.QueryEmbedding.Length == 0)
+            .Select(leg => leg.QueryText)
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (texts.Count < 2) return prepared;
+
+        try
+        {
+            var vectors = await _embeddingOrchestrator.EmbedBatchAsync(texts, cancellationToken).ConfigureAwait(false);
+            if (vectors.Count != texts.Count) return prepared;
+            for (var i = 0; i < texts.Count; i++)
+                if (vectors[i] is { Length: > 0 } vector) prepared[texts[i]] = vector;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogDebug(exception, "Batched fan-out leg embedding failed; embedding the legs one by one.");
+        }
+        return prepared;
+    }
+
+    /// <summary>
     /// Derives (or accepts) sub-queries, retrieves each, and merges them into the monolithic sections.
     /// </summary>
     /// <remarks>
@@ -220,9 +255,17 @@ internal sealed partial class MemoryContextAssembler
         var scoredFactIds = factPairs.Select(pair => pair.Item.FactId).ToHashSet(StringComparer.Ordinal);
         var expansionTail = facts.Where(fact => !scoredFactIds.Contains(fact.FactId)).ToList();
 
+        // D10. Every leg that needs a vector is embedded in ONE request up front. One at a time they ran
+        // back to back after the main query's embedding: 3 sequential round trips on a two-leg question
+        // (measured ~110 ms locally, ~2.6 s against a hosted model). A failed batch changes nothing: each
+        // leg then embeds on its own below, with the same per-leg failure accounting as before.
+        var prepared = await PrepareLegEmbeddingsAsync(legs, cancellationToken).ConfigureAwait(false);
+
         foreach (var leg in legs)
         {
             var embedding = leg.QueryEmbedding;
+            if ((embedding is null || embedding.Length == 0) && prepared.TryGetValue(leg.QueryText, out var batched))
+                embedding = batched;
             if (embedding is null || embedding.Length == 0)
             {
                 try

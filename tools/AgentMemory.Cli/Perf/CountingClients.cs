@@ -64,7 +64,7 @@ public sealed class CountingChatClient : IChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var purpose = ExtractionPurpose(Activity.Current?.OperationName);
+        var purpose = ExtractionPurpose(Activity.Current);
         var startedAt = Stopwatch.GetTimestamp();
         var response = await _inner.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
         Record(response, purpose, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
@@ -77,7 +77,7 @@ public sealed class CountingChatClient : IChatClient
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var turn = PerfCollector.Current;
-        var purpose = ExtractionPurpose(Activity.Current?.OperationName);
+        var purpose = ExtractionPurpose(Activity.Current);
         turn?.Add("llm.calls");
         if (purpose is not null)
             turn?.Add($"llm.{purpose}.calls");
@@ -114,6 +114,21 @@ public sealed class CountingChatClient : IChatClient
                 turn.Add($"llm.{purpose}.tokens_out", outputTokens);
             }
         }
+    }
+
+    /// <summary>
+    /// The purpose of the nearest enclosing extraction span. Nearest, not current: the chat call can run
+    /// inside a narrower span (each model call is wrapped in its own attempt span), and matching only the
+    /// immediate parent silently stopped attributing every call.
+    /// </summary>
+    private static string? ExtractionPurpose(Activity? activity)
+    {
+        for (var current = activity; current is not null; current = current.Parent)
+        {
+            if (ExtractionPurpose(current.OperationName) is { } purpose)
+                return purpose;
+        }
+        return null;
     }
 
     private static string? ExtractionPurpose(string? operationName) => operationName switch

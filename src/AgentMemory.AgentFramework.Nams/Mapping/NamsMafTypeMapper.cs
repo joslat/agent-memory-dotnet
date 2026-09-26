@@ -2,6 +2,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.AgentFramework;
+using AgentMemory.AgentFramework.Mapping;
 using AgentMemory.AgentFramework.Security;
 using AgentMemory.Core.Security;
 using AgentMemory.Nams.Persistence;
@@ -52,13 +53,23 @@ internal static class NamsMafTypeMapper
             .Where(i => i.Category is NamsRecallCategory.RecentMessage or NamsRecallCategory.RelevantMessage)
             .Select(i => (Item: i, Trust: ToTrustLevel(i.Provenance)))
             .Where(x => Admit("messages", x.Item.Content, x.Trust))
-            .Select(x => new ChatMessage(
+            .Select(x => (x.Item, Chat: new ChatMessage(
                 ToMafRole(RecalledMessageRoleGate.EffectiveRole(x.Item.Role ?? "user", x.Trust, options.MinimumTrustForSystemRole)),
-                x.Item.Content))
+                x.Item.Content)))
             .ToList();
 
         int chatBudget = Math.Max(0, options.MaxChatHistoryMessages);
-        var keptChat = chatMessages.Count > chatBudget ? chatMessages.Take(chatBudget).ToList() : chatMessages;
+        // The newest `chatBudget`, emitted oldest first behind a framing message and marked, so the provider
+        // places them before the live thread (RecalledTurns: the same rule as the Neo4j provider). Ordered
+        // by the items' createdAt when every one has it; otherwise recall order is taken as newest first.
+        var byTime = chatMessages
+            .Select((x, index) => (x.Chat, At: ParseCreatedAt(x.Item.CreatedAt), Index: index))
+            .ToList();
+        var kept = byTime.All(x => x.At is not null)
+            ? byTime.OrderByDescending(x => x.At).ThenBy(x => x.Index).Take(chatBudget)
+                .OrderBy(x => x.At).ThenByDescending(x => x.Index).Select(x => x.Chat).ToList()
+            : byTime.Take(chatBudget).Reverse().Select(x => x.Chat).ToList();
+        var keptChat = RecalledTurns.Frame(kept, ToChatRole(EffectiveBlockRole(MemoryTrustLevel.Untrusted)));
 
         // Reflections/observations/entities: always kept (durable memory, never truncated by the chat
         // budget -- #91's same reasoning), delimited/escaped (#92 Phase 1), grouped by effective block role.
@@ -112,6 +123,10 @@ internal static class NamsMafTypeMapper
 
         return (userMessages, assistantMessages);
     }
+
+    private static DateTimeOffset? ParseCreatedAt(string? createdAt) =>
+        DateTimeOffset.TryParse(createdAt, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal, out var at) ? at : null;
 
     private static string CategoryName(NamsRecallCategory category) => category switch
     {

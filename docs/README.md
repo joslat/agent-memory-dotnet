@@ -11,6 +11,7 @@ Start with **[getting-started.md](getting-started.md)** to install and run.
 | [schema.md](schema.md) | Neo4j schema — node labels, relationship types, indexes, temporal and owner semantics |
 | [specification.md](specification.md) | Current specification — product identity, package set, architecture, and requirements |
 | [neo4j-memory-ecosystem.md](neo4j-memory-ecosystem.md) | Compatibility with upstream `neo4j-labs/agent-memory` — schema-parity/schema-check tooling, TCK conformance, and the review process behind releases |
+| [observability.md](observability.md) | The trace a turn produces — the span tree (hooks, routing, per-memory-type recall, extraction attempts, Neo4j queries with server timings), attribute keys, privacy rules and cost |
 | [performance/README.md](performance/README.md) | What a turn costs — the two phases (recall before the model, ingestion after), what is and isn't measured, tuning levers, and how to reproduce the numbers |
 | [security/threat-model.md](security/threat-model.md) | Threat table — attack vectors, mitigations, residual risk, and test coverage for each; read before production use |
 | [security/production-checklist.md](security/production-checklist.md) | Pre-production hardening checklist |

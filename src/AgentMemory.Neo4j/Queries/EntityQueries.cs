@@ -124,6 +124,23 @@ internal static class EntityQueries
         return $"MATCH (e:Entity {{type: $type}}) WHERE e.invalidated_at IS NULL{owner} RETURN e";
     }
 
+    /// <summary>
+    /// <see cref="GetByType"/> returning a property map WITHOUT the vector, so the server never reads it
+    /// and the driver never transfers it (4 KB per entity at 1,024 dimensions). The projected keys are the
+    /// ones <c>Neo4jEntityRepository.MapToEntity</c> reads (keep the two in step); list properties are
+    /// coalesced because a projected missing property is a null value, not a missing key.
+    /// </summary>
+    public static string GetByTypeWithoutEmbedding(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                            : " AND e.owner_id = $ownerId";
+        return $"MATCH (e:Entity {{type: $type}}) WHERE e.invalidated_at IS NULL{owner} "
+            + "RETURN e {.id, .owner_id, .name, .canonical_name, .type, .subtype, .description, .confidence, "
+            + ".location, aliases: coalesce(e.aliases, []), .attributes, "
+            + "source_message_ids: coalesce(e.source_message_ids, []), .created_at, .updated_at, .metadata} AS e";
+    }
+
     // ── SearchByNameAsync ──────────────────────────────────────────────
 
     /// <summary>

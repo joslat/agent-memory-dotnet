@@ -19,6 +19,7 @@ public static class InferenceProviderNames
         (InferenceProvider.OpenAI, "openai"),
         (InferenceProvider.Foundry, "foundry"),
         (InferenceProvider.OpenAICompatible, "openai-compatible"),
+        (InferenceProvider.Ollama, "ollama"),
     ];
 
     /// <summary>Every accepted token, in the order they are documented.</summary>
@@ -53,6 +54,7 @@ public static class InferenceProviderNames
         InferenceProvider.OpenAI => "OpenAI",
         InferenceProvider.Foundry => "Azure AI Foundry (OpenAI-compatible endpoint)",
         InferenceProvider.OpenAICompatible => "OpenAI-compatible endpoint",
+        InferenceProvider.Ollama => "Ollama",
         _ => "no provider configured",
     };
 
@@ -75,6 +77,7 @@ public static class InferenceProviderNames
             "foundry" or "azure-foundry" or "azure-ai-foundry" => InferenceProvider.Foundry,
             "openai-compatible" or "openai_compatible" or "compatible" or "openai-compat"
                 => InferenceProvider.OpenAICompatible,
+            "ollama" or "local" => InferenceProvider.Ollama,
             _ => InferenceProvider.None,
         };
 

@@ -172,7 +172,9 @@ public sealed class TornWriteRollbackIntegrationTests : IAsyncLifetime
 
         var afterRetry = await ReadSnapshotAsync();
         afterRetry.Should().Be(new GraphSnapshot(
-            TotalNodes: 4,
+            // 4 memories + the owner's working-memory profile block (on by default since 2026-09-26): one
+            // per owner, rebuilt after the write, so a retry leaves one block, not two.
+            TotalNodes: 5,
             Entities: 2,
             Facts: 1,
             Preferences: 1,
