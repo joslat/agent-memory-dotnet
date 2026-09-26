@@ -362,13 +362,28 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 ? resolved.Name
                 : surface;
 
+        // I-5. "user" is the owner: once the user has said their name, what they say about themselves is
+        // stored under it. Read only when this extraction has something to rewrite.
+        var userName = _options.ResolveUserToName && !string.IsNullOrWhiteSpace(ownerId) &&
+                       prepared.Facts.Any(f => !UserNames.IsNamingFact(f.Item) &&
+                                               (UserNames.IsUser(f.Item.Subject) || UserNames.IsUser(f.Item.Object)))
+            ? await UserNameAsync(prepared.Facts, ownerId!, cancellationToken).ConfigureAwait(false)
+            : null;
+
+        // The one place a stored subject or object is decided: the fact's preparation and the batch
+        // distinctness guard both call it, so they cannot disagree about which facts become one node.
+        string StoredName(ExtractedFact fact, string surface) =>
+            userName is not null && UserNames.IsUser(surface) && !UserNames.IsNamingFact(fact)
+                ? CanonicalName(userName)
+                : CanonicalName(surface);
+
         async Task<(Fact Item, string SourceKey)?> PrepareFactAsync(PreparedFact preparedFact)
         {
             var extracted = preparedFact.Item;
             // The source key stays the words as extracted: outcomes are keyed by the input item.
             var factSourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
-            var subject = CanonicalName(extracted.Subject);
-            var @object = CanonicalName(extracted.Object);
+            var subject = StoredName(extracted, extracted.Subject);
+            var @object = StoredName(extracted, extracted.Object);
             try
             {
                 // Trust is monotonic for owner-scoped facts. The pre-fetch deliberately excludes shared
@@ -607,9 +622,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // pre-fetch sees the first; batched, the MERGE folds them and the batch replays both (review round 2).
         var distinctExtractedTriples = prepared.Facts
             .Select(fact => (
-                MemoryTripleCanonicalizer.CanonicalValue(CanonicalName(fact.Item.Subject)),
+                MemoryTripleCanonicalizer.CanonicalValue(StoredName(fact.Item, fact.Item.Subject)),
                 MemoryTripleCanonicalizer.CanonicalValue(fact.Item.Predicate),
-                MemoryTripleCanonicalizer.CanonicalValue(CanonicalName(fact.Item.Object))))
+                MemoryTripleCanonicalizer.CanonicalValue(StoredName(fact.Item, fact.Item.Object))))
             .Distinct()
             .Count() == prepared.Facts.Count;
         var fusedFactRepository = _options.UseCoalescedPersistenceTransactions
@@ -1018,6 +1033,44 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         IReadOnlyList<IngestionItemOutcome> Outcomes);
 
     private sealed record PreparedFact(ExtractedFact Item, float[] Embedding);
+
+    /// <summary>
+    /// I-5: the name the user gave. This extraction's naming fact wins (the latest one in it); otherwise
+    /// the owner's latest live stored one; otherwise none, and nothing is rewritten.
+    /// </summary>
+    private async Task<string?> UserNameAsync(
+        IReadOnlyList<PreparedFact> facts, string ownerId, CancellationToken cancellationToken)
+    {
+        var stated = facts.Select(f => f.Item).LastOrDefault(UserNames.IsNamingFact)?.Object;
+        if (!string.IsNullOrWhiteSpace(stated)) return stated.Trim();
+
+        var stored = await _factRepository.GetBySubjectAsync(
+            UserNames.User, MemoryScope.For(ownerId, includeShared: false), cancellationToken).ConfigureAwait(false);
+        return stored
+            .Where(f => f.InvalidatedAtUtc is null && UserNames.IsNamingPredicate(f.Predicate) && !string.IsNullOrWhiteSpace(f.Object))
+            .OrderByDescending(f => f.CreatedAtUtc)
+            .Select(f => f.Object.Trim())
+            .FirstOrDefault();
+    }
+
+    /// <summary>I-5: the words that mean the user, and the fact that names them.</summary>
+    internal static class UserNames
+    {
+        internal const string User = "user";
+
+        private static readonly HashSet<string> Self = new(StringComparer.Ordinal) { "user", "the user", "i", "me", "myself" };
+
+        private static readonly HashSet<string> Naming = new(StringComparer.Ordinal)
+        {
+            "is named", "name is", "has name", "named", "is called", "goes by", "has the name",
+        };
+
+        internal static bool IsUser(string? value) => Self.Contains(MemoryTripleCanonicalizer.CanonicalValue(value));
+
+        internal static bool IsNamingPredicate(string? predicate) => Naming.Contains(MemoryTripleCanonicalizer.Canonical(predicate));
+
+        internal static bool IsNamingFact(ExtractedFact fact) => IsUser(fact.Subject) && IsNamingPredicate(fact.Predicate);
+    }
 
     /// <summary>
     /// I-6: one fact per statement within an extraction. Two facts are the same statement in other words

@@ -172,6 +172,22 @@ internal static class ExtractionPromptSemantics
     /// aliases when mentioned"; the batch rung the benchmark runs never did.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// I-5: asks for the user's own name as a fact, so persistence can store what the user says about
+    /// themselves under that name (<c>ExtractionOptions.ResolveUserToName</c>). Empty when off, so the
+    /// prompt stays byte-for-byte what it was.
+    /// </summary>
+    /// <remarks>
+    /// Capture, not inference, for the same reason as aliases: only a name the user states. A model
+    /// asked to guess which person in the conversation is the user would bind a sister's name to the
+    /// speaker.
+    /// </remarks>
+    internal static string UserNameInstruction(bool capture) => capture
+        ? "\nRefer to the person speaking to the assistant as \"user\". When the user STATES their own "
+          + "name (\"I'm Dana\", \"call me Dee\"), also add the fact {\"subject\":\"user\",\"predicate\":"
+          + "\"is named\",\"object\":\"<the name as they said it>\"}. Never add it for anyone else's name."
+        : string.Empty;
+
     internal static string IdentityAliasInstruction(bool capture) => capture
         ? "\nWhen a turn STATES that two names refer to one thing - \"the new flat is the place on "
           + "Ferrow Row\", \"head office, i.e. the Calderwick office\" - emit ONE entity and put the "

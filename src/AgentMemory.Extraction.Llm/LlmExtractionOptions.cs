@@ -104,6 +104,14 @@ public sealed class LlmExtractionOptions
     public bool CaptureIdentityAliases { get; set; }
 
     /// <summary>
+    /// I-5 (dark, default false): ask every extractor for the user's own name as a
+    /// <c>user | is named | &lt;name&gt;</c> fact when the user states it, and to call the speaker
+    /// <c>"user"</c> otherwise. It is what <c>ExtractionOptions.ResolveUserToName</c> reads, one layer
+    /// down; off, every prompt is byte-for-byte what it was.
+    /// </summary>
+    public bool CaptureUserName { get; set; }
+
+    /// <summary>
     /// How precisely a stored fact or preference is bound to the turn that stated it.
     /// </summary>
     /// <remarks>

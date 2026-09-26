@@ -151,6 +151,19 @@ public sealed class ExtractionOptions
     public bool CanonicalFactSubjects { get; set; }
 
     /// <summary>
+    /// I-5 (dark, default false): what the user says about themselves is stored under their name. The
+    /// extractor calls the speaker "user", so "user | works_at | Northwind" and "Dana | works_at |
+    /// Northwind" were two facts about one person, and the profile listed both. On, a fact whose subject
+    /// or object is "user" (or "I", "me") is stored under the name the user gave: from a
+    /// <c>user | is named | &lt;name&gt;</c> fact in the same extraction, else the owner's stored one (the
+    /// latest). Until a name is known nothing changes. The naming fact itself keeps "user", so it can be
+    /// found again; the words used are kept as <c>subject_surface</c> / <c>object_surface</c>. Combined
+    /// with <see cref="CanonicalFactSubjects"/> the name resolves further, to the known person's full
+    /// name. Ask the extractor for the naming fact with <c>LlmExtractionOptions.CaptureUserName</c>.
+    /// </summary>
+    public bool ResolveUserToName { get; set; }
+
+    /// <summary>
     /// Merge near-identical facts produced by ONE extraction (dark, default false). A single message
     /// produced "moved to | analytics team" and "moved to | analytics", and "requested help with" next to
     /// "needs help with": same fact, two phrasings, two nodes. On, a fact whose vector is at least
