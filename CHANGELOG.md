@@ -31,7 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   itself, never the naming fact itself, which is also never merged away. A fact now stored under the
   name also supersedes (for single-valued relations) what was stored under "user" before the name was
   known. Until a name is known nothing changes; the words used are kept as `subject_surface` /
-  `object_surface`; with `CanonicalFactSubjects` the name resolves to the known person's full name. Measured on one two-session conversation: without it 3 facts about "Dana" and 5
+  `object_surface`; with `CanonicalFactSubjects` the name resolves to the known person's full name. The
+  instruction only adds the naming fact: an earlier wording ("refer to the person speaking as user") made
+  the model return nothing for book passages ("fictional text; no user memory"), 6 of 18 chunks; now 1 of
+  18, as without the option. Measured on one two-session conversation: without it 3 facts about "Dana" and 5
   about "user"; with it all 8 under "Dana", including the second session's.
 - **`AgentFrameworkOptions.ExtractFromUserMessagesOnly` (dark): learn from what the user said.** With
   auto-extraction on, the agent's reply was extracted too, so every time the agent repeated a fact back
