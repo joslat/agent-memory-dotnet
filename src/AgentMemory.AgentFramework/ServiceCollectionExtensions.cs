@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
@@ -38,7 +39,19 @@ public static class ServiceCollectionExtensions
                 + "every turn as a session resume.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.DefaultDeltaCheckpointKey),
                 "AgentFrameworkOptions.DefaultDeltaCheckpointKey must not be blank.")
+            .Validate(o => o.BackgroundExtractionConcurrency > 0,
+                "AgentFrameworkOptions.BackgroundExtractionConcurrency must be positive.")
+            .Validate(o => o.BackgroundDrainTimeout >= TimeSpan.Zero,
+                "AgentFrameworkOptions.BackgroundDrainTimeout must not be negative.")
             .ValidateOnStart();
+
+        // Always registered, idle until used: it holds no thread, and the container drains it on shutdown.
+        services.TryAddSingleton<IBackgroundExtraction>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<AgentFrameworkOptions>>().Value;
+            return new BackgroundExtractionQueue(options.BackgroundExtractionConcurrency, options.BackgroundDrainTimeout,
+                sp.GetRequiredService<ILogger<BackgroundExtractionQueue>>());
+        });
 
         services.AddOptions<ContextFormatOptions>()
             .Configure<IOptions<AgentFrameworkOptions>>((ctx, af) =>

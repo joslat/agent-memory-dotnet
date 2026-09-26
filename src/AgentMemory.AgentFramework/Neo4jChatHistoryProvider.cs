@@ -24,6 +24,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly AgentFrameworkOptions _options;
+    private readonly IBackgroundExtraction? _backgroundExtraction;
     private readonly IMemoryStoreContext? _storeContext;
     private readonly IWritableMemoryOwnerContext? _ownerContext;
     private readonly ILogger<Neo4jChatHistoryProvider> _logger;
@@ -41,7 +42,8 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         ILogger<Neo4jChatHistoryProvider> logger,
         IMemoryStoreContext? storeContext = null,
         IWritableMemoryOwnerContext? ownerContext = null,
-        IMemoryContextAdmissionPolicy? admissionPolicy = null)
+        IMemoryContextAdmissionPolicy? admissionPolicy = null,
+        IBackgroundExtraction? backgroundExtraction = null)
         // storeInputRequestMessageFilter narrows MAF's own default (which excludes only ChatHistory-sourced
         // messages) down to External-only. Without this, when a host also configures an AIContextProvider
         // (e.g. Neo4jMemoryContextProvider) on the same agent, that provider's injected messages (recalled
@@ -64,6 +66,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         // MafTypeMapper.ToChatMessage with no admission-check or privileged-role gating at all, unlike
         // ToContextMessages' handling of the identical underlying data -- see ToGatedChatMessages' remarks.
         _admissionPolicy = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
+        _backgroundExtraction = backgroundExtraction;
     }
 
     /// <summary>
@@ -197,25 +200,14 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
             var turnMessages = storedRequests.Where(m => m.Role == "user").Concat(storedResponses).ToList();
             if (_options.AutoExtractOnPersist && turnMessages.Count > 0)
             {
-                try
-                {
-                    await _memoryService.ExtractAndPersistAsync(
-                        new Abstractions.Domain.ExtractionRequest
-                        {
-                            Messages = turnMessages,
-                            SessionId = sessionId,
-                            UserId = userId
-                        }, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Extraction failed for session {SessionId}; messages were persisted.", sessionId);
-                }
+                await TurnExtraction.ExtractAsync(
+                    _memoryService,
+                    new Abstractions.Domain.ExtractionRequest
+                    {
+                        Messages = turnMessages,
+                        SessionId = sessionId,
+                        UserId = userId
+                    }, _options, _backgroundExtraction, _logger, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

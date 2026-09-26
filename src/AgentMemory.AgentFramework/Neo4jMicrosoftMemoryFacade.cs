@@ -18,6 +18,7 @@ public sealed class Neo4jMicrosoftMemoryFacade
     private readonly IMemoryService _memoryService;
     private readonly Neo4jChatMessageStore _messageStore;
     private readonly AgentFrameworkOptions _options;
+    private readonly IBackgroundExtraction? _backgroundExtraction;
     private readonly ILogger<Neo4jMicrosoftMemoryFacade> _logger;
     private readonly IMemoryContextAdmissionPolicy _admissionPolicy;
 
@@ -26,8 +27,10 @@ public sealed class Neo4jMicrosoftMemoryFacade
         Neo4jChatMessageStore messageStore,
         IOptions<AgentFrameworkOptions> options,
         ILogger<Neo4jMicrosoftMemoryFacade> logger,
-        IMemoryContextAdmissionPolicy? admissionPolicy = null)
+        IMemoryContextAdmissionPolicy? admissionPolicy = null,
+        IBackgroundExtraction? backgroundExtraction = null)
     {
+        _backgroundExtraction = backgroundExtraction;
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
         _messageStore = messageStore ?? throw new ArgumentNullException(nameof(messageStore));
         _options = options?.Value ?? new AgentFrameworkOptions();
@@ -156,24 +159,14 @@ public sealed class Neo4jMicrosoftMemoryFacade
 
             if (_options.AutoExtractOnPersist && internalMessages.Count > 0)
             {
-                try
-                {
-                    await _memoryService.ExtractAndPersistAsync(
-                        new ExtractionRequest
-                        {
-                            Messages = internalMessages,
-                            SessionId = sessionId,
-                            UserId = userId
-                        }, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Extraction failed for session {SessionId}; messages were persisted.", sessionId);
-                }
+                await TurnExtraction.ExtractAsync(
+                    _memoryService,
+                    new ExtractionRequest
+                    {
+                        Messages = internalMessages,
+                        SessionId = sessionId,
+                        UserId = userId
+                    }, _options, _backgroundExtraction, _logger, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

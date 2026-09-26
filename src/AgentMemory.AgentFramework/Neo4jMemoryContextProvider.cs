@@ -40,6 +40,7 @@ public class Neo4jMemoryContextProvider : AIContextProvider
     private readonly RecallOptions _recallOptions;
     private readonly ContextFormatOptions _formatOptions;
     private readonly AgentFrameworkOptions _agentOptions;
+    private readonly IBackgroundExtraction? _backgroundExtraction;
     private readonly IMemoryStoreContext? _storeContext;
     private readonly IWritableMemoryOwnerContext? _ownerContext;
     private readonly MemoryToolFactory? _toolFactory;
@@ -60,7 +61,8 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         IWritableMemoryOwnerContext? ownerContext = null,
         MemoryToolFactory? toolFactory = null,
         IAutomaticRecallPolicy? recallPolicy = null,
-        IMemoryContextAdmissionPolicy? admissionPolicy = null)
+        IMemoryContextAdmissionPolicy? admissionPolicy = null,
+        IBackgroundExtraction? backgroundExtraction = null)
         // AIContextProvider(provideInputMessageFilter, storeInputRequestMessageFilter, storeInputResponseMessageFilter):
         // null keeps MAF's defaults: ProvideAIContextAsync sees only the caller's new messages (hence the full
         // thread captured in InvokingCoreAsync for the history dedup), and only those are stored.
@@ -73,6 +75,7 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         _recallOptions = memoryOptions?.Value.Recall ?? RecallOptions.Default;
         _formatOptions = formatOptions?.Value ?? new ContextFormatOptions();
         _agentOptions = agentOptions?.Value ?? new AgentFrameworkOptions();
+        _backgroundExtraction = backgroundExtraction;
         _storeContext = storeContext;
         _ownerContext = ownerContext;
         _toolFactory = toolFactory;
@@ -743,29 +746,14 @@ public class Neo4jMemoryContextProvider : AIContextProvider
                 : transientRequestMessages.Concat(storedMessages).ToList();
             if (_agentOptions.AutoExtractOnPersist && turnMessages.Count > 0)
             {
-                using var extractSpan = AgentMemoryDiagnostics.Source.StartActivity("memory.store.extract");
-                extractSpan?.SetTag("memory.extract.source_messages", turnMessages.Count);
-                try
-                {
-                    await _memoryService.ExtractAndPersistAsync(
-                        new ExtractionRequest
-                        {
-                            Messages = turnMessages,
-                            SessionId = sessionId,
-                            UserId = userId
-                        }, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    // Swallowed (the turn succeeded), but not invisible: the ingest hook span says so.
-                    MemoryTelemetry.RecordException(System.Diagnostics.Activity.Current, ex);
-                    _logger.LogWarning(ex,
-                        "Extraction failed for session {SessionId}; messages were persisted.", sessionId);
-                }
+                await TurnExtraction.ExtractAsync(
+                    _memoryService,
+                    new ExtractionRequest
+                    {
+                        Messages = turnMessages,
+                        SessionId = sessionId,
+                        UserId = userId
+                    }, _agentOptions, _backgroundExtraction, _logger, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

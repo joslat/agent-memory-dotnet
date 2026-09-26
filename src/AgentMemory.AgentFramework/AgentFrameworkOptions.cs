@@ -55,6 +55,28 @@ public sealed class AgentFrameworkOptions
     public bool ExtractFromUserMessagesOnly { get; set; }
 
     /// <summary>
+    /// Extract after the turn has returned (dark, default false). Extraction is a model call plus
+    /// resolution and writes, seconds per turn, and inline it is part of every answer's latency: the
+    /// reply is complete but the run does not return until memorising is done. On, the turn's messages
+    /// are still stored inline and extraction is handed to <see cref="IBackgroundExtraction"/>: in order
+    /// per session, concurrently across sessions. The cost is that a fact stated in one turn may not be
+    /// recallable in the very next one if that turn starts before extraction finishes.
+    /// </summary>
+    public bool ExtractInBackground { get; set; }
+
+    /// <summary>
+    /// How many sessions' background extractions may run at once (default 4). Turns of one session always
+    /// run one at a time, in order.
+    /// </summary>
+    public int BackgroundExtractionConcurrency { get; set; } = 4;
+
+    /// <summary>
+    /// How long shutdown waits for queued background extractions (default 30 s) before cancelling them.
+    /// A cancelled extraction is logged: that turn's messages are stored but were not learned from.
+    /// </summary>
+    public TimeSpan BackgroundDrainTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
     /// When <see langword="true"/>, reasoning traces produced by <see cref="AgentTraceRecorder"/>
     /// are persisted to the Neo4j graph. Disabled by default to reduce write overhead.
     /// </summary>

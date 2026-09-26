@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`AgentFrameworkOptions.ExtractInBackground` (dark): the answer does not wait for memorising.**
+  Extraction is a model call plus resolution and writes; inline, every run waited for it although the
+  reply was already complete. On, the turn's messages are still stored inline and extraction goes to
+  the new `IBackgroundExtraction` (registered by `AddAgentMemoryFramework`): in order per session,
+  concurrently across sessions (`BackgroundExtractionConcurrency`, default 4), carrying the turn's
+  owner and store scope, drained on shutdown for up to `BackgroundDrainTimeout` (30 s). All three
+  entry points that extract on persist (the context provider, the chat-history provider, the facade)
+  share one dispatcher, so they behave the same. Register your own `IBackgroundExtraction` to hand the
+  work to another scheduler. Measured, 10 live turns per arm with a 6 s pause between turns: median
+  answer 3.5 s → 1.5 s (−57%), p95 9.7 s → 4.5 s, same facts stored. The trade-off: a fact stated in
+  one turn may not be recallable in the next if that turn starts before extraction finishes.
 - **`ExtractionOptions.ResolveUserToName` + `LlmExtractionOptions.CaptureUserName` (dark): "user" is
   the owner.** The extractor calls the speaker "user", so one person was stored under two names ("Dana |
   lives in | Porto" beside "user | is learning | cello" and "Lena | is sister of | the user"), and the
