@@ -40,6 +40,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   message was embedded twice (as the recall query and again when stored), and known entity names were
   re-embedded every turn they were mentioned, each a ~1 s round trip for an identical vector. `0`, the
   default, disables it.
+- **A complete, correlated trace per turn** ([`docs/observability.md`](docs/observability.md)). One
+  vocabulary, `MemoryTelemetry`, names every span and attribute. New spans: `memory.hook.recall` and
+  `memory.hook.ingest` (the PRE/POST hooks, with session and conversation, and only *whether* the turn
+  was owner- and app-scoped: those ids are tenant data; the session id is read from W3C baggage when a
+  host propagates one), `memory.route` (the recall policy's
+  decision), `memory.compose` (admission and formatting) and `memory.embed` (inputs, cache hits, sent).
+  Recall legs carry `memory.type` and `memory.results.count`. Neo4j spans carry `db.system`,
+  `db.operation.name`, `db.rows`, the server's own timings when the caller consumes the summary, and
+  `db.attempts` / `db.retries` (managed-transaction retries were invisible). Failures record the exception
+  *type* (`error.type` + an `exception` event), never its message. Background access tracking and
+  enrichment run in their own traces **linked** to the recall or ingestion that queued them. AgentMemory's
+  own queries that no marker recognised are named `unregistered:<index-or-label>:<hash>` (literals and
+  numbers normalised) instead of one `unknown` bucket (a live session had 340 of them; now 0); Cypher passed
+  to the graph-query service is never given a structural name. `memory.compose` counts admission flags, exclusions and dedup drops.
+  Nothing is recorded without a listener.
 - **`memory.extract.attempt` spans.** Every extraction model call is a span tagged with its outcome
   (`ok`, `salvaged`, `syntax_error`, `schema_error`, `truncated`, `filtered`), the provider's finish
   reason, output tokens, items kept and dropped, and the error in words. A failed extraction is no
@@ -93,6 +108,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New entities in one extraction are embedded in one request.** Resolution embedded each name the
   string matchers could not resolve in its own ~1 s round trip, sequentially. Those names are now
   embedded together up front; names already known cost no request.
+- **A `memory.db.query` span ends when its result is read**, not when the driver returns a cursor (before
+  the server had streamed anything); a result nobody finishes reading ends when the next query starts, a
+  retry begins, or its transaction ends (`db.result.read = none | partial`).
+- **Background queues no longer inherit the trace of whoever created them.** The access-tracking and
+  enrichment consumers started inside the constructing caller's execution context, so every later
+  background write became a child span of whichever request first built the singleton.
 - **An entity created by resolution keeps the vector resolution already computed for its name.** The
   semantic matcher embedded the mention and discarded the vector; persistence then embedded the same
   name again. One remote round trip saved per new entity, identical vectors. Resolution itself is

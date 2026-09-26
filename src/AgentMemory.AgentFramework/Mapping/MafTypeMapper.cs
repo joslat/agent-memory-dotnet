@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Diagnostics;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
@@ -334,6 +335,7 @@ internal static class MafTypeMapper
                     .ToList();
                 if (deduped.Count != chatMessages.Count)
                 {
+                    CountOnCompose(MemoryTelemetry.ComposeDeduplicated, chatMessages.Count - deduped.Count);
                     logger?.LogDebug(
                         "Dropped {Dropped} recalled message(s) already present in the live thread.",
                         chatMessages.Count - deduped.Count);
@@ -401,6 +403,17 @@ internal static class MafTypeMapper
     }
 
     /// <summary>
+    /// Adds <paramref name="n"/> to a counter on the enclosing <c>memory.compose</c> span, if that is the
+    /// current span (the delta block, admitted from elsewhere, is not counted as composition).
+    /// </summary>
+    private static void CountOnCompose(string key, int n)
+    {
+        if (System.Diagnostics.Activity.Current is not { OperationName: MemoryTelemetry.ComposeSpan } compose) return;
+        var current = compose.GetTagItem(key) is int value ? value : 0;
+        compose.SetTag(key, current + n);
+    }
+
+    /// <summary>
     /// One item's admission decision, through the host's pluggable policy.
     /// </summary>
     /// <remarks>
@@ -425,6 +438,7 @@ internal static class MafTypeMapper
         // since nothing was actually excluded.
         if (decision.InstructionLikeContentDetected && decision.Include)
         {
+            CountOnCompose(MemoryTelemetry.ComposeFlagged, 1);
             logger?.LogDebug(
                 "Recalled memory item in category '{Category}' flagged as instruction-like content " +
                 "but included (SecurityMode={Mode}).", category, options.SecurityMode);
@@ -432,6 +446,7 @@ internal static class MafTypeMapper
 
         if (!decision.Include)
         {
+            CountOnCompose(MemoryTelemetry.ComposeExcluded, 1);
             logger?.LogWarning(
                 "Excluded a recalled memory item in category '{Category}' from context: {Reason}.",
                 category, decision.ExclusionReason ?? "unspecified");

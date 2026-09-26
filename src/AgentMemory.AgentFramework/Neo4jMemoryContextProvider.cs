@@ -127,10 +127,39 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         var messages = context.AIContext?.Messages ?? Enumerable.Empty<ChatMessage>();
         var ids = ExtractIds(context.Session, context.Agent);
         using var storeScope = ApplyStoreContext(ids.applicationId);
-        return await BuildContextAsync(
-                messages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId,
-                ReadDeltaCheckpoint(context.Session), context.Session)
-            .ConfigureAwait(false);
+        // The PRE hook as one span: the parent of routing, recall and composition, tagged with who and
+        // which conversation (owner and store only as whether they applied), so a trace groups by session and turn.
+        using var hook = AgentMemoryDiagnostics.Source.StartActivity(MemoryTelemetry.RecallHookSpan);
+        TagIdentity(hook, ids.sessionId, ids.conversationId, ids.userId, appScoped: storeScope is not null);
+        try
+        {
+            var result = await BuildContextAsync(
+                    messages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId,
+                    ReadDeltaCheckpoint(context.Session), context.Session)
+                .ConfigureAwait(false);
+            hook?.SetTag(MemoryTelemetry.ContextItems, result.Messages?.Count() ?? 0);
+            return result;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            MemoryTelemetry.RecordException(hook, ex);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Tags a hook span with the turn's session and conversation. Owner and application ids are tenant
+    /// data, so only whether the turn was scoped to one is recorded (<paramref name="appScoped"/>: whether
+    /// the turn was actually routed to an application store, not merely carried an application id).
+    /// </summary>
+    private static void TagIdentity(
+        System.Diagnostics.Activity? span, string sessionId, string conversationId, string? userId, bool appScoped)
+    {
+        if (span is null) return;
+        span.SetTag(MemoryTelemetry.SessionId, MemoryTelemetry.BaggageSessionId() ?? sessionId);
+        span.SetTag(MemoryTelemetry.ConversationId, conversationId);
+        span.SetTag(MemoryTelemetry.OwnerScoped, userId is not null);
+        span.SetTag(MemoryTelemetry.AppScoped, appScoped);
     }
 
     /// <summary>
@@ -306,17 +335,28 @@ public class Neo4jMemoryContextProvider : AIContextProvider
             // ConfiguredAutomaticRecallPolicy always returns Categories=All + Intent=null, which
             // ResolveEffectiveOptions below turns into a complete no-op -- so the pre-#88 behavior is
             // preserved exactly unless a host opts into a different policy.
-            var decision = await _recallPolicy
-                .DecideAsync(
-                    new AutomaticRecallContext
-                    {
-                        Messages = userMessages,
-                        SessionId = sessionId,
-                        ConversationId = conversationId,
-                        UserId = userId
-                    },
-                    cancellationToken)
-                .ConfigureAwait(false);
+            AutomaticRecallDecision decision;
+            using (var route = AgentMemoryDiagnostics.Source.StartActivity(MemoryTelemetry.RouteSpan))
+            {
+                decision = await _recallPolicy
+                    .DecideAsync(
+                        new AutomaticRecallContext
+                        {
+                            Messages = userMessages,
+                            SessionId = sessionId,
+                            ConversationId = conversationId,
+                            UserId = userId
+                        },
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (route is not null)
+                {
+                    route.SetTag(MemoryTelemetry.RoutePolicy, _recallPolicy.GetType().Name);
+                    route.SetTag(MemoryTelemetry.RouteShouldRecall, decision.ShouldRecall);
+                    route.SetTag(MemoryTelemetry.RouteCategories, decision.Categories.ToString());
+                    if (decision.Intent is { } intent) route.SetTag(MemoryTelemetry.RouteIntent, intent.ToString());
+                }
+            }
 
             _logger.LogDebug(
                 "Automatic recall decision for session {SessionId}: policy={Policy} recall={ShouldRecall} " +
@@ -383,13 +423,35 @@ public class Neo4jMemoryContextProvider : AIContextProvider
                 return BuildResult(null, deltaMessage);
             }
 
+            // What routing decided AFTER the policy: the temporal as-of the query resolved to, and whether
+            // the fan-out planner fired and which rules. Tagged on the enclosing recall hook span (T1.3).
+            if (System.Diagnostics.Activity.Current is { OperationName: MemoryTelemetry.RecallHookSpan } hookSpan)
+            {
+                if (recallResult.Context.ResolvedTemporalAsOf is { } asOf)
+                    hookSpan.SetTag(MemoryTelemetry.RouteTemporalAsOf, asOf.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+                if (recallResult.Context.FanOutReport is { } fanOut)
+                {
+                    hookSpan.SetTag(MemoryTelemetry.RouteFanOutFired, fanOut.GateFired);
+                    if (fanOut.FiredRules.Count > 0)
+                        hookSpan.SetTag(MemoryTelemetry.RouteFanOutRules, string.Join(",", fanOut.FiredRules));
+                    hookSpan.SetTag(MemoryTelemetry.RouteFanOutLegs, fanOut.SubQueries.Count);
+                }
+            }
+
             // 2.5. The host is already sending the live thread; recall returns the same recent turns
             // from storage, so without this the model sees them twice and pays for both. Passed here
             // rather than filtered afterwards because the mapper drops duplicates BEFORE applying
             // MaxChatHistoryMessages -- so the same budget carries that many genuinely new messages.
-            var contextMessages = MafTypeMapper.ToContextMessages(
-                recallResult.Context, _formatOptions, _admissionPolicy, _logger,
-                _agentOptions.DeduplicateRecalledHistory ? liveThread : null);
+            // Composition as its own span: admission, trust labelling, dedup and formatting are where
+            // recalled items can be dropped before the model ever sees them (G9).
+            IReadOnlyList<ChatMessage> contextMessages;
+            using (var compose = AgentMemoryDiagnostics.Source.StartActivity(MemoryTelemetry.ComposeSpan))
+            {
+                contextMessages = MafTypeMapper.ToContextMessages(
+                    recallResult.Context, _formatOptions, _admissionPolicy, _logger,
+                    _agentOptions.DeduplicateRecalledHistory ? liveThread : null);
+                compose?.SetTag(MemoryTelemetry.ContextItems, contextMessages.Count);
+            }
 
             if (contextMessages.Count == 0)
                 return BuildResult(null, deltaMessage);
@@ -582,6 +644,9 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         var responseMessages = context.ResponseMessages ?? Enumerable.Empty<ChatMessage>();
         var ids = ExtractIds(context.Session, context.Agent);
         using var storeScope = ApplyStoreContext(ids.applicationId);
+        using var hook = AgentMemoryDiagnostics.Source.StartActivity(MemoryTelemetry.IngestHookSpan);
+        TagIdentity(hook, ids.sessionId, ids.conversationId, ids.userId, appScoped: storeScope is not null);
+        hook?.SetTag(MemoryTelemetry.IngestMessages, requestMessages.Count() + responseMessages.Count());
 
         await PerformStoreAsync(requestMessages, responseMessages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId)
             .ConfigureAwait(false);

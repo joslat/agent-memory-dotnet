@@ -23,6 +23,8 @@ internal sealed class Neo4jGraphQueryService : IGraphQueryService
     {
         _logger.LogDebug("Executing graph query: {Query}", cypherQuery);
 
+        // Caller-supplied Cypher: never a structural telemetry name (its literals are the caller's data).
+        using var consumer = Queries.CypherQueryRegistry.ConsumerQueries();
         return await _tx.ReadAsync<IReadOnlyList<IReadOnlyDictionary<string, object?>>>(async runner =>
         {
             var driverParams = parameters is not null

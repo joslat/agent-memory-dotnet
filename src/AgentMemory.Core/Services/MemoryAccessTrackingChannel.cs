@@ -1,3 +1,5 @@
+using AgentMemory.Abstractions.Diagnostics;
+using System.Diagnostics;
 using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -41,7 +43,10 @@ namespace AgentMemory.Core.Services;
 /// </remarks>
 internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsyncDisposable, IDisposable
 {
-    private readonly Channel<IReadOnlyList<(string NodeId, MemoryNodeKind Kind)>> _channel;
+    private readonly Channel<TrackedBatch> _channel;
+
+    /// <summary>A batch and the trace it came from, so the background write links back to its recall.</summary>
+    private sealed record TrackedBatch(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> Nodes, ActivityContext Origin);
     private readonly IServiceProvider _rootProvider;
     private readonly ILogger<MemoryAccessTrackingChannel> _logger;
     private readonly Task _consumer;
@@ -75,7 +80,7 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
             // "quietly discarding its input" failure the class comment warns about, and it was built
             // that way on the first draft; the test that found it asserted a non-zero drop count on a
             // capacity-1 queue and got 0.
-            (IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> _) => OnDropped());
+            (TrackedBatch _) => OnDropped());
 
         _consumer = Task.Run(DrainAsync);
     }
@@ -92,7 +97,7 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
         Interlocked.Increment(ref _enqueued);
         // Returns true even when the item is dropped, under DropWrite. The drop is counted by the
         // itemDropped callback above, not here -- see the comment on the channel construction.
-        if (!_channel.Writer.TryWrite(nodes)) OnDropped();
+        if (!_channel.Writer.TryWrite(new TrackedBatch(nodes, Activity.Current?.Context ?? default))) OnDropped();
     }
 
     /// <summary>Counts a dropped batch and says so, rarely enough not to become the noise itself.</summary>
@@ -111,6 +116,10 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
 
     private async Task DrainAsync()
     {
+        // The consumer outlives whoever constructed this singleton and inherited its ambient trace:
+        // cleared, so each background write is its own trace (linked to its origin), not a child of that
+        // first request. Only the trace -- the rest of the execution context is left as it always was.
+        Activity.Current = null;
         try
         {
             await foreach (var batch in _channel.Reader.ReadAllAsync(_shutdown.Token)
@@ -132,8 +141,14 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
         }
     }
 
-    private async Task WriteAsync(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> batch)
+    private async Task WriteAsync(TrackedBatch tracked)
     {
+        var batch = tracked.Nodes;
+        // Its own trace (it runs after the recall returned), LINKED to the recall that caused it (G10).
+        using var span = AgentMemoryDiagnostics.Source.StartActivity(
+            "memory.background.access_tracking", ActivityKind.Internal, parentContext: default,
+            links: tracked.Origin == default ? null : [new ActivityLink(tracked.Origin)]);
+        span?.SetTag("memory.background.items", batch.Count);
         try
         {
             // A FRESH scope per batch, created and disposed here. The decay service is scoped in most

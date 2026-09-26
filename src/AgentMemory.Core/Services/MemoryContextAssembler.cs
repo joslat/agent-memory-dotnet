@@ -1514,9 +1514,26 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     /// </remarks>
     private static async Task<T> TimedAsync<T>(string spanName, Func<Task<T>> factory)
     {
-        using var activity = AgentMemoryDiagnostics.Source.StartActivity(spanName);
-        return await factory().ConfigureAwait(false);
+        // Which memory type this leg reads, and how much it found: what the per-type views are built on.
+        // Only memory legs are counted (the query-embedding span returns a vector, not results).
+        using var activity = MemoryTelemetry.StartRecallSpan(spanName);
+        var result = await factory().ConfigureAwait(false);
+        if (activity?.GetTagItem(MemoryTelemetry.MemoryType) is not null && ResultCount(result) is { } count)
+            activity.SetTag(MemoryTelemetry.ResultsCount, count);
+        return result;
     }
+
+    /// <summary>How many items a recall leg returned, for every result shape the legs use.</summary>
+    internal static int? ResultCount(object? result) => result switch
+    {
+        null => null,
+        System.Collections.ICollection collection => collection.Count,   // lists and arrays
+        RelevantMessageSearchResult relevant => relevant.Messages.Count,
+        ScoredFactSearchResult scored => scored.Facts.Count,
+        ProspectiveDueResult prospective => prospective.Due.Count + prospective.Expiring.Count,
+        // A new leg shape is added here; TraceModelContractTests pins every shape the legs return today.
+        _ => null,
+    };
 
     private async Task<GraphRagContextResult?> FetchGraphRagAsync(
         RecallRequest request,
@@ -1524,7 +1541,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         MemoryScope scope,
         CancellationToken cancellationToken)
     {
-        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.graphrag");
+        using var activity = MemoryTelemetry.StartRecallSpan("memory.recall.graphrag");
         try
         {
             // #100 Stage 2: use the SAME already-resolved scope as every other recall source (line ~117),
@@ -1694,7 +1711,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         return ranked.AsReadOnly();
     }
 
-    private sealed record RelevantMessageSearchResult(
+    internal sealed record RelevantMessageSearchResult(
         IReadOnlyList<Message> Messages,
         IReadOnlyList<(Message Message, double Score)> ScoredMessages)
     {

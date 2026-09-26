@@ -385,7 +385,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         // a one-off study; nothing in the running system reported it. This span makes it standing. Started
         // AFTER the degraded-embedding short-circuit above, so a search that never reached the index does
         // not publish a zero-yield reading it never earned.
-        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.fact_vector");
+        using var activity = MemoryTelemetry.StartRecallSpan("memory.recall.fact_vector");
         _logger.LogDebug("Vector search facts, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
@@ -1211,7 +1211,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         // would let a collapse in either be averaged away by the other, so they are named apart.
         // Started AFTER the degraded-embedding short-circuit above, so a search that never reached the
         // index does not publish a zero-yield reading it never earned.
-        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.fact_vector_as_of");
+        using var activity = MemoryTelemetry.StartRecallSpan("memory.recall.fact_vector_as_of");
 
         // D6 bitemporal: asOf is the valid-time clock; systemAsOf is the transaction clock (defaults to asOf
         // for ordinary single-clock recall — identical to the previous behaviour).

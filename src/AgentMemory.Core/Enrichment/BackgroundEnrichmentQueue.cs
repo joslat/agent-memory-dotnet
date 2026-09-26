@@ -1,3 +1,5 @@
+using AgentMemory.Abstractions.Diagnostics;
+using System.Diagnostics;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,7 +13,7 @@ namespace AgentMemory.Core.Enrichment;
 /// <summary>
 /// Represents a single queued enrichment work item.
 /// </summary>
-internal record EnrichmentItem(string EntityId, int RetryCount = 0);
+internal record EnrichmentItem(string EntityId, int RetryCount = 0, ActivityContext Origin = default);
 
 /// <summary>
 /// Non-blocking background queue that runs enrichment providers asynchronously.
@@ -75,7 +77,7 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
     public Task EnqueueAsync(string entityId, CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled || _disposed) return Task.CompletedTask;
-        _channel.Writer.TryWrite(new EnrichmentItem(entityId));
+        _channel.Writer.TryWrite(new EnrichmentItem(entityId, Origin: Activity.Current?.Context ?? default));
         return Task.CompletedTask;
     }
 
@@ -84,7 +86,7 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
     {
         if (!_options.Enabled || _disposed) return Task.CompletedTask;
         foreach (var id in entityIds)
-            _channel.Writer.TryWrite(new EnrichmentItem(id));
+            _channel.Writer.TryWrite(new EnrichmentItem(id, Origin: Activity.Current?.Context ?? default));
         return Task.CompletedTask;
     }
 
@@ -121,6 +123,9 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
 
     private async Task RunWorkerAsync(CancellationToken cancellationToken)
     {
+        // Workers outlive the caller that started them: drop its ambient TRACE (only), so each item's span
+        // is its own trace linked to the ingestion that queued it.
+        Activity.Current = null;
         try
         {
             await foreach (var item in _channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
@@ -155,6 +160,11 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
 
     private async Task ProcessItemAsync(EnrichmentItem item, CancellationToken cancellationToken)
     {
+        // Its own trace, LINKED to the ingestion that queued the entity (G10).
+        using var span = AgentMemoryDiagnostics.Source.StartActivity(
+            "memory.background.enrichment", ActivityKind.Internal, parentContext: default,
+            links: item.Origin == default ? null : [new ActivityLink(item.Origin)]);
+        span?.SetTag("memory.background.retry", item.RetryCount);
         var entity = await _entityRepository.GetByIdAsync(item.EntityId, cancellationToken).ConfigureAwait(false);
         if (entity is null)
         {

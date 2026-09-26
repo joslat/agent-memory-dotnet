@@ -152,7 +152,73 @@ internal static class CypherQueryRegistry
             }
         }
 
-        return UnknownFingerprint;
+        return ConsumerQuery.Value ? UnknownFingerprint : StructuralFingerprint(cypher) ?? UnknownFingerprint;
+    }
+
+    private static readonly AsyncLocal<bool> ConsumerQuery = new();
+
+    /// <summary>
+    /// Marks the queries run inside the scope as caller-supplied Cypher (the graph-query service): they are
+    /// never given a structural name, even when they mention AgentMemory's labels, so their text (and any
+    /// literal in it) cannot become a telemetry dimension.
+    /// </summary>
+    internal static IDisposable ConsumerQueries()
+    {
+        var previous = ConsumerQuery.Value;
+        ConsumerQuery.Value = true;
+        return new Restore(previous);
+    }
+
+    private sealed class Restore(bool previous) : IDisposable
+    {
+        public void Dispose() => ConsumerQuery.Value = previous;
+    }
+
+    // AgentMemory's own vector indexes and node labels. A query naming one of them is ours even when no
+    // marker above recognises this exact variant (a method-built text with an inlined top-K, a schema
+    // statement, a candidate read), and deserves a stable name rather than joining one "unknown" bucket
+    // that hid 340 of a session's queries. Consumer-supplied text names none of them and stays unknown.
+    private static readonly string[] OwnIndexes =
+    [
+        "message_embedding_idx", "entity_embedding_idx", "fact_embedding_idx", "preference_embedding_idx",
+        "reasoning_step_embedding_idx", "task_embedding_idx",
+    ];
+
+    private static readonly string[] OwnLabels =
+    [
+        "Message", "Conversation", "Entity", "Fact", "Preference", "ReasoningTrace", "ReasoningStep", "ToolCall",
+        "MemoryReadAudit", "ConsolidationRun",
+    ];
+
+    // Precomputed once: the fallback runs on every unrecognised query while traced.
+    private static readonly (string Name, string Quoted, string Created)[] OwnIndexNeedles =
+        OwnIndexes.Select(index => (index, $"'{index}'", $"INDEX {index} ")).ToArray();
+
+    private static readonly (string Name, string[] Forms)[] OwnLabelNeedles =
+        OwnLabels.Select(label => (label, new[] { $":{label} ", $":{label})", $":{label} {{" })).ToArray();
+
+    /// <summary>
+    /// <c>unregistered:&lt;index-or-label&gt;:&lt;6 hex&gt;</c> for AgentMemory's own queries that no marker
+    /// recognises, else null. The hash covers the text with numbers normalised, so top-K variants of one
+    /// query share a name. Never the text itself.
+    /// </summary>
+    internal static string? StructuralFingerprint(string cypher)
+    {
+        string? anchor = null;
+        for (var i = 0; i < OwnIndexNeedles.Length && anchor is null; i++)
+            if (cypher.Contains(OwnIndexNeedles[i].Quoted, StringComparison.Ordinal) ||
+                cypher.Contains(OwnIndexNeedles[i].Created, StringComparison.Ordinal))
+                anchor = OwnIndexNeedles[i].Name;
+        for (var i = 0; i < OwnLabelNeedles.Length && anchor is null; i++)
+            if (OwnLabelNeedles[i].Forms.Any(form => cypher.Contains(form, StringComparison.Ordinal)))
+                anchor = OwnLabelNeedles[i].Name;
+        if (anchor is null) return null;
+        // Literals and numbers normalised, so a name is a query SHAPE: bounded cardinality, no values.
+        var normalised = System.Text.RegularExpressions.Regex.Replace(
+            cypher, @"'(?:[^'\\]|\\.)*'|""(?:[^""\\]|\\.)*""|[0-9]+|\s+",
+            m => char.IsWhiteSpace(m.Value[0]) ? " " : m.Value[0] is '\'' or '"' ? "?" : "#");
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(normalised));
+        return $"unregistered:{anchor}:{Convert.ToHexString(hash, 0, 3).ToLowerInvariant()}";
     }
 
     /// <summary>
