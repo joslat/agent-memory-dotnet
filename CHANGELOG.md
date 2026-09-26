@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`AgentFrameworkOptions.ExtractFromUserMessagesOnly` (dark): learn from what the user said.** With
+  auto-extraction on, the agent's reply was extracted too, so every time the agent repeated a fact back
+  ("you live in Porto, right?") the fact's mention count went up, and a summary reply re-learned the
+  profile as new rephrased facts. On, only the turn's request messages are extracted; the reply is still
+  stored as a message. Measured on one six-turn conversation: 11 facts with the reply (three rephrased
+  duplicates, "lives in Porto" at 3 mentions from echoes alone) against 8 facts, one mention each,
+  without. Off by default because an agent that states new facts itself (tool results, lookups) would
+  no longer have them extracted.
 - **`ExtractionOptions.DeduplicateWithinExtraction` (dark): one fact per statement.** A single message
   produced "moved to | analytics team" and "moved to | analytics": same fact, two nodes. On, a fact at
   least `WithinExtractionDuplicateThreshold` (0.93) similar to another fact of the same extraction is

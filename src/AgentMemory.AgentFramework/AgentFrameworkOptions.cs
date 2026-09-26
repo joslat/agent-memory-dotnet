@@ -46,6 +46,15 @@ public sealed class AgentFrameworkOptions
     public bool AutoExtractOnPersist { get; set; } = true;
 
     /// <summary>
+    /// Extract only from what the USER said (dark, default false); the agent's replies are still stored
+    /// as conversation. By default the reply is extracted too, so a recalled fact the agent repeats back
+    /// is learned again: its mention count rises every time the agent mentions it, and the profile tier
+    /// (which ranks by mentions) promotes what the agent says rather than what the user said. It also
+    /// keeps the agent's own suggestions out of the user's facts.
+    /// </summary>
+    public bool ExtractFromUserMessagesOnly { get; set; }
+
+    /// <summary>
     /// When <see langword="true"/>, reasoning traces produced by <see cref="AgentTraceRecorder"/>
     /// are persisted to the Neo4j graph. Disabled by default to reduce write overhead.
     /// </summary>

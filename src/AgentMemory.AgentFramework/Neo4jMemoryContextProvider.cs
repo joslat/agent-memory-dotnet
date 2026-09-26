@@ -738,7 +738,9 @@ public class Neo4jMemoryContextProvider : AIContextProvider
             // fact/preference itself is still created and recallable correctly; only its link back to the
             // literal source message is best-effort, not guaranteed, unless another component also
             // persisted that exact message.
-            var turnMessages = transientRequestMessages.Concat(storedMessages).ToList();
+            var turnMessages = _agentOptions.ExtractFromUserMessagesOnly
+                ? transientRequestMessages
+                : transientRequestMessages.Concat(storedMessages).ToList();
             if (_agentOptions.AutoExtractOnPersist && turnMessages.Count > 0)
             {
                 using var extractSpan = AgentMemoryDiagnostics.Source.StartActivity("memory.store.extract");
