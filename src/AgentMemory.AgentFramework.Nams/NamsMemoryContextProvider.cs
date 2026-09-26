@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.AgentFramework;
+using AgentMemory.AgentFramework.Mapping;
 using AgentMemory.AgentFramework.Nams.Mapping;
 using AgentMemory.AgentFramework.Recall;
 using AgentMemory.AgentFramework.Security;
@@ -61,6 +62,15 @@ public sealed class NamsMemoryContextProvider : AIContextProvider
 
     /// <summary>Identifies this provider in the MAF pipeline for introspection.</summary>
     public string StateKey => "NamsMemory";
+
+    /// <summary>
+    /// Places recalled conversation turns before the live thread (MAF appends a provider's messages after
+    /// the request; see <c>RecalledTurns</c>, shared with the Neo4j provider).
+    /// </summary>
+    protected override async ValueTask<AIContext> InvokingCoreAsync(
+        InvokingContext context,
+        CancellationToken cancellationToken = default) =>
+        RecalledTurns.Place(await base.InvokingCoreAsync(context, cancellationToken).ConfigureAwait(false), GetType().FullName!);
 
     protected override async ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context, CancellationToken cancellationToken = default)

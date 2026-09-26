@@ -61,9 +61,9 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         MemoryToolFactory? toolFactory = null,
         IAutomaticRecallPolicy? recallPolicy = null,
         IMemoryContextAdmissionPolicy? admissionPolicy = null)
-        // AIContextProvider(IServiceProvider? sp, ILogger? logger, string? stateKey)
-        // All three are passed as null: we supply our own ILogger via constructor injection,
-        // we don't need the base-class IServiceProvider, and StateKey is exposed as our own property.
+        // AIContextProvider(provideInputMessageFilter, storeInputRequestMessageFilter, storeInputResponseMessageFilter):
+        // null keeps MAF's defaults: ProvideAIContextAsync sees only the caller's new messages (hence the full
+        // thread captured in InvokingCoreAsync for the history dedup), and only those are stored.
         : base(null, null, null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
@@ -119,6 +119,49 @@ public class Neo4jMemoryContextProvider : AIContextProvider
     /// content without them would ignore a host's Strict setting while this class honoured it.
     /// </remarks>
     protected ContextFormatOptions FormatOptions => _formatOptions;
+
+    // The whole request as the agent will send it (history, other providers' messages and the caller's
+    // new messages). MAF hands ProvideAIContextAsync only the caller's new messages, so without this the
+    // recalled-history dedup could not see what the session's chat history already carries.
+    // Boxed, and the box emptied after the call: anything that captured the execution context during
+    // recall (a driver callback, a timer, a token registration) then holds an empty box, not the thread.
+    private static readonly AsyncLocal<System.Runtime.CompilerServices.StrongBox<IReadOnlyList<ChatMessage>?>?> s_fullThread = new();
+
+    /// <summary>
+    /// Places recalled conversation turns where conversation belongs: before the live thread, in the order
+    /// they happened (see <see cref="RecalledTurns"/>). MAF appends a provider's messages after the request,
+    /// so returned as-is they came after the user's new message, and the model answered the last (old) user
+    /// turn it read.
+    /// </summary>
+    protected override async ValueTask<AIContext> InvokingCoreAsync(
+        InvokingContext context,
+        CancellationToken cancellationToken = default)
+    {
+        var request = context.AIContext;
+        var thread = request?.Messages is null ? null
+            : request.Messages as IReadOnlyList<ChatMessage> ?? request.Messages.ToList();
+        // The caller's context is not modified: the base gets its own copy with the materialised thread.
+        // MAAI001: the constructor is marked for evaluation; MAF's own base class builds the same object the
+        // same way (InvokingCoreAsync's filtered context), so it moves with the base if it ever changes.
+#pragma warning disable MAAI001
+        var own = request is null ? context
+            : new InvokingContext(context.Agent, context.Session,
+                new AIContext { Instructions = request.Instructions, Messages = thread, Tools = request.Tools });
+#pragma warning restore MAAI001
+        var box = new System.Runtime.CompilerServices.StrongBox<IReadOnlyList<ChatMessage>?>(thread);
+        s_fullThread.Value = box;
+        AIContext merged;
+        try
+        {
+            merged = await base.InvokingCoreAsync(own, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            box.Value = null;
+            s_fullThread.Value = null;
+        }
+        return RecalledTurns.Place(merged, GetType().FullName!);
+    }
 
     protected override async ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context,
@@ -449,7 +492,7 @@ public class Neo4jMemoryContextProvider : AIContextProvider
             {
                 contextMessages = MafTypeMapper.ToContextMessages(
                     recallResult.Context, _formatOptions, _admissionPolicy, _logger,
-                    _agentOptions.DeduplicateRecalledHistory ? liveThread : null);
+                    _agentOptions.DeduplicateRecalledHistory ? s_fullThread.Value?.Value ?? liveThread : null);
                 compose?.SetTag(MemoryTelemetry.ContextItems, contextMessages.Count);
             }
 

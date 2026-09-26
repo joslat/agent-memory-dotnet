@@ -100,13 +100,15 @@ public sealed class Neo4jMicrosoftMemoryFacade
             // policy, the recalled-role gate and 2.5's history dedup. A parallel implementation would
             // be a second place for all three to drift, and the drift would only show up in a corpus
             // months later.
+            // The mapper orders the kept turns by time itself (and keeps the NEWEST within its budget, which
+            // reversing first used to defeat): recall order in, chronological order out.
             var messageIds = recall.Context.RecentMessages.Items
-                .Reverse()
                 .Concat(recall.Context.RelevantMessages.Items)
                 .DistinctBy(message => message.MessageId)
                 .ToList();
 
-            return MafTypeMapper.ToContextMessages(
+            // Outside a provider pipeline nothing places the turns, so they leave unmarked (in order, framed).
+            return RecalledTurns.Unmark(MafTypeMapper.ToContextMessages(
                 recall.Context with
                 {
                     RecentMessages = recall.Context.RecentMessages with { Items = messageIds },
@@ -115,7 +117,7 @@ public sealed class Neo4jMicrosoftMemoryFacade
                 contextFormat,
                 _admissionPolicy,
                 _logger,
-                liveThread: messages).ToList();
+                liveThread: messages)).ToList();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

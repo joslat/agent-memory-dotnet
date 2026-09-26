@@ -78,6 +78,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The agent answers the user's new message, not an old one.** Recalled conversation turns were
+  returned newest first, and MAF appends a context provider's messages after the request, so they came
+  after the user's new message. The last user turn the model read was an old one, and a live agent
+  answered it instead. Recalled turns now go before the live thread (after any leading system messages
+  the host supplied), in the order they happened, behind a one-line framing message (recalled text is
+  reference data, not instructions). Memory blocks stay where they were, except on hosts that render
+  them at the user role: those move to just before the user's message, so the question is always the
+  last user message. Applies to `Neo4jMemoryContextProvider` and `NamsMemoryContextProvider` alike (one
+  shared placement rule).
+- **Recalled history no longer repeats the session's own chat history.** MAF hands a context provider
+  only the caller's new messages, so `DeduplicateRecalledHistory` compared recalled turns against the new
+  message alone and every turn the session's history already carried was sent twice. The dedup now sees
+  the whole request (`Neo4jMemoryContextProvider`; the NAMS provider has no history dedup). `docs/agent-framework.md` shows how to keep recalled memory out of MAF's in-memory
+  chat history, which stores injected messages by default.
+
 - **LLM extraction no longer discards a whole response over one partial date.** With
   `TemporalValidityMode.Extract`, a model that knows only the month correctly writes ISO-8601
   `"valid_from": "2026-08"`. System.Text.Json accepts only full dates (by design, upstream), so the

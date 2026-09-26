@@ -214,16 +214,18 @@ internal static class MafTypeMapper
         // ordinary chat history look bizarre for comparatively little added security value once the role
         // itself is gated. Admission (include/exclude) is the appropriately-scoped protection here, not
         // delimiting (which defeats boundary forgery a wrapped block doesn't need to defend against).
+        // Each recalled turn keeps its timestamp: the kept turns are emitted in the order they happened
+        // (below), not in recall order.
         var chatMessages = context.RecentMessages.Items
             .Concat(context.RelevantMessages.Items)
             .DistinctBy(m => m.MessageId)
             .Select(m => (Message: m, TrustLevel: m.Metadata.GetTrustLevel()))
             .Where(x => Admit("messages", x.Message.Content, x.TrustLevel))
-            .Select(x => ToChatMessage(x.Message with
+            .Select((x, recallIndex) => (Chat: ToChatMessage(x.Message with
             {
                 Role = RecalledMessageRoleGate.EffectiveRole(
                     x.Message.Role, x.TrustLevel, options.MinimumTrustForSystemRole)
-            }))
+            }), At: x.Message.TimestampUtc, RecallIndex: recallIndex))
             .ToList();
 
         // Memory-derived system messages (always kept). Each is delimited and escaped (#92 Phase 1) so
@@ -331,7 +333,7 @@ internal static class MafTypeMapper
             if (live.Count > 0)
             {
                 var deduped = chatMessages
-                    .Where(message => !live.Contains(NormalizeForDedup(message.Text)))
+                    .Where(turn => !live.Contains(NormalizeForDedup(turn.Chat.Text)))
                     .ToList();
                 if (deduped.Count != chatMessages.Count)
                 {
@@ -345,9 +347,20 @@ internal static class MafTypeMapper
         }
 
         int chatBudget = Math.Max(0, options.MaxChatHistoryMessages);
-        var keptChat = chatMessages.Count > chatBudget
-            ? chatMessages.Take(chatBudget).ToList()
-            : chatMessages;
+        // Kept by recency (the newest `chatBudget`), then emitted oldest first behind a framing message and
+        // marked as recalled turns: they are earlier conversation, and RecalledTurns.Place puts them BEFORE
+        // the live thread. Emitted newest first and appended after the user's message (where MAF puts
+        // provider messages), the last user turn the model read was an old one, and it answered that
+        // instead. Equal timestamps fall back to recall order reversed (recall is newest first), so a reply
+        // never precedes the message it answers.
+        var keptChat = RecalledTurns.Frame(
+            chatMessages
+                .Take(chatBudget)
+                .OrderBy(turn => turn.At)
+                .ThenByDescending(turn => turn.RecallIndex)
+                .Select(turn => turn.Chat)
+                .ToList(),
+            EffectiveChatRole(MemoryTrustLevel.Untrusted));
 
         var result = new List<ChatMessage>(lead.Count + keptChat.Count + memory.Count);
         result.AddRange(lead);
