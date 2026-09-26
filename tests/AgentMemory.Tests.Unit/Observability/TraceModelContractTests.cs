@@ -239,7 +239,7 @@ public sealed class TraceModelContractTests
 
         a.Should().StartWith("unregistered:entity_embedding_idx:");
         b.Should().Be(a, "top-K variants of one query share a name");
-        CypherQueryRegistry.FingerprintFor("MATCH (e:Entity {type: $type}) WHERE e.flag RETURN e")
+        CypherQueryRegistry.FingerprintFor("MATCH (e:Entity {name: $name}) WHERE e.flag RETURN e.id")
             .Should().StartWith("unregistered:Entity:");
         CypherQueryRegistry.FingerprintFor("MATCH (n:Customer) RETURN n")
             .Should().Be(CypherQueryRegistry.UnknownFingerprint, "consumer text names none of our labels");
@@ -292,6 +292,19 @@ public sealed class TraceModelContractTests
     private static Fact Fact() => new() { FactId = Guid.NewGuid().ToString("N"), Subject = "a", Predicate = "p", Object = "b", Confidence = 1, CreatedAtUtc = DateTimeOffset.UtcNow };
 
     private static Message Message() => new() { MessageId = "m", ConversationId = "c", SessionId = "s", Role = "user", Content = "x", TimestampUtc = DateTimeOffset.UtcNow };
+
+    [Theory]
+    [InlineData("MATCH (e:Entity {type: $type}) WHERE e.invalidated_at IS NULL AND (e.owner_id = $ownerId OR e.owner_id IS NULL) RETURN e", "EntityQueries.GetByType")]
+    [InlineData("MATCH (n:Entity) WHERE (n.owner_id = $ownerId OR n.owner_id IS NULL) AND n.embedding IS NOT NULL WITH n, vector.similarity.cosine(n.embedding, $embedding) AS score WHERE score >= $minScore RETURN n AS node, score ORDER BY score DESC LIMIT $limit", "EntityQueries.OwnerScopedScan")]
+    [InlineData("MATCH (n:Preference) WHERE n.embedding IS NOT NULL WITH n, vector.similarity.cosine(n.embedding, $embedding) AS score RETURN n AS node, score", "PreferenceQueries.OwnerScopedScan")]
+    [InlineData("MATCH (f:Fact) WHERE f.embedding IS NOT NULL AND f.invalidated_at IS NULL WITH f, vector.similarity.cosine(f.embedding, $embedding) AS score RETURN f AS node, score", "FactQueries.OwnerScopedScan")]
+    [InlineData("MATCH (t:ReasoningTrace) WHERE t.task_embedding IS NOT NULL WITH t, vector.similarity.cosine(t.task_embedding, $embedding) AS score RETURN t AS node, score", "ReasoningQueries.OwnerScopedScan")]
+    [InlineData("MATCH (f:Fact) WHERE f.subject_key = $subjectKey AND f.predicate_key = $predicateKey AND f.object_key = $objectKey AND f.owner_key = $ownerKey RETURN f LIMIT 1", "FactQueries.FindByMergeKey")]
+    [InlineData("CREATE VECTOR INDEX fact_embedding_idx IF NOT EXISTS FOR (n:Fact) ON (n.embedding) OPTIONS {indexConfig: {`vector.dimensions`: 1024, `vector.similarity_function`: 'cosine'}}", "SchemaQueries.CreateVectorIndex")]
+    public void The_hot_method_built_queries_found_in_a_traced_session_have_names(string cypher, string name)
+    {
+        CypherQueryRegistry.FingerprintFor(cypher).Should().Be(name);
+    }
 
     [Fact]
     public void Caller_supplied_cypher_is_never_given_a_structural_name()

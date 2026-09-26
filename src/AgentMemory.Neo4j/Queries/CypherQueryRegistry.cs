@@ -100,6 +100,31 @@ internal static class CypherQueryRegistry
                 : "ReasoningQueries.SearchByTaskVector";
         }
 
+        // THE OWNER-SCOPED SCANS: the last-resort fallback of owner-scoped vector search (the index is
+        // global, so another tenant's rows can crowd an owner out of top-K entirely; this scores the
+        // owner's own rows directly). Method-built, so they reached the structural fallback: a traced
+        // session found them on 27% of recall legs as four anonymous hashes.
+        if (Has("vector.similarity.cosine(") && Has("$embedding") && !Has("db.index.vector.queryNodes"))
+        {
+            var asOf = Has("$systemAsOf") || Has("$asOf") ? "AsOf" : string.Empty;
+            if (Has("MATCH (n:Entity)")) return "EntityQueries.OwnerScopedScan" + asOf;
+            if (Has("MATCH (n:Preference)")) return "PreferenceQueries.OwnerScopedScan" + asOf;
+            if (Has("MATCH (f:Fact)")) return "FactQueries.OwnerScopedScan" + asOf;
+            if (Has("MATCH (t:ReasoningTrace)")) return "ReasoningQueries.OwnerScopedScan" + asOf;
+        }
+
+        // Entity resolution's candidate set: every live entity of one type for the owner (with vectors).
+        if (Has("MATCH (e:Entity {type: $type})") && Has("RETURN e"))
+            return "EntityQueries.GetByType";
+
+        // Fact dedup-on-create by its merge key (served by fact_merge_key_idx).
+        if (Has("f.subject_key = $subjectKey") && Has("f.owner_key = $ownerKey") && Has("RETURN f LIMIT 1"))
+            return "FactQueries.FindByMergeKey";
+
+        // Schema bootstrap: the vector indexes are built with the configured dimension, so never constant.
+        if (Has("CREATE VECTOR INDEX"))
+            return "SchemaQueries.CreateVectorIndex";
+
         // E-1 IDENTITY EXPANSION. Method-built like the firing family, so it reaches here with no
         // constant to match -- and this file is where that was fixed for firing one commit ago, which
         // is the only reason it was noticed for this one. An unattributed query is invisible to the
