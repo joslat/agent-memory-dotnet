@@ -317,7 +317,7 @@ public sealed class RecalledTurnPlacementTests
     }
 
     [Fact]
-    public void The_facade_emits_recalled_turns_in_time_order_and_unmarked()
+    public async Task The_facade_emits_recalled_turns_in_time_order_and_unmarked()
     {
         var memory = Substitute.For<IMemoryService>();
         memory.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(new RecallResult
@@ -337,7 +337,7 @@ public sealed class RecalledTurnPlacementTests
             memory, new Neo4jChatMessageStore(memory, Substitute.For<IClock>(), Substitute.For<IIdGenerator>(), NullLogger<Neo4jChatMessageStore>.Instance),
             Options.Create(new AgentFrameworkOptions()), NullLogger<Neo4jMicrosoftMemoryFacade>.Instance);
 
-        var result = facade.GetContextForRunAsync([], "s1", "c1").GetAwaiter().GetResult();
+        var result = await facade.GetContextForRunAsync([], "s1", "c1");
         var turns = Conversation(result).Where(t => t.StartsWith("turn ", StringComparison.Ordinal)).ToList();
 
         // The facade sizes its own chat budget to what recall returned: every turn, in the order it happened

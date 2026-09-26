@@ -193,6 +193,22 @@ public static class InferenceProviderEnvironment
             // A local server often needs no key; the sentinel keeps "unset" meaning "not configured".
             KeyOptional = true,
         },
+        new()
+        {
+            // LAST in auto-detect order: a local server never pre-empts a hosted provider that is fully
+            // configured. Chat needs OLLAMA_MODEL; embeddings default to bge-m3 (the same model Bitdeer
+            // serves, identical vectors, so a store built on one works with the other).
+            Provider = InferenceProvider.Ollama,
+            EndpointVariable = "OLLAMA_ENDPOINT",
+            // 127.0.0.1, NOT localhost: on Windows "localhost" tries IPv6 first and Ollama listens on
+            // IPv4 only, which costs ~2 s per request before the fallback (measured: 2,090 ms vs 52 ms).
+            DefaultEndpoint = "http://127.0.0.1:11434/v1",
+            ApiKeyVariable = "OLLAMA_API_KEY",
+            ModelVariable = "OLLAMA_MODEL",
+            EmbeddingModelVariable = "OLLAMA_EMBEDDING_MODEL",
+            DefaultEmbeddingModel = "bge-m3",
+            KeyOptional = true,
+        },
     ];
 
     /// <summary>
@@ -285,7 +301,8 @@ public static class InferenceProviderEnvironment
             + "AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT (azure); "
             + "BITDEER_API_KEY (bitdeer); OPENAI_API_KEY (openai); "
             + "FOUNDRY_ENDPOINT + FOUNDRY_API_KEY + FOUNDRY_MODEL (foundry); "
-            + "OPENAI_COMPATIBLE_ENDPOINT + OPENAI_COMPATIBLE_MODEL (openai-compatible). "
+            + "OPENAI_COMPATIBLE_ENDPOINT + OPENAI_COMPATIBLE_MODEL (openai-compatible); "
+            + "OLLAMA_MODEL (ollama). "
             + $"Or name one explicitly with {SelectorVariable}.");
     }
 
@@ -374,25 +391,48 @@ public static class InferenceProviderEnvironment
 
         if (declared.Length > 0)
         {
-            var missing = EmbeddingOverrideBlock.Where(v => Value(read, v) is null).ToArray();
-            if (missing.Length > 0)
+            // The block needs a provider. What it leaves out is taken from THAT provider's own settings
+            // (its endpoint, key and embedding model variables, then its defaults), so
+            // `AI_EMBEDDING_PROVIDER=ollama` alone moves embeddings to a local server, and
+            // `AI_EMBEDDING_PROVIDER=bitdeer` alone back. Anything still missing fails by name: a half-
+            // specified block is never completed from the CHAT provider, which is not what was named.
+            var providerValue = Value(read, "AI_EMBEDDING_PROVIDER");
+            if (providerValue is null)
             {
                 return (none,
-                    "The embedding override block is incomplete: "
-                    + $"{string.Join(", ", missing)} not set. All of "
-                    + $"{string.Join(", ", EmbeddingOverrideBlock)} are required together.");
+                    "The embedding override block is incomplete: AI_EMBEDDING_PROVIDER not set. It names "
+                    + $"the provider the other {string.Join(", ", EmbeddingOverrideBlock.Skip(1))} belong to.");
             }
 
-            if (!InferenceProviderNames.TryParse(Value(read, "AI_EMBEDDING_PROVIDER"), out provider))
+            if (!InferenceProviderNames.TryParse(providerValue, out provider))
             {
                 return (none,
-                    $"AI_EMBEDDING_PROVIDER is '{Value(read, "AI_EMBEDDING_PROVIDER")}', which is not a provider. "
+                    $"AI_EMBEDDING_PROVIDER is '{providerValue}', which is not a provider. "
                     + $"Expected one of: {string.Join(", ", InferenceProviderNames.AllTokens)}.");
             }
 
-            endpoint = Value(read, "AI_EMBEDDING_ENDPOINT")!;
-            apiKey = Value(read, "AI_EMBEDDING_API_KEY")!;
-            model = Value(read, "AI_EMBEDDING_MODEL")!;
+            var named = Specs.Single(s => s.Provider == provider);
+            var chosenEndpoint = Value(read, "AI_EMBEDDING_ENDPOINT")
+                ?? (named.EndpointVariable is { } ev ? Value(read, ev) : null) ?? named.DefaultEndpoint;
+            var chosenKey = Value(read, "AI_EMBEDDING_API_KEY")
+                ?? Value(read, named.ApiKeyVariable) ?? (named.KeyOptional ? NoKeySentinel : null);
+            var chosenModel = Value(read, "AI_EMBEDDING_MODEL")
+                ?? Value(read, named.EmbeddingModelVariable) ?? named.DefaultEmbeddingModel;
+
+            var unresolved = new List<string>();
+            if (chosenEndpoint is null) unresolved.Add($"AI_EMBEDDING_ENDPOINT (or {named.EndpointVariable})");
+            if (chosenKey is null) unresolved.Add($"AI_EMBEDDING_API_KEY (or {named.ApiKeyVariable})");
+            if (chosenModel is null) unresolved.Add($"AI_EMBEDDING_MODEL (or {named.EmbeddingModelVariable})");
+            if (unresolved.Count > 0)
+            {
+                return (none,
+                    $"AI_EMBEDDING_PROVIDER={InferenceProviderNames.ToToken(provider)} but "
+                    + $"{string.Join(", ", unresolved)} {Plural(unresolved.Count, "is", "are")} not set.");
+            }
+
+            endpoint = chosenEndpoint!;
+            apiKey = chosenKey!;
+            model = chosenModel!;
 
             if (!InferenceEndpoints.TryValidate(endpoint, "AI_EMBEDDING_ENDPOINT", out var overrideError))
             {

@@ -33,6 +33,11 @@ public enum InferenceProvider
 
     /// <summary>Any other OpenAI-compatible host: Ollama, LM Studio, vLLM, a gateway.</summary>
     OpenAICompatible,
+
+    /// <summary>
+    /// A local Ollama server: http://127.0.0.1:11434/v1, no key, <c>bge-m3</c> for embeddings by default.
+    /// </summary>
+    Ollama,
 }
 
 /// <summary>How the provider was chosen.</summary>

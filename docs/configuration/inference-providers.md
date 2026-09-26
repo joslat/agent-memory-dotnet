@@ -17,14 +17,17 @@ downstream sees the `Microsoft.Extensions.AI` interfaces and cannot tell which p
 | A Bitdeer key | `BITDEER_API_KEY` — that alone gets chat **and** embeddings |
 | An OpenAI key | `OPENAI_API_KEY` |
 | An existing Azure setup | nothing; it already works |
-| Ollama / LM Studio / vLLM | `OPENAI_COMPATIBLE_ENDPOINT` + `OPENAI_COMPATIBLE_MODEL` |
+| A local Ollama | `OLLAMA_MODEL` for chat; embeddings default to `bge-m3` |
+| LM Studio / vLLM / another local server | `OPENAI_COMPATIBLE_ENDPOINT` + `OPENAI_COMPATIBLE_MODEL` |
+| Chat remote, embeddings local | the chat provider's variables + `AI_EMBEDDING_PROVIDER=ollama` |
 
 ## Choosing a provider
 
-`AI_INFERENCE_PROVIDER` ∈ `azure` · `bitdeer` · `openai` · `foundry` · `openai-compatible`.
+`AI_INFERENCE_PROVIDER` ∈ `azure` · `bitdeer` · `openai` · `foundry` · `openai-compatible` · `ollama`.
 
 Leave it unset and providers are auto-detected in a fixed order — **Azure → Bitdeer → OpenAI →
-Foundry → OpenAI-compatible** — first one with complete credentials wins.
+Foundry → OpenAI-compatible → Ollama** — first one with complete credentials wins. A local server
+comes last, so it never pre-empts a hosted provider that is fully configured.
 
 Four rules govern this, and the second is the one that matters most:
 
@@ -73,9 +76,10 @@ Neo4j vector index.
 | `openai` | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` |
 | `foundry` | `FOUNDRY_EMBEDDING_MODEL` | *(required)* |
 | `openai-compatible` | `OPENAI_COMPATIBLE_EMBEDDING_MODEL` | *(required)* |
+| `ollama` | `OLLAMA_EMBEDDING_MODEL` | `bge-m3` |
 
 Widths this package knows: `text-embedding-ada-002` 1536 · `text-embedding-3-small` 1536 ·
-`text-embedding-3-large` 3072 · `BAAI/bge-m3` **1024** · `nomic-embed-text` 768 ·
+`text-embedding-3-large` 3072 · `BAAI/bge-m3` / `bge-m3` **1024** · `nomic-embed-text` 768 ·
 `Qwen/Qwen3-Embedding-0.6B` 1024 · `Qwen/Qwen3-Embedding-4B` 2560 · `Qwen/Qwen3-Embedding-8B` 4096.
 
 Anything else: set **`AI_EMBEDDING_DIMENSIONS`**. It also *overrides* the table, for a deployment
@@ -86,18 +90,37 @@ configured at a non-default width.
 
 ### Embeddings somewhere else entirely
 
-For "chat on Bitdeer, embeddings on a local Ollama", set all four together:
+`AI_EMBEDDING_PROVIDER` moves embeddings to another provider; chat stays where it is. What you do not
+set is taken from **that** provider's own variables and defaults, so for "chat on Bitdeer, embeddings on
+a local Ollama" one line is enough:
+
+```bash
+AI_EMBEDDING_PROVIDER=ollama          # http://127.0.0.1:11434/v1, no key, bge-m3 (1024)
+```
+
+and `AI_EMBEDDING_PROVIDER=bitdeer` moves them back (using `BITDEER_API_KEY`). `AI_EMBEDDING_ENDPOINT`,
+`AI_EMBEDDING_API_KEY` and `AI_EMBEDDING_MODEL` override single values, for example another local
+server:
 
 ```bash
 AI_EMBEDDING_PROVIDER=openai-compatible
-AI_EMBEDDING_ENDPOINT=http://localhost:11434/v1
-AI_EMBEDDING_API_KEY=no-key-needed
+AI_EMBEDDING_ENDPOINT=http://127.0.0.1:1234/v1
 AI_EMBEDDING_MODEL=nomic-embed-text
 ```
 
-A **partial** block fails the embedding half by name rather than quietly falling back to the chat
-host — you were moving embeddings deliberately, and a silent fallback would build the store on the
-model you were moving away from.
+Nothing is ever borrowed from the **chat** provider: a key is sent only to the host it was issued for,
+and a value the named provider cannot supply fails the embedding half by name. So does a block
+without `AI_EMBEDDING_PROVIDER`.
+
+> **Local bge-m3 is the same model.** Ollama's `bge-m3` returns the same vectors as Bitdeer's
+> `BAAI/bge-m3` (cosine 1.0000 on the same text, 1024-wide), so a store built with one works with the
+> other, no re-embedding. Measured on one dev machine (RTX 3070 Ti, i7-12700K): **52 ms** per short
+> text on the GPU, **70 ms** CPU-only, against **1.3 s** typical (**5.4 s** p95) for the hosted call.
+> The first call after the model loads takes about 2.4 s.
+
+> **Use `127.0.0.1`, not `localhost`, for a local server on Windows.** `localhost` tries IPv6 first;
+> Ollama listens on IPv4 only, and every request pays about 2 s before the fallback (measured:
+> 2,090 ms instead of 52 ms). The `ollama` provider's default endpoint already uses `127.0.0.1`.
 
 ## Roles
 

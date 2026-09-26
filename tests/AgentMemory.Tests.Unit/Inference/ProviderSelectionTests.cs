@@ -201,8 +201,79 @@ public sealed class ProviderSelectionTests
 
         resolution.IsConfigured.Should().BeTrue("chat resolved fine");
         resolution.Settings!.HasEmbeddings.Should().BeFalse();
+        // The endpoint was given and openai-compatible needs no key; the model is what nothing supplies. It
+        // is never borrowed from the chat provider, which is not the provider the block names.
         resolution.EmbeddingDiagnostic.Should()
-            .Contain("AI_EMBEDDING_API_KEY").And.Contain("AI_EMBEDDING_MODEL");
+            .Contain("AI_EMBEDDING_MODEL").And.Contain("OPENAI_COMPATIBLE_EMBEDDING_MODEL")
+            .And.NotContain("AI_EMBEDDING_API_KEY");
+    }
+
+    /// <summary>One variable moves embeddings to a local Ollama; chat stays where it was.</summary>
+    [Fact]
+    public void AI_EMBEDDING_PROVIDER_ollama_alone_moves_embeddings_to_the_local_server()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "bitdeer-secret"),
+            ("AI_EMBEDDING_PROVIDER", "ollama")));
+
+        var settings = resolution.Settings!;
+        settings.Provider.Should().Be(InferenceProvider.Bitdeer, "chat is untouched");
+        settings.EmbeddingProvider.Should().Be(InferenceProvider.Ollama);
+        settings.EmbeddingEndpoint.Should().Be("http://127.0.0.1:11434/v1", "127.0.0.1, not localhost (Windows IPv6 fallback)");
+        settings.EmbeddingModel.Should().Be("bge-m3");
+        settings.EmbeddingDimensions.Should().Be(1024);
+        settings.EmbeddingApiKey.Should().NotBe("bitdeer-secret", "a key never travels to a host it was not issued for");
+    }
+
+    /// <summary>...and one variable moves them back, with that provider's own key.</summary>
+    [Fact]
+    public void AI_EMBEDDING_PROVIDER_bitdeer_alone_uses_bitdeers_own_settings()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("AI_INFERENCE_PROVIDER", "ollama"),
+            ("OLLAMA_MODEL", "qwen3:8b"),
+            ("BITDEER_API_KEY", "bitdeer-secret"),
+            ("AI_EMBEDDING_PROVIDER", "bitdeer")));
+
+        var settings = resolution.Settings!;
+        settings.Provider.Should().Be(InferenceProvider.Ollama);
+        settings.EmbeddingProvider.Should().Be(InferenceProvider.Bitdeer);
+        settings.EmbeddingApiKey.Should().Be("bitdeer-secret");
+        settings.EmbeddingModel.Should().Be("BAAI/bge-m3");
+        settings.EmbeddingDimensions.Should().Be(1024);
+    }
+
+    [Fact]
+    public void A_named_embedding_provider_without_its_key_fails_by_name()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("AI_INFERENCE_PROVIDER", "ollama"),
+            ("OLLAMA_MODEL", "qwen3:8b"),
+            ("AI_EMBEDDING_PROVIDER", "bitdeer")));
+
+        resolution.Settings!.HasEmbeddings.Should().BeFalse();
+        resolution.EmbeddingDiagnostic.Should().Contain("AI_EMBEDDING_API_KEY").And.Contain("BITDEER_API_KEY");
+    }
+
+    [Fact]
+    public void An_embedding_block_without_a_provider_fails_by_name()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("AI_EMBEDDING_MODEL", "bge-m3")));
+
+        resolution.Settings!.HasEmbeddings.Should().BeFalse();
+        resolution.EmbeddingDiagnostic.Should().Contain("AI_EMBEDDING_PROVIDER");
+    }
+
+    [Fact]
+    public void A_local_server_never_pre_empts_a_configured_hosted_provider()
+    {
+        var resolution = InferenceProviderEnvironment.Resolve(Env(
+            ("BITDEER_API_KEY", "k"),
+            ("OLLAMA_MODEL", "qwen3:8b")));
+
+        resolution.Settings!.Provider.Should().Be(InferenceProvider.Bitdeer);
     }
 
     /// <summary>An unknown embedding model fails closed rather than guessing a dimension.</summary>
