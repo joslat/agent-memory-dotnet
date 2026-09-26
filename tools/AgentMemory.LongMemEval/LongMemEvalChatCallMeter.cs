@@ -282,17 +282,14 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
             33);
     }
 
+    // Derived from the runner that writes the repair message, never a copy of its text: a copy
+    // silently stopped counting retries the day the runner's wording changed.
     private static bool IsParseRetry(
         IReadOnlyList<ChatMessage> messages,
         string purpose) =>
         string.Equals(purpose, "unified_batch", StringComparison.Ordinal) &&
-        messages.Count >= 4 &&
-        messages[^1].Role == ChatRole.User &&
-        string.Equals(
-            messages[^1].Text,
-            "That response was not valid JSON. Reply with ONLY the JSON object — " +
-            "no markdown fences, no prose.",
-            StringComparison.Ordinal);
+        messages.Count >= 3 &&
+        AgentMemory.Extraction.Llm.Internal.LlmExtractionRunner.IsRepairInstruction(messages[^1]);
 
     private static void UpdateMaximum(ref int maximum, int candidate)
     {

@@ -24,6 +24,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hosts is not the same measurement.
 - Docs: [`docs/configuration/inference-providers.md`](docs/configuration/inference-providers.md) is
   the operator contract.
+- **Partial-name entity resolution (opt-in).** `EntityResolutionOptions.EnablePartialNameMatch`
+  resolves a partial person name to the **one** known person whose name contains it as whole words,
+  or is contained by it: "Priya" → "Priya Nair". Before, a first name alone matched nothing (not
+  equal, token-sort ratio 67 < 85, a one-word embedding below 0.8), so every later mention created a
+  second person. The matcher never guesses: with two Priyas known it declines, records a
+  `memory.resolve.partial_name_ambiguous` activity event so a host can ask which one was meant, and
+  leaves the decision to the remaining matchers exactly as with the option off.
+  People only by default (`PartialNameMatchTypes`): "Microsoft" and "Microsoft Research" are
+  different organizations. Reported as `EntityMatchType.PartialName` (new member, value 4) at
+  `PartialNameMatchConfidence` (default 0.9, the SAME_AS band: resolves without rewriting aliases).
+  Off by default.
+- **Embedding cache (opt-in).** `MemoryOptions.EmbeddingCacheCapacity` remembers the vectors of the
+  most recently embedded texts (LRU, container-wide, in memory). Measured on a live turn: the user's
+  message was embedded twice (as the recall query and again when stored), and known entity names were
+  re-embedded every turn they were mentioned, each a ~1 s round trip for an identical vector. `0`, the
+  default, disables it.
+- **`memory.extract.attempt` spans.** Every extraction model call is a span tagged with its outcome
+  (`ok`, `salvaged`, `syntax_error`, `schema_error`, `truncated`, `filtered`), the provider's finish
+  reason, output tokens, items kept and dropped, and the error in words. A failed extraction is no
+  longer only "raw length 2,354" in a log line. `LlmExtractionOptions.LogRawResponseOnFailure` (off)
+  additionally logs the first 2,000 characters of an unusable reply.
 
 ### Changed
 
@@ -39,6 +60,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Azure.AI.OpenAI` **2.1.0**, `OpenAI` 2.12.0 referenced explicitly); three consumers previously
   carried three different pairs. `Azure.AI.OpenAI` is the newest *stable* release — 2.7/2.8/2.9 are
   all prerelease, and a shipped package may not depend on one.
+
+### Fixed
+
+- **LLM extraction no longer discards a whole response over one partial date.** With
+  `TemporalValidityMode.Extract`, a model that knows only the month correctly writes ISO-8601
+  `"valid_from": "2026-08"`. System.Text.Json accepts only full dates (by design, upstream), so the
+  typed parse threw, the runner re-prompted with a misleading "not valid JSON", the model repeated the
+  date, and every entity, fact and preference of the turn was lost. Measured live: 2 of 4 runs of one
+  sentence stored nothing. `valid_from` / `valid_until` are now read leniently: `YYYY`, `YYYY-MM`,
+  `YYYY-MM-DD` and full timestamps; a month or year means the **start** of the period for
+  `valid_from` and the **end** of it for `valid_until`; an unreadable value drops only that date
+  (recorded as a `memory.extract.date_dropped` activity event) and keeps the fact.
+- **Validity dates are UTC, and an end date includes its last day.** A date-only value was read at the
+  machine's *local* midnight, so the same extraction stored different instants on machines in different
+  time zones. A value without an offset now means that date/time in UTC. A full date as `valid_until`
+  (`"2026-08-15"`) now means the end of that day, not its first instant. Free-text dates are read only
+  when they state their year, so nothing is filled in from the machine clock.
+- **One unreadable item no longer costs the whole extraction.** A reply that is valid JSON with an
+  item the schema cannot hold (a confidence written as `"high"`, an unreadable date) is now salvaged
+  item by item: the readable entities, facts, preferences and relations are kept, and each dropped
+  item is named by its path.
+- **The repair prompt says what was actually wrong, and no longer grows.** On an unusable reply the
+  runner used to say "That response was not valid JSON" (it usually was valid) and echo the whole
+  reply back, so each retry cost more than the last and the model repeated its mistake. It now sends
+  one replaced message naming the problem ("`facts[0].confidence`: The JSON value could not be
+  converted to System.Double"), without echoing the reply. **Measurement note:** this changes the
+  bytes of retry attempts only; a run whose every reply parsed first time is unaffected.
+- **Truncated replies get room to finish; refusals are not retried.** A reply cut off by the output
+  limit (`finish_reason = length`) is retried with twice the output tokens it used (ceiling 32,768)
+  instead of an identical request. A content-filter stop is not retried at all.
+- **New entities in one extraction are embedded in one request.** Resolution embedded each name the
+  string matchers could not resolve in its own ~1 s round trip, sequentially. Those names are now
+  embedded together up front; names already known cost no request.
+- **An entity created by resolution keeps the vector resolution already computed for its name.** The
+  semantic matcher embedded the mention and discarded the vector; persistence then embedded the same
+  name again. One remote round trip saved per new entity, identical vectors. Resolution itself is
+  unchanged: the stored node and the turn's candidate set see the new entity without a vector until
+  persistence writes it, as before, so later mentions in the same turn match exactly as they did.
 
 ### Note
 

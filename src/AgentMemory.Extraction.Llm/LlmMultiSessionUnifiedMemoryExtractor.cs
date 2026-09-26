@@ -656,6 +656,10 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
     /// </remarks>
     internal static bool IsContentRejection(Exception exception)
     {
+        // An output-side refusal: the reply itself was stopped (finish_reason = content_filter).
+        if (exception is Internal.ContentFilteredException)
+            return true;
+
         var status = Internal.LlmExtractionRunner.TryGetStatus(exception);
         if (status != 400) return false;
 

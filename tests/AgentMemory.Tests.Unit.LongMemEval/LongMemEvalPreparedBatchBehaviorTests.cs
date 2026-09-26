@@ -208,8 +208,8 @@ public sealed class LongMemEvalPreparedBatchBehaviorTests
         [
             new ChatMessage(ChatRole.System, "You extract structured long-term memory from multiple independent source sessions."),
             new ChatMessage(ChatRole.User, "extract"),
-            new ChatMessage(ChatRole.Assistant, "not-json"),
-            new ChatMessage(ChatRole.User, "That response was not valid JSON. Reply with ONLY the JSON object — no markdown fences, no prose.")
+            new ChatMessage(ChatRole.User, AgentMemory.Extraction.Llm.Internal.LlmExtractionRunner.RepairInstruction(
+                "the reply contained no JSON object", truncated: false))
         ]);
 
         var snapshot = meter.Snapshot();

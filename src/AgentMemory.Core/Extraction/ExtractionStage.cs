@@ -201,13 +201,17 @@ internal sealed class ExtractionStage : IExtractionStage
 
         if (_entityResolver is IExtractionEntityResolver batchResolver)
         {
-            var candidateTypes = rawEntities
+            var resolvable = rawEntities
                 .Where(entity =>
                     entity.Confidence >= _options.MinConfidenceThreshold &&
                     EntityValidator.IsValid(entity, _options.Validation))
-                .Select(entity => entity.Type)
                 .ToArray();
-            await batchResolver.PrepareCandidatesAsync(candidateTypes, scope, cancellationToken)
+            await batchResolver.PrepareCandidatesAsync(
+                    resolvable.Select(entity => entity.Type).ToArray(), scope, cancellationToken)
+                .ConfigureAwait(false);
+            // After the candidates: which names need a vector depends on what the string matchers
+            // can already resolve against them.
+            await batchResolver.PrepareNameEmbeddingsAsync(resolvable, scope, cancellationToken)
                 .ConfigureAwait(false);
         }
 

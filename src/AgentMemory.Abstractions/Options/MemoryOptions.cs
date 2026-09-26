@@ -64,6 +64,31 @@ public sealed record MemoryOptions
     /// </remarks>
     public RecallFanOutOptions FanOut { get; set; } = new();
 
+    /// <summary>
+    /// How many distinct texts the embedding orchestrator remembers the vector of (least recently used
+    /// evicted). <c>0</c>, the default, disables the cache.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Measured on a live turn: the user's message was embedded twice (once as the recall query, once
+    /// when stored as a message), and entity names mentioned again were re-embedded every turn, each a
+    /// ~1 s remote round trip for an identical vector. An embedding model is a pure function of its
+    /// input, so a hit changes nothing but the round trip.
+    /// </para>
+    /// <para>
+    /// The cache belongs to one container and so to one embedding generator; a host that swaps models
+    /// swaps containers. Vectors stay in process memory only. A few hundred entries is plenty for a
+    /// chat host (each 1,024-wide vector is 4 KB).
+    /// </para>
+    /// <para>
+    /// <b>Multi-tenant hosts:</b> the cache is keyed by text alone and shared by every owner in the
+    /// container. No vector or content crosses owners (a vector is a function of its text), but a hit is
+    /// measurably faster than a miss, so one owner could in principle infer that some owner recently
+    /// embedded an exact text. Leave it off where that timing difference matters.
+    /// </para>
+    /// </remarks>
+    public int EmbeddingCacheCapacity { get; set; }
+
     /// <summary>Context budget configuration.</summary>
     public ContextBudget ContextBudget { get; init; } = ContextBudget.Default;
 

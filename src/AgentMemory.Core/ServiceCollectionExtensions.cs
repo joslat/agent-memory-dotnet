@@ -135,6 +135,21 @@ public static class ServiceCollectionExtensions
             .Validate(
                 o => o.Extraction.SameAsThreshold <= o.Extraction.AutoMergeThreshold,
                 "MemoryOptions.Extraction.SameAsThreshold must not exceed AutoMergeThreshold.")
+            .Validate(
+                o => o.EmbeddingCacheCapacity >= 0,
+                "MemoryOptions.EmbeddingCacheCapacity must not be negative.")
+            .Validate(
+                o => o.Extraction.EntityResolution.PartialNameMatchConfidence is >= 0 and <= 1,
+                "MemoryOptions.Extraction.EntityResolution.PartialNameMatchConfidence must be between 0 and 1.")
+            // Below SameAsThreshold a unique partial match would create a NEW entity and, being the first
+            // matcher to answer, stop the chain before the semantic matcher: worse than leaving it off.
+            .Validate(
+                o => !o.Extraction.EntityResolution.EnablePartialNameMatch ||
+                     o.Extraction.EntityResolution.PartialNameMatchConfidence >= o.Extraction.SameAsThreshold,
+                "MemoryOptions.Extraction.EntityResolution.PartialNameMatchConfidence must be at least SameAsThreshold when EnablePartialNameMatch is on.")
+            .Validate(
+                o => o.Extraction.EntityResolution.PartialNameMatchTypes is not null,
+                "MemoryOptions.Extraction.EntityResolution.PartialNameMatchTypes must not be null.")
             // 30.2/30.3. Every other numeric option here is validated; these were not, and a threshold
             // outside [0,1] is the worst kind of misconfiguration for this feature -- it does not fail,
             // it silently makes the near-miss marker fire on everything or on nothing, which reads as
@@ -466,6 +481,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<MemoryAccessTrackingChannel>>()));
 
         // Embedding orchestrator — centralizes embedding generation logic.
+        services.TryAddSingleton<EmbeddingVectorCache>();
         services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();
 
         // Memory decay service — scoring and pruning of stale memories.

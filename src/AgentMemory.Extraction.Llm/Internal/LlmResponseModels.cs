@@ -46,10 +46,16 @@ internal sealed class LlmFactDto
     // Prospective memory. Null unless TemporalValidityMode.Extract asked for it, and null is the
     // meaningful value: live recall filters on these columns, so an invented expiry silently removes
     // a memory from every future answer.
+    //
+    // Read leniently (PeriodDateConverter): "2026-08" is a legitimate ISO-8601 month that the native
+    // parser rejects, and rejecting it used to discard the WHOLE response. A month or year means the
+    // start of the period for valid_from and the end of it for valid_until, always in UTC.
     [JsonPropertyName("valid_from")]
+    [JsonConverter(typeof(PeriodStartDateConverter))]
     public DateTimeOffset? ValidFrom { get; set; }
 
     [JsonPropertyName("valid_until")]
+    [JsonConverter(typeof(PeriodEndDateConverter))]
     public DateTimeOffset? ValidUntil { get; set; }
 
     // Which turn stated this. Null unless AssistantContentMode asked for it, and null is meaningful:

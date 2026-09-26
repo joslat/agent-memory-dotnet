@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
@@ -41,6 +42,63 @@ internal sealed partial class CompositeEntityResolver
 
     public void InvalidateBatch() => _candidateBatch.Value?.Invalidate();
 
+    public async Task PrepareNameEmbeddingsAsync(
+        IReadOnlyList<ExtractedEntity> entities,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+        var state = _candidateBatch.Value;
+        // One name gains nothing from batching; and without the semantic matcher no vector is needed.
+        if (state is null || !_options.EntityResolution.EnableSemanticMatch || entities.Count < 2)
+            return;
+
+        try
+        {
+            var stringMatchers = BuildStringMatchers(recordAmbiguity: false);
+            var names = new List<string>();
+            foreach (var entity in entities)
+            {
+                if (string.IsNullOrWhiteSpace(entity.Name) || names.Contains(entity.Name, StringComparer.Ordinal))
+                    continue;
+                // The same-type snapshot only (already loaded, no extra read): this decides what is worth
+                // embedding ahead, an estimate. The non-strict by-name widening stays with resolution.
+                var candidates = await GetBatchCandidatesAsync(entity.Type, scope, cancellationToken).ConfigureAwait(false);
+                var resolvedByString = false;
+                foreach (var matcher in stringMatchers)
+                {
+                    if (await matcher.TryMatchAsync(entity, candidates, cancellationToken).ConfigureAwait(false) is not null)
+                    {
+                        resolvedByString = true;
+                        break;
+                    }
+                }
+                if (!resolvedByString)
+                    names.Add(entity.Name);
+            }
+
+            // Steady state (every name already known) costs nothing: no request at all.
+            if (names.Count < 2)
+                return;
+
+            var vectors = await _embeddingOrchestrator.EmbedBatchAsync(names, cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < names.Count && i < vectors.Count; i++)
+            {
+                if (vectors[i] is { Length: > 0 } vector)
+                    state.RememberVector(names[i], vector);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // An optimisation only: resolution embeds each name itself exactly as before.
+            _logger.LogDebug(ex, "Embedding entity names ahead of resolution failed; resolving one by one.");
+        }
+    }
+
     private async Task<Entity> ResolveAndRememberAsync(
         ExtractedEntity extractedEntity,
         IReadOnlyList<string> sourceMessageIds,
@@ -48,14 +106,17 @@ internal sealed partial class CompositeEntityResolver
         bool persistResolution,
         CancellationToken cancellationToken)
     {
-        var entity = await ResolveEntityCoreAsync(
+        var (entity, created) = await ResolveEntityCoreAsync(
             extractedEntity,
             sourceMessageIds,
             scope,
             persistResolution,
             cancellationToken).ConfigureAwait(false);
+        // A new entity joins the snapshot as it did before its vector was reused: without one, so the
+        // semantic matcher does not start matching later mentions in this turn against it.
         _candidateBatch.Value?.Remember(
-            CandidateBatchKey.Create(extractedEntity.Type, scope), entity);
+            CandidateBatchKey.Create(extractedEntity.Type, scope),
+            created && entity.Embedding is not null ? entity with { Embedding = null } : entity);
         return entity;
     }
 
@@ -107,6 +168,7 @@ internal sealed partial class CompositeEntityResolver
     {
         private readonly object _gate = new();
         private readonly Dictionary<CandidateBatchKey, Task<List<Entity>>> _snapshots = [];
+        private readonly Dictionary<string, float[]> _vectors = new(StringComparer.Ordinal);
         private bool _disposed;
 
         public Task<List<Entity>> GetOrAddAsync(
@@ -147,12 +209,28 @@ internal sealed partial class CompositeEntityResolver
                 _snapshots.Clear();
         }
 
+        public void RememberVector(string name, float[] vector)
+        {
+            lock (_gate)
+            {
+                if (!_disposed)
+                    _vectors[name] = vector;
+            }
+        }
+
+        public float[]? VectorFor(string name)
+        {
+            lock (_gate)
+                return _vectors.GetValueOrDefault(name);
+        }
+
         public void Dispose()
         {
             lock (_gate)
             {
                 _disposed = true;
                 _snapshots.Clear();
+                _vectors.Clear();
             }
         }
 

@@ -89,7 +89,7 @@ public sealed class LlmUnifiedMemoryExtractorTests
         var act = () => sut.ExtractAsync([Message]);
 
         await act.Should().ThrowAsync<FormatException>()
-            .WithMessage("*exhausted*valid JSON*");
+            .WithMessage("*exhausted*usable JSON*not valid JSON*");
         await client.Received(2).GetResponseAsync(
             Arg.Any<IEnumerable<ChatMessage>>(),
             Arg.Any<ChatOptions>(),
