@@ -357,6 +357,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A month was stored as a day.** The temporal instruction now asks the model to write a date only as precisely as
+  it was stated ("2024-03" for "in March 2024"): it wrote "2024-03-01", the stored precision was a day, and the agent
+  answered "on March 1st". The parser already kept the reduced forms.
 - **Extracted dates were resolved against a guessed year.** The temporal instruction tells the model each turn
   carries its time, but only the multi-session extractor sent it; the single-session extractors (every agent turn)
   sent none, so "a half marathon in April", said in September 2026, was stored as April 2025. With

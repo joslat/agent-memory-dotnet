@@ -203,4 +203,16 @@ public sealed class DatesInContextTests
         captured.Should().HaveCount(2).And.OnlyContain(call =>
             call.Any(m => m.Role == ChatRole.User && m.Text.Contains(stamp, StringComparison.Ordinal)) == stamped);
     }
+
+    /// <summary>
+    /// 36.1: the model wrote "2024-03-01" for "in March 2024", so the stored precision was a day and the agent
+    /// answered "on March 1st" (run 3). The instruction asks for the stated precision, which the parser keeps.
+    /// </summary>
+    [Fact]
+    public void The_temporal_instruction_asks_for_the_stated_precision()
+    {
+        ExtractionPromptSemantics.TemporalValidityInstruction(TemporalValidityMode.Extract)
+            .Should().Contain("only as precisely as it was stated").And.Contain("\"2024-03\" for \"in March 2024\"");
+        ExtractionPromptSemantics.TemporalValidityInstruction(TemporalValidityMode.Ignore).Should().BeEmpty();
+    }
 }
