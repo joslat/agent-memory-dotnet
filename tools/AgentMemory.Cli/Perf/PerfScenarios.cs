@@ -480,14 +480,18 @@ public static partial class PerfScenarios
 
         var expectedEmbeddingMs = checked((long)preset.EmbeddingDelay.TotalMilliseconds);
         // 8 since the working-memory profile tier is on by default (2026-09-26): recall reads the owner's
-        // profile block, one more transaction and one more query, which must degrade like the rest.
-        const long expectedDatabaseCalls = 8;
+        // profile block, one more transaction and one more query, which must degrade like the rest. 7 when the
+        // formatter hides reasoning traces (the MAF default): the provider no longer searches what it would
+        // not render, one transaction and one query fewer.
+        var tracesShown = ctx.Profile.Services.GetService<IOptions<ContextFormatOptions>>()?.Value.IncludeReasoningTraces ?? false;
+        long expectedDatabaseCalls = tracesShown ? 8 : 7;
+        var expectedQueries = tracesShown ? 10 : 9;
         var expectedDatabaseMs = checked(
             expectedDatabaseCalls * (long)preset.DatabaseDelay.TotalMilliseconds);
         if (embeddingCalls != 1 || embeddingMs != expectedEmbeddingMs ||
             databaseCalls != expectedDatabaseCalls || databaseMs != expectedDatabaseMs ||
             embeddingSpans != 1 || transactionSpans != expectedDatabaseCalls ||
-            accessTracked != 25 || queries != 10)
+            accessTracked != 25 || queries != expectedQueries)
         {
             throw new InvalidOperationException(
                 $"PERF-R-07 did not record its degraded dependency shape " +
@@ -495,7 +499,7 @@ public static partial class PerfScenarios
                 $"1/{expectedEmbeddingMs}; database delay calls/ms={databaseCalls}/{databaseMs}, " +
                 $"expected {expectedDatabaseCalls}/{expectedDatabaseMs}; embedding spans=" +
                 $"{embeddingSpans}/1; transaction spans={transactionSpans}/{expectedDatabaseCalls}; " +
-                $"access_tracking.items={accessTracked}/25; neo4j.queries={queries}/10). The scenario " +
+                $"access_tracking.items={accessTracked}/25; neo4j.queries={queries}/{expectedQueries}). The scenario " +
                 "would not grade timeouts or graceful degradation reliably.");
         }
     }
@@ -531,10 +535,14 @@ public static partial class PerfScenarios
                 DeterministicGraphRagContextSource.SecondMarker,
                 StringComparison.Ordinal)) == true;
 
+        // This scenario's provider is built with the default format, which hides reasoning traces, so the
+        // provider does not search them: one read and one query fewer than when they are shown.
+        var tracesShown = new ContextFormatOptions().IncludeReasoningTraces;
+        int expectedReads = tracesShown ? 6 : 5, expectedQueries = tracesShown ? 9 : 8;
         if (graphRagSpans != 1 || graphRagCalls != 1 || graphRagItems != 2 ||
             graphRagDelayCalls != 1 ||
             graphRagDelayMs != DeterministicGraphRagContextSource.DelayMilliseconds ||
-            embeddings != 1 || reads != 6 || writes != 1 || queries != 9 ||
+            embeddings != 1 || reads != expectedReads || writes != 1 || queries != expectedQueries ||
             accessTracked != 25 || !materialized)
         {
             throw new InvalidOperationException(
@@ -543,7 +551,7 @@ public static partial class PerfScenarios
                 $"delay calls/ms={graphRagDelayCalls}/{graphRagDelayMs}, expected " +
                 $"1/{DeterministicGraphRagContextSource.DelayMilliseconds}; embed.requests=" +
                 $"{embeddings}/1; neo4j read/write/queries={reads}/{writes}/{queries}, expected " +
-                $"6/1/9; access_tracking.items={accessTracked}/25; materialized={materialized}/true). " +
+                $"{expectedReads}/1/{expectedQueries}; access_tracking.items={accessTracked}/25; materialized={materialized}/true). " +
                 "A disabled or unregistered GraphRAG source would make this measurement a no-op.");
         }
     }
@@ -570,7 +578,8 @@ public static partial class PerfScenarios
         // Self-check, not decoration. A fixture whose vectors drift below MinSimilarityScore produces an
         // empty recall that still "succeeds" — and a baseline recorded from that would understate the
         // real cost by an order of magnitude and be quietly wrong forever after.
-        var expected = PerfFixture.ExpectedRecall(ctx.RecallOptions);
+        var tracesShown = ctx.Profile.Services.GetService<IOptions<ContextFormatOptions>>()?.Value.IncludeReasoningTraces ?? false;
+        var expected = PerfFixture.ExpectedRecall(ctx.RecallOptions, tracesShown);
         var retrieved = ctx.Turn.Counter("items.retrieved");
         if (retrieved != expected.Total)
         {

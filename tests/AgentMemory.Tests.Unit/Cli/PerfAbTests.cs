@@ -34,7 +34,9 @@ public sealed class PerfAbTests
 
         configuration.Recall.Should().Be(RecallOptions.Default with { MaxEntities = 2 });
         configuration.CanonicalSpec.Should().Be("Recall.MaxEntities=2");
-        PerfFixture.ExpectedRecall(configuration.Recall).Total.Should().Be(35);
+        PerfFixture.ExpectedRecall(configuration.Recall, reasoningTracesShown: true).Total.Should().Be(35);
+        // Traces hidden by the formatter are not searched (the MAF provider's default).
+        PerfFixture.ExpectedRecall(configuration.Recall, reasoningTracesShown: false).Total.Should().Be(32);
     }
 
     [Fact]

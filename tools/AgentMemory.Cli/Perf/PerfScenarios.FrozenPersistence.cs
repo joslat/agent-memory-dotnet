@@ -21,7 +21,9 @@ public static partial class PerfScenarios
     // used to share FrozenLearnedEmbeddingCount, which was only right while both counts happened to match.
     private const int FrozenProvenanceCount =
         FrozenEntityCount + FrozenFactCount + FrozenPreferenceCount;
-    private const int FrozenEmbeddingRequestCount = FrozenResolutionEmbeddingCount + 1;
+    // One request for all of the request's new names (they are resolved as one batch), then one for what is
+    // learned: 2. Before one extraction's names were batched it was one request per name, FrozenEntityCount + 1.
+    private const int FrozenEmbeddingRequestCount = 1 + 1;
     private const int FrozenResolutionEmbeddingCount = FrozenEntityCount;
     private const int FrozenEmbeddingCount = FrozenLearnedEmbeddingCount + FrozenResolutionEmbeddingCount;
 

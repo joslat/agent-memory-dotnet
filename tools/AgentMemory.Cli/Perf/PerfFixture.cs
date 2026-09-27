@@ -353,8 +353,11 @@ public static class PerfFixture
 
     public sealed record ExpectedRecallShape(IReadOnlyDictionary<string, int> ByCategory, int Total);
 
-    /// <summary>Expected shape for a configured recall, capped by what scale S seeds.</summary>
-    public static ExpectedRecallShape ExpectedRecall(RecallOptions options)
+    /// <summary>
+    /// Expected shape for a configured recall, capped by what scale S seeds. Reasoning traces are recalled only
+    /// when the formatter shows them: the provider does not search what it would not render.
+    /// </summary>
+    public static ExpectedRecallShape ExpectedRecall(RecallOptions options, bool reasoningTracesShown)
     {
         var byCategory = new Dictionary<string, int>(StringComparer.Ordinal)
         {
@@ -363,7 +366,7 @@ public static class PerfFixture
             ["entities"] = Math.Min(options.MaxEntities, EntityCount),
             ["facts"] = Math.Min(options.MaxFacts, FactCount),
             ["preferences"] = Math.Min(options.MaxPreferences, PreferenceCount),
-            ["traces"] = Math.Min(options.MaxTraces, TraceCount),
+            ["traces"] = reasoningTracesShown ? Math.Min(options.MaxTraces, TraceCount) : 0,
         };
 
         return new ExpectedRecallShape(byCategory, byCategory.Values.Sum());
