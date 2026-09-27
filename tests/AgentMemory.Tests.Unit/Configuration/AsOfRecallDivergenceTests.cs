@@ -107,6 +107,12 @@ public sealed class AsOfRecallDivergenceTests
         // answers "what have I lost since".
         "LegibleForgetting",
         "TombstoneProbeTopK",
+
+        // 36.7 relationships in recall, live path only. A relationship edge carries a valid-time window
+        // (valid_until, set when it ends) but no transaction clock, so "which relationships were believed at that
+        // instant" is not answerable from the edge: rendering today's edges into a reconstruction of March would
+        // be the anachronism the two clocks exist to prevent. Recorded here until edges carry invalidated_at.
+        "MaxRelationships",
     ];
 
     [Fact]

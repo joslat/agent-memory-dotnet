@@ -53,8 +53,10 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
     protected override async Task<IReadOnlyList<ExtractedFact>> ExtractCoreWithContextAsync(
         ExtractionWindow window, CancellationToken cancellationToken)
     {
+        // 36.1. The temporal instruction promises each turn its time; send it whenever that instruction is sent.
         var conversationText = ConversationTextBuilder.BuildWindow(
-            window, numbered: _options.Provenance == ExtractionProvenanceMode.PerItem);
+            window, numbered: _options.Provenance == ExtractionProvenanceMode.PerItem,
+            stamped: _options.TemporalValidity == TemporalValidityMode.Extract);
         return await _runner.RunAsync(
             (_options.FactExtractionPrompt
                 ?? BuildSystemPrompt(

@@ -31,6 +31,8 @@ public sealed class ChangesOfMindTests
     [InlineData("age", true)]
     [InlineData("favourite band", true)]
     [InlineData("favorite food", true)]
+    [InlineData("has favourite band", true)]
+    [InlineData("favourite band is", true)]
     [InlineData("favourite", false)]
     [InlineData("likes", false)]
     [InlineData("moved to", false)]
@@ -43,7 +45,8 @@ public sealed class ChangesOfMindTests
     public void A_new_value_replaces_every_stored_form_of_its_relation()
     {
         MemoryRelationCardinality.ReplacedKeys("works for").Should().Contain(["works at", "works for", "worked at"]);
-        MemoryRelationCardinality.ReplacedKeys("favourite band").Should().Equal("favourite band");
+        MemoryRelationCardinality.ReplacedKeys("has favourite band").Should().Contain(["favourite band", "has favourite band", "favorite band"])
+            .And.NotContain("favourite food");
         MemoryRelationCardinality.ReplacedKeys("likes").Should().Equal("likes");
     }
 
@@ -95,18 +98,38 @@ public sealed class ChangesOfMindTests
     };
 
     [Fact]
-    public void A_correction_closes_the_fact_that_stated_the_replaced_value_and_nothing_else()
+    public void A_correction_closes_the_same_relation_first_and_leaves_other_mentions_alone()
+    {
+        // Run 3, show 04: "works for a wind energy firm, replaces the shipping company".
+        var winner = Stored("new", "works for", "a wind energy firm");
+        Fact[] stored = [Stored("job", "works at", "a shipping company"), Stored("left", "left", "shipping company")];
+
+        Corrections.Closed(stored, winner, "the shipping company").Select(f => f.FactId).Should().Equal(
+            ["job"], "\"left the shipping company\" is a true event, not the replaced value");
+    }
+
+    [Fact]
+    public void A_correction_closes_the_one_fact_that_mentions_the_value_when_no_relation_matches()
+    {
+        // Run 3, show 04: "is running the full marathon in May, replaces half marathon in April", stored as training.
+        var winner = Stored("new", "is running", "full marathon in May");
+
+        Corrections.Closed([Stored("half", "is training for", "half marathon")], winner, "half marathon in April")
+            .Select(f => f.FactId).Should().Equal("half");
+        Corrections.Closed([Stored("a", "is training for", "half marathon"), Stored("b", "bought shoes for", "half marathon")],
+            winner, "half marathon in April").Should().BeEmpty("two different relations mention it: ambiguous, nothing is closed");
+    }
+
+    [Fact]
+    public void A_correction_never_closes_what_is_already_closed_itself_or_an_unrelated_value()
     {
         var winner = Stored("new", "plans to run", "the full marathon in May");
 
-        Corrections.Closes(Stored("a", "plans to run", "the half marathon in April"), winner, "the half marathon").Should().BeTrue();
-        Corrections.Closes(Stored("b", "weighs", "half marathon medal"), winner, "the half marathon").Should().BeFalse(
-            "another relation that merely mentions the value is left alone");
-        Corrections.Closes(Stored("c", "owns", "half marathon"), winner, "half marathon").Should().BeTrue(
-            "an object that IS the replaced value is closed whatever the relation");
-        Corrections.Closes(Stored("d", "plans to run", "the half marathon in April") with { InvalidatedAtUtc = T0 }, winner, "half marathon")
-            .Should().BeFalse("an already-closed fact is not closed again");
-        Corrections.Closes(winner, winner, "the full marathon").Should().BeFalse();
+        Corrections.Closed([Stored("d", "plans to run", "the half marathon in April") with { InvalidatedAtUtc = T0 }], winner, "half marathon")
+            .Should().BeEmpty();
+        Corrections.Closed([winner], winner, "the full marathon").Should().BeEmpty();
+        Corrections.Closed([Stored("x", "plans to run", "a triathlon")], winner, "half marathon").Should().BeEmpty();
+        Corrections.Closed([Stored("y", "plans to run", "halfway house")], winner, "half").Should().BeEmpty("whole words only");
     }
 
     [Fact]

@@ -212,6 +212,13 @@ public sealed record MemoryContext
     public RecallFanOutReport? FanOutReport { get; init; }
 
     /// <summary>
+    /// 36.7. The live relationships touching the recalled entities (<c>RecallOptions.MaxRelationships</c>); empty
+    /// unless asked for.
+    /// </summary>
+    public MemoryContextSection<RecalledRelationship> RelevantRelationships { get; init; } =
+        new() { Items = Array.Empty<RecalledRelationship>() };
+
+    /// <summary>
     /// True when shared (owner-less) memory was recalled under its own budget for an owner
     /// (<c>MemoryOptions.SharedRecallBudget</c>). Renderers then show the owner-less entities, facts and
     /// preferences in this context as shared knowledge, not as the person's own. False (the default) renders

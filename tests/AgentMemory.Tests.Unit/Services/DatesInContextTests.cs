@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.AgentFramework;
 using AgentMemory.AgentFramework.Mapping;
 using AgentMemory.Core.Services;
@@ -170,5 +171,36 @@ public sealed class DatesInContextTests
             .Should().Contain(t => t.Contains("(valid from 2024-03)"));
         MemoryContextFormatter.FormatRecallResult(new RecallResult { Context = context, TotalItemsRetrieved = 1 })
             .Should().Contain("(valid from 2024-03)");
+    }
+
+    // ── The extractor is told when each turn was said ────────────────────────────────────────────
+
+    /// <summary>
+    /// 36.1: the temporal instruction promises each turn its time, and the single-session extractors sent none, so
+    /// "a half marathon in April", said in September 2026, was stored as April 2025 (the model's reasoning: "turns have
+    /// no prefix times").
+    /// </summary>
+    [Theory]
+    [InlineData(TemporalValidityMode.Extract, true)]
+    [InlineData(TemporalValidityMode.Ignore, false)]
+    public async Task The_dated_extractors_send_each_turns_time(TemporalValidityMode mode, bool stamped)
+    {
+        var captured = new List<IEnumerable<ChatMessage>>();
+        var client = Substitute.For<IChatClient>();
+        client.GetResponseAsync(Arg.Do<IEnumerable<ChatMessage>>(captured.Add), Arg.Any<ChatOptions>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, """{"entities":[],"facts":[],"preferences":[],"relations":[]}"""))));
+        var options = Options.Create(new LlmExtractionOptions { UseUnifiedExtraction = true, TemporalValidity = mode });
+        var message = new Message
+        {
+            MessageId = "m1", ConversationId = "c", SessionId = "s", Role = "user",
+            Content = "I'm training for a half marathon in April.", TimestampUtc = T0,
+        };
+
+        await new LlmUnifiedMemoryExtractor(client, options, NullLogger<LlmUnifiedMemoryExtractor>.Instance).ExtractAsync([message]);
+        await new LlmFactExtractor(client, options, NullLogger<LlmFactExtractor>.Instance).ExtractAsync([message]);
+
+        var stamp = "[2026-09-27T10:00:00.0000000+00:00] user: I'm training";
+        captured.Should().HaveCount(2).And.OnlyContain(call =>
+            call.Any(m => m.Role == ChatRole.User && m.Text.Contains(stamp, StringComparison.Ordinal)) == stamped);
     }
 }

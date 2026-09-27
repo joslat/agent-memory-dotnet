@@ -92,6 +92,26 @@ internal static class RelationshipQueries
             WHERE (s.id = $entityId OR t.id = $entityId){OwnerAnd(hasOwnerFilter, includeShared)}
             RETURN r";
 
+    // ── GetLiveAmongAsync (36.7) ───────────────────────────────────────
+
+    /// <summary>Live relationships touching any of the given entities, with both names, most confident first.</summary>
+    public static string GetLiveAmong(bool hasOwnerFilter, bool includeShared) => $@"
+            MATCH (s:Entity)-[r:RELATED_TO]->(t:Entity)
+            WHERE (s.id IN $entityIds OR t.id IN $entityIds)
+              AND (r.valid_until IS NULL OR r.valid_until > datetime($now)){OwnerAnd(hasOwnerFilter, includeShared)}
+            RETURN r, s.name AS sourceName, t.name AS targetName
+            ORDER BY r.confidence DESC, r.created_at DESC
+            LIMIT $limit";
+
+    // ── EndAsync (36.4) ────────────────────────────────────────────────
+
+    /// <summary>Ends a relationship by id, keeping the first end.</summary>
+    public static string End(bool hasOwnerFilter, bool includeShared) => $@"
+            MATCH ()-[r:RELATED_TO {{id: $id}}]->()
+            WHERE true{OwnerAnd(hasOwnerFilter, includeShared)}
+            SET r.valid_until = coalesce(r.valid_until, datetime($endedAt))
+            RETURN count(r) > 0 AS ended";
+
     // ── GetBySourceEntityAsync ─────────────────────────────────────────
 
     /// <summary>Get all outgoing RELATED_TO relationships from a specific entity.</summary>

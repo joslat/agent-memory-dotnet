@@ -68,8 +68,10 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
                 // byte-for-byte what every sealed measurement was taken under (E2).
                 + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract all supported memory from this conversation:",
+            // 36.1. The temporal instruction promises each turn its time; send it whenever that instruction is sent.
             ConversationTextBuilder.BuildWindow(
-                window, numbered: _options.Provenance == ExtractionProvenanceMode.PerItem),
+                window, numbered: _options.Provenance == ExtractionProvenanceMode.PerItem,
+                stamped: _options.TemporalValidity == TemporalValidityMode.Extract),
             response => new[] { Project(response) },
             cancellationToken,
             failOnParseExhaustion: true).ConfigureAwait(false);

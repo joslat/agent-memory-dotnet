@@ -320,6 +320,10 @@ internal static class MafTypeMapper
             context, ProjectionRenderer.Reorder("facts", context.RelevantFacts.Items, f => f.FactId, context.Projection), f => f.OwnerId);
         var (ownPreferences, sharedPreferences) = SharedKnowledge.Split(context, context.RelevantPreferences.Items, p => p.OwnerId);
 
+        // 36.7. How the recalled people and things relate. Empty unless RecallOptions.MaxRelationships asked for it.
+        var (ownRelationships, sharedRelationships) = SharedKnowledge.Split(
+            context, context.RelevantRelationships.Items, r => r.Relationship.OwnerId);
+
         if (options.IncludeEntities && ownEntities.Count > 0)
             memory.AddRange(CategoryMessages("entities", ownEntities, DescribeEntity,
                 e => e.Metadata.GetTrustLevel(), "Relevant entities: ", ", ", e => e.EntityId));
@@ -332,6 +336,10 @@ internal static class MafTypeMapper
             memory.AddRange(CategoryMessages("preferences", ownPreferences, p => p.PreferenceText,
                 p => p.Metadata.GetTrustLevel(), "User preferences: ", "; ", p => p.PreferenceId));
 
+        if (options.IncludeEntities && ownRelationships.Count > 0)
+            memory.AddRange(CategoryMessages("relationships", ownRelationships, SharedKnowledge.Describe,
+                r => r.Relationship.Metadata.GetTrustLevel(), "Relationships: ", "; ", r => r.Relationship.RelationshipId));
+
         if (options.IncludeEntities && sharedEntities.Count > 0)
             memory.AddRange(CategoryMessages("entities", sharedEntities, DescribeEntity,
                 e => e.Metadata.GetTrustLevel(), $"Entities ({SharedKnowledge.Label}): ", ", ", e => e.EntityId));
@@ -339,6 +347,10 @@ internal static class MafTypeMapper
         if (options.IncludeFacts && sharedFacts.Count > 0)
             memory.AddRange(CategoryMessages("facts", sharedFacts, DescribeFact,
                 f => f.Metadata.GetTrustLevel(), $"Facts ({SharedKnowledge.Label}): ", "; ", f => f.FactId));
+
+        if (options.IncludeEntities && sharedRelationships.Count > 0)
+            memory.AddRange(CategoryMessages("relationships", sharedRelationships, SharedKnowledge.Describe,
+                r => r.Relationship.Metadata.GetTrustLevel(), $"Relationships ({SharedKnowledge.Label}): ", "; ", r => r.Relationship.RelationshipId));
 
         if (options.IncludePreferences && sharedPreferences.Count > 0)
             memory.AddRange(CategoryMessages("preferences", sharedPreferences, p => p.PreferenceText,

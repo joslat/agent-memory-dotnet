@@ -37,6 +37,17 @@ public sealed record RecallOptions
     /// <summary>Maximum entities to include.</summary>
     public int MaxEntities { get; init; } = 10;
 
+    /// <summary>
+    /// 36.7. Maximum relationships to include: the live relationships touching the recalled entities, rendered as
+    /// "Rosa, best friend, Carmen". 0 (the default) recalls none, as before.
+    /// </summary>
+    /// <remarks>
+    /// Relationships had no section in the recalled context at all, so "Carmen is my best friend", stored as a
+    /// relationship, never reached the agent (found in simulated conversations: "is she a colleague or a friend?").
+    /// Live recall only; the point-in-time path does not read relationships.
+    /// </remarks>
+    public int MaxRelationships { get; init; }
+
     /// <summary>Maximum preferences to include.</summary>
     public int MaxPreferences { get; init; } = 5;
 

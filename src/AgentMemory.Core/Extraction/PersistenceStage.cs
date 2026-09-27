@@ -654,7 +654,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             {
                 var candidates = await _factRepository.GetBySubjectAsync(winner.Subject, scope, cancellationToken)
                     .ConfigureAwait(false);
-                foreach (var loser in candidates.Where(candidate => Corrections.Closes(candidate, winner, replaced)))
+                foreach (var loser in Corrections.Closed(candidates, winner, replaced))
                 {
                     await _factRepository.SupersedeAsync(loser.FactId, winner.FactId, scope, cancellationToken)
                         .ConfigureAwait(false);
@@ -947,6 +947,33 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             : UserNames.MeansUserEndpoint(name, source) ? await UserEntityAsync().ConfigureAwait(false)
             : null;
 
+        // 36.7 (D-8c). An extracted relationship is the live edge it restates, not a second one: its id is that
+        // edge's id. The store merges relationships on their id, and extraction gave every one a fresh id, so the same
+        // relation said twice ("Nadia lives in Lyon", then asked "when did I move to Lyon?") became two edges. Read
+        // once per source entity and cached for this persist; a store that cannot read them writes fresh ids as before.
+        var edgeScope = SharedScopes.OwnedOrShared(ownerId);
+        var edgesBySource = new Dictionary<string, IReadOnlyList<Relationship>>(StringComparer.Ordinal);
+        var idsByEdge = new Dictionary<(string Source, string Type, string Target), string>();
+        async Task<IReadOnlyList<Relationship>> EdgesFromAsync(string sourceId)
+        {
+            if (edgesBySource.TryGetValue(sourceId, out var cached)) return cached;
+            IReadOnlyList<Relationship> edges;
+            try
+            {
+                edges = await _relationshipRepository.GetBySourceEntityAsync(sourceId, edgeScope, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not read the relationships of entity '{Id}'; new ones get fresh ids.", sourceId);
+                edges = [];
+            }
+            return edgesBySource[sourceId] = edges;
+        }
+        static string EdgeType(string type) => MemoryTripleCanonicalizer.Canonical(type);
+        bool IsLive(Relationship edge) => edge.ValidUntil is not { } until || until > _clock.UtcNow;
+
         var relationshipInputs = new List<(Relationship Item, string SourceKey)>(
             extraction.FilteredRelationships.Count);
         foreach (var extracted in extraction.FilteredRelationships)
@@ -1002,9 +1029,17 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 continue;
             }
 
+            var edgeKey = (sourceEntity.EntityId, EdgeType(extracted.RelationshipType), targetEntity.EntityId);
+            if (!idsByEdge.TryGetValue(edgeKey, out var relationshipId))
+            {
+                var restated = (await EdgesFromAsync(sourceEntity.EntityId).ConfigureAwait(false)).FirstOrDefault(edge =>
+                    edge.TargetEntityId == targetEntity.EntityId && EdgeType(edge.RelationshipType) == edgeKey.Item2 && IsLive(edge));
+                relationshipId = idsByEdge[edgeKey] = restated?.RelationshipId ?? _idGenerator.GenerateId();
+            }
+
             relationshipInputs.Add((new Relationship
             {
-                RelationshipId = _idGenerator.GenerateId(),
+                RelationshipId = relationshipId,
                 SourceEntityId = sourceEntity.EntityId,
                 TargetEntityId = targetEntity.EntityId,
                 RelationshipType = extracted.RelationshipType,
@@ -1081,6 +1116,36 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         {
             foreach (var input in relationshipInputs)
                 await PersistRelationshipIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
+        }
+
+        // 36.4. A single-valued relation replaces its previous edge the way a fact replaces its previous value: a new
+        // "lives_in Copenhagen" ends "lives_in Hamburg" (and "employed_by" a new firm ends "works_at" the old one),
+        // non-destructively, by the edge's own valid_until. Found in simulated conversations: the facts were replaced
+        // and both residence edges stayed live. Same gate as fact supersession; best-effort.
+        if (_options.SupersedeReplacedFacts)
+        {
+            foreach (var (item, _) in relationshipInputs)
+            {
+                if (!MemoryRelationCardinality.IsSingleValued(item.RelationshipType)) continue;
+                var replacedTypes = MemoryRelationCardinality.ReplacedKeys(item.RelationshipType);
+                foreach (var previous in (await EdgesFromAsync(item.SourceEntityId).ConfigureAwait(false)).Where(edge =>
+                             edge.TargetEntityId != item.TargetEntityId && IsLive(edge) &&
+                             replacedTypes.Contains(EdgeType(edge.RelationshipType), StringComparer.Ordinal)))
+                {
+                    try
+                    {
+                        await _relationshipRepository.EndAsync(previous.RelationshipId, _clock.UtcNow, edgeScope, cancellationToken)
+                            .ConfigureAwait(false);
+                        _logger.LogDebug("Ended relationship '{Old}': replaced by '{New}'.", previous.RelationshipId, item.RelationshipId);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                    catch (NotSupportedException) { break; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Ending relationship '{Id}' failed; it stays beside its replacement.", previous.RelationshipId);
+                    }
+                }
+            }
         }
         // The batch-level signal. Debug-level per-fact logging tells you WHY once you are already
         // looking; this is what makes you look. Warned once per batch rather than per fact so a large

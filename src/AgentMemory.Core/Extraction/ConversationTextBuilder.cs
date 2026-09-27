@@ -19,6 +19,27 @@ internal static class ConversationTextBuilder
     public static string Build(IReadOnlyList<Message> messages)
         => string.Join("\n", messages.Select(m => $"{m.Role}: {m.Content}"));
 
+    /// <inheritdoc cref="Build(IReadOnlyList{Message})"/>
+    /// <param name="messages">The ordered collection of conversation messages to render.</param>
+    /// <param name="stamped">Prefix each turn with its time (<see cref="Stamp"/>).</param>
+    public static string Build(IReadOnlyList<Message> messages, bool stamped)
+        => stamped ? string.Join("\n", messages.Select(m => $"{Stamp(m)}{m.Role}: {m.Content}")) : Build(messages);
+
+    /// <summary>
+    /// 36.1. The time a turn was said, as its transcript prefix: <c>[2026-09-27T22:05:01.8447034+00:00] </c>. The one
+    /// rendering every extractor uses, so "last week" and "in April" resolve against the turn that said them.
+    /// </summary>
+    /// <remarks>
+    /// The temporal instruction tells the model each turn carries its time. Only the multi-session extractor
+    /// rendered it; the single-session ones (every agent turn) sent none, and the model guessed the year: "a half
+    /// marathon in April", said in September 2026, was stored as April 2025 (found in simulated conversations).
+    /// </remarks>
+    public static string Stamp(Message message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        return "[" + message.TimestampUtc.ToString("O", CultureInfo.InvariantCulture) + "] ";
+    }
+
     /// <summary>
     /// Builds the transcript with each turn numbered from 1, as <c>[N] Role: Content</c>.
     /// </summary>
@@ -35,7 +56,12 @@ internal static class ConversationTextBuilder
     /// measurement used — cannot change by accident.
     /// </para>
     /// </remarks>
-    public static string BuildNumbered(IReadOnlyList<Message> messages)
+    public static string BuildNumbered(IReadOnlyList<Message> messages) => BuildNumbered(messages, stamped: false);
+
+    /// <inheritdoc cref="BuildNumbered(IReadOnlyList{Message})"/>
+    /// <param name="messages">The ordered collection of conversation messages to render.</param>
+    /// <param name="stamped">Prefix each turn with its time, after its number (<see cref="Stamp"/>).</param>
+    public static string BuildNumbered(IReadOnlyList<Message> messages, bool stamped)
     {
         var builder = new StringBuilder();
         for (var index = 0; index < messages.Count; index++)
@@ -44,6 +70,7 @@ internal static class ConversationTextBuilder
             builder.Append('[')
                 .Append((index + 1).ToString(CultureInfo.InvariantCulture))
                 .Append("] ")
+                .Append(stamped ? Stamp(messages[index]) : string.Empty)
                 .Append(messages[index].Role)
                 .Append(": ")
                 .Append(messages[index].Content);
@@ -68,14 +95,20 @@ internal static class ConversationTextBuilder
     /// it: everything inside is to be read and nothing inside is to be extracted.
     /// </para>
     /// </remarks>
-    public static string BuildWindow(ExtractionWindow window, bool numbered)
+    public static string BuildWindow(ExtractionWindow window, bool numbered) => BuildWindow(window, numbered, stamped: false);
+
+    /// <inheritdoc cref="BuildWindow(ExtractionWindow, bool)"/>
+    /// <param name="window">The turns to extract from, and the read-only context before them.</param>
+    /// <param name="numbered">Number the target turns.</param>
+    /// <param name="stamped">Prefix every turn, context included, with its time (<see cref="Stamp"/>).</param>
+    public static string BuildWindow(ExtractionWindow window, bool numbered, bool stamped)
     {
-        var targets = numbered ? BuildNumbered(window.Targets) : Build(window.Targets);
+        var targets = numbered ? BuildNumbered(window.Targets, stamped) : Build(window.Targets, stamped);
         if (!window.HasContext) return targets;
 
         var builder = new StringBuilder();
         builder.Append(ContextOpen).Append('\n')
-               .Append(Build(window.Context)).Append('\n')
+               .Append(Build(window.Context, stamped)).Append('\n')
                .Append(ContextClose).Append("\n\n")
                .Append(targets);
         return builder.ToString();

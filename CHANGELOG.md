@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`RecallOptions.MaxRelationships`: how the recalled people and things relate reaches the agent.** The live
+  relationships touching the recalled entities are read in one query (`IRelationshipRepository.GetLiveAmongAsync`,
+  `ILongTermMemoryService.GetRelationshipsAmongAsync`, both names included, as `RecalledRelationship`) and rendered
+  by both renderers as `Rosa — best friend → Carmen` (`MemoryContext.RelevantRelationships`; shared ones labelled like
+  every shared item). Relationships had no section in the recalled context at all, so "Carmen is my best friend",
+  stored as a relationship, never reached the agent ("is she a colleague or a friend?"). 0 (the default) reads none.
+  Live recall only: an edge has no transaction clock to reconstruct a past instant with.
+- **`IRelationshipRepository.EndAsync`**: ends a relationship by setting its `valid_until` (the first end is kept;
+  the edge stays for history). New members have default implementations that throw `NotSupportedException`.
+
 - **`LlmExtractionOptions.MarkCorrections`: a correction closes what it replaces.** Every extractor is asked to mark
   what a correction replaces ("actually Arcade Fire, not Radiohead" adds `"replaces": "Radiohead"`;
   `ExtractedFact.Replaces` / `ExtractedPreference.Replaces`), and with `SupersedeReplacedFacts` the write closes the
@@ -220,6 +230,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A relationship said again is the edge already stored, and a single-valued relation ends its previous edge.**
+  Extraction reuses the id of the live edge with the same source, relation and target, so "lives in Lyon" stated
+  twice is one edge (it was two: the store merges on id and every extracted relationship had a fresh one). With
+  `SupersedeReplacedFacts`, a new edge of a single-valued relation ends the previous one from the same source,
+  whatever form it was stored under ("lives_in Copenhagen" ends "lives_in Hamburg"; "employed_by" a new firm ends
+  "works_at" the old one). Found in simulated conversations: the facts were replaced and both residence edges stayed.
+- **`favourite <thing>` is one relation however it is written**: "has favourite band", "favourite band is" and
+  "favorite band" are replaced by a new favourite band.
+- **A marked correction closes the fact it names, conservatively**: among the live facts of the subject that mention
+  the replaced value (either containing the other, as whole words), those stating the new fact's relation; failing
+  that, the one fact that mentions it, only if it is the only one. So "works for a wind energy firm, replaces the
+  shipping company" closes "works at a shipping company" and leaves "left the shipping company" (a true event).
+
 - **The speaker is never an entity.** Extraction no longer resolves or stores an entity named "user" (or "the
   user", "I", "me", "myself"): the prompt calls the speaker "the user", and the model listed "user" among the people,
   so a "user" node stood beside the person's own with relationships hanging from it. A relationship from a self word
@@ -333,6 +356,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all prerelease, and a shipped package may not depend on one.
 
 ### Fixed
+
+- **Extracted dates were resolved against a guessed year.** The temporal instruction tells the model each turn
+  carries its time, but only the multi-session extractor sent it; the single-session extractors (every agent turn)
+  sent none, so "a half marathon in April", said in September 2026, was stored as April 2025. With
+  `TemporalValidity = Extract` every extractor now prefixes each turn with its time, by one rendering.
 
 - **"works for" never superseded "works at".** Cardinality resolved stored predicates with the question-side
   resolver, which refuses stored-only forms, so a predicate stored under a single-valued relation counted as an

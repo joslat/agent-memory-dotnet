@@ -814,6 +814,15 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     }
 
     /// <inheritdoc/>
+    public Task<IReadOnlyList<RecalledRelationship>> GetRelationshipsAmongAsync(
+        IReadOnlyList<string> entityIds,
+        int limit,
+        DateTimeOffset now,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        _relRepo.GetLiveAmongAsync(entityIds, limit, now, Resolve(scope, nameof(GetRelationshipsAmongAsync)), cancellationToken);
+
+    /// <inheritdoc/>
     public Task DeletePreferenceAsync(
         string preferenceId,
         AgentMemory.Abstractions.Options.MemoryScope? scope = null,

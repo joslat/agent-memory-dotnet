@@ -17,6 +17,17 @@ internal static class SharedKnowledge
     /// <summary>What a shared section says about itself, in both renderers.</summary>
     internal const string Label = "shared knowledge, not about the user";
 
+    /// <summary>
+    /// 36.7. How a relationship reads, in both renderers: <c>Rosa — best friend → Carmen</c>. The stored type is
+    /// written as words ("BEST_FRIEND" and "best_friend" read "best friend").
+    /// </summary>
+    internal static string Describe(RecalledRelationship relationship)
+    {
+        ArgumentNullException.ThrowIfNull(relationship);
+        var type = relationship.Relationship.RelationshipType.Replace('_', ' ').Trim().ToLowerInvariant();
+        return $"{relationship.SourceName} \u2014 {type} \u2192 {relationship.TargetName}";
+    }
+
     /// <summary>Splits <paramref name="items"/> into the person's own and the shared ones, order kept.</summary>
     internal static (IReadOnlyList<T> Own, IReadOnlyList<T> Shared) Split<T>(
         MemoryContext context, IReadOnlyList<T> items, Func<T, string?> ownerOf)

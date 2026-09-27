@@ -583,7 +583,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                     builder.Append('[')
                         .Append((turn + 1).ToString(CultureInfo.InvariantCulture))
                         .Append("] ");
-                builder.Append('[').Append(message.TimestampUtc.ToString("O")).Append("] ")
+                builder.Append(AgentMemory.Core.Extraction.ConversationTextBuilder.Stamp(message))
                     .Append(message.Role).Append(": ").AppendLine(message.Content);
             }
             builder.AppendLine("</source_session>");

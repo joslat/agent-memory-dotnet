@@ -135,6 +135,19 @@ public interface ILongTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 36.7. The live relationships touching any of <paramref name="entityIds"/>, with both entities' names, at most
+    /// <paramref name="limit"/>. The default implementation throws <see cref="NotSupportedException"/>, so existing
+    /// implementations compile; recall then renders no relationships.
+    /// </summary>
+    Task<IReadOnlyList<RecalledRelationship>> GetRelationshipsAmongAsync(
+        IReadOnlyList<string> entityIds,
+        int limit,
+        DateTimeOffset now,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This ILongTermMemoryService implementation cannot read relationships for recall.");
+
+    /// <summary>
     /// Deletes a preference by identifier. When <paramref name="scope"/> is supplied (R1) the delete
     /// only affects the owner's own preference — never another owner's, and never shared/global ones.
     /// </summary>

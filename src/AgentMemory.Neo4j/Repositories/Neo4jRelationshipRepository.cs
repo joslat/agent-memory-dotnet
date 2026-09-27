@@ -117,6 +117,57 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<RecalledRelationship>> GetLiveAmongAsync(
+        IReadOnlyList<string> entityIds, int limit, DateTimeOffset now, MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entityIds);
+        if (entityIds.Count == 0 || limit <= 0) return Array.Empty<RecalledRelationship>();
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+
+        var cypher = RelationshipQueries.GetLiveAmong(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["entityIds"] = entityIds.ToList(),
+            ["limit"] = limit,
+            ["now"] = now.ToString("O"),
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<RecalledRelationship>)records.Select(r => new RecalledRelationship
+            {
+                Relationship = MapToRelationship(r["r"].As<IRelationship>()),
+                SourceName = r["sourceName"].As<string>() ?? string.Empty,
+                TargetName = r["targetName"].As<string>() ?? string.Empty,
+            }).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> EndAsync(
+        string relationshipId, DateTimeOffset endedAt, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["id"] = relationshipId,
+            ["endedAt"] = endedAt.ToString("O"),
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(RelationshipQueries.End(hasOwner, includeShared), parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
+            return record["ended"].As<bool>();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<Relationship>> GetBySourceEntityAsync(
         string sourceEntityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {

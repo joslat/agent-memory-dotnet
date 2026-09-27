@@ -69,11 +69,34 @@ internal static class MemoryRelationCardinality
         var resolved = MemoryRelationLexicon.Default.ResolveStored(canonical);
         if (resolved is not null && SingleValued.Value.Contains(resolved)) return resolved;
 
-        return SingleValuedPrefixes.Value.Any(prefix =>
-            canonical.Length > prefix.Length && canonical.StartsWith(prefix, StringComparison.Ordinal) &&
-            !char.IsLetterOrDigit(canonical[prefix.Length]))
-            ? canonical
-            : null;
+        return PrefixRelation(canonical);
+    }
+
+    /// <summary>
+    /// A predicate naming a prefix-declared relation, as that relation: "favourite band", "has favourite band",
+    /// "favourite band is" and "favorite band" are all <c>favourite band</c> (the first declared spelling).
+    /// </summary>
+    private static string? PrefixRelation(string canonical)
+    {
+        var words = canonical.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (words.Count > 0 && words[0] is "has" or "is" or "my") words.RemoveAt(0);
+        if (words.Count > 0 && words[^1] is "is" or "are") words.RemoveAt(words.Count - 1);
+        if (words.Count < 2) return null;
+        var prefix = SingleValuedPrefixes.Value.FirstOrDefault(p => string.Equals(p, words[0], StringComparison.Ordinal));
+        return prefix is null ? null : string.Join(' ', [SingleValuedPrefixes.Value[0], .. words.Skip(1)]);
+    }
+
+    /// <summary>Every stored form of a prefix-declared relation: both spellings, with and without "has" / "is".</summary>
+    private static IEnumerable<string> PrefixForms(string relation)
+    {
+        var thing = relation[(relation.IndexOf(' ', StringComparison.Ordinal) + 1)..];
+        foreach (var prefix in SingleValuedPrefixes.Value)
+        {
+            yield return $"{prefix} {thing}";
+            yield return $"has {prefix} {thing}";
+            yield return $"{prefix} {thing} is";
+            yield return $"my {prefix} {thing}";
+        }
     }
 
     /// <summary>
@@ -85,7 +108,10 @@ internal static class MemoryRelationCardinality
         var canonical = MemoryTripleCanonicalizer.Canonical(predicate);
         var relation = Relation(predicate);
         if (relation is null) return canonical.Length == 0 ? [] : [canonical];
-        return [.. MemoryRelationLexicon.Default.StoredFormsOf(relation).Append(canonical).Distinct(StringComparer.Ordinal)];
+        var forms = PrefixRelation(canonical) is not null
+            ? PrefixForms(relation)
+            : MemoryRelationLexicon.Default.StoredFormsOf(relation);
+        return [.. forms.Append(canonical).Distinct(StringComparer.Ordinal)];
     }
 
     private static readonly Lazy<string[]> SingleValuedPrefixes = new(() =>
