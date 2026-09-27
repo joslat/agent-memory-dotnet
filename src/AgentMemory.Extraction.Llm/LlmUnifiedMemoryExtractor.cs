@@ -62,7 +62,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
         var results = await _runner.RunAsync(
             BuildSystemPrompt(
                 _options.AssistantContent, _options.EntityTypes, _options.TemporalValidity,
-                _options.Provenance, _options.CaptureIdentityAliases, _options.CaptureUserName, _options.IgnoreQuestions)
+                _options.Provenance, _options.CaptureIdentityAliases, _options.CaptureUserName, _options.IgnoreQuestions,
+                _options.OwnPreferencesOnly)
                 // Appended only when context is actually present, so a context-free prompt stays
                 // byte-for-byte what every sealed measurement was taken under (E2).
                 + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
@@ -177,7 +178,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
         ExtractionProvenanceMode provenance,
         bool captureIdentityAliases = false,
         bool captureUserName = false,
-        bool ignoreQuestions = false)
+        bool ignoreQuestions = false,
+        bool ownPreferencesOnly = false)
     {
         var types = entityTypes is { Count: > 0 } ? entityTypes : LlmEntityExtractor.DefaultEntityTypes;
         return SystemPromptPrefix
@@ -188,6 +190,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
             + ExtractionPromptSemantics.ProvenanceInstruction(provenance)
             + ExtractionPromptSemantics.IdentityAliasInstruction(captureIdentityAliases)
             + ExtractionPromptSemantics.UserNameInstruction(captureUserName)
-            + ExtractionPromptSemantics.QuestionsInstruction(ignoreQuestions);
+            + ExtractionPromptSemantics.QuestionsInstruction(ignoreQuestions)
+            + ExtractionPromptSemantics.OwnPreferencesInstruction(ownPreferencesOnly);
     }
 }

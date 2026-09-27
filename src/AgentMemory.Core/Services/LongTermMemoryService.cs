@@ -26,6 +26,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     private readonly ILogger<LongTermMemoryService> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
     private readonly WorkingMemoryRebuilder _rebuilder;
+    private readonly int? _sharedRecallBudget;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LongTermMemoryService"/> class.
@@ -65,6 +66,45 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
             workingMemory,
             memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions(),
             _logger);
+        _sharedRecallBudget = memoryOptions?.Value.SharedRecallBudget;
+    }
+
+    /// <summary>
+    /// 36.3. Whether a recall under <paramref name="resolved"/> takes shared memory under its own budget
+    /// (<see cref="MemoryOptions.SharedRecallBudget"/>): only an owner's read that includes shared rows. The
+    /// assembler asks the same question to label what it recalled, so the two cannot disagree.
+    /// </summary>
+    internal static bool SplitsShared(int? sharedRecallBudget, MemoryScope? resolved) =>
+        sharedRecallBudget is not null &&
+        resolved is { OwnerId: not null, IncludeShared: true } &&
+        !SharedScopes.IsSharedOnly(resolved);
+
+    /// <summary>
+    /// 36.3. One vector search, run as two when shared memory has its own budget: the owner's own rows at
+    /// <paramref name="limit"/>, the shared rows at the shared budget, own first. Otherwise the search as it
+    /// always was. Every vector search in this service goes through here, live and point-in-time, so no path
+    /// keeps the single budget by being missed.
+    /// </summary>
+    private async Task<IReadOnlyList<(T Item, double Score)>> SearchWithSharedBudgetAsync<T>(
+        MemoryScope resolved,
+        int limit,
+        Func<MemoryScope, int, Task<IReadOnlyList<(T Item, double Score)>>> search)
+    {
+        if (!SplitsShared(_sharedRecallBudget, resolved))
+            return await search(resolved, limit).ConfigureAwait(false);
+
+        var ownTask = search(resolved with { IncludeShared = false }, limit);
+        var sharedTask = _sharedRecallBudget > 0
+            ? search(SharedScopes.SharedOnly, _sharedRecallBudget.Value)
+            : Task.FromResult<IReadOnlyList<(T Item, double Score)>>(Array.Empty<(T, double)>());
+        await Task.WhenAll(ownTask, sharedTask).ConfigureAwait(false);
+        var own = await ownTask.ConfigureAwait(false);
+        var shared = await sharedTask.ConfigureAwait(false);
+        if (shared.Count == 0) return own;
+        var combined = new List<(T Item, double Score)>(own.Count + shared.Count);
+        combined.AddRange(own);
+        combined.AddRange(shared);
+        return combined;
     }
 
     /// <summary>
@@ -197,7 +237,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         double minScore,
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
-        _entityRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchEntitiesAsync)), cancellationToken);
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchEntitiesAsync)), limit,
+            (s, l) => _entityRepo.SearchByVectorAsync(queryEmbedding, l, minScore, s, cancellationToken));
 
     /// <inheritdoc/>
     public async Task<Preference> AddPreferenceAsync(
@@ -287,7 +328,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         double minScore,
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
-        _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchPreferencesAsync)), cancellationToken);
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchPreferencesAsync)), limit,
+            (s, l) => _prefRepo.SearchByVectorAsync(queryEmbedding, l, minScore, s, cancellationToken));
 
     /// <inheritdoc/>
     /// <remarks>
@@ -634,17 +676,13 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         // budget belonging to the source facts it was computed FROM -- the displacement measured at
         // 16 points on the arithmetic vertical.
         var derivedMode = maxDerivedFacts is null ? DerivedFactMode.Include : DerivedFactMode.Exclude;
-        var scored = validTime == ValidTimeMode.Ignore
-            ? (derivedMode == DerivedFactMode.Include
-                ? await _factRepo
-                    .SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, cancellationToken)
-                    .ConfigureAwait(false)
-                : await _factRepo
-                    .SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, derivedMode, cancellationToken)
-                    .ConfigureAwait(false))
-            : await _factRepo
-                .SearchByVectorAsync(queryEmbedding, validTime, limit, minScore, resolved, cancellationToken)
-                .ConfigureAwait(false);
+        IReadOnlyList<(Fact Fact, double Score)> scored = await SearchWithSharedBudgetAsync(resolved, limit, (s, l) =>
+                validTime == ValidTimeMode.Ignore
+                    ? (derivedMode == DerivedFactMode.Include
+                        ? _factRepo.SearchByVectorAsync(queryEmbedding, l, minScore, s, cancellationToken)
+                        : _factRepo.SearchByVectorAsync(queryEmbedding, l, minScore, s, derivedMode, cancellationToken))
+                    : _factRepo.SearchByVectorAsync(queryEmbedding, validTime, l, minScore, s, cancellationToken))
+            .ConfigureAwait(false);
         // Only the similarity search scores anything. Expansion below appends facts fetched by predicate,
         // which carry no comparable score and are deliberately left out of the sink rather than given a
         // stand-in one.
@@ -829,7 +867,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         double minScore,
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
-        _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchEntitiesAsOfAsync)), cancellationToken);
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchEntitiesAsOfAsync)), limit,
+            (s, l) => _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, l, minScore, s, cancellationToken));
 
     /// <summary>
     /// Which predicates expansion should return whole: those the top-K nominated, plus every stored
@@ -893,8 +932,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
 
         var resolved = Resolve(scope, nameof(SearchFactsAsOfAsync));
         var systemClock = systemAsOf ?? asOf;
-        var scored = await _factRepo
-            .SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, resolved, systemClock, cancellationToken)
+        IReadOnlyList<(Fact Fact, double Score)> scored = await SearchWithSharedBudgetAsync(resolved, limit,
+                (s, l) => _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, l, minScore, s, systemClock, cancellationToken))
             .ConfigureAwait(false);
         var top = scored.Select(r => r.Fact).ToList();
 
@@ -954,7 +993,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         MemoryScope? scope,
         DateTimeOffset? systemAsOf,
         CancellationToken cancellationToken) =>
-        _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchFactsAsOfAsync)), systemAsOf, cancellationToken);
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchFactsAsOfAsync)), limit,
+            (s, l) => _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, l, minScore, s, systemAsOf, cancellationToken));
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<Preference>> SearchPreferencesAsOfAsync(
@@ -981,7 +1021,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         double minScore,
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
-        _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchPreferencesAsOfAsync)), cancellationToken);
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchPreferencesAsOfAsync)), limit,
+            (s, l) => _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, l, minScore, s, cancellationToken));
 
     // ── Invalidation & supersession (D5 / D7) — thin owner-scoped delegations, gated through the
     // central isolation policy (#100): these never had a fallback derivation of their own, so this adds

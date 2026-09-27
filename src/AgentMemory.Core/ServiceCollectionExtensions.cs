@@ -265,7 +265,10 @@ public static class ServiceCollectionExtensions
             .Validate(
                 o => o.FanOut.WeakTopScoreThreshold is null or (>= 0 and <= 1),
                 "MemoryOptions.FanOut.WeakTopScoreThreshold must be between 0 and 1 when set; it is "
-                + "compared against a cosine similarity.")
+                + "compared against the store's similarity score, (1 + cosine) / 2.")
+            .Validate(
+                o => o.SharedRecallBudget is null or >= 0,
+                "MemoryOptions.SharedRecallBudget must be 0 or more when set.")
             .ValidateOnStart();
 
         // Bridge sub-options from parent MemoryOptions so services that depend on

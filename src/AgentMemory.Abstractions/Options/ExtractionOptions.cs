@@ -175,7 +175,8 @@ public sealed class ExtractionOptions
     /// <summary>
     /// Cosine similarity at which two facts of one extraction count as the same (default 0.93). Measured
     /// with bge-m3: duplicate phrasings scored 0.912–0.996, the closest distinct pair ("is mentor of" /
-    /// "is manager of" the same person) 0.879; 0.93 merges the clear duplicates with a 0.05 margin.
+    /// "is manager of" the same person) 0.879; 0.93 merges the clear duplicates with a 0.05 margin. A raw
+    /// cosine, computed in process (not the store's (1 + cosine) / 2 scale).
     /// </summary>
     public double WithinExtractionDuplicateThreshold { get; set; } = 0.93;
 
@@ -281,7 +282,10 @@ public sealed class EntityResolutionOptions
     public bool TypeStrictFiltering { get; set; } = true;
     /// <summary>Minimum similarity score for a fuzzy match to be considered.</summary>
     public double FuzzyMatchThreshold { get; set; } = 0.85;
-    /// <summary>Minimum cosine similarity for a semantic match to be considered.</summary>
+    /// <summary>
+    /// Minimum cosine similarity (raw, in [-1, 1]) for a semantic match to be considered. Where resolution
+    /// asks the store's vector index for candidates it converts this to the index's <c>(1 + cosine) / 2</c> scale.
+    /// </summary>
     public double SemanticMatchThreshold { get; set; } = 0.8;
 
     /// <summary>

@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Security;
 using AgentMemory.Core.Security;
+using AgentMemory.Core.Services;
 using AgentMemory.Core.Services.Projection;
 
 namespace AgentMemory.AgentFramework.Mapping;
@@ -189,6 +190,13 @@ internal static class MafTypeMapper
         // Joined with ": " and not an arrow, because every admitted block is HTML-escaped (#92 Phase 1):
         // a "->" separator renders to the model as "-&gt;". Matching the format MemoryQueryFacade already
         // uses for a trace ("task: outcome") keeps one shape across both surfaces.
+        static string DescribeEntity(Entity e) =>
+            string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}";
+
+        // 30.6: one renderer, both surfaces. Ordinary facts render byte-identically to before.
+        static string DescribeFact(Fact f) =>
+            AgentMemory.Core.Services.DerivedFactRenderer.Append($"{f.Subject} {f.Predicate} {f.Object}", f);
+
         string DescribeTrace(ReasoningTrace trace) =>
             options.IncludeTraceOutcomes && !string.IsNullOrWhiteSpace(trace.Outcome)
                 ? $"{trace.Task}: {trace.Outcome}"
@@ -297,21 +305,37 @@ internal static class MafTypeMapper
                 _ => MemoryTrustLevel.Untrusted,
                 "No longer known (aged out, details unavailable): ", "; "));
 
-        if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)
-            memory.AddRange(CategoryMessages("entities", context.RelevantEntities.Items,
-                e => string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}",
+        // 36.3. With shared memory recalled under its own budget, the owner-less items render after the
+        // person's own under a label that says what they are. Without it both lists are the section as
+        // before (Shared is empty), so the messages are byte-identical.
+        var (ownEntities, sharedEntities) = SharedKnowledge.Split(context, context.RelevantEntities.Items, e => e.OwnerId);
+        var (ownFacts, sharedFacts) = SharedKnowledge.Split(
+            context, ProjectionRenderer.Reorder("facts", context.RelevantFacts.Items, f => f.FactId, context.Projection), f => f.OwnerId);
+        var (ownPreferences, sharedPreferences) = SharedKnowledge.Split(context, context.RelevantPreferences.Items, p => p.OwnerId);
+
+        if (options.IncludeEntities && ownEntities.Count > 0)
+            memory.AddRange(CategoryMessages("entities", ownEntities, DescribeEntity,
                 e => e.Metadata.GetTrustLevel(), "Relevant entities: ", ", ", e => e.EntityId));
 
-        if (options.IncludeFacts && context.RelevantFacts.Items.Count > 0)
-            memory.AddRange(CategoryMessages("facts", ProjectionRenderer.Reorder("facts", context.RelevantFacts.Items, f => f.FactId, context.Projection),
-                // 30.6: one renderer, both surfaces. Ordinary facts render byte-identically to before.
-                f => AgentMemory.Core.Services.DerivedFactRenderer.Append(
-                    $"{f.Subject} {f.Predicate} {f.Object}", f),
+        if (options.IncludeFacts && ownFacts.Count > 0)
+            memory.AddRange(CategoryMessages("facts", ownFacts, DescribeFact,
                 f => f.Metadata.GetTrustLevel(), "Known facts: ", "; ", f => f.FactId));
 
-        if (options.IncludePreferences && context.RelevantPreferences.Items.Count > 0)
-            memory.AddRange(CategoryMessages("preferences", context.RelevantPreferences.Items, p => p.PreferenceText,
+        if (options.IncludePreferences && ownPreferences.Count > 0)
+            memory.AddRange(CategoryMessages("preferences", ownPreferences, p => p.PreferenceText,
                 p => p.Metadata.GetTrustLevel(), "User preferences: ", "; ", p => p.PreferenceId));
+
+        if (options.IncludeEntities && sharedEntities.Count > 0)
+            memory.AddRange(CategoryMessages("entities", sharedEntities, DescribeEntity,
+                e => e.Metadata.GetTrustLevel(), $"Entities ({SharedKnowledge.Label}): ", ", ", e => e.EntityId));
+
+        if (options.IncludeFacts && sharedFacts.Count > 0)
+            memory.AddRange(CategoryMessages("facts", sharedFacts, DescribeFact,
+                f => f.Metadata.GetTrustLevel(), $"Facts ({SharedKnowledge.Label}): ", "; ", f => f.FactId));
+
+        if (options.IncludePreferences && sharedPreferences.Count > 0)
+            memory.AddRange(CategoryMessages("preferences", sharedPreferences, p => p.PreferenceText,
+                p => p.Metadata.GetTrustLevel(), $"Preferences ({SharedKnowledge.Label}): ", "; ", p => p.PreferenceId));
 
         // A trace's Task is what was attempted; its Outcome is what happened -- and on a REPEATED task
         // the Task text is something the agent already has, so rendering it alone tells the model it has

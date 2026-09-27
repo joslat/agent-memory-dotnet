@@ -58,6 +58,7 @@ internal sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference
             : ConversationTextBuilder.BuildWindow(window, numbered: false);
         return await _runner.RunAsync(
             (_options.PreferenceExtractionPrompt ?? DefaultSystemPrompt)
+                + ExtractionPromptSemantics.OwnPreferencesInstruction(_options.OwnPreferencesOnly)
                 // Only when context is present, so a context-free prompt stays byte-identical (E2).
                 + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract preferences from this conversation:",

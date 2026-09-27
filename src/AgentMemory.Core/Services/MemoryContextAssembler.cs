@@ -229,6 +229,14 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     /// been without the feature, which is the correct failure direction for a meta-memory surface.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// 36.3. The shared budget this recall's vector searches ran under, or null when shared memory shares
+    /// the owner's budget. Asked of the service's own rule, so the searches, the fan-out merge and the
+    /// context's label cannot disagree about whether the split happened.
+    /// </summary>
+    private static int? SharedBudgetFor(MemoryScope? scope, int? sharedRecallBudget) =>
+        LongTermMemoryService.SplitsShared(sharedRecallBudget, scope) ? sharedRecallBudget : null;
+
     private async Task<IReadOnlyList<ForgottenTopicSummary>> ProbeForgottenAsync(
         RecallOptions recallOpts,
         float[]? queryEmbedding,
@@ -997,6 +1005,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
             Projection = projection,
+            SeparatesSharedKnowledge = SharedBudgetFor(scope, _options.SharedRecallBudget) is not null,
             WorkingMemoryBlock = workingMemory?.Text,
             WorkingMemoryBuiltAtUtc = workingMemory?.BuiltAtUtc,
             // 30.10. Null unless the planner ran at all -- see RecallFanOutReport's remarks: null,
@@ -1418,6 +1427,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
             Projection = projection,
+            SeparatesSharedKnowledge = SharedBudgetFor(scope, _options.SharedRecallBudget) is not null,
             // Design §5.5: the as-of path does not fan out. A caller who asked for it anyway is told
             // so -- a null here would read as "the planner never ran", which is true and unhelpful
             // when the caller explicitly requested something and got nothing.

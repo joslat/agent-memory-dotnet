@@ -212,6 +212,18 @@ public sealed record MemoryContext
     public RecallFanOutReport? FanOutReport { get; init; }
 
     /// <summary>
+    /// True when shared (owner-less) memory was recalled under its own budget for an owner
+    /// (<c>MemoryOptions.SharedRecallBudget</c>). Renderers then show the owner-less entities, facts and
+    /// preferences in this context as shared knowledge, not as the person's own. False (the default) renders
+    /// every item as before.
+    /// </summary>
+    /// <remarks>
+    /// A flag rather than a rule of the renderers' own: in a single-tenant store every row is owner-less, so
+    /// "no owner" means "shared" only when the recall had an owner and separated the two.
+    /// </remarks>
+    public bool SeparatesSharedKnowledge { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

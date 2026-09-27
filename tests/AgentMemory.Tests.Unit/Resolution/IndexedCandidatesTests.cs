@@ -90,7 +90,7 @@ public sealed class IndexedCandidatesTests
         var resolved = await Sut(indexed: true).ResolveEntityAsync(new ExtractedEntity { Name = "Carl M.", Type = "PERSON" }, ["m1"]);
 
         resolved.EntityId.Should().Be("p1");
-        await _entities.Received().SearchByVectorAsync(Arg.Any<float[]>(), 20, 0.8, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _entities.Received().SearchByVectorAsync(Arg.Any<float[]>(), 20, 0.9, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

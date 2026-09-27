@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`MemoryOptions.SharedRecallBudget`: shared knowledge gets its own recall budget and its own label.** With one
+  budget, a large shared corpus (a book, a catalogue, a manual) competes with a person's own memories for the same
+  top k and wins by numbers: measured on four embedding models, shared items took 7 to 8 of 10 fact slots on
+  questions about the person and pushed out answers the person had given. A similarity floor cannot fix that (the
+  shared items are relevant by score, just not about the person); separate budgets do: own top k plus shared top n
+  cut shared items per question from 7.6 to 3.0 with every answer kept or better, on every model tested. When set,
+  an owner's recall that includes shared memory searches its own rows and the shared rows separately (live,
+  point-in-time and fan-out legs alike), and `MemoryContext.SeparatesSharedKnowledge` tells the renderers, which
+  then show owner-less entities, facts and preferences under a "shared knowledge, not about the user" label instead
+  of "Known facts" / "User preferences". Null (the default) keeps one budget and renders as before.
+- **`LlmExtractionOptions.OwnPreferencesOnly`: a preference is the user's own stated taste.** Every extractor is
+  told that someone else's taste ("my brother hates cilantro", a character who "does not like raw eggs") is a fact
+  about that person and that a request ("recommend some music") is not a preference. Found live: a taught book's
+  characters' tastes, and a request, were stored as the user's preferences, and a preference always renders as the
+  user's. Off (the default) every prompt is byte-for-byte what it was.
+
 - **Forget a message without deleting it: `IShortTermMemoryService.InvalidateMessageAsync`.** The message
   stops being recalled or read back (recent messages, message search, whole-session and conversation reads, source
   quotes, session previews) but is kept, with its provenance, for history: as-of reads of times before it was
@@ -182,6 +198,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A shared write (`ExtractionRequest.ShareWithEveryone`) stores no preferences.** Shared knowledge has no user,
+  so nothing it states is the user's taste; its facts are kept. The dropped count is tagged on the extraction
+  span (`memory.extract.shared_preferences_dropped`).
+- **An owner's mention joins a shared entity by exact name or alias only.** Fuzzy, partial-name and semantic
+  matching see the owner's own entities; the exact matcher sees shared ones too. Found live: a person's "Bill
+  Evans" (the pianist) was merged by the partial-name matcher into a taught book's "Bill" (the lizard), and his
+  relationship pointed at the lizard. A shared write, or a resolution without an owner, is unchanged.
+- **Similarity thresholds say which scale they are on.** Neo4j's vector search scores `(1 + cosine) / 2`, so
+  `RecallOptions.MinSimilarityScore = 0.7` is a cosine of 0.40 (and 0.55 a cosine of 0.10, which admits almost
+  everything); the in-process matchers (`SemanticMatchThreshold`, `WithinExtractionDuplicateThreshold`) compare raw
+  cosines. Documented on each option.
+
 - **Owner-first vector recall (`MemoryOptions.OwnerFirstVectorThreshold`, default 500).** The vector index is
   shared by every owner and filtered afterwards, so other owners' near-identical facts could crowd a small owner
   out: measured, a 24-fact owner got 2 of its facts in the global top 60, and a stored answer (“Dana works at
@@ -265,6 +293,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all prerelease, and a shipped package may not depend on one.
 
 ### Fixed
+
+- **Entity resolution's vector-index prefilter read `SemanticMatchThreshold` on the wrong scale.** The threshold is
+  a cosine (the semantic matcher computes one); the index scores `(1 + cosine) / 2`, so the default 0.8 asked the
+  index for anything above a cosine of 0.6. It is converted now. The matcher already rejected the extras, so which
+  entity resolves does not change; the candidate list is the one the setting describes.
 
 - **The fact that names the user keeps the subject `user`.** With canonical subjects on, an extraction in which
   "user" resolved to the person the user named ("Hi! I'm Dana") stored the naming fact as `Dana | is named | Dana`,

@@ -70,7 +70,10 @@ internal sealed partial class CompositeEntityResolver
                 var resolvedByString = false;
                 foreach (var matcher in stringMatchers)
                 {
-                    if (await matcher.TryMatchAsync(entity, candidates, cancellationToken).ConfigureAwait(false) is not null)
+                    // The boundary resolution applies (36.3), so the estimate cannot skip a vector that
+                    // resolution will then have to compute after all.
+                    if (await matcher.TryMatchAsync(entity, WithinOwnerBoundary(matcher, candidates, scope), cancellationToken)
+                            .ConfigureAwait(false) is not null)
                     {
                         resolvedByString = true;
                         break;

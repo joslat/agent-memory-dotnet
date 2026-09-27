@@ -182,4 +182,33 @@ internal static class RecallFanOutMerge
         var survivors = new HashSet<string>(merged.Select(entry => idOf(entry.Item)), StringComparer.Ordinal);
         return (merged, unique.Where(survivors.Contains).ToList());
     }
+
+    /// <summary>
+    /// 36.3. The same merge when shared memory has its own budget: the owner's rows merge under
+    /// <paramref name="limit"/> and the shared (owner-less) rows under <paramref name="sharedLimit"/>, own
+    /// first, so a sub-query cannot hand the shared corpus back the slots the separate budget took from it.
+    /// A null <paramref name="sharedLimit"/> is the single-budget merge above, unchanged.
+    /// </summary>
+    internal static (IReadOnlyList<(T Item, double Score)> Merged, IReadOnlyList<string> UniqueIds)
+        MergeScored<T>(
+            IReadOnlyList<(T Item, double Score)> monolithic,
+            IReadOnlyList<(T Item, double Score)> fromSubQuery,
+            Func<T, string> idOf,
+            int limit,
+            Func<T, string?> ownerOf,
+            int? sharedLimit)
+    {
+        ArgumentNullException.ThrowIfNull(ownerOf);
+        if (sharedLimit is null) return MergeScored(monolithic, fromSubQuery, idOf, limit);
+
+        var own = MergeScored(
+            monolithic.Where(row => ownerOf(row.Item) is not null).ToList(),
+            fromSubQuery.Where(row => ownerOf(row.Item) is not null).ToList(),
+            idOf, limit);
+        var shared = MergeScored(
+            monolithic.Where(row => ownerOf(row.Item) is null).ToList(),
+            fromSubQuery.Where(row => ownerOf(row.Item) is null).ToList(),
+            idOf, sharedLimit.Value);
+        return (own.Merged.Concat(shared.Merged).ToList(), own.UniqueIds.Concat(shared.UniqueIds).ToList());
+    }
 }

@@ -29,7 +29,10 @@ public sealed record LongTermMemoryOptions
     /// </summary>
     public bool DeduplicateOnCreate { get; init; } = true;
 
-    /// <summary>Cosine-similarity threshold above which a candidate is treated as a duplicate (default 0.95).</summary>
+    /// <summary>
+    /// Similarity above which a candidate is treated as a duplicate (default 0.95). It is handed to the store's
+    /// vector search, so it is on the store's scale: Neo4j scores <c>(1 + cosine) / 2</c>, and 0.95 is a cosine of 0.90.
+    /// </summary>
     public double DeduplicationSimilarityThreshold { get; init; } = 0.95;
 
     /// <summary>

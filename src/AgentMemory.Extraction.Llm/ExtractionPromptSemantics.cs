@@ -215,6 +215,17 @@ internal static class ExtractionPromptSemantics
           + "it states outright (\"Can you help with my trip to Seville next week?\" states a trip)."
         : string.Empty;
 
+    /// <summary>
+    /// 36.3. A preference belongs to the user who states it. Empty when off. Worded for every extractor:
+    /// the unified ones move another person's taste into a fact, the preference-only one leaves it out.
+    /// </summary>
+    internal static string OwnPreferencesInstruction(bool ownOnly) => ownOnly
+        ? "\nA preference is the user's own taste, stated by the user. Someone else's taste is not a "
+          + "preference (\"my brother hates cilantro\", a character who \"does not like raw eggs\"): it is a "
+          + "fact about that person, with that person as the subject. A request is not a preference either "
+          + "(\"recommend some music\" asks for something; it states no taste)."
+        : string.Empty;
+
     internal static string UserNameInstruction(bool capture) => capture
         ? "\nIf the user STATES their own name (\"I'm Dana\", \"call me Dee\"), also add a fact whose "
           + "subject is \"user\", whose predicate is \"is named\" and whose object is the name as they "

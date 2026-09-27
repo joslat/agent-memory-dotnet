@@ -287,7 +287,7 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
     {
         var resolution = _options.EntityResolution;
         if (!resolution.IndexedCandidates || matcher.MatchType != EntityMatchType.Semantic)
-            return candidates;
+            return WithinOwnerBoundary(matcher, candidates, scope);
         if (string.IsNullOrWhiteSpace(extracted.Name))
             return [];
 
@@ -297,7 +297,11 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
             return [];
 
         var hits = await _entityRepository
-            .SearchByVectorAsync(vector, resolution.SemanticCandidateLimit, resolution.SemanticMatchThreshold, scope, cancellationToken)
+            // 36.2. The threshold is a cosine (the semantic matcher computes one); the index scores (1+cos)/2.
+            // Passed unconverted, 0.8 meant a cosine of 0.6 here and 0.8 in the matcher.
+            .SearchByVectorAsync(
+                vector, resolution.SemanticCandidateLimit,
+                Services.SimilarityScale.StoreScoreFromCosine(resolution.SemanticMatchThreshold), scope, cancellationToken)
             .ConfigureAwait(false);
         var fromIndex = new List<Entity>(hits.Count);
         foreach (var (hit, _) in hits)
@@ -313,13 +317,32 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
                 entity = current with { Embedding = entity.Embedding };
             fromIndex.Add(entity);
         }
-        return fromIndex
+        return WithinOwnerBoundary(matcher, fromIndex
             .Where(entity =>
                 string.Equals(entity.Type, extracted.Type, StringComparison.OrdinalIgnoreCase) ||
                 (!resolution.TypeStrictFiltering &&
                  (string.Equals(entity.Name, extracted.Name, StringComparison.OrdinalIgnoreCase) ||
                   entity.Aliases.Any(alias => string.Equals(alias, extracted.Name, StringComparison.OrdinalIgnoreCase)))))
-            .ToList();
+            .ToList(), scope);
+    }
+
+    /// <summary>
+    /// 36.3 (D-3). An owner's mention may resolve to a <b>shared</b> (owner-less) entity by exact name or
+    /// alias only. Measured: a person's "Bill Evans" (the pianist) was merged by the partial-name matcher
+    /// into a taught book's "Bill" (the lizard), and his relationship pointed at the lizard. A near match
+    /// inside one person's memory is usually the same thing said twice; across the boundary into a shared
+    /// corpus it is usually a coincidence of names, and the merge writes the person's alias onto shared
+    /// knowledge every other person reads. So fuzzy, partial and semantic matchers see the owner's own
+    /// entities only; the exact matcher sees both, which keeps "the White Rabbit" joining the book's.
+    /// A shared write, or a read without an owner, has no boundary to keep and sees everything as before.
+    /// </summary>
+    internal static IReadOnlyList<Entity> WithinOwnerBoundary(
+        IEntityMatcher matcher, IReadOnlyList<Entity> candidates, MemoryScope? scope)
+    {
+        if (matcher.MatchType == EntityMatchType.Exact || scope?.OwnerId is null || Services.SharedScopes.IsSharedOnly(scope))
+            return candidates;
+        var own = candidates.Where(candidate => candidate.OwnerId is not null).ToList();
+        return own.Count == candidates.Count ? candidates : own;
     }
 
     /// <summary>

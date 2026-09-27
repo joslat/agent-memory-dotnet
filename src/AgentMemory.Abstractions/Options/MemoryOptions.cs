@@ -130,6 +130,30 @@ public sealed record MemoryOptions
     public int OwnerFirstVectorThreshold { get; set; } = 500;
 
     /// <summary>
+    /// How many <b>shared</b> (owner-less) entities, facts and preferences an owner's recall may take, as a
+    /// budget of their own. Null (the default) keeps one budget for both, as before.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// With one budget, a large shared corpus (a book, a product catalogue, a policy manual) competes with
+    /// the person's own memories for the same top k, and wins by numbers: measured on four embedding models,
+    /// shared items took 7 to 8 of 10 fact slots on questions about the person and pushed out answers the
+    /// person had given ("What do I do for a living?"). A similarity floor cannot fix that: the shared items
+    /// are not irrelevant by score, only not about the person. Separate budgets can: the owner's own top k
+    /// plus the shared top n cut shared items per question from 7.6 to 3.0, every answer kept or better, on
+    /// every model tested.
+    /// </para>
+    /// <para>
+    /// When set, an owner's recall that includes shared memory searches twice, once over the owner's own
+    /// rows (the usual limit) and once over the shared rows (this limit), and the recalled context says so,
+    /// so that renderers label shared items as shared rather than as the person's own. 0 recalls no shared
+    /// items. It applies to owner-scoped reads only: an unscoped or single-tenant recall has nothing to
+    /// separate.
+    /// </para>
+    /// </remarks>
+    public int? SharedRecallBudget { get; set; }
+
+    /// <summary>
     /// Boosts recalled facts that sit close, in the graph, to the entity the query is about (R6).
     /// </summary>
     /// <remarks>

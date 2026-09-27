@@ -83,6 +83,9 @@ public sealed record RecallOptions
     public int MaxGraphRagItems { get; init; } = 5;
 
     /// <summary>Minimum similarity score for semantic search (0.0 to 1.0).</summary>
+    /// <remarks>
+    /// On the store's scale: Neo4j's vector search scores <c>(1 + cosine) / 2</c>, in [0, 1], so 0.7 is a cosine of 0.40 and 0.55 a cosine of 0.10. A threshold remembered as a cosine is far stricter than the same number here.
+    /// </remarks>
     public double MinSimilarityScore { get; init; } = 0.7;
 
     /// <summary>

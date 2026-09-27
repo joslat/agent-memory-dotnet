@@ -40,7 +40,8 @@ public sealed class RecallFanOutOptions
     public int MaxSubQueries { get; set; } = 4;
 
     /// <summary>
-    /// Fire signal W when the best monolithic score falls below this. Null disables W.
+    /// Fire signal W when the best monolithic score falls below this. Null disables W. On the store's scale
+    /// (Neo4j: <c>(1 + cosine) / 2</c>), like the scores it is compared with.
     /// </summary>
     /// <remarks>
     /// Null rather than a baked-in constant, deliberately. 0.7 is a <i>measured dead zone</i> on one

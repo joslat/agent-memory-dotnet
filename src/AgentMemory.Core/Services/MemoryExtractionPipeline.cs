@@ -145,6 +145,15 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
                 new ExtractionWindow { Targets = request.Messages, Context = request.ContextMessages },
                 request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
 
+        // 36.3. Shared knowledge has no user, so nothing it states is the user's preference: a book's
+        // "Alice does not like raw eggs" extracted as a preference rendered, for every person, as
+        // their own taste. Its facts are kept; its preferences are not stored.
+        if (request.ShareWithEveryone && staged.FilteredPreferences.Count > 0)
+        {
+            Activity.Current?.SetTag("memory.extract.shared_preferences_dropped", staged.FilteredPreferences.Count);
+            staged = staged with { FilteredPreferences = Array.Empty<ExtractedPreference>() };
+        }
+
         // #92 Phase 3: a per-request TrustLevel override wins; otherwise fall back to the configured default.
         var trustLevel = request.TrustLevel ?? _options.DefaultTrustLevel;
         var persisted = await _persistenceStage.PersistAsync(staged, ownerId, trustLevel, cancellationToken).ConfigureAwait(false);

@@ -60,6 +60,29 @@ public sealed class SharedKnowledgeExtractionTests
     }
 
     [Fact]
+    public async Task Shared_knowledge_stores_its_facts_but_no_preferences()
+    {
+        // 36.3: a shared corpus has no user; a book's "Alice does not like raw eggs" rendered as every
+        // person's own preference.
+        var staged = new ExtractionStageResult
+        {
+            FilteredPreferences = [new ExtractedPreference { Category = "food", PreferenceText = "Alice does not like raw eggs" }],
+        };
+        _stage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(staged);
+
+        await Pipeline(MemoryIsolationMode.StrictMultiTenant).ExtractAsync(Request(shared: true, user: null));
+        await Pipeline(MemoryIsolationMode.StrictMultiTenant).ExtractAsync(Request(shared: false, user: "owner-1"));
+
+        await _persistence.Received(1).PersistAsync(
+            Arg.Is<ExtractionStageResult>(r => r.FilteredPreferences.Count == 0), (string?)null,
+            Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>());
+        await _persistence.Received(1).PersistAsync(
+            Arg.Is<ExtractionStageResult>(r => r.FilteredPreferences.Count == 1), "owner-1",
+            Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Without_the_flag_strict_isolation_still_refuses_an_owner_less_write()
     {
         var act = () => Pipeline(MemoryIsolationMode.StrictMultiTenant).ExtractAsync(Request(shared: false, user: null));

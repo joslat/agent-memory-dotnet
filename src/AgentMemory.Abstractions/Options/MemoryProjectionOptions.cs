@@ -34,7 +34,10 @@ public sealed record MemoryProjectionOptions
     /// </remarks>
     public bool AnnotateMatchQuality { get; init; }
 
-    /// <summary>Scores below this render as a closest-match rather than a match. A prior, not a measurement.</summary>
+    /// <summary>
+    /// Scores below this render as a closest-match rather than a match. A prior, not a measurement. On the
+    /// store's scale (Neo4j: <c>(1 + cosine) / 2</c>), like the recalled scores it is compared with.
+    /// </summary>
     public double NearMissThreshold { get; init; } = 0.85;
 
     /// <summary>

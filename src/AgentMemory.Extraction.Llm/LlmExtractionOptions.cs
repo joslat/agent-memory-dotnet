@@ -120,6 +120,16 @@ public sealed class LlmExtractionOptions
     public bool IgnoreQuestions { get; set; } = true;
 
     /// <summary>
+    /// 36.3. A preference is the user's own stated taste: someone else's taste is recorded as a fact about
+    /// them, and a request is not a preference. Measured live: a taught book produced "user preferences"
+    /// that were its characters' ("Alice does not like raw eggs", "The Mouse hates cats"), and "Recommend
+    /// some music…" was stored as the user's preference. A preference always renders as the user's, so
+    /// both read to the agent as things the person said about themselves. Off, every prompt is
+    /// byte-for-byte what it was.
+    /// </summary>
+    public bool OwnPreferencesOnly { get; set; }
+
+    /// <summary>
     /// How precisely a stored fact or preference is bound to the turn that stated it.
     /// </summary>
     /// <remarks>

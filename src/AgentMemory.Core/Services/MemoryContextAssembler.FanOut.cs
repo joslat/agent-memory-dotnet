@@ -307,7 +307,8 @@ internal sealed partial class MemoryContextAssembler
                         .ConfigureAwait(false);
                     retrieved += legRows.Count;
                     var merge = RecallFanOutMerge.MergeScored(
-                        entityPairs, legRows, static e => e.EntityId, recallOpts.MaxEntities);
+                        entityPairs, legRows, static e => e.EntityId, recallOpts.MaxEntities,
+                        static e => e.OwnerId, SharedBudgetFor(scope, _options.SharedRecallBudget));
                     entityPairs = merge.Merged.ToList();
                     contributed.AddRange(merge.UniqueIds);
                 }
@@ -320,7 +321,8 @@ internal sealed partial class MemoryContextAssembler
                         .ConfigureAwait(false);
                     retrieved += legRows.Facts.Count;
                     var merge = RecallFanOutMerge.MergeScored(
-                        factPairs, legRows.Scored, static f => f.FactId, recallOpts.MaxFacts);
+                        factPairs, legRows.Scored, static f => f.FactId, recallOpts.MaxFacts,
+                        static f => f.OwnerId, SharedBudgetFor(scope, _options.SharedRecallBudget));
                     factPairs = merge.Merged.ToList();
                     contributed.AddRange(merge.UniqueIds);
                 }
@@ -364,7 +366,8 @@ internal sealed partial class MemoryContextAssembler
                         .ConfigureAwait(false);
                     retrieved += legRows.Count;
                     var merge = RecallFanOutMerge.MergeScored(
-                        preferencePairs, legRows, static p => p.PreferenceId, recallOpts.MaxPreferences);
+                        preferencePairs, legRows, static p => p.PreferenceId, recallOpts.MaxPreferences,
+                        static p => p.OwnerId, SharedBudgetFor(scope, _options.SharedRecallBudget));
                     preferencePairs = merge.Merged.ToList();
                     contributed.AddRange(merge.UniqueIds);
                 }

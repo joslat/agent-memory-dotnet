@@ -86,15 +86,23 @@ internal static class MemoryContextFormatter
         if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, opts, logger);
         AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, opts, logger);
-        AppendCategory(sb, "entities", "### Known Entities", ctx.RelevantEntities.Items,
-            e => string.IsNullOrWhiteSpace(e.Description) ? $"- {e.Name} ({e.Type})" : $"- {e.Name} ({e.Type}) — {e.Description}",
+        // 36.3. The person's own items under the usual headings; shared ones (only when the recall separated
+        // them) under their own, after. Without the flag Shared is empty and nothing changes.
+        var (ownEntities, sharedEntities) = SharedKnowledge.Split(ctx, ctx.RelevantEntities.Items, e => e.OwnerId);
+        var (ownFacts, sharedFacts) = SharedKnowledge.Split(
+            ctx, ProjectionRenderer.Reorder("facts", ctx.RelevantFacts.Items, f => f.FactId, projection), f => f.OwnerId);
+        var (ownPreferences, sharedPreferences) = SharedKnowledge.Split(ctx, ctx.RelevantPreferences.Items, p => p.OwnerId);
+        AppendCategory(sb, "entities", "### Known Entities", ownEntities, DescribeEntity,
             e => e.Metadata.GetTrustLevel(), opts, logger, projection, e => e.EntityId);
-        AppendCategory(sb, "facts", "### Known Facts",
-            ProjectionRenderer.Reorder("facts", ctx.RelevantFacts.Items, f => f.FactId, projection),
-            f => DerivedFactRenderer.Append($"- {f.Subject} {f.Predicate} {f.Object}", f),
+        AppendCategory(sb, "facts", "### Known Facts", ownFacts, DescribeFact,
             f => f.Metadata.GetTrustLevel(), opts, logger, projection, f => f.FactId);
-        AppendCategory(sb, "preferences", "### User Preferences", ctx.RelevantPreferences.Items,
-            p => $"- [{p.Category}] {p.PreferenceText}",
+        AppendCategory(sb, "preferences", "### User Preferences", ownPreferences, DescribePreference,
+            p => p.Metadata.GetTrustLevel(), opts, logger, projection, p => p.PreferenceId);
+        AppendCategory(sb, "entities", $"### Entities ({SharedKnowledge.Label})", sharedEntities, DescribeEntity,
+            e => e.Metadata.GetTrustLevel(), opts, logger, projection, e => e.EntityId);
+        AppendCategory(sb, "facts", $"### Facts ({SharedKnowledge.Label})", sharedFacts, DescribeFact,
+            f => f.Metadata.GetTrustLevel(), opts, logger, projection, f => f.FactId);
+        AppendCategory(sb, "preferences", $"### Preferences ({SharedKnowledge.Label})", sharedPreferences, DescribePreference,
             p => p.Metadata.GetTrustLevel(), opts, logger, projection, p => p.PreferenceId);
         // Procedural memory was invisible on this formatter, and therefore invisible to Semantic
         // Kernel and to every consumer using Core directly -- while a trace vector search ran on each
@@ -202,6 +210,13 @@ internal static class MemoryContextFormatter
     // heading-prefixed block -- mirroring AgentMemory.AgentFramework.Mapping.MafTypeMapper's generic
     // CategoryMessages<T> helper for the same three categories, instead of three near-identical
     // hand-written loops that could silently drift apart.
+    private static string DescribeEntity(Entity e) =>
+        string.IsNullOrWhiteSpace(e.Description) ? $"- {e.Name} ({e.Type})" : $"- {e.Name} ({e.Type}) — {e.Description}";
+
+    private static string DescribeFact(Fact f) => DerivedFactRenderer.Append($"- {f.Subject} {f.Predicate} {f.Object}", f);
+
+    private static string DescribePreference(Preference p) => $"- [{p.Category}] {p.PreferenceText}";
+
     private static void AppendCategory<T>(
         StringBuilder sb, string category, string heading, IReadOnlyList<T> items,
         Func<T, string> describe, Func<T, MemoryTrustLevel> getTrustLevel,
