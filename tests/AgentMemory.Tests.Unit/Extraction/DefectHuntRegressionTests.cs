@@ -1,3 +1,4 @@
+using AgentMemory.Tests.Unit.TestSupport;
 using System.Diagnostics;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -70,9 +71,17 @@ public sealed class DefectHuntRegressionTests
     public async Task A_failed_extraction_marks_its_span_as_an_error()
     {
         using var capture = new SpanCapture();
-        var memory = Substitute.For<IMemoryService>();
+        var memory = Substitute.For<IMemoryService>().RouteIdKeyedAdds();
         memory.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
             .Returns<Task<ExtractionResult>>(_ => throw new FormatException("attempts exhausted"));
+        // A store returns what it stored (an unconfigured substitute returns null, which no store does).
+        memory.AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(new Message
+            {
+                MessageId = "m-reply", SessionId = call.ArgAt<string>(0), ConversationId = call.ArgAt<string>(1),
+                Role = call.ArgAt<string>(2), Content = call.ArgAt<string>(3), TimestampUtc = DateTimeOffset.UnixEpoch,
+            }));
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var provider = new Neo4jMemoryContextProvider(

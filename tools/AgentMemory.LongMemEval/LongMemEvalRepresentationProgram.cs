@@ -88,6 +88,8 @@ internal static class LongMemEvalRepresentationProgram
                 llm.UseJsonResponseFormat = true;
                 llm.UseUnifiedExtraction = true;
                 llm.UseMultiSessionBatchExtraction = true;
+                llm.CaptureUserName = false;   // the measured prompt: 2026-09-27 defaults pinned off
+                llm.IgnoreQuestions = false;
             });
             var provider = services.BuildServiceProvider();
 

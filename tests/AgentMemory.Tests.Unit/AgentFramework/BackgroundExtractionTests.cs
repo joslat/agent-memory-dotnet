@@ -1,3 +1,4 @@
+using AgentMemory.Tests.Unit.TestSupport;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -64,17 +65,29 @@ public sealed class BackgroundExtractionTests
     [Fact]
     public async Task Concurrency_is_capped_across_sessions()
     {
+        // Which session starts first is not specified; that no two run at once is.
         await using var queue = Queue(concurrency: 1);
-        var blocked = new TaskCompletionSource();
-        var otherRan = false;
-        queue.TryEnqueue("s1", _ => blocked.Task);
-        queue.TryEnqueue("s2", _ => { otherRan = true; return Task.CompletedTask; });
+        var running = 0;
+        var most = 0;
+        async Task Work()
+        {
+            var now = Interlocked.Increment(ref running);
+            InterlockedMax(ref most, now);
+            await Task.Delay(50);
+            Interlocked.Decrement(ref running);
+        }
+        queue.TryEnqueue("s1", _ => Work());
+        queue.TryEnqueue("s2", _ => Work());
+        queue.TryEnqueue("s3", _ => Work());
 
-        await Task.Delay(100);
-        otherRan.Should().BeFalse();
-        blocked.SetResult();
         await queue.WhenIdleAsync().WaitAsync(Wait);
-        otherRan.Should().BeTrue();
+        most.Should().Be(1);
+
+        static void InterlockedMax(ref int target, int value)
+        {
+            int seen;
+            while ((seen = Volatile.Read(ref target)) < value && Interlocked.CompareExchange(ref target, value, seen) != seen) { }
+        }
     }
 
     [Fact]
@@ -123,6 +136,40 @@ public sealed class BackgroundExtractionTests
         cancelled.Task.IsCompleted.Should().BeTrue();
     }
 
+    // ---- the next-turn guard ----
+
+    [Fact]
+    public async Task Recall_waits_for_that_owners_pending_extraction_and_no_one_elses()
+    {
+        await using var queue = Queue();
+        var alice = new TaskCompletionSource();
+        var bob = new TaskCompletionSource();
+        queue.TryEnqueue(TurnExtraction.OrderingKey("alice", "s1"), _ => alice.Task);
+        queue.TryEnqueue(TurnExtraction.OrderingKey("bob", "s2"), _ => bob.Task);
+        var options = new AgentFrameworkOptions { RecallWaitsForPendingExtraction = TimeSpan.FromSeconds(10) };
+
+        var wait = TurnExtraction.WaitForPendingAsync(queue, options, "alice", "s9", CancellationToken.None);
+        await Task.Delay(50);
+        wait.IsCompleted.Should().BeFalse("alice's last turn is still being learned (whatever the session)");
+        alice.SetResult();
+        (await wait.WaitAsync(Wait)).Should().BePositive();
+        bob.SetResult();
+    }
+
+    [Fact]
+    public async Task Recall_waits_no_longer_than_its_budget()
+    {
+        await using var queue = Queue();
+        var never = new TaskCompletionSource();
+        queue.TryEnqueue(TurnExtraction.OrderingKey("alice", "s1"), _ => never.Task);
+        var options = new AgentFrameworkOptions { RecallWaitsForPendingExtraction = TimeSpan.FromMilliseconds(100) };
+
+        var waited = await TurnExtraction.WaitForPendingAsync(queue, options, "alice", "s1", CancellationToken.None).WaitAsync(Wait);
+
+        waited.Should().BeLessThan(TimeSpan.FromSeconds(2));
+        never.SetResult();
+    }
+
     // ---- the provider ----
 
     private sealed class TestAgentSession : AgentSession;
@@ -150,7 +197,7 @@ public sealed class BackgroundExtractionTests
 
     private static Turn Run(bool background, IBackgroundExtraction? queue, CancellationToken token = default)
     {
-        var memory = Substitute.For<IMemoryService>();
+        var memory = Substitute.For<IMemoryService>().RouteIdKeyedAdds();
         var extraction = new TaskCompletionSource();
         var ownerSeen = new TaskCompletionSource<string?>();
         var owner = new OwnerContext();

@@ -65,7 +65,7 @@ public sealed class ReviewRound4Tests
             NullLogger<BackgroundExtractionQueue>.Instance, provider.GetRequiredService<IServiceScopeFactory>());
         var turns = Substitute.For<IMemoryService>();
 
-        await TurnExtraction.ExtractAsync(turns, new ExtractionRequest { Messages = [], SessionId = "s1" },
+        await TurnExtraction.ExtractAsync(turns, new ExtractionRequest { Messages = [new Message { MessageId = "m1", SessionId = "s1", ConversationId = "c1", Role = "user", Content = "I moved to Porto.", TimestampUtc = DateTimeOffset.UnixEpoch }], SessionId = "s1" },
             new AgentFrameworkOptions { ExtractInBackground = true }, queue, NullLogger.Instance, CancellationToken.None);
         await ran.Task.WaitAsync(TimeSpan.FromSeconds(10));
 

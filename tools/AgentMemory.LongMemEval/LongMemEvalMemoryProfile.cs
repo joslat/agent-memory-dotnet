@@ -265,6 +265,9 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // this project has built records the corpus's stated identities -- "the new flat is
                 // the place on Ferrow Row" -- as ordinary prose and never as an alias.
                 options.CaptureIdentityAliases = captureIdentityAliases;
+                // 2026-09-27 defaults (name capture, questions ignored) pinned off: the measured path.
+                options.CaptureUserName = false;
+                options.IgnoreQuestions = false;
             }
             : null;
         services.AddNeo4jAgentMemory(
@@ -300,6 +303,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 Extraction =
                 {
                     DerivedMemory = { Enabled = phase30.ArithmeticMemory },
+                    // 2026-09-27 default (facts stored under the user's name) pinned off: the measured path.
+                    ResolveUserToName = false,
                     // The lever the four-vertical run proved was missing. `SupersedeReplacedFacts`
                     // defaults FALSE and no harness reference existed, so the Bitemporal vertical --
                     // whose whole subject is supersession -- was measured against an append-only

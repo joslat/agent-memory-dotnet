@@ -46,23 +46,32 @@ public sealed class AgentFrameworkOptions
     public bool AutoExtractOnPersist { get; set; } = true;
 
     /// <summary>
-    /// Extract only from what the USER said (dark, default false); the agent's replies are still stored
+    /// Extract only from what the USER said (default true since 2026-09-27); the agent's replies are still stored
     /// as conversation. By default the reply is extracted too, so a recalled fact the agent repeats back
     /// is learned again: its mention count rises every time the agent mentions it, and the profile tier
     /// (which ranks by mentions) promotes what the agent says rather than what the user said. It also
     /// keeps the agent's own suggestions out of the user's facts.
     /// </summary>
-    public bool ExtractFromUserMessagesOnly { get; set; }
+    public bool ExtractFromUserMessagesOnly { get; set; } = true;
 
     /// <summary>
-    /// Extract after the turn has returned (dark, default false). Extraction is a model call plus
+    /// Extract after the turn has returned (default true since 2026-09-27; see RecallWaitsForPendingExtraction for
+    /// the next-turn guard, and turn it off on hosts that freeze the process after replying). Extraction is a model call plus
     /// resolution and writes, seconds per turn, and inline it is part of every answer's latency: the
     /// reply is complete but the run does not return until memorising is done. On, the turn's messages
     /// are still stored inline and extraction is handed to <see cref="IBackgroundExtraction"/>: in order
     /// per session, concurrently across sessions. The cost is that a fact stated in one turn may not be
     /// recallable in the very next one if that turn starts before extraction finishes.
     /// </summary>
-    public bool ExtractInBackground { get; set; }
+    public bool ExtractInBackground { get; set; } = true;
+
+    /// <summary>
+    /// How long recall waits, at most, for the same owner's extraction that is still running (default 2 s;
+    /// zero never waits). The next-turn guard of <see cref="ExtractInBackground"/>: a person rarely replies
+    /// within seconds, so usually nothing is waited for; when they do, the fact they just stated can still
+    /// be recalled.
+    /// </summary>
+    public TimeSpan RecallWaitsForPendingExtraction { get; set; } = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// How many sessions' background extractions may run at once (default 4). Turns of one session always

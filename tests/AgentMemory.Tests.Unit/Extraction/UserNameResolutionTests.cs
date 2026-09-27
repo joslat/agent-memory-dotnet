@@ -322,6 +322,21 @@ public sealed class UserNameResolutionTests
     }
 
     [Fact]
+    public void By_default_every_rung_says_a_question_states_nothing()
+    {
+        // 2026-09-27: "What do you remember about my brother?" became an entity "user's brother".
+        var options = new LlmExtractionOptions();
+        var expected = ExtractionPromptSemantics.QuestionsInstruction(options.IgnoreQuestions);
+        expected.Should().NotBeEmpty();
+        LlmFactExtractor.BuildSystemPrompt(options.AssistantContent, options.TemporalValidity, options.Provenance,
+            options.CaptureUserName, options.IgnoreQuestions).Should().Contain(expected);
+        LlmUnifiedMemoryExtractor.BuildSystemPrompt(options.AssistantContent, options.EntityTypes, options.TemporalValidity,
+            options.Provenance, options.CaptureIdentityAliases, options.CaptureUserName, options.IgnoreQuestions).Should().Contain(expected);
+        LlmMultiSessionUnifiedMemoryExtractor.BuildSystemPrompt(null, options.AssistantContent, options.TemporalValidity,
+            options.Provenance, options.CaptureIdentityAliases, options.CaptureUserName, options.IgnoreQuestions).Should().Contain(expected);
+    }
+
+    [Fact]
     public void No_extractor_rung_changes_its_prompt_when_off()
     {
         foreach (var (rung, prompt) in AllRungPrompts(capture: false))

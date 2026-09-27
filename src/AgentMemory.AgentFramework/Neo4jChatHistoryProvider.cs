@@ -172,10 +172,11 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
                 if (string.IsNullOrWhiteSpace(msg.Text)) continue;
                 var message = MafTypeMapper.ToInternalMessage(
                     msg, sessionId, conversationId, _clock, _idGenerator);
+                // Under the message's one shared id, the one the context provider stores it under too.
                 var stored = await _memoryService
-                    .AddMessageAsync(
+                    .AddMessageWithIdAsync(
                         message.SessionId, message.ConversationId,
-                        message.Role, message.Content, message.Metadata,
+                        message.Role, message.Content, MafTypeMapper.EnsureProviderMessageId(msg), message.Metadata,
                         cancellationToken)
                     .ConfigureAwait(false);
                 storedRequests.Add(stored);

@@ -55,6 +55,25 @@ internal static class MafTypeMapper
         string.IsNullOrWhiteSpace(message.MessageId) ? null : $"maf:{message.MessageId}";
 
     /// <summary>
+    /// The id every component stores this request message under: its own <c>MessageId</c>, given one here
+    /// the first time a provider sees a message that has none (a caller-built message usually has none).
+    /// </summary>
+    /// <remarks>
+    /// Provenance depends on it. Each component used to mint its own fresh id for a caller's message, so
+    /// the chat-history provider stored it under one id while the context provider extracted from a copy
+    /// under another: no <c>EXTRACTED_FROM</c> edge ever reached the user's words, and every
+    /// <c>source_message_ids</c> entry pointed at nothing. Stamped once on the message itself, every
+    /// component that sees it converges on one <c>:Message</c> node (the store MERGEs on the id).
+    /// </remarks>
+    internal static string EnsureProviderMessageId(ChatMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        if (string.IsNullOrWhiteSpace(message.MessageId))
+            message.MessageId = Guid.NewGuid().ToString("N");
+        return TryGetProviderMessageId(message)!;
+    }
+
+    /// <summary>
     /// The chat role a delimited block of recalled memory renders at, given the trust level of what is
     /// inside it (#92 Phase 4).
     /// </summary>

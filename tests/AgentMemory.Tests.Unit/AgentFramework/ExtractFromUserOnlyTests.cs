@@ -1,3 +1,4 @@
+using AgentMemory.Tests.Unit.TestSupport;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -35,7 +36,7 @@ public sealed class ExtractFromUserOnlyTests
 
     private static async Task<ExtractionRequest?> ExtractedAsync(bool userOnly)
     {
-        var memory = Substitute.For<IMemoryService>();
+        var memory = Substitute.For<IMemoryService>().RouteIdKeyedAdds();
         ExtractionRequest? seen = null;
         memory.ExtractAndPersistAsync(Arg.Do<ExtractionRequest>(r => seen = r), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new ExtractionResult { SourceMessageIds = [] }));
@@ -93,7 +94,7 @@ public sealed class ExtractFromUserOnlyTests
     [Fact]
     public async Task The_shared_dispatcher_keeps_only_what_the_user_said()
     {
-        var memory = Substitute.For<IMemoryService>();
+        var memory = Substitute.For<IMemoryService>().RouteIdKeyedAdds();
         ExtractionRequest? seen = null;
         memory.ExtractAndPersistAsync(Arg.Do<ExtractionRequest>(r => seen = r), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new ExtractionResult { SourceMessageIds = [] }));
@@ -108,7 +109,7 @@ public sealed class ExtractFromUserOnlyTests
     [Fact]
     public async Task A_turn_with_nothing_the_user_said_extracts_nothing()
     {
-        var memory = Substitute.For<IMemoryService>();
+        var memory = Substitute.For<IMemoryService>().RouteIdKeyedAdds();
 
         await TurnExtraction.ExtractAsync(memory,
             new ExtractionRequest { Messages = [M("assistant", "Here is a summary of your week.")], SessionId = "s1" },

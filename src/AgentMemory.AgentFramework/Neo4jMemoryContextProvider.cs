@@ -193,6 +193,13 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         CancellationToken cancellationToken = default)
     {
         var messages = context.AIContext?.Messages ?? Enumerable.Empty<ChatMessage>();
+        // Before anything stores it: the caller's message gets the one id both providers will store it
+        // under (MafTypeMapper.EnsureProviderMessageId), so extraction's provenance resolves.
+        foreach (var message in messages)
+        {
+            if (message.Role == ChatRole.User && !string.IsNullOrWhiteSpace(message.Text))
+                MafTypeMapper.EnsureProviderMessageId(message);
+        }
         var ids = ExtractIds(context.Session, context.Agent);
         using var storeScope = ApplyStoreContext(ids.applicationId);
         // The PRE hook as one span: the parent of routing, recall and composition, tagged with who and
@@ -201,6 +208,10 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         TagIdentity(hook, ids.sessionId, ids.conversationId, ids.userId, appScoped: storeScope is not null);
         try
         {
+            var waited = await TurnExtraction.WaitForPendingAsync(
+                _backgroundExtraction, _agentOptions, ids.userId, ids.sessionId, cancellationToken).ConfigureAwait(false);
+            if (waited > TimeSpan.Zero)
+                hook?.SetTag("memory.recall.waited_for_extraction_ms", Math.Round(waited.TotalMilliseconds, 1));
             var result = await BuildContextAsync(
                     messages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId,
                     ReadDeltaCheckpoint(context.Session), context.Session)
@@ -736,34 +747,26 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         using var ownerScope = _ownerContext?.BeginOwnerScope(userId);
         try
         {
-            // Response messages are persisted as new :Message nodes, as before. Request messages are
-            // deliberately NOT persisted here (#89): ChatMessage.MessageId (used below for response-side
-            // dedup) is essentially never populated on caller-constructed request messages, so it can't
-            // help there -- request-message persistence ownership intentionally stays solely with
-            // Neo4jChatHistoryProvider. Building transient (never-persisted) Message objects for extraction
-            // only captures what the user said without risking a duplicate node. Filtered to ChatRole.User
-            // -- the same filter recall already applies (BuildContextAsync above) -- so a system prompt or
-            // other non-user content accumulated in RequestMessages doesn't get minted into spurious
-            // entities/facts/preferences every turn.
-            var transientRequestMessages = requestMessages
-                .Where(msg => msg.Role == ChatRole.User && !string.IsNullOrWhiteSpace(msg.Text))
-                .Select(msg => MafTypeMapper.ToInternalMessage(msg, sessionId, conversationId, _clock, _idGenerator))
-                .ToList();
+            // Only user-role request content: a system prompt or other non-user content in RequestMessages
+            // must not be minted into spurious entities/facts/preferences every turn.
+            // The user's own words are stored here, under the message's one shared id: extraction then
+            // points at a :Message that exists, so every EXTRACTED_FROM edge and source_message_ids entry
+            // resolves. Neo4jChatHistoryProvider stores the same message under the same id and the store
+            // MERGEs on it, so running both still leaves one node per message (#89's concern).
+            var storedRequestMessages = new List<Message>();
+            foreach (var msg in requestMessages.Where(msg => msg.Role == ChatRole.User && !string.IsNullOrWhiteSpace(msg.Text)))
+            {
+                storedRequestMessages.Add(await _memoryService.AddMessageWithIdAsync(
+                    sessionId, conversationId, "user", msg.Text, MafTypeMapper.EnsureProviderMessageId(msg),
+                    cancellationToken: cancellationToken).ConfigureAwait(false));
+            }
 
             var storedMessages = await StoreResponseMessagesAsync(
                 responseMessages, sessionId, conversationId, cancellationToken).ConfigureAwait(false);
 
-            // Extraction sees the complete turn (#89): a fact or preference the user states in their
-            // request is now captured even if the assistant never repeats it back. Because
-            // transientRequestMessages were never persisted as :Message nodes above, provenance for
-            // anything extracted from them is incomplete: the EXTRACTED_FROM edge silently fails to
-            // attach (the MATCH in PersistenceStage's linking Cypher finds no such node), AND the
-            // extracted node's own source_message_ids property will still list the transient (never
-            // persisted) message id, i.e. a dangling reference, not just a missing edge. The extracted
-            // fact/preference itself is still created and recallable correctly; only its link back to the
-            // literal source message is best-effort, not guaranteed, unless another component also
-            // persisted that exact message.
-            var turnMessages = transientRequestMessages.Concat(storedMessages).ToList();
+            // Extraction sees the complete turn (#89): what the user said, as the :Message stored above,
+            // so provenance resolves; the reply too unless ExtractFromUserMessagesOnly.
+            var turnMessages = storedRequestMessages.Concat(storedMessages).ToList();
             if (_agentOptions.AutoExtractOnPersist && turnMessages.Count > 0)
             {
                 await TurnExtraction.ExtractAsync(

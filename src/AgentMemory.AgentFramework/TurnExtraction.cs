@@ -42,7 +42,7 @@ internal static class TurnExtraction
             var context = ExecutionContext.Capture();
             var turn = Activity.Current?.Context;
             var scopes = (background as BackgroundExtractionQueue)?.Scopes;
-            if (background.TryEnqueue(request.SessionId ?? string.Empty,
+            if (background.TryEnqueue(OrderingKey(request.UserId, request.SessionId),
                     token => context is null
                         ? RunQueuedAsync(scopes, memoryService, request, logger, turn, token)
                         : InContext(context, () => RunQueuedAsync(scopes, memoryService, request, logger, turn, token))))
@@ -99,6 +99,36 @@ internal static class TurnExtraction
             MemoryTelemetry.RecordException(System.Diagnostics.Activity.Current, ex);
             logger.LogWarning(ex, "Extraction failed for session {SessionId}; messages were persisted.", request.SessionId);
         }
+    }
+
+    /// <summary>
+    /// One owner's turns are learned one at a time, in order (and never write that owner's graph
+    /// concurrently); different owners in parallel. Without an owner, the session.
+    /// </summary>
+    internal static string OrderingKey(string? userId, string? sessionId) =>
+        !string.IsNullOrWhiteSpace(userId) ? "owner:" + userId : "session:" + (sessionId ?? string.Empty);
+
+    /// <summary>
+    /// The next-turn guard: before recall, wait (at most <paramref name="budget"/>) for this owner's pending
+    /// extraction, so a fact stated in the last turn can be recalled in this one. Returns the time waited.
+    /// </summary>
+    internal static async Task<TimeSpan> WaitForPendingAsync(
+        IBackgroundExtraction? background, AgentFrameworkOptions options, string? userId, string? sessionId,
+        CancellationToken cancellationToken)
+    {
+        if (background is null || !options.ExtractInBackground || options.RecallWaitsForPendingExtraction <= TimeSpan.Zero)
+            return TimeSpan.Zero;
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            await background.WhenIdleAsync(OrderingKey(userId, sessionId), cancellationToken)
+                .WaitAsync(options.RecallWaitsForPendingExtraction, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // Recall goes ahead without what is still being learned: the answer does not wait longer.
+        }
+        return Stopwatch.GetElapsedTime(started);
     }
 
     private static Task InContext(ExecutionContext context, Func<Task> work)

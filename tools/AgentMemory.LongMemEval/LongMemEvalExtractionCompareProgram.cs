@@ -338,6 +338,8 @@ internal static class LongMemEvalExtractionCompareProgram
             // the comparison this probe exists to make.
             options.UseUnifiedExtraction = arm != Arm.PerKind;
             options.UseMultiSessionBatchExtraction = arm == Arm.Batch;
+            options.CaptureUserName = false;   // the measured prompt: 2026-09-27 defaults pinned off
+            options.IgnoreQuestions = false;
             options.Seed = seed;
             // 30.6 sub-step 0. This flag was settable in options and unreachable from this verb, which
             // made the predicate-vocabulary A/B unrunnable on the ONE instrument that can measure it

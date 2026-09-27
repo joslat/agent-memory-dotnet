@@ -151,7 +151,7 @@ public sealed class ExtractionOptions
     public bool CanonicalFactSubjects { get; set; }
 
     /// <summary>
-    /// I-5 (dark, default false): what the user says about themselves is stored under their name. The
+    /// I-5 (default true since 2026-09-27): what the user says about themselves is stored under their name. The
     /// extractor calls the speaker "user", so "user | works_at | Northwind" and "Dana | works_at |
     /// Northwind" were two facts about one person, and the profile listed both. On, a fact whose subject
     /// or object is "user" (or "I", "me") is stored under the name the user gave: from a
@@ -161,7 +161,7 @@ public sealed class ExtractionOptions
     /// with <see cref="CanonicalFactSubjects"/> the name resolves further, to the known person's full
     /// name. Ask the extractor for the naming fact with <c>LlmExtractionOptions.CaptureUserName</c>.
     /// </summary>
-    public bool ResolveUserToName { get; set; }
+    public bool ResolveUserToName { get; set; } = true;
 
     /// <summary>
     /// Merge near-identical facts produced by ONE extraction (dark, default false). A single message

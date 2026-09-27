@@ -41,6 +41,8 @@ public static class ServiceCollectionExtensions
                 "AgentFrameworkOptions.DefaultDeltaCheckpointKey must not be blank.")
             .Validate(o => o.BackgroundExtractionConcurrency > 0,
                 "AgentFrameworkOptions.BackgroundExtractionConcurrency must be positive.")
+            .Validate(o => o.RecallWaitsForPendingExtraction >= TimeSpan.Zero,
+                "AgentFrameworkOptions.RecallWaitsForPendingExtraction must not be negative.")
             .Validate(o => o.BackgroundDrainTimeout >= TimeSpan.Zero,
                 "AgentFrameworkOptions.BackgroundDrainTimeout must not be negative.")
             .ValidateOnStart();

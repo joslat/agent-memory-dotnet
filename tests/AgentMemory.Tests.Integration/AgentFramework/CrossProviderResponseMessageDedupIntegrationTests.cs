@@ -77,11 +77,16 @@ public sealed class CrossProviderResponseMessageDedupIntegrationTests : IAsyncLi
             MessageId = "resp-shared-1"
         };
 
+        // The request message is ONE object both providers see in a real turn (a ChatClientAgent hands the
+        // same instances to every provider; ProvenanceReachesTheUsersMessageIntegrationTests drives that for
+        // real). Since the provenance fix both providers store it, under the one id stamped on it.
+        var request = new ChatMessage(ChatRole.User, "hello");
+
         using (var scope1 = _provider.CreateScope())
         {
             var contextProvider = scope1.ServiceProvider.GetRequiredService<Neo4jMemoryContextProvider>();
             await contextProvider.PerformStoreAsync(
-                requestMessages: [new ChatMessage(ChatRole.User, "hello")],
+                requestMessages: [request],
                 responseMessages: [firstObserved],
                 sessionId: sessionId,
                 conversationId: conversationId,
@@ -92,7 +97,7 @@ public sealed class CrossProviderResponseMessageDedupIntegrationTests : IAsyncLi
         {
             var historyProvider = scope2.ServiceProvider.GetRequiredService<Neo4jChatHistoryProvider>();
             await historyProvider.PerformStoreAsync(
-                requestMessages: [new ChatMessage(ChatRole.User, "hello")],
+                requestMessages: [request],
                 responseMessages: [secondObserved],
                 sessionId: sessionId,
                 conversationId: conversationId,

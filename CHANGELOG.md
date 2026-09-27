@@ -149,6 +149,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **New defaults: the answer does not wait for memorising, and memory learns what the user said.**
+  Four switches that shipped dark in this release are now on by default (all measured live):
+  - `AgentFrameworkOptions.ExtractInBackground`: median answer 3.5 s → 1.5 s. With a next-turn guard,
+    `RecallWaitsForPendingExtraction` (2 s): recall waits, at most that long, for the same owner's
+    extraction still running, so a fact stated in the last turn can be recalled in this one. One owner's
+    turns are learned in order, different owners in parallel. Turn it off on hosts that freeze the
+    process after replying (serverless).
+  - `AgentFrameworkOptions.ExtractFromUserMessagesOnly`: the agent repeating a fact back no longer counts
+    as a mention, and its paraphrases are no longer stored as new facts.
+  - `ExtractionOptions.ResolveUserToName` + `LlmExtractionOptions.CaptureUserName`: what the user says
+    about themselves is stored under their name, not "user".
+  - New `LlmExtractionOptions.IgnoreQuestions`: a question states nothing. "What do you remember about my
+    brother?" had created an entity "user's brother" and the fact "Marta has a brother brother"; with
+    it, 2 of 2 runs stored nothing from the question, and book extraction was unchanged (0 empty chunks
+    in 12).
+  The LongMemEval harness pins all four off, so its measured path is unchanged.
+
 - **The working-memory profile tier is on by default.** A compiled "about this user" block (stable facts,
   active preferences, salient entities; at most 300 tokens) is now built after each write and rendered
   ahead of recall. Without it a new session asked "what do you know about me?" answered "a pretty thin
@@ -197,6 +214,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all prerelease, and a shipped package may not depend on one.
 
 ### Fixed
+
+- **Every extracted memory has a path back to what the user said.** Each Agent Framework component minted
+  its own id for a caller's message: `Neo4jChatHistoryProvider` stored it under one id,
+  `Neo4jMemoryContextProvider` extracted from a never-stored copy under another. So no `EXTRACTED_FROM`
+  edge ever reached the user's words (edges went only to the assistant's reply), and with
+  `ExtractFromUserMessagesOnly` there were no edges at all and every `source_message_ids` entry pointed at
+  nothing (found by an external review; confirmed on live data: 0 edges, 0 of 9 ids resolving). A request
+  message now gets one id, stamped once on the `ChatMessage` (its `MessageId`, if the caller did not set
+  one), and every component stores it under that id; the context provider stores the user's message
+  itself, and the store MERGEs on the id, so running both providers still leaves one node per message.
+  Verified by a real `ChatClientAgent` turn against Neo4j with user-only extraction on and off,
+  background extraction on and off, and with and without the chat-history provider: every entity, fact
+  and preference has an edge to the user's `:Message`, every id resolves, one node per message. Cost: one
+  more embedding and write per turn when only the context provider is configured.
 
 - **Constructors that gained an optional parameter keep their 1.5.0 signature.** `Neo4jMemoryContextProvider`,
   `Neo4jChatHistoryProvider`, `Neo4jMicrosoftMemoryFacade`, `AgentTraceRecorder` and

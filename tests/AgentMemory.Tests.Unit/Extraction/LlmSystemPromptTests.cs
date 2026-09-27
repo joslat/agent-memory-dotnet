@@ -108,8 +108,10 @@ public sealed class LlmSystemPromptTests
 
         await sut.ExtractAsync(new[] { SampleMessage });
 
+        // The built-in prompt plus the instructions that are on by default (name capture, questions).
         var systemMsg = captured[0].First(m => m.Role == ChatRole.System);
-        systemMsg.Text.Should().Be(LlmFactExtractor.DefaultSystemPrompt);
+        systemMsg.Text.Should().StartWith(LlmFactExtractor.DefaultSystemPrompt).And.Be(LlmFactExtractor.BuildSystemPrompt(
+            options.AssistantContent, options.TemporalValidity, options.Provenance, options.CaptureUserName, options.IgnoreQuestions));
     }
 
     [Fact]

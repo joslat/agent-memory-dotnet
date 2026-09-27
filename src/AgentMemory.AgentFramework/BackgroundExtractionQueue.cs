@@ -91,6 +91,15 @@ internal sealed class BackgroundExtractionQueue : IBackgroundExtraction, IAsyncD
     }
 
     /// <inheritdoc/>
+    public Task WhenIdleAsync(string orderingKey, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(orderingKey);
+        Task tail;
+        lock (_gate) tail = _tails.TryGetValue(orderingKey, out var t) ? t : Task.CompletedTask;
+        return tail.WaitAsync(cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public Task WhenIdleAsync(CancellationToken cancellationToken = default)
     {
         Task idle;

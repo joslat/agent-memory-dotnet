@@ -40,4 +40,10 @@ public interface IBackgroundExtraction
 
     /// <summary>Completes when nothing is queued or running.</summary>
     Task WhenIdleAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Completes when nothing with this ordering key is queued or running: the next turn of an owner waits
+    /// on this, so it can recall what that owner just said. The default waits for everything.
+    /// </summary>
+    Task WhenIdleAsync(string orderingKey, CancellationToken cancellationToken = default) => WhenIdleAsync(cancellationToken);
 }

@@ -204,6 +204,17 @@ internal static class ExtractionPromptSemantics
     /// that everything else is extracted as before.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A question states nothing: no memory is made from what is asked, only from what a question states
+    /// outright. Empty when off. Worded as an exception, not a ban, so "can you help with my trip to Seville
+    /// next week?" still records the trip.
+    /// </summary>
+    internal static string QuestionsInstruction(bool ignore) => ignore
+        ? "\nA question asks; it does not state. Do not create entities, facts or relationships from what "
+          + "a turn asks about (\"What do you remember about my brother?\" states nothing), only from what "
+          + "it states outright (\"Can you help with my trip to Seville next week?\" states a trip)."
+        : string.Empty;
+
     internal static string UserNameInstruction(bool capture) => capture
         ? "\nIf the user STATES their own name (\"I'm Dana\", \"call me Dee\"), also add a fact whose "
           + "subject is \"user\", whose predicate is \"is named\" and whose object is the name as they "

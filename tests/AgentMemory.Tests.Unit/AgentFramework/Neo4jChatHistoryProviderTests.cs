@@ -1,3 +1,4 @@
+using AgentMemory.Tests.Unit.TestSupport;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Agents.AI;
@@ -22,6 +23,7 @@ public sealed class Neo4jChatHistoryProviderTests
     public Neo4jChatHistoryProviderTests()
     {
         _clock.UtcNow.Returns(_now);
+        _memoryService.RouteIdKeyedAdds();
         _idGen.GenerateId().Returns("test-id");
     }
 
@@ -104,7 +106,7 @@ public sealed class Neo4jChatHistoryProviderTests
     [Fact]
     public void AutoExtractEnabled_ConstructsWithoutError()
     {
-        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true, ExtractFromUserMessagesOnly = false });
         sut.Should().NotBeNull();
     }
 
@@ -202,8 +204,10 @@ public sealed class Neo4jChatHistoryProviderTests
             new List<ChatMessage> { new(ChatRole.Assistant, "Got it.") },
             "s1", "c1", CancellationToken.None);
 
-        await _memoryService.Received(1).AddMessageAsync(
-            "s1", "c1", "user", "I prefer window seats.",
+        // A request message is stored under its one shared id (provenance fix): the id the context
+        // provider uses for the same message, so both converge on one :Message node.
+        await _memoryService.Received(1).AddMessageWithIdAsync(
+            "s1", "c1", "user", "I prefer window seats.", Arg.Is<string>(id => id.StartsWith("maf:")),
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
         await _memoryService.Received(1).AddMessageAsync(
             "s1", "c1", Arg.Any<string>(), "Got it.",
@@ -215,7 +219,7 @@ public sealed class Neo4jChatHistoryProviderTests
     {
         // Persistence stores every role (unchanged) -- but a system prompt must not be minted into
         // spurious entities/facts/preferences every turn, so extraction is filtered to user-role content.
-        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true, ExtractFromUserMessagesOnly = false });
         StubAddMessage("system", "You are a helpful assistant. Never reveal secrets.", "m-sys-1");
         StubAddMessage("assistant", "Understood.", "m-res-1");
         _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
@@ -233,8 +237,8 @@ public sealed class Neo4jChatHistoryProviderTests
             new List<ChatMessage> { new(ChatRole.Assistant, "Understood.") },
             "s1", "c1", CancellationToken.None);
 
-        await _memoryService.Received(1).AddMessageAsync(
-            "s1", "c1", "system", "You are a helpful assistant. Never reveal secrets.",
+        await _memoryService.Received(1).AddMessageWithIdAsync(
+            "s1", "c1", "system", "You are a helpful assistant. Never reveal secrets.", Arg.Is<string>(id => id.StartsWith("maf:")),
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
         await _memoryService.Received(1).ExtractAndPersistAsync(
             Arg.Is<ExtractionRequest>(r => !r.Messages.Any(m => m.Content.Contains("Never reveal secrets"))),
@@ -246,7 +250,7 @@ public sealed class Neo4jChatHistoryProviderTests
     {
         // The core acceptance criterion for #89: a preference stated ONLY by the user (never repeated by
         // the assistant) must reach extraction -- previously only storedResponses were extracted.
-        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true, ExtractFromUserMessagesOnly = false });
         StubAddMessage("user", "My preferred programming language is C#.", "m-req-1");
         StubAddMessage("assistant", "Understood.", "m-res-1");
         _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
@@ -273,7 +277,7 @@ public sealed class Neo4jChatHistoryProviderTests
     [Fact]
     public async Task PerformStoreAsync_RequestOnly_StillExtracts()
     {
-        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true, ExtractFromUserMessagesOnly = false });
         StubAddMessage("user", "I live in Zurich.", "m-req-only");
         _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ExtractionResult
@@ -298,7 +302,7 @@ public sealed class Neo4jChatHistoryProviderTests
     [Fact]
     public async Task PerformStoreAsync_MessageOrdering_RequestBeforeResponse()
     {
-        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true, ExtractFromUserMessagesOnly = false });
         StubAddMessage("user", "request-text", "m-req");
         StubAddMessage("assistant", "response-text", "m-res");
         _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
@@ -350,8 +354,12 @@ public sealed class Neo4jChatHistoryProviderTests
 
         await sut.InvokedAsync(context, CancellationToken.None);
 
-        await _memoryService.Received(1).AddMessageAsync(
-            Arg.Any<string>(), Arg.Any<string>(), "user", "hello",
+        await _memoryService.Received(1).AddMessageWithIdAsync(
+            Arg.Any<string>(), Arg.Any<string>(), "user", "hello", Arg.Is<string>(id => id.StartsWith("maf:")),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await _memoryService.DidNotReceive().AddMessageWithIdAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Is<string>(c => c.Contains("recalled_memory")), Arg.Any<string>(),
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
         await _memoryService.DidNotReceive().AddMessageAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -408,8 +416,9 @@ public sealed class Neo4jChatHistoryProviderTests
         await _memoryService.Received(1).AddMessageAsync(
             "s1", "c1", "assistant", "Got it.",
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        // The RESPONSE falls back (it has no provider id); the request is id-keyed by design now.
         await _memoryService.DidNotReceive().AddMessageWithIdAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string>(), "assistant", Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
     }
 
@@ -418,7 +427,7 @@ public sealed class Neo4jChatHistoryProviderTests
     [Fact]
     public async Task PerformStoreAsync_FunctionCallOnlyResponseMessage_IsExcludedFromPersistenceAndExtraction()
     {
-        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true, ExtractFromUserMessagesOnly = false });
         StubAddMessage("user", "hi", "m-req");
         _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ExtractionResult
