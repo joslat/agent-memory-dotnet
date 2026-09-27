@@ -212,7 +212,8 @@ internal static class ExtractionPromptSemantics
     internal static string QuestionsInstruction(bool ignore) => ignore
         ? "\nA question asks; it does not state. Do not create entities, facts or relationships from what "
           + "a turn asks about (\"What do you remember about my brother?\" states nothing), only from what "
-          + "it states outright (\"Can you help with my trip to Seville next week?\" states a trip)."
+          + "it states outright (\"Can you help with my trip to Seville next week?\" states a trip). What a question "
+          + "takes for granted is not stated either: \"When did I move to Lyon?\" states no move."
         : string.Empty;
 
     /// <summary>

@@ -220,6 +220,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The speaker is never an entity.** Extraction no longer resolves or stores an entity named "user" (or "the
+  user", "I", "me", "myself"): the prompt calls the speaker "the user", and the model listed "user" among the people,
+  so a "user" node stood beside the person's own with relationships hanging from it. A relationship from a self word
+  lands on the person's own entity when their name is known (`ResolveUserToName`), and is skipped otherwise.
+- **A question's presupposition is not a statement** (`IgnoreQuestions`, on by default): the instruction now says
+  that what a question takes for granted is not stated either ("When did I move to Lyon?" was stored as a move).
+
 - **Write-time supersession recognises a change of mind stated in other words** (with `SupersedeReplacedFacts`):
   - a new value replaces **every stored form** of its relation, not only its own predicate: "works for" replaces
     "works at", "lives in" replaces "lived in";

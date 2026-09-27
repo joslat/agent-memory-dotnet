@@ -87,4 +87,12 @@ public sealed class OwnPreferencesInstructionTests
         system.Contains(Marker, StringComparison.Ordinal).Should().Be(on);
         if (!on) system.Should().Be(LlmPreferenceExtractor.DefaultSystemPrompt);
     }
+
+    /// <summary>36.6 (D-8d): a question's presupposition is not stated ("When did I move to Lyon?" was stored as a move).</summary>
+    [Fact]
+    public void The_questions_instruction_says_a_presupposition_is_not_stated()
+    {
+        ExtractionPromptSemantics.QuestionsInstruction(true).Should().Contain("takes for granted");
+        ExtractionPromptSemantics.QuestionsInstruction(false).Should().BeEmpty();
+    }
 }

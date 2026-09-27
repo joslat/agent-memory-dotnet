@@ -879,4 +879,25 @@ public sealed class ExtractionStageTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    /// <summary>
+    /// 36.6 (D-6): the speaker is not an entity. Found live: the model listed "user" among the people, and a "user"
+    /// node stood beside the person's own with relationships hanging from it.
+    /// </summary>
+    [Theory]
+    [InlineData("user")]
+    [InlineData("the user")]
+    [InlineData("Me")]
+    public async Task ExtractAsync_TheSpeakerIsNeverResolvedAsAnEntity(string self)
+    {
+        var ext = Substitute.For<IEntityExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity(self), MakeEntity("Nadia") });
+
+        var result = await CreateSut(entityExtractors: new[] { ext }).ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.ResolvedEntityMap.Keys.Should().Equal("Nadia");
+        await _resolver.DidNotReceive().ResolveEntityAsync(
+            Arg.Is<ExtractedEntity>(e => e.Name == self), Arg.Any<IReadOnlyList<string>>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
 }
