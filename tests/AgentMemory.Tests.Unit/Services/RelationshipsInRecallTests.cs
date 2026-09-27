@@ -260,4 +260,40 @@ public sealed class RelationshipsInRecallTests
 
         _ended.Should().BeEmpty();
     }
+
+    /// <summary>
+    /// 36.6 review round 2: "I'm Rosa, my sister is Carmen" in one turn. The speaker's entity is written as Rosa and the
+    /// relationship from "user" lands on it (it was dropped: "user" was skipped and Rosa was not an entity yet).
+    /// </summary>
+    [Fact]
+    public async Task A_relationship_from_the_speaker_lands_on_the_named_person_in_the_same_turn()
+    {
+        var entities = Substitute.For<IEntityRepository>();
+        var written = new List<Entity>();
+        entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { written.Add(ci.Arg<Entity>()); return Task.FromResult(ci.Arg<Entity>()); });
+        var facts = Substitute.For<IFactRepository>();
+        facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
+        _relationships.GetBySourceEntityAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Relationship>>([]));
+        _relationships.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { _upserted.Add(ci.Arg<Relationship>()); return Task.FromResult(ci.Arg<Relationship>()); });
+        var clock = Substitute.For<IClock>();
+        clock.UtcNow.Returns(T0);
+        var ids = Substitute.For<IIdGenerator>();
+        ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
+        var stage = new PersistenceStage(Substitute.For<IEmbeddingOrchestrator>(), entities, facts, Substitute.For<IPreferenceRepository>(),
+            _relationships, clock, ids, NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
+            Options.Create(new ExtractionOptions { EnableBatchMemoryUpserts = false }));
+
+        await stage.PersistAsync(new ExtractionStageResult
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["user"] = E("speaker-id"), ["Carmen"] = E("Carmen") },
+            FilteredFacts = [new ExtractedFact { Subject = "user", Predicate = "is named", Object = "Rosa", Confidence = 1 }],
+            FilteredRelationships = [new ExtractedRelationship { SourceEntity = "user", RelationshipType = "SIBLING_OF", TargetEntity = "Carmen", Confidence = 0.9 }],
+        }, ownerId: "u1");
+
+        written.Select(e => e.Name).Should().BeEquivalentTo(["Rosa", "Carmen"]);
+        _upserted.Should().ContainSingle().Which.SourceEntityId.Should().Be("speaker-id", "the relationship hangs from the person, not from nothing");
+    }
 }

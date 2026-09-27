@@ -302,6 +302,19 @@ internal static class SchemaQueries
     public const string FactPredicateKeyIndex =
         "CREATE INDEX fact_predicate_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.predicate_key)";
 
+    /// <summary>
+    /// 36.9 (G-17). Index on Entity.owner_key: <c>"*"</c> for a shared entity, the owner id otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Entity resolution reads an owner's candidates "own or shared", and the shared half was
+    /// <c>owner_id IS NULL</c>, which no index can seek: profiled on a store of 868 entities, the planner split the
+    /// OR, sought the owner's rows by <c>owner_id</c> (8 hits), and read every PERSON entity of every owner through
+    /// the type index to find the shared ones (1,122 hits in all, growing with the whole store). With the key, the
+    /// shared half is a seek on <c>owner_key = '*'</c>.
+    /// </remarks>
+    public const string EntityOwnerKeyIndex =
+        "CREATE INDEX entity_owner_key_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_key)";
+
     /// <summary>Index on Entity.owner_id (multi-user scope).</summary>
     public const string EntityOwnerIndex = "CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)";
 
@@ -362,6 +375,7 @@ internal static class SchemaQueries
         FactOwnerIndex,
         FactMergeKeyIndex,
         FactOwnerKeyIndex,
+        EntityOwnerKeyIndex,
         FactPredicateKeyIndex,
         EntityOwnerIndex,
         PreferenceOwnerIndex,

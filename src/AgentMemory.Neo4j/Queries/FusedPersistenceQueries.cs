@@ -12,6 +12,7 @@ internal static class FusedPersistenceQueries
             MERGE (e:Entity {id: item.id})
             ON CREATE SET
                 e.owner_id           = item.owner_id,
+                e.owner_key          = coalesce(item.owner_id, '*'),
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,
@@ -24,6 +25,7 @@ internal static class FusedPersistenceQueries
                 e.created_at         = datetime(item.created_at),
                 e.metadata           = item.metadata
             ON MATCH SET
+                e.owner_key          = coalesce(e.owner_key, coalesce(e.owner_id, '*')),
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,

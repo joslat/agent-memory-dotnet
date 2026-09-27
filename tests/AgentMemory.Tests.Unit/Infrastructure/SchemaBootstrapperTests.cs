@@ -82,7 +82,7 @@ public class SchemaBootstrapperTests
         // +1 fact_merge_key_idx (L11); +1 memory_read_audit_memory_id_idx (BUG-A2);
         // +1 message_session_timestamp_idx; +1 fact_predicate_key_idx (unindexed hot predicates);
         // +1 trace_kind_idx (PLAN 7.2, the procedure promotion marker).
-        executedStatements.Should().HaveCount(50);
+        executedStatements.Should().HaveCount(51); // +entity_owner_key_idx (36.9)
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public class SchemaBootstrapperTests
         var propertyIndexes = executedStatements
             .Where(s => s.StartsWith("CREATE INDEX") || s.StartsWith("CREATE POINT INDEX"))
             .ToList();
-        propertyIndexes.Should().HaveCount(29);
+        propertyIndexes.Should().HaveCount(30); // +entity_owner_key_idx (36.9)
         propertyIndexes.Should().Contain(s => s.Contains("conversation_session_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("conversation_archived_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("message_timestamp"));

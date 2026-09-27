@@ -237,6 +237,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // stored under it. Read only when this extraction has something to rewrite.
         var userName = _options.ResolveUserToName && !string.IsNullOrWhiteSpace(ownerId) &&
                        (prepared.Facts.Any(f => UserNames.MeansUser(f.Item, subject: true) || UserNames.MeansUser(f.Item, subject: false)) ||
+                        prepared.Entities.Keys.Any(UserNames.IsSelf) ||
                         extraction.FilteredRelationships.Any(r => UserNames.MeansUserEndpoint(r.SourceEntity, source: true) ||
                                                                   UserNames.MeansUserEndpoint(r.TargetEntity, source: false)))
             ? await UserNameAsync(prepared.Facts, ownerId!, cancellationToken).ConfigureAwait(false)
@@ -247,8 +248,32 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // model lists "user" among the people (found live: a "user" node beside the person's own, with relationships
         // hanging from it). Once the user's name is known it is not stored, and a relationship from a self word lands
         // on the person's own entity (I-7). Until then it is stored as before, so no relationship is lost.
+        // With the name known, the speaker's entity IS the named person: written under that name (so a relationship
+        // from "user" lands on it), or, when that person is already an entity here or in the store, not written at all
+        // (I-7 then finds that one). Never a node called "user".
+        var speakerIsKnown = false;
+        if (userName is not null && prepared.Entities.Keys.Any(UserNames.IsSelf))
+        {
+            speakerIsKnown = prepared.Entities.Keys.Any(key => string.Equals(key, userName, StringComparison.OrdinalIgnoreCase));
+            if (!speakerIsKnown)
+            {
+                try
+                {
+                    speakerIsKnown = await _entityRepository.FindLiveByNameAsync(
+                        userName, "PERSON", MemoryScope.For(ownerId!, includeShared: false), cancellationToken).ConfigureAwait(false) is not null;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not read the user's entity for owner {Owner}; the speaker is written under their name.", ownerId);
+                }
+            }
+        }
         var entityInputs = prepared.Entities
-            .Where(pair => userName is null || !UserNames.IsSelf(pair.Key))
+            .Where(pair => userName is null || !UserNames.IsSelf(pair.Key) || !speakerIsKnown)
+            .Select(pair => userName is not null && UserNames.IsSelf(pair.Key)
+                ? new KeyValuePair<string, Entity>(pair.Key, pair.Value with { Name = userName, CanonicalName = userName, Type = "PERSON" })
+                : pair)
             .Select(pair =>
         {
             var effectiveTrustLevel = MaxTrustLevel(pair.Value.Metadata.GetTrustLevel(), trustLevel);
@@ -846,12 +871,16 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
             if (preferenceCorrections.TryGetValue(sourceKey, out var replaced))
                 await CloseCorrectedPreferencesAsync(persisted, replaced).ConfigureAwait(false);
+            else if (Corrections.SingleValuedRelation(persisted.PreferenceText) is not null)
+                await CloseCorrectedPreferencesAsync(persisted, replaced: null).ConfigureAwait(false);
 
             persistedPrefCount++;
             _logger.LogDebug("Persisted preference in category '{Category}'.", persisted.Category);
         }
 
-        async Task CloseCorrectedPreferencesAsync(Preference winner, string replaced)
+        // A marked correction closes what it names; a preference stating a single-valued relation ("Favourite band is
+        // Arcade Fire") closes the other values of it, marked or not.
+        async Task CloseCorrectedPreferencesAsync(Preference winner, string? replaced)
         {
             if (!_options.SupersedeReplacedFacts) return;
             var readScope = SharedScopes.OwnedOrShared(ownerId);
@@ -860,7 +889,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             {
                 var candidates = await _preferenceRepository.GetByCategoryAsync(winner.Category, readScope, cancellationToken)
                     .ConfigureAwait(false);
-                foreach (var loser in candidates.Where(candidate => Corrections.Closes(candidate, winner, replaced)))
+                foreach (var loser in candidates.Where(candidate =>
+                             (replaced is not null && Corrections.Closes(candidate, winner, replaced)) || Corrections.Replaces(winner, candidate)))
                 {
                     await _preferenceRepository.SupersedeAsync(loser.PreferenceId, winner.PreferenceId, writeScope, cancellationToken)
                         .ConfigureAwait(false);

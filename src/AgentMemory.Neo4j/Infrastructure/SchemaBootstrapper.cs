@@ -151,6 +151,32 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         return migrated;
     }
 
+    /// <summary>
+    /// 36.9 (G-17). Gives every entity written before <c>owner_key</c> existed its key, in batches, so the shared
+    /// half of entity resolution (<c>owner_key = '*'</c>) finds the shared entities of an existing store. Idempotent:
+    /// it selects on <c>owner_key IS NULL</c>. Returns how many entities it updated.
+    /// </summary>
+    internal async Task<int> BackfillEntityOwnerKeysAsync(int batchSize, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(batchSize);
+        var total = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var updated = await _txRunner.WriteAsync(async runner =>
+            {
+                var cursor = await runner.RunAsync(EntityQueries.BackfillOwnerKeys, new { limit = batchSize }).ConfigureAwait(false);
+                var record = await cursor.SingleAsync().ConfigureAwait(false);
+                return record["updated"].As<long>();
+            }, cancellationToken).ConfigureAwait(false);
+            total += (int)updated;
+            if (updated < batchSize) break;
+        }
+        if (total > 0)
+            _logger.LogInformation("Gave {Count} existing entities their owner key.", total);
+        return total;
+    }
+
     public async Task BootstrapAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
@@ -194,6 +220,7 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         // repository write, so this is the only place it is guaranteed to precede them.
         await BackfillCanonicalFactKeysAsync(CanonicalKeyBackfillBatchSize, cancellationToken)
             .ConfigureAwait(false);
+        await BackfillEntityOwnerKeysAsync(CanonicalKeyBackfillBatchSize, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("Schema bootstrap complete.");
     }

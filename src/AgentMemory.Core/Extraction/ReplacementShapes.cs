@@ -54,13 +54,16 @@ internal static partial class ReplacementShapes
         ArgumentNullException.ThrowIfNull(facts);
         ArgumentNullException.ThrowIfNull(typeOf);
         var aged = facts.Select(AsAge).ToList();
-        // The states this extraction states outright, by subject and relation: "I moved to London in 2010; now I live
-        // in Paris" states the residence, and an entailed "lives in London" must not be written over it.
+        // The CURRENT states this extraction states outright, by subject and relation: "I moved to London in 2010; now
+        // I live in Paris" states the residence, and an entailed "lives in London" must not be written over it. Only a
+        // present form of a single-valued relation, still valid: "I lived in Paris, then moved to London" states
+        // history, and London is the home.
         var statedStates = aged
-            .Select(fact => (Subject: MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
-                Relation: MemoryRelationLexicon.Default.ResolveStored(fact.Predicate)))
+            .Where(fact => fact.ValidUntil is not { } until || until > now)
+            .Select(fact => (Subject: SubjectKey(fact.Subject), Relation: MemoryRelationCardinality.Relation(fact.Predicate)))
             .Where(pair => pair.Relation is not null)
             .ToHashSet();
+        var entailedObjects = new HashSet<(string, string, string)>();
         var shaped = new List<ExtractedFact>(aged.Count + 1);
         foreach (var fact in aged)
         {
@@ -73,9 +76,12 @@ internal static partial class ReplacementShapes
             // "moved to the analytics team" is not a new home: the entailment holds for the declared kind of object.
             if (entailed.When is { } required &&
                 !string.Equals(typeOf(fact.Object), required, StringComparison.OrdinalIgnoreCase)) continue;
-            var subject = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject);
-            if (statedStates.Contains((subject, MemoryTripleCanonicalizer.Canonical(entailed.State)))) continue;
-            statedStates.Add((subject, MemoryTripleCanonicalizer.Canonical(entailed.State)));
+            var subject = SubjectKey(fact.Subject);
+            var state = MemoryTripleCanonicalizer.Canonical(entailed.State);
+            if (statedStates.Contains((subject, state))) continue;
+            // Two moves in one turn each entail their home, in order, so the later replaces the earlier; the same home
+            // twice is written once.
+            if (!entailedObjects.Add((subject, state, MemoryTripleCanonicalizer.CanonicalValue(fact.Object)))) continue;
             // Right after its event, so it is written in the order the conversation implies.
             shaped.Add(fact with { Predicate = entailed.State });
         }
@@ -97,6 +103,10 @@ internal static partial class ReplacementShapes
         if (!namesYears && predicate is not ("turned" or "has turned" or "just turned")) return fact;
         return fact with { Predicate = "age", Object = match.Groups["n"].Value };
     }
+
+    /// <summary>A subject as compared: the self words ("user", "I", "me") are one speaker.</summary>
+    private static string SubjectKey(string subject) =>
+        PersistenceStage.UserNames.IsSelf(subject) ? "\u0001self" : MemoryTripleCanonicalizer.CanonicalValue(subject);
 
     private static (string, string, string) Key(ExtractedFact fact) => (
         MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),

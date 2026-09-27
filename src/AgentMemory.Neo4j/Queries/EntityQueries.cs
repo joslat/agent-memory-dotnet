@@ -16,6 +16,7 @@ internal static class EntityQueries
             MERGE (e:Entity {id: $id})
             ON CREATE SET
                 e.owner_id           = $ownerId,
+                e.owner_key          = coalesce($ownerId, '*'),
                 e.name               = $name,
                 e.canonical_name     = $canonicalName,
                 e.type               = $type,
@@ -28,6 +29,7 @@ internal static class EntityQueries
                 e.created_at         = datetime($createdAtUtc),
                 e.metadata           = $metadata
             ON MATCH SET
+                e.owner_key          = coalesce(e.owner_key, coalesce(e.owner_id, '*')),
                 e.name               = $name,
                 e.canonical_name     = $canonicalName,
                 e.type               = $type,
@@ -105,6 +107,16 @@ internal static class EntityQueries
                 .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
             recencyRerank, omitEmbedding);
 
+    // ── Owner key backfill (36.9) ──────────────────────────────────────
+
+    /// <summary>Sets the owner key on up to <c>$limit</c> entities written before it existed; returns how many.</summary>
+    public const string BackfillOwnerKeys = @"
+            MATCH (e:Entity)
+            WHERE e.owner_key IS NULL
+            WITH e LIMIT $limit
+            SET e.owner_key = coalesce(e.owner_id, '*')
+            RETURN count(e) AS updated";
+
     // ── GetByTypeAsync ─────────────────────────────────────────────────
 
     /// <summary>
@@ -115,8 +127,9 @@ internal static class EntityQueries
     /// </summary>
     public static string GetByType(bool hasOwnerFilter, bool includeShared)
     {
+        // 36.9 (G-17). The shared half by owner_key = '*', a seek: owner_id IS NULL read every entity of the type.
         var owner = !hasOwnerFilter ? string.Empty
-            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_key = '*')"
                             : " AND e.owner_id = $ownerId";
         // Exclude soft-invalidated/superseded entities (R6-B): this is the entity-resolution candidate set,
         // so a re-extracted entity must not resolve onto (and merge into) a tombstoned node — which would
@@ -145,8 +158,9 @@ internal static class EntityQueries
 
     public static string GetByTypeWithoutEmbedding(bool hasOwnerFilter, bool includeShared)
     {
+        // 36.9 (G-17). Same shared half as GetByType: the two back the same resolution and must agree.
         var owner = !hasOwnerFilter ? string.Empty
-            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_key = '*')"
                             : " AND e.owner_id = $ownerId";
         return $"MATCH (e:Entity {{type: $type}}) WHERE e.invalidated_at IS NULL{owner} "
             + "RETURN e {.id, .owner_id, .name, .canonical_name, .type, .subtype, .description, .confidence, "
@@ -214,6 +228,7 @@ internal static class EntityQueries
             MERGE (e:Entity {id: item.id})
             ON CREATE SET
                 e.owner_id           = item.owner_id,
+                e.owner_key          = coalesce(item.owner_id, '*'),
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,
@@ -226,6 +241,7 @@ internal static class EntityQueries
                 e.created_at         = datetime(item.created_at),
                 e.metadata           = item.metadata
             ON MATCH SET
+                e.owner_key          = coalesce(e.owner_key, coalesce(e.owner_id, '*')),
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,

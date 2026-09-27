@@ -23,8 +23,9 @@ public sealed class ScopedNonVectorReadQueryTests
     [Fact]
     public void GetByType_ScopedIncludeShared_MatchesOwnerOrNull()
     {
+        // 36.9 (G-17): the shared half by the indexed owner_key = '*' (owner_id IS NULL cannot be sought).
         EntityQueries.GetByType(hasOwnerFilter: true, includeShared: true)
-            .Should().Contain("(e.owner_id = $ownerId OR e.owner_id IS NULL)");
+            .Should().Contain("(e.owner_id = $ownerId OR e.owner_key = '*')");
     }
 
     [Fact]

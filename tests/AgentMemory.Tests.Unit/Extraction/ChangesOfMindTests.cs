@@ -340,4 +340,48 @@ public sealed class ChangesOfMindTests
         _closedFacts.Should().ContainSingle();
         await _facts.Received().SupersedeAsync("half", Arg.Any<string>(), null, Arg.Any<CancellationToken>());
     }
+
+    // ── Review round 2 ───────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void History_does_not_block_the_new_home_and_two_moves_both_state_theirs()
+    {
+        ReplacementShapes.Prepare([F("user", "lived in", "Paris"), F("user", "moved to", "Copenhagen")], Places, T0)
+            .Select(f => $"{f.Predicate} {f.Object}").Should().Contain("lives in Copenhagen", "\"lived in Paris\" is history");
+        ReplacementShapes.Prepare([F("user", "lives in", "Paris") with { ValidUntil = T0.AddDays(-1) }, F("user", "moved to", "Copenhagen")], Places, T0)
+            .Select(f => $"{f.Predicate} {f.Object}").Should().Contain("lives in Copenhagen", "a residence that ended is not current");
+
+        string? Two(string name) => name is "Copenhagen" or "Oslo" ? "LOCATION" : null;
+        ReplacementShapes.Prepare([F("user", "moved to", "Copenhagen"), F("user", "moved to", "Oslo")], Two, T0)
+            .Select(f => $"{f.Predicate} {f.Object}")
+            .Should().Equal("moved to Copenhagen", "lives in Copenhagen", "moved to Oslo", "lives in Oslo");
+    }
+
+    [Fact]
+    public void The_self_words_are_one_speaker()
+    {
+        ReplacementShapes.Prepare([F("user", "lives in", "Paris"), F("I", "moved to", "Copenhagen")], Places, T0)
+            .Select(f => $"{f.Predicate} {f.Object}").Should().NotContain("lives in Copenhagen", "the speaker stated where they live");
+    }
+
+    /// <summary>Run 4: "Arcade Fire, not Radiohead" came without a marked correction, and both favourites stayed live.</summary>
+    [Fact]
+    public async Task A_new_favourite_preference_replaces_the_old_one_marked_or_not()
+    {
+        _preferences.GetByCategoryAsync("music", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Preference>>(
+            [
+                new Preference { PreferenceId = "old", Category = "music", PreferenceText = "Favourite band is Radiohead", Confidence = 1, CreatedAtUtc = T0 },
+                new Preference { PreferenceId = "jazz", Category = "music", PreferenceText = "likes jazz", Confidence = 1, CreatedAtUtc = T0 },
+            ]));
+
+        await Sut(supersede: true).PersistAsync(new ExtractionStageResult
+        {
+            FilteredPreferences = [new ExtractedPreference { Category = "music", PreferenceText = "Favourite band is Arcade Fire, not Radiohead" }],
+        }, ownerId: "owner-1");
+
+        _closedPreferences.Select(c => c.Loser).Should().Equal("old");
+        Corrections.SingleValuedRelation("Favourite bands are Radiohead and Blur").Should().BeNull("a plural holds several");
+        Corrections.SingleValuedRelation("likes jazz").Should().BeNull();
+    }
 }

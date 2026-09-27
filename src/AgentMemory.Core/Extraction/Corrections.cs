@@ -62,6 +62,33 @@ internal static class Corrections
         return canonical.Length > 0 && (ContainsWords(canonical, value) || ContainsWords(value, canonical));
     }
 
+    /// <summary>
+    /// 36.4. The single-valued relation a preference states, when it states one: "Favourite band is Arcade Fire" states
+    /// <c>favourite band</c>, the same relation the <c>favourite</c> prefix makes single-valued for facts. Null otherwise.
+    /// </summary>
+    internal static string? SingleValuedRelation(string preferenceText)
+    {
+        var text = MemoryTripleCanonicalizer.CanonicalValue(preferenceText);
+        var at = text.IndexOf(" is ", StringComparison.Ordinal);
+        return at <= 0 ? null : MemoryRelationCardinality.Relation(text[..at]);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="candidate"/> states another value of the single-valued relation <paramref name="winner"/>
+    /// states: "Favourite band is Radiohead" for "Favourite band is Arcade Fire". Found in simulated conversations: the
+    /// model did not always mark "not Radiohead" as a correction, and both favourites stayed live.
+    /// </summary>
+    internal static bool Replaces(Preference winner, Preference candidate)
+    {
+        ArgumentNullException.ThrowIfNull(winner);
+        ArgumentNullException.ThrowIfNull(candidate);
+        if (candidate.InvalidatedAtUtc is not null || candidate.PreferenceId == winner.PreferenceId) return false;
+        var relation = SingleValuedRelation(winner.PreferenceText);
+        return relation is not null &&
+               string.Equals(SingleValuedRelation(candidate.PreferenceText), relation, StringComparison.Ordinal) &&
+               !string.Equals(Value(candidate.PreferenceText), Value(winner.PreferenceText), StringComparison.Ordinal);
+    }
+
     internal static bool Closes(Preference candidate, Preference winner, string replaced)
     {
         ArgumentNullException.ThrowIfNull(candidate);

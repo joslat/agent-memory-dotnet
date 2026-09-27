@@ -362,4 +362,20 @@ public sealed class SharedKnowledgeBoundaryTests
         await facts.Received(1).SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(),
             Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public void A_shared_item_keeps_its_own_annotation_in_the_core_formatter()
+    {
+        var projection = new AgentMemory.Abstractions.Domain.ProjectedContext
+        {
+            Annotations = new Dictionary<string, AgentMemory.Abstractions.Domain.ProjectedItemAnnotation>
+            {
+                ["Alice followed the White Rabbit"] = new() { IsNearMiss = true, Score = 0.42 },
+            },
+        };
+
+        var text = MemoryContextFormatter.FormatRecallResult(new RecallResult { Context = Context(separated: true) with { Projection = projection }, TotalItemsRetrieved = 4 });
+
+        text.Should().Contain("[closest match, 0.42] Alice followed the White Rabbit", "a shared near-miss must not read as a confident match");
+    }
 }

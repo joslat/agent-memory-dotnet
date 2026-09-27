@@ -221,7 +221,20 @@ public sealed class WithinExtractionDedupTests
         await stage.PersistAsync(With(
             new ExtractedFact { Subject = "user", Predicate = "is named", Object = "Rosa", Confidence = 1 },
             new ExtractedFact { Subject = "user", Predicate = "works as", Object = "architect", Confidence = 1 }), ownerId: "owner-1");
-        written.Should().Equal(["Carmen"], "the name is known in this extraction");
+        written.Should().BeEquivalentTo(["Rosa", "Carmen"], "the speaker is written as the named person, never as \"user\"");
+
+        written.Clear();
+        var alreadyThere = With(
+            new ExtractedFact { Subject = "user", Predicate = "is named", Object = "Rosa", Confidence = 1 },
+            new ExtractedFact { Subject = "user", Predicate = "works as", Object = "architect", Confidence = 1 }) with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["user"] = E("user"), ["Rosa"] = E("Rosa"), ["Carmen"] = E("Carmen"),
+            },
+        };
+        await stage.PersistAsync(alreadyThere, ownerId: "owner-1");
+        written.Should().BeEquivalentTo(["Rosa", "Carmen"], "the named person is an entity already: the speaker is not written twice");
 
         written.Clear();
         await stage.PersistAsync(With(new ExtractedFact { Subject = "Carmen", Predicate = "teaches", Object = "maths", Confidence = 1 }), ownerId: "owner-1");

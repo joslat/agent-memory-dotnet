@@ -236,6 +236,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Entity resolution reads shared candidates by an index seek.** Entities carry `owner_key` (`"*"` when shared) on
+  every write path, with an index and a backfill at bootstrap for existing stores, and the "own or shared" candidate
+  read seeks the shared half by `owner_key = '*'`. It read every entity of the type across all owners to find the
+  shared ones (`owner_id IS NULL` cannot be sought): 1,122 database hits on a store of 868 entities, growing with the
+  whole store.
+- **A preference stating a single-valued relation replaces its previous value**, marked as a correction or not:
+  "Favourite band is Arcade Fire" closes "Favourite band is Radiohead" in the same category (with
+  `SupersedeReplacedFacts`). Found in simulated conversations: the model did not always mark "not Radiohead".
+
 - **A relationship said again is the edge already stored, and a single-valued relation ends its previous edge.**
   Extraction reuses the live edge with the same source, relation and target, so "lives in Lyon" stated twice is one
   edge (it was two: the store merges on id and every extracted relationship had a fresh one); the restatement keeps
@@ -253,11 +262,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shipping company" and leaves "left the shipping company" (a true event), and "age 7, replaces 6" never closes
   "weighs 6 kg". A correction on a shared write closes shared facts (it closed nothing before).
 
-- **The speaker is not an entity once their name is known.** With `ResolveUserToName` (on by default), an entity
-  named "user" (or "the user", "I", "me", "myself") is not stored once the user's name is known, and a relationship
-  from a self word lands on the person's own entity: the prompt calls the speaker "the user", and the model listed
-  "user" among the people, so a "user" node stood beside the person's own. Until the name is known it is stored as
-  before, so no relationship hanging from it is lost.
+- **The speaker is the named person, not an entity called "user".** With `ResolveUserToName` (on by default), once
+  the user's name is known an extracted "user" (or "the user", "I", "me", "myself") entity is written under that name,
+  or not at all when the person is already an entity, and a relationship from a self word lands on the person: the
+  prompt calls the speaker "the user", and the model listed "user" among the people, so a "user" node stood beside
+  the person's own. Until the name is known it is stored as before, so no relationship hanging from it is lost.
 - **A question's presupposition is not a statement** (`IgnoreQuestions`, on by default): the instruction now says
   that what a question takes for granted is not stated either ("When did I move to Lyon?" was stored as a move).
 
@@ -272,7 +281,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - an **event states the state it entails** when the vocabulary declares it: "moved to Copenhagen" also writes "lives
     in Copenhagen", which replaces the previous residence; only from a completed form ("moved to", not "moving to"),
     for an event that has happened, when the object is a place ("moved to the analytics team" states no home), and
-    never over a state the same turn states ("I moved to London in 2010; now I live in Paris");
+    never over a current state the same turn states ("I moved to London in 2010; now I live in Paris"; "I lived in
+    Paris" is history and does not count); two moves in one turn each state their home, the later replacing the
+    earlier;
   - a value whose validity has **already ended** ("worked at Google until 2019") no longer replaces the current one.
 
 - **A shared write (`ExtractionRequest.ShareWithEveryone`) stores no preferences** (single and batch extraction). Shared knowledge has no user,
