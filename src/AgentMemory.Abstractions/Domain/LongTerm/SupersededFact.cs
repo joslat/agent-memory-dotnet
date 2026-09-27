@@ -29,4 +29,10 @@ public sealed record SupersededFact(
     /// The date to render, preferring valid time. Null when neither clock was stamped.
     /// </summary>
     public DateTimeOffset? EffectiveDate => ValidUntilUtc ?? InvalidatedAtUtc;
+
+    /// <summary>36.1. How precisely <see cref="ValidUntilUtc"/> was stated; the transaction clock is an instant.</summary>
+    public DatePrecision ValidUntilPrecision { get; init; }
+
+    /// <summary>The precision of <see cref="EffectiveDate"/>.</summary>
+    public DatePrecision EffectiveDatePrecision => ValidUntilUtc is not null ? ValidUntilPrecision : DatePrecision.Unspecified;
 }

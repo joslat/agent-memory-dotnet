@@ -27,7 +27,14 @@ public sealed class ChangesOfMindTests
     [Theory]
     [InlineData("works for", true)]
     [InlineData("work for", true)]
-    [InlineData("lived in", true)]
+    [InlineData("lived in", false)]
+    [InlineData("worked at", false)]
+    [InlineData("used to work in", false)]
+    [InlineData("employed by", true)]
+    [InlineData("favourite bands", false)]
+    [InlineData("favourite bands are", false)]
+    [InlineData("favourite children are", false)]
+    [InlineData("favourite glass", true)]
     [InlineData("age", true)]
     [InlineData("favourite band", true)]
     [InlineData("favorite food", true)]
@@ -44,7 +51,9 @@ public sealed class ChangesOfMindTests
     [Fact]
     public void A_new_value_replaces_every_stored_form_of_its_relation()
     {
-        MemoryRelationCardinality.ReplacedKeys("works for").Should().Contain(["works at", "works for", "worked at"]);
+        MemoryRelationCardinality.ReplacedKeys("works for").Should().Contain(["works at", "works for", "employed by"])
+            .And.NotContain(["worked at", "used to work in", "was employed in"], "history is not the current employer");
+        MemoryRelationCardinality.ReplacedKeys("member of").Should().Equal(["member of"], "a relation without present forms replaces its own key only");
         MemoryRelationCardinality.ReplacedKeys("has favourite band").Should().Contain(["favourite band", "has favourite band", "favorite band"])
             .And.NotContain("favourite food");
         MemoryRelationCardinality.ReplacedKeys("likes").Should().Equal("likes");
@@ -73,10 +82,10 @@ public sealed class ChangesOfMindTests
     [Fact]
     public void Moving_somewhere_also_states_living_there_once()
     {
-        var shaped = ReplacementShapes.Prepare([F("Nadia", "moved to", "Copenhagen")], Places);
+        var shaped = ReplacementShapes.Prepare([F("Nadia", "moved to", "Copenhagen")], Places, T0);
         shaped.Select(f => $"{f.Predicate} {f.Object}").Should().Equal("moved to Copenhagen", "lives in Copenhagen");
 
-        var alreadySaid = ReplacementShapes.Prepare([F("Nadia", "moved to", "Copenhagen"), F("Nadia", "lives in", "Copenhagen")], Places);
+        var alreadySaid = ReplacementShapes.Prepare([F("Nadia", "moved to", "Copenhagen"), F("Nadia", "lives in", "Copenhagen")], Places, T0);
         alreadySaid.Should().HaveCount(2, "a state the turn already stated is not written twice");
     }
 
@@ -85,7 +94,7 @@ public sealed class ChangesOfMindTests
     [InlineData("somewhere untyped")]
     public void Moving_to_something_that_is_not_a_place_states_no_home(string @object)
     {
-        ReplacementShapes.Prepare([F("Tomás", "moved to", @object)], Places).Should().ContainSingle();
+        ReplacementShapes.Prepare([F("Tomás", "moved to", @object)], Places, T0).Should().ContainSingle();
     }
 
     // ── What a marked correction closes ──────────────────────────────────────────────────────────
@@ -278,5 +287,57 @@ public sealed class ChangesOfMindTests
 
         result.Facts.Should().ContainSingle().Which.Replaces.Should().Be("half marathon");
         result.Preferences.Should().ContainSingle().Which.Replaces.Should().Be("Radiohead");
+    }
+
+    // ── Review round 1 ───────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Only_a_completed_move_that_has_happened_states_a_home_and_never_over_a_stated_one()
+    {
+        ReplacementShapes.Prepare([F("Nadia", "moving to", "Copenhagen")], Places, T0).Should().ContainSingle("not yet moved");
+        ReplacementShapes.Prepare([F("Nadia", "moved to", "Copenhagen") with { ValidFrom = T0.AddDays(10) }], Places, T0)
+            .Should().ContainSingle("a move dated after now has not happened");
+        ReplacementShapes.Prepare([F("Nadia", "moved to", "Copenhagen"), F("Nadia", "lives in", "Paris")], Places, T0)
+            .Select(f => $"{f.Predicate} {f.Object}").Should().Equal("moved to Copenhagen", "lives in Paris");
+        ReplacementShapes.Prepare([F("Nadia", "moved to", "Copenhagen"), F("Nadia", "likes", "jazz")], Places, T0)
+            .Select(f => $"{f.Predicate} {f.Object}").Should().Equal("moved to Copenhagen", "lives in Copenhagen", "likes jazz");
+    }
+
+    [Fact]
+    public void A_correction_never_closes_a_coincidental_one_word_mention()
+    {
+        var winner = Stored("new", "age", "7");
+        Corrections.Closed([Stored("w", "weighs", "6 kg")], winner, "6").Should().BeEmpty();
+        Corrections.Closed([Stored("b", "born in", "London")], Stored("n", "works for", "Meta"), "Google in London").Should().BeEmpty();
+        Corrections.Closed([Stored("a", "age", "6"), Stored("w", "weighs", "6 kg")], winner, "6").Select(f => f.FactId).Should().Equal("a");
+    }
+
+    [Fact]
+    public async Task A_correction_runs_before_supersession_so_it_names_what_it_replaces()
+    {
+        var order = new List<string>();
+        _facts.GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { order.Add("correction"); return Task.FromResult<IReadOnlyList<Fact>>([]); });
+        _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { order.Add("supersession"); return Task.FromResult<IReadOnlyList<Fact>>([]); });
+
+        await Sut(supersede: true).PersistAsync(
+            new ExtractionStageResult { FilteredFacts = [F("Bruno", "age", "7") with { Replaces = "6" }] }, ownerId: "owner-1");
+
+        order.Should().Equal("correction", "supersession");
+    }
+
+    [Fact]
+    public async Task A_shared_write_closes_what_its_correction_replaces()
+    {
+        // No owner: the reads are shared-only; the supersede statement gets no owner filter (a filter on the
+        // shared-only placeholder owner matched nothing).
+        await Sut(supersede: true).PersistAsync(
+            new ExtractionStageResult { FilteredFacts = [F("user", "plans to run", "the full marathon in May") with { Replaces = "the half marathon" }] },
+            ownerId: null);
+
+        _closedFacts.Should().ContainSingle();
+        await _facts.Received().SupersedeAsync("half", Arg.Any<string>(), null, Arg.Any<CancellationToken>());
     }
 }

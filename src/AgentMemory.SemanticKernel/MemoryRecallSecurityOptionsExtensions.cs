@@ -16,6 +16,7 @@ internal static class MemoryRecallSecurityOptionsExtensions
         {
             Strict = security.SecurityMode == MemoryContextSecurityMode.Strict,
             MinimumTrustForAdmissionBypass = security.MinimumTrustForAdmissionBypass,
-            MinimumTrustForSystemRole = security.MinimumTrustForSystemRole
+            MinimumTrustForSystemRole = security.MinimumTrustForSystemRole,
+            IncludeDates = security.IncludeDates,
         };
 }

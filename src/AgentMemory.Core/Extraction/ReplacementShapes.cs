@@ -29,12 +29,13 @@ namespace AgentMemory.Core.Extraction;
 /// </remarks>
 internal static partial class ReplacementShapes
 {
-    private static readonly FrozenDictionary<string, (string State, string? When)> Entailments =
+    private static readonly FrozenDictionary<string, (string State, string? When, FrozenSet<string> From)> Entailments =
         RelationVocabularyDocument.Load().Canonical
             .Where(entry => !string.IsNullOrWhiteSpace(entry.Value.Entails))
             .ToFrozenDictionary(
                 entry => MemoryTripleCanonicalizer.Canonical(entry.Key),
-                entry => (entry.Value.Entails!, entry.Value.EntailsWhen),
+                entry => (entry.Value.Entails!, entry.Value.EntailsWhen,
+                    entry.Value.EntailsFrom.Select(MemoryTripleCanonicalizer.Canonical).ToFrozenSet(StringComparer.Ordinal)),
                 StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> Copulas =
@@ -46,21 +47,37 @@ internal static partial class ReplacementShapes
     /// <summary>The facts to store: ages as <c>age</c>, and each event's entailed state beside it.</summary>
     /// <param name="facts">The extracted facts.</param>
     /// <param name="typeOf">The entity type the extraction resolved a name to, or null when it did not type it.</param>
-    internal static IReadOnlyList<ExtractedFact> Prepare(IReadOnlyList<ExtractedFact> facts, Func<string, string?> typeOf)
+    /// <param name="now">The write's clock: an event dated after it has not happened, and entails nothing yet.</param>
+    internal static IReadOnlyList<ExtractedFact> Prepare(
+        IReadOnlyList<ExtractedFact> facts, Func<string, string?> typeOf, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(facts);
         ArgumentNullException.ThrowIfNull(typeOf);
-        var shaped = facts.Select(AsAge).ToList();
-        var stated = shaped.Select(Key).ToHashSet();
-        foreach (var fact in shaped.ToList())
+        var aged = facts.Select(AsAge).ToList();
+        // The states this extraction states outright, by subject and relation: "I moved to London in 2010; now I live
+        // in Paris" states the residence, and an entailed "lives in London" must not be written over it.
+        var statedStates = aged
+            .Select(fact => (Subject: MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
+                Relation: MemoryRelationLexicon.Default.ResolveStored(fact.Predicate)))
+            .Where(pair => pair.Relation is not null)
+            .ToHashSet();
+        var shaped = new List<ExtractedFact>(aged.Count + 1);
+        foreach (var fact in aged)
         {
+            shaped.Add(fact);
             var relation = MemoryRelationLexicon.Default.ResolveStored(fact.Predicate);
             if (relation is null || !Entailments.TryGetValue(relation, out var entailed)) continue;
+            // Only a completed event entails ("moved to", not "moving to"), and only one that has happened.
+            if (!entailed.From.Contains(MemoryTripleCanonicalizer.Canonical(fact.Predicate))) continue;
+            if (fact.ValidFrom is { } from && from > now) continue;
             // "moved to the analytics team" is not a new home: the entailment holds for the declared kind of object.
             if (entailed.When is { } required &&
                 !string.Equals(typeOf(fact.Object), required, StringComparison.OrdinalIgnoreCase)) continue;
-            var state = fact with { Predicate = entailed.State };
-            if (stated.Add(Key(state))) shaped.Add(state);
+            var subject = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject);
+            if (statedStates.Contains((subject, MemoryTripleCanonicalizer.Canonical(entailed.State)))) continue;
+            statedStates.Add((subject, MemoryTripleCanonicalizer.Canonical(entailed.State)));
+            // Right after its event, so it is written in the order the conversation implies.
+            shaped.Add(fact with { Predicate = entailed.State });
         }
         return shaped;
     }

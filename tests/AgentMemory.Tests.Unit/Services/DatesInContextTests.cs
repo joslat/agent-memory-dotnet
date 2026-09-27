@@ -31,7 +31,7 @@ public sealed class DatesInContextTests
     [InlineData("2024-03", DatePrecision.Month)]
     [InlineData("2024-03-12", DatePrecision.Day)]
     [InlineData("2024-03-12T17:00:00Z", DatePrecision.Instant)]
-    [InlineData("March 12, 2024", DatePrecision.Day)]
+    [InlineData("March 12, 2024", DatePrecision.Unspecified)]
     public void The_parser_keeps_how_precisely_a_date_was_written(string raw, DatePrecision expected)
     {
         PeriodDateConverter.ParseWithPrecision(raw, PeriodEdge.Start)!.Value.Precision.Should().Be(expected);
@@ -214,5 +214,29 @@ public sealed class DatesInContextTests
         ExtractionPromptSemantics.TemporalValidityInstruction(TemporalValidityMode.Extract)
             .Should().Contain("only as precisely as it was stated").And.Contain("\"2024-03\" for \"in March 2024\"");
         ExtractionPromptSemantics.TemporalValidityInstruction(TemporalValidityMode.Ignore).Should().BeEmpty();
+    }
+
+    /// <summary>36.1 review: the conflict and supersession blocks print a date at its precision too.</summary>
+    [Fact]
+    public void The_projection_blocks_print_dates_at_their_precision()
+    {
+        var fact = new Fact
+        {
+            FactId = "f", Subject = "Nadia", Predicate = "lives in", Object = "Lyon", Confidence = 1, CreatedAtUtc = T0,
+            ValidFrom = March2024, ValidFromPrecision = DatePrecision.Month,
+        };
+        AgentMemory.Core.Services.Projection.ConflictProjectionFeature.Describe(fact).Should().Be("Lyon (2024-03)");
+
+        var chain = new[] { new SupersededFact("Hamburg", T0, EndJune2027) { ValidUntilPrecision = DatePrecision.Month } };
+        AgentMemory.Core.Services.Projection.SupersessionProjectionFeature.Render(chain).Should().Contain("since 2027-06;");
+    }
+
+    /// <summary>36.3 review: the fact extractor is told that someone else's taste is a fact about them.</summary>
+    [Fact]
+    public void The_fact_extractor_carries_the_own_preferences_instruction()
+    {
+        LlmFactExtractor.BuildSystemPrompt(AssistantContentMode.Ignore, TemporalValidityMode.Ignore, ExtractionProvenanceMode.Batch,
+                ownPreferencesOnly: true)
+            .Should().Contain("A preference is the user's own taste");
     }
 }

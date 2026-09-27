@@ -192,10 +192,11 @@ internal abstract partial class PeriodDateConverter(PeriodEdge edge, string fiel
                 Dropped(field, "ambiguous_precision");
                 return null;
             }
-            // Free text with a time of day names an instant; without one, a day (a START only, above).
+            // Free text with a time of day names an instant; without one it cannot say how long a period it names
+            // ("August 2026" and "1 August 2026" parse alike), so its precision is not recorded.
             return new PeriodDate(
                 instant.ToUniversalTime(),
-                text.Contains(':', StringComparison.Ordinal) ? DatePrecision.Instant : DatePrecision.Day);
+                text.Contains(':', StringComparison.Ordinal) ? DatePrecision.Instant : DatePrecision.Unspecified);
         }
 
         Dropped(field, "unparseable");

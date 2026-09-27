@@ -43,8 +43,17 @@ internal static class Corrections
             .Where(candidate => relationKeys.Contains(MemoryTripleCanonicalizer.Canonical(candidate.Predicate), StringComparer.Ordinal))
             .ToList();
         if (sameRelation.Count > 0) return sameRelation;
-        return mentioning.Count == 1 ? mentioning : [];
+        // Another relation only when the mention is unambiguous and not a coincidence of one word: the object IS the
+        // value, or the two share at least two words ("half marathon" for "the half marathon in April"), never "6 kg"
+        // for "6" nor "London" for "Google in London".
+        return mentioning.Count == 1 &&
+               (Value(mentioning[0].Object) == value || Math.Min(WordCount(mentioning[0].Object), WordCount(value)) >= 2)
+            ? mentioning
+            : [];
     }
+
+    private static int WordCount(string text) =>
+        Value(text).Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
 
     /// <summary>Whether one of <paramref name="text"/> and <paramref name="value"/> contains the other as whole words.</summary>
     private static bool Mentions(string text, string value)

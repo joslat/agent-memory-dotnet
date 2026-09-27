@@ -206,7 +206,6 @@ internal sealed class ExtractionStage : IExtractionStage
         {
             var resolvable = rawEntities
                 .Where(entity =>
-                    !PersistenceStage.UserNames.IsSelf(entity.Name) &&
                     entity.Confidence >= _options.MinConfidenceThreshold &&
                     EntityValidator.IsValid(entity, _options.Validation))
                 .ToArray();
@@ -229,16 +228,6 @@ internal sealed class ExtractionStage : IExtractionStage
         var resolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
         foreach (var extracted in rawEntities)
         {
-            // 36.6 (D-6). The speaker is not an entity called "user": the prompt calls the speaker "the user", and
-            // the model then lists "user" among the people (found live: a "user" node beside the person's own, with
-            // relationships hanging from it). Not created; a relationship from a self word lands on the person's own
-            // entity when their name is known (I-7), and is skipped otherwise.
-            if (PersistenceStage.UserNames.IsSelf(extracted.Name))
-            {
-                _logger.LogDebug("Skipping entity '{Name}' — it is the speaker, not an entity.", extracted.Name);
-                continue;
-            }
-
             // Confidence-threshold filtering is routine, expected pipeline behavior, not a failure or a
             // meaningful skip -- deliberately NOT recorded as an outcome (#101 acceptance: "important
             // skips", not every filtered candidate).

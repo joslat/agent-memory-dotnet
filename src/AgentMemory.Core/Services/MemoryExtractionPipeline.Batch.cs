@@ -61,12 +61,12 @@ internal sealed partial class MemoryExtractionPipeline
             var sw = Stopwatch.StartNew();
             // The same resolution as the single path (G-15: a shared request resolves against shared rows only).
             var (scope, ownerId) = ResolveTarget(request, nameof(ExtractBatchAsync));
-            var staged = await _extractionStage.ProcessUnifiedAsync(
+            var staged = WithoutSharedPreferences(request, await _extractionStage.ProcessUnifiedAsync(
                 request.Messages,
                 extracted,
                 request.TypesToExtract,
                 scope,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false));
 
             var trustLevel = request.TrustLevel ?? _options.DefaultTrustLevel;
             var result = await _persistenceStage.PersistAsync(

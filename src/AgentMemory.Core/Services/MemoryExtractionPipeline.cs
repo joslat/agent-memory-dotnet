@@ -103,6 +103,18 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
             _isolationPolicy.ResolveWriteOwner(null, operation, MemoryOperationAccess.Administrative));
     }
 
+    /// <summary>
+    /// 36.3. Shared knowledge has no user, so nothing it states is the user's preference: a book's "Alice does not like
+    /// raw eggs" extracted as a preference rendered, for every person, as their own taste. Its facts are kept; its
+    /// preferences are not stored. Both extraction paths (single and batch) go through here.
+    /// </summary>
+    internal static ExtractionStageResult WithoutSharedPreferences(ExtractionRequest request, ExtractionStageResult staged)
+    {
+        if (!request.ShareWithEveryone || staged.FilteredPreferences.Count == 0) return staged;
+        Activity.Current?.SetTag("memory.extract.shared_preferences_dropped", staged.FilteredPreferences.Count);
+        return staged with { FilteredPreferences = Array.Empty<ExtractedPreference>() };
+    }
+
     /// <summary>A shared request belongs to no one: a UserId contradicts it.</summary>
     private static void ValidateShared(ExtractionRequest request)
     {
@@ -145,14 +157,7 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
                 new ExtractionWindow { Targets = request.Messages, Context = request.ContextMessages },
                 request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
 
-        // 36.3. Shared knowledge has no user, so nothing it states is the user's preference: a book's
-        // "Alice does not like raw eggs" extracted as a preference rendered, for every person, as
-        // their own taste. Its facts are kept; its preferences are not stored.
-        if (request.ShareWithEveryone && staged.FilteredPreferences.Count > 0)
-        {
-            Activity.Current?.SetTag("memory.extract.shared_preferences_dropped", staged.FilteredPreferences.Count);
-            staged = staged with { FilteredPreferences = Array.Empty<ExtractedPreference>() };
-        }
+        staged = WithoutSharedPreferences(request, staged);
 
         // #92 Phase 3: a per-request TrustLevel override wins; otherwise fall back to the configured default.
         var trustLevel = request.TrustLevel ?? _options.DefaultTrustLevel;

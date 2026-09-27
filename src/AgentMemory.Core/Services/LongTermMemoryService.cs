@@ -76,8 +76,17 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     /// </summary>
     internal static bool SplitsShared(int? sharedRecallBudget, MemoryScope? resolved) =>
         sharedRecallBudget is not null &&
-        resolved is { OwnerId: not null, IncludeShared: true } &&
+        resolved is { HasOwnerFilter: true, IncludeShared: true } &&
         !SharedScopes.IsSharedOnly(resolved);
+
+    /// <summary>
+    /// 36.3. The scope the reads beside the vector search (predicate expansion, derived facts) use: the owner's own
+    /// rows when shared memory has its own budget, so they cannot hand the shared corpus back the slots the budget
+    /// took from it; otherwise the scope as it is.
+    /// </summary>
+    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(resolved))]
+    private MemoryScope? OwnRowsWhenSplit(MemoryScope? resolved) =>
+        SplitsShared(_sharedRecallBudget, resolved) ? resolved! with { IncludeShared = false } : resolved;
 
     /// <summary>
     /// 36.3. One vector search, run as two when shared memory has its own budget: the owner's own rows at
@@ -721,7 +730,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         // measured as the read side under-delivering by 8 facts/question, and as the accountant
         // still costing 10 points against not using it at all.
         var expanded = await _factRepo.SearchByCanonicalPredicatesAsync(
-            predicates, expansionLimit, resolved, cancellationToken, priorityPredicates,
+            predicates, expansionLimit, OwnRowsWhenSplit(resolved), cancellationToken, priorityPredicates,
             excludeDerived: maxDerivedFacts is not null)
             .ConfigureAwait(false);
 
@@ -782,7 +791,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         if (maxDerivedFacts is not > 0) return facts;
 
         var derived = await _factRepo.SearchByVectorAsync(
-                queryEmbedding, maxDerivedFacts.Value, minScore, resolved,
+                queryEmbedding, maxDerivedFacts.Value, minScore, OwnRowsWhenSplit(resolved),
                 DerivedFactMode.Only, cancellationToken)
             .ConfigureAwait(false);
 
@@ -954,7 +963,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         var expanded = await _factRepo.SearchByCanonicalPredicatesAsOfAsync(
                 ExpansionPredicates(top, questionRelations),
                 expansionLimit,
-                resolved,
+                OwnRowsWhenSplit(resolved),
                 asOf,
                 systemClock,
                 cancellationToken,

@@ -67,10 +67,25 @@ internal static class MemoryRelationCardinality
         // accumulate beside "lives in" and the two would both be live, which is the accumulation this
         // exists to stop.
         var resolved = MemoryRelationLexicon.Default.ResolveStored(canonical);
-        if (resolved is not null && SingleValued.Value.Contains(resolved)) return resolved;
+        if (resolved is not null && SingleValued.Value.Contains(resolved))
+        {
+            // 36.4 review. A relation that declares its present forms is single-valued only in them: "worked at" and
+            // "used to work in" are history, and must neither replace the current employer nor be replaced by it.
+            // Without a declaration, the relation's other forms keep the pre-existing behaviour (their own key only).
+            var present = PresentForms.Value.TryGetValue(resolved, out var forms) ? forms : null;
+            return present is null || present.Contains(canonical) ? resolved : null;
+        }
 
         return PrefixRelation(canonical);
     }
+
+    private static readonly Lazy<Dictionary<string, HashSet<string>>> PresentForms = new(() =>
+        RelationVocabularyDocument.Load().Canonical
+            .Where(entry => entry.Value.PresentForms.Count > 0)
+            .ToDictionary(
+                entry => MemoryTripleCanonicalizer.Canonical(entry.Key),
+                entry => entry.Value.PresentForms.Select(MemoryTripleCanonicalizer.Canonical).ToHashSet(StringComparer.Ordinal),
+                StringComparer.Ordinal));
 
     /// <summary>
     /// A predicate naming a prefix-declared relation, as that relation: "favourite band", "has favourite band",
@@ -80,8 +95,14 @@ internal static class MemoryRelationCardinality
     {
         var words = canonical.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
         if (words.Count > 0 && words[0] is "has" or "is" or "my") words.RemoveAt(0);
-        if (words.Count > 0 && words[^1] is "is" or "are") words.RemoveAt(words.Count - 1);
+        // 36.4 review. "favourite bands are" holds several values: a plural is not a single-valued relation.
+        if (words.Count > 0 && words[^1] == "are") return null;
+        if (words.Count > 0 && words[^1] == "is") words.RemoveAt(words.Count - 1);
         if (words.Count < 2) return null;
+        var last = words[^1];
+        if (last.Length > 3 && last.EndsWith('s') && !last.EndsWith("ss", StringComparison.Ordinal) &&
+            !last.EndsWith("us", StringComparison.Ordinal) && !last.EndsWith("is", StringComparison.Ordinal))
+            return null;
         var prefix = SingleValuedPrefixes.Value.FirstOrDefault(p => string.Equals(p, words[0], StringComparison.Ordinal));
         return prefix is null ? null : string.Join(' ', [SingleValuedPrefixes.Value[0], .. words.Skip(1)]);
     }
@@ -110,7 +131,9 @@ internal static class MemoryRelationCardinality
         if (relation is null) return canonical.Length == 0 ? [] : [canonical];
         var forms = PrefixRelation(canonical) is not null
             ? PrefixForms(relation)
-            : MemoryRelationLexicon.Default.StoredFormsOf(relation);
+            : PresentForms.Value.TryGetValue(relation, out var present)
+                ? present
+                : (IEnumerable<string>)[canonical];
         return [.. forms.Append(canonical).Distinct(StringComparer.Ordinal)];
     }
 

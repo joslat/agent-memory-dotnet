@@ -39,4 +39,11 @@ public sealed class MemoryRecallSecurityOptions
     /// resurfacing with that role unchanged.
     /// </summary>
     public MemoryTrustLevel MinimumTrustForSystemRole { get; set; } = MemoryTrustLevel.Untrusted;
+
+    /// <summary>
+    /// 36.1. Render what memory knows about when: a fact's validity dates at the precision they were stated, and the
+    /// day of a recalled turn from another session. Default false: the rendering is byte-for-byte what it was. The
+    /// Agent Framework surface's twin is <c>ContextFormatOptions.IncludeDates</c>.
+    /// </summary>
+    public bool IncludeDates { get; set; }
 }

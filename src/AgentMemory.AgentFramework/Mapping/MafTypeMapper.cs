@@ -348,13 +348,13 @@ internal static class MafTypeMapper
             memory.AddRange(CategoryMessages("facts", sharedFacts, DescribeFact,
                 f => f.Metadata.GetTrustLevel(), $"Facts ({SharedKnowledge.Label}): ", "; ", f => f.FactId));
 
-        if (options.IncludeEntities && sharedRelationships.Count > 0)
-            memory.AddRange(CategoryMessages("relationships", sharedRelationships, SharedKnowledge.Describe,
-                r => r.Relationship.Metadata.GetTrustLevel(), $"Relationships ({SharedKnowledge.Label}): ", "; ", r => r.Relationship.RelationshipId));
-
         if (options.IncludePreferences && sharedPreferences.Count > 0)
             memory.AddRange(CategoryMessages("preferences", sharedPreferences, p => p.PreferenceText,
                 p => p.Metadata.GetTrustLevel(), $"Preferences ({SharedKnowledge.Label}): ", "; ", p => p.PreferenceId));
+
+        if (options.IncludeEntities && sharedRelationships.Count > 0)
+            memory.AddRange(CategoryMessages("relationships", sharedRelationships, SharedKnowledge.Describe,
+                r => r.Relationship.Metadata.GetTrustLevel(), $"Relationships ({SharedKnowledge.Label}): ", "; ", r => r.Relationship.RelationshipId));
 
         // A trace's Task is what was attempted; its Outcome is what happened -- and on a REPEATED task
         // the Task text is something the agent already has, so rendering it alone tells the model it has

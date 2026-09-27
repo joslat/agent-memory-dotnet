@@ -102,14 +102,20 @@ internal static class MemoryContextFormatter
         var (ownRelationships, sharedRelationships) = SharedKnowledge.Split(ctx, ctx.RelevantRelationships.Items, r => r.Relationship.OwnerId);
         AppendCategory(sb, "relationships", "### Relationships", ownRelationships, r => "- " + SharedKnowledge.Describe(r),
             r => r.Relationship.Metadata.GetTrustLevel(), opts, logger, projection, r => r.Relationship.RelationshipId);
-        AppendCategory(sb, "entities", $"### Entities ({SharedKnowledge.Label})", sharedEntities, DescribeEntity,
-            e => e.Metadata.GetTrustLevel(), opts, logger, projection, e => e.EntityId);
-        AppendCategory(sb, "facts", $"### Facts ({SharedKnowledge.Label})", sharedFacts, DescribeFact,
-            f => f.Metadata.GetTrustLevel(), opts, logger, projection, f => f.FactId);
-        AppendCategory(sb, "preferences", $"### Preferences ({SharedKnowledge.Label})", sharedPreferences, DescribePreference,
-            p => p.Metadata.GetTrustLevel(), opts, logger, projection, p => p.PreferenceId);
-        AppendCategory(sb, "relationships", $"### Relationships ({SharedKnowledge.Label})", sharedRelationships, r => "- " + SharedKnowledge.Describe(r),
-            r => r.Relationship.Metadata.GetTrustLevel(), opts, logger, projection, r => r.Relationship.RelationshipId);
+        // The shared sections carry no projection: a section's preamble ("nothing here matched", a conflict) belongs
+        // to the person's own section and is said once, and an empty shared section is not rendered at all.
+        if (sharedEntities.Count > 0)
+            AppendCategory(sb, "entities", $"### Entities ({SharedKnowledge.Label})", sharedEntities, DescribeEntity,
+                e => e.Metadata.GetTrustLevel(), opts, logger);
+        if (sharedFacts.Count > 0)
+            AppendCategory(sb, "facts", $"### Facts ({SharedKnowledge.Label})", sharedFacts, DescribeFact,
+                f => f.Metadata.GetTrustLevel(), opts, logger);
+        if (sharedPreferences.Count > 0)
+            AppendCategory(sb, "preferences", $"### Preferences ({SharedKnowledge.Label})", sharedPreferences, DescribePreference,
+                p => p.Metadata.GetTrustLevel(), opts, logger);
+        if (sharedRelationships.Count > 0)
+            AppendCategory(sb, "relationships", $"### Relationships ({SharedKnowledge.Label})", sharedRelationships, r => "- " + SharedKnowledge.Describe(r),
+                r => r.Relationship.Metadata.GetTrustLevel(), opts, logger);
         // Procedural memory was invisible on this formatter, and therefore invisible to Semantic
         // Kernel and to every consumer using Core directly -- while a trace vector search ran on each
         // recall and its results were counted into TotalItemsRetrieved. The tier shipped, was tested

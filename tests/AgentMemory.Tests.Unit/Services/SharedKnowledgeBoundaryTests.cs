@@ -294,4 +294,72 @@ public sealed class SharedKnowledgeBoundaryTests
 
         resolved.EntityId.Should().Be("book-rabbit");
     }
+
+    // ── Review round 1 ───────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Off_the_core_formatter_adds_no_shared_section_even_with_a_projection_preamble()
+    {
+        var projection = new AgentMemory.Abstractions.Domain.ProjectedContext
+        {
+            Blocks = [new AgentMemory.Abstractions.Domain.ProjectedBlock(
+                AgentMemory.Abstractions.Domain.ProjectedBlockKind.NoDirectMatch, "facts", "No stored item directly matches.")],
+        };
+        var context = Context(separated: false) with { Projection = projection };
+
+        var text = MemoryContextFormatter.FormatRecallResult(new RecallResult { Context = context, TotalItemsRetrieved = 4 });
+
+        text.Should().NotContain(SharedKnowledge.Label);
+        System.Text.RegularExpressions.Regex.Matches(text, "No stored item directly matches").Count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task The_batch_path_drops_shared_preferences_too()
+    {
+        var staged = new AgentMemory.Core.Extraction.ExtractionStageResult
+        {
+            FilteredPreferences = [new ExtractedPreference { Category = "food", PreferenceText = "Alice does not like raw eggs" }],
+        };
+
+        MemoryExtractionPipeline.WithoutSharedPreferences(new ExtractionRequest { SessionId = "s", Messages = [], ShareWithEveryone = true }, staged)
+            .FilteredPreferences.Should().BeEmpty();
+        MemoryExtractionPipeline.WithoutSharedPreferences(new ExtractionRequest { SessionId = "s", Messages = [] }, staged)
+            .FilteredPreferences.Should().ContainSingle();
+        var batch = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "src", "AgentMemory.Core", "Services", "MemoryExtractionPipeline.Batch.cs"));
+        batch.Should().Contain("WithoutSharedPreferences(", "both extraction paths drop them");
+    }
+
+    private static string RepositoryRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "AgentMemory.slnx"))) dir = dir.Parent;
+        return dir!.FullName;
+    }
+
+    [Fact]
+    public async Task With_a_shared_budget_expansion_reads_the_owners_own_rows_only()
+    {
+        var (service, facts, _, _) = Service(sharedBudget: 3);
+        facts.SearchByCanonicalPredicatesAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<int>(), Arg.Any<MemoryScope>(),
+                Arg.Any<CancellationToken>(), Arg.Any<IReadOnlyList<string>?>(), Arg.Any<bool>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
+
+        await service.SearchFactsAsync(new float[4], 10, 0.7, MemoryScope.For("u1"), expandByPredicate: true, expansionLimit: 60,
+            questionRelations: ["lives in"], CancellationToken.None);
+
+        await facts.Received(1).SearchByCanonicalPredicatesAsync(Arg.Any<IReadOnlyList<string>>(), 60,
+            Arg.Is<MemoryScope>(s => s.OwnerId == "u1" && !s.IncludeShared), Arg.Any<CancellationToken>(),
+            Arg.Any<IReadOnlyList<string>?>(), Arg.Any<bool>());
+    }
+
+    [Fact]
+    public async Task An_empty_owner_is_no_owner_and_splits_nothing()
+    {
+        var (service, facts, _, _) = Service(sharedBudget: 3);
+
+        await service.SearchFactsAsync(new float[4], 10, 0.7, new MemoryScope { OwnerId = "", IncludeShared = true });
+
+        await facts.Received(1).SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
 }

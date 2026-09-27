@@ -44,7 +44,13 @@
         "is aged"
       ],
       "cardinality": "single",
-      "cardinalityWhy": "A subject has one current age. 'X is 6 years old' is written as 'X | age | 6' so that 'X is 7 years old' replaces it (the plain 'is' holds many values)."
+      "cardinalityWhy": "A subject has one current age. 'X is 6 years old' is written as 'X | age | 6' so that 'X is 7 years old' replaces it (the plain 'is' holds many values).",
+      "presentForms": [
+        "age",
+        "age is",
+        "aged",
+        "is aged"
+      ]
     },
     "allergic to": {
       "family": "state",
@@ -891,7 +897,18 @@
         "stays in"
       ],
       "cardinality": "single",
-      "cardinalityWhy": "A person has one current residence. 'moved to' is the event that changes it."
+      "cardinalityWhy": "A person has one current residence. 'moved to' is the event that changes it.",
+      "presentForms": [
+        "lives in",
+        "live in",
+        "living in",
+        "lives at",
+        "resides in",
+        "residing in",
+        "resident in",
+        "resident of",
+        "stays in"
+      ]
     },
     "lost": {
       "family": "event",
@@ -957,6 +974,12 @@
       ],
       "entails": "lives in",
       "entailsWhen": "LOCATION",
+      "entailsFrom": [
+        "moved to",
+        "has moved to",
+        "relocated to",
+        "has relocated to"
+      ],
       "entailsWhy": "Moving somewhere is the event that changes where one lives: 'moved to Copenhagen' also states 'lives in Copenhagen', which then replaces the previous residence. Only when the object is a place: 'moved to the analytics team' says nothing about a home."
     },
     "noticed": {
@@ -1670,7 +1693,20 @@
         "works for"
       ],
       "cardinality": "single",
-      "cardinalityWhy": "One current employer. Second jobs exist, but the corpus's 'works at' assertions replace rather than accumulate, and a second employer is expressible as a separate subject-qualified fact."
+      "cardinalityWhy": "One current employer. Second jobs exist, but the corpus's 'works at' assertions replace rather than accumulate, and a second employer is expressible as a separate subject-qualified fact.",
+      "presentForms": [
+        "works at",
+        "work at",
+        "works for",
+        "work for",
+        "working at",
+        "working for",
+        "works in",
+        "employed at",
+        "employed by",
+        "is employed by",
+        "is an employee of"
+      ]
     },
     "works on": {
       "family": "state",

@@ -454,4 +454,12 @@ public sealed class Neo4jTextSearchTests
         },
         TotalItemsRetrieved = 1
     };
+
+    /// <summary>36.1 review: the Semantic Kernel surface can turn dates on; it crosses to the formatter.</summary>
+    [Fact]
+    public void IncludeDates_crosses_to_the_formatter()
+    {
+        new MemoryRecallSecurityOptions { IncludeDates = true }.ToFormatterOptions().IncludeDates.Should().BeTrue();
+        new MemoryRecallSecurityOptions().ToFormatterOptions().IncludeDates.Should().BeFalse();
+    }
 }

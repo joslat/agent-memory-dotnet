@@ -71,7 +71,7 @@ internal sealed class SupersessionProjectionFeature(IFactRepository? facts) : IP
     /// oldest thing in the chain. Where a predecessor was never stamped, the date is simply omitted
     /// rather than guessed: a fabricated date in a temporal cue is worse than no cue.
     /// </remarks>
-    private static string? Render(IReadOnlyList<SupersededFact> chain)
+    internal static string? Render(IReadOnlyList<SupersededFact> chain)
     {
         var newest = chain[0];
         var previous = chain
@@ -81,7 +81,7 @@ internal sealed class SupersessionProjectionFeature(IFactRepository? facts) : IP
         if (previous.Count == 0) return null;
 
         var since = newest.EffectiveDate is { } date
-            ? $"since {date.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}; "
+            ? $"since {FactDates.Format(date, newest.EffectiveDatePrecision)}; "
             : string.Empty;
 
         var earlier = previous.Count == 1

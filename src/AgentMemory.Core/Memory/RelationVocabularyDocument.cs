@@ -70,6 +70,20 @@ internal sealed class RelationVocabularyEntry
     public string? Entails { get; init; }
 
     /// <summary>
+    /// 36.4. The stored forms that state this single-valued relation's CURRENT value, and so replace each other:
+    /// "works for" replaces "works at"; "worked at" (history) and "used to work in" are not listed, so they neither
+    /// replace nor are replaced. Absent, a value replaces only a value stored under its own predicate.
+    /// </summary>
+    [JsonPropertyName("presentForms")]
+    public IReadOnlyList<string> PresentForms { get; init; } = [];
+
+    /// <summary>
+    /// 36.4. The forms of this event that entail <see cref="Entails"/>: "moved to" does, "moving to" (not yet) does not.
+    /// </summary>
+    [JsonPropertyName("entailsFrom")]
+    public IReadOnlyList<string> EntailsFrom { get; init; } = [];
+
+    /// <summary>
     /// The entity type the object must have for <see cref="Entails"/> to hold (<c>LOCATION</c> for "moved to"),
     /// or null for always. An object the extraction did not type does not entail.
     /// </summary>

@@ -830,7 +830,8 @@ internal static class FactQueries
             WITH cur, collect({
                 object: prev.object,
                 invalidated_at: prev.invalidated_at,
-                valid_until: prev.valid_until
+                valid_until: prev.valid_until,
+                valid_until_precision: prev.valid_until_precision
             })[0..$maxChain] AS chain
             RETURN cur.id AS factId, chain";
 

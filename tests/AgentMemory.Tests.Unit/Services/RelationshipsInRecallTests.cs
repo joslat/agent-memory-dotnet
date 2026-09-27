@@ -219,4 +219,45 @@ public sealed class RelationshipsInRecallTests
 
         _ended.Should().BeEmpty();
     }
+
+    // ── Review round 1 ───────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Restating_an_edge_keeps_its_sources_validity_and_description()
+    {
+        var stored = Edge("old-edge", "lives_in", "Lyon") with
+        {
+            SourceMessageIds = ["first-message"], Description = "since the move", ValidFrom = T0.AddYears(-2),
+            ValidUntil = T0.AddYears(1),
+        };
+
+        await Stage(supersede: false, stored).PersistAsync(Says("Oskar", "lives_in", "Lyon"), ownerId: "u1");
+
+        var written = _upserted.Should().ContainSingle().Subject;
+        written.RelationshipId.Should().Be("old-edge");
+        written.SourceMessageIds.Should().Contain("first-message");
+        written.Description.Should().Be("since the move");
+        written.ValidFrom.Should().Be(T0.AddYears(-2));
+        written.ValidUntil.Should().Be(T0.AddYears(1));
+    }
+
+    [Fact]
+    public async Task A_replacement_that_failed_to_store_ends_nothing()
+    {
+        var stage = Stage(supersede: true, Edge("hamburg", "lives_in", "Hamburg"));
+        _relationships.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())
+            .Returns<Task<Relationship>>(_ => throw new InvalidOperationException("write failed"));
+
+        await stage.PersistAsync(Says("Oskar", "lives_in", "Copenhagen"), ownerId: "u1");
+
+        _ended.Should().BeEmpty("the person must not be left with no residence");
+    }
+
+    [Fact]
+    public async Task A_history_form_ends_no_current_edge()
+    {
+        await Stage(supersede: true, Edge("meta", "works_at", "Meta")).PersistAsync(Says("Oskar", "worked_at", "Google"), ownerId: "u1");
+
+        _ended.Should().BeEmpty();
+    }
 }

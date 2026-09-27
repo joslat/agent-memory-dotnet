@@ -1136,7 +1136,11 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                             : null,
                         entry.TryGetValue("valid_until", out var vu)
                             ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
-                            : null))
+                            : null)
+                    {
+                        ValidUntilPrecision = DatePrecisionProperty.FromStored(
+                            entry.TryGetValue("valid_until_precision", out var vup) ? vup as string : null),
+                    })
                     .ToList();
 
                 if (chain.Count > 0) result[factId] = chain;

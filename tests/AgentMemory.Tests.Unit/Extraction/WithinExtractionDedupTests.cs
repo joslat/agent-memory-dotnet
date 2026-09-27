@@ -193,4 +193,38 @@ public sealed class WithinExtractionDedupTests
 
         await _facts.Received(1).SupersedeAsync("finance", Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
+
+    /// <summary>36.6 (D-6, review): the speaker is stored as an entity only until their name is known.</summary>
+    [Fact]
+    public async Task The_speaker_is_not_stored_as_an_entity_once_their_name_is_known()
+    {
+        var entities = Substitute.For<IEntityRepository>();
+        var written = new List<string>();
+        entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { written.Add(ci.Arg<Entity>().Name); return Task.FromResult(ci.Arg<Entity>()); });
+        _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
+        var clock = Substitute.For<IClock>();
+        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-09-26T00:00:00Z"));
+        var ids = Substitute.For<IIdGenerator>();
+        ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
+        var stage = new PersistenceStage(Substitute.For<IEmbeddingOrchestrator>(), entities, _facts, Substitute.For<IPreferenceRepository>(),
+            Substitute.For<IRelationshipRepository>(), clock, ids, NullLogger<PersistenceStage>.Instance,
+            new PassThroughMemoryPersistenceTransaction(),
+            Options.Create(new ExtractionOptions { EnableBatchMemoryUpserts = false }));
+        Entity E(string name) => new() { EntityId = name, Name = name, Type = "PERSON", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+        ExtractionStageResult With(params ExtractedFact[] facts) => new()
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["user"] = E("user"), ["Carmen"] = E("Carmen") },
+            FilteredFacts = facts,
+        };
+
+        await stage.PersistAsync(With(
+            new ExtractedFact { Subject = "user", Predicate = "is named", Object = "Rosa", Confidence = 1 },
+            new ExtractedFact { Subject = "user", Predicate = "works as", Object = "architect", Confidence = 1 }), ownerId: "owner-1");
+        written.Should().Equal(["Carmen"], "the name is known in this extraction");
+
+        written.Clear();
+        await stage.PersistAsync(With(new ExtractedFact { Subject = "Carmen", Predicate = "teaches", Object = "maths", Confidence = 1 }), ownerId: "owner-1");
+        written.Should().BeEquivalentTo(["user", "Carmen"], "no name known: stored as before, so nothing hanging from it is lost");
+    }
 }

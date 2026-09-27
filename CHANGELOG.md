@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`SupersededFact.ValidUntilPrecision`** (and `EffectiveDatePrecision`), so a predecessor's end prints at the
+  precision it was stated.
+
 - **`RecallOptions.MaxRelationships`: how the recalled people and things relate reaches the agent.** The live
   relationships touching the recalled entities are read in one query (`IRelationshipRepository.GetLiveAmongAsync`,
   `ILongTermMemoryService.GetRelationshipsAmongAsync`, both names included, as `RecalledRelationship`) and rendered
@@ -33,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `valid_from_precision` / `valid_until_precision` on every fact write path); the extractor records it, because only
   the parser can tell "2024-03" from "2024-03-01". With the new `IncludeDates` switch
   (`ContextFormatOptions` / `AgentFrameworkOptions.ContextFormat`, and `WorkingMemoryOptions` for the profile block)
-  relevant facts render their dates by one rule (`Rosa moved to Lyon (since 2024-03)`, `(until 2027-06)`,
+  relevant facts render their dates by one rule (the conflict and supersession blocks too; Semantic Kernel through
+  `MemoryRecallSecurityOptions.IncludeDates`) (`Rosa moved to Lyon (since 2024-03)`, `(until 2027-06)`,
   `(2024 to 2027)`, `(on 2026-09-26)`), and a recalled turn from another session carries the day it was said
   (`[2026-09-20] I went hiking yesterday.`). Found in simulated conversations: the date of a move was extracted and
   stored, and the agent answered "I don't have the date", because relevant facts rendered as `subject predicate
@@ -47,9 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared items are relevant by score, just not about the person); separate budgets do: own top k plus shared top n
   cut shared items per question from 7.6 to 3.0 with every answer kept or better, on every model tested. When set,
   an owner's recall that includes shared memory searches its own rows and the shared rows separately (live,
-  point-in-time and fan-out legs alike), and `MemoryContext.SeparatesSharedKnowledge` tells the renderers, which
-  then show owner-less entities, facts and preferences under a "shared knowledge, not about the user" label instead
-  of "Known facts" / "User preferences". Null (the default) keeps one budget and renders as before.
+  point-in-time and fan-out legs alike; predicate expansion and derived facts read the owner's own rows), and
+  `MemoryContext.SeparatesSharedKnowledge` tells the renderers, which then show owner-less entities, facts and
+  preferences under a "shared knowledge, not about the user" label instead of "Known facts" / "User preferences".
+  A long-term search called directly then returns up to its limit of own rows plus up to the budget of shared ones.
+  Null (the default) keeps one budget and renders as before.
 - **`LlmExtractionOptions.OwnPreferencesOnly`: a preference is the user's own stated taste.** Every extractor is
   told that someone else's taste ("my brother hates cilantro", a character who "does not like raw eggs") is a fact
   about that person and that a request ("recommend some music") is not a preference. Found live: a taught book's
@@ -231,37 +237,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **A relationship said again is the edge already stored, and a single-valued relation ends its previous edge.**
-  Extraction reuses the id of the live edge with the same source, relation and target, so "lives in Lyon" stated
-  twice is one edge (it was two: the store merges on id and every extracted relationship had a fresh one). With
+  Extraction reuses the live edge with the same source, relation and target, so "lives in Lyon" stated twice is one
+  edge (it was two: the store merges on id and every extracted relationship had a fresh one); the restatement keeps
+  the stored edge's sources (adding its own), validity, description and attributes. With
   `SupersedeReplacedFacts`, a new edge of a single-valued relation ends the previous one from the same source,
-  whatever form it was stored under ("lives_in Copenhagen" ends "lives_in Hamburg"; "employed_by" a new firm ends
-  "works_at" the old one). Found in simulated conversations: the facts were replaced and both residence edges stayed.
+  in any of its present-state forms ("lives_in Copenhagen" ends "lives_in Hamburg"; "employed_by" a new firm ends
+  "works_at" the old one), and only once the new edge is stored. Found in simulated conversations: the facts were
+  replaced and both residence edges stayed.
 - **`favourite <thing>` is one relation however it is written**: "has favourite band", "favourite band is" and
   "favorite band" are replaced by a new favourite band.
-- **A marked correction closes the fact it names, conservatively**: among the live facts of the subject that mention
-  the replaced value (either containing the other, as whole words), those stating the new fact's relation; failing
-  that, the one fact that mentions it, only if it is the only one. So "works for a wind energy firm, replaces the
-  shipping company" closes "works at a shipping company" and leaves "left the shipping company" (a true event).
+- **A marked correction closes the fact it names, conservatively, before supersession runs**: among the live facts of
+  the subject that mention the replaced value (either containing the other, as whole words), those stating the new
+  fact's relation; failing that, the one fact that mentions it, only if it is the only one and the mention is more
+  than one coincidental word. So "works for a wind energy firm, replaces the shipping company" closes "works at a
+  shipping company" and leaves "left the shipping company" (a true event), and "age 7, replaces 6" never closes
+  "weighs 6 kg". A correction on a shared write closes shared facts (it closed nothing before).
 
-- **The speaker is never an entity.** Extraction no longer resolves or stores an entity named "user" (or "the
-  user", "I", "me", "myself"): the prompt calls the speaker "the user", and the model listed "user" among the people,
-  so a "user" node stood beside the person's own with relationships hanging from it. A relationship from a self word
-  lands on the person's own entity when their name is known (`ResolveUserToName`), and is skipped otherwise.
+- **The speaker is not an entity once their name is known.** With `ResolveUserToName` (on by default), an entity
+  named "user" (or "the user", "I", "me", "myself") is not stored once the user's name is known, and a relationship
+  from a self word lands on the person's own entity: the prompt calls the speaker "the user", and the model listed
+  "user" among the people, so a "user" node stood beside the person's own. Until the name is known it is stored as
+  before, so no relationship hanging from it is lost.
 - **A question's presupposition is not a statement** (`IgnoreQuestions`, on by default): the instruction now says
   that what a question takes for granted is not stated either ("When did I move to Lyon?" was stored as a move).
 
 - **Write-time supersession recognises a change of mind stated in other words** (with `SupersedeReplacedFacts`):
-  - a new value replaces **every stored form** of its relation, not only its own predicate: "works for" replaces
-    "works at", "lives in" replaces "lived in";
+  - a new value replaces **every present-state form** of its relation, not only its own predicate: "works for"
+    replaces "works at", "employed by" replaces "works for". The forms are declared in the vocabulary
+    (`presentForms`); history forms ("worked at", "used to work in", "lived in") neither replace the current value
+    nor are replaced by it;
   - a stated **age** is written as the single-valued `age` relation ("Bruno is 7 years old" replaces "6 years
     old"; a bare number after "is" is left alone);
-  - **`favourite <thing>`** is single-valued per thing;
+  - **`favourite <thing>`** is single-valued per thing (a plural, "favourite bands are", is not);
   - an **event states the state it entails** when the vocabulary declares it: "moved to Copenhagen" also writes "lives
-    in Copenhagen", which replaces the previous residence, and only when the object is a place ("moved to the
-    analytics team" states no home);
+    in Copenhagen", which replaces the previous residence; only from a completed form ("moved to", not "moving to"),
+    for an event that has happened, when the object is a place ("moved to the analytics team" states no home), and
+    never over a state the same turn states ("I moved to London in 2010; now I live in Paris");
   - a value whose validity has **already ended** ("worked at Google until 2019") no longer replaces the current one.
 
-- **A shared write (`ExtractionRequest.ShareWithEveryone`) stores no preferences.** Shared knowledge has no user,
+- **A shared write (`ExtractionRequest.ShareWithEveryone`) stores no preferences** (single and batch extraction). Shared knowledge has no user,
   so nothing it states is the user's taste; its facts are kept. The dropped count is tagged on the extraction
   span (`memory.extract.shared_preferences_dropped`).
 - **An owner's mention joins a shared entity by exact name or alias only.** Fuzzy, partial-name and semantic

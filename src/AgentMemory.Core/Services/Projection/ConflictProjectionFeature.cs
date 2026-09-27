@@ -88,10 +88,12 @@ internal sealed class ConflictProjectionFeature : IProjectionFeature
     }
 
     /// <summary>Value with its date, so the reader can prefer the newer claim rather than guess.</summary>
-    private static string Describe(Fact fact)
+    internal static string Describe(Fact fact)
     {
-        var date = fact.ValidFrom ?? fact.CreatedAtUtc;
-        return $"{fact.Object} ({date.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)})";
+        // 36.1: at the precision it was stated ("2024-03"), never a day nobody said.
+        return fact.ValidFrom is { } from
+            ? $"{fact.Object} ({FactDates.Format(from, fact.ValidFromPrecision)})"
+            : $"{fact.Object} ({FactDates.Format(fact.CreatedAtUtc, DatePrecision.Unspecified)})";
     }
 
     /// <summary>

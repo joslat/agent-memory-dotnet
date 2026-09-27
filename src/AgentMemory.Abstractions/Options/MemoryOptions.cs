@@ -148,7 +148,9 @@ public sealed record MemoryOptions
     /// rows (the usual limit) and once over the shared rows (this limit), and the recalled context says so,
     /// so that renderers label shared items as shared rather than as the person's own. 0 recalls no shared
     /// items. It applies to owner-scoped reads only: an unscoped or single-tenant recall has nothing to
-    /// separate.
+    /// separate. A long-term search called directly (<c>ILongTermMemoryService.SearchFactsAsync</c> and its siblings)
+    /// then returns up to its limit of the owner's rows plus up to this many shared ones, own first; shared rows are
+    /// the ones with no owner. Predicate expansion and derived facts read the owner's own rows only.
     /// </para>
     /// </remarks>
     public int? SharedRecallBudget { get; set; }
