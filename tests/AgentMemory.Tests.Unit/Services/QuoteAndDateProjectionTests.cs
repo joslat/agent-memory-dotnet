@@ -151,6 +151,19 @@ public sealed class QuoteAndDateProjectionTests
     }
 
     [Fact]
+    public async Task AForgottenSourceStillDatesTheFact()
+    {
+        // G-30: forgetting a message hides its words (no quote) but its date says nothing of them.
+        var state = State(DatesOn, MakeFact("f1", "Acme", "m1"));
+        var repo = RepoWith(MakeMessage("m1", "Bob joined Acme.", new DateTimeOffset(2024, 3, 4, 0, 0, 0, TimeSpan.Zero))
+            with { InvalidatedAtUtc = DateTimeOffset.UtcNow });
+
+        await new DateGroundingProjectionFeature(repo).ApplyAsync(state, CancellationToken.None);
+
+        state.Build().Annotations["f1"].SourceDate.Should().Be("2024-03-04");
+    }
+
+    [Fact]
     public async Task TheSourceTimestampMetadataWinsOverTheStorageTimestamp()
     {
         // A corpus ingested in one afternoon has storage timestamps that say nothing and source

@@ -93,7 +93,8 @@ public sealed class Neo4jConversationRepositoryListSessionsTests
         calls[0].Cypher.Should().Contain("MATCH (c:Conversation)");
         calls[0].Cypher.Should().Contain("c.session_id AS sessionId");
         calls[0].Cypher.Should().Contain("LIMIT $limit");
-        calls[0].Cypher.Should().Contain("ORDER BY lastActivity IS NULL, lastActivity DESC", "a session with nothing live sorts last (G-30)");
+        calls[0].Cypher.Should().Contain("ORDER BY coalesce(lastActivity, createdAt) DESC",
+            "a session with nothing live sorts by when it was created, never first as a null (G-30)");
     }
 
     // ── Edge cases ──

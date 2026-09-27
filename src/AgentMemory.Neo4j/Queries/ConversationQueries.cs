@@ -51,17 +51,17 @@ internal static class ConversationQueries
     // intent for sessions with zero messages.
     public const string ListSessions = @"
             MATCH (c:Conversation)
-            WITH c.session_id AS sessionId, collect(c) AS conversations
+            WITH c.session_id AS sessionId, collect(c) AS conversations, max(c.created_at) AS createdAt
             OPTIONAL MATCH (c2:Conversation)-[:HAS_MESSAGE]->(m:Message)
             WHERE c2.session_id = sessionId AND m.invalidated_at IS NULL
-            WITH sessionId, SIZE(conversations) AS convCount, m
+            WITH sessionId, SIZE(conversations) AS convCount, createdAt, m
             ORDER BY sessionId, m.timestamp
-            WITH sessionId, convCount, collect(m) AS messages
+            WITH sessionId, convCount, createdAt, collect(m) AS messages
             RETURN sessionId,
                    convCount,
                    SIZE(messages) AS msgCount,
                    CASE WHEN SIZE(messages) > 0 THEN messages[-1].content ELSE null END AS lastPreview,
                    CASE WHEN SIZE(messages) > 0 THEN messages[-1].timestamp ELSE null END AS lastActivity
-            ORDER BY lastActivity IS NULL, lastActivity DESC
+            ORDER BY coalesce(lastActivity, createdAt) DESC
             LIMIT $limit";
 }

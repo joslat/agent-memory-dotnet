@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quotes, session previews) but is kept, with its provenance, for history: as-of reads of times before it was
   forgotten still return it, and `Message.InvalidatedAtUtc` says when it was forgotten (date grounding still reads
   its timestamp). The unscoped message search now over-fetches as the filtered search did and still returns at most
-  `limit`, so forgotten messages never leave it short; a session with nothing live left lists last. The facts learned from it are
+  `limit`, so forgotten messages do not leave it short (unless more than the over-fetch margin of them outrank every
+  live match); a session with nothing live left lists by when it was created. The facts learned from it are
   separate memories and stay. Found live: after forgetting a person and every fact about them, the agent still
   answered from the message that named them. New members have default implementations that throw
   `NotSupportedException` (`IMessageRepository.InvalidateAsync` too), so existing implementations still compile.
@@ -265,6 +266,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The fact that names the user keeps the subject `user`.** With canonical subjects on, an extraction in which
+  "user" resolved to the person the user named ("Hi! I'm Dana") stored the naming fact as `Dana | is named | Dana`,
+  so the name was never found again (it is looked up under `user`) and the user appeared beside themselves as a
+  separate person. Words that mean the user are now renamed only by the user-name rule, never to an entity's name.
 - **One embedding request for a turn's new names, on the path every turn takes.** The batched pre-embedding
   of entity names (one request for all new names instead of one per name) only ran inside the multi-session
   batch pipeline; a single extraction request (every agent turn) never opened the resolution batch it needs,

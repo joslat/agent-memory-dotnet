@@ -187,6 +187,25 @@ public sealed class UserNameResolutionTests
     }
 
     [Fact]
+    public async Task The_naming_fact_keeps_user_even_when_user_resolved_to_the_named_person()
+    {
+        // Found live: "Hi! I'm Dana" resolved the entity "user" into the person "Dana" (alias "user"), and canonical
+        // subjects then stored the naming fact as "Dana | is named | Dana": the name could never be found again, and
+        // the dossier showed Dana beside "you" as someone else.
+        var sut = Sut(resolve: true, canonical: true);
+        var dana = new Entity { EntityId = "entity-dana", Name = "Dana", Type = "PERSON", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+        var extraction = Extraction(F("user", "is named", "Dana"), F("user", "works at", "Northwind")) with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["user"] = dana, ["Dana"] = dana },
+        };
+
+        await sut.PersistAsync(extraction, ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        Stored("is named").Subject.Should().Be("user", "the naming fact is how the name is found again");
+        Stored("works at").Subject.Should().Be("Dana");
+    }
+
+    [Fact]
     public async Task Until_a_name_is_known_nothing_changes()
     {
         await Sut(resolve: true).PersistAsync(Extraction(F("user", "works at", "Northwind")),

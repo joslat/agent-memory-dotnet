@@ -265,7 +265,8 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         var (filterClause, filterParams) = MetadataFilterBuilder.Build(metadataFilters, nodeAlias: "node");
         var hasMetadataFilter = !string.IsNullOrWhiteSpace(filterClause);
         // Unscoped, the index answers first and filters apply after: metadata filters, and forgotten messages
-        // (G-30), which rank first for a question about what was forgotten. Over-fetch so the result is not short.
+        // (G-30), which rank first for a question about what was forgotten. Over-fetch so the result is not short
+        // (unless more than topK - limit forgotten messages outrank every live one).
         var topK = sessionId is null
             ? Math.Max(limit * ScopedOverFetchFactor, limit + ScopedOverFetchFloor)
             : limit;

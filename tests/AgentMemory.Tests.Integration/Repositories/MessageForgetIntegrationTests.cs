@@ -33,13 +33,13 @@ public sealed class MessageForgetIntegrationTests : IAsyncLifetime
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private async Task<(string Session, string Forgotten, string Kept)> SeedAsync()
+    private async Task<(string Session, string Forgotten, string Kept)> SeedAsync(int createdMinutesAgo = 0)
     {
         var session = $"session-{Guid.NewGuid():N}";
         var conversation = await _conversations.UpsertAsync(new Conversation
         {
             ConversationId = $"conv-{Guid.NewGuid():N}", SessionId = session,
-            CreatedAtUtc = DateTimeOffset.UtcNow, UpdatedAtUtc = DateTimeOffset.UtcNow,
+            CreatedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-createdMinutesAgo), UpdatedAtUtc = DateTimeOffset.UtcNow,
         });
         Message M(string id, string text, int minutesAgo) => new()
         {
@@ -169,16 +169,17 @@ public sealed class MessageForgetIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_session_with_everything_forgotten_is_listed_last()
+    public async Task An_old_session_with_everything_forgotten_does_not_jump_to_the_top()
     {
-        var (older, _, _) = await SeedAsync();
-        await Task.Delay(20);
-        var (newer, a, b) = await SeedAsync();
+        // Nothing live leaves no last activity; a null sorted first under DESC and pushed live sessions out.
+        // As in life, a session is created before its messages: the older one an hour ago, the newer 30 minutes ago.
+        var (older, a, b) = await SeedAsync(createdMinutesAgo: 60);
+        var (newer, _, _) = await SeedAsync(createdMinutesAgo: 30);
         await _messages.InvalidateAsync(a);
         await _messages.InvalidateAsync(b);
 
         var sessions = await _conversations.ListSessionsAsync();
 
-        sessions.Select(s => s.SessionId).Should().ContainInOrder(older, newer);
+        sessions.Select(s => s.SessionId).Should().ContainInOrder(newer, older);
     }
 }

@@ -376,9 +376,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         string StoredName(ExtractedFact fact, bool subject)
         {
             var surface = subject ? fact.Subject : fact.Object;
-            return userName is not null && UserNames.MeansUser(fact, subject)
-                ? CanonicalName(userName)
-                : CanonicalName(surface);
+            if (userName is not null && UserNames.MeansUser(fact, subject)) return CanonicalName(userName);
+            // The words that mean the user are never renamed to an entity's name: found live, "user" resolved into
+            // the person "Dana" and canonical subjects stored the naming fact as "Dana | is named | Dana", so the
+            // name could never be found again (it is looked up under "user"). Only the rule above renames them.
+            if (subject && UserNames.IsSelf(surface)) return surface;
+            return CanonicalName(surface);
         }
 
         async Task<(Fact Item, string SourceKey)?> PrepareFactAsync(PreparedFact preparedFact)
