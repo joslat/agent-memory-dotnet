@@ -188,9 +188,13 @@ internal static class MessageQueries
 
     // ── GetByConversationAsync ─────────────────────────────────────────
 
-    /// <summary>Get all messages in a conversation ordered by timestamp.</summary>
+    /// <summary>
+    /// Get all live messages in a conversation ordered by timestamp. Forgotten messages are skipped: retroactive
+    /// conversation extraction reads this, and would otherwise re-learn (and revive) what was forgotten.
+    /// </summary>
     public const string GetByConversation = @"
             MATCH (c:Conversation {id: $conversationId})-[:HAS_MESSAGE]->(m:Message)
+            WHERE m.invalidated_at IS NULL
             RETURN m
             ORDER BY m.timestamp";
 

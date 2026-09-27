@@ -41,6 +41,12 @@ public sealed record Message
     public float[]? Embedding { get; init; }
 
     /// <summary>
+    /// When the message was forgotten (<see cref="AgentMemory.Abstractions.Services.IShortTermMemoryService.InvalidateMessageAsync"/>);
+    /// null while it is live. A forgotten message is kept for history and never recalled or quoted.
+    /// </summary>
+    public DateTimeOffset? InvalidatedAtUtc { get; init; }
+
+    /// <summary>
     /// Tool call identifiers if this message involved tool usage; empty when none (never null), matching the
     /// other collection members on this record.
     /// </summary>

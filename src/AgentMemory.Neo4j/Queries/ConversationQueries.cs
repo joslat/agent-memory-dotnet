@@ -53,7 +53,7 @@ internal static class ConversationQueries
             MATCH (c:Conversation)
             WITH c.session_id AS sessionId, collect(c) AS conversations
             OPTIONAL MATCH (c2:Conversation)-[:HAS_MESSAGE]->(m:Message)
-            WHERE c2.session_id = sessionId
+            WHERE c2.session_id = sessionId AND m.invalidated_at IS NULL
             WITH sessionId, SIZE(conversations) AS convCount, m
             ORDER BY sessionId, m.timestamp
             WITH sessionId, convCount, collect(m) AS messages

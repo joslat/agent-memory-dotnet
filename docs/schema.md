@@ -17,7 +17,7 @@ Compatibility is enforced as a guardrail, not a runtime compatibility layer. `ag
 | Label | Purpose | Notes |
 |---|---|---|
 | `Conversation` | Short-term conversation container | Carries `session_id`, title, metadata, optional `user_id`, and consolidation archive fields. |
-| `Message` | Short-term message | Carries `conversation_id`, `session_id`, role, content, timestamp, metadata, optional embedding. |
+| `Message` | Short-term message | Carries `conversation_id`, `session_id`, role, content, timestamp, metadata, optional embedding, and `invalidated_at` once forgotten (kept for history, never recalled). |
 | `Entity` | Long-term named entity | Supports POLE+O type/subtype, aliases, attributes, location point, embeddings, provenance, owner scope, invalidation. |
 | `Fact` | Long-term subject/predicate/object assertion | MERGE key is `{subject, predicate, object, owner_key}`; carries `owner_id`, `owner_key`, valid-time, transaction-time invalidation, category, provenance. |
 | `Preference` | Long-term preference | Carries category, preference text, context, owner scope, invalidation, provenance, embedding. |

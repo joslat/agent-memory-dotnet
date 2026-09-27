@@ -43,9 +43,10 @@ public interface IShortTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets ALL messages for a session in chronological (oldest-first) order, with no cap. Intended for
+    /// Gets ALL live messages for a session in chronological (oldest-first) order, with no cap. Intended for
     /// whole-session operations such as retroactive extraction, which must see every message — unlike
-    /// <see cref="GetRecentMessagesAsync"/>, which is intentionally capped.
+    /// <see cref="GetRecentMessagesAsync"/>, which is intentionally capped. Forgotten messages
+    /// (<see cref="InvalidateMessageAsync"/>) are skipped, so a re-extraction never re-learns them.
     /// </summary>
     Task<IReadOnlyList<Message>> GetAllSessionMessagesAsync(
         string sessionId,

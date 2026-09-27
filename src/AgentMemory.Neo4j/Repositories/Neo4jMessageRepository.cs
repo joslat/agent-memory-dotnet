@@ -264,7 +264,9 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
 
         var (filterClause, filterParams) = MetadataFilterBuilder.Build(metadataFilters, nodeAlias: "node");
         var hasMetadataFilter = !string.IsNullOrWhiteSpace(filterClause);
-        var topK = sessionId is null && hasMetadataFilter
+        // Unscoped, the index answers first and filters apply after: metadata filters, and forgotten messages
+        // (G-30), which rank first for a question about what was forgotten. Over-fetch so the result is not short.
+        var topK = sessionId is null
             ? Math.Max(limit * ScopedOverFetchFactor, limit + ScopedOverFetchFloor)
             : limit;
         var cypher = MessageQueries.SearchByVector(sessionId is not null, filterClause, topK);
@@ -364,6 +366,9 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
             Role           = properties["role"].As<string>(),
             Content        = properties["content"].As<string>(),
             TimestampUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(properties["timestamp"]),
+            InvalidatedAtUtc = properties.TryGetValue("invalidated_at", out var forgotten) && forgotten is not null
+                                ? Neo4jDateTimeHelper.ReadDateTimeOffset(forgotten)
+                                : null,
             Embedding      = embedding,
             ToolCallIds    = properties.TryGetValue("tool_call_ids", out var tc)
                                 ? tc.As<IList<object>>().Select(v => v.ToString()!).ToList()

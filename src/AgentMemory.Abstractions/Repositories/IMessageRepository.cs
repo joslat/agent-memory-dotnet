@@ -87,11 +87,16 @@ public interface IMessageRepository
     Task<bool> DeleteAsync(string messageId, bool cascade = true, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Forgets a message without deleting it: stamps <c>invalidated_at</c>, so it leaves every recall read
-    /// (recent messages, message search, whole-session reads) but is kept, with its provenance edges, for as-of
-    /// reads of times before it was forgotten. The facts learned from it are separate memories and stay.
-    /// Idempotent (the first time is kept). Returns true when the message exists.
+    /// Forgets a message without deleting it: stamps <c>invalidated_at</c>, so it leaves the recall and read
+    /// paths (recent messages, message search, whole-session and conversation reads, source quotes, session
+    /// previews) but is kept, with its provenance edges, for as-of reads of times before it was forgotten and for
+    /// reads by id (which carry <see cref="Message.InvalidatedAtUtc"/>). The facts learned from it are separate
+    /// memories and stay. Idempotent (the first time is kept). Returns true when the message exists.
     /// </summary>
+    /// <remarks>
+    /// Not owner-checked, like <see cref="DeleteAsync"/>: messages carry no owner. A caller that exposes it to an
+    /// agent or a tenant (an MCP tool) must check the conversation's user first.
+    /// </remarks>
     Task<bool> InvalidateAsync(string messageId, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException(
             "This IMessageRepository implementation cannot forget a message; recall would keep returning it.");

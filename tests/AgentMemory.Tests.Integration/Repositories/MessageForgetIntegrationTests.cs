@@ -20,6 +20,7 @@ public sealed class MessageForgetIntegrationTests : IAsyncLifetime
     private readonly Neo4jIntegrationFixture _fixture;
     private readonly Neo4jConversationRepository _conversations;
     private readonly Neo4jMessageRepository _messages;
+    private string _conversationId = "";
 
     public MessageForgetIntegrationTests(Neo4jIntegrationFixture fixture)
     {
@@ -45,6 +46,7 @@ public sealed class MessageForgetIntegrationTests : IAsyncLifetime
             MessageId = id, ConversationId = conversation.ConversationId, SessionId = session, Role = "user",
             Content = text, TimestampUtc = DateTimeOffset.UtcNow.AddMinutes(-minutesAgo), Embedding = Embedding,
         };
+        _conversationId = conversation.ConversationId;
         await _messages.AddAsync(M("m-forgotten", "My brother Pablo lives in Seville.", 10));
         await _messages.AddAsync(M("m-kept", "My sister Lena lives in Berlin.", 5));
         return (session, "m-forgotten", "m-kept");
@@ -86,5 +88,57 @@ public sealed class MessageForgetIntegrationTests : IAsyncLifetime
         (await _messages.InvalidateAsync(forgotten)).Should().BeTrue();
         (await _messages.InvalidateAsync(forgotten)).Should().BeTrue();
         (await _messages.InvalidateAsync("no-such-message")).Should().BeFalse();
+    }
+
+    // ── G-30 review ─────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task A_forgotten_message_is_not_in_the_conversation_read_and_says_when_it_was_forgotten()
+    {
+        // Retroactive conversation extraction reads the conversation: a forgotten message there is re-learned.
+        var (_, forgotten, kept) = await SeedAsync();
+
+        await _messages.InvalidateAsync(forgotten);
+
+        (await _messages.GetByConversationAsync(_conversationId)).Select(m => m.MessageId).Should().Equal(kept);
+        (await _messages.GetByIdAsync(forgotten))!.InvalidatedAtUtc.Should().NotBeNull();
+        (await _messages.GetByIdAsync(kept))!.InvalidatedAtUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_forgotten_last_message_is_not_the_session_preview()
+    {
+        var (session, _, kept) = await SeedAsync();
+
+        await _messages.InvalidateAsync(kept);   // the newest
+
+        var summary = (await _conversations.ListSessionsAsync()).Single(s => s.SessionId == session);
+        summary.LastMessagePreview.Should().Contain("Pablo", "the newest live message is the preview");
+    }
+
+    [Fact]
+    public async Task The_search_across_sessions_is_not_left_short_by_forgotten_messages()
+    {
+        // The forgotten message is the best match, so an index asked for exactly `limit` returned it and one more,
+        // and the filter afterwards left one.
+        var session = $"session-{Guid.NewGuid():N}";
+        var conversation = await _conversations.UpsertAsync(new Conversation
+        {
+            ConversationId = $"conv-{Guid.NewGuid():N}", SessionId = session,
+            CreatedAtUtc = DateTimeOffset.UtcNow, UpdatedAtUtc = DateTimeOffset.UtcNow,
+        });
+        Message M(string id, float[] embedding) => new()
+        {
+            MessageId = id, ConversationId = conversation.ConversationId, SessionId = session, Role = "user",
+            Content = id, TimestampUtc = DateTimeOffset.UtcNow, Embedding = embedding,
+        };
+        await _messages.AddAsync(M("best-forgotten", Embedding));
+        await _messages.AddAsync(M("second", [0.1f, 0.2f, 0.3f, 0.35f]));
+        await _messages.AddAsync(M("third", [0.1f, 0.2f, 0.25f, 0.4f]));
+        await _messages.InvalidateAsync("best-forgotten");
+
+        var results = await _messages.SearchByVectorAsync(Embedding, sessionId: null, limit: 2, minScore: 0.0);
+
+        results.Select(r => r.Message.MessageId).Should().BeEquivalentTo(["second", "third"]);
     }
 }

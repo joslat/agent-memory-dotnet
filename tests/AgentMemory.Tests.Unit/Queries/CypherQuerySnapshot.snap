@@ -85,7 +85,7 @@ MATCH (c:Conversation {session_id: $sessionId})
 MATCH (c:Conversation)
             WITH c.session_id AS sessionId, collect(c) AS conversations
             OPTIONAL MATCH (c2:Conversation)-[:HAS_MESSAGE]->(m:Message)
-            WHERE c2.session_id = sessionId
+            WHERE c2.session_id = sessionId AND m.invalidated_at IS NULL
             WITH sessionId, SIZE(conversations) AS convCount, m
             ORDER BY sessionId, m.timestamp
             WITH sessionId, convCount, collect(m) AS messages
@@ -696,6 +696,7 @@ MATCH (m:Message {session_id: $sessionId})
 
 ## MessageQueries.GetByConversation
 MATCH (c:Conversation {id: $conversationId})-[:HAS_MESSAGE]->(m:Message)
+            WHERE m.invalidated_at IS NULL
             RETURN m
             ORDER BY m.timestamp
 
