@@ -193,9 +193,11 @@ internal static class MafTypeMapper
         static string DescribeEntity(Entity e) =>
             string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}";
 
-        // 30.6: one renderer, both surfaces. Ordinary facts render byte-identically to before.
-        static string DescribeFact(Fact f) =>
-            AgentMemory.Core.Services.DerivedFactRenderer.Append($"{f.Subject} {f.Predicate} {f.Object}", f);
+        // 30.6: one renderer, both surfaces. Ordinary facts render byte-identically to before. 36.1: with
+        // IncludeDates, the fact's validity at the precision it was stated (one rule, FactDates).
+        string DescribeFact(Fact f) =>
+            AgentMemory.Core.Services.DerivedFactRenderer.Append($"{f.Subject} {f.Predicate} {f.Object}", f)
+            + (options.IncludeDates ? FactDates.Suffix(f) : string.Empty);
 
         string DescribeTrace(ReasoningTrace trace) =>
             options.IncludeTraceOutcomes && !string.IsNullOrWhiteSpace(trace.Outcome)
@@ -251,7 +253,12 @@ internal static class MafTypeMapper
             .Select((x, recallIndex) => (Chat: ToChatMessage(x.Message with
             {
                 Role = RecalledMessageRoleGate.EffectiveRole(
-                    x.Message.Role, x.TrustLevel, options.MinimumTrustForSystemRole)
+                    x.Message.Role, x.TrustLevel, options.MinimumTrustForSystemRole),
+                // 36.1. A turn from another session says which day it was said, so its "yesterday" can be
+                // resolved; this session's own turns need no date.
+                Content = options.IncludeDates && !string.Equals(x.Message.SessionId, context.SessionId, StringComparison.Ordinal)
+                    ? FactDates.MessagePrefix(x.Message.TimestampUtc) + x.Message.Content
+                    : x.Message.Content,
             }), At: x.Message.TimestampUtc, RecallIndex: recallIndex))
             .ToList();
 
@@ -284,7 +291,7 @@ internal static class MafTypeMapper
             memory.AddRange(CategoryMessages("due", context.DueFacts.Items,
                 f => $"{f.Subject} {f.Predicate} {f.Object}"
                     + (f.ValidFrom is { } from
-                        ? $" (valid from {from.UtcDateTime:yyyy-MM-dd})"
+                        ? $" (valid from {FactDates.Format(from, f.ValidFromPrecision)})"
                         : string.Empty),
                 f => f.Metadata.GetTrustLevel(), "Due now: ", "; "));
 
@@ -292,7 +299,7 @@ internal static class MafTypeMapper
             memory.AddRange(CategoryMessages("expiring", context.ExpiringFacts.Items,
                 f => $"{f.Subject} {f.Predicate} {f.Object}"
                     + (f.ValidUntil is { } until
-                        ? $" (until {until.UtcDateTime:yyyy-MM-dd})"
+                        ? $" (until {FactDates.Format(until, f.ValidUntilPrecision)})"
                         : string.Empty),
                 f => f.Metadata.GetTrustLevel(), "Expiring soon: ", "; "));
 

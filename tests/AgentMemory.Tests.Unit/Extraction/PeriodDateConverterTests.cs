@@ -176,9 +176,9 @@ public sealed class PeriodDateConverterTests
         dto.Preferences.Should().HaveCount(1);
         var facts = dto.Facts!;
         facts.Should().HaveCount(4);
-        facts[0].ValidFrom.Should().Be(Aug1);
-        facts[1].ValidUntil.Should().Be(new DateTimeOffset(2027, 12, 31, 23, 59, 59, TimeSpan.Zero).AddTicks(9_999_999));
-        facts[2].ValidFrom.Should().Be(new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        facts[0].ValidFrom!.Value.At.Should().Be(Aug1);
+        facts[1].ValidUntil!.Value.At.Should().Be(new DateTimeOffset(2027, 12, 31, 23, 59, 59, TimeSpan.Zero).AddTicks(9_999_999));
+        facts[2].ValidFrom!.Value.At.Should().Be(new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero));
         facts[3].ValidFrom.Should().BeNull("an unreadable date drops only that date, never the fact");
     }
 

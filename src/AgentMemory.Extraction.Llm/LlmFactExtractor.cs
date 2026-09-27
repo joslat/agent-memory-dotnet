@@ -82,8 +82,10 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
                 Predicate = f.Predicate,
                 Object = f.Object,
                 Confidence = f.Confidence,
-                ValidFrom = f.ValidFrom,
-                ValidUntil = f.ValidUntil,
+                ValidFrom = f.ValidFrom?.At,
+                ValidFromPrecision = f.ValidFrom?.Precision ?? DatePrecision.Unspecified,
+                ValidUntil = f.ValidUntil?.At,
+                ValidUntilPrecision = f.ValidUntil?.Precision ?? DatePrecision.Unspecified,
                 SourceRole = f.SourceRole,
                 SourceTurn = f.SourceTurn
             })

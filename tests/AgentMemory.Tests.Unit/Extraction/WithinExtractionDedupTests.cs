@@ -121,7 +121,7 @@ public sealed class WithinExtractionDedupTests
             FilteredFacts =
             [
                 new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics", Confidence = 0.8,
-                    SourceRole = "user", ValidFrom = DateTimeOffset.Parse("2026-09-01T00:00:00Z") },
+                    SourceRole = "user", ValidFrom = DateTimeOffset.Parse("2026-09-01T00:00:00Z"), ValidFromPrecision = DatePrecision.Month },
                 new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics team", Confidence = 0.95,
                     SourceRole = "assistant" },
             ],
@@ -132,6 +132,7 @@ public sealed class WithinExtractionDedupTests
         var stored = _upserted.Should().ContainSingle().Subject;
         stored.Object.Should().Be("analytics", "the user's own words beat the assistant's paraphrase");
         stored.ValidFrom.Should().Be(DateTimeOffset.Parse("2026-09-01T00:00:00Z"));
+        stored.ValidFromPrecision.Should().Be(DatePrecision.Month, "36.1: the stored fact keeps how precisely its date was stated");
         var merged = result.Outcomes.Should().ContainSingle(o => o.Status == IngestionItemStatus.Skipped).Subject;
         merged.SourceKey.Should().Be("Tomás Silva moved to analytics team");
         merged.ErrorCode.Should().Be(MemoryErrorCodes.FactMergedWithinExtraction);
@@ -147,7 +148,7 @@ public sealed class WithinExtractionDedupTests
             FilteredFacts =
             [
                 new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics", Confidence = 0.8,
-                    ValidFrom = DateTimeOffset.Parse("2026-09-01T00:00:00Z") },
+                    ValidFrom = DateTimeOffset.Parse("2026-09-01T00:00:00Z"), ValidFromPrecision = DatePrecision.Month },
                 new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics team", Confidence = 0.9 },
             ],
         };
@@ -157,5 +158,6 @@ public sealed class WithinExtractionDedupTests
         var stored = _upserted.Should().ContainSingle().Subject;
         stored.Object.Should().Be("analytics team");
         stored.ValidFrom.Should().Be(DateTimeOffset.Parse("2026-09-01T00:00:00Z"));
+        stored.ValidFromPrecision.Should().Be(DatePrecision.Month, "a date and its precision are carried together");
     }
 }

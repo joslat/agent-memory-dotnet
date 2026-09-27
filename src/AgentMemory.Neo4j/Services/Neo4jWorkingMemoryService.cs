@@ -242,7 +242,15 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
             }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records
-                .Select(r => $"{r["subject"].As<string>()} {r["predicate"].As<string>()} {r["object"].As<string>()}")
+                .Select(r => $"{r["subject"].As<string>()} {r["predicate"].As<string>()} {r["object"].As<string>()}"
+                    // 36.1. The recall renderers' rule, so the block and the recalled facts agree on a date.
+                    + (_options.IncludeDates
+                        ? AgentMemory.Core.Services.FactDates.Suffix(
+                            Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["validFrom"]),
+                            DatePrecisionProperty.FromStored(r["validFromPrecision"] as string),
+                            Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["validUntil"]),
+                            DatePrecisionProperty.FromStored(r["validUntilPrecision"] as string))
+                        : string.Empty))
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
 

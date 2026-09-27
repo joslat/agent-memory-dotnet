@@ -434,7 +434,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     Object = existingFact?.Object ?? @object,
                     Confidence = extracted.Confidence,
                     ValidFrom = extracted.ValidFrom,
+                    ValidFromPrecision = extracted.ValidFromPrecision,
                     ValidUntil = extracted.ValidUntil,
+                    ValidUntilPrecision = extracted.ValidUntilPrecision,
                     Embedding = preparedFact.Embedding,
                     OwnerId = ownerId,
                     SourceMessageIds = factMessageIds,
@@ -1206,7 +1208,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 Item = winner.Item with
                 {
                     ValidFrom = winner.Item.ValidFrom ?? (carry ? loser.Item.ValidFrom : null),
+                    // A date and its precision travel together: from whichever side the date came.
+                    ValidFromPrecision = winner.Item.ValidFrom is not null ? winner.Item.ValidFromPrecision
+                        : carry ? loser.Item.ValidFromPrecision : DatePrecision.Unspecified,
                     ValidUntil = winner.Item.ValidUntil ?? (carry ? loser.Item.ValidUntil : null),
+                    ValidUntilPrecision = winner.Item.ValidUntil is not null ? winner.Item.ValidUntilPrecision
+                        : carry ? loser.Item.ValidUntilPrecision : DatePrecision.Unspecified,
                     SourceTurn = winner.Item.SourceTurn ?? (carry ? loser.Item.SourceTurn : null),
                 },
             };

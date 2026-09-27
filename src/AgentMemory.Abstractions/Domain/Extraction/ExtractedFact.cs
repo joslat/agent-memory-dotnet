@@ -35,6 +35,12 @@ public sealed record ExtractedFact
     /// </summary>
     public DateTimeOffset? ValidUntil { get; init; }
 
+    /// <summary>How precisely <see cref="ValidFrom"/> was stated (36.1); <see cref="DatePrecision.Unspecified"/> renders as a day.</summary>
+    public DatePrecision ValidFromPrecision { get; init; }
+
+    /// <summary>How precisely <see cref="ValidUntil"/> was stated (36.1); <see cref="DatePrecision.Unspecified"/> renders as a day.</summary>
+    public DatePrecision ValidUntilPrecision { get; init; }
+
     /// <summary>
     /// The conversational role of the turn this fact was derived from (<c>"user"</c>,
     /// <c>"assistant"</c>, …), or <see langword="null"/> when the extractor did not report one.

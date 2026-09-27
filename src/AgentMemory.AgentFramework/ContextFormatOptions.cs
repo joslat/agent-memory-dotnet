@@ -67,6 +67,20 @@ public sealed class ContextFormatOptions
     public bool IncludeTraceOutcomes { get; set; } = false;
 
     /// <summary>
+    /// 36.1. Renders what memory knows about <i>when</i>: a fact's validity dates at the precision they were
+    /// stated (<c>Rosa moved to Lyon (since 2024-03)</c>), and the day of a recalled turn from another session
+    /// (<c>[2026-09-26] I went hiking yesterday</c>). Default false: the prompt is byte-for-byte what it was.
+    /// </summary>
+    /// <remarks>
+    /// Measured before: dates were extracted and stored but relevant facts rendered as <c>subject predicate
+    /// object</c> only, so "When did I move to Lyon?" was answered "I don't have the date"; and a recalled
+    /// "yesterday" reached the model with no day to resolve it against. The same rule renders dates on every
+    /// surface (the Agent Framework mapper, the Core formatter and the profile block's own switch,
+    /// <c>WorkingMemoryOptions.IncludeDates</c>).
+    /// </remarks>
+    public bool IncludeDates { get; set; }
+
+    /// <summary>
     /// System-message text prepended to the context block. Set to <see cref="string.Empty"/> to omit the
     /// prefix -- entities/facts/preferences/traces/GraphRAG blocks are always included when their
     /// corresponding <c>Include*</c> flag is set regardless of <see cref="MaxChatHistoryMessages"/> (#91),

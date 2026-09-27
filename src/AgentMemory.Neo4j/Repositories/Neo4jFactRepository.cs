@@ -100,6 +100,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["reinforceAlpha"] = _reinforceAlpha,
                 ["validFrom"] = (object?)(fact.ValidFrom?.ToString("O")),
                 ["validUntil"] = (object?)(fact.ValidUntil?.ToString("O")),
+                ["validFromPrecision"] = DatePrecisionProperty.ToStored(fact.ValidFromPrecision),
+                ["validUntilPrecision"] = DatePrecisionProperty.ToStored(fact.ValidUntilPrecision),
                 ["sourceMessageIds"] = fact.SourceMessageIds.ToList(),
                 ["createdAtUtc"] = fact.CreatedAtUtc.ToString("O"),
                 ["updatedAtUtc"] = DateTimeOffset.UtcNow.ToString("O"),
@@ -186,6 +188,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["confidence"] = f.Confidence,
             ["valid_from"] = (object?)(f.ValidFrom?.ToString("O")),
             ["valid_until"] = (object?)(f.ValidUntil?.ToString("O")),
+            ["valid_from_precision"] = DatePrecisionProperty.ToStored(f.ValidFromPrecision),
+            ["valid_until_precision"] = DatePrecisionProperty.ToStored(f.ValidUntilPrecision),
             ["source_message_ids"] = f.SourceMessageIds.ToList(),
             ["created_at"] = f.CreatedAtUtc.ToString("O"),
             ["updated_at"] = updatedAt,
@@ -709,6 +713,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ValidUntil = properties.TryGetValue("valid_until", out var vu)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
+            ValidFromPrecision = DatePrecisionProperty.Read(properties, "valid_from_precision"),
+            ValidUntilPrecision = DatePrecisionProperty.Read(properties, "valid_until_precision"),
             InvalidatedAtUtc = properties.TryGetValue("invalidated_at", out var iat)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(iat)
                                 : null,

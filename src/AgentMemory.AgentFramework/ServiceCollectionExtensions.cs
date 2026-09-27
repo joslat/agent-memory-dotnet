@@ -69,6 +69,7 @@ public static class ServiceCollectionExtensions
                 // property existed, the option bound, and the bridge silently discarded it.
                 ctx.IncludeTraceOutcomes = src.IncludeTraceOutcomes;
                 ctx.IncludeWorkingMemory = src.IncludeWorkingMemory;
+                ctx.IncludeDates = src.IncludeDates;
                 ctx.ContextPrefix = src.ContextPrefix;
                 // 25.3. Same lesson, one line down: EverySettablePropertyCrossesTheBridge caught this
                 // omission the moment the property was added, which is precisely what that guard is for.

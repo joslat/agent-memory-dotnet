@@ -426,7 +426,9 @@ MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_ke
                 f.category           = $category,
                 f.confidence         = $confidence,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
+                f.valid_from_precision = CASE WHEN $validFrom IS NOT NULL THEN $validFromPrecision ELSE null END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
+                f.valid_until_precision = CASE WHEN $validUntil IS NOT NULL THEN $validUntilPrecision ELSE null END,
                 f.source_message_ids = $sourceMessageIds,
                 f.created_at         = datetime($createdAtUtc),
                 f.metadata           = $metadata,
@@ -448,7 +450,9 @@ MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_ke
                         ELSE coalesce(f.confidence, $confidence) + $reinforceAlpha END
                     ELSE $confidence END,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE f.valid_from END,
+                f.valid_from_precision = CASE WHEN $validFrom IS NOT NULL THEN $validFromPrecision ELSE f.valid_from_precision END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE f.valid_until END,
+                f.valid_until_precision = CASE WHEN $validUntil IS NOT NULL THEN $validUntilPrecision ELSE f.valid_until_precision END,
                 f.source_message_ids = $sourceMessageIds,
                 f.updated_at         = datetime($updatedAtUtc),
                 f.metadata           = $metadata,
@@ -468,7 +472,9 @@ UNWIND $items AS item
                 f.category           = item.category,
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
+                f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE null END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
+                f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE null END,
                 f.source_message_ids = item.source_message_ids,
                 f.created_at         = datetime(item.created_at),
                 f.metadata           = item.metadata,
@@ -484,7 +490,9 @@ UNWIND $items AS item
                         ELSE coalesce(f.confidence, item.confidence) + $reinforceAlpha END
                     ELSE item.confidence END,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
+                f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE f.valid_from_precision END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
+                f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE f.valid_until_precision END,
                 f.source_message_ids = item.source_message_ids,
                 f.updated_at         = datetime(item.updated_at),
                 f.metadata           = item.metadata,
@@ -549,7 +557,9 @@ UNWIND $items AS item
                 f.category           = item.category,
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
+                f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE null END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
+                f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE null END,
                 f.mention_count      = 1,
                 f.source_message_ids = item.source_message_ids,
                 f.created_at         = datetime(item.created_at),
@@ -565,7 +575,9 @@ UNWIND $items AS item
                         ELSE coalesce(f.confidence, item.confidence) + $reinforceAlpha END
                     ELSE item.confidence END,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
+                f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE f.valid_from_precision END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
+                f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE f.valid_until_precision END,
                 f.mention_count      = coalesce(f.mention_count, 1) + 1,
                 f.source_message_ids = item.source_message_ids,
                 f.updated_at         = datetime(item.updated_at),
@@ -1306,7 +1318,9 @@ MATCH (f:Fact {owner_id: $ownerId})
             ORDER BY r.created_at DESC, r.id ASC
             WITH top, [x IN collect(r) WHERE x IS NOT NULL][0..$recent] AS recent
             UNWIND top + recent AS f
-            RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object
+            RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object,
+                   f.valid_from AS validFrom, f.valid_from_precision AS validFromPrecision,
+                   f.valid_until AS validUntil, f.valid_until_precision AS validUntilPrecision
             ORDER BY f.created_at ASC, f.id ASC
 
 ## WorkingMemoryQueries.SelectTopEntities

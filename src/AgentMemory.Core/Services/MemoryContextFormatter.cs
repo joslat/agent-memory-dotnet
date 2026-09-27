@@ -73,19 +73,19 @@ internal static class MemoryContextFormatter
         AppendCategory(sb, "due", "### Due Now", ctx.DueFacts.Items,
             f => $"- DUE: {f.Subject} {f.Predicate} {f.Object}"
                 + (f.ValidFrom is { } from
-                    ? $" (valid from {from.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)})"
+                    ? $" (valid from {FactDates.Format(from, f.ValidFromPrecision)})"
                     : string.Empty),
             f => f.Metadata.GetTrustLevel(), opts, logger);
         AppendCategory(sb, "expiring", "### Expiring Soon", ctx.ExpiringFacts.Items,
             f => $"- EXPIRING: {f.Subject} {f.Predicate} {f.Object}"
                 + (f.ValidUntil is { } until
-                    ? $" (until {until.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)})"
+                    ? $" (until {FactDates.Format(until, f.ValidUntilPrecision)})"
                     : string.Empty),
             f => f.Metadata.GetTrustLevel(), opts, logger);
 
         if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
-        AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, opts, logger);
-        AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, opts, logger);
+        AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, ctx.SessionId, opts, logger);
+        AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, ctx.SessionId, opts, logger);
         // 36.3. The person's own items under the usual headings; shared ones (only when the recall separated
         // them) under their own, after. Without the flag Shared is empty and nothing changes.
         var (ownEntities, sharedEntities) = SharedKnowledge.Split(ctx, ctx.RelevantEntities.Items, e => e.OwnerId);
@@ -94,6 +94,7 @@ internal static class MemoryContextFormatter
         var (ownPreferences, sharedPreferences) = SharedKnowledge.Split(ctx, ctx.RelevantPreferences.Items, p => p.OwnerId);
         AppendCategory(sb, "entities", "### Known Entities", ownEntities, DescribeEntity,
             e => e.Metadata.GetTrustLevel(), opts, logger, projection, e => e.EntityId);
+        string DescribeFact(Fact f) => MemoryContextFormatter.DescribeFact(f) + (opts.IncludeDates ? FactDates.Suffix(f) : string.Empty);
         AppendCategory(sb, "facts", "### Known Facts", ownFacts, DescribeFact,
             f => f.Metadata.GetTrustLevel(), opts, logger, projection, f => f.FactId);
         AppendCategory(sb, "preferences", "### User Preferences", ownPreferences, DescribePreference,
@@ -187,8 +188,8 @@ internal static class MemoryContextFormatter
     // here, not a separately-injected memory block; wrapping it in visible tags would make ordinary replayed
     // chat history look bizarre for little added security value once the role itself is gated.
     private static void AppendMessages(
-        StringBuilder sb, string heading, MemoryContextSection<Message> section, MemoryContextFormatterOptions opts,
-        ILogger? logger)
+        StringBuilder sb, string heading, MemoryContextSection<Message> section, string sessionId,
+        MemoryContextFormatterOptions opts, ILogger? logger)
     {
         if (section.Items.Count == 0) return;
         var lines = new List<string>();
@@ -198,7 +199,11 @@ internal static class MemoryContextFormatter
             if (!Admit("messages", msg.Content, trustLevel, opts, logger)) continue;
             var effectiveRole = RecalledMessageRoleGate.EffectiveRole(
                 msg.Role, trustLevel, opts.MinimumTrustForSystemRole);
-            lines.Add($"[{effectiveRole}]: {msg.Content}");
+            // 36.1. A turn from another session says which day it was said; this session's turns need no date.
+            var said = opts.IncludeDates && !string.Equals(msg.SessionId, sessionId, StringComparison.Ordinal)
+                ? FactDates.MessagePrefix(msg.TimestampUtc)
+                : string.Empty;
+            lines.Add($"{said}[{effectiveRole}]: {msg.Content}");
         }
         if (lines.Count == 0) return;
         sb.AppendLine(heading);

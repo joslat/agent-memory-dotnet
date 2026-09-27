@@ -66,6 +66,13 @@ public sealed class WorkingMemoryOptions
     /// </remarks>
     public bool RebuildOnWrite { get; set; } = true;
 
+    /// <summary>
+    /// 36.1. The block's facts carry their validity dates, at the precision they were stated
+    /// (<c>Rosa works at the hospital (since 2021)</c>), by the same rule the recall renderers use. Default false:
+    /// the block is byte-for-byte what it was.
+    /// </summary>
+    public bool IncludeDates { get; set; }
+
     /// <summary>On a rebuild failure, clear the stored block rather than leaving it stale.</summary>
     /// <remarks>
     /// Absence degrades to today's behaviour; staleness manufactures errors. That asymmetry is why

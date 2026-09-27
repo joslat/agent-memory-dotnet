@@ -251,6 +251,12 @@ internal static class SchemaConstants
         /// <summary>Validity end timestamp property (valid-time axis — when a fact stopped being true).</summary>
         public const string ValidUntil = "valid_until";
 
+        /// <summary>How precisely <see cref="ValidFrom"/> was stated: year, month, day or instant; absent = unspecified.</summary>
+        public const string ValidFromPrecision = "valid_from_precision";
+
+        /// <summary>How precisely <see cref="ValidUntil"/> was stated: year, month, day or instant; absent = unspecified.</summary>
+        public const string ValidUntilPrecision = "valid_until_precision";
+
         /// <summary>
         /// Transaction-time axis (D5): the moment the system stopped believing a record — set by
         /// soft-invalidation / non-destructive decay / supersession. <c>null</c> = currently believed.

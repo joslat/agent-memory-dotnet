@@ -22,6 +22,20 @@ internal sealed record MemoryContextFormatterOptions
     public bool IncludeWorkingMemory { get; init; } = true;
 
     /// <summary>
+    /// 36.1. Renders what memory knows about <i>when</i>: a fact's validity dates at the precision they were
+    /// stated (<c>Rosa moved to Lyon (since 2024-03)</c>), and the day of a recalled turn from another session
+    /// (<c>[2026-09-26] I went hiking yesterday</c>). Default false: the prompt is byte-for-byte what it was.
+    /// </summary>
+    /// <remarks>
+    /// Measured before: dates were extracted and stored but relevant facts rendered as <c>subject predicate
+    /// object</c> only, so "When did I move to Lyon?" was answered "I don't have the date"; and a recalled
+    /// "yesterday" reached the model with no day to resolve it against. The same rule renders dates on every
+    /// surface (the Agent Framework mapper, the Core formatter and the profile block's own switch,
+    /// <c>WorkingMemoryOptions.IncludeDates</c>).
+    /// </remarks>
+    public bool IncludeDates { get; init; }
+
+    /// <summary>
     /// When <see langword="false"/> (the default), instruction-like content is still included -- delimited
     /// like every other recalled block -- but is not otherwise treated specially, matching the Agent
     /// Framework adapter's <c>Permissive</c> default. When <see langword="true"/>, instruction-like content

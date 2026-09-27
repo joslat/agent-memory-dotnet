@@ -467,8 +467,10 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                     // setting was silently a no-op under multi-session extraction. That is precisely the
                     // "a setting only some extractors respect" defect ExtractionPromptSemantics exists to
                     // prevent, arriving through the projection instead of the prompt.
-                    ValidFrom = item.ValidFrom,
-                    ValidUntil = item.ValidUntil,
+                    ValidFrom = item.ValidFrom?.At,
+                    ValidFromPrecision = item.ValidFrom?.Precision ?? DatePrecision.Unspecified,
+                    ValidUntil = item.ValidUntil?.At,
+                    ValidUntilPrecision = item.ValidUntil?.Precision ?? DatePrecision.Unspecified,
                     SourceRole = item.SourceRole,
                     SourceTurn = item.SourceTurn,
                 });

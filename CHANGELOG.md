@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dates reach the prompt, at the precision they were stated.** A fact's validity dates now keep how precisely
+  they were written (`Fact.ValidFromPrecision` / `ValidUntilPrecision`, the new `DatePrecision` enum, stored as
+  `valid_from_precision` / `valid_until_precision` on every fact write path); the extractor records it, because only
+  the parser can tell "2024-03" from "2024-03-01". With the new `IncludeDates` switch
+  (`ContextFormatOptions` / `AgentFrameworkOptions.ContextFormat`, and `WorkingMemoryOptions` for the profile block)
+  relevant facts render their dates by one rule (`Rosa moved to Lyon (since 2024-03)`, `(until 2027-06)`,
+  `(2024 to 2027)`, `(on 2026-09-26)`), and a recalled turn from another session carries the day it was said
+  (`[2026-09-20] I went hiking yesterday.`). Found in simulated conversations: the date of a move was extracted and
+  stored, and the agent answered "I don't have the date", because relevant facts rendered as `subject predicate
+  object` only. Off (the default) the prompt is byte-for-byte what it was. Due and expiring reminders, which always
+  printed a date, now print it at its precision too (unchanged for dates stored before precision was).
+
 - **`MemoryOptions.SharedRecallBudget`: shared knowledge gets its own recall budget and its own label.** With one
   budget, a large shared corpus (a book, a catalogue, a manual) competes with a person's own memories for the same
   top k and wins by numbers: measured on four embedding models, shared items took 7 to 8 of 10 fact slots on
