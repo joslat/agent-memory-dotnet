@@ -382,6 +382,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two values of one single-valued relation in the same extraction closed each other** (with
+  `SupersedeReplacedFacts`, on the default batch path): "I moved to Copenhagen, then to Oslo" or two favourite bands in
+  one turn left no live value, because the batch writes both before supersession runs. Within one write, only a later
+  value closes an earlier one.
+
 - **A month was stored as a day.** The temporal instruction now asks the model to write a date only as precisely as
   it was stated ("2024-03" for "in March 2024"): it wrote "2024-03-01", the stored precision was a day, and the agent
   answered "on March 1st". The parser already kept the reduced forms.

@@ -269,10 +269,30 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
             }
         }
+        // The speaker once: "user" and "I" in one extraction are one person, and a second self word maps to the first.
+        var speakerKey = userName is null ? null : prepared.Entities.Keys.FirstOrDefault(UserNames.IsSelf);
+        float[]? speakerVector = null;
+        if (speakerKey is not null && !speakerIsKnown)
+        {
+            try
+            {
+                // Embedded as the name it is written under: the vector of "user" would make every owner's speaker alike.
+                speakerVector = await _embeddingOrchestrator.EmbedAsync(userName!, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not embed the user's name; their entity is written without a vector.");
+            }
+        }
         var entityInputs = prepared.Entities
-            .Where(pair => userName is null || !UserNames.IsSelf(pair.Key) || !speakerIsKnown)
+            .Where(pair => userName is null || !UserNames.IsSelf(pair.Key) || (!speakerIsKnown && pair.Key == speakerKey))
             .Select(pair => userName is not null && UserNames.IsSelf(pair.Key)
-                ? new KeyValuePair<string, Entity>(pair.Key, pair.Value with { Name = userName, CanonicalName = userName, Type = "PERSON" })
+                ? new KeyValuePair<string, Entity>(pair.Key, pair.Value with
+                {
+                    Name = userName, CanonicalName = userName, Type = "PERSON",
+                    Embedding = speakerVector is { Length: > 0 } ? speakerVector : null,
+                })
                 : pair)
             .Select(pair =>
         {
@@ -287,6 +307,13 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         async Task RecordPersistedEntityAsync(string name, Entity persisted)
         {
             persistedEntityMap[name] = persisted;
+            // The speaker, written under the user's name, is found by that name and by every self word.
+            if (name == speakerKey && userName is not null)
+            {
+                persistedEntityMap.TryAdd(userName, persisted);
+                foreach (var self in prepared.Entities.Keys.Where(UserNames.IsSelf))
+                    persistedEntityMap.TryAdd(self, persisted);
+            }
             persistedEntityIds.Add(persisted.EntityId);
 
             // E-1. THE MAP IS WHAT DECIDES WHETHER A FACT FINDS ITS ENTITY, and it was keyed by the
@@ -401,6 +428,15 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
         // 2. Embed + upsert facts.
         var persistedFactCount = 0;
+        // Round 3. Two values of one single-valued relation in the same extraction ("I moved to Copenhagen, then to
+        // Oslo"; two favourites). The batch writes both before supersession runs, so each saw the other as a live
+        // older value and they closed each other: no live residence. Within one persist the input order is the order
+        // the conversation said them, and only a later value closes an earlier one (records run in that order, so an
+        // earlier value is never already closed when it runs).
+        var factOrder = new Dictionary<string, int>(StringComparer.Ordinal);
+        bool IsLaterHere(string candidateId, string winnerId) =>
+            factOrder.TryGetValue(candidateId, out var candidate) && factOrder.TryGetValue(winnerId, out var winner) &&
+            candidate > winner;
         // 36.4. What each marked correction replaces, by the words it was extracted as (the source key every
         // outcome of this persist is keyed by). Empty unless the extractor was asked to mark corrections.
         var factCorrections = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -547,6 +583,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             // Fact upsert MERGEs on the natural triple and may return an older stable id. Always use
             // the repository result for outcomes and provenance rather than the fresh caller id.
             RecordSuccess(outcomes, MemoryItemKind.Fact, sourceKey, persisted.FactId);
+            factOrder.TryAdd(persisted.FactId, factOrder.Count);
 
             // W-E1. Link the fact to the entities its subject or object NAMES. Extraction has always
             // persisted both and never connected them: CreateAboutRelationshipAsync is public,
@@ -661,7 +698,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                         cancellationToken).ConfigureAwait(false)];
                 }
 
-                foreach (var loser in losers)
+                foreach (var loser in losers.Where(loser => !IsLaterHere(loser.FactId, winner.FactId)))
                 {
                     await _factRepository.SupersedeAsync(
                         loser.FactId, winner.FactId, scope, cancellationToken).ConfigureAwait(false);
@@ -698,7 +735,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     !string.Equals(said, winner.Subject, StringComparison.Ordinal))
                     candidates.AddRange(await _factRepository.GetBySubjectAsync(said, readScope, cancellationToken)
                         .ConfigureAwait(false));
-                foreach (var loser in Corrections.Closed(candidates, winner, replaced))
+                foreach (var loser in Corrections.Closed(candidates, winner, replaced).Where(loser => !IsLaterHere(loser.FactId, winner.FactId)))
                 {
                     await _factRepository.SupersedeAsync(loser.FactId, winner.FactId, writeScope, cancellationToken)
                         .ConfigureAwait(false);
@@ -791,6 +828,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
             if (batchedFactsByKey is not null)
             {
+                // Every fact of the batch is already stored: order them all first, so none closes a later one.
+                foreach (var input in factInputs)
+                    factOrder.TryAdd(batchedFactsByKey[FactKey(input.Item)].FactId, factOrder.Count);
                 foreach (var input in factInputs)
                     await RecordPersistedFactAsync(
                         input.SourceKey, batchedFactsByKey[FactKey(input.Item)],
@@ -816,6 +856,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // 3. Embed + upsert preferences.
         // 36.4. Preferences have no single-valued relation, so a marked correction is the only way one replaces
         // another ("Arcade Fire, not Radiohead" left both live).
+        var preferenceOrder = new Dictionary<string, int>(StringComparer.Ordinal);
         var preferenceCorrections = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var preparedPreference in prepared.Preferences)
         {
@@ -869,6 +910,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
             }
 
+            preferenceOrder.TryAdd(persisted.PreferenceId, preferenceOrder.Count);
             if (preferenceCorrections.TryGetValue(sourceKey, out var replaced))
                 await CloseCorrectedPreferencesAsync(persisted, replaced).ConfigureAwait(false);
             else if (Corrections.SingleValuedRelation(persisted.PreferenceText) is not null)
@@ -890,7 +932,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 var candidates = await _preferenceRepository.GetByCategoryAsync(winner.Category, readScope, cancellationToken)
                     .ConfigureAwait(false);
                 foreach (var loser in candidates.Where(candidate =>
-                             (replaced is not null && Corrections.Closes(candidate, winner, replaced)) || Corrections.Replaces(winner, candidate)))
+                             ((replaced is not null && Corrections.Closes(candidate, winner, replaced)) || Corrections.Replaces(winner, candidate)) &&
+                             !(preferenceOrder.TryGetValue(candidate.PreferenceId, out var later) &&
+                               preferenceOrder.TryGetValue(winner.PreferenceId, out var at) && later > at)))
                 {
                     await _preferenceRepository.SupersedeAsync(loser.PreferenceId, winner.PreferenceId, writeScope, cancellationToken)
                         .ConfigureAwait(false);
@@ -959,6 +1003,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
         if (batchedPreferencesById is not null)
         {
+            foreach (var input in preferenceInputs)
+                preferenceOrder.TryAdd(batchedPreferencesById[input.Item.PreferenceId].PreferenceId, preferenceOrder.Count);
             foreach (var input in preferenceInputs)
                 await RecordPersistedPreferenceAsync(
                     input.SourceKey, batchedPreferencesById[input.Item.PreferenceId],

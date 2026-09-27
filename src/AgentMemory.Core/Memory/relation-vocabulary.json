@@ -900,7 +900,6 @@
       "cardinalityWhy": "A person has one current residence. 'moved to' is the event that changes it.",
       "presentForms": [
         "lives in",
-        "live",
         "live in",
         "living in",
         "lives at",
