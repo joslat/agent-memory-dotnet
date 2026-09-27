@@ -67,6 +67,10 @@ internal sealed class LlmFactDto
     // Which numbered turn stated it. Null unless ExtractionProvenanceMode.PerItem asked for it.
     [JsonPropertyName("source_turn")]
     public int? SourceTurn { get; set; }
+
+    // 36.4. The earlier value this corrects ("not Radiohead"). Null unless MarkCorrections asked for it.
+    [JsonPropertyName("replaces")]
+    public string? Replaces { get; set; }
 }
 
 internal sealed class LlmPreferenceDto
@@ -89,6 +93,10 @@ internal sealed class LlmPreferenceDto
     /// <inheritdoc cref="LlmFactDto.SourceRole"/>
     [JsonPropertyName("source_role")]
     public string? SourceRole { get; set; }
+
+    /// <summary>36.4: the earlier value this corrects ("not Radiohead"), when MarkCorrections asked for it.</summary>
+    [JsonPropertyName("replaces")]
+    public string? Replaces { get; set; }
 
     /// <inheritdoc cref="LlmFactDto.SourceTurn"/>
     [JsonPropertyName("source_turn")]

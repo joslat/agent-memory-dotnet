@@ -35,4 +35,11 @@ public sealed record ExtractedPreference
 
     /// <inheritdoc cref="ExtractedFact.SourceTurn"/>
     public int? SourceTurn { get; init; }
+
+    /// <summary>
+    /// 36.4. The earlier value this statement corrects or replaces, as it was said ("Arcade Fire, not Radiohead"
+    /// replaces <c>Radiohead</c>), or null. Written by the extractor only when asked
+    /// (<c>LlmExtractionOptions.MarkCorrections</c>); read once, at the write, to close what it replaces.
+    /// </summary>
+    public string? Replaces { get; init; }
 }

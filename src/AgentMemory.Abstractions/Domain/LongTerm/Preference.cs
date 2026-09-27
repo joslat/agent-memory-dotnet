@@ -52,6 +52,16 @@ public sealed record Preference
     public string? OwnerId { get; init; }
 
     /// <summary>
+    /// When this preference was superseded or otherwise invalidated; <see langword="null"/> while it is live.
+    /// </summary>
+    /// <remarks>
+    /// 36.4. The transaction clock the store has always kept, projected as it is on <see cref="Fact"/>, so a
+    /// caller reading preferences (a correction closing the one it replaces, first of all) can tell a superseded
+    /// preference from a live one.
+    /// </remarks>
+    public DateTimeOffset? InvalidatedAtUtc { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

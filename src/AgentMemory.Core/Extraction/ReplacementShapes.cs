@@ -1,0 +1,88 @@
+using System.Collections.Frozen;
+using System.Text.RegularExpressions;
+using AgentMemory.Abstractions.Domain;
+using AgentMemory.Core.Memory;
+
+namespace AgentMemory.Core.Extraction;
+
+/// <summary>
+/// 36.4. Puts a change of mind into the shape write-time supersession can act on, before it is stored. Runs only
+/// with <c>ExtractionOptions.SupersedeReplacedFacts</c>, the feature it serves.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Supersession replaces a value of a single-valued relation. Two common ways of stating a new value never reached
+/// one (found in simulated conversations, each with both values left live):
+/// </para>
+/// <list type="bullet">
+/// <item><b>An age inside the object of a plain "is".</b> "Bruno is 6 years old" then "Bruno is 7 years old": the
+/// predicate is <c>is</c>, which holds many values. Written as <c>Bruno | age | 7</c>, the declared single-valued
+/// <c>age</c> replaces 6.</item>
+/// <item><b>An event that changes a state.</b> "I moved to Copenhagen" was stored as its own relation beside
+/// "lives in Hamburg". The vocabulary declares what an event entails (<c>moved to</c> entails <c>lives in</c>); the
+/// entailed state is written beside the event, and it is that state which replaces the old residence.</item>
+/// </list>
+/// <para>
+/// Both are declared in the vocabulary (the <c>age</c> relation, the <c>entails</c> field) rather than coded per
+/// case, and both only add or reshape a fact the conversation stated: nothing is inferred beyond the words.
+/// </para>
+/// </remarks>
+internal static partial class ReplacementShapes
+{
+    private static readonly FrozenDictionary<string, (string State, string? When)> Entailments =
+        RelationVocabularyDocument.Load().Canonical
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Value.Entails))
+            .ToFrozenDictionary(
+                entry => MemoryTripleCanonicalizer.Canonical(entry.Key),
+                entry => (entry.Value.Entails!, entry.Value.EntailsWhen),
+                StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> Copulas =
+        new[] { "is", "'s", "is now", "turned", "has turned", "just turned" }.ToFrozenSet(StringComparer.Ordinal);
+
+    [GeneratedRegex(@"^(?:now\s+)?(?<n>\d{1,3})(?:\s*-?\s*(?:years?|yrs?)(?:\s*-?\s*old)?)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AgeObject();
+
+    /// <summary>The facts to store: ages as <c>age</c>, and each event's entailed state beside it.</summary>
+    /// <param name="facts">The extracted facts.</param>
+    /// <param name="typeOf">The entity type the extraction resolved a name to, or null when it did not type it.</param>
+    internal static IReadOnlyList<ExtractedFact> Prepare(IReadOnlyList<ExtractedFact> facts, Func<string, string?> typeOf)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentNullException.ThrowIfNull(typeOf);
+        var shaped = facts.Select(AsAge).ToList();
+        var stated = shaped.Select(Key).ToHashSet();
+        foreach (var fact in shaped.ToList())
+        {
+            var relation = MemoryRelationLexicon.Default.ResolveStored(fact.Predicate);
+            if (relation is null || !Entailments.TryGetValue(relation, out var entailed)) continue;
+            // "moved to the analytics team" is not a new home: the entailment holds for the declared kind of object.
+            if (entailed.When is { } required &&
+                !string.Equals(typeOf(fact.Object), required, StringComparison.OrdinalIgnoreCase)) continue;
+            var state = fact with { Predicate = entailed.State };
+            if (stated.Add(Key(state))) shaped.Add(state);
+        }
+        return shaped;
+    }
+
+    /// <summary>
+    /// "X is 6 years old" / "X turned 7" as <c>X | age | 6</c>. A bare number after "is" is not an age ("Bruno is
+    /// 7" could be anything); after "turned" it is.
+    /// </summary>
+    internal static ExtractedFact AsAge(ExtractedFact fact)
+    {
+        var predicate = MemoryTripleCanonicalizer.Canonical(fact.Predicate);
+        if (!Copulas.Contains(predicate)) return fact;
+        var match = AgeObject().Match(fact.Object.Trim());
+        if (!match.Success) return fact;
+        var namesYears = fact.Object.Contains("year", StringComparison.OrdinalIgnoreCase)
+            || fact.Object.Contains("yr", StringComparison.OrdinalIgnoreCase);
+        if (!namesYears && predicate is not ("turned" or "has turned" or "just turned")) return fact;
+        return fact with { Predicate = "age", Object = match.Groups["n"].Value };
+    }
+
+    private static (string, string, string) Key(ExtractedFact fact) => (
+        MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
+        MemoryRelationLexicon.Default.ResolveStored(fact.Predicate) ?? MemoryTripleCanonicalizer.Canonical(fact.Predicate),
+        MemoryTripleCanonicalizer.CanonicalValue(fact.Object));
+}

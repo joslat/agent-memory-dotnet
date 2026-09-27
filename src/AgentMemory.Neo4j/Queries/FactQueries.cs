@@ -272,7 +272,7 @@ internal static class FactQueries
         return @"
             MATCH (f:Fact)
             WHERE f.subject_key = $subjectKey
-              AND f.predicate_key = $predicateKey
+              AND f.predicate_key IN $predicateKeys
               AND f.object_key <> $objectKey
               AND f.id <> $winnerId
               AND f.invalidated_at IS NULL" + owner + @"

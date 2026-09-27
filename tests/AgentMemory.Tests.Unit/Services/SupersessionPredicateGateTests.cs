@@ -61,12 +61,15 @@ public class SupersessionPredicateGateTests
         MemoryRelationCardinality.IsSingleValued(predicate).Should().BeFalse(
             "an unrecognised predicate silently makes SupersedeReplacedFacts a no-op");
 
-    /// <summary>The gate's reach is six relations, and that number is the finding.</summary>
+    /// <summary>
+    /// The gate's reach is seven declared relations, and that number is the finding. 36.4 added <c>age</c> ("Bruno is
+    /// 6 years old" then "7" left both live); the <c>favourite ...</c> prefix declares one more per thing, outside this set.
+    /// </summary>
     [Fact]
-    public void OnlySixRelationsInTheEntireVocabularyAreSingleValued()
+    public void OnlySevenRelationsInTheEntireVocabularyAreSingleValued()
     {
-        MemoryRelationCardinality.SingleValuedPredicates.Should().HaveCount(6);
+        MemoryRelationCardinality.SingleValuedPredicates.Should().HaveCount(7);
         MemoryRelationCardinality.SingleValuedPredicates.Should().BeEquivalentTo(
-            ["belongs to", "costs", "expires", "lives in", "weighs", "works at"]);
+            ["age", "belongs to", "costs", "expires", "lives in", "weighs", "works at"]);
     }
 }

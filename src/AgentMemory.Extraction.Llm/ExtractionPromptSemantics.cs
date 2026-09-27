@@ -226,6 +226,13 @@ internal static class ExtractionPromptSemantics
           + "(\"recommend some music\" asks for something; it states no taste)."
         : string.Empty;
 
+    /// <summary>36.4. Mark what a correction replaces. Empty when off.</summary>
+    internal static string CorrectionsInstruction(bool mark) => mark
+        ? "\nWhen a turn corrects or replaces something said before (\"actually it's X, not Y\", \"X instead of Y\", "
+          + "\"not Y anymore\", \"I left Y\"), add \"replaces\": \"Y\" to the new fact or preference, with Y the old "
+          + "value exactly as it was said. Omit \"replaces\" everywhere else."
+        : string.Empty;
+
     internal static string UserNameInstruction(bool capture) => capture
         ? "\nIf the user STATES their own name (\"I'm Dana\", \"call me Dee\"), also add a fact whose "
           + "subject is \"user\", whose predicate is \"is named\" and whose object is the name as they "

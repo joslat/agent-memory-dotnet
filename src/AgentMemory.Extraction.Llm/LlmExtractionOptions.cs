@@ -130,6 +130,16 @@ public sealed class LlmExtractionOptions
     public bool OwnPreferencesOnly { get; set; }
 
     /// <summary>
+    /// 36.4. Ask every extractor to mark what a correction replaces ("actually Arcade Fire, not Radiohead" adds
+    /// <c>"replaces": "Radiohead"</c>), so the write can close the old fact or preference even when nothing else
+    /// ties the two together (a preference has no single-valued relation; "the full marathon instead of the half"
+    /// is a new plan, not a new value of one). Read by <c>ExtractionOptions.SupersedeReplacedFacts</c>. Found in
+    /// simulated conversations: both bands, both marathons and both ages stayed live. Off, every prompt is
+    /// byte-for-byte what it was.
+    /// </summary>
+    public bool MarkCorrections { get; set; }
+
+    /// <summary>
     /// How precisely a stored fact or preference is bound to the turn that stated it.
     /// </summary>
     /// <remarks>

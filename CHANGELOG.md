@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`LlmExtractionOptions.MarkCorrections`: a correction closes what it replaces.** Every extractor is asked to mark
+  what a correction replaces ("actually Arcade Fire, not Radiohead" adds `"replaces": "Radiohead"`;
+  `ExtractedFact.Replaces` / `ExtractedPreference.Replaces`), and with `SupersedeReplacedFacts` the write closes the
+  live fact or preference that stated it: a fact of the same subject whose object is the replaced value, or states
+  the same relation and contains it as whole words; a preference of the same category that names it. Preferences had
+  no supersession at all, and a plan ("the full marathon instead of the half") has no single-valued relation, so both
+  values stayed live. Off (the default) every prompt is byte-for-byte what it was.
+- **`Preference.InvalidatedAtUtc`**, projected as it is on `Fact`, so a caller can tell a superseded preference from a
+  live one.
+
 - **Dates reach the prompt, at the precision they were stated.** A fact's validity dates now keep how precisely
   they were written (`Fact.ValidFromPrecision` / `ValidUntilPrecision`, the new `DatePrecision` enum, stored as
   `valid_from_precision` / `valid_until_precision` on every fact write path); the extractor records it, because only
@@ -210,6 +220,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Write-time supersession recognises a change of mind stated in other words** (with `SupersedeReplacedFacts`):
+  - a new value replaces **every stored form** of its relation, not only its own predicate: "works for" replaces
+    "works at", "lives in" replaces "lived in";
+  - a stated **age** is written as the single-valued `age` relation ("Bruno is 7 years old" replaces "6 years
+    old"; a bare number after "is" is left alone);
+  - **`favourite <thing>`** is single-valued per thing;
+  - an **event states the state it entails** when the vocabulary declares it: "moved to Copenhagen" also writes "lives
+    in Copenhagen", which replaces the previous residence, and only when the object is a place ("moved to the
+    analytics team" states no home);
+  - a value whose validity has **already ended** ("worked at Google until 2019") no longer replaces the current one.
+
 - **A shared write (`ExtractionRequest.ShareWithEveryone`) stores no preferences.** Shared knowledge has no user,
   so nothing it states is the user's taste; its facts are kept. The dropped count is tagged on the extraction
   span (`memory.extract.shared_preferences_dropped`).
@@ -305,6 +326,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all prerelease, and a shipped package may not depend on one.
 
 ### Fixed
+
+- **"works for" never superseded "works at".** Cardinality resolved stored predicates with the question-side
+  resolver, which refuses stored-only forms, so a predicate stored under a single-valued relation counted as an
+  unknown, multi-valued one. Stored predicates now resolve through the stored forms.
 
 - **Entity resolution's vector-index prefilter read `SemanticMatchThreshold` on the wrong scale.** The threshold is
   a cosine (the semantic matcher computes one); the index scores `(1 + cosine) / 2`, so the default 0.8 asked the

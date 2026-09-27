@@ -156,6 +156,25 @@ internal sealed class MemoryRelationLexicon
     /// silently miss the smaller bucket - precisely the completeness failure expansion exists to
     /// prevent. An unknown relation yields just itself, so callers need no special case.
     /// </remarks>
+    /// <summary>
+    /// 36.4. The relation a <b>stored</b> predicate belongs to: every form the table lists for it, stored-only
+    /// forms included, then the same stemming fallback as <see cref="Resolve"/>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Resolve"/> answers the question side and refuses the stored-only forms on purpose (a question
+    /// saying "works" must not expand every job). A stored fact is the other side: "works for" is stored under
+    /// <c>works at</c>, and asking the question-side resolver made it an unknown, multi-valued predicate, so
+    /// "works for a wind energy firm" never replaced "works at a shipping company" (found in simulated
+    /// conversations).
+    /// </remarks>
+    internal string? ResolveStored(string? predicate)
+    {
+        var normalized = MemoryTripleCanonicalizer.Canonical(predicate);
+        if (normalized.Length == 0)
+            return null;
+        return _surfaceToCanonical.TryGetValue(normalized, out var canonical) ? canonical : Resolve(predicate);
+    }
+
     internal IReadOnlyList<string> StoredFormsOf(string? relation)
     {
         var canonical = MemoryTripleCanonicalizer.Canonical(relation);

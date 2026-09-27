@@ -46,19 +46,53 @@ internal static class MemoryRelationCardinality
     /// extractor wrote as <c>lived in</c> is recognised as the relation the vocabulary declares. False
     /// for anything unrecognised.
     /// </remarks>
-    internal static bool IsSingleValued(string? predicate)
+    internal static bool IsSingleValued(string? predicate) => Relation(predicate) is not null;
+
+    /// <summary>
+    /// 36.4. The single-valued relation <paramref name="predicate"/> is a form of, or null when it is multi-valued.
+    /// </summary>
+    /// <remarks>
+    /// Stored forms resolve through <see cref="MemoryRelationLexicon.ResolveStored"/>, not the question-side
+    /// resolver: "works for" is stored under <c>works at</c>, and the question side refuses it. A predicate that
+    /// starts with a declared prefix (<c>favourite band</c>) is its own single-valued relation.
+    /// </remarks>
+    internal static string? Relation(string? predicate)
     {
-        if (string.IsNullOrWhiteSpace(predicate)) return false;
+        if (string.IsNullOrWhiteSpace(predicate)) return null;
         var canonical = MemoryTripleCanonicalizer.Canonical(predicate);
-        if (canonical.Length == 0) return false;
-        if (SingleValued.Value.Contains(canonical)) return true;
+        if (canonical.Length == 0) return null;
+        if (SingleValued.Value.Contains(canonical)) return canonical;
 
         // A surface form of a functional relation is that relation. Without this, "lived in" would
         // accumulate beside "lives in" and the two would both be live, which is the accumulation this
         // exists to stop.
-        var resolved = MemoryRelationLexicon.Default.Resolve(canonical);
-        return resolved is not null && SingleValued.Value.Contains(resolved);
+        var resolved = MemoryRelationLexicon.Default.ResolveStored(canonical);
+        if (resolved is not null && SingleValued.Value.Contains(resolved)) return resolved;
+
+        return SingleValuedPrefixes.Value.Any(prefix =>
+            canonical.Length > prefix.Length && canonical.StartsWith(prefix, StringComparison.Ordinal) &&
+            !char.IsLetterOrDigit(canonical[prefix.Length]))
+            ? canonical
+            : null;
     }
+
+    /// <summary>
+    /// 36.4. Every stored predicate key a new value of <paramref name="predicate"/> replaces: all the forms of its
+    /// single-valued relation ("works for" replaces "works at" and "worked for"), or the predicate's own key.
+    /// </summary>
+    internal static IReadOnlyList<string> ReplacedKeys(string? predicate)
+    {
+        var canonical = MemoryTripleCanonicalizer.Canonical(predicate);
+        var relation = Relation(predicate);
+        if (relation is null) return canonical.Length == 0 ? [] : [canonical];
+        return [.. MemoryRelationLexicon.Default.StoredFormsOf(relation).Append(canonical).Distinct(StringComparer.Ordinal)];
+    }
+
+    private static readonly Lazy<string[]> SingleValuedPrefixes = new(() =>
+        RelationVocabularyDocument.Load().SingleValuedPrefixes.Keys
+            .Select(MemoryTripleCanonicalizer.Canonical)
+            .Where(key => key.Length > 0)
+            .ToArray());
 
     /// <summary>The declared functional relations, for reporting and for the guard test.</summary>
     internal static IReadOnlyCollection<string> SingleValuedPredicates => SingleValued.Value;

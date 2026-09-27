@@ -281,7 +281,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         {
             ["winnerId"]     = winnerFactId,
             ["subjectKey"]   = MemoryTripleCanonicalizer.CanonicalValue(subject),
-            ["predicateKey"] = MemoryTripleCanonicalizer.Canonical(predicate),
+            // 36.4. Every stored form of the relation, not only this predicate's own key: "works for" replaces a
+            // fact stored as "works at", and "lives in" one stored as "lived in".
+            ["predicateKeys"] = MemoryRelationCardinality.ReplacedKeys(predicate).ToList(),
             ["objectKey"]    = MemoryTripleCanonicalizer.CanonicalValue(@object),
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;

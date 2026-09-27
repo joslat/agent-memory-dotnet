@@ -17,6 +17,10 @@
   "retired": [
     "finished"
   ],
+  "singleValuedPrefixes": {
+    "favourite": "A subject has one favourite of each thing: a new 'favourite band' replaces the old one, while 'favourite band' and 'favourite food' are different relations (the predicate names the thing).",
+    "favorite": "The American spelling of 'favourite', same reasoning."
+  },
   "canonical": {
     "adopted": {
       "family": "event",
@@ -28,6 +32,19 @@
         "adopting",
         "adopts"
       ]
+    },
+    "age": {
+      "family": "state",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "age is",
+        "aged",
+        "is aged"
+      ],
+      "cardinality": "single",
+      "cardinalityWhy": "A subject has one current age. 'X is 6 years old' is written as 'X | age | 6' so that 'X is 7 years old' replaces it (the plain 'is' holds many values)."
     },
     "allergic to": {
       "family": "state",
@@ -937,7 +954,10 @@
         "relocated to",
         "relocates to",
         "relocating to"
-      ]
+      ],
+      "entails": "lives in",
+      "entailsWhen": "LOCATION",
+      "entailsWhy": "Moving somewhere is the event that changes where one lives: 'moved to Copenhagen' also states 'lives in Copenhagen', which then replaces the previous residence. Only when the object is a place: 'moved to the analytics team' says nothing about a home."
     },
     "noticed": {
       "family": "event",
@@ -1645,6 +1665,7 @@
       ],
       "storedOnly": [
         "work",
+        "work for",
         "working",
         "works for"
       ],

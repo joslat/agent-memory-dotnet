@@ -528,6 +528,9 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
             CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(properties["created_at"]),
+            InvalidatedAtUtc = properties.TryGetValue("invalidated_at", out var iat)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(iat)
+                                : null,
             Metadata = DeserializeMetadata(properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 

@@ -63,7 +63,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
             BuildSystemPrompt(
                 _options.AssistantContent, _options.EntityTypes, _options.TemporalValidity,
                 _options.Provenance, _options.CaptureIdentityAliases, _options.CaptureUserName, _options.IgnoreQuestions,
-                _options.OwnPreferencesOnly)
+                _options.OwnPreferencesOnly, _options.MarkCorrections)
                 // Appended only when context is actually present, so a context-free prompt stays
                 // byte-for-byte what every sealed measurement was taken under (E2).
                 + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
@@ -106,6 +106,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
                     ValidUntilPrecision = item.ValidUntil?.Precision ?? DatePrecision.Unspecified,
                     SourceRole = item.SourceRole,
                     SourceTurn = item.SourceTurn,
+                    Replaces = item.Replaces,
                 }).ToArray(),
             Preferences = (response.Preferences ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item.Preference))
@@ -117,6 +118,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
                     Confidence = item.Confidence,
                     SourceRole = item.SourceRole,
                     SourceTurn = item.SourceTurn,
+                    Replaces = item.Replaces,
                 }).ToArray(),
             Relationships = (response.Relations ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item.Source) &&
@@ -181,7 +183,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
         bool captureIdentityAliases = false,
         bool captureUserName = false,
         bool ignoreQuestions = false,
-        bool ownPreferencesOnly = false)
+        bool ownPreferencesOnly = false,
+        bool markCorrections = false)
     {
         var types = entityTypes is { Count: > 0 } ? entityTypes : LlmEntityExtractor.DefaultEntityTypes;
         return SystemPromptPrefix
@@ -193,6 +196,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
             + ExtractionPromptSemantics.IdentityAliasInstruction(captureIdentityAliases)
             + ExtractionPromptSemantics.UserNameInstruction(captureUserName)
             + ExtractionPromptSemantics.QuestionsInstruction(ignoreQuestions)
-            + ExtractionPromptSemantics.OwnPreferencesInstruction(ownPreferencesOnly);
+            + ExtractionPromptSemantics.OwnPreferencesInstruction(ownPreferencesOnly)
+            + ExtractionPromptSemantics.CorrectionsInstruction(markCorrections);
     }
 }

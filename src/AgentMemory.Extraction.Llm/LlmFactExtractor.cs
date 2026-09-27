@@ -59,7 +59,7 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
             (_options.FactExtractionPrompt
                 ?? BuildSystemPrompt(
                     _options.AssistantContent, _options.TemporalValidity, _options.Provenance, _options.CaptureUserName,
-                    _options.IgnoreQuestions))
+                    _options.IgnoreQuestions, _options.MarkCorrections))
                 // Only when context is present: a context-free prompt must stay byte-identical (E2).
                 + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract facts from this conversation:",
@@ -87,7 +87,8 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
                 ValidUntil = f.ValidUntil?.At,
                 ValidUntilPrecision = f.ValidUntil?.Precision ?? DatePrecision.Unspecified,
                 SourceRole = f.SourceRole,
-                SourceTurn = f.SourceTurn
+                SourceTurn = f.SourceTurn,
+                Replaces = f.Replaces
             })
             .ToList();
     }
@@ -111,11 +112,13 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
         TemporalValidityMode temporalValidity,
         ExtractionProvenanceMode provenance,
         bool captureUserName = false,
-        bool ignoreQuestions = false) =>
+        bool ignoreQuestions = false,
+        bool markCorrections = false) =>
         DefaultSystemPrompt
         + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
         + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity)
         + ExtractionPromptSemantics.ProvenanceInstruction(provenance)
         + ExtractionPromptSemantics.UserNameInstruction(captureUserName)
-        + ExtractionPromptSemantics.QuestionsInstruction(ignoreQuestions);
+        + ExtractionPromptSemantics.QuestionsInstruction(ignoreQuestions)
+        + ExtractionPromptSemantics.CorrectionsInstruction(markCorrections);
 }

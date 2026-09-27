@@ -42,6 +42,13 @@ public sealed record ExtractedFact
     public DatePrecision ValidUntilPrecision { get; init; }
 
     /// <summary>
+    /// 36.4. The earlier value this statement corrects or replaces, as it was said ("Arcade Fire, not Radiohead"
+    /// replaces <c>Radiohead</c>), or null. Written by the extractor only when asked
+    /// (<c>LlmExtractionOptions.MarkCorrections</c>); read once, at the write, to close what it replaces.
+    /// </summary>
+    public string? Replaces { get; init; }
+
+    /// <summary>
     /// The conversational role of the turn this fact was derived from (<c>"user"</c>,
     /// <c>"assistant"</c>, …), or <see langword="null"/> when the extractor did not report one.
     /// </summary>

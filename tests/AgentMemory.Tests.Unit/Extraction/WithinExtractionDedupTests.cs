@@ -27,9 +27,11 @@ public sealed class WithinExtractionDedupTests
         : text.Contains("dashboard", StringComparison.Ordinal) ? [0f, 1f, 0f, 0f]
         : [0f, 0f, 1f, 0f];
 
-    private PersistenceStage Sut(bool dedup)
+    private readonly IFactRepository _facts = Substitute.For<IFactRepository>();
+
+    private PersistenceStage Sut(bool dedup, bool supersede = false)
     {
-        var facts = Substitute.For<IFactRepository>();
+        var facts = _facts;
         facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
             .Returns(call => { _upserted.Add(call.Arg<Fact>()); return call.Arg<Fact>(); });
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
@@ -44,7 +46,10 @@ public sealed class WithinExtractionDedupTests
         return new PersistenceStage(embeddings, Substitute.For<IEntityRepository>(), facts, Substitute.For<IPreferenceRepository>(),
             Substitute.For<IRelationshipRepository>(), clock, ids, NullLogger<PersistenceStage>.Instance,
             new PassThroughMemoryPersistenceTransaction(),
-            Options.Create(new ExtractionOptions { DeduplicateWithinExtraction = dedup, EnableBatchMemoryUpserts = false }));
+            Options.Create(new ExtractionOptions
+            {
+                DeduplicateWithinExtraction = dedup, EnableBatchMemoryUpserts = false, SupersedeReplacedFacts = supersede,
+            }));
     }
 
     private static ExtractionStageResult Extraction() => new()
@@ -159,5 +164,33 @@ public sealed class WithinExtractionDedupTests
         stored.Object.Should().Be("analytics team");
         stored.ValidFrom.Should().Be(DateTimeOffset.Parse("2026-09-01T00:00:00Z"));
         stored.ValidFromPrecision.Should().Be(DatePrecision.Month, "a date and its precision are carried together");
+    }
+
+    [Fact]
+    public async Task The_dropped_phrasings_correction_is_carried_like_its_date()
+    {
+        // 36.4: a correction the merged-away phrasing carried still closes what it replaces.
+        _facts.GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>(
+            [
+                new Fact { FactId = "finance", Subject = "Tomás Silva", Predicate = "moved to", Object = "finance", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UnixEpoch },
+            ]));
+        _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
+        var extraction = new ExtractionStageResult
+        {
+            SourceMessageIds = ["message-1"],
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase),
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics", Confidence = 0.8, Replaces = "finance" },
+                new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics team", Confidence = 0.9 },
+            ],
+        };
+
+        await Sut(dedup: true, supersede: true).PersistAsync(extraction, ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        await _facts.Received(1).SupersedeAsync("finance", Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 }

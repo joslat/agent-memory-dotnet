@@ -136,6 +136,16 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             activity.SetTag("memory.persist.relationships", extraction.FilteredRelationships.Count);
         }
 
+        // 36.4. A change of mind in the shape supersession can act on: ages as the single-valued `age`, and the
+        // state an event entails ("moved to" -> "lives in") beside it. Only with supersession, the feature it serves.
+        if (_options.SupersedeReplacedFacts && extraction.FilteredFacts.Count > 0)
+            extraction = extraction with
+            {
+                FilteredFacts = ReplacementShapes.Prepare(
+                    extraction.FilteredFacts,
+                    name => extraction.ResolvedEntityMap.TryGetValue(name, out var entity) ? entity.Type : null),
+            };
+
         var prepared = await PrepareEmbeddingsAsync(extraction, cancellationToken).ConfigureAwait(false);
         if (_options.DeduplicateWithinExtraction && prepared.Facts.Count > 1)
         {
@@ -350,6 +360,16 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
         // 2. Embed + upsert facts.
         var persistedFactCount = 0;
+        // 36.4. What each marked correction replaces, by the words it was extracted as (the source key every
+        // outcome of this persist is keyed by). Empty unless the extractor was asked to mark corrections.
+        var factCorrections = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var preparedFact in prepared.Facts)
+        {
+            if (!string.IsNullOrWhiteSpace(preparedFact.Item.Replaces))
+                factCorrections.TryAdd(
+                    $"{preparedFact.Item.Subject} {preparedFact.Item.Predicate} {preparedFact.Item.Object}",
+                    preparedFact.Item.Replaces!);
+        }
         // Counted so the batch can say whether the lever did anything at all -- the "you turned this
         // on and it was inert" signal that took a week and four scored runs to notice its absence.
         var supersessionEligible = 0;
@@ -532,6 +552,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
 
             await SupersedeReplacedFactsAsync(persisted).ConfigureAwait(false);
+            if (factCorrections.TryGetValue(sourceKey, out var replaced))
+                await CloseCorrectedAsync(persisted, replaced).ConfigureAwait(false);
 
             persistedFactCount++;
             _logger.LogDebug("Persisted fact '{S} {P} {O}'.",
@@ -576,6 +598,11 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 return;
             }
 
+            // 36.4. A value that has already ended cannot replace the current one: "I worked at Google until 2019"
+            // said after "I work at Meta" is history, not a change of employer.
+            if (winner.ValidUntil is { } ended && ended < _clock.UtcNow)
+                return;
+
             supersessionEligible++;
 
             var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
@@ -613,6 +640,33 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 _logger.LogWarning(ex,
                     "Write-time supersession failed for fact '{Id}'; it remains stored alongside the "
                     + "assertion it replaces.", winner.FactId);
+            }
+        }
+
+        // 36.4. A correction the extractor marked closes the live fact that stated the replaced value, when
+        // nothing else would (a plan, a value under a multi-valued relation). Same gate and same failure policy
+        // as supersession above: best-effort, never the reason a stored memory is reported as failed.
+        async Task CloseCorrectedAsync(Fact winner, string replaced)
+        {
+            if (!_options.SupersedeReplacedFacts) return;
+            var scope = SharedScopes.OwnedOrShared(ownerId);
+            try
+            {
+                var candidates = await _factRepository.GetBySubjectAsync(winner.Subject, scope, cancellationToken)
+                    .ConfigureAwait(false);
+                foreach (var loser in candidates.Where(candidate => Corrections.Closes(candidate, winner, replaced)))
+                {
+                    await _factRepository.SupersedeAsync(loser.FactId, winner.FactId, scope, cancellationToken)
+                        .ConfigureAwait(false);
+                    _logger.LogDebug("Correction '{Winner}' closed fact '{Loser}' (replaces '{Replaced}').",
+                        winner.FactId, loser.FactId, replaced);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Closing what fact '{Id}' corrects failed; it remains stored alongside it.", winner.FactId);
             }
         }
 
@@ -716,6 +770,15 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
         }
         // 3. Embed + upsert preferences.
+        // 36.4. Preferences have no single-valued relation, so a marked correction is the only way one replaces
+        // another ("Arcade Fire, not Radiohead" left both live).
+        var preferenceCorrections = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var preparedPreference in prepared.Preferences)
+        {
+            if (!string.IsNullOrWhiteSpace(preparedPreference.Item.Replaces))
+                preferenceCorrections.TryAdd(preparedPreference.Item.PreferenceText, preparedPreference.Item.Replaces!);
+        }
+
         var preferenceInputs = prepared.Preferences.Select(preparedPreference =>
         {
             var extracted = preparedPreference.Item;
@@ -762,8 +825,35 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
             }
 
+            if (preferenceCorrections.TryGetValue(sourceKey, out var replaced))
+                await CloseCorrectedPreferencesAsync(persisted, replaced).ConfigureAwait(false);
+
             persistedPrefCount++;
             _logger.LogDebug("Persisted preference in category '{Category}'.", persisted.Category);
+        }
+
+        async Task CloseCorrectedPreferencesAsync(Preference winner, string replaced)
+        {
+            if (!_options.SupersedeReplacedFacts) return;
+            var scope = SharedScopes.OwnedOrShared(ownerId);
+            try
+            {
+                var candidates = await _preferenceRepository.GetByCategoryAsync(winner.Category, scope, cancellationToken)
+                    .ConfigureAwait(false);
+                foreach (var loser in candidates.Where(candidate => Corrections.Closes(candidate, winner, replaced)))
+                {
+                    await _preferenceRepository.SupersedeAsync(loser.PreferenceId, winner.PreferenceId, scope, cancellationToken)
+                        .ConfigureAwait(false);
+                    _logger.LogDebug("Correction '{Winner}' closed preference '{Loser}' (replaces '{Replaced}').",
+                        winner.PreferenceId, loser.PreferenceId, replaced);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Closing what preference '{Id}' corrects failed; it remains stored alongside it.", winner.PreferenceId);
+            }
         }
 
         async Task PersistPreferenceIndividuallyAsync(Preference item, string sourceKey)
@@ -1215,6 +1305,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     ValidUntilPrecision = winner.Item.ValidUntil is not null ? winner.Item.ValidUntilPrecision
                         : carry ? loser.Item.ValidUntilPrecision : DatePrecision.Unspecified,
                     SourceTurn = winner.Item.SourceTurn ?? (carry ? loser.Item.SourceTurn : null),
+                    Replaces = winner.Item.Replaces ?? (carry ? loser.Item.Replaces : null),
                 },
             };
             merged.Add(new IngestionItemOutcome
