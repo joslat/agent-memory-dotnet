@@ -832,10 +832,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             if (persistedEntityMap.TryGetValue(userName, out var inThisExtraction)) return userEntity = inThisExtraction;
             try
             {
-                var named = await _entityRepository.GetByNameAsync(
-                    userName, includeAliases: true, MemoryScope.For(ownerId!, includeShared: false), cancellationToken).ConfigureAwait(false);
-                return userEntity = named.FirstOrDefault(e => string.Equals(e.Type, "PERSON", StringComparison.OrdinalIgnoreCase))
-                                    ?? (named.Count == 1 ? named[0] : null);
+                // Live only: a name merged into another person, or invalidated, must not anchor new edges.
+                return userEntity = await _entityRepository.FindLiveByNameAsync(
+                    userName, "PERSON", MemoryScope.For(ownerId!, includeShared: false), cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
@@ -885,6 +884,21 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     SourceKey = relSourceKey,
                     ErrorCode = MemoryErrorCodes.RelationshipEndpointNotPersisted,
                     ErrorMessage = $"Target entity '{extracted.TargetEntity}' was not persisted.",
+                });
+                continue;
+            }
+
+            // I-7: "user -KNOWS-> Ana" said by Ana maps both ends to one person; no edge from a node to itself.
+            if (string.Equals(sourceEntity.EntityId, targetEntity.EntityId, StringComparison.Ordinal))
+            {
+                outcomes.Add(new IngestionItemOutcome
+                {
+                    Kind = MemoryItemKind.Relationship,
+                    Stage = IngestionStage.RelationshipPersistence,
+                    Status = IngestionItemStatus.Skipped,
+                    SourceKey = relSourceKey,
+                    ErrorCode = MemoryErrorCodes.RelationshipEndpointNotPersisted,
+                    ErrorMessage = "Both ends are the same entity.",
                 });
                 continue;
             }
@@ -1110,8 +1124,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         internal static readonly string[] SelfWords = ["user", "the user", "i", "me", "myself"];
 
         /// <summary>
-        /// Words that mean the speaker as an OBJECT. Not "I"/"me": as an object they are as often
-        /// something else ("lives in | ME", Maine), and the extractor is asked to say "user" anyway.
+        /// Words that mean the speaker as a fact's OBJECT. Not "I"/"me": as an object they are as often
+        /// something else ("lives in | ME", Maine), which a fact's free-text object cannot tell apart.
         /// </summary>
         private static readonly HashSet<string> UserAsObject = new(StringComparer.Ordinal) { "user", "the user" };
 
@@ -1125,11 +1139,11 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         internal static bool IsSelf(string? value) => Self.Contains(MemoryTripleCanonicalizer.CanonicalValue(value));
 
         /// <summary>
-        /// I-7: whether a relationship endpoint is the user, by the same rule as a fact's slots: any self word
-        /// as the source, only "user" / "the user" as the target.
+        /// I-7: whether a relationship endpoint is the user: any self word, at either end. Unlike a fact's
+        /// object, an endpoint is only ever asked about when it is not an extracted entity, so "ME" the
+        /// state would have resolved as one, and "Fabrikam EMPLOYS me" is the user.
         /// </summary>
-        internal static bool MeansUserEndpoint(string? endpoint, bool source) =>
-            source ? IsSelf(endpoint) : UserAsObject.Contains(MemoryTripleCanonicalizer.CanonicalValue(endpoint));
+        internal static bool MeansUserEndpoint(string? endpoint, bool source) => IsSelf(endpoint);
 
         internal static bool IsNamingPredicate(string? predicate) => Naming.Contains(MemoryTripleCanonicalizer.Canonical(predicate));
 

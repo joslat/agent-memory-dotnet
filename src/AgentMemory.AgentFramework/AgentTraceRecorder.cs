@@ -26,6 +26,19 @@ public sealed class AgentTraceRecorder
     // Tracks current step count per active trace.
     private readonly ConcurrentDictionary<string, int> _stepCounts = new();
 
+    /// <summary>The 1.5.0 constructor, kept so assemblies compiled against it still load (an added
+    /// optional parameter is a binary break). New code uses the full constructor.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public AgentTraceRecorder(
+        IReasoningMemoryService reasoningService,
+        IClock clock,
+        IIdGenerator idGenerator,
+        IOptions<AgentFrameworkOptions> options,
+        ILogger<AgentTraceRecorder> logger)
+        : this(reasoningService, clock, idGenerator, options, logger, ownerContext: null)
+    {
+    }
+
     /// <summary>
     /// Initializes a new <see cref="AgentTraceRecorder"/>.
     /// </summary>
@@ -39,6 +52,7 @@ public sealed class AgentTraceRecorder
     /// provider opens for a turn. Without it a host under strict isolation had to pass the owner by hand,
     /// or every trace write failed.
     /// </param>
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public AgentTraceRecorder(
         IReasoningMemoryService reasoningService,
         IClock clock,

@@ -401,6 +401,27 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<Entity?> FindLiveByNameAsync(string name, string? type, MemoryScope scope, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(scope);
+        if (!scope.HasOwnerFilter) return null;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["ownerId"] = scope.OwnerId,
+            ["nameLower"] = name.Trim().ToLowerInvariant(),
+            ["type"] = type,
+        };
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(EntityQueries.FindLiveByName, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            if (records.Count == 0) return null;
+            var node = records[0]["e"].As<INode>();
+            return MapToEntity(node, ReadEmbedding(node));
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<Entity>> GetByTypeWithoutEmbeddingAsync(string type, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
         bool hasOwner = scope?.HasOwnerFilter == true;

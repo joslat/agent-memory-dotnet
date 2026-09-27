@@ -395,8 +395,11 @@ internal sealed class MemoryService : IMemoryService
 
         // The batch itself is never context. Its turns are the targets, and a message appearing in
         // both would be handed to the model twice -- once as "do not extract from this".
+        // And only what came BEFORE them: extracted after the turn (ExtractInBackground), the newest
+        // stored messages can be LATER turns, and references would resolve against the future.
+        var earliestTarget = request.Messages.Min(m => m.TimestampUtc);
         var context = recent
-            .Where(m => !targetIds.Contains(m.MessageId))
+            .Where(m => !targetIds.Contains(m.MessageId) && m.TimestampUtc <= earliestTarget)
             .TakeLast(wanted)
             .ToList();
 

@@ -49,7 +49,32 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
     private static readonly IReadOnlySet<string> CoreContributorExclusion =
         new HashSet<string>(StringComparer.Ordinal) { CoreMemoryContextContributor.ContributorId };
 
+    /// <summary>The 1.5.0 constructor, kept so assemblies compiled against it still load (an added
+    /// optional parameter is a binary break). New code uses the full constructor.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public ExtensibleMemoryContextProvider(
+        AgentMemory.Abstractions.Services.IMemoryService memoryService,
+        AgentMemory.Abstractions.Services.IEmbeddingOrchestrator embeddingOrchestrator,
+        AgentMemory.Abstractions.Services.IClock clock,
+        AgentMemory.Abstractions.Services.IIdGenerator idGenerator,
+        Microsoft.Extensions.Options.IOptions<AgentMemory.Abstractions.Options.MemoryOptions> memoryOptions,
+        Microsoft.Extensions.Options.IOptions<ContextFormatOptions> formatOptions,
+        Microsoft.Extensions.Options.IOptions<AgentFrameworkOptions> agentOptions,
+        ILogger<Neo4jMemoryContextProvider> baseLogger,
+        IContextCompiler compiler,
+        IEnumerable<Capabilities.IContextContributor> moduleContributors,
+        ILogger<ExtensibleMemoryContextProvider> logger,
+        AgentMemory.Abstractions.Services.IMemoryStoreContext? storeContext,
+        AgentMemory.Abstractions.Services.IWritableMemoryOwnerContext? ownerContext,
+        AgentMemory.AgentFramework.Tools.MemoryToolFactory? toolFactory,
+        AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy,
+        IMemoryContextAdmissionPolicy? admissionPolicy)
+        : this(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions, agentOptions, baseLogger, compiler, moduleContributors, logger, storeContext, ownerContext, toolFactory, recallPolicy, admissionPolicy, backgroundExtraction: null)
+    {
+    }
+
     /// <summary>Creates the provider. Base dependencies are the shipped provider's, unchanged.</summary>
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public ExtensibleMemoryContextProvider(
         AgentMemory.Abstractions.Services.IMemoryService memoryService,
         AgentMemory.Abstractions.Services.IEmbeddingOrchestrator embeddingOrchestrator,

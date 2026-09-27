@@ -16,7 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   owner and store scope, drained on shutdown for up to `BackgroundDrainTimeout` (30 s). All three
   entry points that extract on persist (the context provider, the chat-history provider, the facade)
   share one dispatcher, so they behave the same. Register your own `IBackgroundExtraction` to hand the
-  work to another scheduler. Measured, 10 live turns per arm with a 6 s pause between turns: median
+  work to another scheduler. Queued work resolves its services from a fresh scope (the turn's, an ASP.NET
+  request say, has usually ended), runs on the thread pool rather than the caller's context, and is its
+  own trace linked to the turn's. With `ExtractionContextTurns`, the read-only context is only what came
+  before the turn: extracted later, the newest stored messages can be the next turns. Measured, 10 live turns per arm with a 6 s pause between turns: median
   answer 3.5 s → 1.5 s (−57%), p95 9.7 s → 4.5 s, same facts stored. The trade-off: a fact stated in
   one turn may not be recallable in the next if that turn starts before extraction finishes.
 - **`ExtractionOptions.ResolveUserToName` + `LlmExtractionOptions.CaptureUserName` (dark): "user" is
@@ -34,7 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `object_surface`; with `CanonicalFactSubjects` the name resolves to the known person's full name. The
   Relationships too: "user -WORKS_AT-> Fabrikam" was dropped at extraction ("source entity 'user' not
   resolved"); with the option it starts at the user's person entity (the one named in the same turn,
-  else the stored one). Live: "I'm Ana, I work at Fabrikam in Madrid; my brother Tiago lives in Lyon"
+  else the stored one, found live: never a name merged into another person or invalidated, via the new
+  `IEntityRepository.FindLiveByNameAsync`; no edge from a node to itself). Live: "I'm Ana, I work at Fabrikam in Madrid; my brother Tiago lives in Lyon"
   stored all three relationships from Ana, none skipped. The
   instruction only adds the naming fact: an earlier wording ("refer to the person speaking as user") made
   the model return nothing for book passages ("fictional text; no user memory"), 6 of 18 chunks; now 1 of
@@ -193,6 +197,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all prerelease, and a shipped package may not depend on one.
 
 ### Fixed
+
+- **Constructors that gained an optional parameter keep their 1.5.0 signature.** `Neo4jMemoryContextProvider`,
+  `Neo4jChatHistoryProvider`, `Neo4jMicrosoftMemoryFacade`, `AgentTraceRecorder` and
+  `ExtensibleMemoryContextProvider` gained a dependency this release; an added optional parameter is a
+  binary break, so the old signatures remain as overloads and code compiled against 1.5.0 still loads.
 
 - **`AgentTraceRecorder` records traces under the turn's owner.** It passed no owner unless given one, and
   the reasoning service does not read the ambient owner scope, so under strict multi-tenant isolation every

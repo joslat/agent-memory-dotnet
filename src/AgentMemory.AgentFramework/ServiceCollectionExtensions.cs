@@ -50,7 +50,7 @@ public static class ServiceCollectionExtensions
         {
             var options = sp.GetRequiredService<IOptions<AgentFrameworkOptions>>().Value;
             return new BackgroundExtractionQueue(options.BackgroundExtractionConcurrency, options.BackgroundDrainTimeout,
-                sp.GetRequiredService<ILogger<BackgroundExtractionQueue>>());
+                sp.GetRequiredService<ILogger<BackgroundExtractionQueue>>(), sp.GetRequiredService<IServiceScopeFactory>());
         });
 
         services.AddOptions<ContextFormatOptions>()

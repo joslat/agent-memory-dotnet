@@ -13,7 +13,16 @@ namespace AgentMemory.AgentFramework;
 /// </para>
 /// <para>
 /// Work is enqueued with the caller's ambient owner and store scope captured, so it writes to the same
-/// owner and store the turn did even when it runs on another thread.
+/// owner and store the turn did even when it runs on another thread. The owner also travels explicitly;
+/// the store travels only as the ambient scope, so a custom <c>IMemoryStoreContext</c> that reads through
+/// a per-request holder (an <c>IHttpContextAccessor</c>, say) sees nothing once the request has ended.
+/// </para>
+/// <para>
+/// The default queue resolves the work's services from a fresh scope and drains when the container is
+/// disposed: work still queued then needs the database driver, so a host that disposes the driver first
+/// (or resolves this queue before any memory service) should drain explicitly with
+/// <see cref="WhenIdleAsync"/> when stopping. The queue is not bounded: under a slow model, backlog grows
+/// with the turns.
 /// </para>
 /// </remarks>
 public interface IBackgroundExtraction

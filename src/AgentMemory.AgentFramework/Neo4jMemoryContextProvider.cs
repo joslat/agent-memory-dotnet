@@ -48,6 +48,28 @@ public class Neo4jMemoryContextProvider : AIContextProvider
     private readonly IMemoryContextAdmissionPolicy _admissionPolicy;
     private readonly ILogger<Neo4jMemoryContextProvider> _logger;
 
+    /// <summary>The 1.5.0 constructor, kept so assemblies compiled against it still load (an added
+    /// optional parameter is a binary break). New code uses the full constructor.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public Neo4jMemoryContextProvider(
+        IMemoryService memoryService,
+        IEmbeddingOrchestrator embeddingOrchestrator,
+        IClock clock,
+        IIdGenerator idGenerator,
+        IOptions<MemoryOptions> memoryOptions,
+        IOptions<ContextFormatOptions> formatOptions,
+        IOptions<AgentFrameworkOptions> agentOptions,
+        ILogger<Neo4jMemoryContextProvider> logger,
+        IMemoryStoreContext? storeContext,
+        IWritableMemoryOwnerContext? ownerContext,
+        MemoryToolFactory? toolFactory,
+        IAutomaticRecallPolicy? recallPolicy,
+        IMemoryContextAdmissionPolicy? admissionPolicy)
+        : this(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions, agentOptions, logger, storeContext, ownerContext, toolFactory, recallPolicy, admissionPolicy, backgroundExtraction: null)
+    {
+    }
+
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public Neo4jMemoryContextProvider(
         IMemoryService memoryService,
         IEmbeddingOrchestrator embeddingOrchestrator,

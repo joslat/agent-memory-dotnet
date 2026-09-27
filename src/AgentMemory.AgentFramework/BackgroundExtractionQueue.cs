@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace AgentMemory.AgentFramework;
@@ -19,8 +20,16 @@ internal sealed class BackgroundExtractionQueue : IBackgroundExtraction, IAsyncD
     private int _pending;
     private bool _closed;
 
-    public BackgroundExtractionQueue(int concurrency, TimeSpan drainTimeout, ILogger<BackgroundExtractionQueue> logger)
+    /// <summary>
+    /// Where queued work gets its services: a fresh scope per item, because the turn's own scope (an ASP.NET
+    /// request, say) has usually ended by the time the work runs. Null outside a container (tests).
+    /// </summary>
+    internal IServiceScopeFactory? Scopes { get; }
+
+    public BackgroundExtractionQueue(int concurrency, TimeSpan drainTimeout, ILogger<BackgroundExtractionQueue> logger,
+        IServiceScopeFactory? scopes = null)
     {
+        Scopes = scopes;
         ArgumentOutOfRangeException.ThrowIfLessThan(concurrency, 1);
         _slots = new SemaphoreSlim(concurrency, concurrency);
         _drainTimeout = drainTimeout;
@@ -44,16 +53,15 @@ internal sealed class BackgroundExtractionQueue : IBackgroundExtraction, IAsyncD
             var previous = _tails.TryGetValue(orderingKey, out var tail) ? tail : Task.CompletedTask;
             var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _tails[orderingKey] = done.Task;
-            _ = RunAsync(orderingKey, previous, done, work);
+            // On the thread pool, not the caller's context: Task.Yield would post back to a caller's
+            // SynchronizationContext or TaskScheduler, and the work would start on it.
+            _ = Task.Run(() => RunAsync(orderingKey, previous, done, work));
         }
         return true;
     }
 
     private async Task RunAsync(string key, Task previous, TaskCompletionSource done, Func<CancellationToken, Task> work)
     {
-        // Off the caller's thread before anything else: the caller holds the gate, and the turn must not
-        // wait for any synchronous part of the work.
-        await Task.Yield();
         var acquired = false;
         try
         {

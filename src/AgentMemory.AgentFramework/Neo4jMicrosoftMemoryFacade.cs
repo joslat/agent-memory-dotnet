@@ -22,6 +22,20 @@ public sealed class Neo4jMicrosoftMemoryFacade
     private readonly ILogger<Neo4jMicrosoftMemoryFacade> _logger;
     private readonly IMemoryContextAdmissionPolicy _admissionPolicy;
 
+    /// <summary>The 1.5.0 constructor, kept so assemblies compiled against it still load (an added
+    /// optional parameter is a binary break). New code uses the full constructor.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public Neo4jMicrosoftMemoryFacade(
+        IMemoryService memoryService,
+        Neo4jChatMessageStore messageStore,
+        IOptions<AgentFrameworkOptions> options,
+        ILogger<Neo4jMicrosoftMemoryFacade> logger,
+        IMemoryContextAdmissionPolicy? admissionPolicy)
+        : this(memoryService, messageStore, options, logger, admissionPolicy, backgroundExtraction: null)
+    {
+    }
+
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public Neo4jMicrosoftMemoryFacade(
         IMemoryService memoryService,
         Neo4jChatMessageStore messageStore,

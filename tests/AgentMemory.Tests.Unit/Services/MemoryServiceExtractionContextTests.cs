@@ -78,6 +78,23 @@ public sealed class MemoryServiceExtractionContextTests
             new ExtractionRequest { Messages = targets, SessionId = "s-1" });
 
     [Fact]
+    public async Task LaterTurnsAreNeverContext()
+    {
+        // Review round 4: extracted after the turn (ExtractInBackground), the newest stored messages are
+        // the NEXT turns, and "preceding turns" took them: references resolved against the future.
+        var t = DateTimeOffset.Parse("2026-09-27T10:00:00Z");
+        SessionHolds(
+            M("m-1", "Zurich is lovely") with { TimestampUtc = t.AddMinutes(-2) },
+            M("m-2", "I moved there") with { TimestampUtc = t },
+            M("m-3", "Actually I meant Geneva") with { TimestampUtc = t.AddMinutes(1) },
+            M("m-4", "Noted.") with { TimestampUtc = t.AddMinutes(1) });
+
+        await ExtractAsync(2, M("m-2", "I moved there") with { TimestampUtc = t });
+
+        CapturedRequest().ContextMessages.Select(m => m.MessageId).Should().Equal("m-1");
+    }
+
+    [Fact]
     public async Task PrecedingTurnsAreAttachedAsContext()
     {
         // THE test. Everything else in E2 is arrangement around these turns reaching the extractor.

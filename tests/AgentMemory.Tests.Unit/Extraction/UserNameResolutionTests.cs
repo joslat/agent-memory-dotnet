@@ -277,8 +277,8 @@ public sealed class UserNameResolutionTests
         _facts.FindLatestObjectAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<IReadOnlyCollection<string>>(),
                 Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<string?>("Dana"));
-        entities.GetByNameAsync("Dana", Arg.Any<bool>(), Arg.Is<MemoryScope?>(s => s!.OwnerId == "owner-1"), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Entity>>([Person("entity-dana", "Dana")]));
+        entities.FindLiveByNameAsync("Dana", "PERSON", Arg.Is<MemoryScope>(s => s.OwnerId == "owner-1"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Entity?>(Person("entity-dana", "Dana")));
 
         await sut.PersistAsync(WorksAt(), ownerId: "owner-1", cancellationToken: CancellationToken.None);
 

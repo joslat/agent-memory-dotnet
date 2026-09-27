@@ -34,6 +34,23 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     public override IReadOnlyList<string> StateKeys { get; } =
         new[] { nameof(Neo4jChatHistoryProvider) };
 
+    /// <summary>The 1.5.0 constructor, kept so assemblies compiled against it still load (an added
+    /// optional parameter is a binary break). New code uses the full constructor.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public Neo4jChatHistoryProvider(
+        IMemoryService memoryService,
+        IClock clock,
+        IIdGenerator idGenerator,
+        AgentFrameworkOptions options,
+        ILogger<Neo4jChatHistoryProvider> logger,
+        IMemoryStoreContext? storeContext,
+        IWritableMemoryOwnerContext? ownerContext,
+        IMemoryContextAdmissionPolicy? admissionPolicy)
+        : this(memoryService, clock, idGenerator, options, logger, storeContext, ownerContext, admissionPolicy, backgroundExtraction: null)
+    {
+    }
+
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public Neo4jChatHistoryProvider(
         IMemoryService memoryService,
         IClock clock,
@@ -260,4 +277,4 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     // MemoryOwnerScopingAgent (#90), which wraps the complete invocation for that guarantee. See also
     // docs/reviews/review-2026-06-13-cycle3.md (finding #4).
     private IDisposable? ApplyOwnerContext(string? userId) => _ownerContext?.BeginOwnerScope(userId);
-}
+}

@@ -67,6 +67,26 @@ public interface IEntityRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The owner's live entity with this name or alias, if any: never one merged into another or
+    /// invalidated; an exact name before an alias; case-insensitive. The default reads
+    /// <see cref="GetByNameAsync"/> and prefers an exact name (it cannot see merges or invalidation); a
+    /// backend overrides it with one filtered, ordered read.
+    /// </summary>
+    async Task<Entity?> FindLiveByNameAsync(
+        string name,
+        string? type,
+        MemoryScope scope,
+        CancellationToken cancellationToken = default)
+    {
+        var named = await GetByNameAsync(name, includeAliases: true, scope, cancellationToken).ConfigureAwait(false);
+        return named
+            .Where(e => type is null || string.Equals(e.Type, type, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(e => e.EntityId, StringComparer.Ordinal)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
     /// <see cref="GetByTypeAsync"/> without the vectors (<see cref="Entity.Embedding"/> is null): the
     /// entity-resolution candidate set when the semantic stage goes through the vector index. The default
     /// body reads everything and drops the vectors; a backend overrides it to not read them at all.
