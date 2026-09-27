@@ -34,6 +34,13 @@ internal static class TemporalQueryParser
     private static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(100);
 
     /// <summary>
+    /// 36.1 (run 5). A question in the past tense: "what DID I do in October", "where WAS I in May", "back in March".
+    /// </summary>
+    private static readonly Regex PastTense = new(
+        @"\b(did|was|were|had|used\s+to|back\s+in|ago)\b",
+        Options, Timeout);
+
+    /// <summary>
     /// <c>last|past N unit(s) ago</c> and the bare <c>last week/month/quarter/year</c>.
     /// </summary>
     /// <remarks>
@@ -128,6 +135,13 @@ internal static class TemporalQueryParser
         {
             var monthNumber = MonthNumber(month.Groups["month"].Value);
             if (monthNumber == 0) return null;
+
+            // 36.1 (run 5). A month still ahead this year, named without a year, is last year's only when the question
+            // is about the past. "What do I have coming up in October?", asked in September, is about this October: read
+            // as last October it recalled what was true then and hid the appointment dated this October (found in
+            // simulated conversations, once extraction dated it). A future question recalls against now.
+            if (!month.Groups["year"].Success && monthNumber > now.Month && !PastTense.IsMatch(query))
+                return null;
 
             var year = month.Groups["year"].Success
                 ? int.Parse(month.Groups["year"].Value, CultureInfo.InvariantCulture)

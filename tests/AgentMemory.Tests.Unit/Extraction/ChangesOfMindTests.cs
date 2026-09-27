@@ -28,6 +28,7 @@ public sealed class ChangesOfMindTests
     [InlineData("works for", true)]
     [InlineData("work for", true)]
     [InlineData("lived in", false)]
+    [InlineData("live", false)]
     [InlineData("worked at", false)]
     [InlineData("used to work in", false)]
     [InlineData("employed by", true)]

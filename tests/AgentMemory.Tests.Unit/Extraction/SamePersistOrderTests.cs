@@ -28,9 +28,19 @@ public sealed class SamePersistOrderTests
         public List<Preference> Preferences { get; } = [];
     }
 
-    private static PersistenceStage Stage(Store store, IEntityRepository? entities = null, IEmbeddingOrchestrator? embeddings = null)
+    private static PersistenceStage Stage(Store store, IEntityRepository? entities = null, IEmbeddingOrchestrator? embeddings = null,
+        bool batch = true, IRelationshipRepository? relationships = null)
     {
         var facts = Substitute.For<IFactRepository, IBatchMemoryRepository<Fact>>();
+        // The item path MERGEs on the triple, as the store does: a value said again is the stored node, live again.
+        facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci =>
+        {
+            var fact = ci.Arg<Fact>();
+            var i = store.Facts.FindIndex(f => f.Subject == fact.Subject && f.Predicate == fact.Predicate && f.Object == fact.Object);
+            if (i < 0) { store.Facts.Add(fact); return Task.FromResult(fact); }
+            store.Facts[i] = store.Facts[i] with { InvalidatedAtUtc = null };
+            return Task.FromResult(store.Facts[i]);
+        });
         ((IBatchMemoryRepository<Fact>)facts).UpsertBatchAsync(Arg.Any<IReadOnlyList<Fact>>(), Arg.Any<CancellationToken>())
             .Returns(ci => { store.Facts.AddRange(ci.Arg<IReadOnlyList<Fact>>()); return Task.FromResult(ci.Arg<IReadOnlyList<Fact>>()); });
         facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -40,7 +50,7 @@ public sealed class SamePersistOrderTests
                             f.Object != ci.ArgAt<string>(3) && f.FactId != ci.ArgAt<string>(0))
                 .ToList()));
         facts.GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
+            .Returns(ci => Task.FromResult<IReadOnlyList<Fact>>(store.Facts.Where(f => f.Subject == ci.ArgAt<string>(0)).ToList()));
         facts.SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
@@ -72,9 +82,9 @@ public sealed class SamePersistOrderTests
         clock.UtcNow.Returns(T0);
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
-        return new PersistenceStage(embeddings, entities, facts, preferences, Substitute.For<IRelationshipRepository>(), clock, ids,
+        return new PersistenceStage(embeddings, entities, facts, preferences, relationships ?? Substitute.For<IRelationshipRepository>(), clock, ids,
             NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
-            Options.Create(new ExtractionOptions { SupersedeReplacedFacts = true, EnableBatchMemoryUpserts = true }));
+            Options.Create(new ExtractionOptions { SupersedeReplacedFacts = true, EnableBatchMemoryUpserts = batch }));
     }
 
     private static ExtractedFact F(string o) => new() { Subject = "Oskar", Predicate = "lives in", Object = o, Confidence = 0.9 };
@@ -153,5 +163,62 @@ public sealed class SamePersistOrderTests
         await Stage(new Store(), entities).PersistAsync(SpeakerSays("user"), ownerId: "u1");
 
         written.Should().BeEmpty();
+    }
+
+    // ── Review round 4 ───────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task A_value_said_again_closes_what_came_between_on_the_item_path()
+    {
+        var store = new Store();
+
+        await Stage(store, batch: false).PersistAsync(
+            new ExtractionStageResult { FilteredFacts = [F("Copenhagen"), F("Oslo"), F("Copenhagen")] }, ownerId: "u1");
+
+        store.Facts.Where(f => f.InvalidatedAtUtc is null).Select(f => f.Object).Should().Equal("Copenhagen");
+    }
+
+    [Fact]
+    public async Task A_correction_closes_the_value_it_names_even_when_that_value_is_said_after_it()
+    {
+        var store = new Store();
+
+        await Stage(store).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Oslo") with { Replaces = "Copenhagen" }, F("Copenhagen")],
+            FilteredPreferences =
+            [
+                new ExtractedPreference { Category = "music", PreferenceText = "likes Arcade Fire", Replaces = "Radiohead" },
+                new ExtractedPreference { Category = "music", PreferenceText = "likes Radiohead" },
+            ],
+        }, ownerId: "u1");
+
+        store.Facts.Where(f => f.InvalidatedAtUtc is null).Select(f => f.Object).Should().Equal("Oslo");
+        store.Preferences.Where(p => p.InvalidatedAtUtc is null).Select(p => p.PreferenceText).Should().Equal("likes Arcade Fire");
+    }
+
+    [Fact]
+    public async Task A_relationship_from_any_self_word_lands_on_the_speaker()
+    {
+        var entities = Substitute.For<IEntityRepository>();
+        entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Entity>()));
+        var relationships = Substitute.For<IRelationshipRepository>();
+        var written = new List<Relationship>();
+        relationships.GetBySourceEntityAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Relationship>>([]));
+        relationships.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { written.Add(ci.Arg<Relationship>()); return Task.FromResult(ci.Arg<Relationship>()); });
+        var extraction = SpeakerSays("user", "I") with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["user"] = E("id-user"), ["I"] = E("id-I"), ["Carmen"] = E("id-Carmen"),
+            },
+            FilteredRelationships = [new ExtractedRelationship { SourceEntity = "I", RelationshipType = "FRIEND_OF", TargetEntity = "Carmen", Confidence = 0.9 }],
+        };
+
+        await Stage(new Store(), entities, relationships: relationships).PersistAsync(extraction, ownerId: "u1");
+
+        written.Should().ContainSingle().Which.SourceEntityId.Should().Be("id-user", "\"I\" is the speaker, written once");
     }
 }

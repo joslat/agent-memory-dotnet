@@ -280,7 +280,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 speakerVector = await _embeddingOrchestrator.EmbedAsync(userName!, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception ex)
+            catch (Exception ex) when (!failFast)
             {
                 _logger.LogWarning(ex, "Could not embed the user's name; their entity is written without a vector.");
             }
@@ -307,13 +307,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         async Task RecordPersistedEntityAsync(string name, Entity persisted)
         {
             persistedEntityMap[name] = persisted;
-            // The speaker, written under the user's name, is found by that name and by every self word.
+            // The speaker, written under the user's name, is found by that name (and so from every self word, which
+            // resolves to the user's entity): the name is the speaker's, never an alias recorded by another entity.
             if (name == speakerKey && userName is not null)
-            {
-                persistedEntityMap.TryAdd(userName, persisted);
-                foreach (var self in prepared.Entities.Keys.Where(UserNames.IsSelf))
-                    persistedEntityMap.TryAdd(self, persisted);
-            }
+                persistedEntityMap[userName] = persisted;
             persistedEntityIds.Add(persisted.EntityId);
 
             // E-1. THE MAP IS WHAT DECIDES WHETHER A FACT FINDS ITS ENTITY, and it was keyed by the
@@ -430,9 +427,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         var persistedFactCount = 0;
         // Round 3. Two values of one single-valued relation in the same extraction ("I moved to Copenhagen, then to
         // Oslo"; two favourites). The batch writes both before supersession runs, so each saw the other as a live
-        // older value and they closed each other: no live residence. Within one persist the input order is the order
-        // the conversation said them, and only a later value closes an earlier one (records run in that order, so an
-        // earlier value is never already closed when it runs).
+        // older value and they closed each other: no live residence. Within one BATCH the input order is the order the
+        // conversation said them, and only a later value closes an earlier one. The item path needs no order: it writes
+        // and resolves one value at a time, so a later value does not exist yet when an earlier one runs, and a value
+        // said again ("Copenhagen, Oslo, Copenhagen") must be free to close what came between.
         var factOrder = new Dictionary<string, int>(StringComparer.Ordinal);
         bool IsLaterHere(string candidateId, string winnerId) =>
             factOrder.TryGetValue(candidateId, out var candidate) && factOrder.TryGetValue(winnerId, out var winner) &&
@@ -440,6 +438,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // 36.4. What each marked correction replaces, by the words it was extracted as (the source key every
         // outcome of this persist is keyed by). Empty unless the extractor was asked to mark corrections.
         var factCorrections = new Dictionary<string, string>(StringComparer.Ordinal);
+        // The values this extraction's corrections replace, by subject: a fact stating one of them is the old value,
+        // restated as the thing being corrected away, and must not supersede the correction.
+        var correctedAway = prepared.Facts
+            .Where(f => !string.IsNullOrWhiteSpace(f.Item.Replaces))
+            .Select(f => (MemoryTripleCanonicalizer.CanonicalValue(f.Item.Subject), MemoryTripleCanonicalizer.CanonicalValue(f.Item.Replaces)))
+            .ToHashSet();
         foreach (var preparedFact in prepared.Facts)
         {
             if (!string.IsNullOrWhiteSpace(preparedFact.Item.Replaces))
@@ -583,7 +587,6 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             // Fact upsert MERGEs on the natural triple and may return an older stable id. Always use
             // the repository result for outcomes and provenance rather than the fresh caller id.
             RecordSuccess(outcomes, MemoryItemKind.Fact, sourceKey, persisted.FactId);
-            factOrder.TryAdd(persisted.FactId, factOrder.Count);
 
             // W-E1. Link the fact to the entities its subject or object NAMES. Extraction has always
             // persisted both and never connected them: CreateAboutRelationshipAsync is public,
@@ -640,6 +643,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         async Task SupersedeReplacedFactsAsync(Fact winner)
         {
             if (!_options.SupersedeReplacedFacts) return;
+            if (correctedAway.Contains((MemoryTripleCanonicalizer.CanonicalValue(winner.Subject), MemoryTripleCanonicalizer.CanonicalValue(winner.Object))))
+                return;
 
             // The silent no-op this closes. `CanSupersede` requires the predicate to be one of the
             // relations the vocabulary declares single-valued, and it is FALSE for anything
@@ -735,7 +740,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     !string.Equals(said, winner.Subject, StringComparison.Ordinal))
                     candidates.AddRange(await _factRepository.GetBySubjectAsync(said, readScope, cancellationToken)
                         .ConfigureAwait(false));
-                foreach (var loser in Corrections.Closed(candidates, winner, replaced).Where(loser => !IsLaterHere(loser.FactId, winner.FactId)))
+                // No order guard: a marked correction names what it replaces, wherever that was said.
+                foreach (var loser in Corrections.Closed(candidates, winner, replaced))
                 {
                     await _factRepository.SupersedeAsync(loser.FactId, winner.FactId, writeScope, cancellationToken)
                         .ConfigureAwait(false);
@@ -910,7 +916,6 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
             }
 
-            preferenceOrder.TryAdd(persisted.PreferenceId, preferenceOrder.Count);
             if (preferenceCorrections.TryGetValue(sourceKey, out var replaced))
                 await CloseCorrectedPreferencesAsync(persisted, replaced).ConfigureAwait(false);
             else if (Corrections.SingleValuedRelation(persisted.PreferenceText) is not null)
@@ -931,10 +936,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             {
                 var candidates = await _preferenceRepository.GetByCategoryAsync(winner.Category, readScope, cancellationToken)
                     .ConfigureAwait(false);
+                // A marked correction closes what it names whatever the order; the favourite rule only an earlier value.
                 foreach (var loser in candidates.Where(candidate =>
-                             ((replaced is not null && Corrections.Closes(candidate, winner, replaced)) || Corrections.Replaces(winner, candidate)) &&
-                             !(preferenceOrder.TryGetValue(candidate.PreferenceId, out var later) &&
-                               preferenceOrder.TryGetValue(winner.PreferenceId, out var at) && later > at)))
+                             (replaced is not null && Corrections.Closes(candidate, winner, replaced)) ||
+                             (Corrections.Replaces(winner, candidate) &&
+                              !(preferenceOrder.TryGetValue(candidate.PreferenceId, out var later) &&
+                                preferenceOrder.TryGetValue(winner.PreferenceId, out var at) && later > at))))
                 {
                     await _preferenceRepository.SupersedeAsync(loser.PreferenceId, winner.PreferenceId, writeScope, cancellationToken)
                         .ConfigureAwait(false);

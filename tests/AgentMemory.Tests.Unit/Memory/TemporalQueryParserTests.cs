@@ -82,19 +82,16 @@ public sealed class TemporalQueryParserTests
     }
 
     [Fact]
-    public void FutureTenseIsNotDetected_AndThatIsTheAcceptedLimit()
+    public void AQuestionAboutAMonthStillAheadIsNoLongerReadAsLastYear()
     {
-        // "what will change in December", asked in January, resolves to LAST December. The parser
-        // reads dates, not tense, and a bare month behind a preposition is genuinely ambiguous -- it
-        // most often does mean the most recent one.
-        //
-        // Recorded rather than fixed: tense detection is a substantially harder problem, and the cost
-        // of getting THIS wrong is asymmetric in the tolerable direction. The question is answered
-        // against last December's memory instead of all of it, which is a narrower answer to a
-        // question about the future -- not a wrong answer to a question about the past.
+        // This test recorded the limit that "what will change in December", asked in January, resolved to LAST
+        // December, and called the cost tolerable ("a narrower answer to a question about the future"). It was not:
+        // once extraction dated future facts, the narrower answer HID them ("What do I have coming up in October?"
+        // answered "nothing", simulated conversations, run 5). A month still ahead this year is last year's only in a
+        // past-tense question now.
         TemporalQueryParser.Resolve(
                 "what will change in December", new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero))
-            .Should().Be(new DateTimeOffset(2025, 12, 31, 23, 59, 59, TimeSpan.Zero));
+            .Should().BeNull();
     }
 
     // ── what must parse ───────────────────────────────────────────────────
@@ -172,5 +169,26 @@ public sealed class TemporalQueryParserTests
         var act = () => Resolve(haystack);
 
         act.Should().NotThrow();
+    }
+
+    /// <summary>
+    /// 36.1 (run 5): a month still ahead this year is last year's only in a past-tense question. Now is 12 August 2026.
+    /// </summary>
+    [Theory]
+    [InlineData("What do I have coming up in October?")]
+    [InlineData("What am I doing in December?")]
+    [InlineData("Is anything planned in November?")]
+    public void A_question_about_a_month_still_ahead_recalls_against_now(string query)
+    {
+        Resolve(query).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_past_tense_question_about_that_month_is_about_last_year()
+    {
+        Resolve("What did I do in October?").Should().Be(new DateTimeOffset(2025, 10, 31, 23, 59, 59, TimeSpan.Zero));
+        Resolve("Where was I back in December?").Should().Be(new DateTimeOffset(2025, 12, 31, 23, 59, 59, TimeSpan.Zero));
+        Resolve("What did I think in March?").Should().Be(new DateTimeOffset(2026, 3, 31, 23, 59, 59, TimeSpan.Zero),
+            "a month already past this year is unchanged");
     }
 }
