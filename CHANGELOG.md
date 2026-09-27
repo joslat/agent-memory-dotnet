@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Forget a message without deleting it: `IShortTermMemoryService.InvalidateMessageAsync`.** The message
   stops being recalled or read back (recent messages, message search, whole-session and conversation reads, source
   quotes, session previews) but is kept, with its provenance, for history: as-of reads of times before it was
-  forgotten still return it, and `Message.InvalidatedAtUtc` says when it was forgotten. The unscoped message search
-  now over-fetches as the filtered search did, so forgotten messages never leave it short. The facts learned from it are
+  forgotten still return it, and `Message.InvalidatedAtUtc` says when it was forgotten (date grounding still reads
+  its timestamp). The unscoped message search now over-fetches as the filtered search did and still returns at most
+  `limit`, so forgotten messages never leave it short; a session with nothing live left lists last. The facts learned from it are
   separate memories and stay. Found live: after forgetting a person and every fact about them, the agent still
   answered from the message that named them. New members have default implementations that throw
   `NotSupportedException` (`IMessageRepository.InvalidateAsync` too), so existing implementations still compile.

@@ -11,8 +11,8 @@ namespace AgentMemory.Neo4j.Repositories;
 
 internal sealed class Neo4jMessageRepository : IMessageRepository
 {
-    // Metadata-only filters run after the global vector candidate pool, so those searches must
-    // over-fetch before filtering. Session-scoped searches use an exact in-session query instead.
+    // Unscoped searches filter after the global vector candidate pool (metadata filters, forgotten messages), so
+    // they over-fetch and then take `limit`. Session-scoped searches use an exact in-session query instead.
     private const int ScopedOverFetchFactor = 5;
     private const int ScopedOverFetchFloor = 50;
     private readonly INeo4jTransactionRunner _tx;

@@ -94,9 +94,8 @@ internal sealed class ProjectionState
 
         var fetched = await messages.GetByIdsAsync(ids, cancellationToken).ConfigureAwait(false);
         var map = new Dictionary<string, Message>(StringComparer.Ordinal);
-        // A forgotten message is never quoted back into the context (G-30 review): its fact may still be live.
         foreach (var message in fetched)
-            if (message.InvalidatedAtUtc is null) map[message.MessageId] = message;
+            map[message.MessageId] = message;
 
         return map;
     }

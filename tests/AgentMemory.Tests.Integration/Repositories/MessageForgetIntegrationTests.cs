@@ -47,9 +47,10 @@ public sealed class MessageForgetIntegrationTests : IAsyncLifetime
             Content = text, TimestampUtc = DateTimeOffset.UtcNow.AddMinutes(-minutesAgo), Embedding = Embedding,
         };
         _conversationId = conversation.ConversationId;
-        await _messages.AddAsync(M("m-forgotten", "My brother Pablo lives in Seville.", 10));
-        await _messages.AddAsync(M("m-kept", "My sister Lena lives in Berlin.", 5));
-        return (session, "m-forgotten", "m-kept");
+        var (forgotten, kept) = ($"m-forgotten-{session[^8..]}", $"m-kept-{session[^8..]}");
+        await _messages.AddAsync(M(forgotten, "My brother Pablo lives in Seville.", 10));
+        await _messages.AddAsync(M(kept, "My sister Lena lives in Berlin.", 5));
+        return (session, forgotten, kept);
     }
 
     [Fact]
@@ -140,5 +141,44 @@ public sealed class MessageForgetIntegrationTests : IAsyncLifetime
         var results = await _messages.SearchByVectorAsync(Embedding, sessionId: null, limit: 2, minScore: 0.0);
 
         results.Select(r => r.Message.MessageId).Should().BeEquivalentTo(["second", "third"]);
+    }
+
+    // ── G-30 review round 2 ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task The_search_across_sessions_still_returns_at_most_the_limit()
+    {
+        // The index is over-fetched so forgotten messages cannot leave the result short; the caller still gets
+        // `limit`, not the whole candidate pool.
+        var session = $"session-{Guid.NewGuid():N}";
+        var conversation = await _conversations.UpsertAsync(new Conversation
+        {
+            ConversationId = $"conv-{Guid.NewGuid():N}", SessionId = session,
+            CreatedAtUtc = DateTimeOffset.UtcNow, UpdatedAtUtc = DateTimeOffset.UtcNow,
+        });
+        for (var i = 0; i < 6; i++)
+            await _messages.AddAsync(new Message
+            {
+                MessageId = $"live-{i}", ConversationId = conversation.ConversationId, SessionId = session, Role = "user",
+                Content = $"message {i}", TimestampUtc = DateTimeOffset.UtcNow, Embedding = Embedding,
+            });
+
+        var results = await _messages.SearchByVectorAsync(Embedding, sessionId: null, limit: 2, minScore: 0.0);
+
+        results.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_session_with_everything_forgotten_is_listed_last()
+    {
+        var (older, _, _) = await SeedAsync();
+        await Task.Delay(20);
+        var (newer, a, b) = await SeedAsync();
+        await _messages.InvalidateAsync(a);
+        await _messages.InvalidateAsync(b);
+
+        var sessions = await _conversations.ListSessionsAsync();
+
+        sessions.Select(s => s.SessionId).Should().ContainInOrder(older, newer);
     }
 }

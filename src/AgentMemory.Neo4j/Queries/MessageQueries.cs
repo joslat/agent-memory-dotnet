@@ -254,7 +254,8 @@ internal static class MessageQueries
             .AndRawFragment(metadataFilterFragment)
             .Return("node, score")
             .OrderBy("score DESC")
-            .Limit("$limit", when: !string.IsNullOrWhiteSpace(metadataFilterFragment))
+            // Always: the index is asked for more than `limit` (filters apply after it), the caller gets `limit`.
+            .Limit("$limit")
             .Build();
     }
 

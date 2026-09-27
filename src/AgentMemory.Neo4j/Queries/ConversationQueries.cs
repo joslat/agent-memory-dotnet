@@ -62,6 +62,6 @@ internal static class ConversationQueries
                    SIZE(messages) AS msgCount,
                    CASE WHEN SIZE(messages) > 0 THEN messages[-1].content ELSE null END AS lastPreview,
                    CASE WHEN SIZE(messages) > 0 THEN messages[-1].timestamp ELSE null END AS lastActivity
-            ORDER BY lastActivity DESC
+            ORDER BY lastActivity IS NULL, lastActivity DESC
             LIMIT $limit";
 }

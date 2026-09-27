@@ -64,6 +64,9 @@ internal sealed class SourceQuoteProjectionFeature(IMessageRepository? messages)
         foreach (var id in fact.SourceMessageIds)
         {
             if (!sources.TryGetValue(id, out var message)) continue;
+            // A forgotten message is never quoted back (G-30): its fact may still be live, its words are not.
+            // Date grounding still reads its timestamp: a date says nothing of what was forgotten.
+            if (message.InvalidatedAtUtc is not null) continue;
             if (string.IsNullOrWhiteSpace(message.Content)) continue;
 
             foreach (var raw in message.Content.Split(SentenceTerminators, StringSplitOptions.RemoveEmptyEntries))

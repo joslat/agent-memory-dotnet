@@ -33,6 +33,7 @@ internal sealed class ConversationListResource
             MATCH (c:Conversation)
             {whereClause}
             OPTIONAL MATCH (c)-[:HAS_MESSAGE]->(m:Message)
+            WHERE m.invalidated_at IS NULL
             WITH c, count(m) AS messageCount
             ORDER BY c.created_at DESC
             LIMIT $limit

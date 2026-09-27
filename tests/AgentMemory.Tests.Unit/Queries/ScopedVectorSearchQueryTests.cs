@@ -120,7 +120,8 @@ public sealed class ScopedVectorSearchQueryTests
         var unscoped = MessageQueries.SearchByVector(hasSessionFilter: false, topK: 5);
         unscoped.Should().Contain("db.index.vector.queryNodes('message_embedding_idx', 5");
         unscoped.Should().NotContain("vector.similarity.cosine");
-        unscoped.Should().NotContain("LIMIT $limit", "the unfiltered query shape must remain unchanged");
+        // G-30: the index is over-fetched (forgotten messages are dropped after it), so the limit applies after.
+        unscoped.Should().Contain("LIMIT $limit", "an over-fetched candidate pool must still return at most `limit`");
     }
 
     // ── D1 recency re-rank (opt-in) ───────────────────────────────────────────
