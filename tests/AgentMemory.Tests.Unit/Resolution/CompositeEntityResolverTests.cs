@@ -145,6 +145,22 @@ public sealed class CompositeEntityResolverTests
     }
 
     [Fact]
+    public async Task ResolveEntityAsync_InTheSharedOnlyScope_CreatesASharedEntity()
+    {
+        // G-15 review: the shared-only scope carries a sentinel owner id; an entity created while resolving a
+        // shared write must be shared (no owner), never owned by the sentinel.
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var result = await CreateSut().ResolveEntityAsync(
+            MakeCandidate("Alice"), new[] { "msg1" }, AgentMemory.Core.Services.SharedScopes.SharedOnly);
+
+        result.OwnerId.Should().BeNull();
+        await _entityRepo.Received(1).UpsertAsync(
+            Arg.Is<Entity>(e => e.OwnerId == null), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ResolveEntityAsync_NoMatch_CreatesNewEntity()
     {
         _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())

@@ -200,6 +200,29 @@ public sealed class Neo4jMemoryContextProviderTests
             Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 3)]
+    public async Task BuildContextAsync_SearchesReasoningTracesOnlyWhenTheFormatterShowsThem(bool include, int expected)
+    {
+        // H-4: with IncludeReasoningTraces off (the default) the formatter drops traces, so searching them was a
+        // vector query per turn whose result was thrown away (measured ≈35 ms a turn).
+        var sut = new Neo4jMemoryContextProvider(
+            _memoryService, _embeddingOrchestrator, _clock, _idGenerator,
+            Options.Create(new MemoryOptions { Recall = new RecallOptions { MaxTraces = 3 } }),
+            Options.Create(new ContextFormatOptions { IncludeReasoningTraces = include }),
+            Options.Create(new AgentFrameworkOptions()),
+            NullLogger<Neo4jMemoryContextProvider>.Instance);
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall("s1"));
+
+        await sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "How did I plan the last trip?") }, "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(r => r.Options!.MaxTraces == expected), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task BuildContextAsync_PolicySelectsCategories_PreservesMinSimilarityScoreAndBlendMode()
     {

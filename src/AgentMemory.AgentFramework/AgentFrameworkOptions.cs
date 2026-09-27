@@ -66,6 +66,15 @@ public sealed class AgentFrameworkOptions
     public bool ExtractInBackground { get; set; } = true;
 
     /// <summary>
+    /// Places the recalled memory just before the user's latest message instead of after it (G-13). MAF
+    /// appends a context provider's messages after the request, so the model reads the question and then
+    /// the memory; Llama 3 models (measured: llama3.2 3B and llama3.1 8B) read a system message in last
+    /// place as the end of the turn and answer with nothing. With this on they answer from the memory.
+    /// Off by default: the prompt layout of every other model stays exactly as it was.
+    /// </summary>
+    public bool RecalledMemoryBeforeQuestion { get; set; }
+
+    /// <summary>
     /// How long recall waits, at most, for the same owner's extraction that is still running (default 2 s;
     /// zero never waits). The next-turn guard of <see cref="ExtractInBackground"/>: a person rarely replies
     /// within seconds, so usually nothing is waited for; when they do, the fact they just stated can still

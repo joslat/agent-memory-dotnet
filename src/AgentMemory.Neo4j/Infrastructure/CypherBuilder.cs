@@ -116,6 +116,30 @@ internal sealed class CypherBuilder
         return new CypherBuilder(lines, _whereStarted);
     }
 
+    /// <summary>
+    /// G-14: the head of an owner-scoped similarity scan, the index-free twin of
+    /// <see cref="WithVectorSearch"/>: this owner's rows by the indexed <c>owner_id</c> (derived facts and rows
+    /// older than <c>owner_key</c> included) and, with shared included, the shared rows by the indexed
+    /// <c>owner_key = '*'</c> (two seeks, profiled), each scored with <c>vector.similarity.cosine</c>, yielding the
+    /// same <c>node, score</c> pair so every clause after it is shared with the indexed query. Rows of another
+    /// dimension are skipped, as the index skips them (cosine would throw on them). Known gap: a derived fact
+    /// with no owner carries no <c>owner_key</c> (guard G2), so the shared branch does not see it; such a fact
+    /// exists only when an owner-less write meets derived memory, both off by default.
+    /// </summary>
+    public CypherBuilder WithOwnerScan(string label, bool includeShared, string embeddingParam, string nodeAlias)
+    {
+        var owner = includeShared
+            ? $"({nodeAlias}.owner_id = $ownerId OR {nodeAlias}.owner_key = '*')"
+            : $"{nodeAlias}.owner_id = $ownerId";
+        var lines = new List<string>(_lines)
+        {
+            $"MATCH ({nodeAlias}:{label})",
+            $"WHERE {owner} AND {nodeAlias}.embedding IS NOT NULL AND size({nodeAlias}.embedding) = size({embeddingParam})",
+            $"WITH {nodeAlias}, vector.similarity.cosine({nodeAlias}.embedding, {embeddingParam}) AS score",
+        };
+        return new CypherBuilder(lines, whereStarted: false);
+    }
+
     // ── Raw fragment escape hatch (internal: builder-generated fragments only) ──
 
     /// <summary>

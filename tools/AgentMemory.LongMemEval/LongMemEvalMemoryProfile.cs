@@ -285,6 +285,9 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // from the benchmark, so the mechanism most directly matching the measured failure
                 // mode was the one thing no run could exercise.
                 RescueShortOwnerResults = rescueShortOwnerResults,
+                // 2026-09-27 default (G-14: small owners scored exactly, not via the global index) pinned off:
+                // every sealed measurement was taken on the index path.
+                OwnerFirstVectorThreshold = 0,
                 // Off unless asked for, so every sealed measurement keeps its path. FanOut is a
                 // mutable class precisely so this assignment is possible (#100 lesson).
                 FanOut = { Enabled = recallFanOut },

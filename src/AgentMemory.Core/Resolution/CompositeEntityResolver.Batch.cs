@@ -20,6 +20,9 @@ internal sealed partial class CompositeEntityResolver
         return new CandidateBatchLease(this, state);
     }
 
+    public IDisposable BeginOrJoinBatch() =>
+        _candidateBatch.Value is not null ? NoopBatchLease.Instance : BeginBatch();
+
     public async Task PrepareCandidatesAsync(
         IReadOnlyCollection<string> entityTypes,
         MemoryScope? scope = null,

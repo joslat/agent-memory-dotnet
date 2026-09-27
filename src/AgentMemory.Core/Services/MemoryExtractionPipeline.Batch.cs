@@ -41,6 +41,9 @@ internal sealed partial class MemoryExtractionPipeline
             return fallback;
         }
 
+        // Before the paid call and before anything is persisted: a contradictory request fails the batch up front.
+        foreach (var request in ordered) ValidateShared(request);
+
         var extractedBySession = await batchExtractor.ExtractAsync(
             ordered,
             maxSessionsPerBatch,
@@ -56,11 +59,8 @@ internal sealed partial class MemoryExtractionPipeline
                     $"Validated batch output is missing source session '{request.SessionId}'.");
 
             var sw = Stopwatch.StartNew();
-            var scope = _isolationPolicy.ResolveReadScope(
-                explicitScope: null,
-                request.UserId,
-                nameof(ExtractBatchAsync),
-                MemoryOperationAccess.Tenant);
+            // The same resolution as the single path (G-15: a shared request resolves against shared rows only).
+            var (scope, ownerId) = ResolveTarget(request, nameof(ExtractBatchAsync));
             var staged = await _extractionStage.ProcessUnifiedAsync(
                 request.Messages,
                 extracted,
@@ -68,10 +68,6 @@ internal sealed partial class MemoryExtractionPipeline
                 scope,
                 cancellationToken).ConfigureAwait(false);
 
-            var ownerId = _isolationPolicy.ResolveWriteOwner(
-                request.UserId,
-                nameof(ExtractBatchAsync),
-                MemoryOperationAccess.Tenant);
             var trustLevel = request.TrustLevel ?? _options.DefaultTrustLevel;
             var result = await _persistenceStage.PersistAsync(
                 staged,

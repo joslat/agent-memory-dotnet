@@ -69,8 +69,13 @@ internal static class RecallFanOutPlanner
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrWhiteSpace(query)) return (false, []);
 
-        var rules = new List<string>(4);
         var lowered = query.ToLowerInvariant();
+        // H-3: a statement asks nothing, so there is nothing to split. “My brother Pablo lives in Seville and my
+        // sister Lena lives in Berlin” fired C2 (a name each side of “and”) and cost the answer path an extra
+        // embedding and two more vector searches per memory type (measured +80 ms and 2 queries).
+        if (IsStatement(lowered)) return (false, []);
+
+        var rules = new List<string>(4);
 
         if (CountDistinctWhLemmas(lowered) >= 2) rules.Add("C1");
         if (HasConjoinedEntities(query, lowered)) rules.Add("C2");
@@ -81,6 +86,55 @@ internal static class RecallFanOutPlanner
         if (HasDateMix(lowered)) rules.Add("D4");
 
         return (rules.Count > 0, [.. rules]);
+    }
+
+    /// <summary>Words that open a request: “Tell me about X and Y” asks, though it has no question mark.</summary>
+    private static readonly HashSet<string> RequestOpeners = new(StringComparer.Ordinal)
+    {
+        "tell", "show", "list", "remind", "give", "describe", "summarise", "summarize", "compare", "explain",
+        "find", "recall", "name", "check", "look", "help", "how", "why", "whose", "whom", "please", "let", "let's",
+        "i'd", "id", "i'm",
+        // review round 2: imperatives that end in a full stop are still asks ("Suggest a gift for Pablo and Lena.")
+        "suggest", "recommend", "plan", "book", "write", "send", "get", "make", "draft", "create", "pick", "choose",
+        "search", "add", "schedule", "buy", "organise", "organize", "prepare", "remember", "note", "update",
+        // a question without its mark
+        "is", "are", "was", "were", "am", "do", "does", "did", "can", "could", "will", "would", "should",
+        "shall", "have", "has", "had", "may", "might",
+    };
+
+    /// <summary>“I want to know…”, “I wonder…”: an ask that opens with “I”.</summary>
+    private static readonly HashSet<string> WantingVerbs = new(StringComparer.Ordinal)
+    {
+        "want", "wonder", "need", "would", "wish", "forgot", "forget",
+    };
+
+    /// <summary>Verbs that make a sentence say something (a statement has one; a keyword query does not).</summary>
+    private static readonly HashSet<string> StatementVerbs = new(StringComparer.Ordinal)
+    {
+        "is", "are", "was", "were", "am", "has", "have", "had", "lives", "live", "lived", "works", "work", "worked",
+        "moved", "move", "went", "go", "goes", "met", "meet", "got", "get", "gets", "like", "likes", "liked", "love",
+        "loves", "loved", "will", "visiting", "visited", "visits", "visit", "plays", "play", "played", "studies",
+        "studied", "started", "finished", "bought", "called", "told", "said", "born", "married", "joined", "left",
+        "stays", "stayed", "teaches", "taught", "owns", "owned", "keeps", "kept", "prefer", "prefers", "hate", "hates",
+    };
+
+    /// <summary>
+    /// A declarative statement: no question mark, no interrogative, it does not open with a request, an auxiliary
+    /// or an “I want…”-style ask, and it says something (a verb, or a closing full stop). Precision over recall:
+    /// anything that might be asking, including a bare keyword query (“Pablo and Lena birthdays”), is left to the
+    /// rules.
+    /// </summary>
+    internal static bool IsStatement(string lowered)
+    {
+        if (lowered.Contains('?', StringComparison.Ordinal)) return false;
+        if (CountDistinctWhLemmas(lowered) > 0) return false;
+        var tokens = lowered.Replace('’', '\'').Split(WordSeparators, StringSplitOptions.RemoveEmptyEntries);
+        // Review round 2: "what's", "who's", "where's" are interrogatives the lemma count does not see.
+        if (tokens.Any(t => t.EndsWith("'s", StringComparison.Ordinal) && SingleWordWhLemmas.Contains(t[..^2]))) return false;
+        if (tokens.Length == 0 || RequestOpeners.Contains(tokens[0])) return false;
+        if (tokens[0] == "i" && tokens.Length > 1 && WantingVerbs.Contains(tokens[1])) return false;
+        var trimmed = lowered.TrimEnd();
+        return trimmed.EndsWith('.') || trimmed.EndsWith('!') || tokens.Any(StatementVerbs.Contains);
     }
 
     /// <summary>

@@ -210,6 +210,20 @@ public sealed class ExtractionOptions
     public bool SkipUninformativeTurns { get; set; }
 
     /// <summary>
+    /// Skips the extraction call for a turn that is only a plain question (H-2): every sentence ends in a
+    /// question mark and nothing in it could be a new fact — no digits, no time words (“next week”, “in
+    /// October”) and no names (capitalised words other than the first and “I”). “Where does my brother
+    /// live?” is skipped; “What does Dana do?” and “Can you help with my trip next week?” are still extracted.
+    /// </summary>
+    /// <remarks>
+    /// Measured: with <c>IgnoreQuestions</c> the model returns nothing for such a turn, yet the call cost
+    /// 1.0–1.1 s and ≈450 prompt tokens per question. Precision over recall, as for
+    /// <see cref="SkipUninformativeTurns"/>: anything the rule cannot rule out is extracted. Off by default:
+    /// it changes which turns reach the model.
+    /// </remarks>
+    public bool SkipPlainQuestions { get; set; }
+
+    /// <summary>
     /// How many earlier turns to hand the extractors as read-only context (E2). <c>0</c> — the
     /// default — is the pre-E2 behaviour of extracting from the batch alone.
     /// </summary>

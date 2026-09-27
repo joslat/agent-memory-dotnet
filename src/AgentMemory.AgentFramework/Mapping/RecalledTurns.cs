@@ -72,7 +72,11 @@ internal static class RecalledTurns
     /// or another provider's), and the marks are removed. A context with nothing to move is returned
     /// unchanged.
     /// </summary>
-    internal static AIContext Place(AIContext context, string sourceId)
+    /// <param name="memoryBeforeQuestion">
+    /// G-13: move the memory before the question whatever its role (it is at the system role by default), not
+    /// only when one of its messages is at the user role.
+    /// </param>
+    internal static AIContext Place(AIContext context, string sourceId, bool memoryBeforeQuestion = false)
     {
         if (context.Messages is null) return context;
         var all = context.Messages as IReadOnlyList<ChatMessage> ?? context.Messages.ToList();
@@ -89,7 +93,7 @@ internal static class RecalledTurns
         // its messages is at the user role and would otherwise follow the question.
         var memory = all.Where(m => Ours(m) && !IsMarked(m)).ToList();
         int question = LastIndex(all, CallerUserMessage);
-        if (question < 0 || !memory.Any(m => m.Role == ChatRole.User && IndexOf(all, m) > question)) memory.Clear();
+        if (question < 0 || !memory.Any(m => (memoryBeforeQuestion || m.Role == ChatRole.User) && IndexOf(all, m) > question)) memory.Clear();
         if (turns.Count == 0 && memory.Count == 0) return context;
 
         var moving = new HashSet<ChatMessage>(turns.Concat(memory), ReferenceEqualityComparer.Instance);

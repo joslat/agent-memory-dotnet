@@ -7,6 +7,12 @@ internal interface IExtractionEntityResolver
 {
     IDisposable BeginBatch();
 
+    /// <summary>
+    /// Starts a batch, or joins the one already active in this async flow (a no-op lease then), so a
+    /// single request gets the batch's shared candidates and ONE name-embedding request too.
+    /// </summary>
+    IDisposable BeginOrJoinBatch();
+
     Task PrepareCandidatesAsync(
         IReadOnlyCollection<string> entityTypes,
         MemoryScope? scope = null,

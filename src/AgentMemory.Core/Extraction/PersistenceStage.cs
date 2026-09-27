@@ -574,10 +574,14 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             supersessionEligible++;
 
             var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
+            // G-15 review: a write without an owner replaces only owner-less (shared) facts. Read with no scope,
+            // a shared write superseded every tenant's private facts with the same subject and predicate. The
+            // supersede statement itself already refuses to link facts of different owners.
+            var candidates = SharedScopes.OwnedOrShared(ownerId);
             try
             {
                 var losers = await _factRepository.FindSupersededCandidatesAsync(
-                    winner.FactId, winner.Subject, winner.Predicate, winner.Object, scope,
+                    winner.FactId, winner.Subject, winner.Predicate, winner.Object, candidates,
                     cancellationToken).ConfigureAwait(false);
                 // I-5. A fact now stored under the user's name also replaces what was stored before the
                 // name was known, under the words used then ("user | lives in | Lisbon").
@@ -585,7 +589,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     UserNames.IsSelf(said))
                 {
                     losers = [.. losers, .. await _factRepository.FindSupersededCandidatesAsync(
-                        winner.FactId, said, winner.Predicate, winner.Object, scope,
+                        winner.FactId, said, winner.Predicate, winner.Object, candidates,
                         cancellationToken).ConfigureAwait(false)];
                 }
 

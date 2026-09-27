@@ -29,7 +29,7 @@ internal static class TemporalQueries
     /// </para>
     /// <para>
     /// The two transaction predicates are deliberately the SAME two as
-    /// <see cref="SearchFactsAsOf(bool, bool, int)"/>, in the same order, so the similarity half and
+    /// <see cref="SearchFactsAsOf(bool, bool, int, bool)"/>, in the same order, so the similarity half and
     /// the firing half of one recall cannot disagree about what "as of" means. If one changes, both
     /// must.
     /// </para>
@@ -107,14 +107,18 @@ internal static class TemporalQueries
     /// (<c>$validAsOf</c>) filters the fact's validity window <c>valid_from</c>/<c>valid_until</c> ("what
     /// was true"). Pass both equal for ordinary single-clock point-in-time recall.
     /// </summary>
-    public static string SearchFactsAsOf(bool hasOwnerFilter, bool includeShared, int topK) => $@"
-            CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
-            YIELD node, score
+    public static string SearchFactsAsOf(bool hasOwnerFilter, bool includeShared, int topK, bool ownerScan = false) => $@"
+            {(ownerScan
+                ? $@"MATCH (node:Fact)
+            WHERE {(includeShared ? "(node.owner_id = $ownerId OR node.owner_key = '*')" : "node.owner_id = $ownerId")} AND node.embedding IS NOT NULL AND size(node.embedding) = size($embedding)
+            WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score"
+                : $@"CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
+            YIELD node, score")}
             WHERE score >= $minScore
               AND node.created_at <= datetime($systemAsOf)
               AND (node.invalidated_at IS NULL OR node.invalidated_at > datetime($systemAsOf))
               AND (node.valid_from IS NULL OR node.valid_from <= datetime($validAsOf))
-              AND (node.valid_until IS NULL OR node.valid_until > datetime($validAsOf)){OwnerAnd(hasOwnerFilter, includeShared)}
+              AND (node.valid_until IS NULL OR node.valid_until > datetime($validAsOf)){OwnerAnd(hasOwnerFilter && !ownerScan, includeShared)}
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit";
@@ -131,7 +135,7 @@ internal static class TemporalQueries
     /// </para>
     /// <para>
     /// The four predicates below are deliberately the SAME four as
-    /// <see cref="SearchFactsAsOf(bool, bool, int)"/>, in the same order, so the similarity half and
+    /// <see cref="SearchFactsAsOf(bool, bool, int, bool)"/>, in the same order, so the similarity half and
     /// the expansion half of one recall cannot disagree about what "as of" means. If one changes,
     /// both must.
     /// </para>

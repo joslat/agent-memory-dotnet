@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ExtractionRequest.ShareWithEveryone`: general knowledge, recalled by everyone.** A book, a manual or a
+  policy is taught once and stored **shared** (no owner): every owner's recall finds it (shared is included by
+  default) and nobody's profile block lists it (the profile reads only the owner's own memories). It is an
+  explicit administrative write, the deliberate way to make the owner-less write that strict multi-tenant
+  isolation refuses from a tenant operation. Its entities are resolved against **shared entities only**, so a
+  book's “Alice” never attaches to a user's private “Alice”, and a tenant's writes never replace or aggregate
+  shared facts (a tenant's extraction may still add an alias to a shared entity it matches, as before). Cannot be
+  combined with `UserId`. Found live: a book taught
+  into a person's own memory put its facts in that person's profile, and three of eight agent models then
+  called the user “Alice”.
+- **`AgentFrameworkOptions.RecalledMemoryBeforeQuestion` (off): the memory before the question.** MAF appends
+  a context provider's messages after the request, so the model reads the question and then the recalled
+  memory. Llama 3 models (llama3.2 3B, llama3.1 8B, measured by replaying one prompt both ways) read a system
+  message in last place as the end of the turn and answer with nothing; with this on they answer from the
+  memory. Off by default: every other model's prompt layout is unchanged. Both the Neo4j and the NAMS
+  providers honour it.
+- **`ExtractionOptions.SkipPlainQuestions` (off): a question that states nothing costs no extraction.**
+  With `IgnoreQuestions` the model returns nothing for “Where does my brother live?”, yet the call cost
+  1.0–1.1 s and ≈450 prompt tokens per question (measured). A turn is skipped only when every sentence is a
+  question and nothing in it could be new: no digits, no time words (“next week”, “in October”), no names,
+  and no “I” beyond the opening (“Do I…”); “What does Dana do?” and “…my trip next week?” are still
+  extracted. Precision over recall, like `SkipUninformativeTurns`.
+
 - **`AgentFrameworkOptions.ExtractInBackground` (dark): the answer does not wait for memorising.**
   Extraction is a model call plus resolution and writes; inline, every run waited for it although the
   reply was already complete. On, the turn's messages are still stored inline and extraction goes to
@@ -149,6 +172,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Owner-first vector recall (`MemoryOptions.OwnerFirstVectorThreshold`, default 500).** The vector index is
+  shared by every owner and filtered afterwards, so other owners' near-identical facts could crowd a small owner
+  out: measured, a 24-fact owner got 2 of its facts in the global top 60, and a stored answer (“Dana works at
+  Northwind”) was reported as “nothing stored”. An owner holding at most the threshold of facts (with shared,
+  when included; counted only up to the threshold + 1 and cached 30 s) is now searched by scoring its own facts
+  exactly, which cannot be crowded and costs about the same (1–2 ms at 24 facts, ≈15 ms at 306, ≈0.05 ms a
+  fact); larger owners keep the index and its escalation. Both the live and the as-of fact search do it, with
+  every clause of the indexed query (validity, derived filter, recency re-rank, projection). 0 turns it off
+  (LongMemEval pins it off). Recall spans carry `memory.vector.owner_first`.
+- **Reasoning traces are searched only when they are shown.** The context provider asked recall for reasoning
+  traces (`MaxTraces`, default 3) although its formatter drops them unless `IncludeReasoningTraces` is on (off by
+  default): a vector query per turn whose result was thrown away (≈35 ms, measured). It now asks for none when
+  it will not show them.
+- **Fan-out never splits a statement.** “My brother Pablo lives in Seville and my sister Lena lives in Berlin”
+  matched rule C2 (a name each side of “and”) and cost the answer path an extra embedding and two more vector
+  searches per memory type (+80 ms, measured). A declarative statement (no question mark, no interrogative,
+  not opening with a request or an auxiliary) is no longer fanned out; “Tell me about Pablo and Lena” still is.
+
 - **New defaults: the answer does not wait for memorising, and memory learns what the user said.**
   Four switches that shipped dark in this release are now on by default (all measured live):
   - `AgentFrameworkOptions.ExtractInBackground`: median answer 3.5 s → 1.5 s. With a next-turn guard,
@@ -214,6 +255,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all prerelease, and a shipped package may not depend on one.
 
 ### Fixed
+
+- **One embedding request for a turn's new names, on the path every turn takes.** The batched pre-embedding
+  of entity names (one request for all new names instead of one per name) only ran inside the multi-session
+  batch pipeline; a single extraction request (every agent turn) never opened the resolution batch it needs,
+  so four new names cost four sequential embedding calls (measured: 275 ms locally, ≈4.8 s against a provider).
+  A single request now opens one, or joins the one already open.
+- **The owner-scoped similarity scan is owner-bounded again when shared memory is included.**
+  `owner_id = $owner OR owner_id IS NULL` cannot be seeked (Neo4j indexes no nulls), so with shared included
+  the fallback scan read every fact in the store (profiled: 1,119 of 1,119 rows for a 306-fact owner). It now
+  filters on the indexed `owner_key` (the owner, or `*` for shared): two index seeks.
 
 - **Every extracted memory has a path back to what the user said.** Each Agent Framework component minted
   its own id for a caller's message: `Neo4jChatHistoryProvider` stored it under one id,

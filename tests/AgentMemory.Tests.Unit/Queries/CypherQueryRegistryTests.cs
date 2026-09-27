@@ -267,6 +267,12 @@ public sealed class CypherQueryRegistryTests
                 "PreferenceQueries.FindDuplicate"),
             (TemporalQueries.SearchEntitiesAsOf(true, true, 50),
                 "TemporalQueries.SearchEntitiesAsOf"),
+            (FactQueries.SearchByVector(true, true, 50, ownerScan: true),
+                "FactQueries.SearchByVectorOwnerFirst"),
+            (FactQueries.SearchByVector(true, false, 50, recencyRerank: true, currentValidTime: true, omitEmbedding: true, excludeDerived: true, ownerScan: true),
+                "FactQueries.SearchByVectorOwnerFirst"),
+            (TemporalQueries.SearchFactsAsOf(true, true, 50, ownerScan: true),
+                "TemporalQueries.SearchFactsAsOfOwnerFirst"),
         };
 
         foreach (var (cypher, fingerprint) in cases)

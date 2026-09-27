@@ -90,7 +90,9 @@ internal sealed class SessionAccountant : IDerivedMemoryAccountant
         // Owner-scoped, and never include-shared: a group read that mixed a tenant's facts with global
         // ones would compute an aggregate spanning both and store it under one owner. Shared groups are
         // out of scope for phase 1 rather than half-handled.
-        var scope = ownerId is null ? null : MemoryScope.For(ownerId, includeShared: false);
+        // G-15 review: without an owner, shared facts only. Read with no scope, a shared write aggregated every
+        // tenant's facts and published the result, owner-less, to everyone.
+        var scope = AgentMemory.Core.Services.SharedScopes.OwnedOrShared(ownerId);
 
         var written = 0;
         foreach (var group in TouchedGroups(staged))

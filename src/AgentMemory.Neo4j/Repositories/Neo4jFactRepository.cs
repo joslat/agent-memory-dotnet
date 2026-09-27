@@ -34,6 +34,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     private readonly MemoryRankingOptions _ranking;
     private readonly MemoryDecayOptions _decay;
     private readonly IMemoryRankingContext? _rankingContext;
+    /// <summary>G-14: owners up to this many facts are scanned exactly instead of asking the global index.</summary>
+    private readonly int _ownerFirstThreshold;
+    private readonly OwnerRowCounts? _ownerRowCounts;
 
     public Neo4jFactRepository(
         INeo4jTransactionRunner tx,
@@ -41,8 +44,11 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         IOptions<MemoryRankingOptions>? ranking = null,
         IOptions<MemoryDecayOptions>? decay = null,
         IMemoryRankingContext? rankingContext = null,
-        IOptions<MemoryOptions>? memoryOptions = null)
+        IOptions<MemoryOptions>? memoryOptions = null,
+        OwnerRowCounts? ownerRowCounts = null)
     {
+        _ownerFirstThreshold = memoryOptions?.Value.OwnerFirstVectorThreshold ?? 0;
+        _ownerRowCounts = ownerRowCounts;
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
         _skipEscalationWhenOwnerHasNoRows =
             memoryOptions?.Value.SkipEscalationWhenOwnerHasNoRows ?? false;
@@ -309,6 +315,64 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>G-14: how a scoped vector search runs.</summary>
+    private enum OwnerFirstPlan
+    {
+        /// <summary>The global index, filtered afterwards (a large owner, or owner-first off).</summary>
+        Index,
+        /// <summary>An exact scan of the owner's rows (and the shared ones, when included): nothing to crowd.</summary>
+        Scan,
+        /// <summary>Shared included but large: the owner's rows scanned exactly, merged with the index (for shared).</summary>
+        ScanOwnerPlusIndex,
+    }
+
+    /// <summary>
+    /// G-14: the owner is scanned when it holds at most the threshold of facts; shared rows ride along in the scan
+    /// only while the shared corpus is small too (otherwise they come from the index and the two are merged).
+    /// Counts are capped at threshold + 1 and cached briefly (<see cref="OwnerRowCounts"/>).
+    /// </summary>
+    private async Task<OwnerFirstPlan> PlanOwnerFirstAsync(string ownerId, bool includeShared, CancellationToken cancellationToken)
+    {
+        // An owner literally named like the shared key would read shared rows as its own on the scan path.
+        if (_ownerFirstThreshold <= 0 || ownerId == OwnerKeyShared) return OwnerFirstPlan.Index;
+        if (await CountCappedAsync(FactQueries.CountOwnerFactsCapped, $"Fact|owner|{ownerId}", ownerId, cancellationToken).ConfigureAwait(false)
+            > _ownerFirstThreshold)
+            return OwnerFirstPlan.Index;
+        if (!includeShared) return OwnerFirstPlan.Scan;
+        return await CountCappedAsync(FactQueries.CountSharedFactsCapped, "Fact|shared", null, cancellationToken).ConfigureAwait(false)
+               <= _ownerFirstThreshold
+            ? OwnerFirstPlan.Scan
+            : OwnerFirstPlan.ScanOwnerPlusIndex;
+    }
+
+    private async Task<int> CountCappedAsync(string cypher, string key, string? ownerId, CancellationToken cancellationToken)
+    {
+        async Task<int> CountAsync() =>
+            await _tx.ReadAsync(async runner =>
+            {
+                var cursor = await runner.RunAsync(cypher, new Dictionary<string, object?>
+                {
+                    ["ownerId"] = ownerId,
+                    // Counted only up to one past the threshold; int.MaxValue must not wrap (review round 2).
+                    ["cap"] = (long)_ownerFirstThreshold + 1,
+                }).ConfigureAwait(false);
+                var record = await cursor.SingleAsync().ConfigureAwait(false);
+                return record["n"].As<int>();
+            }, cancellationToken).ConfigureAwait(false);
+        return _ownerRowCounts is null
+            ? await CountAsync().ConfigureAwait(false)
+            : await _ownerRowCounts.GetAsync(key, CountAsync).ConfigureAwait(false);
+    }
+
+    /// <summary>Two result lists as one: each fact once, at its best score, best first, at most <paramref name="limit"/>.</summary>
+    private static List<(Fact, double)> MergeByScore(List<(Fact, double)> a, List<(Fact, double)> b, int limit) =>
+        a.Concat(b)
+            .GroupBy(r => r.Item1.FactId, StringComparer.Ordinal)
+            .Select(g => g.MaxBy(r => r.Item2))
+            .OrderByDescending(r => r.Item2)
+            .Take(limit)
+            .ToList();
+
     /// <summary>
     /// Scores this owner's OWN facts directly, bypassing the global vector index.
     /// </summary>
@@ -403,14 +467,21 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
         if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
-        async Task<List<(Fact, double)>> QueryAsync(int width, CancellationToken ct)
+        // G-14: a small owner is scored exactly (it cannot be crowded out of a global top-K it never asks for).
+        var plan = hasOwner
+            ? await PlanOwnerFirstAsync(scope!.OwnerId!, includeShared, cancellationToken).ConfigureAwait(false)
+            : OwnerFirstPlan.Index;
+        var ownerFirst = plan == OwnerFirstPlan.Scan;
+
+        async Task<List<(Fact, double)>> QueryAsync(int width, CancellationToken ct, bool scan = false, bool? shared = null)
         {
             var cypher = FactQueries.SearchByVector(
-                hasOwner, includeShared, width, recencyRerank, currentValidTime,
+                hasOwner, shared ?? includeShared, width, recencyRerank, currentValidTime,
                 omitEmbedding: _omitEmbeddingsFromRecall,
                 // Include (the default) leaves the query byte-for-byte what it has always been.
                 excludeDerived: derivedMode == DerivedFactMode.Exclude,
-                onlyDerived: derivedMode == DerivedFactMode.Only);
+                onlyDerived: derivedMode == DerivedFactMode.Only,
+                ownerScan: scan);
             return await _tx.ReadAsync(async runner =>
             {
                 var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
@@ -428,7 +499,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             }, ct).ConfigureAwait(false) ?? [];
         }
 
-        var results = await QueryAsync(topK, cancellationToken).ConfigureAwait(false);
+        var results = await QueryAsync(topK, cancellationToken, scan: ownerFirst).ConfigureAwait(false);
 
         // The index is global, so the owner filter runs AFTER top-K and the owner's own rows can be
         // crowded out entirely by other tenants'. Measured on a 50-owner base, the owner received a
@@ -437,7 +508,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         // one wider query; anything non-empty is left alone, because escalating on "short" would tax
         // every small tenant forever.
         int? escalatedTopK = null;
-        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner)
+        // An exact owner scan already saw every row the owner has: nothing to widen, nothing to rescue.
+        if (ownerFirst) { }
+        else if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner)
             && await ShouldClimbLadderAsync(scope, includeShared, cancellationToken).ConfigureAwait(false))
         {
             var widened = OwnerVectorOverFetch.EscalatedTopK(topK);
@@ -490,6 +563,11 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             if (scanned.Count > results.Count) results = scanned;
         }
 
+        // G-14 with a large shared corpus: the owner's own rows are scanned exactly (never crowded) and merged
+        // with the index results, which carry the shared rows.
+        if (plan == OwnerFirstPlan.ScanOwnerPlusIndex)
+            results = MergeByScore(results, await QueryAsync(topK, cancellationToken, scan: true, shared: false).ConfigureAwait(false), limit);
+
         if (activity is not null)
         {
             // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks:
@@ -504,13 +582,15 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             // Success path only: a search that threw is left untagged rather than tagged `returned = 0`,
             // because a failed query measured nothing and a false zero here reads as starvation.
             activity.SetTag("memory.vector.owner_scoped", hasOwner);
+            activity.SetTag("memory.vector.owner_first", plan.ToString());
             activity.SetTag("memory.vector.limit", limit);
-            activity.SetTag("memory.vector.requested_topk", topK);
+            // A pure scan used no index width: none is reported rather than one nobody used.
+            if (!ownerFirst) activity.SetTag("memory.vector.requested_topk", topK);
             // The width that ACTUALLY produced `returned`. Without it a consumer computing
             // returned / requested_topk gets a wrong ratio whenever escalation fired, because
             // `returned` then came from the widened query and `requested_topk` is the first pass.
             // Deriving it requires knowing the escalation rule, so it is emitted rather than implied.
-            activity.SetTag("memory.vector.effective_topk", escalatedTopK ?? topK);
+            if (!ownerFirst) activity.SetTag("memory.vector.effective_topk", escalatedTopK ?? topK);
             activity.SetTag("memory.vector.returned", results.Count);
             activity.SetTag("memory.vector.escalated", escalatedTopK is not null);
             // Absent, never defaulted, when no second pass was issued: a width nobody asked for is not a
@@ -1242,7 +1322,11 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _logger.LogDebug("Temporal vector search facts valid@{ValidAsOf} system@{SystemAsOf}, limit={Limit}, owner={Owner}",
             asOf, systemAsOf ?? asOf, limit, scope?.OwnerId);
 
-        var cypher = TemporalQueries.SearchFactsAsOf(hasOwner, includeShared, topK);
+        // G-14, the as-of twin of the live path: a small owner is scored exactly here too.
+        var plan = hasOwner
+            ? await PlanOwnerFirstAsync(scope!.OwnerId!, includeShared, cancellationToken).ConfigureAwait(false)
+            : OwnerFirstPlan.Index;
+        var ownerFirst = plan == OwnerFirstPlan.Scan;
         var parameters = new Dictionary<string, object?>
         {
             ["embedding"] = queryEmbedding.ToList(),
@@ -1253,9 +1337,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        var results = await _tx.ReadAsync(async runner =>
+        async Task<List<(Fact, double)>> AsOfAsync(bool scan, bool shared) => await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(TemporalQueries.SearchFactsAsOf(hasOwner, shared, topK, ownerScan: scan), parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
@@ -1264,6 +1348,10 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 return (MapToFact(node, ReadEmbedding(node)), score);
             }).ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
+
+        var results = await AsOfAsync(scan: ownerFirst, shared: includeShared).ConfigureAwait(false);
+        if (plan == OwnerFirstPlan.ScanOwnerPlusIndex)
+            results = MergeByScore(results, await AsOfAsync(scan: true, shared: false).ConfigureAwait(false), limit);
 
         if (activity is not null)
         {
@@ -1274,8 +1362,10 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             // Success path only: a search that threw measured nothing, and is left untagged rather than
             // tagged `returned = 0`, because a false zero here is indistinguishable from real starvation.
             activity.SetTag("memory.vector.owner_scoped", hasOwner);
+            activity.SetTag("memory.vector.owner_first", plan.ToString());
             activity.SetTag("memory.vector.limit", limit);
-            activity.SetTag("memory.vector.requested_topk", topK);
+            // As on the live path: a pure scan requests no top-K from any index.
+            if (!ownerFirst) activity.SetTag("memory.vector.requested_topk", topK);
             activity.SetTag("memory.vector.returned", results.Count);
             // Constant false, and emitted anyway. This path issues exactly one query — the empty-result
             // widening belongs to the live search alone — so `escalated` records what happened, not a
@@ -1297,7 +1387,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             // every consumer: omitting it means returned/effective_topk works on six spans and
             // silently breaks on this one, and an absent tag is indistinguishable from a site that
             // emits nothing. Uniform vocabulary across all eight spans beats a locally tidier one.
-            activity.SetTag("memory.vector.effective_topk", topK);
+            if (!ownerFirst) activity.SetTag("memory.vector.effective_topk", topK);
             activity.SetTag("memory.vector.escalated", false);
         }
 

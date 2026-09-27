@@ -126,7 +126,9 @@ public sealed class DerivedFactCypherGuardTests
     public void TheDerivedUpsertStillSetsOwnerIdSoIsolationHolds()
     {
         // Omitting owner_key is safe only because isolation reads owner_id. Stated so a future
-        // "cleanup" of one does not silently take the other.
+        // "cleanup" of one does not silently take the other. (One exception: the owner-first scan's
+        // shared branch seeks owner_key = '*', so an owner-less derived fact is not in it; see
+        // CypherBuilder.WithOwnerScan.)
         DerivedFactQueries.UpsertDerived.Should().Contain("f.owner_id = $ownerId");
     }
 

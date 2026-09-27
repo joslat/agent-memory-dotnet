@@ -93,12 +93,12 @@ public sealed class RecalledTurnPlacementTests
             });
     }
 
-    private Neo4jMemoryContextProvider Provider(ContextFormatOptions? format = null) =>
+    private Neo4jMemoryContextProvider Provider(ContextFormatOptions? format = null, AgentFrameworkOptions? agent = null) =>
         new(
             _memoryService, Substitute.For<IEmbeddingOrchestrator>(), Substitute.For<IClock>(), Substitute.For<IIdGenerator>(),
             Options.Create(new MemoryOptions()),
             Options.Create(format ?? new ContextFormatOptions()),
-            Options.Create(new AgentFrameworkOptions()),
+            Options.Create(agent ?? new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance);
 
     private static AgentSession Session()
@@ -219,6 +219,28 @@ public sealed class RecalledTurnPlacementTests
 
         messages.Last(m => m.Role == ChatRole.User).Text.Should().Be("Priya called me.");
         messages.Should().Contain(m => m.Text!.Contains("<recalled_memory"), "the blocks are still there, before the question");
+    }
+
+    [Fact]
+    public async Task With_RecalledMemoryBeforeQuestion_the_question_is_the_last_thing_the_model_reads()
+    {
+        // G-13: Llama 3 models read a system message in last place as the end of the turn and answered with
+        // nothing (1 token); with the memory before the question they answered from it.
+        var provider = Provider(agent: new AgentFrameworkOptions { RecalledMemoryBeforeQuestion = true });
+
+        var messages = await InvokeAsync(provider, [External(ChatRole.User, "Where does Priya work?")]);
+
+        messages.Last().Text.Should().Be("Where does Priya work?");
+        messages.Should().Contain(m => m.Role == ChatRole.System && m.Text!.Contains("<recalled_memory"), "the memory is still there, before it");
+    }
+
+    [Fact]
+    public async Task Without_the_option_the_memory_stays_after_the_question_as_before()
+    {
+        var messages = await InvokeAsync(Provider(), [External(ChatRole.User, "Where does Priya work?")]);
+
+        messages.Last().Role.Should().Be(ChatRole.System, "the default layout is unchanged: MAF's, memory after the request");
+        messages.Last(m => m.Role == ChatRole.User).Text.Should().Be("Where does Priya work?");
     }
 
     [Fact]

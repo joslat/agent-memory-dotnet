@@ -85,6 +85,8 @@ public static class ServiceCollectionExtensions
         // Long-term memory repositories
         services.TryAddTransient<IEntityRepository, Neo4jEntityRepository>();
         services.TryAddTransient<IFactRepository, Neo4jFactRepository>();
+        // G-14: owner row counts for owner-first recall, shared across the transient repositories.
+        services.TryAddSingleton<OwnerRowCounts>();
         services.TryAddTransient<IPreferenceRepository, Neo4jPreferenceRepository>();
         // S1. Registered beside the other repositories rather than behind a feature flag: an
         // unregistered store would make EntitySummaryService unresolvable, so the option that

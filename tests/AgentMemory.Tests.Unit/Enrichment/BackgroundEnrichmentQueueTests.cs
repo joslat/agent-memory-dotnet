@@ -360,7 +360,9 @@ public sealed class BackgroundEnrichmentQueueTests
         await using var sut = CreateSut(service, repo, new EnrichmentQueueOptions { MaxRetries = 0 });
         await sut.EnqueueAsync("e1");
 
-        await WaitUntilAsync(() => !sut.IsProcessing, timeoutMs: 5000, "processing should complete");
+        // "Not processing" is also true BEFORE the worker picks the item up; wait for the call first, or the
+        // wait can pass on the not-yet-started state and the assertion then meet the running one (seen under load).
+        await WaitUntilAsync(() => service.ReceivedCalls().Any() && !sut.IsProcessing, timeoutMs: 5000, "processing should complete");
         sut.IsProcessing.Should().BeFalse();
     }
 

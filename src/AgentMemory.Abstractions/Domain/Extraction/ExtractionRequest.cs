@@ -40,6 +40,28 @@ public sealed record ExtractionRequest
     public string? UserId { get; init; }
 
     /// <summary>
+    /// Stores what this request teaches as <b>shared</b> knowledge, recalled by everyone (G-15): a book, a
+    /// manual, a policy — general knowledge rather than anything about one person. The memories get no owner,
+    /// so every owner's recall (with shared included, the default) finds them and nobody's profile lists them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An explicit administrative write: strict multi-tenant isolation refuses an owner-less write from a
+    /// tenant operation, and this is the deliberate way to make one. Only the host can set it; nothing on the
+    /// agent's own path does.
+    /// </para>
+    /// <para>
+    /// Its entities are resolved against <b>shared entities only</b>, never against any owner's private ones,
+    /// so a book's “Alice” can never attach to a user's private “Alice” and carry shared facts into a private
+    /// graph. A tenant's writes never replace or aggregate shared facts (supersession and derivation read the
+    /// owner's own facts only), but a tenant's extraction that matches a shared entity may still add an alias or
+    /// a source message to it: shared entities grow collaboratively, as documented on entity resolution. Cannot
+    /// be combined with <see cref="UserId"/>.
+    /// </para>
+    /// </remarks>
+    public bool ShareWithEveryone { get; init; }
+
+    /// <summary>
     /// Types of memory to extract.
     /// </summary>
     public ExtractionTypes TypesToExtract { get; init; } = ExtractionTypes.All;

@@ -72,6 +72,15 @@ internal static class CypherQueryRegistry
             Has("toLower(node.predicate) = toLower($predicate)"))
             return "FactQueries.FindDuplicate";
 
+        // G-14: owner-first recall, the index-free heads of FactQueries.SearchByVector / TemporalQueries.SearchFactsAsOf.
+        if (Has("MATCH (node:Fact)") && Has("node.owner_id = $ownerId") && Has("size(node.embedding) = size($embedding)") &&
+            Has("vector.similarity.cosine(node.embedding, $embedding)"))
+        {
+            return Has("node.created_at <= datetime($systemAsOf)")
+                ? "TemporalQueries.SearchFactsAsOfOwnerFirst"
+                : "FactQueries.SearchByVectorOwnerFirst";
+        }
+
         if (Has("CALL db.index.vector.queryNodes('fact_embedding_idx'"))
         {
             if (Has("node.created_at <= datetime($systemAsOf)"))

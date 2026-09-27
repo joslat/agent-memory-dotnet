@@ -185,7 +185,7 @@ public class Neo4jMemoryContextProvider : AIContextProvider
             box.Value = null;
             s_fullThread.Value = null;
         }
-        return RecalledTurns.Place(merged, GetType().FullName!);
+        return RecalledTurns.Place(merged, GetType().FullName!, _agentOptions.RecalledMemoryBeforeQuestion);
     }
 
     protected override async ValueTask<AIContext> ProvideAIContextAsync(
@@ -702,7 +702,9 @@ public class Neo4jMemoryContextProvider : AIContextProvider
             Intent = decision.Intent ?? _recallOptions.Intent
         };
 
-        return effective with { Scope = null };
+        // H-4: the formatter drops reasoning traces unless IncludeReasoningTraces is on, so searching them
+        // was a vector query per turn whose result was thrown away (measured ≈35 ms each turn).
+        return effective with { Scope = null, MaxTraces = _formatOptions.IncludeReasoningTraces ? effective.MaxTraces : 0 };
     }
 
     /// <summary>

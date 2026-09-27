@@ -82,6 +82,36 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         }
     }
 
+    /// <summary>G-15: the owner id of the shared-only scope (<see cref="SharedScopes"/>).</summary>
+    internal const string SharedResolutionOwner = SharedScopes.SentinelOwner;
+
+    /// <summary>
+    /// Where a request reads its resolution candidates and whom its memories belong to. A tenant request: its
+    /// owner, through the isolation policy. A shared one (G-15): shared rows only, and no owner, written on
+    /// the administrative path strict isolation permits for it.
+    /// </summary>
+    private (MemoryScope? Scope, string? OwnerId) ResolveTarget(ExtractionRequest request, string operation)
+    {
+        if (!request.ShareWithEveryone)
+        {
+            var scope = _isolationPolicy.ResolveReadScope(explicitScope: null, request.UserId, operation, MemoryOperationAccess.Tenant);
+            return (scope, _isolationPolicy.ResolveWriteOwner(request.UserId, operation, MemoryOperationAccess.Tenant));
+        }
+        ValidateShared(request);
+        // Through the policy, so a custom IMemoryIsolationPolicy sees (and may refuse) the shared read too.
+        return (_isolationPolicy.ResolveReadScope(SharedScopes.SharedOnly, null, operation, MemoryOperationAccess.Administrative),
+            _isolationPolicy.ResolveWriteOwner(null, operation, MemoryOperationAccess.Administrative));
+    }
+
+    /// <summary>A shared request belongs to no one: a UserId contradicts it.</summary>
+    private static void ValidateShared(ExtractionRequest request)
+    {
+        if (request.ShareWithEveryone && !string.IsNullOrEmpty(request.UserId))
+            throw new ArgumentException(
+                $"{nameof(ExtractionRequest.ShareWithEveryone)} stores memories that belong to no one; a {nameof(ExtractionRequest.UserId)} contradicts it.",
+                nameof(request));
+    }
+
     /// <inheritdoc/>
     public async Task<ExtractionResult> ExtractAsync(
         ExtractionRequest request,
@@ -96,8 +126,12 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         // own + shared entities, so an incoming entity can't resolve onto another owner's private entity.
         // Resolved through the central isolation policy (#100) so SingleTenant/WarnOnUnscoped/
         // StrictMultiTenant behave identically for extraction as for every other tenant operation.
-        var scope = _isolationPolicy.ResolveReadScope(
-            explicitScope: null, request.UserId, nameof(ExtractAsync), MemoryOperationAccess.Tenant);
+        var (scope, ownerId) = ResolveTarget(request, nameof(ExtractAsync));
+
+        // H-1: a single request is a batch of one. Without it the name pre-embedding (one request for all
+        // new names) never ran on this path, the one every agent turn takes: four new names cost four
+        // sequential embedding calls (measured). Joins a batch the caller already opened.
+        using var resolutionBatch = _extractionStage.BeginOrJoinResolutionBatch();
 
         // E2. Context reaches the extractors as context; the window keeps it out of provenance and
         // out of the extraction targets, which is what stops it inflating S2 confidence and R7
@@ -111,7 +145,6 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
                 new ExtractionWindow { Targets = request.Messages, Context = request.ContextMessages },
                 request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
 
-        var ownerId = _isolationPolicy.ResolveWriteOwner(request.UserId, nameof(ExtractAsync), MemoryOperationAccess.Tenant);
         // #92 Phase 3: a per-request TrustLevel override wins; otherwise fall back to the configured default.
         var trustLevel = request.TrustLevel ?? _options.DefaultTrustLevel;
         var persisted = await _persistenceStage.PersistAsync(staged, ownerId, trustLevel, cancellationToken).ConfigureAwait(false);

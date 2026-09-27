@@ -134,6 +134,27 @@ public sealed class WriteTimeSupersessionTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task AWriteWithoutAnOwnerSupersedesSharedFactsOnly()
+    {
+        // G-15 review: shared knowledge (no owner) read its supersession candidates with no scope, so a book's
+        // "Alice | lives in | Paris" closed every tenant's private "Alice | lives in | Rome".
+        var incoming = new ExtractionStageResult
+        {
+            FilteredFacts = [new ExtractedFact { Subject = "Alice", Predicate = "lives in", Object = "Paris", Confidence = 0.9 }],
+        };
+
+        await CreateSut(supersede: true).PersistAsync(incoming, ownerId: null);
+
+        await _factRepo.Received().FindSupersededCandidatesAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Is<MemoryScope?>(scope => SharedScopes.IsSharedOnly(scope) && scope!.IncludeShared),
+            Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().FindSupersededCandidatesAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            (MemoryScope?)null, Arg.Any<CancellationToken>());
+    }
+
     // ── half two: what must NOT be replaced ──────────────────────────────
 
     [Fact]

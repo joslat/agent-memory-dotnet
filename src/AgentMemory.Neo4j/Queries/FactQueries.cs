@@ -329,13 +329,20 @@ internal static class FactQueries
     /// <paramref name="recencyRerank"/> is set (D1) the clamped ACT-R retention score is blended into the
     /// order key (<c>$tmpWeight</c>); when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
+    /// <param name="ownerScan">
+    /// G-14: score this owner's own (and shared) facts directly instead of asking the global index, for an owner
+    /// small enough that the exact scan costs about what the index does (measured: a 24-fact owner got 2 of its
+    /// facts from the global top 60 in 2–3 ms, the scan gave the true top 10 in 1–2 ms). Every clause after
+    /// the head is the indexed query's, so the two paths cannot drift. Requires <c>$ownerKeys</c>.
+    /// </param>
     public static string SearchByVector(
         bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false,
         bool currentValidTime = false, bool omitEmbedding = false,
-        bool excludeDerived = false, bool onlyDerived = false) =>
+        bool excludeDerived = false, bool onlyDerived = false, bool ownerScan = false) =>
         VectorRerank.Finish(
-            new CypherBuilder()
-                .WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK)
+            (ownerScan
+                ? new CypherBuilder().WithOwnerScan("Fact", includeShared, "$embedding", "node")
+                : new CypherBuilder().WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK))
                 .Where("score >= $minScore")
                 .And("node.invalidated_at IS NULL")
                 // Valid time, copied VERBATIM from TemporalQueries so the two clocks cannot drift: the
@@ -351,8 +358,28 @@ internal static class FactQueries
                 // sealed measurement comparable, including the ones that measured the harm.
                 .And("node.derivation_key IS NULL", when: excludeDerived)
                 .And("node.derivation_key IS NOT NULL", when: onlyDerived)
-                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
+                // The scan head already confined the rows to the owner (and shared, when included).
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter && !ownerScan),
             recencyRerank, omitEmbedding);
+
+    /// <summary>
+    /// G-14: how many facts an owner holds, counted only up to <c>$cap</c>: deciding “small enough to scan” must
+    /// not itself cost a scan of a large owner. One seek on <c>owner_id</c> (derived facts included).
+    /// </summary>
+    public const string CountOwnerFactsCapped = @"
+            MATCH (f:Fact {owner_id: $ownerId})
+            WITH f LIMIT $cap
+            RETURN count(f) AS n";
+
+    /// <summary>
+    /// G-14: how many shared facts exist, counted only up to <c>$cap</c>, apart from any owner's: one large shared
+    /// corpus must not turn owner-first off for every owner (their own rows are still scanned; shared ones then
+    /// come from the index). One seek on <c>owner_key</c>.
+    /// </summary>
+    public const string CountSharedFactsCapped = @"
+            MATCH (f:Fact {owner_key: '*'})
+            WITH f LIMIT $cap
+            RETURN count(f) AS n";
 
     /// <summary>
     /// Last-resort owner-scoped similarity search that does NOT use the global vector index.
@@ -375,8 +402,11 @@ internal static class FactQueries
     /// </remarks>
     public static string SearchByVectorOwnerScopedFallback(bool includeShared, bool currentValidTime = false)
     {
+        // G-14: shared rows by owner_key = '*' (indexed). `owner_id = $x OR owner_id IS NULL` cannot be seeked
+        // (Neo4j indexes no nulls), so with shared included this "owner-bounded" scan planned a NodeByLabelScan
+        // of EVERY fact in the store (profiled: 1,119 of 1,119 rows for a 306-fact owner); now two seeks.
         var owner = includeShared
-            ? "(f.owner_id = $ownerId OR f.owner_id IS NULL)"
+            ? "(f.owner_id = $ownerId OR f.owner_key = '*')"
             : "f.owner_id = $ownerId";
         // The SECOND live fact path, and the one every prior analysis of this gap predates -- it did not
         // exist before 1.4.1. Gating only the indexed query above would leave valid time silently
@@ -390,6 +420,7 @@ internal static class FactQueries
             MATCH (f:Fact)
             WHERE {owner}
               AND f.embedding IS NOT NULL
+              AND size(f.embedding) = size($embedding)
               AND f.invalidated_at IS NULL{validTime}
             WITH f, vector.similarity.cosine(f.embedding, $embedding) AS score
             WHERE score >= $minScore

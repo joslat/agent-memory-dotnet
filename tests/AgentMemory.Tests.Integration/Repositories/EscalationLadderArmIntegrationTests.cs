@@ -124,10 +124,10 @@ public class EscalationLadderArmIntegrationTests : IAsyncLifetime
 
         var ladder = new Neo4jFactRepository(
             _fixture.TransactionRunner, NullLogger<Neo4jFactRepository>.Instance,
-            memoryOptions: Options.Create(new MemoryOptions { SkipEscalationWhenOwnerHasNoRows = false }));
+            memoryOptions: Options.Create(new MemoryOptions { OwnerFirstVectorThreshold = 0 /* these measure the index path (G-14) */, SkipEscalationWhenOwnerHasNoRows = false }));
         var skipping = new Neo4jFactRepository(
             _fixture.TransactionRunner, NullLogger<Neo4jFactRepository>.Instance,
-            memoryOptions: Options.Create(new MemoryOptions { SkipEscalationWhenOwnerHasNoRows = true }));
+            memoryOptions: Options.Create(new MemoryOptions { OwnerFirstVectorThreshold = 0 /* these measure the index path (G-14) */, SkipEscalationWhenOwnerHasNoRows = true }));
 
         var emptyScope = MemoryScope.For("empty", includeShared: false);
         var starvedScope = MemoryScope.For("starved", includeShared: false);

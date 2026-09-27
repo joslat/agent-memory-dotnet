@@ -68,7 +68,7 @@ public sealed class ShortRescueYieldArmIntegrationTests : IAsyncLifetime
         new(
             _fixture.TransactionRunner,
             NullLogger<Neo4jFactRepository>.Instance,
-            memoryOptions: Options.Create(new MemoryOptions { RescueShortOwnerResults = rescue }));
+            memoryOptions: Options.Create(new MemoryOptions { OwnerFirstVectorThreshold = 0 /* these measure the index path (G-14) */, RescueShortOwnerResults = rescue }));
 
     /// <summary>
     /// Foreign facts are made strictly MORE similar to the query than the owner's own.

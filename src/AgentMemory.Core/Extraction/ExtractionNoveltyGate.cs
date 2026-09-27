@@ -69,7 +69,15 @@ internal static class ExtractionNoveltyGate
     /// treated as potentially contentful, including empty input, which is cheap to extract from and
     /// whose handling belongs to the extractors rather than here.
     /// </remarks>
-    internal static bool IsWorthExtracting(IReadOnlyList<Message> messages)
+    internal static bool IsWorthExtracting(IReadOnlyList<Message> messages) =>
+        IsWorthExtracting(messages, skipUninformative: true, skipPlainQuestions: false);
+
+    /// <summary>
+    /// <see langword="true"/> when this batch is worth an extraction call, with each rule switched on or
+    /// off: <paramref name="skipUninformative"/> (E4: greetings, thanks, acknowledgement) and
+    /// <paramref name="skipPlainQuestions"/> (H-2: a question that cannot carry a new fact).
+    /// </summary>
+    internal static bool IsWorthExtracting(IReadOnlyList<Message> messages, bool skipUninformative, bool skipPlainQuestions)
     {
         if (messages is null || messages.Count == 0) return true;
 
@@ -77,6 +85,9 @@ internal static class ExtractionNoveltyGate
         {
             var content = message.Content;
             if (string.IsNullOrWhiteSpace(content)) continue;
+
+            if (skipPlainQuestions && IsPlainQuestion(content)) continue;
+            if (!skipUninformative) return true;
 
             // A question mark means someone asked something, and the answer -- possibly a single word
             // -- is exactly the kind of content this gate must never discard.
@@ -86,6 +97,107 @@ internal static class ExtractionNoveltyGate
         }
 
         return false;
+    }
+
+    /// <summary>Time words: a question that mentions when something happens may be stating a plan.</summary>
+    private static readonly HashSet<string> TimeWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "today", "tonight", "tomorrow", "yesterday", "now", "soon", "later", "ago", "next", "last", "this",
+        "morning", "afternoon", "evening", "night", "weekend", "week", "weeks", "month", "months", "year", "years",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+        "november", "december", "christmas", "easter", "birthday", "anniversary", "since", "until",
+    };
+
+    /// <summary>Words that open a clause inside a question: whatever follows them may be a statement.</summary>
+    private static readonly HashSet<string> ClauseMarkers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "who", "whom", "whose", "which", "that", "because", "since", "where", "when", "why", "how", "what",
+    };
+
+    /// <summary>Verbs that carry a statement inside a question (“do you remember my dog is allergic…”).</summary>
+    private static readonly HashSet<string> TellingVerbs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "remember", "know", "knew", "told", "tell", "said", "say", "mention", "mentioned", "guess", "think",
+        "believe", "realize", "realise", "heard",
+    };
+
+    /// <summary>What a telling verb introduces a statement with (“…remember my dog…”, “…know that…”).</summary>
+    private static readonly HashSet<string> StatementStarts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "that", "i", "my", "our", "his", "her", "their", "we", "he", "she", "they", "me",
+    };
+
+    /// <summary>What marks something as the user's (or someone's): a state verb after it says what it is.</summary>
+    /// <summary>The auxiliaries a question opens its verb with (“Where <b>does</b> my brother live?”).</summary>
+    private static readonly HashSet<string> Auxiliaries = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "do", "does", "did", "is", "are", "was", "were", "am", "has", "have", "had", "can", "could", "will", "would",
+        "should", "may", "might",
+    };
+
+    private static readonly HashSet<string> Possessives = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "my", "our", "your", "his", "her", "their",
+    };
+
+    /// <summary>A copula or state verb after a possessive: the question then says what something is.</summary>
+    private static readonly HashSet<string> StateVerbs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "is", "are", "was", "were", "has", "have", "had", "got", "gets", "loves", "likes", "lives", "works",
+        "moved", "married", "engaged", "allergic", "died", "born",
+    };
+
+    /// <summary>
+    /// A question that cannot carry a new fact: every sentence is a question, and there are no digits, no
+    /// time words and no names (a capitalised word other than a sentence's first word and “I”); no clause inside
+    /// it (“…my sister who loves gardening?”), no telling verb introducing a statement (“…remember my dog…”), no
+    /// state verb after a possessive (“…my dog is allergic…”), and no “I”/“i” beyond the opening auxiliary.
+    /// </summary>
+    internal static bool IsPlainQuestion(string content)
+    {
+        var text = content.Trim();
+        if (text.Length == 0 || !text.EndsWith('?')) return false;
+        // Every sentence a question: nothing may end in '.' or '!' before the last '?'.
+        if (text.IndexOfAny(['.', '!']) >= 0) return false;
+
+        var position = 0;   // the token's place in its sentence
+        var previous = string.Empty;
+        var possessed = false;
+        var afterPossessive = -1;   // words still allowed after "my …" before the question ends (-1: none open)
+        foreach (var raw in text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var token = raw.Trim(Punctuation);
+            var at = position;
+            var ends = raw.EndsWith('?');
+            position = ends ? 0 : position + 1;
+            if (token.Length == 0) continue;
+            // Review round 2: "…for my celiac son?" describes the son. What the user owns may be named by one word
+            // ("…about my family?"), or, after an auxiliary, one word and its verb ("Where does my brother live?");
+            // anything longer may say something about it.
+            if (afterPossessive == 0) return false;
+            if (afterPossessive > 0) afterPossessive--;
+            foreach (var c in token)
+                if (char.IsDigit(c)) return false;
+            if (TimeWords.Contains(token)) return false;
+            // "I" (or a lowercase "i") only right after the opening auxiliary ("Do I…", "Am I…"): later it is the
+            // user saying something about themselves ("did i tell you i got engaged?"), which may be new.
+            var isI = token.Equals("i", StringComparison.OrdinalIgnoreCase) || token.StartsWith("I'", StringComparison.OrdinalIgnoreCase);
+            if (isI && at > 1) return false;
+            if (!isI && at > 0 && char.IsUpper(token[0])) return false;
+            if (at > 0 && ClauseMarkers.Contains(token)) return false;
+            // A state verb after something the user owns says what it is ("…my dog is allergic…").
+            if (possessed && StateVerbs.Contains(token)) return false;
+            if (Possessives.Contains(token))
+            {
+                possessed = true;
+                afterPossessive = Auxiliaries.Contains(previous) ? 2 : 1;
+            }
+            if (TellingVerbs.Contains(previous) && StatementStarts.Contains(token)) return false;
+            previous = token;
+            if (ends) afterPossessive = -1;
+        }
+        return true;
     }
 
     private static bool IsPurelyUninformative(string content)

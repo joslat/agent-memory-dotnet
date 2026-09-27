@@ -375,7 +375,8 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
             // R1: stamp the owner from the resolution scope so the resolver's output is self-consistently
             // scoped (defense-in-depth; the persistence stage also stamps owner_id, but a direct caller
             // would otherwise create a private entity as owner_id=NULL/shared). Null scope ⇒ shared.
-            OwnerId = scope?.OwnerId,
+            // Never the shared-only sentinel (G-15): an entity created while resolving a shared write is shared.
+            OwnerId = AgentMemory.Core.Services.SharedScopes.WriteOwner(scope),
             Name = extracted.Name,
             CanonicalName = extracted.Name,
             Type = extracted.Type,

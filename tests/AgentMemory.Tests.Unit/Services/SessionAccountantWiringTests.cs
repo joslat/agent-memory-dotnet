@@ -136,6 +136,22 @@ public sealed class SessionAccountantWiringTests
     }
 
     [Fact]
+    public async Task WithoutAnOwnerOnlySharedFactsAreAggregated()
+    {
+        // G-15 review: a shared write read its group with no scope, so the aggregate spanned every tenant's
+        // facts and was published, owner-less, to everyone.
+        GroupReturns(Live("a", "800", 0), Live("b", "50", 1));
+        var accountant = Create();
+
+        await accountant.AccountAsync(Staged(("user", "savings_balance")), ownerId: null);
+
+        await _facts.Received(1).GetGroupFactsAsync(
+            Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Is<MemoryScope?>(scope => AgentMemory.Core.Services.SharedScopes.IsSharedOnly(scope) && scope!.IncludeShared),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task EveryEnabledOperatorThatProducesSomethingIsWritten()
     {
         // Count, Delta and Latest all fire on a two-value numeric chain; SetEnumeration too, since the

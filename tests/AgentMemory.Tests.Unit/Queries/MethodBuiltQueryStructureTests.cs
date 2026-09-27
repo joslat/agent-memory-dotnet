@@ -25,6 +25,10 @@ public sealed class MethodBuiltQueryStructureTests
             yield return new object[] { $"TemporalQueries.SearchEntitiesAsOf({owner})", TemporalQueries.SearchEntitiesAsOf(owner, includeShared: true, topK: 10) };
             yield return new object[] { $"TemporalQueries.SearchPreferencesAsOf({owner})", TemporalQueries.SearchPreferencesAsOf(owner, includeShared: true, topK: 10) };
         }
+        // G-14: the owner-first heads, with every optional clause on so the shared tail is exercised too.
+        yield return new object[] { "FactQueries.SearchByVector(ownerScan)", FactQueries.SearchByVector(true, true, 10, recencyRerank: true, currentValidTime: true, omitEmbedding: true, excludeDerived: true, ownerScan: true) };
+        yield return new object[] { "TemporalQueries.SearchFactsAsOf(ownerScan)", TemporalQueries.SearchFactsAsOf(true, includeShared: true, topK: 10, ownerScan: true) };
+        yield return new object[] { "FactQueries.SearchByVectorOwnerScopedFallback", FactQueries.SearchByVectorOwnerScopedFallback(includeShared: true, currentValidTime: true) };
     }
 
     [Theory]

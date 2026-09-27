@@ -28,6 +28,38 @@ public sealed class RecallFanOutPlannerTests
 
     // ── C1: multi-wh ────────────────────────────────────────────────────
 
+    [Theory]
+    [InlineData("My brother Pablo lives in Seville and my sister Lena lives in Berlin.")]
+    [InlineData("I met Dana and Tomás at Northwind in March 2026")]
+    public void H3_AStatementIsNeverSplit(string statement)
+    {
+        // Measured: the first one fired C2 and cost the answer path an extra embedding and two more vector
+        // searches per memory type. A statement asks nothing; there is nothing to fan out.
+        var (fired, _) = Gate(statement);
+
+        fired.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Tell me about Pablo and Lena")]
+    [InlineData("Compare Acme Corp, Initech and Globex")]
+    [InlineData("where do Pablo and Lena live")]
+    [InlineData("Does Pablo live near Lena and Dana")]
+    // The review's cases: requests without a question mark, and a keyword query.
+    [InlineData("Please tell me about Pablo and Lena")]
+    [InlineData("I'd like to know Pablo's and Lena's cities")]
+    [InlineData("I want to know about Pablo and Lena")]
+    [InlineData("Pablo and Lena birthdays")]
+    // Review round 2: a contracted interrogative, and an imperative ending in a full stop.
+    [InlineData("What's the city Pablo and Lena live in")]
+    [InlineData("Suggest a gift for Pablo and Lena.")]
+    public void H3_ARequestOrAQuestionWithoutItsMarkStillFansOut(string ask)
+    {
+        var (fired, _) = Gate(ask);
+
+        fired.Should().BeTrue();
+    }
+
     [Fact]
     public void C1_FiresOnTwoDistinctInterrogatives()
     {

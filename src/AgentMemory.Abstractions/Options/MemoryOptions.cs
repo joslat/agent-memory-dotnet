@@ -119,6 +119,17 @@ public sealed record MemoryOptions
     public bool RescueShortOwnerResults { get; set; }
 
     /// <summary>
+    /// G-14, owner-first vector recall: an owner holding at most this many facts (with shared ones, when the
+    /// scope includes them) is searched by scoring its own facts directly instead of asking the global vector
+    /// index and filtering afterwards. The index is shared by every owner, so other owners' near-identical
+    /// facts can crowd a small owner out entirely (measured: a 24-fact owner got 2 of its facts in the global
+    /// top 60, and a stored answer was reported as “nothing stored”); the exact scan cannot be crowded and costs
+    /// about the same (1–2 ms at 24 facts, ≈15 ms at 306, ≈0.05 ms a fact). Larger owners keep the index.
+    /// Default 500 (≈25 ms at worst); 0 turns it off.
+    /// </summary>
+    public int OwnerFirstVectorThreshold { get; set; } = 500;
+
+    /// <summary>
     /// Boosts recalled facts that sit close, in the graph, to the entity the query is about (R6).
     /// </summary>
     /// <remarks>

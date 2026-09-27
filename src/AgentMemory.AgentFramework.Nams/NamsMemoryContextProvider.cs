@@ -70,7 +70,8 @@ public sealed class NamsMemoryContextProvider : AIContextProvider
     protected override async ValueTask<AIContext> InvokingCoreAsync(
         InvokingContext context,
         CancellationToken cancellationToken = default) =>
-        RecalledTurns.Place(await base.InvokingCoreAsync(context, cancellationToken).ConfigureAwait(false), GetType().FullName!);
+        RecalledTurns.Place(await base.InvokingCoreAsync(context, cancellationToken).ConfigureAwait(false), GetType().FullName!,
+            _agentOptions.RecalledMemoryBeforeQuestion);
 
     protected override async ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context, CancellationToken cancellationToken = default)

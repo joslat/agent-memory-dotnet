@@ -10,6 +10,9 @@ namespace AgentMemory.Core.Extraction;
 internal interface IExtractionStage
 {
     IDisposable? BeginResolutionBatch();
+
+    /// <summary>A resolution batch for one request: a new one, or the one already active (then a no-op).</summary>
+    IDisposable? BeginOrJoinResolutionBatch();
     void InvalidateResolutionBatch();
 
     /// <summary>
