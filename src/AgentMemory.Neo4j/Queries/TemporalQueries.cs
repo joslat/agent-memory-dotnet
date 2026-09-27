@@ -203,6 +203,7 @@ internal static class TemporalQueries
     public const string GetRecentMessagesAsOf = @"
             MATCH (m:Message {session_id: $sessionId})
             WHERE m.timestamp <= datetime($asOf)
+              AND (m.invalidated_at IS NULL OR m.invalidated_at > datetime($asOf))
             RETURN m
             ORDER BY m.timestamp DESC
             LIMIT $limit";

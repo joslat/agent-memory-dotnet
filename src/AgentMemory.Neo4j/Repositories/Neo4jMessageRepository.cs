@@ -314,6 +314,19 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<bool> InvalidateAsync(string messageId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Invalidating message {Id}", messageId);
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(MessageQueries.Invalidate,
+                new { id = messageId, now = DateTimeOffset.UtcNow.ToString("O") }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Count > 0 && records[0]["invalidated"].As<bool>();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<Message>> GetRecentBySessionAsOfAsync(
         string sessionId,
         DateTimeOffset asOf,

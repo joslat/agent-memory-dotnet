@@ -54,6 +54,25 @@ public sealed class ShortTermMemoryServiceTests
             .Returns(ci => Task.FromResult<IReadOnlyList<Message>>(ci.Arg<IEnumerable<Message>>().ToList()));
     }
 
+    [Fact]
+    public async Task InvalidateMessageAsync_ForgetsThroughTheRepository()
+    {
+        _messageRepo.InvalidateAsync("m-1", Arg.Any<CancellationToken>()).Returns(true);
+
+        var forgotten = await CreateSut().InvalidateMessageAsync("m-1");
+
+        forgotten.Should().BeTrue();
+        await _messageRepo.Received(1).InvalidateAsync("m-1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvalidateMessageAsync_RejectsAnEmptyId()
+    {
+        var act = () => CreateSut().InvalidateMessageAsync(" ");
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
     private ShortTermMemoryService CreateSut(IOptions<ShortTermMemoryOptions>? options = null) =>
         new(_conversationRepo, _messageRepo, _reasoningTraceRepo, _embeddingOrchestrator, _clock, _idGenerator,
             options ?? Options.Create(new ShortTermMemoryOptions()),

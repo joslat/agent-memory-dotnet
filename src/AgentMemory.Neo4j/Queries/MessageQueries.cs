@@ -199,6 +199,7 @@ internal static class MessageQueries
     /// <summary>Get recent messages for a session, ordered by timestamp descending.</summary>
     public const string GetRecentBySession = @"
             MATCH (m:Message {session_id: $sessionId})
+            WHERE m.invalidated_at IS NULL
             RETURN m
             ORDER BY m.timestamp DESC
             LIMIT $limit";
@@ -210,6 +211,7 @@ internal static class MessageQueries
     /// path (<see cref="GetRecentBySession"/>), which is intentionally capped and newest-first.</summary>
     public const string GetAllBySession = @"
             MATCH (m:Message {session_id: $sessionId})
+            WHERE m.invalidated_at IS NULL
             RETURN m
             ORDER BY m.timestamp";
 
@@ -231,7 +233,7 @@ internal static class MessageQueries
         {
             return $$"""
                 MATCH (:Conversation {session_id: $sessionId})-[:HAS_MESSAGE]->(node:Message)
-                WHERE node.embedding IS NOT NULL AND size(node.embedding) = size($embedding)
+                WHERE node.embedding IS NOT NULL AND size(node.embedding) = size($embedding) AND node.invalidated_at IS NULL
                 {{metadataFilterFragment}}
                 WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
                 WHERE score >= $minScore
@@ -244,12 +246,24 @@ internal static class MessageQueries
         return new CypherBuilder()
             .WithVectorSearch("message_embedding_idx", "$embedding", "node", topK)
             .Where("score >= $minScore")
+            .And("node.invalidated_at IS NULL")
             .AndRawFragment(metadataFilterFragment)
             .Return("node, score")
             .OrderBy("score DESC")
             .Limit("$limit", when: !string.IsNullOrWhiteSpace(metadataFilterFragment))
             .Build();
     }
+
+    // ── InvalidateAsync (G-30: forget a message, keep it) ──────────────
+
+    /// <summary>
+    /// Forget a message non-destructively: stamp <c>invalidated_at</c> (the first time is kept), so every recall
+    /// read skips it while as-of reads of earlier times and provenance edges keep it.
+    /// </summary>
+    public const string Invalidate = @"
+            MATCH (m:Message {id: $id})
+            SET m.invalidated_at = coalesce(m.invalidated_at, datetime($now))
+            RETURN count(m) > 0 AS invalidated";
 
     // ── DeleteBySessionAsync ───────────────────────────────────────────
 

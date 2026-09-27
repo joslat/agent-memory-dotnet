@@ -250,6 +250,14 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService, IScoredM
     }
 
     /// <inheritdoc/>
+    public Task<bool> InvalidateMessageAsync(string messageId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
+        _logger.LogDebug("Forgetting message {Id}", messageId);
+        return _messageRepo.InvalidateAsync(messageId, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Message>> GetRecentMessagesAsOfAsync(
         string sessionId,
         DateTimeOffset asOf,
