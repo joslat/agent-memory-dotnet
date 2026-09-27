@@ -52,9 +52,13 @@ public sealed class BackgroundExtractionTests
         queue.TryEnqueue("s1", _ => blocked.Task);
         queue.TryEnqueue("s2", _ => { other.SetResult(); return Task.CompletedTask; });
 
+        // Session 2 ran while session 1 is still blocked. (Not asserted through Pending: the finished job
+        // decrements it in its finally, after signalling, so reading it here raced on a slow CI runner.)
         await other.Task.WaitAsync(Wait);
-        queue.Pending.Should().Be(1);
+        blocked.Task.IsCompleted.Should().BeFalse();
         blocked.SetResult();
+        await queue.WhenIdleAsync().WaitAsync(Wait);
+        queue.Pending.Should().Be(0);
     }
 
     [Fact]
