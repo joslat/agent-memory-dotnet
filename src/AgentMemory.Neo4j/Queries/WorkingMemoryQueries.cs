@@ -27,6 +27,14 @@ internal static class WorkingMemoryQueries
     /// HOW they are written: by creation, so re-mentioning a fact that is already in the block does not
     /// reshuffle the text (a reshuffled text defeats the hash short-circuit and prompt-prefix caching).
     /// </remarks>
+    /// <remarks>
+    /// <para>
+    /// <c>$byMentions</c> slots go to the most mentioned facts, then <c>$recent</c> slots to the most
+    /// recently LEARNED of the rest (by creation: a re-mention is a touch, and the point is new facts) (<c>WorkingMemoryOptions.RecentStableFactSlots</c>), so a fact said once
+    /// still gets in when the mention slots are full. <c>[null]</c> keeps a row when there is no rest, and
+    /// no <c>CALL</c> subquery is used, so this runs on every Neo4j 5.x.
+    /// </para>
+    /// </remarks>
     public const string SelectStableFacts = @"
             MATCH (f:Fact {owner_id: $ownerId})
             WHERE f.invalidated_at IS NULL
@@ -35,7 +43,13 @@ internal static class WorkingMemoryQueries
               AND coalesce(f.mention_count, 1) >= $minMentions
             WITH f
             ORDER BY coalesce(f.mention_count, 1) DESC, coalesce(f.updated_at, f.created_at) DESC, f.id ASC
-            LIMIT $limit
+            WITH collect(f) AS ranked
+            WITH ranked[0..$byMentions] AS top, ranked[$byMentions..] AS rest
+            UNWIND (CASE WHEN size(rest) = 0 THEN [null] ELSE rest END) AS r
+            WITH top, r
+            ORDER BY r.created_at DESC, r.id ASC
+            WITH top, [x IN collect(r) WHERE x IS NOT NULL][0..$recent] AS recent
+            UNWIND top + recent AS f
             RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object
             ORDER BY f.created_at ASC, f.id ASC";
 
@@ -100,6 +114,7 @@ internal static class WorkingMemoryQueries
     public const string NextValidityBoundary = @"
             MATCH (f:Fact {owner_id: $ownerId})
             WHERE f.invalidated_at IS NULL
+              AND coalesce(f.mention_count, 1) >= $minMentions
             WITH [x IN [f.valid_from, f.valid_until] WHERE x IS NOT NULL AND x > datetime($now)] AS upcoming
             UNWIND upcoming AS boundary
             RETURN min(boundary) AS boundary";

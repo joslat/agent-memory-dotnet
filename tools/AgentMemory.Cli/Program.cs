@@ -232,11 +232,13 @@ try
         "invalidate" => await new InvalidateCommand(
             sp.GetRequiredService<IFactRepository>(),
             sp.GetRequiredService<IEntityRepository>(),
-            sp.GetRequiredService<IPreferenceRepository>(), output)
+            sp.GetRequiredService<IPreferenceRepository>(), output,
+            sp.GetService<IWorkingMemoryService>())
             .ExecuteAsync(cli.Get("type"), cli.Get("id"), cli.Get("owner")),
         "supersede" => await new SupersedeCommand(
             sp.GetRequiredService<IFactRepository>(),
-            sp.GetRequiredService<IPreferenceRepository>(), output)
+            sp.GetRequiredService<IPreferenceRepository>(), output,
+            sp.GetService<IWorkingMemoryService>())
             .ExecuteAsync(cli.Get("type"), cli.Get("loser"), cli.Get("winner"), cli.Get("owner")),
         "history" => await new HistoryCommand(
             sp.GetRequiredService<IMemoryHistoryService>(), output)

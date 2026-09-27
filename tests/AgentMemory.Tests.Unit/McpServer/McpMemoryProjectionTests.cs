@@ -122,6 +122,20 @@ public sealed class McpMemoryProjectionTests
     }
 
     [Fact]
+    public void TheProfileBlockIsOnTheWire()
+    {
+        // D19: recall read (and could rebuild) the working-memory block, then the projection dropped it.
+        var projected = Invoke("Context", new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UnixEpoch,
+            WorkingMemoryBlock = "Stable facts: Dana works_at Northwind",
+        });
+
+        projected.GetType().GetProperty("workingMemory")!.GetValue(projected).Should().Be("Stable facts: Dana works_at Northwind");
+    }
+
+    [Fact]
     public void AForgottenTopicIsProjectedAsASummaryAndNeverAsTheForgottenFacts()
     {
         // Rendering the content would undo the forgetting, and an MCP client is exactly the consumer

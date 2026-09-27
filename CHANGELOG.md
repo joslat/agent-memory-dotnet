@@ -161,7 +161,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every prompt) and marks it due, so the owner's next read rebuilds it from what remains rather than
   going without a profile until the owner writes again; a rebuild on read that fails (a read-only
   connection, a timeout) never fails recall, and serves no block (or, with
-  `ClearOnRebuildFailure = false`, the stored one), and is not retried for that owner for a minute; new facts reach it (the most recently touched win a
+  `ClearOnRebuildFailure = false`, the stored one), and is not retried for that owner for a minute; a
+  new fact reaches a block whose slots are full of facts mentioned more often (`RecentStableFactSlots`,
+  4 of the 12, go to the most recently learned of the rest; 0 restores slots by mentions only); a CLI
+  `invalidate` / `supersede` marks the owner's block due; MCP recall now returns the block
+  (`workingMemory`), which it read and dropped; new facts reach it (the most recently touched win a
   slot, while the text keeps a stable order). Semantic Kernel renders the block even when similarity
   found nothing, which is the question it exists to answer.
   **Upgrading a database that already ran the tier** (it was opt-in before): the constraint cannot be

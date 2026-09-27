@@ -1250,6 +1250,7 @@ MATCH (u:User {identifier: $ownerId})
 ## WorkingMemoryQueries.NextValidityBoundary
 MATCH (f:Fact {owner_id: $ownerId})
             WHERE f.invalidated_at IS NULL
+              AND coalesce(f.mention_count, 1) >= $minMentions
             WITH [x IN [f.valid_from, f.valid_until] WHERE x IS NOT NULL AND x > datetime($now)] AS upcoming
             UNWIND upcoming AS boundary
             RETURN min(boundary) AS boundary
@@ -1270,7 +1271,13 @@ MATCH (f:Fact {owner_id: $ownerId})
               AND coalesce(f.mention_count, 1) >= $minMentions
             WITH f
             ORDER BY coalesce(f.mention_count, 1) DESC, coalesce(f.updated_at, f.created_at) DESC, f.id ASC
-            LIMIT $limit
+            WITH collect(f) AS ranked
+            WITH ranked[0..$byMentions] AS top, ranked[$byMentions..] AS rest
+            UNWIND (CASE WHEN size(rest) = 0 THEN [null] ELSE rest END) AS r
+            WITH top, r
+            ORDER BY r.created_at DESC, r.id ASC
+            WITH top, [x IN collect(r) WHERE x IS NOT NULL][0..$recent] AS recent
+            UNWIND top + recent AS f
             RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object
             ORDER BY f.created_at ASC, f.id ASC
 

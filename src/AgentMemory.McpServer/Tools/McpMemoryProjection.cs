@@ -52,6 +52,9 @@ internal static class McpMemoryProjection
             // an MCP client is exactly the consumer that would treat them as ordinary memory.
             forgottenTopics = context.ForgottenTopics.Select(ForgottenTopic).ToList(),
             context.GraphRagContext,
+            // The profile block (on by default): what the host's agent sees as "about this user". Recall
+            // already paid to read (and maybe rebuild) it; dropping it here left MCP clients without it.
+            workingMemory = context.WorkingMemoryBlock,
         };
     }
 

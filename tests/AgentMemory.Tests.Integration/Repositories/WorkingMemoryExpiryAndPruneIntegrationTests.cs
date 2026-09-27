@@ -190,6 +190,29 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
         runner.WriteAttempts.Should().Be(2, "after the backoff the rebuild is tried again");
     }
 
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(0, false)]
+    public async Task A_new_fact_said_once_reaches_a_block_full_of_facts_said_twice(int recentSlots, bool expected)
+    {
+        // D19 (review round 2): slots went by mention count first, so once all 12 held facts mentioned twice
+        // or more, a new job or city (mentioned once) never reached the block.
+        _options.WorkingMemory.RecentStableFactSlots = recentSlots;
+        for (int i = 0; i < 12; i++)
+        {
+            var fact = NewFact($"Old{i}") with { Predicate = $"likes_{i}", CreatedAtUtc = _clock.UtcNow.AddDays(-30 + i) };
+            await _facts.UpsertAsync(fact);
+            await _facts.UpsertAsync(fact with { FactId = Guid.NewGuid().ToString("N") });   // a second mention
+        }
+        await _facts.UpsertAsync(NewFact("Initech") with { Predicate = "works_at", CreatedAtUtc = _clock.UtcNow });
+
+        await WorkingMemory().RebuildAsync("alice");
+
+        var text = (await WorkingMemory().GetAsync("alice"))!.Text;
+        text.Contains("Initech").Should().Be(expected);
+        text.Split('\n').Count(l => l.StartsWith("user ", StringComparison.Ordinal)).Should().Be(12, "the block keeps its size");
+    }
+
     private sealed class CountingReadOnlyRunner(INeo4jTransactionRunner inner) : INeo4jTransactionRunner
     {
         public int WriteAttempts;

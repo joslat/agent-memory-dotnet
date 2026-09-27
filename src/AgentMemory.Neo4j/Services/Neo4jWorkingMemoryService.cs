@@ -144,9 +144,11 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
     private async Task<string?> NextValidityBoundaryAsync(string ownerId, DateTimeOffset now, CancellationToken cancellationToken) =>
         await _tx.ReadAsync(async runner =>
         {
+            // Only facts that can be in the block: a boundary of one that cannot would rebuild for nothing.
             var cursor = await runner.RunAsync(WorkingMemoryQueries.NextValidityBoundary, new
             {
                 ownerId,
+                minMentions = _options.MinFactMentionCount,
                 now = now.ToString("O", CultureInfo.InvariantCulture),
             }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -235,7 +237,8 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 ownerId,
                 now = stamp,
                 minMentions = _options.MinFactMentionCount,
-                limit = _options.MaxStableFacts,
+                byMentions = Math.Max(0, _options.MaxStableFacts - _options.RecentStableFactSlots),
+                recent = Math.Min(_options.RecentStableFactSlots, _options.MaxStableFacts),
             }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records

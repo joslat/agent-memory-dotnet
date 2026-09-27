@@ -421,7 +421,8 @@ public sealed class SchemaParityCommand(TextWriter output)
 /// needs no embedding backend — invalidation is a pure id-based write.</para>
 /// </summary>
 public sealed class InvalidateCommand(
-    IFactRepository facts, IEntityRepository entities, IPreferenceRepository preferences, TextWriter output)
+    IFactRepository facts, IEntityRepository entities, IPreferenceRepository preferences, TextWriter output,
+    IWorkingMemoryService? workingMemory = null)
 {
     public async Task<int> ExecuteAsync(string? type, string? id, string? owner, CancellationToken cancellationToken = default)
     {
@@ -450,10 +451,29 @@ public sealed class InvalidateCommand(
         if (await op)
         {
             output.WriteLine($"Invalidated {kind} '{id}'{ownerNote}.");
+            // The owner's profile block may state what was just retracted: mark it due, so the next read
+            // rebuilds it (a clear needs no embedding backend, which this command promises not to need).
+            var ownerOfRecord = owner ?? kind switch
+            {
+                "fact" => (await facts.GetByIdAsync(id, cancellationToken))?.OwnerId,
+                "entity" => (await entities.GetByIdAsync(id, cancellationToken))?.OwnerId,
+                _ => (await preferences.GetByIdAsync(id, cancellationToken))?.OwnerId,
+            };
+            await WorkingMemoryDue.MarkAsync(workingMemory, ownerOfRecord, cancellationToken);
             return 0;
         }
         output.WriteLine($"No matching {kind} '{id}'{ownerNote} to invalidate.");
         return 1;
+    }
+}
+
+/// <summary>Marks an owner's profile block due after an ops command retracted something from it.</summary>
+internal static class WorkingMemoryDue
+{
+    internal static async Task MarkAsync(IWorkingMemoryService? workingMemory, string? ownerId, CancellationToken cancellationToken)
+    {
+        if (workingMemory is null || string.IsNullOrWhiteSpace(ownerId)) return;
+        await workingMemory.ClearAsync(ownerId, cancellationToken);
     }
 }
 
@@ -463,7 +483,8 @@ public sealed class InvalidateCommand(
 /// Exit 0 if superseded, 1 if nothing matched in scope or on a usage error. Resolves repositories directly
 /// (no embedding backend needed).
 /// </summary>
-public sealed class SupersedeCommand(IFactRepository facts, IPreferenceRepository preferences, TextWriter output)
+public sealed class SupersedeCommand(IFactRepository facts, IPreferenceRepository preferences, TextWriter output,
+    IWorkingMemoryService? workingMemory = null)
 {
     public async Task<int> ExecuteAsync(string? type, string? loser, string? winner, string? owner, CancellationToken cancellationToken = default)
     {
@@ -491,6 +512,10 @@ public sealed class SupersedeCommand(IFactRepository facts, IPreferenceRepositor
         if (await op)
         {
             output.WriteLine($"Superseded {kind} '{loser}' with '{winner}'{ownerNote}.");
+            var ownerOfRecord = owner ?? (kind == "fact"
+                ? (await facts.GetByIdAsync(winner, cancellationToken))?.OwnerId
+                : (await preferences.GetByIdAsync(winner, cancellationToken))?.OwnerId);
+            await WorkingMemoryDue.MarkAsync(workingMemory, ownerOfRecord, cancellationToken);
             return 0;
         }
         output.WriteLine($"No matching {kind} loser+winner in scope{ownerNote}; nothing superseded.");

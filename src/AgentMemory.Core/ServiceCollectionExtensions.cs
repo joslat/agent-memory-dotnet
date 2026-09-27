@@ -234,6 +234,9 @@ public static class ServiceCollectionExtensions
                 o => o.WorkingMemory.MaxStableFacts >= 0,
                 "MemoryOptions.WorkingMemory.MaxStableFacts must not be negative.")
             .Validate(
+                o => o.WorkingMemory.RecentStableFactSlots >= 0,
+                "MemoryOptions.WorkingMemory.RecentStableFactSlots must not be negative.")
+            .Validate(
                 o => o.WorkingMemory.MaxActivePreferences >= 0,
                 "MemoryOptions.WorkingMemory.MaxActivePreferences must not be negative.")
             .Validate(

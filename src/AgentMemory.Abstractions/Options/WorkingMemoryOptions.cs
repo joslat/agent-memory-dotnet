@@ -34,6 +34,14 @@ public sealed class WorkingMemoryOptions
     /// <summary>Most stable facts to include.</summary>
     public int MaxStableFacts { get; set; } = 12;
 
+    /// <summary>
+    /// Of <see cref="MaxStableFacts"/>, how many slots go to the most recently learned facts that did not
+    /// win a slot by mentions (default 4). Without them, once every slot holds a fact mentioned twice or
+    /// more, a new job or city (mentioned once) never reaches the block. 0 = slots by mentions only, the
+    /// behaviour before this existed.
+    /// </summary>
+    public int RecentStableFactSlots { get; set; } = 4;
+
     /// <summary>Most active preferences to include.</summary>
     public int MaxActivePreferences { get; set; } = 8;
 

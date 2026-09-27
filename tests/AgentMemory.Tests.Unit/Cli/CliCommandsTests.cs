@@ -430,6 +430,28 @@ public sealed class CliCommandsTests
             "loser", "winner", Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task A_retraction_marks_the_owners_profile_block_due()
+    {
+        // D19: the block kept stating a fact the CLI had just invalidated or superseded, until the owner's
+        // next write. Now the next read rebuilds it.
+        var (facts, entities, prefs) = LongTermRepos();
+        facts.SupersedeAsync("loser", "winner", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+        facts.InvalidateAsync("f1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+        facts.GetByIdAsync("f1", Arg.Any<CancellationToken>()).Returns(new Fact
+        {
+            FactId = "f1", Subject = "s", Predicate = "p", Object = "o", Confidence = 1,
+            CreatedAtUtc = DateTimeOffset.UnixEpoch, OwnerId = "bob",
+        });
+        var workingMemory = Substitute.For<IWorkingMemoryService>();
+
+        await new SupersedeCommand(facts, prefs, _output, workingMemory).ExecuteAsync("fact", "loser", "winner", "alice");
+        await new InvalidateCommand(facts, entities, prefs, _output, workingMemory).ExecuteAsync("fact", "f1", owner: null);
+
+        await workingMemory.Received(1).ClearAsync("alice", Arg.Any<CancellationToken>());
+        await workingMemory.Received(1).ClearAsync("bob", Arg.Any<CancellationToken>());
+    }
+
     [Theory]
     [InlineData(null, "l", "w")]
     [InlineData("fact", null, "w")]
