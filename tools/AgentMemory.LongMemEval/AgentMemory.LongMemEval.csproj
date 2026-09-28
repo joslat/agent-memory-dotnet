@@ -37,7 +37,7 @@
       TypedMemEvalCorpus/TypedMemEvalVerticals at run time, which is what made this a one-line bump.
     -->
     <PackageReference Include="AgentEval" Version="0.38.0-beta" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
     <!--
       A real tokenizer, for the publication path only. The chars/4 heuristic stays for RATIOS between
       arms, where a consistent approximation is sufficient and cheap. It is not sufficient for a
