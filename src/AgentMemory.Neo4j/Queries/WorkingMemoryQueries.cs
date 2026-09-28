@@ -50,7 +50,8 @@ internal static class WorkingMemoryQueries
             ORDER BY r.created_at DESC, r.id ASC
             WITH top, [x IN collect(r) WHERE x IS NOT NULL][0..$recent] AS recent
             UNWIND top + recent AS f
-            RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object,
+            RETURN f.id AS id, f.created_at AS createdAt,
+                   f.subject AS subject, f.predicate AS predicate, f.object AS object,
                    f.valid_from AS validFrom, f.valid_from_precision AS validFromPrecision,
                    f.valid_until AS validUntil, f.valid_until_precision AS validUntilPrecision,
                    f.occurred_on AS occurredOn, f.occurred_on_precision AS occurredOnPrecision

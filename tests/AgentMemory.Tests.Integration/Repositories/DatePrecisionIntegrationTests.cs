@@ -136,6 +136,33 @@ public sealed class DatePrecisionIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_profile_block_gives_a_plan_that_has_begun_instead_of_the_value_it_replaces()
+    {
+        // J-6 (b), the recall rule in the block too: Copenhagen said in August, the move to Oslo planned for September.
+        // On 27 September (the fixed clock) the move has happened: the block states one home, not both.
+        await _facts.UpsertAsync(new Fact
+        {
+            FactId = "home-cph", Subject = "Oskar", Predicate = "lives in", Object = "Copenhagen", Confidence = 0.9,
+            OwnerId = "owner-dates", CreatedAtUtc = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero),
+        });
+        await _facts.UpsertAsync(new Fact
+        {
+            FactId = "home-osl", Subject = "Oskar", Predicate = "lives in", Object = "Oslo", Confidence = 0.9,
+            OwnerId = "owner-dates", CreatedAtUtc = new DateTimeOffset(2026, 8, 20, 0, 0, 0, TimeSpan.Zero),
+            ValidFrom = new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero), ValidFromPrecision = DatePrecision.Month,
+        });
+        var options = new MemoryOptions();
+        options.WorkingMemory.MinFactMentionCount = 1;
+        var service = new Neo4jWorkingMemoryService(
+            _fixture.TransactionRunner, new FixedClock(), new Ids(), Options.Create(options),
+            NullLogger<Neo4jWorkingMemoryService>.Instance);
+
+        var block = await service.ComposeAsync("owner-dates", new FixedClock().UtcNow, CancellationToken.None);
+
+        block.Should().Contain("Oskar lives in Oslo").And.NotContain("Oskar lives in Copenhagen");
+    }
+
+    [Fact]
     public async Task A_fact_written_before_precision_was_recorded_reads_as_unspecified()
     {
         await _facts.UpsertAsync(Dated("legacy", "Lyon") with

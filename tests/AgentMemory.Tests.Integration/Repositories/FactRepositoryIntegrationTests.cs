@@ -105,11 +105,12 @@ public class FactRepositoryIntegrationTests : IAsyncLifetime
         });
 
     [Fact]
-    public async Task UpsertAsync_ReAssertSupersededTriple_RestoresToLiveRecall_KeepsValidUntil()
+    public async Task UpsertAsync_ReAssertSupersededTriple_StartsASecondPeriod_VisibleToLiveRecall_FirstKeepsItsEnd()
     {
-        // R5 HIGH: re-asserting a previously superseded triple is a present-time positive assertion; it must
-        // become visible to live recall again. Before the fix, the triple-MERGE re-matched the dead node but
-        // ON MATCH never cleared invalidated_at, so the fact stayed permanently invisible (write vanished).
+        // R5 HIGH, still: re-asserting a previously superseded triple is a present-time positive assertion and must be
+        // visible to live recall (before R5 the write vanished). J-6 changed WHERE it lands: not on the superseded node,
+        // re-opened with the end supersession stamped (live but "ended", its first period lost), but on a new fact, a
+        // second period of the same triple; the first keeps its end, so as-of recall of the time between stays right.
         var idA = $"fact-{Guid.NewGuid():N}";
         await _repo.UpsertAsync(new Fact { FactId = idA, Subject = "Alice", Predicate = "lives_in", Object = "Paris", Confidence = 0.9, Embedding = TestEmbedding, CreatedAtUtc = DateTimeOffset.UtcNow });
         var idB = $"fact-{Guid.NewGuid():N}";
@@ -120,12 +121,14 @@ public class FactRepositoryIntegrationTests : IAsyncLifetime
             .Should().NotContain(idA, "a superseded fact is invisible to live recall");
 
         // Re-assert the SAME triple (fresh id, no explicit ValidUntil) WITH an embedding.
-        await _repo.UpsertAsync(new Fact { FactId = $"fact-{Guid.NewGuid():N}", Subject = "Alice", Predicate = "lives_in", Object = "Paris", Confidence = 0.95, Embedding = TestEmbedding, CreatedAtUtc = DateTimeOffset.UtcNow });
+        var idC = $"fact-{Guid.NewGuid():N}";
+        var restated = await _repo.UpsertAsync(new Fact { FactId = idC, Subject = "Alice", Predicate = "lives_in", Object = "Paris", Confidence = 0.95, Embedding = TestEmbedding, CreatedAtUtc = DateTimeOffset.UtcNow });
 
-        (await _repo.SearchByVectorAsync(QueryEmbedding, limit: 5)).Select(r => r.Fact.FactId)
-            .Should().Contain(idA, "re-asserting the triple must clear invalidated_at and restore the fact to live recall");
-        (await HasValidUntilAsync(idA)).Should().BeTrue(
-            "the fix clears only the transaction clock (invalidated_at); the valid-time clock (valid_until) stays as supersession stamped it");
+        restated.FactId.Should().Be(idC, "a second period is a new fact, not the superseded one re-opened");
+        var live = (await _repo.SearchByVectorAsync(QueryEmbedding, limit: 5)).Select(r => r.Fact.FactId).ToList();
+        live.Should().Contain(idC, "the restatement is visible to live recall");
+        live.Should().NotContain(idA, "the first period stays closed");
+        (await HasValidUntilAsync(idA)).Should().BeTrue("the first period keeps the end supersession stamped");
     }
 
     [Fact]

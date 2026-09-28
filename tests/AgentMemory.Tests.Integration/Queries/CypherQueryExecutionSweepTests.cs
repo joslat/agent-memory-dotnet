@@ -52,10 +52,11 @@ public sealed class CypherQueryExecutionSweepTests
         var failures = new List<string>();
         var skipped = new List<string>(uninvokableMethods);
         var swept = 0;
+        var cypher25 = await SupportsCypher25Async();
 
         foreach (var (origin, cypher) in collected)
         {
-            if (ShouldSkipForExplain(cypher, out var skipReason))
+            if (ShouldSkipForExplain(cypher, cypher25, out var skipReason))
             {
                 skipped.Add($"{origin} — {skipReason}");
                 continue;
@@ -257,6 +258,15 @@ public sealed class CypherQueryExecutionSweepTests
             _ => Convert.ToString(a, CultureInfo.InvariantCulture) ?? a.ToString()
         }));
 
+    /// <summary>Whether the server under test speaks Cypher 25 (Neo4j 2026.x).</summary>
+    private async Task<bool> SupportsCypher25Async()
+    {
+        await using var session = _fixture.Driver.AsyncSession();
+        var cursor = await session.RunAsync("CALL dbms.components() YIELD name, versions WHERE name = 'Cypher' RETURN versions");
+        var records = await cursor.ToListAsync();
+        return records.Count > 0 && global::Neo4j.Driver.ValueExtensions.As<List<string>>(records[0]["versions"]).Contains("25");
+    }
+
     // ── EXPLAIN eligibility ─────────────────────────────────────────────────────
 
     /// <summary>
@@ -264,9 +274,17 @@ public sealed class CypherQueryExecutionSweepTests
     /// <c>SHOW</c> commands, schema DDL (<c>CREATE</c>/<c>DROP</c> <c>CONSTRAINT</c>/<c>INDEX</c>), or any
     /// multi-statement text. Ordinary reads and writes (MATCH/MERGE/CREATE-node/CALL/…) are NOT skipped.
     /// </summary>
-    private static bool ShouldSkipForExplain(string cypher, out string reason)
+    private static bool ShouldSkipForExplain(string cypher, bool cypher25, out string reason)
     {
         var trimmed = cypher.TrimStart();
+
+        // G-16: owner-filtered vector search is Cypher 25 (Neo4j 2026.x). A server without it cannot parse it, and the
+        // library never sends it there (the option is refused at bootstrap); on a 2026.x server it is EXPLAINed like the rest.
+        if (!cypher25 && trimmed.StartsWith("CYPHER 25", StringComparison.OrdinalIgnoreCase))
+        {
+            reason = "Cypher 25 (Neo4j 2026.x) on a server without it";
+            return true;
+        }
 
         if (trimmed.StartsWith("SHOW ", StringComparison.OrdinalIgnoreCase))
         {

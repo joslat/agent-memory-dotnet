@@ -244,17 +244,30 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 recent = Math.Min(_options.RecentStableFactSlots, _options.MaxStableFacts),
             }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records
-                .Select(r => $"{r["subject"].As<string>()} {r["predicate"].As<string>()} {r["object"].As<string>()}"
+            // J-6 (b), the recall rule here too: a plan that has begun takes over from the value it was planned to
+            // replace, so the block does not state both homes once the move has happened.
+            var stable = records.Select(r => new AgentMemory.Abstractions.Domain.Fact
+            {
+                FactId = r["id"].As<string>(),
+                Subject = r["subject"].As<string>(),
+                Predicate = r["predicate"].As<string>(),
+                Object = r["object"].As<string>(),
+                Confidence = 1,
+                OwnerId = ownerId,
+                CreatedAtUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["createdAt"]) ?? DateTimeOffset.MinValue,
+                ValidFrom = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["validFrom"]),
+                ValidFromPrecision = DatePrecisionProperty.FromStored(r["validFromPrecision"] as string),
+                ValidUntil = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["validUntil"]),
+                ValidUntilPrecision = DatePrecisionProperty.FromStored(r["validUntilPrecision"] as string),
+                OccurredOn = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["occurredOn"]),
+                OccurredOnPrecision = DatePrecisionProperty.FromStored(r["occurredOnPrecision"] as string),
+            }).ToList();
+            return AgentMemory.Core.Memory.ValueHandOver.Current(stable, now)
+                .Select(f => $"{f.Subject} {f.Predicate} {f.Object}"
                     // 36.1. The recall renderers' rule, so the block and the recalled facts agree on a date.
                     + (_options.IncludeDates
                         ? AgentMemory.Core.Services.FactDates.Suffix(
-                            Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["validFrom"]),
-                            DatePrecisionProperty.FromStored(r["validFromPrecision"] as string),
-                            Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["validUntil"]),
-                            DatePrecisionProperty.FromStored(r["validUntilPrecision"] as string),
-                            Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["occurredOn"]),
-                            DatePrecisionProperty.FromStored(r["occurredOnPrecision"] as string))
+                            f.ValidFrom, f.ValidFromPrecision, f.ValidUntil, f.ValidUntilPrecision, f.OccurredOn, f.OccurredOnPrecision)
                         : string.Empty))
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
