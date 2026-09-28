@@ -38,7 +38,7 @@ internal static class WorkingMemoryQueries
     public const string SelectStableFacts = @"
             MATCH (f:Fact {owner_id: $ownerId})
             WHERE f.invalidated_at IS NULL
-              AND (f.valid_from  IS NULL OR f.valid_from  <= datetime($now))
+              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($now))
               AND (f.valid_until IS NULL OR f.valid_until >  datetime($now))
               AND coalesce(f.mention_count, 1) >= $minMentions
             WITH f

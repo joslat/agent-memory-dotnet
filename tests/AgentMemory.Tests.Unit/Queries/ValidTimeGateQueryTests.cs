@@ -36,7 +36,7 @@ public sealed class ValidTimeGateQueryTests
     {
         var gated = FactQueries.SearchByVector(true, true, 60, false, currentValidTime: true);
 
-        gated.Should().Contain("node.valid_from IS NULL OR node.valid_from <= datetime($now)");
+        gated.Should().Contain("coalesce(node.valid_from, node.occurred_on) IS NULL OR coalesce(node.valid_from, node.occurred_on) <= datetime($now)", "36.1: an event begins on its day");
         gated.Should().Contain("node.valid_until IS NULL OR node.valid_until > datetime($now)");
     }
 
@@ -58,7 +58,7 @@ public sealed class ValidTimeGateQueryTests
         // miss: the ones already receiving the least.
         var gated = FactQueries.SearchByVectorOwnerScopedFallback(true, currentValidTime: true);
 
-        gated.Should().Contain("f.valid_from  IS NULL OR f.valid_from  <= datetime($now)");
+        gated.Should().Contain("coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($now)", "36.1: an event begins on its day");
         gated.Should().Contain("f.valid_until IS NULL OR f.valid_until >  datetime($now)");
     }
 

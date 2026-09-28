@@ -4,6 +4,7 @@ using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
 using AgentMemory.Core.Services;
+using AgentMemory.Tests.Unit.TestSupport;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -26,45 +27,7 @@ public sealed class WithinExtractionCurrentValueTests
     private static PersistenceStage Stage(Store store, bool batch = true, Action<ExtractionOptions>? configure = null,
         IEmbeddingOrchestrator? embeddings = null)
     {
-        var facts = Substitute.For<IFactRepository, IBatchMemoryRepository<Fact>>();
-        facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci =>
-        {
-            var fact = ci.Arg<Fact>();
-            if (store.FailOn.Contains(fact.Object)) throw new InvalidOperationException("write failed");
-            var i = store.Facts.FindIndex(f => f.Subject == fact.Subject && f.Predicate == fact.Predicate && f.Object == fact.Object);
-            if (i < 0) { store.Facts.Add(fact); return Task.FromResult(fact); }
-            store.Facts[i] = store.Facts[i] with { InvalidatedAtUtc = null };
-            return Task.FromResult(store.Facts[i]);
-        });
-        ((IBatchMemoryRepository<Fact>)facts).UpsertBatchAsync(Arg.Any<IReadOnlyList<Fact>>(), Arg.Any<CancellationToken>())
-            .Returns(ci =>
-            {
-                var result = new List<Fact>();
-                foreach (var fact in ci.Arg<IReadOnlyList<Fact>>())
-                {
-                    var i = store.Facts.FindIndex(f => f.Subject == fact.Subject && f.Predicate == fact.Predicate && f.Object == fact.Object);
-                    if (i < 0) { store.Facts.Add(fact); result.Add(fact); }
-                    else { store.Facts[i] = store.Facts[i] with { InvalidatedAtUtc = null }; result.Add(store.Facts[i]); }
-                }
-                return Task.FromResult<IReadOnlyList<Fact>>(result);
-            });
-        facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult<IReadOnlyList<Fact>>(store.Facts
-                .Where(f => f.InvalidatedAtUtc is null && f.Subject == ci.ArgAt<string>(1) && f.Predicate == ci.ArgAt<string>(2) &&
-                            f.Object != ci.ArgAt<string>(3) && f.FactId != ci.ArgAt<string>(0))
-                .ToList()));
-        facts.GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult(store.Facts.FirstOrDefault(f => f.FactId == ci.ArgAt<string>(0))));
-        facts.GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult<IReadOnlyList<Fact>>(store.Facts.Where(f => f.Subject == ci.ArgAt<string>(0)).ToList()));
-        facts.SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(ci =>
-            {
-                var i = store.Facts.FindIndex(f => f.FactId == ci.ArgAt<string>(0));
-                store.Facts[i] = store.Facts[i] with { InvalidatedAtUtc = T0 };
-                return Task.FromResult(true);
-            });
+        var facts = StoreFakes.Facts(store.Facts, T0, store.FailOn);
 
         var entities = Substitute.For<IEntityRepository>();
         entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Entity>()));
@@ -279,5 +242,151 @@ public sealed class WithinExtractionCurrentValueTests
         }, ownerId: "u1");
 
         store.Facts.Single(f => f.FactId == "trip").InvalidatedAtUtc.Should().BeNull();
+    }
+
+    // ── Review round 8: every closing after every write, against the store's real semantics ─────────────────
+
+    private static DateTimeOffset Y(int y) => new(y, 6, 1, 0, 0, 0, TimeSpan.Zero);
+
+    // Current: not invalidated and no end reached (what live recall shows).
+    private static List<string> Current(Store store, string predicate = "lives in") =>
+        store.Facts.Where(f => f.InvalidatedAtUtc is null && f.Predicate == predicate && (f.ValidUntil is null || f.ValidUntil > T0)).Select(f => f.Object).ToList();
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Stored_value_restated_after_a_correction_is_still_current(bool batch)
+    {
+        var store = new Store();
+        store.Facts.Add(Stored("fav", "Copenhagen", p: "favourite city"));
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Oslo") with { Replaces = "Copenhagen" }, F("Copenhagen", p: "favourite city")],
+        }, ownerId: "u1");
+        Current(store, "favourite city").Should().Equal("Copenhagen");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Chained_corrections_onto_a_stored_value_leave_it_current(bool batch)
+    {
+        var store = new Store();
+        store.Facts.Add(Stored("osl", "Oslo"));
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Copenhagen") with { Replaces = "Oslo" }, F("Oslo") with { Replaces = "Copenhagen" }],
+        }, ownerId: "u1");
+        Current(store).Should().Equal("Oslo");
+    }
+
+    [Fact]
+    public async Task Stand_in_is_the_latest_dated_surviving_value()
+    {
+        var store = new Store();
+        store.Facts.Add(Stored("lis", "Lisbon"));
+        store.FailOn.Add("Oslo");
+        await Stage(store, batch: false).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Oslo") with { ValidFrom = Y(2025) }, F("Copenhagen") with { ValidFrom = Y(2020) }, F("Berlin") with { ValidFrom = Y(2018) }],
+        }, ownerId: "u1");
+        Current(store).Should().Equal("Copenhagen");
+    }
+
+    [Fact]
+    public async Task Stand_in_is_never_a_value_the_person_corrected_away()
+    {
+        var store = new Store();
+        store.Facts.Add(Stored("ber", "Bergen"));
+        store.FailOn.Add("Oslo");
+        await Stage(store, batch: false).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Copenhagen"), F("Oslo") with { Replaces = "Copenhagen" }],
+        }, ownerId: "u1");
+        Current(store).Should().NotEqual(["Copenhagen"]);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_history_value_of_the_same_extraction_is_not_closed(bool batch)
+    {
+        var store = new Store();
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Copenhagen"), F("Oslo"), F("Berlin") with { ValidUntil = Y(2019) }],
+        }, ownerId: "u1");
+        store.Facts.Single(f => f.Object == "Berlin").InvalidatedAtUtc.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_history_value_said_after_the_current_one_is_not_closed(bool batch)
+    {
+        var store = new Store();
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Oslo"), F("Berlin") with { ValidUntil = Y(2019) }],
+        }, ownerId: "u1");
+        store.Facts.Single(f => f.Object == "Berlin").InvalidatedAtUtc.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_planned_value_is_not_closed_by_the_undated_current(bool batch)
+    {
+        var store = new Store();
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Oslo"), F("Berlin") with { ValidFrom = T0.AddDays(60) }],
+        }, ownerId: "u1");
+        store.Facts.Single(f => f.Object == "Berlin").InvalidatedAtUtc.Should().BeNull();
+        store.Facts.Single(f => f.Object == "Oslo").InvalidatedAtUtc.Should().BeNull("a plan is not the current home");
+    }
+
+    // A correction between two history values ("I lived in Hamburg until 2019, not Berlin") leaves the current home alone.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_corrected_history_value_does_not_close_the_current_home(bool batch)
+    {
+        var store = new Store();
+        store.Facts.Add(Stored("osl", "Oslo"));
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Berlin") with { ValidUntil = Y(2019) }, F("Hamburg") with { ValidUntil = Y(2019), Replaces = "Berlin" }],
+        }, ownerId: "u1");
+        Current(store).Should().Equal("Oslo");
+    }
+
+    // Said again after it was replaced ("I moved back to Copenhagen"), a value is current again: the end supersession
+    // stamped is cleared with the invalidation, and it replaces what replaced it.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_value_said_again_after_it_was_replaced_is_current_again(bool batch)
+    {
+        var store = new Store();
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult { FilteredFacts = [F("Copenhagen")] }, ownerId: "u1");
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult { FilteredFacts = [F("Oslo")] }, ownerId: "u1");
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult { FilteredFacts = [F("Copenhagen")] }, ownerId: "u1");
+
+        Current(store).Should().Equal("Copenhagen");
+    }
+
+    // An undated value began when it was said: now, later than any value dated in the past, whatever the order said.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task An_undated_value_is_later_than_a_past_dated_one(bool batch)
+    {
+        var store = new Store();
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Oslo"), F("Copenhagen") with { ValidFrom = Y(2020) }],
+        }, ownerId: "u1");
+        Current(store).Should().Equal("Oslo");
     }
 }

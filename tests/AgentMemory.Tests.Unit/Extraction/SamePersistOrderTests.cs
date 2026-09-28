@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
 using AgentMemory.Core.Services;
+using AgentMemory.Tests.Unit.TestSupport;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -32,52 +33,8 @@ public sealed class SamePersistOrderTests
     private static PersistenceStage Stage(Store store, IEntityRepository? entities = null, IEmbeddingOrchestrator? embeddings = null,
         bool batch = true, IRelationshipRepository? relationships = null, bool failFast = false)
     {
-        var facts = Substitute.For<IFactRepository, IBatchMemoryRepository<Fact>>();
-        // The item path MERGEs on the triple, as the store does: a value said again is the stored node, live again.
-        facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci =>
-        {
-            var fact = ci.Arg<Fact>();
-            var i = store.Facts.FindIndex(f => f.Subject == fact.Subject && f.Predicate == fact.Predicate && f.Object == fact.Object);
-            if (i < 0) { store.Facts.Add(fact); return Task.FromResult(fact); }
-            store.Facts[i] = store.Facts[i] with { InvalidatedAtUtc = null };
-            return Task.FromResult(store.Facts[i]);
-        });
-        ((IBatchMemoryRepository<Fact>)facts).UpsertBatchAsync(Arg.Any<IReadOnlyList<Fact>>(), Arg.Any<CancellationToken>())
-            .Returns(ci => { store.Facts.AddRange(ci.Arg<IReadOnlyList<Fact>>()); return Task.FromResult(ci.Arg<IReadOnlyList<Fact>>()); });
-        facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult<IReadOnlyList<Fact>>(store.Facts
-                .Where(f => f.InvalidatedAtUtc is null && f.Subject == ci.ArgAt<string>(1) && f.Predicate == ci.ArgAt<string>(2) &&
-                            f.Object != ci.ArgAt<string>(3) && f.FactId != ci.ArgAt<string>(0))
-                .ToList()));
-        facts.GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult(store.Facts.FirstOrDefault(f => f.FactId == ci.ArgAt<string>(0))));
-        facts.GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult<IReadOnlyList<Fact>>(store.Facts.Where(f => f.Subject == ci.ArgAt<string>(0)).ToList()));
-        facts.SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(ci =>
-            {
-                var i = store.Facts.FindIndex(f => f.FactId == ci.ArgAt<string>(0));
-                store.Facts[i] = store.Facts[i] with { InvalidatedAtUtc = T0 };
-                return Task.FromResult(true);
-            });
-
-        var preferences = Substitute.For<IPreferenceRepository, IBatchMemoryRepository<Preference>>();
-        ((IBatchMemoryRepository<Preference>)preferences).UpsertBatchAsync(Arg.Any<IReadOnlyList<Preference>>(), Arg.Any<CancellationToken>())
-            .Returns(ci => { store.Preferences.AddRange(ci.Arg<IReadOnlyList<Preference>>()); return Task.FromResult(ci.Arg<IReadOnlyList<Preference>>()); });
-        preferences.UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>())
-            .Returns(ci => { store.Preferences.Add(ci.Arg<Preference>()); return Task.FromResult(ci.Arg<Preference>()); });
-        preferences.GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult(store.Preferences.FirstOrDefault(p => p.PreferenceId == ci.ArgAt<string>(0))));
-        preferences.GetByCategoryAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult<IReadOnlyList<Preference>>(store.Preferences.Where(p => p.Category == ci.ArgAt<string>(0)).ToList()));
-        preferences.SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
-            .Returns(ci =>
-            {
-                var i = store.Preferences.FindIndex(p => p.PreferenceId == ci.ArgAt<string>(0));
-                store.Preferences[i] = store.Preferences[i] with { InvalidatedAtUtc = T0 };
-                return Task.FromResult(true);
-            });
+        var facts = StoreFakes.Facts(store.Facts, T0);
+        var preferences = StoreFakes.Preferences(store.Preferences, T0);
 
         entities ??= Substitute.For<IEntityRepository>();
         if (embeddings is null)

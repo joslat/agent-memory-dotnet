@@ -139,7 +139,9 @@ internal static class FactQueries
                     ELSE $confidence END,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE f.valid_from END,
                 f.valid_from_precision = CASE WHEN $validFrom IS NOT NULL THEN $validFromPrecision ELSE f.valid_from_precision END,
-                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE f.valid_until END,
+                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil)
+                                            WHEN f.invalidated_at IS NOT NULL AND f.valid_until = f.invalidated_at THEN null
+                                            ELSE f.valid_until END,
                 f.valid_until_precision = CASE WHEN $validUntil IS NOT NULL THEN $validUntilPrecision ELSE f.valid_until_precision END,
                 f.occurred_on        = CASE WHEN $occurredOn IS NOT NULL THEN datetime($occurredOn) ELSE f.occurred_on END,
                 f.occurred_on_precision = CASE WHEN $occurredOn IS NOT NULL THEN $occurredOnPrecision ELSE f.occurred_on_precision END,
@@ -195,7 +197,9 @@ internal static class FactQueries
                     ELSE item.confidence END,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
                 f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE f.valid_from_precision END,
-                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
+                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until)
+                                            WHEN f.invalidated_at IS NOT NULL AND f.valid_until = f.invalidated_at THEN null
+                                            ELSE f.valid_until END,
                 f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE f.valid_until_precision END,
                 f.occurred_on        = CASE WHEN item.occurred_on IS NOT NULL THEN datetime(item.occurred_on) ELSE f.occurred_on END,
                 f.occurred_on_precision = CASE WHEN item.occurred_on IS NOT NULL THEN item.occurred_on_precision ELSE f.occurred_on_precision END,
@@ -283,7 +287,12 @@ internal static class FactQueries
               AND f.predicate_key IN $predicateKeys
               AND f.object_key <> $objectKey
               AND f.id <> $winnerId
-              AND f.invalidated_at IS NULL" + owner + @"
+              AND f.invalidated_at IS NULL
+              // 36.4. Only a value that holds now is replaced: one that has ended is history (closing it hid it from
+              // as-of recall), one that has not begun is a plan. The write side applies the same rule to winners
+              // (ReplacementShapes.HoldsNow).
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($now))
+              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($now))" + owner + @"
             RETURN f
             ORDER BY f.created_at DESC";
     }
@@ -366,7 +375,7 @@ internal static class FactQueries
                 // recall filtered on similarity, invalidated_at and owner and nothing else. A fact valid
                 // from six months hence was returned TODAY, and one whose valid_until had passed was
                 // returned FOREVER. Off unless asked for, so no deployment silently recalls less.
-                .And("(node.valid_from IS NULL OR node.valid_from <= datetime($now))", when: currentValidTime)
+                .And("(coalesce(node.valid_from, node.occurred_on) IS NULL OR coalesce(node.valid_from, node.occurred_on) <= datetime($now))", when: currentValidTime)
                 .And("(node.valid_until IS NULL OR node.valid_until > datetime($now))", when: currentValidTime)
                 // Derived facts (the accountant's counts and sums) carry `derivation_key`; no
                 // ordinary fact does, so this is a property test rather than a heuristic. BOTH flags
@@ -429,7 +438,7 @@ internal static class FactQueries
         // bypassed for exactly the starved multi-tenant owners this fallback was added to rescue.
         var validTime = currentValidTime
             ? @"
-              AND (f.valid_from  IS NULL OR f.valid_from  <= datetime($now))
+              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($now))
               AND (f.valid_until IS NULL OR f.valid_until >  datetime($now))"
             : string.Empty;
         return $@"
@@ -719,7 +728,7 @@ internal static class FactQueries
               AND e.aliases IS NOT NULL AND size(e.aliases) > 0
               AND f.created_at <= datetime($systemAsOf)
               AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($systemAsOf))
-              AND (f.valid_from IS NULL OR f.valid_from <= datetime($validAsOf))
+              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($validAsOf))
               AND (f.valid_until IS NULL OR f.valid_until > datetime($validAsOf))"
         + DeltaOwner(hasOwnerFilter, includeShared)
         + DeltaOwner(hasOwnerFilter, includeShared, alias: "seed")

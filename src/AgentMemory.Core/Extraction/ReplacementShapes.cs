@@ -125,6 +125,13 @@ internal static partial class ReplacementShapes
     /// </summary>
     internal static bool StillHolds(DateTimeOffset? validUntil, DateTimeOffset now) => validUntil is not { } until || until > now;
 
+    /// <summary>
+    /// Whether a value holds at <paramref name="now"/>: it has begun (<paramref name="since"/> is not ahead) and still
+    /// holds. The supersession query (<c>FactQueries.FindSupersededCandidates</c>) applies the same rule to losers.
+    /// </summary>
+    internal static bool HoldsNow(DateTimeOffset? since, DateTimeOffset? validUntil, DateTimeOffset now) =>
+        (since is not { } from || from <= now) && StillHolds(validUntil, now);
+
     private static (string, string, string) Key(ExtractedFact fact) => (
         MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
         MemoryRelationLexicon.Default.ResolveStored(fact.Predicate) ?? MemoryTripleCanonicalizer.Canonical(fact.Predicate),

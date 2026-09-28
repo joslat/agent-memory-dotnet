@@ -397,6 +397,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   otherwise the recall stays at now. Found once extraction dated future facts: the
   point-in-time recall of last October hid an appointment dated this October, and the agent answered "nothing".
 
+- **A value said again after it was replaced is current again** ("I moved back to Copenhagen"). The restatement
+  cleared the invalidation but kept the end supersession had stamped, so the value stayed hidden from live recall and
+  the value that replaced it could be closed by it, leaving no current value. The stamped end (equal to the
+  invalidation) is now cleared with it on every fact write path; an end the person stated is kept.
+
+- **Supersession replaces only a value that holds now**: one that has ended is history (closing it hid it from as-of
+  recall) and one that has not begun is a plan. The same rule for winners and for the losers the query finds.
+
 - **Which value one extraction leaves current is decided once, the same on both write paths** (with
   `SupersedeReplacedFacts`). Two values of one single-valued relation in one turn ("I moved to Copenhagen, then to
   Oslo", two favourite bands) closed each other on the batch path, which writes both before supersession runs. Now a
@@ -407,7 +415,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing, and a correction's other-relation fallback leaves alone what this extraction created or said after it.
   A value that has ended is never current; of two dated values the later-dated one is, whatever order they were
   said in; no correction of the extraction closes its current value ("Copenhagen, not Oslo ... no, Oslo"); a
-  current value that fails to write is stood in for; and the current value supersedes what a replaced one would
+  current value that fails to write is stood in for by the latest value not corrected away; nothing is closed until
+  every fact of the extraction is written, on either path; and the current value supersedes what a replaced one would
   have (under another self word, say).
 
 - **A month was stored as a day.** The temporal instruction now asks the model to write a date only as precisely as

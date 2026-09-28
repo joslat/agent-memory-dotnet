@@ -66,4 +66,63 @@ public sealed class ChangesOfMindIntegrationTests : IAsyncLifetime
         read.Single(p => p.PreferenceId == "radiohead").InvalidatedAtUtc.Should().NotBeNull();
         read.Single(p => p.PreferenceId == "arcade").InvalidatedAtUtc.Should().BeNull();
     }
+
+    private static readonly MemoryScope Owner = MemoryScope.For("owner-com", includeShared: false);
+
+    /// <summary>Review round 8: only a value that holds now is replaced; history and plans are not.</summary>
+    [Fact]
+    public async Task A_value_that_has_ended_or_not_begun_is_no_candidate()
+    {
+        await _facts.UpsertAsync(F("history", "lives in", "Berlin") with { ValidUntil = new DateTimeOffset(2019, 6, 1, 0, 0, 0, TimeSpan.Zero) });
+        await _facts.UpsertAsync(F("plan", "lives in", "Bergen") with { ValidFrom = DateTimeOffset.UtcNow.AddDays(60) });
+        await _facts.UpsertAsync(F("now", "lives in", "Lisbon"));
+        var winner = await _facts.UpsertAsync(F("new", "lives in", "Oslo"));
+
+        var candidates = await _facts.FindSupersededCandidatesAsync(winner.FactId, "Nadia", "lives in", "Oslo", Owner);
+
+        candidates.Select(f => f.FactId).Should().Equal(["now"]);
+    }
+
+    /// <summary>
+    /// Review round 8: "I moved back to Copenhagen". Said again after it was replaced, a value is current again: the
+    /// end supersession stamped is cleared with the invalidation, on every write path. A stated end is kept.
+    /// </summary>
+    [Theory]
+    [InlineData("single")]
+    [InlineData("batch")]
+    [InlineData("fused")]
+    public async Task A_value_said_again_after_it_was_replaced_is_current_again(string path)
+    {
+        await _facts.UpsertAsync(F("cph", "lives in", "Copenhagen"));
+        await _facts.UpsertAsync(F("osl", "lives in", "Oslo"));
+        await _facts.SupersedeAsync("cph", "osl", Owner);
+        (await _facts.GetByIdAsync("cph"))!.ValidUntil.Should().NotBeNull("supersession stamps the end");
+
+        var again = F("cph-again", "lives in", "Copenhagen");
+        await (path switch
+        {
+            "single" => _facts.UpsertAsync(again),
+            "batch" => _facts.UpsertBatchAsync([again]),
+            _ => (Task)_facts.UpsertFusedBatchAsync([again]),
+        });
+
+        var read = (await _facts.GetByIdAsync("cph"))!;
+        read.InvalidatedAtUtc.Should().BeNull();
+        read.ValidUntil.Should().BeNull("the end was the supersession's, not the person's");
+        (await _facts.FindSupersededCandidatesAsync("cph", "Nadia", "lives in", "Copenhagen", Owner))
+            .Select(f => f.FactId).Should().Equal(["osl"], "Copenhagen, current again, replaces Oslo");
+    }
+
+    [Fact]
+    public async Task A_stated_end_survives_the_restatement()
+    {
+        var ended = new DateTimeOffset(2019, 6, 1, 0, 0, 0, TimeSpan.Zero);
+        await _facts.UpsertAsync(F("ber", "lived in", "Berlin") with { ValidUntil = ended });
+        await _facts.UpsertAsync(F("osl", "lives in", "Oslo"));
+        await _facts.SupersedeAsync("ber", "osl", Owner);
+
+        await _facts.UpsertAsync(F("ber-again", "lived in", "Berlin"));
+
+        (await _facts.GetByIdAsync("ber"))!.ValidUntil.Should().Be(ended);
+    }
 }

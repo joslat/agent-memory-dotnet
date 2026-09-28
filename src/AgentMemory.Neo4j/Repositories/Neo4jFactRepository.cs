@@ -289,6 +289,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             // fact stored as "works at", and "lives in" one stored as "lived in".
             ["predicateKeys"] = MemoryRelationCardinality.ReplacedKeys(predicate).ToList(),
             ["objectKey"]    = MemoryTripleCanonicalizer.CanonicalValue(@object),
+            ["now"]          = DateTimeOffset.UtcNow.ToString("O"),
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 

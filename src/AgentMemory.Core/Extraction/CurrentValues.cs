@@ -29,13 +29,22 @@ internal static class CurrentValues
     /// <param name="relation">The single-valued relation of one subject a statement states, or null.</param>
     /// <param name="replaces">Whether <c>correction</c> is a correction naming <c>statement</c> as what it replaces.</param>
     /// <param name="since">
-    /// When a statement's value began, if it says: of two dated values the later one is current, however they were
-    /// said ("I moved to Oslo last June; back in 2020 I had moved to Copenhagen"). An undated value is taken as said
-    /// now. Ties, and undated values among themselves, go by the order they were said.
+    /// When a statement's value began: of two dated values the later one is current, however they were said ("I moved
+    /// to Oslo last June; back in 2020 I had moved to Copenhagen"). The caller gives an undated value the moment it was
+    /// said (its clock's now); without <paramref name="since"/> the order said decides alone. Ties go by the order said.
     /// </param>
     internal static IReadOnlyDictionary<string, string> Replaced<T>(
         IReadOnlyList<T> items, Func<T, string> key, Func<T, string?> relation, Func<T, T, bool> replaces,
-        Func<T, DateTimeOffset?>? since = null)
+        Func<T, DateTimeOffset>? since = null) =>
+        Decide(items, key, relation, replaces, since).Replaced;
+
+    /// <summary>What <see cref="Replaced"/> decides, with the statements a correction named (never a stand-in).</summary>
+    internal sealed record Decision(IReadOnlyDictionary<string, string> Replaced, IReadOnlySet<string> Old);
+
+    /// <inheritdoc cref="Replaced"/>
+    internal static Decision Decide<T>(
+        IReadOnlyList<T> items, Func<T, string> key, Func<T, string?> relation, Func<T, T, bool> replaces,
+        Func<T, DateTimeOffset>? since = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         var keys = items.Select(key).ToList();
@@ -61,7 +70,7 @@ internal static class CurrentValues
             var members = group.ToList();
             var live = members.Where(i => !old.ContainsKey(keys[i])).ToList();
             var current = keys[(live.Count > 0 ? live : members)
-                .OrderBy(i => since?.Invoke(items[i]) ?? DateTimeOffset.MaxValue)
+                .OrderBy(i => since?.Invoke(items[i]) ?? DateTimeOffset.MinValue)
                 .ThenBy(i => i)
                 .Last()];
             currents.Add(current);
@@ -83,6 +92,6 @@ internal static class CurrentValues
             while (replaced.TryGetValue(at, out var next) && seen.Add(at)) at = next;
             if (!seen.Contains(at)) resolved[start] = at;
         }
-        return resolved;
+        return new Decision(resolved, old.Keys.ToHashSet(StringComparer.Ordinal));
     }
 }
