@@ -83,6 +83,14 @@ internal static class Corrections
         return at <= 0 ? null : MemoryRelationCardinality.Relation(text[..at]);
     }
 
+    /// <summary>The value a preference stating a single-valued relation states ("Favourite band is Radiohead": radiohead).</summary>
+    internal static string? StatedValue(string preferenceText)
+    {
+        var text = MemoryTripleCanonicalizer.CanonicalValue(preferenceText);
+        var at = text.IndexOf(" is ", StringComparison.Ordinal);
+        return at <= 0 || SingleValuedRelation(preferenceText) is null ? null : Value(text[(at + 4)..]);
+    }
+
     /// <summary>
     /// Whether <paramref name="candidate"/> states another value of the single-valued relation <paramref name="winner"/>
     /// states: "Favourite band is Radiohead" for "Favourite band is Arcade Fire". Found in simulated conversations: the

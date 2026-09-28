@@ -195,4 +195,17 @@ public sealed class TemporalQueryParserTests
         Resolve("What did I think in March?").Should().Be(new DateTimeOffset(2026, 3, 31, 23, 59, 59, TimeSpan.Zero),
             "a month already past this year is unchanged");
     }
+
+    /// <summary>Review round 6: a word that only looks ahead ("book" the noun, "next", "be") keeps a past question past.</summary>
+    [Theory]
+    [InlineData("What book was I reading in December?")]
+    [InlineData("What did I do next in November?")]
+    [InlineData("What was it like to be in Paris in December?")]
+    [InlineData("Where was my booking in October last time?")]
+    public void A_past_question_with_a_word_that_only_looks_ahead_is_still_about_last_year(string query) =>
+        Resolve(query).Should().NotBeNull();
+
+    [Fact]
+    public void A_typographic_apostrophe_is_an_apostrophe() =>
+        Resolve("Where did I say I’d go in October?").Should().BeNull();
 }

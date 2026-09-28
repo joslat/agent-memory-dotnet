@@ -358,4 +358,98 @@ public sealed class SamePersistOrderTests
         (await act.Should().ThrowAsync<MemoryIngestionException>()).Which.CompletedOutcomes.Should().Contain(outcome =>
             outcome.Stage == IngestionStage.Embedding && outcome.ErrorCode == MemoryErrorCodes.EmbeddingGenerationFailed);
     }
+
+    // ── Review round 6: one decision for which value is current ───────────────────────────────
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Chained_corrections_leave_the_newest_value_live(bool batch)
+    {
+        var store = new Store();
+        store.Facts.Add(new Fact { FactId = "ber", Subject = "Oskar", Predicate = "lives in", Object = "Berlin", Confidence = 1, CreatedAtUtc = T0.AddDays(-9) });
+        await Stage(store, batch: batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Oslo") with { Replaces = "Copenhagen" }, F("Copenhagen") with { Replaces = "Berlin" }],
+        }, ownerId: "u1");
+        LiveHomes(store).Should().Equal("Oslo");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Chained_favourite_corrections_leave_the_newest_live(bool batch)
+    {
+        var store = new Store();
+        await Stage(store, batch: batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredPreferences =
+            [
+                new ExtractedPreference { Category = "music", PreferenceText = "Favourite band is Arcade Fire", Replaces = "Radiohead" },
+                new ExtractedPreference { Category = "music", PreferenceText = "Favourite band is Radiohead", Replaces = "Muse" },
+            ],
+        }, ownerId: "u1");
+        store.Preferences.Where(p => p.InvalidatedAtUtc is null).Select(p => p.PreferenceText).Should().Equal("Favourite band is Arcade Fire");
+    }
+
+    [Fact]
+    public async Task A_stored_old_value_restated_is_still_closed_by_a_correction_under_another_relation()
+    {
+        var store = new Store();
+        store.Facts.Add(new Fact { FactId = "hm", Subject = "Oskar", Predicate = "is training for", Object = "half marathon", Confidence = 1, CreatedAtUtc = T0.AddDays(-9) });
+        await Stage(store, batch: false).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "Oskar", Predicate = "is training for", Object = "half marathon", Confidence = 1 },
+                new ExtractedFact { Subject = "Oskar", Predicate = "plans to run", Object = "the full marathon", Confidence = 1, Replaces = "the half marathon" },
+            ],
+        }, ownerId: "u1");
+        store.Facts.Single(f => f.FactId == "hm").InvalidatedAtUtc.Should().NotBeNull("the correction replaces the stored half marathon");
+    }
+
+    [Fact]
+    public async Task A_preference_correction_naming_its_own_value_marks_nothing()
+    {
+        var store = new Store();
+        await Stage(store, batch: false).PersistAsync(new ExtractionStageResult
+        {
+            FilteredPreferences =
+            [
+                new ExtractedPreference { Category = "music", PreferenceText = "Favourite band is Radiohead", Replaces = "Radiohead" },
+                new ExtractedPreference { Category = "music", PreferenceText = "Wants to see Radiohead live" },
+            ],
+        }, ownerId: "u1");
+        store.Preferences.Where(p => p.InvalidatedAtUtc is null).Select(p => p.PreferenceText)
+            .Should().BeEquivalentTo(["Favourite band is Radiohead", "Wants to see Radiohead live"]);
+    }
+
+    [Fact]
+    public async Task A_best_effort_speaker_vector_failure_reports_no_failure_for_the_written_entity()
+    {
+        var embeddings = Substitute.For<IEmbeddingOrchestrator>();
+        embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
+        embeddings.EmbedAsync("Rosa", Arg.Any<CancellationToken>()).Returns<float[]>(_ => throw new InvalidOperationException("down"));
+        var entities = Substitute.For<IEntityRepository>();
+        entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Entity>()));
+        var result = await Stage(new Store(), entities, embeddings).PersistAsync(SpeakerSays("user"), ownerId: "u1");
+        var forUser = result.Outcomes.Where(o => o.Kind == MemoryItemKind.Entity && o.SourceKey == "user").Select(o => o.Status).ToList();
+        forUser.Should().Equal(IngestionItemStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task Before_the_name_is_known_every_self_word_is_one_speaker()
+    {
+        var store = new Store();
+
+        await Stage(store).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "I", Predicate = "lives in", Object = "Oslo", Confidence = 1, Replaces = "Copenhagen" },
+                new ExtractedFact { Subject = "user", Predicate = "lives in", Object = "Copenhagen", Confidence = 1 },
+            ],
+        }, ownerId: "u1");
+
+        LiveHomes(store).Should().Equal("Oslo");
+    }
 }

@@ -46,7 +46,7 @@ internal static class TemporalQueryParser
     /// year's: a missed past reading recalls against now, which is safe; a wrong one hides this year's plan.
     /// </summary>
     private static readonly Regex AheadCue = new(
-        @"'d\b|\b(will|would|be|going\s+to|plans?|planned|planning|book|booked|booking|scheduled|coming\s+up|upcoming|next|due)\b",
+        @"['\u2019]d\b|\b(will|would|going\s+to|plans?|planned|planning|booked|scheduled|coming\s+up|upcoming|due)\b",
         Options, Timeout);
 
     /// <summary>
