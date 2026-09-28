@@ -1285,8 +1285,9 @@ what that means for it — for most, the query is never issued at all rather tha
 | Schema extensions (§4.3.1) | `Neo4jOptions.Extensions` | empty set | empty is the base schema, byte-identical |
 
 Some defaults have since been switched on, each on evidence from simulated conversations: the
-working-memory profile block, dates in the prompt (`IncludeDates`) and a separate shared-knowledge
-recall budget (`MemoryOptions.SharedRecallBudget = 3`). The model-dependent extraction switches
+working-memory profile block and dates in the prompt (`IncludeDates`). A separate shared-knowledge recall
+budget (`MemoryOptions.SharedRecallBudget`, 3 recommended) stays opt-in: it searches twice per memory type. The
+model-dependent extraction switches
 (`TemporalValidity`, `MarkCorrections`, `OwnPreferencesOnly`) and `SupersedeReplacedFacts` stay
 opt-in. [`configuration/memory-options.md`](configuration/memory-options.md) lists the current
 defaults.

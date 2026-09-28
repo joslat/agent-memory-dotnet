@@ -410,7 +410,7 @@ mechanism is the one its scoped services require, and it does strictly more (mul
   `MemoryOptions.Recall` to have the live relationships between the recalled entities rendered as
   `Relationships: Rosa — best friend → Carmen`. They render with the entities, so they need
   `IncludeEntities`. Live recall only.
-- **Shared knowledge** — with `MemoryOptions.SharedRecallBudget` (default `3`), owner-less items are
+- **Shared knowledge** — with `MemoryOptions.SharedRecallBudget` (opt-in; 3 is the measured value), owner-less items are
   recalled under their own budget and rendered after the person's own under a label, for example
   `Facts (shared knowledge, not about the user): …`, so a taught book or manual is not read as things
   the user said. `null` restores one budget and the previous rendering.

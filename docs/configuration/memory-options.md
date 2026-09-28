@@ -24,7 +24,7 @@ because their effect depends on the model.
 | `MemoryContextFormatterOptions.IncludeDates` | `true` | The same rule in the Core formatter. |
 | `MemoryRecallSecurityOptions.IncludeDates` | `true` | The same rule in the Semantic Kernel adapter. |
 | `MemoryOptions.WorkingMemory.IncludeDates` | `true` | The same rule in the profile block ("about this user"). |
-| `MemoryOptions.SharedRecallBudget` | `3` | Shared (owner-less) entities, facts and preferences get their own recall budget, searched separately from the owner's own rows, and render under a "shared knowledge, not about the user" label. `0` recalls no shared items; `null` keeps one budget for both and renders as before. |
+| `MemoryOptions.SharedRecallBudget` | `null` (3 recommended) | Shared (owner-less) entities, facts and preferences get their own recall budget, searched separately from the owner's own rows, and render under a "shared knowledge, not about the user" label. `0` recalls no shared items; `null` keeps one budget for both and renders as before. |
 | `RecallOptions.MaxRelationships` | `0` | How many live relationships touching the recalled entities to include, rendered `Rosa — best friend → Carmen`. `0` reads none. Live recall only. |
 | `LlmExtractionOptions.TemporalValidity` | `TemporalValidityMode.Ignore` | `Extract` asks the model for validity dates where the conversation states them, at the precision stated, and for the day a one-off event happened (`Fact.OccurredOn`); each turn reaches the extractor with its timestamp. |
 | `ExtractionOptions.SupersedeReplacedFacts` | `false` | A new value of a single-valued relation closes the one it replaces: every present-state form ("works for" replaces "works at"), a stated age, `favourite <thing>`, an entailed state ("moved to" a place → "lives in"), relationship edges. Only values that hold now replace or are replaced. |
@@ -62,8 +62,7 @@ builder.Services.AddNeo4jAgentMemory(
     });
 ```
 
-To restore the earlier prompt, set `IncludeDates = false` on the renderer you use and
-`SharedRecallBudget = null`.
+To restore the earlier prompt, set `IncludeDates = false` on the renderer you use.
 
 ## Known limits
 
