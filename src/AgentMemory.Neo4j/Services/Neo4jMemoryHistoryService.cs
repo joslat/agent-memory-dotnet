@@ -58,6 +58,7 @@ internal sealed class Neo4jMemoryHistoryService(INeo4jTransactionRunner tx) : IM
             LastReadAuditAtUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(record["lastReadAuditAt"]),
             ValidFromUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(record["validFrom"]),
             ValidUntilUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(record["validUntil"]),
+            OccurredOnUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(record["occurredOn"]),
             SourceMessageIds = ReadStringList(record["sourceMessageIds"]),
             SupersededByIds = ReadStringList(record["supersededByIds"]),
             SupersedesIds = ReadStringList(record["supersedesIds"]),

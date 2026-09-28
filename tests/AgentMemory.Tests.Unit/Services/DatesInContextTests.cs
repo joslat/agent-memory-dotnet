@@ -268,6 +268,11 @@ public sealed class DatesInContextTests
             ValidFrom = March2024, ValidFromPrecision = DatePrecision.Month,
         };
         AgentMemory.Core.Services.Projection.ConflictProjectionFeature.Describe(fact).Should().Be("Lyon (2024-03)");
+        AgentMemory.Core.Services.Projection.ConflictProjectionFeature.Describe(fact with
+            {
+                OccurredOn = new DateTimeOffset(2026, 9, 26, 0, 0, 0, TimeSpan.Zero), OccurredOnPrecision = DatePrecision.Day,
+            })
+            .Should().Be("Lyon (2026-09-26)", "an event reads as the day it happened");
 
         var chain = new[] { new SupersededFact("Hamburg", T0, EndJune2027) { ValidUntilPrecision = DatePrecision.Month } };
         AgentMemory.Core.Services.Projection.SupersessionProjectionFeature.Render(chain).Should().Contain("since 2027-06;");

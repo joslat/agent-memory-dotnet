@@ -43,7 +43,7 @@ internal static class DerivedFactQueries
               AND f.invalidated_at IS NULL
               AND coalesce(f.fact_kind, '') <> 'derived'" + owner + @"
             RETURN f
-            ORDER BY coalesce(f.valid_from, f.created_at) ASC, f.id ASC
+            ORDER BY coalesce(f.valid_from, f.occurred_on, f.created_at) ASC, f.id ASC
             LIMIT $limit";
     }
 

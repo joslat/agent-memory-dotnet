@@ -1212,7 +1212,7 @@ MATCH (e:Entity {id: $id})
 MATCH (f:Fact {id: $id})
             WHERE f.created_at <= datetime($asOf)
               AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($asOf))
-              AND (f.valid_from IS NULL OR f.valid_from <= datetime($asOf))
+              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($asOf))
               AND (f.valid_until IS NULL OR f.valid_until > datetime($asOf))
             RETURN f
 

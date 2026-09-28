@@ -164,12 +164,15 @@ internal sealed class DurationEvaluator : IDerivationEvaluator
 
     public DerivedCandidate? Evaluate(DerivationGroup group)
     {
-        var dated = group.Facts.Where(f => f.ValidFrom is not null).ToList();
+        // 36.1: an event's day is when it began, as a state's valid_from is.
+        var dated = group.Facts.Where(f => (f.ValidFrom ?? f.OccurredOn) is not null).ToList();
         if (dated.Count < 2) return null;
 
         var first = dated[0];
         var last = dated[^1];
-        var span = last.ValidFrom!.Value - first.ValidFrom!.Value;
+        var began = (first.ValidFrom ?? first.OccurredOn)!.Value;
+        var ended = (last.ValidFrom ?? last.OccurredOn)!.Value;
+        var span = ended - began;
         var days = (int)Math.Round(span.TotalDays, MidpointRounding.AwayFromZero);
         if (days <= 0) return null;
 
@@ -178,9 +181,9 @@ internal sealed class DurationEvaluator : IDerivationEvaluator
             DerivedPredicates.For(DerivationOperators.Duration, group.Predicate),
             $"P{days.ToString(CultureInfo.InvariantCulture)}D",
             $"{days} days between "
-            + $"{first.ValidFrom!.Value.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)} "
+            + $"{began.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)} "
             + $"({first.FactId}) and "
-            + $"{last.ValidFrom!.Value.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)} "
+            + $"{ended.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)} "
             + $"({last.FactId})",
             [first.FactId, last.FactId],
             DerivationOperators.Duration);

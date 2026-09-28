@@ -43,7 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads it "(on 2026-09-26)". Before, the model wrote the day as `valid_from` alone, which read "since", or as
   `valid_from` = `valid_until`, which dropped the event from the profile block the day after. An event keeps no
   validity of its own; told again without a date it keeps its day. "Moved to" a place entails living there since the
-  move's day.
+  move's day. As-of recall, derivation (ordering, durations), the conflict block, the MCP projection and
+  `MemoryHistory.OccurredOnUtc` read it; two events on different days are never merged as one statement.
 
 - **Dates reach the prompt, at the precision they were stated.** A fact's validity dates now keep how precisely
   they were written (`Fact.ValidFromPrecision` / `ValidUntilPrecision`, the new `DatePrecision` enum, stored as
@@ -409,7 +410,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   current; every other one supersedes nothing and is closed by the current one once everything is written. So a
   correction wins over its old value restated after it, chained corrections ("Oslo now, not Copenhagen, where I'd
   moved from Berlin") leave the newest, and favourites follow the same rule. A correction naming its own value marks
-  nothing, and a correction's other-relation fallback leaves facts this extraction created alone.
+  nothing, and a correction's other-relation fallback leaves alone what this extraction created or said after it.
+  A value that has ended is never current; of two dated values the later-dated one is, whatever order they were
+  said in; no correction of the extraction closes its current value ("Copenhagen, not Oslo ... no, Oslo"); a
+  current value that fails to write is stood in for; and the current value supersedes what a replaced one would
+  have (under another self word, say).
 
 - **A month was stored as a day.** The temporal instruction now asks the model to write a date only as precisely as
   it was stated ("2024-03" for "in March 2024"): it wrote "2024-03-01", the stored precision was a day, and the agent

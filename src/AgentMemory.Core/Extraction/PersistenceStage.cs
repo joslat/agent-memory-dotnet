@@ -450,22 +450,43 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             var stored = StoredName(fact, subject: true);
             return UserNames.IsSelf(stored) ? "\u0001self" : MemoryTripleCanonicalizer.CanonicalValue(stored);
         }
+        // A value that has already ended states no current value ("lived in Berlin until 2019") and joins no group.
+        string? FactRelationKey(ExtractedFact fact) =>
+            ReplacementShapes.StillHolds(fact.ValidUntil, _clock.UtcNow) &&
+            MemoryRelationCardinality.Relation(fact.Predicate) is { } relation
+                ? FactSubjectKey(fact) + "\u0001" + relation
+                : null;
         var replacedFacts = !_options.SupersedeReplacedFacts
             ? new Dictionary<string, string>(StringComparer.Ordinal)
             : CurrentValues.Replaced(
                 prepared.Facts.Select(f => f.Item).ToList(),
                 FactSourceKey,
-                fact => MemoryRelationCardinality.Relation(fact.Predicate) is { } relation
-                    ? FactSubjectKey(fact) + "\u0001" + relation
-                    : null,
+                FactRelationKey,
                 (fact, correction) =>
                     factCorrections.TryGetValue(FactSourceKey(correction), out var named) &&
                     FactSubjectKey(fact) == FactSubjectKey(correction) &&
                     MemoryRelationCardinality.ReplacedKeys(correction.Predicate)
                         .Contains(MemoryTripleCanonicalizer.Canonical(fact.Predicate), StringComparer.Ordinal) &&
-                    Corrections.Value(StoredName(fact, subject: false)) == Corrections.Value(CanonicalName(named)));
-        var persistedFactsByKey = new Dictionary<string, string>(StringComparer.Ordinal);
-        var replacedFactIds = new List<(string Id, string CurrentKey)>();
+                    Corrections.Value(StoredName(fact, subject: false)) == Corrections.Value(CanonicalName(named)),
+                fact => fact.ValidFrom ?? fact.OccurredOn);
+        // The order the facts were said, by source key, and each written fact by its key.
+        var factIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (preparedFact, index) in prepared.Facts.Select((f, i) => (f, i)))
+            factIndex.TryAdd(FactSourceKey(preparedFact.Item), index);
+        var factsByKey = new Dictionary<string, Fact>(StringComparer.Ordinal);
+        var replacedFactsWritten = new List<(Fact Fact, string CurrentKey)>();
+        // The current value of each single-valued relation this extraction states: no correction of the same extraction
+        // closes it ("Copenhagen, not Oslo ... no, Oslo, not Copenhagen" leaves Oslo).
+        var currentFactIds = new HashSet<string>(StringComparer.Ordinal);
+        void Written(string sourceKey, ExtractedFact? extracted, Fact persisted)
+        {
+            factsByKey.TryAdd(sourceKey, persisted);
+            if (!replacedFacts.ContainsKey(sourceKey) && extracted is not null && FactRelationKey(extracted) is not null)
+                currentFactIds.Add(persisted.FactId);
+        }
+        var extractedByKey = new Dictionary<string, ExtractedFact>(StringComparer.Ordinal);
+        foreach (var preparedFact in prepared.Facts)
+            extractedByKey.TryAdd(FactSourceKey(preparedFact.Item), preparedFact.Item);
         // The facts this extraction CREATED: a correction's other-relation fallback leaves them alone ("Oslo now, not
         // Copenhagen; Copenhagen is still my favourite city"). A stored fact merely restated is not among them: the
         // fallback exists for what was stored before.
@@ -610,7 +631,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             // Fact upsert MERGEs on the natural triple and may return an older stable id. Always use
             // the repository result for outcomes and provenance rather than the fresh caller id.
             RecordSuccess(outcomes, MemoryItemKind.Fact, sourceKey, persisted.FactId);
-            persistedFactsByKey.TryAdd(sourceKey, persisted.FactId);
+            Written(sourceKey, extractedByKey.GetValueOrDefault(sourceKey), persisted);
 
             // W-E1. Link the fact to the entities its subject or object NAMES. Extraction has always
             // persisted both and never connected them: CreateAboutRelationshipAsync is public,
@@ -653,9 +674,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             // and leave the correction's fallback to find something else that happens to mention the value. A replaced
             // correction still closes what it names: that is older than both.
             if (factCorrections.TryGetValue(sourceKey, out var replaced))
-                await CloseCorrectedAsync(persisted, replaced).ConfigureAwait(false);
+                await CloseCorrectedAsync(persisted, replaced, sourceKey).ConfigureAwait(false);
             if (replacedFacts.TryGetValue(sourceKey, out var currentKey))
-                replacedFactIds.Add((persisted.FactId, currentKey));
+                replacedFactsWritten.Add((persisted, currentKey));
             else
                 await SupersedeReplacedFactsAsync(persisted).ConfigureAwait(false);
 
@@ -704,7 +725,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
             // 36.4. A value that has already ended cannot replace the current one: "I worked at Google until 2019"
             // said after "I work at Meta" is history, not a change of employer.
-            if (winner.ValidUntil is { } ended && ended < _clock.UtcNow)
+            if (!ReplacementShapes.StillHolds(winner.ValidUntil, _clock.UtcNow))
                 return;
 
             supersessionEligible++;
@@ -750,7 +771,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // 36.4. A correction the extractor marked closes the live fact that stated the replaced value, when
         // nothing else would (a plan, a value under a multi-valued relation). Same gate and same failure policy
         // as supersession above: best-effort, never the reason a stored memory is reported as failed.
-        async Task CloseCorrectedAsync(Fact winner, string replaced)
+        async Task CloseCorrectedAsync(Fact winner, string replaced, string sourceKey)
         {
             if (!_options.SupersedeReplacedFacts) return;
             // Read like supersession reads (own, or shared only for a shared write); write with the owner's scope, or
@@ -766,8 +787,17 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     !string.Equals(said, winner.Subject, StringComparison.Ordinal))
                     candidates.AddRange(await _factRepository.GetBySubjectAsync(said, readScope, cancellationToken)
                         .ConfigureAwait(false));
-                // No order guard: a marked correction names what it replaces, wherever that was said.
-                foreach (var loser in Corrections.Closed(candidates, winner, replaced, createdHere))
+                // No order guard: a marked correction names what it replaces, wherever that was said, except a current
+                // value of this extraction. Its fallback (another relation) spares what this extraction created and what
+                // it said after the correction: that is what the person holds now.
+                var saidAt = factIndex.GetValueOrDefault(sourceKey);
+                var spared = new HashSet<string>(createdHere, StringComparer.Ordinal);
+                foreach (var (key, fact) in factsByKey)
+                {
+                    if (factIndex.GetValueOrDefault(key) > saidAt) spared.Add(fact.FactId);
+                }
+                foreach (var loser in Corrections.Closed(
+                             candidates.Where(candidate => !currentFactIds.Contains(candidate.FactId)), winner, replaced, spared))
                 {
                     await _factRepository.SupersedeAsync(loser.FactId, winner.FactId, writeScope, cancellationToken)
                         .ConfigureAwait(false);
@@ -861,11 +891,13 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
             if (batchedFactsByKey is not null)
             {
-                // Every fact of the batch is already stored: what it created is known before any correction runs.
+                // Every fact of the batch is already stored: what it created, and which fact is which, is known before
+                // any correction runs.
                 foreach (var input in factInputs)
                 {
-                    if (batchedFactsByKey[FactKey(input.Item)].FactId == input.Item.FactId)
-                        createdHere.Add(input.Item.FactId);
+                    var written = batchedFactsByKey[FactKey(input.Item)];
+                    if (written.FactId == input.Item.FactId) createdHere.Add(input.Item.FactId);
+                    Written(input.SourceKey, extractedByKey.GetValueOrDefault(input.SourceKey), written);
                 }
                 foreach (var input in factInputs)
                     await RecordPersistedFactAsync(
@@ -890,33 +922,52 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
         }
         if (_options.SupersedeReplacedFacts)
-            await CloseReplacedAsync(
-                replacedFactIds, key => persistedFactsByKey.TryGetValue(key, out var current) ? current : null,
-                async id => await _factRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false) is { InvalidatedAtUtc: null },
-                (loser, winner, scope) => _factRepository.SupersedeAsync(loser, winner, scope, cancellationToken)).ConfigureAwait(false);
+            await CloseReplacedFactsAsync().ConfigureAwait(false);
 
-        // 36.4. The values this extraction replaced, closed by the one it left current now that everything is written.
-        // Read first: supersession is idempotent on the edge but lowers confidence again, and a value already closed
-        // (by its current value's own supersession, say) is not closed twice. Best-effort, as every closing is; a
-        // current value that failed to write closes nothing.
-        async Task CloseReplacedAsync(
-            List<(string Id, string CurrentKey)> replaced, Func<string, string?> currentId,
-            Func<string, Task<bool>> isLive, Func<string, string, MemoryScope?, Task> supersede)
+        // 36.4. The values this extraction replaced, closed by the one it left current now that everything is written,
+        // with what each would have superseded: it may be stored under another self word or another form of the relation
+        // than the current value's ("user lives in Lisbon" before "I live in Oslo"). Read first: supersession is
+        // idempotent on the edge but lowers confidence again. A current value that failed to write is stood in for by the
+        // last replaced value, so the stored one is still replaced. Best-effort, as every closing is.
+        async Task CloseReplacedFactsAsync()
         {
+            var readScope = SharedScopes.OwnedOrShared(ownerId);
             var writeScope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
-            foreach (var (id, currentKey) in replaced)
+            foreach (var group in replacedFactsWritten.GroupBy(r => r.CurrentKey, StringComparer.Ordinal))
             {
-                if (currentId(currentKey) is not { } winnerId || winnerId == id) continue;
-                try
+                var members = group.Select(r => r.Fact).ToList();
+                if (!factsByKey.TryGetValue(group.Key, out var current))
                 {
-                    if (!await isLive(id).ConfigureAwait(false)) continue;
-                    await supersede(id, winnerId, writeScope).ConfigureAwait(false);
-                    _logger.LogDebug("'{Winner}' closed '{Loser}', a value the same extraction replaced.", winnerId, id);
+                    current = members[^1];
+                    members.RemoveAt(members.Count - 1);
+                    currentFactIds.Add(current.FactId);
+                    await SupersedeReplacedFactsAsync(current).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                catch (Exception ex)
+                foreach (var member in members.Where(member => member.FactId != current.FactId))
                 {
-                    _logger.LogWarning(ex, "Closing replaced value '{Id}' failed; it remains stored alongside the current one.", id);
+                    try
+                    {
+                        var losers = new List<Fact>();
+                        if (await _factRepository.GetByIdAsync(member.FactId, cancellationToken).ConfigureAwait(false) is
+                            { InvalidatedAtUtc: null } live)
+                            losers.Add(live);
+                        if (WriteTimeFactResolution.CanSupersede(member))
+                            losers.AddRange(await _factRepository.FindSupersededCandidatesAsync(
+                                current.FactId, member.Subject, member.Predicate, current.Object, readScope,
+                                cancellationToken).ConfigureAwait(false));
+                        foreach (var loser in losers.DistinctBy(fact => fact.FactId)
+                                     .Where(fact => fact.FactId != current.FactId && !currentFactIds.Contains(fact.FactId)))
+                        {
+                            await _factRepository.SupersedeAsync(loser.FactId, current.FactId, writeScope, cancellationToken)
+                                .ConfigureAwait(false);
+                            _logger.LogDebug("'{Winner}' closed '{Loser}', replaced in the same extraction.", current.FactId, loser.FactId);
+                        }
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Closing replaced value '{Id}' failed; it remains stored alongside the current one.", member.FactId);
+                    }
                 }
             }
         }
@@ -948,8 +999,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     preferenceCorrections.TryGetValue(correction.PreferenceText, out var named) &&
                     string.Equals(preference.Category, correction.Category, StringComparison.OrdinalIgnoreCase) &&
                     Corrections.Names(preference.PreferenceText, named));
-        var persistedPreferencesByKey = new Dictionary<string, string>(StringComparer.Ordinal);
-        var replacedPreferenceIds = new List<(string Id, string CurrentKey)>();
+        var preferencesByKey = new Dictionary<string, Preference>(StringComparer.Ordinal);
+        var replacedPreferencesWritten = new List<(Preference Preference, string CurrentKey)>();
+        var currentPreferenceIds = new HashSet<string>(StringComparer.Ordinal);
 
         var preferenceInputs = prepared.Preferences.Select(preparedPreference =>
         {
@@ -976,6 +1028,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             string sourceKey, Preference persisted, IReadOnlyList<string> provenanceMessageIds)
         {
             RecordSuccess(outcomes, MemoryItemKind.Preference, sourceKey, persisted.PreferenceId);
+            PreferenceWritten(sourceKey, persisted);
 
             // The input item's resolved ids, for the same reason the fact path uses them.
             foreach (var msgId in ExplicitProvenanceMessageIds(_preferenceRepository, provenanceMessageIds))
@@ -997,11 +1050,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
             }
 
-            persistedPreferencesByKey.TryAdd(sourceKey, persisted.PreferenceId);
             // Only a current preference replaces the other values of its relation; a replaced one still closes what it
             // names, which is older than both.
             var current = !replacedPreferences.TryGetValue(sourceKey, out var currentKey);
-            if (!current) replacedPreferenceIds.Add((persisted.PreferenceId, currentKey!));
+            if (!current) replacedPreferencesWritten.Add((persisted, currentKey!));
             preferenceCorrections.TryGetValue(sourceKey, out var replaced);
             if (replaced is not null || (current && Corrections.SingleValuedRelation(persisted.PreferenceText) is not null))
                 await CloseCorrectedPreferencesAsync(persisted, replaced, sameRelation: current).ConfigureAwait(false);
@@ -1019,8 +1071,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             var writeScope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
             try
             {
-                var candidates = await _preferenceRepository.GetByCategoryAsync(winner.Category, readScope, cancellationToken)
-                    .ConfigureAwait(false);
+                var candidates = (await _preferenceRepository.GetByCategoryAsync(winner.Category, readScope, cancellationToken)
+                    .ConfigureAwait(false)).Where(candidate => !currentPreferenceIds.Contains(candidate.PreferenceId));
                 foreach (var loser in candidates.Where(candidate =>
                              (replaced is not null && Corrections.Closes(candidate, winner, replaced)) ||
                              (sameRelation && Corrections.Replaces(winner, candidate))))
@@ -1090,8 +1142,17 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
         }
 
+        void PreferenceWritten(string sourceKey, Preference persisted)
+        {
+            preferencesByKey.TryAdd(sourceKey, persisted);
+            if (!replacedPreferences.ContainsKey(sourceKey) && Corrections.SingleValuedRelation(persisted.PreferenceText) is not null)
+                currentPreferenceIds.Add(persisted.PreferenceId);
+        }
+
         if (batchedPreferencesById is not null)
         {
+            foreach (var input in preferenceInputs)
+                PreferenceWritten(input.SourceKey, batchedPreferencesById[input.Item.PreferenceId]);
             foreach (var input in preferenceInputs)
                 await RecordPersistedPreferenceAsync(
                     input.SourceKey, batchedPreferencesById[input.Item.PreferenceId],
@@ -1103,11 +1164,37 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 await PersistPreferenceIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
         }
         if (_options.SupersedeReplacedFacts)
-            await CloseReplacedAsync(
-                replacedPreferenceIds,
-                key => persistedPreferencesByKey.TryGetValue(key, out var current) ? current : null,
-                async id => await _preferenceRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false) is { InvalidatedAtUtc: null },
-                (loser, winner, scope) => _preferenceRepository.SupersedeAsync(loser, winner, scope, cancellationToken)).ConfigureAwait(false);
+        {
+            // As for facts: each replaced preference closed by its current one; a failed current stood in for.
+            var writeScope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
+            foreach (var group in replacedPreferencesWritten.GroupBy(r => r.CurrentKey, StringComparer.Ordinal))
+            {
+                var members = group.Select(r => r.Preference).ToList();
+                if (!preferencesByKey.TryGetValue(group.Key, out var current))
+                {
+                    current = members[^1];
+                    members.RemoveAt(members.Count - 1);
+                    currentPreferenceIds.Add(current.PreferenceId);
+                    await CloseCorrectedPreferencesAsync(current, replaced: null, sameRelation: true).ConfigureAwait(false);
+                }
+                foreach (var member in members.Where(member => member.PreferenceId != current.PreferenceId))
+                {
+                    try
+                    {
+                        if (await _preferenceRepository.GetByIdAsync(member.PreferenceId, cancellationToken).ConfigureAwait(false) is not
+                            { InvalidatedAtUtc: null })
+                            continue;
+                        await _preferenceRepository.SupersedeAsync(member.PreferenceId, current.PreferenceId, writeScope, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Closing replaced preference '{Id}' failed; it remains stored alongside the current one.", member.PreferenceId);
+                    }
+                }
+            }
+        }
 
         // 4. Persist relationships — resolve entity IDs from the upserted entity map.
         // I-7. "user" as an endpoint is the user's person entity: the one this extraction wrote under their
@@ -1561,7 +1648,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             var (winner, loser) = Prefer(fact.Item, kept[twin].Item) ? (fact, kept[twin]) : (kept[twin], fact);
             // What only the assistant said is not carried into the user's words.
             var carry = !IsAssistant(loser.Item);
-            kept[twin] = winner with
+            // At the place of its latest telling (this one): what was said last is what the person holds now.
+            kept.RemoveAt(twin);
+            kept.Add(winner with
             {
                 Item = winner.Item with
                 {
@@ -1578,7 +1667,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     SourceTurn = winner.Item.SourceTurn ?? (carry ? loser.Item.SourceTurn : null),
                     Replaces = winner.Item.Replaces ?? (carry ? loser.Item.Replaces : null),
                 },
-            };
+            });
             merged.Add(new IngestionItemOutcome
             {
                 Kind = MemoryItemKind.Fact,
@@ -1624,7 +1713,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         if (Key(left.Subject) != Key(right.Subject)) return false;
         if (Key(left.Predicate) != Key(right.Predicate) && Key(left.Object) != Key(right.Object)) return false;
         if (Numbers(left) != Numbers(right) || Negations(left) != Negations(right)) return false;
-        return Agree(left.ValidFrom, right.ValidFrom) && Agree(left.ValidUntil, right.ValidUntil);
+        return Agree(left.ValidFrom, right.ValidFrom) && Agree(left.ValidUntil, right.ValidUntil) &&
+               Agree(left.OccurredOn, right.OccurredOn);
 
         static bool Agree(DateTimeOffset? a, DateTimeOffset? b) => a is null || b is null || a == b;
 

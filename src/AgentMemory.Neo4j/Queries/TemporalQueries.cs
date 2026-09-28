@@ -117,7 +117,7 @@ internal static class TemporalQueries
             WHERE score >= $minScore
               AND node.created_at <= datetime($systemAsOf)
               AND (node.invalidated_at IS NULL OR node.invalidated_at > datetime($systemAsOf))
-              AND (node.valid_from IS NULL OR node.valid_from <= datetime($validAsOf))
+              AND (coalesce(node.valid_from, node.occurred_on) IS NULL OR coalesce(node.valid_from, node.occurred_on) <= datetime($validAsOf))
               AND (node.valid_until IS NULL OR node.valid_until > datetime($validAsOf)){OwnerAnd(hasOwnerFilter && !ownerScan, includeShared)}
             RETURN node, score
             ORDER BY score DESC
@@ -158,7 +158,7 @@ internal static class TemporalQueries
             WHERE f.predicate_key IN $predicateKeys
               AND f.created_at <= datetime($systemAsOf)
               AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($systemAsOf))
-              AND (f.valid_from IS NULL OR f.valid_from <= datetime($validAsOf))
+              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($validAsOf))
               AND (f.valid_until IS NULL OR f.valid_until > datetime($validAsOf)){owner}
             RETURN f
             ORDER BY {priority}f.confidence DESC, f.id ASC
@@ -170,7 +170,7 @@ internal static class TemporalQueries
             MATCH (f:Fact {id: $id})
             WHERE f.created_at <= datetime($asOf)
               AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($asOf))
-              AND (f.valid_from IS NULL OR f.valid_from <= datetime($asOf))
+              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($asOf))
               AND (f.valid_until IS NULL OR f.valid_until > datetime($asOf))
             RETURN f";
 

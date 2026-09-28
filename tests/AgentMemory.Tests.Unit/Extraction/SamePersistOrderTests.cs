@@ -452,4 +452,23 @@ public sealed class SamePersistOrderTests
 
         LiveHomes(store).Should().Equal("Oslo");
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_favourite_changed_back_in_one_turn_leaves_the_last(bool batch)
+    {
+        var store = new Store();
+
+        await Stage(store, batch: batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredPreferences =
+            [
+                new ExtractedPreference { Category = "music", PreferenceText = "Favourite band is Arcade Fire", Replaces = "Radiohead" },
+                new ExtractedPreference { Category = "music", PreferenceText = "Favourite band is Radiohead", Replaces = "Arcade Fire" },
+            ],
+        }, ownerId: "u1");
+
+        store.Preferences.Where(p => p.InvalidatedAtUtc is null).Select(p => p.PreferenceText).Should().Equal("Favourite band is Radiohead");
+    }
 }

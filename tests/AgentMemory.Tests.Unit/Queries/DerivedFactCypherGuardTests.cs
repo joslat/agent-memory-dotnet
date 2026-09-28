@@ -186,7 +186,7 @@ public sealed class DerivedFactCypherGuardTests
         // The order IS the arithmetic: a delta over an unordered group subtracts two arbitrary members
         // and reports the result as a change.
         DerivedFactQueries.GetGroupFacts(false, false)
-            .Should().Contain("ORDER BY coalesce(f.valid_from, f.created_at) ASC");
+            .Should().Contain("ORDER BY coalesce(f.valid_from, f.occurred_on, f.created_at) ASC", "36.1: an event orders by its day");
     }
 
     [Fact]

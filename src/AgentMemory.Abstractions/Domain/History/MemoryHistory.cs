@@ -101,6 +101,9 @@ public sealed record MemoryHistoryRecord
     /// <summary>End of the fact's valid-time window, when applicable.</summary>
     public DateTimeOffset? ValidUntilUtc { get; init; }
 
+    /// <summary>The day a one-off event happened (36.1), when the fact is one.</summary>
+    public DateTimeOffset? OccurredOnUtc { get; init; }
+
     /// <summary>Ids of memories that supersede this memory.</summary>
     public IReadOnlyList<string> SupersededByIds { get; init; } = Array.Empty<string>();
 

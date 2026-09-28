@@ -98,6 +98,7 @@ internal static class McpMemoryProjection
         fact.Confidence,
         fact.ValidFrom,
         fact.ValidUntil,
+        fact.OccurredOn,
         fact.InvalidatedAtUtc,
         fact.Category,
         fact.SourceMessageIds,

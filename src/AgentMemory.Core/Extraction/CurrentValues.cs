@@ -28,8 +28,14 @@ internal static class CurrentValues
     /// <param name="key">A statement's key: one key said twice is one statement (one stored node).</param>
     /// <param name="relation">The single-valued relation of one subject a statement states, or null.</param>
     /// <param name="replaces">Whether <c>correction</c> is a correction naming <c>statement</c> as what it replaces.</param>
+    /// <param name="since">
+    /// When a statement's value began, if it says: of two dated values the later one is current, however they were
+    /// said ("I moved to Oslo last June; back in 2020 I had moved to Copenhagen"). An undated value is taken as said
+    /// now. Ties, and undated values among themselves, go by the order they were said.
+    /// </param>
     internal static IReadOnlyDictionary<string, string> Replaced<T>(
-        IReadOnlyList<T> items, Func<T, string> key, Func<T, string?> relation, Func<T, T, bool> replaces)
+        IReadOnlyList<T> items, Func<T, string> key, Func<T, string?> relation, Func<T, T, bool> replaces,
+        Func<T, DateTimeOffset?>? since = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         var keys = items.Select(key).ToList();
@@ -54,7 +60,10 @@ internal static class CurrentValues
         {
             var members = group.ToList();
             var live = members.Where(i => !old.ContainsKey(keys[i])).ToList();
-            var current = keys[live.Count > 0 ? live[^1] : members[^1]];
+            var current = keys[(live.Count > 0 ? live : members)
+                .OrderBy(i => since?.Invoke(items[i]) ?? DateTimeOffset.MaxValue)
+                .ThenBy(i => i)
+                .Last()];
             currents.Add(current);
             foreach (var member in members.Where(i => keys[i] != current))
                 replaced[keys[member]] = current;

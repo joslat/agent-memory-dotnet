@@ -72,7 +72,8 @@ public sealed class TemporalQueryTests
         // D6: the fact's validity window is bound by the valid-time clock ($validAsOf), distinct from the
         // transaction clock ($systemAsOf) that binds created_at/invalidated_at.
         TemporalQueries.SearchFactsAsOf(hasOwnerFilter: false, includeShared: true, topK: 10)
-            .Should().Contain("node.valid_from IS NULL OR node.valid_from <= datetime($validAsOf)")
+            // 36.1: an event is bounded by the day it happened (occurred_on), as a state by its start.
+            .Should().Contain("coalesce(node.valid_from, node.occurred_on) IS NULL OR coalesce(node.valid_from, node.occurred_on) <= datetime($validAsOf)")
             .And.Contain("node.valid_until IS NULL OR node.valid_until > datetime($validAsOf)");
     }
 

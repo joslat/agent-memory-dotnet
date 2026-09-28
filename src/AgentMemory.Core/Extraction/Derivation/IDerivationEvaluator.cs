@@ -52,5 +52,5 @@ internal sealed record DerivationGroup(
     /// as much: most extracted facts carry no valid time at all, and dropping them would leave every
     /// group too small to aggregate.
     /// </remarks>
-    public static DateTimeOffset EffectiveAt(Fact fact) => fact.ValidFrom ?? fact.CreatedAtUtc;
+    public static DateTimeOffset EffectiveAt(Fact fact) => fact.ValidFrom ?? fact.OccurredOn ?? fact.CreatedAtUtc;
 }

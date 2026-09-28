@@ -309,6 +309,8 @@ internal static class LongMemEvalRepresentationProgram
                     Confidence = fact.Confidence,
                     ValidFrom = fact.ValidFrom,
                     ValidUntil = fact.ValidUntil,
+                    OccurredOn = fact.OccurredOn,
+                    OccurredOnPrecision = fact.OccurredOnPrecision,
                     SourceMessageIds = sessionMessageIds,
                     CreatedAtUtc = now,
                 });

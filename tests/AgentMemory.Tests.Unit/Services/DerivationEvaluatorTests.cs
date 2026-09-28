@@ -202,6 +202,20 @@ public sealed class DerivationEvaluatorTests
     }
 
     [Fact]
+    public void DurationMeasuresBetweenTheDaysEventsHappened()
+    {
+        // 36.1: an event carries its day as occurred_on, not valid_from; it is as real a time.
+        var result = new DurationEvaluator().Evaluate(Group(
+        [
+            F("a", "started") with { OccurredOn = new DateTimeOffset(2023, 5, 1, 0, 0, 0, TimeSpan.Zero) },
+            F("b", "ended") with { OccurredOn = new DateTimeOffset(2023, 5, 31, 0, 0, 0, TimeSpan.Zero) },
+        ]));
+
+        result!.Object.Should().Be("P30D");
+        result.Derivation.Should().Contain("2023-05-01").And.Contain("2023-05-31");
+    }
+
+    [Fact]
     public void DurationRefusesFactsThatHaveOnlyAnExtractionTimestamp()
     {
         // An interval between two created_at values measures when the system was TOLD things, not when

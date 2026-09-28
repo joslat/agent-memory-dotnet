@@ -58,8 +58,16 @@ internal static partial class ReplacementShapes
         // I live in Paris" states the residence, and an entailed "lives in London" must not be written over it. Only a
         // present form of a single-valued relation, still valid: "I lived in Paris, then moved to London" states
         // history, and London is the home.
+        // The speaker by any name this extraction states for them ("I'm Dana"): "Dana lives in Paris" is the speaker's home.
+        var names = aged.Where(PersistenceStage.UserNames.IsNamingFact)
+            .Select(fact => MemoryTripleCanonicalizer.CanonicalValue(fact.Object))
+            .ToHashSet(StringComparer.Ordinal);
+        string SubjectKey(string subject) =>
+            PersistenceStage.UserNames.IsSelf(subject) || names.Contains(MemoryTripleCanonicalizer.CanonicalValue(subject))
+                ? "\u0001self"
+                : MemoryTripleCanonicalizer.CanonicalValue(subject);
         var statedStates = aged
-            .Where(fact => fact.ValidUntil is not { } until || until > now)
+            .Where(fact => StillHolds(fact.ValidUntil, now))
             .Select(fact => (Subject: SubjectKey(fact.Subject), Relation: MemoryRelationCardinality.Relation(fact.Predicate)))
             .Where(pair => pair.Relation is not null)
             .ToHashSet();
@@ -111,9 +119,11 @@ internal static partial class ReplacementShapes
         return fact with { Predicate = "age", Object = match.Groups["n"].Value };
     }
 
-    /// <summary>A subject as compared: the self words ("user", "I", "me") are one speaker.</summary>
-    private static string SubjectKey(string subject) =>
-        PersistenceStage.UserNames.IsSelf(subject) ? "\u0001self" : MemoryTripleCanonicalizer.CanonicalValue(subject);
+    /// <summary>
+    /// Whether a value still holds at <paramref name="now"/>: it states no end, or its end is still ahead. One rule for
+    /// every place that asks: a value that has ended states history, never the current value, and replaces nothing.
+    /// </summary>
+    internal static bool StillHolds(DateTimeOffset? validUntil, DateTimeOffset now) => validUntil is not { } until || until > now;
 
     private static (string, string, string) Key(ExtractedFact fact) => (
         MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),

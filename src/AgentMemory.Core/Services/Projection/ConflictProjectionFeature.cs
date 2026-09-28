@@ -91,7 +91,9 @@ internal sealed class ConflictProjectionFeature : IProjectionFeature
     internal static string Describe(Fact fact)
     {
         // 36.1: at the precision it was stated ("2024-03"), never a day nobody said.
-        return fact.ValidFrom is { } from
+        return fact.OccurredOn is { } on
+            ? $"{fact.Object} ({FactDates.Format(on, fact.OccurredOnPrecision)})"
+            : fact.ValidFrom is { } from
             ? $"{fact.Object} ({FactDates.Format(from, fact.ValidFromPrecision)})"
             : $"{fact.Object} ({FactDates.Format(fact.CreatedAtUtc, DatePrecision.Unspecified)})";
     }

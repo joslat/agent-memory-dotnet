@@ -21,7 +21,7 @@ internal static class HistoryQueries
         return "CALL {\n" + string.Join("\nUNION ALL\n", segments) + @"
 }
 RETURN kind, id, summary, ownerId, createdAt, updatedAt, invalidatedAt, lastAccessedAt, accessCount,
-       readAuditCount, lastReadAuditAt, validFrom, validUntil, sourceMessageIds, supersededByIds,
+       readAuditCount, lastReadAuditAt, validFrom, validUntil, occurredOn, sourceMessageIds, supersededByIds,
        supersedesIds, metadata
 ORDER BY coalesce(lastReadAuditAt, lastAccessedAt, invalidatedAt, updatedAt, createdAt) DESC, id ASC
 LIMIT $limit";
@@ -57,6 +57,7 @@ RETURN 'Entity' AS kind,
        lastReadAuditAt,
        null AS validFrom,
        null AS validUntil,
+       null AS occurredOn,
        coalesce(n.source_message_ids, []) + extractedMessageIds AS sourceMessageIds,
        supersededByIds,
        supersedesIds,
@@ -87,6 +88,7 @@ RETURN 'Fact' AS kind,
        lastReadAuditAt,
        n.valid_from AS validFrom,
        n.valid_until AS validUntil,
+       n.occurred_on AS occurredOn,
        coalesce(n.source_message_ids, []) + extractedMessageIds AS sourceMessageIds,
        supersededByIds,
        supersedesIds,
@@ -117,6 +119,7 @@ RETURN 'Preference' AS kind,
        lastReadAuditAt,
        null AS validFrom,
        null AS validUntil,
+       null AS occurredOn,
        coalesce(n.source_message_ids, []) + extractedMessageIds AS sourceMessageIds,
        supersededByIds,
        supersedesIds,
