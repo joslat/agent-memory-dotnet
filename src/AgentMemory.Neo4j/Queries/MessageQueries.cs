@@ -210,16 +210,16 @@ internal static class MessageQueries
 
     // ── 37.4: deferred extraction ──────────────────────────────────────
 
-    /// <summary>Marks or unmarks messages as waiting for extraction (the property is removed when unmarked).</summary>
+    /// <summary>Marks messages as waiting for extraction, held for an owner (or a session); null removes the mark.</summary>
     public const string SetExtractionDeferred = @"
             UNWIND $messageIds AS messageId
             MATCH (m:Message {id: messageId})
-            SET m.extraction_deferred = CASE WHEN $deferred THEN true ELSE null END";
+            SET m.extraction_deferred = $heldFor";
 
-    /// <summary>The session's live messages waiting for extraction, oldest first.</summary>
-    public const string GetExtractionDeferredBySession = @"
-            MATCH (m:Message {session_id: $sessionId})
-            WHERE m.extraction_deferred = true AND m.invalidated_at IS NULL
+    /// <summary>The live messages held for an owner (or a session), oldest first; a seek on the deferral index.</summary>
+    public const string GetExtractionDeferred = @"
+            MATCH (m:Message {extraction_deferred: $heldFor})
+            WHERE m.invalidated_at IS NULL
             RETURN m
             ORDER BY m.timestamp ASC, m.id ASC
             LIMIT $limit";

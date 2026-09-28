@@ -357,20 +357,24 @@ internal sealed class MemoryService : IMemoryService
         ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug("Extracting and persisting memory for session {SessionId}", request.SessionId);
 
-        // 37.4. A turn that only asks waits, stored, for the next turn of the session that tells something.
+        // 37.4. A turn that only asks waits, stored, for the owner's next turn that tells something (in any session: a
+        // session that ends on a question is taken along by the next one). Held for the owner, never another's.
         IReadOnlyList<string> released = [];
         if (request.DeferIfOnlyAsking && _messageRepository is not null && request.Messages.Count > 0)
         {
+            var heldFor = !string.IsNullOrWhiteSpace(request.UserId) ? "owner:" + request.UserId : "session:" + request.SessionId;
             try
             {
                 var max = Math.Max(1, _options.Extraction.MaxDeferredTurns);
-                var waiting = await _messageRepository.GetExtractionDeferredAsync(request.SessionId, max, cancellationToken)
+                // Turns are counted as the user's messages; read generously so no waiting message is left unread.
+                var waiting = await _messageRepository.GetExtractionDeferredAsync(heldFor, max * 8, cancellationToken)
                     .ConfigureAwait(false);
                 var ids = request.Messages.Select(message => message.MessageId).ToHashSet(StringComparer.Ordinal);
                 var held = waiting.Where(message => !ids.Contains(message.MessageId)).ToList();
-                if (Extraction.ExtractionNoveltyGate.OnlyAsks(request.Messages) && held.Count + 1 < max)
+                var heldTurns = held.Count(message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase));
+                if (Extraction.ExtractionNoveltyGate.OnlyAsks(request.Messages) && heldTurns + 1 < max)
                 {
-                    await _messageRepository.SetExtractionDeferredAsync(ids, deferred: true, cancellationToken).ConfigureAwait(false);
+                    await _messageRepository.SetExtractionDeferredAsync(ids, heldFor, cancellationToken).ConfigureAwait(false);
                     _logger.LogDebug("Extraction deferred: the turn only asks ({Waiting} turn(s) now waiting in session {SessionId}).",
                         held.Count + 1, request.SessionId);
                     return new ExtractionResult
@@ -381,13 +385,17 @@ internal sealed class MemoryService : IMemoryService
                 if (held.Count > 0)
                 {
                     // What waited was said first: it comes first, as targets, never as context.
-                    request = request with { Messages = [.. held, .. request.Messages] };
                     released = [.. held.Select(message => message.MessageId)];
+                    request = request with { Messages = [.. held, .. request.Messages] };
                 }
             }
-            catch (NotSupportedException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
             {
-                // The store cannot hold a turn: extract it now, as before.
+                // The store cannot hold a turn (not supported, or failing now): extract it now, as before. Never lost.
+                if (ex is not NotSupportedException)
+                    _logger.LogWarning(ex, "Deferring or releasing turns failed for {HeldFor}; the turn is extracted now.", heldFor);
+                released = [];
             }
         }
 
@@ -399,7 +407,7 @@ internal sealed class MemoryService : IMemoryService
         {
             try
             {
-                await _messageRepository!.SetExtractionDeferredAsync(released, deferred: false, cancellationToken).ConfigureAwait(false);
+                await _messageRepository!.SetExtractionDeferredAsync(released, heldFor: null, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)

@@ -234,26 +234,26 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
     }
 
     public async Task SetExtractionDeferredAsync(
-        IReadOnlyCollection<string> messageIds, bool deferred, CancellationToken cancellationToken = default)
+        IReadOnlyCollection<string> messageIds, string? heldFor, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messageIds);
         if (messageIds.Count == 0) return;
         await _tx.WriteAsync(async runner =>
         {
             var cursor = await runner.RunAsync(MessageQueries.SetExtractionDeferred,
-                new { messageIds = messageIds.ToList(), deferred }).ConfigureAwait(false);
+                new { messageIds = messageIds.ToList(), heldFor }).ConfigureAwait(false);
             await cursor.ConsumeAsync().ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Message>> GetExtractionDeferredAsync(
-        string sessionId, int limit, CancellationToken cancellationToken = default)
+        string heldFor, int limit, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(heldFor);
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(MessageQueries.GetExtractionDeferredBySession,
-                new { sessionId, limit = Math.Max(1, limit) }).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(MessageQueries.GetExtractionDeferred,
+                new { heldFor, limit = Math.Max(1, limit) }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r => MapToMessage(r["m"].As<INode>(), embedding: null)).ToList();
         }, cancellationToken).ConfigureAwait(false);

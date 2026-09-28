@@ -174,4 +174,15 @@ public sealed class HistoryThreadDedupTests
         // set over a thread the provider already holds.
         new AgentFrameworkOptions().DeduplicateRecalledHistory.Should().BeTrue();
     }
+
+    /// <summary>37.1 review: a dated turn from another session is still the same turn as the live one.</summary>
+    [Fact]
+    public void A_turn_from_another_session_in_the_live_thread_is_not_sent_twice_though_it_is_dated()
+    {
+        var elsewhere = Recalled("I moved to Porto.") with { SessionId = "s-other", TimestampUtc = new DateTimeOffset(2026, 9, 20, 9, 0, 0, TimeSpan.Zero) };
+
+        var mapped = Map(Context(elsewhere), liveThread: [new ChatMessage(ChatRole.User, "I moved to Porto.")]);
+
+        mapped.Should().NotContain(m => m.Text.Contains("I moved to Porto.", StringComparison.Ordinal));
+    }
 }

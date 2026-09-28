@@ -102,21 +102,22 @@ public interface IMessageRepository
             "This IMessageRepository implementation cannot forget a message; recall would keep returning it.");
 
     /// <summary>
-    /// 37.4. Marks (or unmarks) messages whose extraction waits for the next turn that tells something: a turn in which
-    /// the user only asked. The mark is stored on the message, so what waits survives a restart, stays in its store and
-    /// session, and disappears when the message is forgotten or its session cleared.
+    /// 37.4. Marks messages whose extraction waits for the next turn that tells something (a turn in which the user
+    /// only asked), held for <paramref name="heldFor"/> (the owner, or the session when there is none); null unmarks.
+    /// The mark is stored on the message, so what waits survives a restart, stays in its store, is never released into
+    /// another owner's extraction, and disappears when the message is forgotten or its session cleared.
     /// </summary>
     /// <remarks>Default: not supported. A store without it extracts every turn at once, as before.</remarks>
     Task SetExtractionDeferredAsync(
-        IReadOnlyCollection<string> messageIds, bool deferred, CancellationToken cancellationToken = default) =>
+        IReadOnlyCollection<string> messageIds, string? heldFor, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This IMessageRepository implementation cannot hold a turn for later extraction.");
 
     /// <summary>
-    /// 37.4. The session's live messages marked by <see cref="SetExtractionDeferredAsync"/>, oldest first, at most
-    /// <paramref name="limit"/>.
+    /// 37.4. The live messages held for <paramref name="heldFor"/> by <see cref="SetExtractionDeferredAsync"/>, in any
+    /// session, oldest first, at most <paramref name="limit"/>.
     /// </summary>
     Task<IReadOnlyList<Message>> GetExtractionDeferredAsync(
-        string sessionId, int limit, CancellationToken cancellationToken = default) =>
+        string heldFor, int limit, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This IMessageRepository implementation cannot hold a turn for later extraction.");
 
     /// <summary>

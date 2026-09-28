@@ -12,17 +12,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`AgentFrameworkOptions.DeferQuestionTurns`, off by default; `ExtractionRequest.DeferIfOnlyAsking` for other hosts;
   `ExtractionOptions.MaxDeferredTurns` 3). In simulated conversations 43 % of extraction calls returned nothing, almost
   all on question turns. The waiting turn is marked on its stored message (`IMessageRepository.SetExtractionDeferredAsync`
-  / `GetExtractionDeferredAsync`, default members: a store without them extracts every turn at once), so it survives a
-  restart, stays in its store and session, is gone when forgotten, and is extracted with the next telling turn of its
-  session as a target (or once the maximum waits); the marks clear only when that extraction succeeds. Asking to be
+  / `GetExtractionDeferredAsync`, default members: a store without them extracts every turn at once), held for its
+  owner (the session when there is none), so it survives a restart, stays in its store, is never released into
+  another owner's extraction, is gone when forgotten, and is extracted with the owner's next telling turn in any
+  session (or once the maximum waits); the marks clear only when that extraction succeeds, and a store that fails
+  while deferring extracts the turn at once. Asking to be
   reminded or to have something remembered is never held. The extraction context window now reaches up to the last
   target, so what the agent said between a waiting question and the turn that released it resolves references.
 
 - **"Lately": what the person has talked about most recently** (`WorkingMemoryOptions.RecentTopicsDays`, off by default;
-  `MaxRecentTopics` 3, `MinRecentTopicTurns` 2). The profile block ends with one line, `Lately (7 days): marathon (5
-  turns), Ana (2 turns)`: entities of the owner named by live facts, counted by the distinct messages those facts
-  were extracted from in the window, never the person themselves. Only what the person said counts, not what the
-  agent recalled; ties break by name so the block stays byte-stable. One read per rebuild, only when enabled.
+  `MaxRecentTopics` 3, `MinRecentTopicMentions` 2). The profile block ends with one line, `Lately (7 days): marathon
+  (5 mentions), Ana (2 mentions)`: entities of the owner named by live facts, counted by the distinct facts extracted
+  in the window from what the person said (live user messages), never the person themselves. What the agent said or
+  recalled does not count; ties break by name so the block stays byte-stable, and it is rebuilt at least daily so the
+  window slides. One read per rebuild, only when enabled.
 
 - **`SupersededFact.ValidUntilPrecision`** (and `EffectiveDatePrecision`), so a predecessor's end prints at the
   precision it was stated.
@@ -416,7 +419,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An object the model wrote twice is stored once.** "Daniel | is a chef | chef" rendered "Daniel is a chef chef":
   a predicate that ends with its own object's words (with or without a leading article) is trimmed at write, on every
-  fact; "works at | Acme" and a predicate that would be left empty are unchanged.
+  fact, and an article left dangling moves to the object ("Daniel | is | a chef", "lives in | the Netherlands");
+  "works at | Acme" and a predicate that would be left empty are unchanged.
 
 - **"What do I have coming up in October?", asked in September, recalled last October** (`ResolveTemporalQueries`).
   A month still ahead this year, named without a year, now resolves to last year only in a past-tense question

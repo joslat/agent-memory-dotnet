@@ -37,13 +37,14 @@ public sealed class RecentTopicsIntegrationTests : IAsyncLifetime
     }
 
     /// <summary>A fact about <paramref name="topic"/> said in a message <paramref name="daysAgo"/> days ago.</summary>
-    private Task SaidAsync(string subject, string predicate, string @object, double daysAgo, string owner = Owner) =>
+    private Task SaidAsync(string subject, string predicate, string @object, double daysAgo, string owner = Owner, string role = "user") =>
         _fixture.TransactionRunner.WriteAsync(async runner => await runner.RunAsync(@"
-            CREATE (m:Message {id: randomUUID(), role: 'user', content: 'x', timestamp: datetime($at)})
+            CREATE (m:Message {id: randomUUID(), role: $role, content: 'x', timestamp: datetime($at)})
             MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object, owner_id: $owner})
-              ON CREATE SET f.id = randomUUID(), f.created_at = datetime($at)
+              ON CREATE SET f.id = randomUUID(), f.created_at = datetime($at),
+                            f.subject_key = toLower($subject), f.predicate_key = toLower(replace($predicate, '_', ' '))
             CREATE (f)-[:EXTRACTED_FROM]->(m)",
-            new { subject, predicate, @object, owner, at = Now.AddDays(-daysAgo).ToString("O") }));
+            new { subject, predicate, @object, owner, role, at = Now.AddDays(-daysAgo).ToString("O") }));
 
     private Task EntityAsync(string name, string owner = Owner) =>
         _fixture.TransactionRunner.WriteAsync(async runner => await runner.RunAsync(
@@ -64,18 +65,20 @@ public sealed class RecentTopicsIntegrationTests : IAsyncLifetime
     public async Task What_the_person_talked_about_most_this_week_is_lately_and_they_are_not()
     {
         foreach (var name in new[] { "Dana", "marathon", "Ana", "Porto", "Lisbon" }) await EntityAsync(name);
-        await SaidAsync("user", "is named", "Dana", daysAgo: 6);
+        await SaidAsync("user", "is_named", "Dana", daysAgo: 6);                        // the name found by its key
         for (var day = 1; day <= 5; day++) await SaidAsync("Dana", $"trained for the marathon on day {day}", "marathon", daysAgo: day);
         await SaidAsync("Ana", "is the sister of", "Dana", daysAgo: 2);
         await SaidAsync("Ana", "loves", "pottery", daysAgo: 3);
         await SaidAsync("Dana", "visited", "Porto", daysAgo: 4);                        // once: not lately
         await SaidAsync("Dana", "ate", "pasta", daysAgo: 1);                             // twice, but not an entity
-        await SaidAsync("Dana", "ate", "pasta", daysAgo: 2);
+        await SaidAsync("Dana", "cooked", "pasta", daysAgo: 2);
+        await SaidAsync("Mem", "suggested", "Porto", daysAgo: 1, role: "assistant");     // the agent's words never count
+        await SaidAsync("Mem", "recommended", "Porto", daysAgo: 2, role: "assistant");
         for (var day = 20; day <= 24; day++) await SaidAsync("Dana", $"lived in Lisbon {day}", "Lisbon", daysAgo: day); // outside the week
 
         var block = await BlockAsync();
 
-        block.Should().EndWith("Lately (7 days): marathon (5 turns), Ana (2 turns)");
+        block.Should().EndWith("Lately (7 days): marathon (5 mentions), Ana (2 mentions)");
     }
 
     [Fact]

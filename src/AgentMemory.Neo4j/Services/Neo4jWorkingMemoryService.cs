@@ -62,6 +62,9 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         var now = _clock.UtcNow;
         var text = await ComposeAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
         var validUntil = await NextValidityBoundaryAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
+        // 37.5. A block with a "Lately" line is a view of a sliding window: it is rebuilt at least daily, writes or not.
+        if (text.Contains("Lately (", StringComparison.Ordinal))
+            validUntil = EarlierOf(validUntil, now.AddDays(1));
         // The boundary is part of what is stored, so it is part of the hash: a rebuild whose text is
         // unchanged but whose next boundary moved still writes.
         var hash = Hash(validUntil is null ? text : $"{text}\n@{validUntil}");
@@ -290,14 +293,18 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
             {
                 ownerId,
                 since = now.AddDays(-_options.RecentTopicsDays).ToString("O"),
-                minTurns = Math.Max(1, _options.MinRecentTopicTurns),
+                now = now.ToString("O"),
+                minMentions = Math.Max(1, _options.MinRecentTopicMentions),
                 limit = Math.Max(1, _options.MaxRecentTopics),
                 selfWords = AgentMemory.Core.Extraction.PersistenceStage.UserNames.SelfWords,
-                namingPredicates = AgentMemory.Core.Extraction.PersistenceStage.UserNames.NamingPredicates,
+                selfKeys = AgentMemory.Core.Extraction.PersistenceStage.UserNames.SelfWords
+                    .Select(AgentMemory.Core.Memory.MemoryTripleCanonicalizer.CanonicalValue).Distinct().ToList(),
+                namingKeys = AgentMemory.Core.Extraction.PersistenceStage.UserNames.NamingPredicates
+                    .Select(AgentMemory.Core.Memory.MemoryTripleCanonicalizer.Canonical).Distinct().ToList(),
             }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records
-                .Select(r => $"{r["topic"].As<string>()} ({r["turns"].As<long>().ToString(System.Globalization.CultureInfo.InvariantCulture)} turns)")
+                .Select(r => $"{r["topic"].As<string>()} ({r["mentions"].As<long>().ToString(System.Globalization.CultureInfo.InvariantCulture)} mentions)")
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
 
@@ -366,6 +373,13 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
 
         return builder.ToString();
     }
+
+    /// <summary>The earlier of a stored boundary (ISO-8601, or null) and <paramref name="instant"/>, as ISO-8601.</summary>
+    internal static string EarlierOf(string? boundary, DateTimeOffset instant) =>
+        boundary is not null &&
+        DateTimeOffset.TryParse(boundary, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at) && at <= instant
+            ? boundary
+            : instant.ToString("O", CultureInfo.InvariantCulture);
 
     /// <summary>The estimator the budget is expressed in: ceil(chars / 4).</summary>
     internal static int EstimateTokens(string text) => (text.Length + 3) / 4;

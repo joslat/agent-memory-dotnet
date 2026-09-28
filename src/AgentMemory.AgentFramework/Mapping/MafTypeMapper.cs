@@ -259,7 +259,7 @@ internal static class MafTypeMapper
                 Content = options.IncludeDates && !string.Equals(x.Message.SessionId, context.SessionId, StringComparison.Ordinal)
                     ? FactDates.MessagePrefix(x.Message.TimestampUtc) + x.Message.Content
                     : x.Message.Content,
-            }), At: x.Message.TimestampUtc, RecallIndex: recallIndex))
+            }), At: x.Message.TimestampUtc, RecallIndex: recallIndex, Said: x.Message.Content))
             .ToList();
 
         // Memory-derived system messages (always kept). Each is delimited and escaped (#92 Phase 1) so
@@ -395,7 +395,8 @@ internal static class MafTypeMapper
             if (live.Count > 0)
             {
                 var deduped = chatMessages
-                    .Where(turn => !live.Contains(NormalizeForDedup(turn.Chat.Text)))
+                    // What was said, not the dated rendering: "[2026-09-20] Hi" is the same turn as "Hi" (37.1 review).
+                    .Where(turn => !live.Contains(NormalizeForDedup(turn.Said)))
                     .ToList();
                 if (deduped.Count != chatMessages.Count)
                 {

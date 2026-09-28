@@ -315,6 +315,13 @@ internal static class SchemaQueries
     public const string EntityOwnerKeyIndex =
         "CREATE INDEX entity_owner_key_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_key)";
 
+    /// <summary>
+    /// 37.4. The deferral mark on a message (an owner's or a session's key): the next telling turn reads the owner's
+    /// waiting turns by a seek, not a scan of every message.
+    /// </summary>
+    public const string MessageExtractionDeferredIndex =
+        "CREATE INDEX message_extraction_deferred_idx IF NOT EXISTS FOR (m:Message) ON (m.extraction_deferred)";
+
     /// <summary>Index on Entity.owner_id (multi-user scope).</summary>
     public const string EntityOwnerIndex = "CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)";
 
@@ -376,6 +383,7 @@ internal static class SchemaQueries
         FactMergeKeyIndex,
         FactOwnerKeyIndex,
         EntityOwnerKeyIndex,
+        MessageExtractionDeferredIndex,
         FactPredicateKeyIndex,
         EntityOwnerIndex,
         PreferenceOwnerIndex,

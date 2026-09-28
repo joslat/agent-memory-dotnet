@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace AgentMemory.Tests.Integration.Repositories;
 
 /// <summary>
-/// 37.4, on a real store: a turn that waits is marked on its stored message; the mark is per session, read oldest
+/// 37.4, on a real store: a turn that waits is marked on its stored message; the mark is per owner, read oldest
 /// first, cleared once extracted, and a forgotten message never comes back.
 /// </summary>
 [Collection("Neo4j Integration")]
@@ -43,30 +43,31 @@ public sealed class DeferredExtractionIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task What_waits_is_read_back_per_session_oldest_first_and_cleared_once_extracted()
+    public async Task What_waits_is_read_back_per_owner_oldest_first_and_cleared_once_extracted()
     {
         var first = await SaidAsync("s1", "What's a good hike?", 1);
         var second = await SaidAsync("s1", "Is it going to rain?", 2);
         var other = await SaidAsync("s2", "Where is Porto?", 3);
-        await _messages.SetExtractionDeferredAsync([second.MessageId, first.MessageId, other.MessageId], deferred: true);
+        await _messages.SetExtractionDeferredAsync([second.MessageId, first.MessageId], "owner:alice");
+        await _messages.SetExtractionDeferredAsync([other.MessageId], "owner:bob");
 
-        (await _messages.GetExtractionDeferredAsync("s1", 10)).Select(m => m.Content)
+        (await _messages.GetExtractionDeferredAsync("owner:alice", 10)).Select(m => m.Content)
             .Should().Equal("What's a good hike?", "Is it going to rain?");
 
-        await _messages.SetExtractionDeferredAsync([first.MessageId, second.MessageId], deferred: false);
+        await _messages.SetExtractionDeferredAsync([first.MessageId, second.MessageId], heldFor: null);
 
-        (await _messages.GetExtractionDeferredAsync("s1", 10)).Should().BeEmpty();
-        (await _messages.GetExtractionDeferredAsync("s2", 10)).Should().ContainSingle();
+        (await _messages.GetExtractionDeferredAsync("owner:alice", 10)).Should().BeEmpty();
+        (await _messages.GetExtractionDeferredAsync("owner:bob", 10)).Should().ContainSingle();
     }
 
     [Fact]
     public async Task A_forgotten_message_never_waits()
     {
         var question = await SaidAsync("s1", "What's a good hike?", 1);
-        await _messages.SetExtractionDeferredAsync([question.MessageId], deferred: true);
+        await _messages.SetExtractionDeferredAsync([question.MessageId], "owner:alice");
 
         await _messages.InvalidateAsync(question.MessageId);
 
-        (await _messages.GetExtractionDeferredAsync("s1", 10)).Should().BeEmpty();
+        (await _messages.GetExtractionDeferredAsync("owner:alice", 10)).Should().BeEmpty();
     }
 }

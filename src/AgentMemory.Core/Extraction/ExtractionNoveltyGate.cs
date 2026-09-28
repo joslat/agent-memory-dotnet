@@ -237,7 +237,7 @@ internal static class ExtractionNoveltyGate
     private static readonly TimeSpan AskTimeout = TimeSpan.FromMilliseconds(100);
     private static readonly Regex Sentences = new(@"(?<=[.!?])\s+|\n+", AskOptions, AskTimeout);
     private static readonly Regex Request = new(
-        @"^(please|(can|could|would|will)\s+you|tell\s+me|show\s+me|recommend|suggest|explain|help\s+me)\b", AskOptions, AskTimeout);
+        @"^((can|could|would|will)\s+you|tell\s+me|show\s+me|recommend|suggest|explain)\b", AskOptions, AskTimeout);
 
     /// <summary>
     /// Asked to keep something is telling it ("can you remember that my sister is Ana?", "please remind me to call her"):

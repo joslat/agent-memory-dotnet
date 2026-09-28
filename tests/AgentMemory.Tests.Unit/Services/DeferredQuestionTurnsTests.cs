@@ -18,7 +18,7 @@ namespace AgentMemory.Tests.Unit.Services;
 public sealed class DeferredQuestionTurnsTests
 {
     private readonly List<Message> _stored = [];
-    private readonly HashSet<string> _deferred = [];
+    private readonly Dictionary<string, string> _deferred = [];
     private readonly List<ExtractionRequest> _extracted = [];
     private readonly IMessageRepository _messages = Substitute.For<IMessageRepository>();
     private readonly IMemoryExtractionPipeline _pipeline = Substitute.For<IMemoryExtractionPipeline>();
@@ -27,16 +27,16 @@ public sealed class DeferredQuestionTurnsTests
 
     public DeferredQuestionTurnsTests()
     {
-        _messages.SetExtractionDeferredAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _messages.SetExtractionDeferredAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
                 foreach (var id in ci.ArgAt<IReadOnlyCollection<string>>(0))
-                    if (ci.ArgAt<bool>(1)) _deferred.Add(id); else _deferred.Remove(id);
+                    if (ci.ArgAt<string?>(1) is { } heldFor) _deferred[id] = heldFor; else _deferred.Remove(id);
                 return Task.CompletedTask;
             });
         _messages.GetExtractionDeferredAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(ci => Task.FromResult<IReadOnlyList<Message>>(_stored
-                .Where(m => _deferred.Contains(m.MessageId) && m.SessionId == ci.ArgAt<string>(0))
+                .Where(m => _deferred.TryGetValue(m.MessageId, out var heldFor) && heldFor == ci.ArgAt<string>(0))
                 .OrderBy(m => m.TimestampUtc).Take(ci.ArgAt<int>(1)).ToList()));
         _pipeline.ExtractAsync(Arg.Do<ExtractionRequest>(_extracted.Add), Arg.Any<CancellationToken>())
             .Returns(_ => Task.FromResult(new ExtractionResult { Status = _status }));
@@ -54,7 +54,7 @@ public sealed class DeferredQuestionTurnsTests
             messageRepository: messages ?? _messages);
     }
 
-    private ExtractionRequest Turn(string content, string session = "s1", bool defer = true)
+    private ExtractionRequest Turn(string content, string session = "s1", bool defer = true, string? owner = null)
     {
         var message = new Message
         {
@@ -62,7 +62,7 @@ public sealed class DeferredQuestionTurnsTests
             Content = content, TimestampUtc = DateTimeOffset.UnixEpoch.AddMinutes(++_clock),
         };
         _stored.Add(message);
-        return new ExtractionRequest { Messages = [message], SessionId = session, DeferIfOnlyAsking = defer };
+        return new ExtractionRequest { Messages = [message], SessionId = session, DeferIfOnlyAsking = defer, UserId = owner };
     }
 
     private static IEnumerable<string> Said(ExtractionRequest request) => request.Messages.Select(m => m.Content);
@@ -115,9 +115,50 @@ public sealed class DeferredQuestionTurnsTests
         Said(_extracted.Single()).Should().Equal("I moved to Porto.");
     }
 
+    // Review round 1 (M1): hosts that give every user of an agent one session id must never release one owner's words
+    // into another owner's extraction.
+    [Fact]
+    public async Task One_owner_s_questions_never_join_another_owner_s_extraction_in_a_shared_session()
+    {
+        var sut = Sut();
+        await sut.ExtractAndPersistAsync(Turn("What should I get my sister?", session: "agent", owner: "alice"));
+
+        await sut.ExtractAndPersistAsync(Turn("I moved to Porto.", session: "agent", owner: "bob"));
+
+        Said(_extracted.Single()).Should().Equal("I moved to Porto.");
+        _extracted.Single().UserId.Should().Be("bob");
+    }
+
+    // Review round 1 (M3): a session that ends on a question is taken along by the owner's next telling turn.
+    [Fact]
+    public async Task A_question_that_ended_a_session_waits_for_the_owner_s_next_session()
+    {
+        var sut = Sut();
+        await sut.ExtractAndPersistAsync(Turn("What's a good hike?", session: "monday", owner: "alice"));
+
+        await sut.ExtractAndPersistAsync(Turn("I moved to Porto.", session: "tuesday", owner: "alice"));
+
+        Said(_extracted.Single()).Should().Equal("What's a good hike?", "I moved to Porto.");
+    }
+
+    // Review round 1 (M2): a store failing now does not lose the turn.
+    [Fact]
+    public async Task A_failing_store_extracts_the_turn_now()
+    {
+        var failing = Substitute.For<IMessageRepository>();
+        failing.GetExtractionDeferredAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("transient"));
+
+        await Sut(messages: failing).ExtractAndPersistAsync(Turn("What's a good hike?"));
+
+        _extracted.Should().ContainSingle();
+    }
+
     [Theory]
     [InlineData("I moved to Porto.")]
     [InlineData("Can you remember that my sister is Ana?")]
+    [InlineData("Please call me Jose.")]
+    [InlineData("Help me plan my wedding in June.")]
     public async Task A_turn_that_tells_something_is_extracted_now(string content)
     {
         await Sut().ExtractAndPersistAsync(Turn(content));

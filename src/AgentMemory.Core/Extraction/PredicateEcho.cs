@@ -30,7 +30,13 @@ internal static partial class PredicateEcho
         foreach (var echo in Forms(@object))
         {
             if (echo.Length >= predicate.Length || !EndsWith(predicate, echo)) continue;
-            return fact with { Predicate = string.Join(' ', predicate[..^echo.Length]) };
+            var kept = predicate[..^echo.Length];
+            // An article left dangling belongs to the object: "lives in the | Netherlands" is "lives in | the
+            // Netherlands", "is a chef | chef" is "is | a chef" (review round 1: "lives in the" named no relation).
+            if (kept.Length > 1 && Articles.Contains(kept[^1], StringComparer.OrdinalIgnoreCase) &&
+                !Articles.Contains(@object[0], StringComparer.OrdinalIgnoreCase))
+                return fact with { Predicate = string.Join(' ', kept[..^1]), Object = kept[^1] + " " + fact.Object.Trim() };
+            return fact with { Predicate = string.Join(' ', kept) };
         }
         return fact;
     }

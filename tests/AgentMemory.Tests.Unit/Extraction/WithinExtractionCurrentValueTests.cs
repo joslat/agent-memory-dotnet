@@ -403,6 +403,7 @@ public sealed class WithinExtractionCurrentValueTests
     {
         var store = new Store();
         await Stage(store, batch).PersistAsync(new ExtractionStageResult { FilteredFacts = [F("chef", s: "Daniel", p: "is a chef")] }, ownerId: "u1");
-        store.Facts.Single().Predicate.Should().Be("is a");
+        store.Facts.Single().Predicate.Should().Be("is");
+        store.Facts.Single().Object.Should().Be("a chef");
     }
 }
