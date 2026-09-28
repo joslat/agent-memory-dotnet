@@ -148,6 +148,19 @@ public interface ILongTermMemoryService
         throw new NotSupportedException("This ILongTermMemoryService implementation cannot read relationships for recall.");
 
     /// <summary>
+    /// J-7. As <see cref="GetRelationshipsAmongAsync"/>, and also the relationships of the entities called one of
+    /// <paramref name="names"/> (the people and things the recalled facts name). The default ignores the names.
+    /// </summary>
+    Task<IReadOnlyList<RecalledRelationship>> GetRelationshipsAroundAsync(
+        IReadOnlyList<string> entityIds,
+        IReadOnlyList<string> names,
+        int limit,
+        DateTimeOffset now,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        GetRelationshipsAmongAsync(entityIds, limit, now, scope, cancellationToken);
+
+    /// <summary>
     /// Deletes a preference by identifier. When <paramref name="scope"/> is supplied (R1) the delete
     /// only affects the owner's own preference — never another owner's, and never shared/global ones.
     /// </summary>

@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is still recognised, and the old entity is closed. The live facts said about the old name are restated under the new
   one, each superseding its original. Facts that mention the old name as their object are not rewritten.
 
+- **The people a recalled fact names bring their relationships** (with `RecallOptions.MaxRelationships` set). Recall
+  already added the relationships between the recalled entities; now also those of the entities the recalled facts
+  name, by name or alias, in the same single query. "What does my manager's husband do?" gets "Priya Nair — married
+  to → Daniel" beside "Daniel works as chef", even when neither person was recalled by itself.
+  `ILongTermMemoryService.GetRelationshipsAroundAsync` / `IRelationshipRepository.GetLiveAroundAsync` (defaults fall
+  back to the id-only reads).
+
 - **A held question turn says so.** `ExtractionResult.Deferred` (and the public `ExtractionResult.DeferredMetadataKey`)
   tell a host that the turn was held for the next one that tells something, rather than extracted with nothing in it;
   the `memory.ingestion.operations` counter tags it `status=Deferred`, apart from successes.

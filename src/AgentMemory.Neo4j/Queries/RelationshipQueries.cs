@@ -94,10 +94,17 @@ internal static class RelationshipQueries
 
     // ── GetLiveAmongAsync (36.7) ───────────────────────────────────────
 
-    /// <summary>Live relationships touching any of the given entities, with both names, most confident first.</summary>
+    /// <summary>
+    /// Live relationships touching any of the given entities, or any entity called one of <c>$names</c> (lower case; by
+    /// name or alias: J-7, the people recalled facts name), with both names, most confident first. <c>$names</c> empty:
+    /// by id only.
+    /// </summary>
     public static string GetLiveAmong(bool hasOwnerFilter, bool includeShared) => $@"
             MATCH (s:Entity)-[r:RELATED_TO]->(t:Entity)
-            WHERE (s.id IN $entityIds OR t.id IN $entityIds)
+            WHERE (s.id IN $entityIds OR t.id IN $entityIds
+                   OR (size($names) > 0 AND (toLower(s.name) IN $names OR toLower(t.name) IN $names
+                       OR any(a IN coalesce(s.aliases, []) WHERE toLower(a) IN $names)
+                       OR any(a IN coalesce(t.aliases, []) WHERE toLower(a) IN $names))))
               AND (r.valid_until IS NULL OR r.valid_until > datetime($now)){OwnerAnd(hasOwnerFilter, includeShared)}
             RETURN r, s.name AS sourceName, t.name AS targetName
             ORDER BY r.confidence DESC, r.created_at DESC

@@ -65,6 +65,21 @@ public interface IRelationshipRepository
         throw new NotSupportedException("This IRelationshipRepository implementation cannot read relationships for recall.");
 
     /// <summary>
+    /// J-7. As <see cref="GetLiveAmongAsync"/>, and also the relationships of the entities called one of
+    /// <paramref name="names"/> (by name or alias, case-insensitive): the people and things recalled facts name, so
+    /// "Priya Nair is married to Daniel" reaches a question about her husband even when neither entity was recalled
+    /// by itself. The default ignores the names.
+    /// </summary>
+    Task<IReadOnlyList<RecalledRelationship>> GetLiveAroundAsync(
+        IReadOnlyList<string> entityIds,
+        IReadOnlyList<string> names,
+        int limit,
+        DateTimeOffset now,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        GetLiveAmongAsync(entityIds, limit, now, scope, cancellationToken);
+
+    /// <summary>
     /// 36.4. Ends a relationship: sets its <c>valid_until</c> to <paramref name="endedAt"/> unless it already ended
     /// (the first end is kept). The edge stays, with its provenance, for history. Returns true when it exists in
     /// <paramref name="scope"/>.

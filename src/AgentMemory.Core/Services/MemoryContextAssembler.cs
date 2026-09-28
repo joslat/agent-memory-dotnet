@@ -239,13 +239,14 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     /// recall: a store that cannot read them, or a read that fails, leaves the section empty, never the recall.
     /// </summary>
     private async Task<IReadOnlyList<RecalledRelationship>> RelationshipsAmongAsync(
-        IReadOnlyList<Entity> entities, int limit, MemoryScope? scope, CancellationToken cancellationToken)
+        IReadOnlyList<Entity> entities, IReadOnlyList<string> factNames, int limit, MemoryScope? scope, CancellationToken cancellationToken)
     {
         try
         {
-            return await TimedAsync("memory.recall.relationships", () => _longTerm.GetRelationshipsAmongAsync(
-                    entities.Select(entity => entity.EntityId).Distinct(StringComparer.Ordinal).ToList(),
-                    limit, _clock.UtcNow, scope, cancellationToken))
+            var ids = entities.Select(entity => entity.EntityId).Distinct(StringComparer.Ordinal).ToList();
+            return await TimedAsync("memory.recall.relationships", () => factNames.Count == 0
+                    ? _longTerm.GetRelationshipsAmongAsync(ids, limit, _clock.UtcNow, scope, cancellationToken)
+                    : _longTerm.GetRelationshipsAroundAsync(ids, factNames, limit, _clock.UtcNow, scope, cancellationToken))
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -256,6 +257,15 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             return Array.Empty<RecalledRelationship>();
         }
     }
+
+    /// <summary>J-7: the names the recalled facts are about (subjects and objects), not "user", at most 40.</summary>
+    internal static IReadOnlyList<string> NamesIn(IReadOnlyList<Fact> facts) =>
+        [.. facts.SelectMany(fact => new[] { fact.Subject, fact.Object })
+            .Where(name => !string.IsNullOrWhiteSpace(name) && name.Trim().Length > 1 &&
+                           !Extraction.PersistenceStage.UserNames.IsSelf(name))
+            .Select(name => name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(40)];
 
     private static int? SharedBudgetFor(MemoryScope? scope, int? sharedRecallBudget) =>
         LongTermMemoryService.SplitsShared(sharedRecallBudget, scope) ? sharedRecallBudget : null;
@@ -1024,8 +1034,11 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             projection = SuppressNoDirectMatch(projection, Projection.ProjectionSectionKeys.Facts);
 
         // 36.7. How the recalled entities relate, from the entities that reach the prompt. Off unless asked for.
-        var relationships = recallOpts.MaxRelationships > 0 && entities.Count > 0
-            ? await RelationshipsAmongAsync(entities, recallOpts.MaxRelationships, scope, cancellationToken).ConfigureAwait(false)
+        // J-7: and the people and things the recalled facts name ("Daniel | works as | chef" brings "Priya Nair married
+        // to Daniel" to "what does my manager's husband do?"), even when those entities were not recalled themselves.
+        IReadOnlyList<string> factNames = recallOpts.MaxRelationships > 0 ? NamesIn(facts) : [];
+        var relationships = recallOpts.MaxRelationships > 0 && (entities.Count > 0 || factNames.Count > 0)
+            ? await RelationshipsAmongAsync(entities, factNames, recallOpts.MaxRelationships, scope, cancellationToken).ConfigureAwait(false)
             : Array.Empty<RecalledRelationship>();
 
         var context = new MemoryContext

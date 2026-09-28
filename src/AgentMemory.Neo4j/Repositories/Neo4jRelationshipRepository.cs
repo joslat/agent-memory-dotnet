@@ -117,12 +117,20 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<RecalledRelationship>> GetLiveAmongAsync(
+    public Task<IReadOnlyList<RecalledRelationship>> GetLiveAmongAsync(
         IReadOnlyList<string> entityIds, int limit, DateTimeOffset now, MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        GetLiveAroundAsync(entityIds, [], limit, now, scope, cancellationToken);
+
+    public async Task<IReadOnlyList<RecalledRelationship>> GetLiveAroundAsync(
+        IReadOnlyList<string> entityIds, IReadOnlyList<string> names, int limit, DateTimeOffset now, MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entityIds);
-        if (entityIds.Count == 0 || limit <= 0) return Array.Empty<RecalledRelationship>();
+        ArgumentNullException.ThrowIfNull(names);
+        var lowered = names.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.Ordinal).ToList();
+        if ((entityIds.Count == 0 && lowered.Count == 0) || limit <= 0) return Array.Empty<RecalledRelationship>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
 
@@ -130,6 +138,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         var parameters = new Dictionary<string, object?>
         {
             ["entityIds"] = entityIds.ToList(),
+            ["names"] = lowered,
             ["limit"] = limit,
             ["now"] = now.ToString("O"),
         };
