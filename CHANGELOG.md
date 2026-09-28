@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   taking `now`, so write-time supersession judges the candidates at the same instant it judged the new value (it read
   the store's wall clock before).
 
+- **A plan that has begun takes over from the value it was planned to replace.** "I'm moving to Oslo next month" is
+  stored as a plan and replaces nothing when said; once its start has passed, recall gives Oslo, not Copenhagen as
+  well. Applied where a recall's facts are chosen, at the recall's instant (now, or the as-of time), per owner, subject
+  and single-valued relation; nothing is rewritten, so a plan cancelled later simply stops being live and the old value
+  is current again. Starts are compared at the precision they were said: "in August" is the whole month, so it is not
+  ordered before "on 20 August", and starts that overlap are ordered by when they were said.
+
 - **`agentmemory retrim [--apply]`: repair facts stored before predicate-echo trimming.** Facts written before the
   write-time trim ("Daniel | is a chef | chef", rendered "is a chef chef") are rewritten as they read once trimmed
   ("Daniel | is | a chef", identity keys included), or superseded by the trimmed fact when it is already stored. A dry

@@ -258,6 +258,16 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         }
     }
 
+    /// <summary>J-6 (b): <see cref="ValueHandOver"/>, with the scores filtered in lockstep (a score for a dropped fact would point at nothing).</summary>
+    private static (IReadOnlyList<Fact> Facts, IReadOnlyList<(Fact Fact, double Score)> Scores) HandOver(
+        IReadOnlyList<Fact> facts, IReadOnlyList<(Fact Fact, double Score)> scores, DateTimeOffset at)
+    {
+        var current = ValueHandOver.Current(facts, at);
+        if (current.Count == facts.Count) return (facts, scores);
+        var kept = current.Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+        return (current, scores.Where(s => kept.Contains(s.Fact.FactId)).ToArray());
+    }
+
     /// <summary>J-7: the names the recalled facts are about (subjects and objects), not "user", at most 40.</summary>
     internal static IReadOnlyList<string> NamesIn(IReadOnlyList<Fact> facts) =>
         [.. facts.SelectMany(fact => new[] { fact.Subject, fact.Object })
@@ -877,6 +887,9 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             }
         }
 
+        // J-6 (b). A plan that has begun takes over from the value it was planned to replace (now).
+        (facts, factScores) = HandOver(facts, factScores, _clock.UtcNow);
+
         // 30.8. Runs AFTER the fact section resolves, because its trigger is what that section came
         // back with. One extra query, only on a thin recall, only with the flag on -- a well-answered
         // turn pays nothing at all.
@@ -1439,6 +1452,9 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 }
             }
         }
+
+        // J-6 (b). As in live recall, at the valid-time instant asked about: which plans had begun by then.
+        (facts, factScores) = HandOver(facts, factScores, validAsOf);
 
         // Built after budgeting for the same reason as the live path: ContextRank is the post-budget
         // position. Off by default — every section then keeps its Array.Empty default.

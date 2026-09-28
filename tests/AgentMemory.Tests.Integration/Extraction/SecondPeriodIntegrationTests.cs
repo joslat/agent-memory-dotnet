@@ -124,6 +124,43 @@ public sealed class SecondPeriodIntegrationTests : IAsyncLifetime
         ValueExtensions.As<long>(copenhagen[0]["n"]).Should().Be(1, "the restatement lands on the existing live fact, not a duplicate");
     }
 
+    [Fact]
+    public async Task Recall_gives_a_plan_that_has_begun_instead_of_the_value_it_replaces()
+    {
+        using var scope = _provider.CreateScope();
+        var facts = scope.ServiceProvider.GetRequiredService<IFactRepository>();
+        var embedder = scope.ServiceProvider.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>();
+        async Task Store(string id, string city, DateTimeOffset said, DateTimeOffset? from) =>
+            await facts.UpsertAsync(new Fact
+            {
+                FactId = id, Subject = "Oskar", Predicate = "lives in", Object = city, Confidence = 0.9, OwnerId = Owner,
+                CreatedAtUtc = said, ValidFrom = from, ValidFromPrecision = from is null ? DatePrecision.Unspecified : DatePrecision.Month,
+                Embedding = (await embedder.GenerateAsync([$"Oskar lives in {city}"]))[0].Vector.ToArray(),
+            });
+        var now = DateTimeOffset.UtcNow;
+        await Store("cph", "Copenhagen", now.AddDays(-60), from: null);
+        // Said a month and a half ago as a plan for last month: it has begun.
+        await Store("osl", "Oslo", now.AddDays(-45), from: new DateTimeOffset(now.AddMonths(-1).Year, now.AddMonths(-1).Month, 1, 0, 0, 0, TimeSpan.Zero));
+
+        var memory = scope.ServiceProvider.GetRequiredService<IMemoryService>();
+        var request = new RecallRequest
+        {
+            SessionId = "s-plan", UserId = Owner, Query = "Where does Oskar live?",
+            Options = new RecallOptions
+            {
+                MaxRecentMessages = 0, MaxRelevantMessages = 0, MaxEntities = 0, MaxPreferences = 0, MaxTraces = 0,
+                MaxFacts = 10, MinSimilarityScore = 0,
+            },
+        };
+
+        var context = (await memory.RecallAsync(request, CancellationToken.None)).Context;
+        context.RelevantFacts.Items.Select(f => f.Object).Should().Equal(["Oslo"], "the plan began, so Copenhagen is no longer the current value");
+
+        var beforeThePlan = now.AddMonths(-2);
+        var asOf = (await memory.RecallAsOfAsync(request, beforeThePlan, now, CancellationToken.None)).Context;
+        asOf.RelevantFacts.Items.Select(f => f.Object).Should().NotContain("Oslo", "as of before the plan began, it had not taken over");
+    }
+
     private async Task<List<IRecord>> ReadAsync(string cypher, object parameters)
     {
         await using var session = _fixture.Driver.AsyncSession();
