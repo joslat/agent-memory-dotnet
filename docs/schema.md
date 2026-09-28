@@ -1,7 +1,7 @@
 # Agent Memory for .NET - Neo4j Schema Reference
 
 **Status:** Current, code-aligned schema reference
-**Last updated:** 2026-07-09
+**Last updated:** 2026-09-28
 **Implementation sources:** `SchemaConstants.cs`, `SchemaQueries.cs`, repository query classes, migrations
 
 This document records the active Neo4j schema used by the shipped preview. The implementation source remains authoritative for exact Cypher text; this file summarizes the graph shape, compatibility intent, and bootstrap objects.
@@ -18,8 +18,8 @@ Compatibility is enforced as a guardrail, not a runtime compatibility layer. `ag
 |---|---|---|
 | `Conversation` | Short-term conversation container | Carries `session_id`, title, metadata, optional `user_id`, and consolidation archive fields. |
 | `Message` | Short-term message | Carries `conversation_id`, `session_id`, role, content, timestamp, metadata, optional embedding, and `invalidated_at` once forgotten (kept for history, never recalled). |
-| `Entity` | Long-term named entity | Supports POLE+O type/subtype, aliases, attributes, location point, embeddings, provenance, owner scope, invalidation. |
-| `Fact` | Long-term subject/predicate/object assertion | MERGE key is `{subject, predicate, object, owner_key}`; carries `owner_id`, `owner_key`, valid-time, transaction-time invalidation, category, provenance. |
+| `Entity` | Long-term named entity | Supports POLE+O type/subtype, aliases, attributes, location point, embeddings, provenance, owner scope (`owner_id`, `owner_key`), invalidation. |
+| `Fact` | Long-term subject/predicate/object assertion | MERGE key is `{subject, predicate, object, owner_key}`; carries `owner_id`, `owner_key`, valid-time with its stated precision, the day an event happened (`occurred_on`), transaction-time invalidation, category, provenance. |
 | `Preference` | Long-term preference | Carries category, preference text, context, owner scope, invalidation, provenance, embedding. |
 | `ReasoningTrace` | Reasoning memory root | Carries session, owner, task, `task_embedding`, outcome, success, timestamps, metadata. |
 | `ReasoningStep` | Ordered reasoning step | Carries trace id, step number, thought/action/observation, timestamp, embedding, metadata. |
@@ -69,9 +69,11 @@ Important cross-cutting properties:
 - `metadata`: JSON string for extensibility.
 - `embedding`: vector property where applicable.
 - `owner_id`: nullable user/owner scope; null means shared/global.
-- `owner_key`: non-null owner merge sentinel, currently used on facts to keep shared and owned triples distinct.
+- `owner_key`: non-null owner key, `coalesce(owner_id, '*')`, on facts and entities. On facts it keeps shared and owned triples distinct in the merge key; on both it lets "own or shared" reads seek the shared half (`owner_key = '*'`), which `owner_id IS NULL` cannot. Entities written before it existed are backfilled at bootstrap.
 - `invalidated_at`: transaction-time clock; live recall excludes invalidated rows, as-of recall can include earlier beliefs.
 - `valid_from`, `valid_until`: valid-time window for facts and relationships.
+- `valid_from_precision`, `valid_until_precision` (facts): how precisely each date was stated, as `"year"`, `"month"`, `"day"` or `"instant"` (`DatePrecision`); absent means unspecified (rows written before precision was recorded) and renders as a day. "March 2024" is stored as 2024-03-01 with precision `"month"` and renders `2024-03`.
+- `occurred_on`, `occurred_on_precision` (facts): the day a one-off event happened ("yesterday I went hiking"), written under `TemporalValidityMode.Extract`; absent for a state. An event keeps no validity window of its own and renders `(on 2026-09-26)`.
 - `source_message_ids`: extracted-memory provenance list.
 - `last_accessed_at`, `access_count`: long-term access reinforcement fields used by decay/reranking.
 - `kind`, `memory_id`, `read_at`: read-audit fields on `MemoryReadAudit`; `owner_id` is copied from the read memory node.
@@ -134,6 +136,7 @@ Range/point/relationship indexes:
 | `preference_category_idx` | `Preference.category` |
 | `trace_session_idx` | `ReasoningTrace.session_id` |
 | `trace_success_idx` | `ReasoningTrace.success` |
+| `trace_kind_idx` | `ReasoningTrace.trace_kind` |
 | `reasoning_step_timestamp` | `ReasoningStep.timestamp` |
 | `tool_call_status_idx` | `ToolCall.status` |
 | `schema_name_idx` | `Schema.name` |
@@ -151,6 +154,7 @@ Range/point/relationship indexes:
 > columns already appear inside the composite — a composite serves only queries that constrain **all**
 > of its columns.
 | `entity_owner_idx` | `Entity.owner_id` |
+| `entity_owner_key_idx` | `Entity.owner_key` — lets entity resolution's "own or shared" candidate read seek the shared half by `owner_key = '*'` |
 | `preference_owner_idx` | `Preference.owner_id` |
 | `trace_owner_idx` | `ReasoningTrace.owner_id` |
 | `rel_owner_idx` | `RELATED_TO.owner_id` relationship-property index |
@@ -167,6 +171,8 @@ MERGE (f:Fact {subject: ..., predicate: ..., object: ..., owner_key: ...})
 ```
 
 On create, the incoming id becomes the persisted `id`. On match, the existing id is retained, mutable fields are updated, valid windows are coalesced, and `invalidated_at` is reset for live re-assertion.
+
+Before the merge, a predicate that ends with its own object's words (with or without a leading article) is trimmed, so a model's `Daniel | is a chef | chef` is stored as `Daniel | is a | chef` and renders "Daniel is a chef" once. `works at | Acme` is unchanged, and a predicate is never trimmed to empty.
 
 ## Temporal Semantics
 

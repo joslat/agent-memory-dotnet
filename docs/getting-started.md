@@ -338,6 +338,30 @@ var snapshot = await memory.RecallAsOfAsync(
     asOf: DateTimeOffset.UtcNow.AddDays(-7));
 ```
 
+### 4.4 What the agent sees, and whether it is still true
+
+A few defaults and switches shape what recall puts in the prompt:
+
+- **Dates are on.** `IncludeDates` (default `true` on every renderer) prints a fact's dates at the
+  precision they were stated — `Rosa moved to Lyon (since 2024-03)` — an event's day
+  (`(on 2026-09-26)`), and the day of a recalled turn from another session.
+- **Shared knowledge has its own budget.** `MemoryOptions.SharedRecallBudget` (default `3`) keeps a
+  shared corpus from crowding out the person's own memories and labels it "shared knowledge, not about
+  the user".
+- **Opt-in:** `RecallOptions.MaxRelationships` (how the recalled people relate),
+  `LlmExtractionOptions.TemporalValidity = Extract` (dates and event days are extracted),
+  `ExtractionOptions.SupersedeReplacedFacts` with `LlmExtractionOptions.MarkCorrections` (a change of
+  mind closes the old value), and `LlmExtractionOptions.OwnPreferencesOnly`.
+
+```csharp
+builder.Services.AddNeo4jAgentMemory(
+    configureMemory: memory => memory.Extraction.SupersedeReplacedFacts = true,
+    configureNeo4j:  neo4j  => { /* ... */ },
+    configureLlm:    llm    => llm.TemporalValidity = TemporalValidityMode.Extract);
+```
+
+The full table, with defaults, is in [configuration/memory-options.md](configuration/memory-options.md).
+
 ---
 
 ## 5. Microsoft Agent Framework Integration
@@ -444,6 +468,7 @@ builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
 | [`docs/architecture.md`](architecture.md) | Full architecture walkthrough — packages, layers, boundaries |
 | [`docs/agent-framework.md`](agent-framework.md) | Using AgentMemory with the Microsoft Agent Framework |
 | [`docs/schema.md`](schema.md) | Neo4j graph schema — node types, relationships, indexes |
+| [`docs/configuration/memory-options.md`](configuration/memory-options.md) | Dates, changes of mind, shared knowledge and relationships — the switches and their defaults |
 | [`docs/specification.md`](specification.md) | Current specification — product identity, requirements |
 | [`samples/AgentMemory.Sample.AgentWithMemory`](../samples/AgentMemory.Sample.AgentWithMemory/) | Flagship MAF golden path: context provider, memory tools, identity scoping, session serialize/restore, durable cross-session recall |
 | [`samples/AgentMemory.Sample.MinimalAgent`](../samples/AgentMemory.Sample.MinimalAgent/) | Lower-level facade sample for pre-run context, post-run persistence, tools, and traces |

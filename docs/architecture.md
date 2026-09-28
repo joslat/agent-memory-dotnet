@@ -472,9 +472,44 @@ is redundant, since `invalidated_at` already removes superseded facts).
 
 **When supersession actually fires, which is narrower than it reads.** Two conditions, both easy to
 miss. It is **opt-in** — `ExtractionOptions.SupersedeReplacedFacts` defaults to `false` — and it
-applies only to predicates the relation vocabulary declares **single-valued**: `belongs to`, `costs`,
-`expires`, `lives in`, `weighs`, `works at`. Everything else is treated as multi-valued and a new
-assertion joins rather than replaces.
+applies only to predicates the relation vocabulary declares **single-valued**: `age`, `belongs to`,
+`costs`, `expires`, `lives in`, `weighs`, `works at`, and `favourite <thing>` (one favourite per thing:
+"favourite band" and "favourite food" are different relations; a plural "favourite bands are" is not
+single-valued). Everything else is treated as multi-valued and a new assertion joins rather than
+replaces.
+
+**What counts as a change of mind** (all with `SupersedeReplacedFacts` on):
+
+- **Present-state forms.** A new value replaces every present-state form of its relation, not only its
+  own predicate: "works for" replaces "works at", "employed by" replaces "works for". The forms are
+  declared in the vocabulary (`presentForms`); history forms ("worked at", "lived in") neither replace the
+  current value nor are replaced by it. A stated age is written as the `age` relation, so "is 7 years old"
+  replaces "is 6 years old".
+- **Entailment.** An event states the state it entails when the vocabulary declares it: "moved to
+  Copenhagen" also writes "lives in Copenhagen", which replaces the previous residence. Only from a
+  completed form ("moved to", not "moving to"), when the object is a place ("moved to the analytics team"
+  states no home), and never over a current state the same turn states.
+- **Marked corrections.** With `LlmExtractionOptions.MarkCorrections` the extractor marks what a
+  correction replaces ("actually Arcade Fire, not Radiohead" adds `"replaces": "Radiohead"`), and the
+  write closes the live fact or preference that stated it, conservatively: facts of the same subject that
+  state the new fact's relation and mention the replaced value; failing that, the single fact that
+  mentions it. This is how a preference (which has no relation) or a plan ("the full marathon instead of
+  the half") is replaced. A preference stating a single-valued relation ("favourite band is …") is
+  replaced whether marked or not.
+- **One decision per extraction.** When one extraction states several values of one relation ("I moved
+  to Copenhagen, then to Oslo"), the current value is decided once, the same on the single and batch
+  write paths: a value a correction of the same extraction names is old; of the rest the last said is
+  current, and of two dated values the later-dated one; nothing is closed until every fact of the
+  extraction is written.
+- **Only values that hold now.** A value whose validity has already ended ("worked at Google until
+  2019") or has not begun (a plan) replaces nothing and is never replaced: an ended value is history,
+  and a future one is a plan.
+- **Relationship edges too.** A relationship said again reuses the live edge; a new edge of a
+  single-valued relation ends the previous one from the same source, in any of its present-state forms
+  (`valid_until` is set, the edge stays for history), once the new edge is stored.
+
+Known limits: a fact has one validity window, so a value said again after it was replaced keeps its
+earlier end; and a plan that begins does not yet hand over from the value it was meant to replace.
 
 That default is deliberate and worth keeping: getting it wrong in the *replacing* direction is a
 data-shaped defect, because storing "likes tea" would drop "likes coffee" from live recall with
@@ -728,7 +763,7 @@ epilogue rebuilds it; `MemoryContextAssembler` reads it back onto `MemoryContext
 | **Byte-stable between input changes** | Every `ORDER BY` ends in `id ASC`, and a content hash (`working_memory_hash`) short-circuits the rebuild write — a reshuffle of equal-ranked rows must not move `built_at` and defeat prompt-prefix caching |
 | **Ownerless writes are skipped** | One `string.IsNullOrWhiteSpace` guard. Without it, `MERGE (:User {identifier: null})` violates a unique key and turns ownerless conformance cases into 500s |
 | **A hard token budget** | `MaxTokens` (300) enforced by dropping whole trailing lines — entities first, then preferences, then facts. Facts are the head of the question distribution, so they are sacrificed last |
-| **Two flags, not one** | `MemoryOptions.WorkingMemory.Enabled` (default `false`) builds it; `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` (both default `false`) render it. Building without rendering is a legitimate state, and neither flag implies the other |
+| **Two flags, not one** | `MemoryOptions.WorkingMemory.Enabled` (default `true`, formerly `false`) builds it; `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` (both default `true`) render it. Building without rendering is a legitimate state, and neither flag implies the other |
 
 **Parity cost: the first delta that *narrows* divergence.** `:User` is adopted from upstream rather than
 invented, so `working-memory` pairs a `DeclaredLabels` entry with a `RemoveUpstreamOnlyLabels` entry —
@@ -1245,9 +1280,16 @@ what that means for it — for most, the query is never issued at all rather tha
 | Access-tracking queue (§3.2.8b) | `MemoryOptions.UseAccessTrackingQueue` | `false` | supersedes `MemoryOptions.DeferAccessTracking` (also `false`) where both are set |
 | Legible forgetting (§3.2.9b) | `RecallOptions.LegibleForgetting` | `false` | three gates; see the invariant table |
 | Arithmetic / derived memory (§3.2.10) | `MemoryOptions.Extraction.DerivedMemory.Enabled` | `false` | note the path — it lives under `Extraction`, not on `MemoryOptions` directly |
-| Working memory (§3.2.11) | `MemoryOptions.WorkingMemory.Enabled` | `false` | plus `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` (`false`) to render it |
+| Working memory (§3.2.11) | `MemoryOptions.WorkingMemory.Enabled` | `true` (was `false` when this table was written) | plus `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` to render it |
 | Trace outcomes in context (§3.4.1.5) | `ContextFormatOptions.IncludeTraceOutcomes` | `false` | brings `ProcedureTrustClause` with it |
 | Schema extensions (§4.3.1) | `Neo4jOptions.Extensions` | empty set | empty is the base schema, byte-identical |
+
+Some defaults have since been switched on, each on evidence from simulated conversations: the
+working-memory profile block, dates in the prompt (`IncludeDates`) and a separate shared-knowledge
+recall budget (`MemoryOptions.SharedRecallBudget = 3`). The model-dependent extraction switches
+(`TemporalValidity`, `MarkCorrections`, `OwnPreferencesOnly`) and `SupersedeReplacedFacts` stay
+opt-in. [`configuration/memory-options.md`](configuration/memory-options.md) lists the current
+defaults.
 
 Two consequences worth stating rather than implying:
 
@@ -1274,8 +1316,8 @@ Two consequences worth stating rather than implying:
 |---|---|---|
 | `:Conversation` | `Conversation` | `id`, `session_id`, `user_id`, `title`, `created_at`, `updated_at`, `metadata` |
 | `:Message` | `Message` | `id`, `conversation_id`, `session_id`, `role`, `content`, `timestamp`, `embedding`, `tool_call_ids`, `metadata` |
-| `:Entity` | `Entity` | `id`, `name`, `canonical_name`, `type`, `subtype`, `description`, `confidence`, `embedding`, `aliases`, `attributes`, `source_message_ids`, `location`, `metadata` |
-| `:Fact` | `Fact` | `id`, `subject`, `predicate`, `object`, `confidence`, `valid_from`, `valid_until`, `embedding`, `source_message_ids`, `created_at`, `metadata` |
+| `:Entity` | `Entity` | `id`, `name`, `canonical_name`, `type`, `subtype`, `description`, `confidence`, `embedding`, `aliases`, `attributes`, `source_message_ids`, `location`, `owner_id`, `owner_key` (`coalesce(owner_id, '*')`, backfilled at bootstrap), `metadata` |
+| `:Fact` | `Fact` | `id`, `subject`, `predicate`, `object`, `confidence`, `valid_from`, `valid_until`, `valid_from_precision`, `valid_until_precision` (`year`/`month`/`day`/`instant`, absent = unspecified), `occurred_on`, `occurred_on_precision` (the day a one-off event happened), `embedding`, `source_message_ids`, `created_at`, `metadata` |
 | `:Preference` | `Preference` | `id`, `category`, `preference`, `context`, `confidence`, `embedding`, `source_message_ids`, `created_at`, `metadata` |
 | `:ReasoningTrace` | `ReasoningTrace` | `id`, `session_id`, `task`, `outcome`, `success`, `trace_kind`, `started_at`, `completed_at`, `task_embedding`, `metadata` — `trace_kind` (values `episode`/`procedure`, stored lowercase) marks promotion to a reusable procedure (§3.3.1; the promote path's `"Procedure"` casing bug meant promotion **never worked** until fixed 2026-08-14 — Cypher comparisons are now `toLower()`'d, so old rows work without migration; see `docs/reviews/procedure-retrieval-precision-result.md` §1.1). `success` is **tri-state** (`bool?`, `null` = unrecorded — renderers must not show `null` as failure) |
 | `:ReasoningStep` | `ReasoningStep` | `id`, `trace_id`, `step_number`, `thought`, `action`, `observation`, `embedding`, `metadata` |
@@ -1452,6 +1494,7 @@ CREATE INDEX fact_merge_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.subject_key, f.
 CREATE INDEX fact_owner_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_key)
 CREATE INDEX fact_predicate_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.predicate_key)
 CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)
+CREATE INDEX entity_owner_key_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_key)
 CREATE INDEX preference_owner_idx IF NOT EXISTS FOR (p:Preference) ON (p.owner_id)
 CREATE INDEX trace_owner_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.owner_id)
 CREATE INDEX rel_owner_idx IF NOT EXISTS FOR ()-[r:RELATED_TO]-() ON (r.owner_id)

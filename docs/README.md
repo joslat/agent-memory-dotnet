@@ -8,6 +8,7 @@ Start with **[getting-started.md](getting-started.md)** to install and run.
 | [memory-map.md](memory-map.md) | The memory types, what makes a memory system more than a store, and an honest map of what this library covers today — labelled BUILT / WIRED / MEASURED, with what is deliberately not built |
 | [architecture.md](architecture.md) | Packages, layers, boundaries, dependency rules, the Neo4j graph model |
 | [agent-framework.md](agent-framework.md) | Using AgentMemory with the Microsoft Agent Framework — the `AIContextProvider` lifecycle, memory tools, identity/scoping |
+| [configuration/memory-options.md](configuration/memory-options.md) | The switches for dates in the prompt, changes of mind, shared knowledge and relationships — name, default, what each does |
 | [schema.md](schema.md) | Neo4j schema — node labels, relationship types, indexes, temporal and owner semantics |
 | [specification.md](specification.md) | Current specification — product identity, package set, architecture, and requirements |
 | [neo4j-memory-ecosystem.md](neo4j-memory-ecosystem.md) | Compatibility with upstream `neo4j-labs/agent-memory` — schema-parity/schema-check tooling, TCK conformance, and the review process behind releases |

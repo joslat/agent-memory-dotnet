@@ -413,6 +413,16 @@ load-bearing here rather than modest: these are capabilities whose *code paths* 
 whose *effect on answers* is unknown. A reader planning against this document should treat the
 right-hand column as the claim and the flag as the cost of finding out.
 
+**Added later still: what the agent sees, and whether it is still true.** Four more changes land
+inside existing types rather than beside them, and each was found and checked in simulated
+conversations, not on the benchmark: dates reach the prompt at the precision they were stated, and an
+event carries the day it happened ([§5.5](#55-temporal-validity)); a change of mind closes the value
+it replaces ([§5.3](#53-contradiction-handling)); shared knowledge gets its own recall budget and label
+([§5.6](#56-retrieval-budget)); and relationships between recalled people and things reach the prompt
+([§6.1](#61-semantic-memory--built-wired-measured)). Unlike the rows above, two of them are **on by
+default** (`IncludeDates`, `MemoryOptions.SharedRecallBudget = 3`); the rest are opt-in. The switches
+and their defaults are in [`configuration/memory-options.md`](configuration/memory-options.md).
+
 ---
 
 ## 3. What makes a memory system great
@@ -781,6 +791,20 @@ the tractable case, and it is not most cases.
 > memory path uses `DETACH DELETE` on a superseded fact. Supersession is implemented for
 > `Fact → Fact` and `Preference → Preference`. Re-asserting a fact clears `invalidated_at`, so a
 > present-time positive assertion restores live recall (`FactQueries.Upsert`, `UpsertBatch`).
+>
+> **Recognising a change of mind** (opt-in, `ExtractionOptions.SupersedeReplacedFacts`) goes beyond
+> same-subject/same-predicate. A new value replaces every present-state form of a single-valued
+> relation ("works for" replaces "works at"); a stated age and a `favourite <thing>` are single-valued;
+> an event states the state it entails ("moved to Copenhagen" also writes "lives in Copenhagen"); and
+> with `LlmExtractionOptions.MarkCorrections` the extractor marks what a correction replaces ("actually
+> Arcade Fire, not Radiohead"), so a preference or a plan, which has no single-valued relation, is closed
+> too. Within one extraction the current value is decided once (the last said that was not corrected
+> away; of dated values, the latest by date). Supersession replaces only a value that holds now: an
+> ended value is history and a not-yet-begun one is a plan, so neither replaces nor is replaced.
+> Relationship edges end (`valid_until`) when a single-valued relation is replaced. Known limits: a fact
+> has one validity window, so a value said again after it was replaced keeps its earlier end; and a plan
+> that begins does not yet hand over. Detail in
+> [`architecture.md` §3.2.7](architecture.md#327-valid-time-recall-and-prospective-memory-gating).
 
 ### 5.4 Isolation
 
@@ -858,6 +882,24 @@ Two traps, both common enough to check for by default:
 > Supersession stamps `valid_until` as it closes a fact. `Preference` still carries no valid-time
 > window at all ([`TemporalQueries.cs:76-77`](../src/AgentMemory.Neo4j/Queries/TemporalQueries.cs)).
 >
+> **Dates reach the prompt, at the precision they were stated.** Storing a date was not enough: in
+> simulated conversations the date of a move was stored and the agent answered "I don't have the
+> date", because facts rendered as `subject predicate object` only. A fact now keeps how precisely each
+> date was stated (`DatePrecision`: year, month, day, instant; stored as `valid_from_precision` /
+> `valid_until_precision`), and every renderer applies one rule: `(since 2024-03)`, `(until 2027-06)`,
+> `(2024 to 2027)`, never a day nobody said. A recalled turn from another session carries its day
+> (`[2026-09-20] I went hiking yesterday.`), so its "yesterday" can be resolved. `IncludeDates` is **on
+> by default** on every renderer (Agent Framework `ContextFormatOptions`, Core
+> `MemoryContextFormatterOptions`, Semantic Kernel `MemoryRecallSecurityOptions`,
+> `WorkingMemoryOptions`). Under `TemporalValidityMode.Extract` each turn reaches the extractor with its
+> timestamp, so "in April", said in September, is resolved against the right year.
+>
+> **An event carries the day it happened.** Under `TemporalValidityMode.Extract` a one-off event that
+> already happened ("yesterday I went hiking") is stored with `Fact.OccurredOn` / `OccurredOnPrecision`
+> (`occurred_on`) instead of a validity window, and renders `(on 2026-09-26)`. Before, the day was
+> written as `valid_from` alone, which read "since", or as a one-day window, which dropped the event from
+> the profile block the day after.
+>
 > One shipped default also moved on measurement: `MemoryOptions.TemporalQueryClocks` now defaults to
 > `ValidTimeOnly`
 > ([`MemoryOptions.cs:213`](../src/AgentMemory.Abstractions/Options/MemoryOptions.cs)), implementing
@@ -888,13 +930,22 @@ Four consequences of position 1 in [§3](#3-what-makes-a-memory-system-great):
 
 > **Our status.** Budgets are per-section and configurable:
 > [`RecallOptions`](../src/AgentMemory.Abstractions/Options/RecallOptions.cs) — `MaxRecentMessages 10`,
-> `MaxRelevantMessages 5`, `MaxEntities 10`, `MaxPreferences 5`, `MaxFacts 10`, `MaxTraces 3`,
-> `MaxGraphRagItems 5`, `MinSimilarityScore 0.7`. There are **six vector indexes**, each with its own
+> `MaxRelevantMessages 5`, `MaxEntities 10`, `MaxRelationships 0`, `MaxPreferences 5`, `MaxFacts 10`,
+> `MaxTraces 3`, `MaxGraphRagItems 5`, `MinSimilarityScore 0.7`. There are **six vector indexes**, each with its own
 > independent budget: `message`, `entity`, `preference`, `fact`, `task` (traces), and
 > `reasoning_step` ([`SchemaQueries.BuildVectorIndexes`](../src/AgentMemory.Neo4j/Queries/SchemaQueries.cs)).
 > That per-index separation is why the crowding in [§5.4](#54-isolation) is a *fact-channel* problem
 > rather than a global one — but it also means a capability that writes more `:Fact` rows makes the
 > already-starved channel worse.
+>
+> **Shared knowledge is a claimant with its own budget.** A large shared corpus (a book, a catalogue,
+> a manual, stored with no owner) competed with a person's own memories for the same top k and won by
+> numbers: measured on four embedding models, shared items took 7 to 8 of 10 fact slots on questions
+> about the person. `MemoryOptions.SharedRecallBudget` (**default 3**; `null` restores one budget)
+> searches the owner's own rows and the shared rows separately, and the renderers show owner-less
+> entities, facts, preferences and relationships under a "shared knowledge, not about the user" label
+> instead of as the person's own. Own top k plus shared top 3 cut shared items per question from 7.6 to
+> 3.0 with every answer kept or better, on every model tested.
 >
 > Two honest qualifications:
 > - **All four memory-path rerankers ship off.** The default profile is `MemoryProfile.Parity` ⇒ recency
@@ -1027,6 +1078,17 @@ reasoning layer as a promoted trace.
   `ExpandFactsByPredicate` (returns every fact sharing a top-K hit's canonical predicate, so an
   aggregation question is not silently answered from four of five matching facts) and
   `ResolveQueryRelations` (expands on the relations the query text itself names).
+- **Relationships reach the prompt** when asked for: `RecallOptions.MaxRelationships` (default 0)
+  reads the live relationships touching the recalled entities in one query and both renderers show
+  them as `Rosa — best friend → Carmen`. Before, a relationship had no section in the recalled context,
+  so "Carmen is my best friend", stored as an edge, never reached the agent. Live recall only.
+- **Whose memory a statement is.** With `LlmExtractionOptions.OwnPreferencesOnly` (opt-in) a
+  preference is only the user's own stated taste; someone else's taste is a fact about them, and a
+  request is not a preference. A shared (owner-less) write stores no preferences at all. Once the
+  user's name is known the speaker is stored as that person, never as an entity called "user", and a
+  question's presupposition ("When did I move to Lyon?") is not stored as a statement.
+- An object the model wrote twice is stored once: "Daniel | is a chef | chef" is trimmed at write to
+  read "Daniel is a chef".
 - Relation vocabulary is canonicalised: the measured graph holds `planned` (839 facts) and `plans`
   (14) as separate predicate keys, which is why matching is on `predicate_key` and never on raw text
   ([`MemoryRelationLexicon.cs`](../src/AgentMemory.Core/Memory/MemoryRelationLexicon.cs)).

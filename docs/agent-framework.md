@@ -400,6 +400,30 @@ mechanism is the one its scoped services require, and it does strictly more (mul
   included. For a hard cap on total prompt size, use `ContextBudget.MaxTokens`/`MaxCharacters` instead.
   `MaxContextMessages` is a `[Obsolete]` compatibility alias for the same value.
 - `ContextFormat.ContextPrefix` — the untrusted-reference-data framing prepended to the context block.
+- `ContextFormat.IncludeDates` — default `true`. A fact renders its dates at the precision they were
+  stated (`Rosa moved to Lyon (since 2024-03)`, `(until 2027-06)`, `(2024 to 2027)`), an event the day
+  it happened (`(on 2026-09-26)`), and a recalled turn from another session the day it was said
+  (`[2026-09-20] I went hiking yesterday.`). The same rule applies to the conflict and supersession
+  blocks and, through `MemoryOptions.WorkingMemory.IncludeDates`, to the profile block. `false` renders
+  as before, without dates.
+- **Relationships** — set `RecallOptions.MaxRelationships` (default `0`, none) through
+  `MemoryOptions.Recall` to have the live relationships between the recalled entities rendered as
+  `Relationships: Rosa — best friend → Carmen`. They render with the entities, so they need
+  `IncludeEntities`. Live recall only.
+- **Shared knowledge** — with `MemoryOptions.SharedRecallBudget` (default `3`), owner-less items are
+  recalled under their own budget and rendered after the person's own under a label, for example
+  `Facts (shared knowledge, not about the user): …`, so a taught book or manual is not read as things
+  the user said. `null` restores one budget and the previous rendering.
+
+```csharp
+builder.Services.AddNeo4jAgentMemory(
+    new MemoryOptions { Recall = RecallOptions.Default with { MaxRelationships = 5 } },
+    configureNeo4j: neo4j => { /* ... */ });
+```
+
+The extraction-side switches that decide what is stored (dated events, changes of mind, whose
+preference a statement is) are listed with their defaults in
+[configuration/memory-options.md](configuration/memory-options.md).
 
 **Trust boundary (#92, Phases 1-8, all shipped).** Recalled entities/facts/preferences/reasoning
 traces/GraphRAG content may originate from users, external documents, tool results, or the model itself —
