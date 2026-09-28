@@ -87,6 +87,8 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<IFactRepository, Neo4jFactRepository>();
         // G-14: owner row counts for owner-first recall, shared across the transient repositories.
         services.TryAddSingleton<OwnerRowCounts>();
+        // 37.1b: whether the store holds shared memory at all, so an owner's recall skips an empty shared search.
+        services.TryAddSingleton<AgentMemory.Core.Services.ISharedCorpusProbe, AgentMemory.Neo4j.Services.Neo4jSharedCorpusProbe>();
         services.TryAddTransient<IPreferenceRepository, Neo4jPreferenceRepository>();
         // S1. Registered beside the other repositories rather than behind a feature flag: an
         // unregistered store would make EntitySummaryService unresolvable, so the option that

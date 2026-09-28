@@ -264,11 +264,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Dates are on by default.** `IncludeDates` is now true on every renderer (Agent Framework `ContextFormatOptions`,
-  Core `MemoryContextFormatterOptions`, Semantic Kernel `MemoryRecallSecurityOptions`, `WorkingMemoryOptions`): in
-  simulated conversations dated questions were answered from the stored dates, and no answer got worse. Set
-  `IncludeDates = false` for the earlier prompt. `SharedRecallBudget` stays opt-in (3 is the measured value): on, an
-  owner-scoped recall searches twice per memory type. The model-dependent extraction switches
+- **Dates and the shared-knowledge budget are on by default.** `IncludeDates` is now true on every renderer (Agent
+  Framework `ContextFormatOptions`, Core `MemoryContextFormatterOptions`, Semantic Kernel `MemoryRecallSecurityOptions`,
+  `WorkingMemoryOptions`) and `MemoryOptions.SharedRecallBudget` is 3: in simulated conversations both kept every answer
+  and improved the dated ones. A store without shared memory of a kind is no longer searched for it (the split had
+  searched twice per memory type everywhere; now one cached existence check per store and kind). Set
+  `IncludeDates = false` or `SharedRecallBudget = null` for the earlier prompt. The model-dependent extraction switches
   (`TemporalValidityMode.Extract`, `MarkCorrections`, `OwnPreferencesOnly`) and `SupersedeReplacedFacts` stay opt-in.
 
 - **Entity resolution reads shared candidates by an index seek.** Entities carry `owner_key` (`"*"` when shared) on

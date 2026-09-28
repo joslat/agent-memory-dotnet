@@ -420,7 +420,7 @@ event carries the day it happened ([§5.5](#55-temporal-validity)); a change of 
 it replaces ([§5.3](#53-contradiction-handling)); shared knowledge gets its own recall budget and label
 ([§5.6](#56-retrieval-budget)); and relationships between recalled people and things reach the prompt
 ([§6.1](#61-semantic-memory--built-wired-measured)). Unlike the rows above, one of them is **on by
-default** (`IncludeDates`); the rest, including `MemoryOptions.SharedRecallBudget` (3 recommended), are opt-in. The switches
+default** (`IncludeDates`, `MemoryOptions.SharedRecallBudget = 3`); the rest are opt-in. The switches
 and their defaults are in [`configuration/memory-options.md`](configuration/memory-options.md).
 
 ---
@@ -941,7 +941,7 @@ Four consequences of position 1 in [§3](#3-what-makes-a-memory-system-great):
 > **Shared knowledge is a claimant with its own budget.** A large shared corpus (a book, a catalogue,
 > a manual, stored with no owner) competed with a person's own memories for the same top k and won by
 > numbers: measured on four embedding models, shared items took 7 to 8 of 10 fact slots on questions
-> about the person. `MemoryOptions.SharedRecallBudget` (opt-in, **3 recommended**; `null`, the default, keeps one budget)
+> about the person. `MemoryOptions.SharedRecallBudget` (**default 3**; `null` keeps one budget; a store without shared memory is not searched for it)
 > searches the owner's own rows and the shared rows separately, and the renderers show owner-less
 > entities, facts, preferences and relationships under a "shared knowledge, not about the user" label
 > instead of as the person's own. Own top k plus shared top 3 cut shared items per question from 7.6 to

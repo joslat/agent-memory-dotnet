@@ -43,8 +43,10 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         // 30.4. Optional, mirroring the assembler's nullable IGraphRagContextSource: a host that has
         // not registered the working-memory tier keeps the exact previous construction shape.
         IWorkingMemoryService? workingMemory = null,
-        IOptions<MemoryOptions>? memoryOptions = null)
+        IOptions<MemoryOptions>? memoryOptions = null,
+        ISharedCorpusProbe? sharedCorpus = null)
     {
+        _sharedCorpus = sharedCorpus;
         ArgumentNullException.ThrowIfNull(entityRepo);
         ArgumentNullException.ThrowIfNull(factRepo);
         ArgumentNullException.ThrowIfNull(prefRepo);
@@ -68,6 +70,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
             _logger);
         _sharedRecallBudget = memoryOptions?.Value.SharedRecallBudget;
     }
+
+    private readonly ISharedCorpusProbe? _sharedCorpus;
 
     /// <summary>
     /// 36.3. Whether a recall under <paramref name="resolved"/> takes shared memory under its own budget
@@ -97,13 +101,16 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     private async Task<IReadOnlyList<(T Item, double Score)>> SearchWithSharedBudgetAsync<T>(
         MemoryScope resolved,
         int limit,
+        SharedKind kind,
         Func<MemoryScope, int, Task<IReadOnlyList<(T Item, double Score)>>> search)
     {
         if (!SplitsShared(_sharedRecallBudget, resolved))
             return await search(resolved, limit).ConfigureAwait(false);
 
         var ownTask = search(resolved with { IncludeShared = false }, limit);
-        var sharedTask = _sharedRecallBudget > 0
+        // 37.1b. A store without shared memory of this kind has nothing for the second search to find.
+        var anyShared = _sharedCorpus is null || await HasSharedAsync(kind).ConfigureAwait(false);
+        var sharedTask = anyShared && _sharedRecallBudget > 0
             ? search(SharedScopes.SharedOnly, _sharedRecallBudget.Value)
             : Task.FromResult<IReadOnlyList<(T Item, double Score)>>(Array.Empty<(T, double)>());
         await Task.WhenAll(ownTask, sharedTask).ConfigureAwait(false);
@@ -114,6 +121,20 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         combined.AddRange(own);
         combined.AddRange(shared);
         return combined;
+    }
+
+    /// <summary>The probe's answer; when it cannot answer, the shared search runs, as it always did.</summary>
+    private async ValueTask<bool> HasSharedAsync(SharedKind kind)
+    {
+        try
+        {
+            return await _sharedCorpus!.HasSharedAsync(kind, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not tell whether the store holds shared {Kind} memory; searching it.", kind);
+            return true;
+        }
     }
 
     /// <summary>
@@ -246,7 +267,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         double minScore,
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
-        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchEntitiesAsync)), limit,
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchEntitiesAsync)), limit, SharedKind.Entity,
             (s, l) => _entityRepo.SearchByVectorAsync(queryEmbedding, l, minScore, s, cancellationToken));
 
     /// <inheritdoc/>
@@ -337,7 +358,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         double minScore,
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
-        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchPreferencesAsync)), limit,
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchPreferencesAsync)), limit, SharedKind.Preference,
             (s, l) => _prefRepo.SearchByVectorAsync(queryEmbedding, l, minScore, s, cancellationToken));
 
     /// <inheritdoc/>
@@ -685,7 +706,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         // budget belonging to the source facts it was computed FROM -- the displacement measured at
         // 16 points on the arithmetic vertical.
         var derivedMode = maxDerivedFacts is null ? DerivedFactMode.Include : DerivedFactMode.Exclude;
-        IReadOnlyList<(Fact Fact, double Score)> scored = await SearchWithSharedBudgetAsync(resolved, limit, (s, l) =>
+        IReadOnlyList<(Fact Fact, double Score)> scored = await SearchWithSharedBudgetAsync(resolved, limit, SharedKind.Fact, (s, l) =>
                 validTime == ValidTimeMode.Ignore
                     ? (derivedMode == DerivedFactMode.Include
                         ? _factRepo.SearchByVectorAsync(queryEmbedding, l, minScore, s, cancellationToken)
@@ -885,7 +906,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         double minScore,
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
-        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchEntitiesAsOfAsync)), limit,
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchEntitiesAsOfAsync)), limit, SharedKind.Entity,
             (s, l) => _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, l, minScore, s, cancellationToken));
 
     /// <summary>
@@ -950,7 +971,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
 
         var resolved = Resolve(scope, nameof(SearchFactsAsOfAsync));
         var systemClock = systemAsOf ?? asOf;
-        IReadOnlyList<(Fact Fact, double Score)> scored = await SearchWithSharedBudgetAsync(resolved, limit,
+        IReadOnlyList<(Fact Fact, double Score)> scored = await SearchWithSharedBudgetAsync(resolved, limit, SharedKind.Fact,
                 (s, l) => _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, l, minScore, s, systemClock, cancellationToken))
             .ConfigureAwait(false);
         var top = scored.Select(r => r.Fact).ToList();
@@ -1011,7 +1032,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         MemoryScope? scope,
         DateTimeOffset? systemAsOf,
         CancellationToken cancellationToken) =>
-        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchFactsAsOfAsync)), limit,
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchFactsAsOfAsync)), limit, SharedKind.Fact,
             (s, l) => _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, l, minScore, s, systemAsOf, cancellationToken));
 
     /// <inheritdoc/>
@@ -1039,7 +1060,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         double minScore,
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
-        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchPreferencesAsOfAsync)), limit,
+        SearchWithSharedBudgetAsync(Resolve(scope, nameof(SearchPreferencesAsOfAsync)), limit, SharedKind.Preference,
             (s, l) => _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, l, minScore, s, cancellationToken));
 
     // ── Invalidation & supersession (D5 / D7) — thin owner-scoped delegations, gated through the

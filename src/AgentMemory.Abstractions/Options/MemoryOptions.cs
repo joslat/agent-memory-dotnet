@@ -131,9 +131,9 @@ public sealed record MemoryOptions
 
     /// <summary>
     /// How many <b>shared</b> (owner-less) entities, facts and preferences an owner's recall may take, as a
-    /// budget of their own. Null (the default) keeps one budget for both, as before. 3 is the measured choice (in
-    /// simulated conversations the separate budget kept every answer, on every model tested); it stays opt-in because
-    /// an owner-scoped recall then searches twice per memory type, even in a store without shared knowledge.
+    /// budget of their own. Default 3 (37.1: in simulated conversations the separate budget kept every answer, on every
+    /// model tested); null keeps one budget for both, as before. A store without shared memory of a kind is not
+    /// searched for it (37.1b), so the budget costs nothing where nothing is shared.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -155,7 +155,7 @@ public sealed record MemoryOptions
     /// the ones with no owner. Predicate expansion and derived facts read the owner's own rows only.
     /// </para>
     /// </remarks>
-    public int? SharedRecallBudget { get; set; }
+    public int? SharedRecallBudget { get; set; } = 3;
 
     /// <summary>
     /// Boosts recalled facts that sit close, in the graph, to the entity the query is about (R6).

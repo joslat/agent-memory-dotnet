@@ -42,7 +42,7 @@ public sealed class SharedKnowledgeBoundaryTests
     // ── The service: two searches, own first, only for an owner reading shared ──────────────────────
 
     private static (LongTermMemoryService Service, IFactRepository Facts, IEntityRepository Entities, IPreferenceRepository Preferences)
-        Service(int? sharedBudget)
+        Service(int? sharedBudget, ISharedCorpusProbe? probe = null)
     {
         var facts = Substitute.For<IFactRepository>();
         facts.SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
@@ -68,7 +68,8 @@ public sealed class SharedKnowledgeBoundaryTests
             Options.Create(new LongTermMemoryOptions()),
             NullLogger<LongTermMemoryService>.Instance,
             new DefaultMemoryIsolationPolicy(Options.Create(memoryOptions.Isolation), NullLogger<DefaultMemoryIsolationPolicy>.Instance),
-            memoryOptions: Options.Create(memoryOptions));
+            memoryOptions: Options.Create(memoryOptions),
+            sharedCorpus: probe);
         return (service, facts, entities, preferences);
     }
 
@@ -379,8 +380,49 @@ public sealed class SharedKnowledgeBoundaryTests
         text.Should().Contain("[closest match, 0.42] Alice followed the White Rabbit", "a shared near-miss must not read as a confident match");
     }
 
-    /// <summary>37.1: opt-in; on, an owner-scoped recall searches twice per memory type (the perf gate caught it).</summary>
+    /// <summary>37.1 + 37.1b: on by default, now that a store without shared memory is not searched for it.</summary>
     [Fact]
-    public void Shared_knowledge_shares_one_budget_unless_asked() =>
-        new AgentMemory.Abstractions.Options.MemoryOptions().SharedRecallBudget.Should().BeNull();
+    public void Shared_knowledge_has_its_own_budget_by_default() =>
+        new AgentMemory.Abstractions.Options.MemoryOptions().SharedRecallBudget.Should().Be(3);
+
+    // ── 37.1b: nothing shared, nothing to search ─────────────────────────────────────────────────────
+
+    private static ISharedCorpusProbe Probe(bool shared)
+    {
+        var probe = Substitute.For<ISharedCorpusProbe>();
+        probe.HasSharedAsync(Arg.Any<SharedKind>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<bool>(shared));
+        return probe;
+    }
+
+    [Fact]
+    public async Task A_store_without_shared_memory_is_searched_once()
+    {
+        var (service, facts, _, _) = Service(sharedBudget: 3, Probe(shared: false));
+
+        var found = await service.SearchFactsAsync(new float[4], 10, 0.7, MemoryScope.For("u1"));
+
+        found.Select(f => f.FactId).Should().Equal("own");
+        await facts.DidNotReceive().SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(),
+            Arg.Is<MemoryScope?>(s => s!.OwnerId == SharedScopes.SentinelOwner), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_store_with_shared_memory_is_searched_for_it()
+    {
+        var (service, _, _, _) = Service(sharedBudget: 3, Probe(shared: true));
+
+        (await service.SearchFactsAsync(new float[4], 10, 0.7, MemoryScope.For("u1"))).Select(f => f.FactId)
+            .Should().Equal("own", "shared");
+    }
+
+    [Fact]
+    public async Task A_probe_that_cannot_answer_leaves_the_shared_search_in_place()
+    {
+        var probe = Substitute.For<ISharedCorpusProbe>();
+        probe.HasSharedAsync(Arg.Any<SharedKind>(), Arg.Any<CancellationToken>()).Returns<ValueTask<bool>>(_ => throw new InvalidOperationException("down"));
+        var (service, _, _, _) = Service(sharedBudget: 3, probe);
+
+        (await service.SearchFactsAsync(new float[4], 10, 0.7, MemoryScope.For("u1"))).Select(f => f.FactId)
+            .Should().Equal("own", "shared");
+    }
 }

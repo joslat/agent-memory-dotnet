@@ -345,7 +345,7 @@ A few defaults and switches shape what recall puts in the prompt:
 - **Dates are on.** `IncludeDates` (default `true` on every renderer) prints a fact's dates at the
   precision they were stated — `Rosa moved to Lyon (since 2024-03)` — an event's day
   (`(on 2026-09-26)`), and the day of a recalled turn from another session.
-- **Shared knowledge has its own budget.** `MemoryOptions.SharedRecallBudget` (opt-in; 3 is the measured value) keeps a
+- **Shared knowledge has its own budget.** `MemoryOptions.SharedRecallBudget` (default `3`) keeps a
   shared corpus from crowding out the person's own memories and labels it "shared knowledge, not about
   the user".
 - **Opt-in:** `RecallOptions.MaxRelationships` (how the recalled people relate),
