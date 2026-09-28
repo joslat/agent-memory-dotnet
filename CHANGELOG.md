@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   taking `now`, so write-time supersession judges the candidates at the same instant it judged the new value (it read
   the store's wall clock before).
 
+- **Who an event was shared with is kept as its own fact** (`LlmExtractionOptions.CaptureEventCompanions`, off by
+  default). "Yesterday I went hiking in Sintra with my friend Pedro" was kept whole in one extraction and split without
+  Pedro in the next, so "who was with me?" had no answer. With the option on, every extractor (unified, multi-session,
+  per-type facts) also asks for, per companion, "user | went hiking with | Pedro" with the event's day; off, every
+  prompt is byte-for-byte what it was.
+
 - **A plan that has begun takes over from the value it was planned to replace.** "I'm moving to Oslo next month" is
   stored as a plan and replaces nothing when said; once its start has passed, recall gives Oslo, not Copenhagen as
   well. Applied where a recall's facts are chosen, at the recall's instant (now, or the as-of time), per owner, subject

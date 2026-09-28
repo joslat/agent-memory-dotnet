@@ -140,6 +140,16 @@ public sealed class LlmExtractionOptions
     public bool MarkCorrections { get; set; }
 
     /// <summary>
+    /// J-14. Keep who an event was shared with as facts of their own (default false). "Yesterday I went hiking in Sintra
+    /// with my friend Pedro and we got lost" was sometimes kept whole ("went hiking in Sintra with Pedro"), sometimes
+    /// split into "went hiking in | Sintra" and "got lost … | Sintra" with Pedro gone, so "who was with me?" had no
+    /// answer. With this on, the extractor also writes, for each companion, "user | went hiking with | Pedro" (the
+    /// activity with "with", the event's day kept), however it splits the event itself. Off, every prompt is
+    /// byte-for-byte what it was.
+    /// </summary>
+    public bool CaptureEventCompanions { get; set; }
+
+    /// <summary>
     /// How precisely a stored fact or preference is bound to the turn that stated it.
     /// </summary>
     /// <remarks>

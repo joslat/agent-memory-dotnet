@@ -234,6 +234,14 @@ internal static class ExtractionPromptSemantics
           + "value exactly as it was said. Omit \"replaces\" everywhere else."
         : string.Empty;
 
+    /// <summary>J-14. The people an event was shared with, each as a fact of their own. Empty when off.</summary>
+    internal static string EventCompanionsInstruction(bool capture) => capture
+        ? "\nWhen the user did something WITH other people (\"hiked in Sintra with Pedro\", \"had dinner with Ana and "
+          + "Luis\"), also add, for EACH of them, a fact whose subject is \"user\", whose predicate is the activity followed "
+          + "by \"with\" (\"went hiking with\", \"had dinner with\") and whose object is that person's name, with the same "
+          + "day as the event if it has one. Keep the facts about the event itself exactly as you would without this."
+        : string.Empty;
+
     internal static string UserNameInstruction(bool capture) => capture
         ? "\nIf the user STATES their own name (\"I'm Dana\", \"call me Dee\"), also add a fact whose "
           + "subject is \"user\", whose predicate is \"is named\" and whose object is the name as they "

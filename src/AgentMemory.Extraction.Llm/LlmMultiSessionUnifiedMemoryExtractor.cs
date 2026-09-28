@@ -57,7 +57,8 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         bool captureUserName = false,
         bool ignoreQuestions = false,
         bool ownPreferencesOnly = false,
-        bool markCorrections = false)
+        bool markCorrections = false,
+        bool eventCompanions = false)
     {
         // Every shared instruction, appended in the same order every rung uses. A setting honoured by
         // only some extractors is worse than no setting - it makes behaviour depend on a performance
@@ -69,7 +70,8 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
             + ExtractionPromptSemantics.UserNameInstruction(captureUserName)
             + ExtractionPromptSemantics.QuestionsInstruction(ignoreQuestions)
             + ExtractionPromptSemantics.OwnPreferencesInstruction(ownPreferencesOnly)
-            + ExtractionPromptSemantics.CorrectionsInstruction(markCorrections);
+            + ExtractionPromptSemantics.CorrectionsInstruction(markCorrections)
+            + ExtractionPromptSemantics.EventCompanionsInstruction(eventCompanions);
         var established = vocabulary?.Snapshot() ?? [];
         if (established.Count == 0)
             return SystemPrompt + assistant;
@@ -331,7 +333,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
             runner.RunAsync(
                 BuildSystemPrompt(
                     ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity,
-                    _options.Provenance, _options.CaptureIdentityAliases, _options.CaptureUserName, _options.IgnoreQuestions, _options.OwnPreferencesOnly, _options.MarkCorrections),
+                    _options.Provenance, _options.CaptureIdentityAliases, _options.CaptureUserName, _options.IgnoreQuestions, _options.OwnPreferencesOnly, _options.MarkCorrections, _options.CaptureEventCompanions),
                 UserInstruction,
                 BuildBatchText(batch, _options.Provenance),
                 response => new[] { ProjectAndValidate(response, batch) },
@@ -559,7 +561,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
             // under-estimates by exactly the instruction it forgot.
             Encoding.UTF8.GetByteCount(BuildSystemPrompt(
                 ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity,
-                _options.Provenance, _options.CaptureIdentityAliases, _options.CaptureUserName, _options.IgnoreQuestions, _options.OwnPreferencesOnly, _options.MarkCorrections)) +
+                _options.Provenance, _options.CaptureIdentityAliases, _options.CaptureUserName, _options.IgnoreQuestions, _options.OwnPreferencesOnly, _options.MarkCorrections, _options.CaptureEventCompanions)) +
             Encoding.UTF8.GetByteCount(UserInstruction) +
             Encoding.UTF8.GetByteCount(BuildBatchText(batch, _options.Provenance)) +
             35);

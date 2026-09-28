@@ -61,7 +61,8 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
             (_options.FactExtractionPrompt
                 ?? BuildSystemPrompt(
                     _options.AssistantContent, _options.TemporalValidity, _options.Provenance, _options.CaptureUserName,
-                    _options.IgnoreQuestions, _options.MarkCorrections, _options.OwnPreferencesOnly))
+                    _options.IgnoreQuestions, _options.MarkCorrections, _options.OwnPreferencesOnly,
+                    _options.CaptureEventCompanions))
                 // Only when context is present: a context-free prompt must stay byte-identical (E2).
                 + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract facts from this conversation:",
@@ -118,7 +119,8 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
         bool captureUserName = false,
         bool ignoreQuestions = false,
         bool markCorrections = false,
-        bool ownPreferencesOnly = false) =>
+        bool ownPreferencesOnly = false,
+        bool eventCompanions = false) =>
         DefaultSystemPrompt
         + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
         + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity)
@@ -126,5 +128,6 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
         + ExtractionPromptSemantics.UserNameInstruction(captureUserName)
         + ExtractionPromptSemantics.QuestionsInstruction(ignoreQuestions)
         + ExtractionPromptSemantics.CorrectionsInstruction(markCorrections)
-        + ExtractionPromptSemantics.OwnPreferencesInstruction(ownPreferencesOnly);
+        + ExtractionPromptSemantics.OwnPreferencesInstruction(ownPreferencesOnly)
+        + ExtractionPromptSemantics.EventCompanionsInstruction(eventCompanions);
 }

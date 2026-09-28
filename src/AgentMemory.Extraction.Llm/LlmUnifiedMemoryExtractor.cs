@@ -63,7 +63,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
             BuildSystemPrompt(
                 _options.AssistantContent, _options.EntityTypes, _options.TemporalValidity,
                 _options.Provenance, _options.CaptureIdentityAliases, _options.CaptureUserName, _options.IgnoreQuestions,
-                _options.OwnPreferencesOnly, _options.MarkCorrections)
+                _options.OwnPreferencesOnly, _options.MarkCorrections, _options.CaptureEventCompanions)
                 // Appended only when context is actually present, so a context-free prompt stays
                 // byte-for-byte what every sealed measurement was taken under (E2).
                 + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
@@ -188,7 +188,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
         bool captureUserName = false,
         bool ignoreQuestions = false,
         bool ownPreferencesOnly = false,
-        bool markCorrections = false)
+        bool markCorrections = false,
+        bool eventCompanions = false)
     {
         var types = entityTypes is { Count: > 0 } ? entityTypes : LlmEntityExtractor.DefaultEntityTypes;
         return SystemPromptPrefix
@@ -201,6 +202,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
             + ExtractionPromptSemantics.UserNameInstruction(captureUserName)
             + ExtractionPromptSemantics.QuestionsInstruction(ignoreQuestions)
             + ExtractionPromptSemantics.OwnPreferencesInstruction(ownPreferencesOnly)
-            + ExtractionPromptSemantics.CorrectionsInstruction(markCorrections);
+            + ExtractionPromptSemantics.CorrectionsInstruction(markCorrections)
+            + ExtractionPromptSemantics.EventCompanionsInstruction(eventCompanions);
     }
 }
