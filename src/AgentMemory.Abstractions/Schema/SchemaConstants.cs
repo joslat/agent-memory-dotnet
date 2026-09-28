@@ -257,6 +257,12 @@ internal static class SchemaConstants
         /// <summary>How precisely <see cref="ValidUntil"/> was stated: year, month, day or instant; absent = unspecified.</summary>
         public const string ValidUntilPrecision = "valid_until_precision";
 
+        /// <summary>The day a one-off event happened (36.1); absent for a state.</summary>
+        public const string OccurredOn = "occurred_on";
+
+        /// <summary>How precisely <see cref="OccurredOn"/> was stated.</summary>
+        public const string OccurredOnPrecision = "occurred_on_precision";
+
         /// <summary>
         /// Transaction-time axis (D5): the moment the system stopped believing a record — set by
         /// soft-invalidation / non-destructive decay / supersession. <c>null</c> = currently believed.

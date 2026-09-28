@@ -441,6 +441,8 @@ MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_ke
                 f.valid_from_precision = CASE WHEN $validFrom IS NOT NULL THEN $validFromPrecision ELSE null END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
                 f.valid_until_precision = CASE WHEN $validUntil IS NOT NULL THEN $validUntilPrecision ELSE null END,
+                f.occurred_on        = CASE WHEN $occurredOn IS NOT NULL THEN datetime($occurredOn) ELSE null END,
+                f.occurred_on_precision = CASE WHEN $occurredOn IS NOT NULL THEN $occurredOnPrecision ELSE null END,
                 f.source_message_ids = $sourceMessageIds,
                 f.created_at         = datetime($createdAtUtc),
                 f.metadata           = $metadata,
@@ -465,6 +467,8 @@ MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_ke
                 f.valid_from_precision = CASE WHEN $validFrom IS NOT NULL THEN $validFromPrecision ELSE f.valid_from_precision END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE f.valid_until END,
                 f.valid_until_precision = CASE WHEN $validUntil IS NOT NULL THEN $validUntilPrecision ELSE f.valid_until_precision END,
+                f.occurred_on        = CASE WHEN $occurredOn IS NOT NULL THEN datetime($occurredOn) ELSE f.occurred_on END,
+                f.occurred_on_precision = CASE WHEN $occurredOn IS NOT NULL THEN $occurredOnPrecision ELSE f.occurred_on_precision END,
                 f.source_message_ids = $sourceMessageIds,
                 f.updated_at         = datetime($updatedAtUtc),
                 f.metadata           = $metadata,
@@ -487,6 +491,8 @@ UNWIND $items AS item
                 f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE null END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
                 f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE null END,
+                f.occurred_on        = CASE WHEN item.occurred_on IS NOT NULL THEN datetime(item.occurred_on) ELSE null END,
+                f.occurred_on_precision = CASE WHEN item.occurred_on IS NOT NULL THEN item.occurred_on_precision ELSE null END,
                 f.source_message_ids = item.source_message_ids,
                 f.created_at         = datetime(item.created_at),
                 f.metadata           = item.metadata,
@@ -505,6 +511,8 @@ UNWIND $items AS item
                 f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE f.valid_from_precision END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
                 f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE f.valid_until_precision END,
+                f.occurred_on        = CASE WHEN item.occurred_on IS NOT NULL THEN datetime(item.occurred_on) ELSE f.occurred_on END,
+                f.occurred_on_precision = CASE WHEN item.occurred_on IS NOT NULL THEN item.occurred_on_precision ELSE f.occurred_on_precision END,
                 f.source_message_ids = item.source_message_ids,
                 f.updated_at         = datetime(item.updated_at),
                 f.metadata           = item.metadata,
@@ -574,6 +582,8 @@ UNWIND $items AS item
                 f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE null END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
                 f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE null END,
+                f.occurred_on        = CASE WHEN item.occurred_on IS NOT NULL THEN datetime(item.occurred_on) ELSE null END,
+                f.occurred_on_precision = CASE WHEN item.occurred_on IS NOT NULL THEN item.occurred_on_precision ELSE null END,
                 f.mention_count      = 1,
                 f.source_message_ids = item.source_message_ids,
                 f.created_at         = datetime(item.created_at),
@@ -592,6 +602,8 @@ UNWIND $items AS item
                 f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE f.valid_from_precision END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
                 f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE f.valid_until_precision END,
+                f.occurred_on        = CASE WHEN item.occurred_on IS NOT NULL THEN datetime(item.occurred_on) ELSE f.occurred_on END,
+                f.occurred_on_precision = CASE WHEN item.occurred_on IS NOT NULL THEN item.occurred_on_precision ELSE f.occurred_on_precision END,
                 f.mention_count      = coalesce(f.mention_count, 1) + 1,
                 f.source_message_ids = item.source_message_ids,
                 f.updated_at         = datetime(item.updated_at),
@@ -1337,7 +1349,8 @@ MATCH (f:Fact {owner_id: $ownerId})
             UNWIND top + recent AS f
             RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object,
                    f.valid_from AS validFrom, f.valid_from_precision AS validFromPrecision,
-                   f.valid_until AS validUntil, f.valid_until_precision AS validUntilPrecision
+                   f.valid_until AS validUntil, f.valid_until_precision AS validUntilPrecision,
+                   f.occurred_on AS occurredOn, f.occurred_on_precision AS occurredOnPrecision
             ORDER BY f.created_at ASC, f.id ASC
 
 ## WorkingMemoryQueries.SelectTopEntities

@@ -29,9 +29,9 @@ internal sealed record SchemaParityPolicy(
         // .NET-only relationship extensions (documented in SchemaConstants.RelationshipTypes).
         NetOnlyRelationshipTypes: Set("HAS_FACT", "HAS_PREFERENCE", "IN_SESSION"),
         // .NET property supersets absent upstream (owner scope, transaction-time clock, read-audit detail, and the
-        // precision a validity date was stated at, 36.1).
+        // precision a validity date was stated at and the day an event happened, 36.1).
         NetSupersetProperties: Set("owner_id", "owner_key", "invalidated_at", "last_accessed_at", "access_count", "memory_id", "read_at",
-            "valid_from_precision", "valid_until_precision"),
+            "valid_from_precision", "valid_until_precision", "occurred_on", "occurred_on_precision"),
         // Upstream properties the .NET port intentionally does not model as SchemaConstants (so the
         // structural property gate doesn't flag them as missing). Anything NOT on this list that exists
         // upstream but vanishes from .NET is a break — which is exactly how a silent rename is caught.

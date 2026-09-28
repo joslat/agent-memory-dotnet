@@ -90,6 +90,24 @@ public sealed class ChangesOfMindTests
         alreadySaid.Should().HaveCount(2, "a state the turn already stated is not written twice");
     }
 
+    [Fact]
+    public void A_move_on_a_day_is_a_home_since_that_day_and_no_event_itself()
+    {
+        var march = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        var shaped = ReplacementShapes.Prepare(
+            [F("Nadia", "moved to", "Copenhagen") with { OccurredOn = march, OccurredOnPrecision = DatePrecision.Month }], Places, T0);
+
+        var home = shaped.Should().HaveCount(2).And.Subject.Last();
+        home.Predicate.Should().Be("lives in");
+        home.ValidFrom.Should().Be(march);
+        home.ValidFromPrecision.Should().Be(DatePrecision.Month);
+        home.OccurredOn.Should().BeNull("living somewhere is a state, not an event");
+
+        ReplacementShapes.Prepare(
+                [F("Nadia", "moved to", "Copenhagen") with { OccurredOn = T0.AddMonths(2), OccurredOnPrecision = DatePrecision.Month }], Places, T0)
+            .Should().ContainSingle("a move that has not happened yet is no home");
+    }
+
     [Theory]
     [InlineData("the analytics team")]
     [InlineData("somewhere untyped")]

@@ -72,7 +72,7 @@ internal static partial class ReplacementShapes
             if (relation is null || !Entailments.TryGetValue(relation, out var entailed)) continue;
             // Only a completed event entails ("moved to", not "moving to"), and only one that has happened.
             if (!entailed.From.Contains(MemoryTripleCanonicalizer.Canonical(fact.Predicate))) continue;
-            if (fact.ValidFrom is { } from && from > now) continue;
+            if ((fact.ValidFrom ?? fact.OccurredOn) is { } from && from > now) continue;
             // "moved to the analytics team" is not a new home: the entailment holds for the declared kind of object.
             if (entailed.When is { } required &&
                 !string.Equals(typeOf(fact.Object), required, StringComparison.OrdinalIgnoreCase)) continue;
@@ -83,7 +83,14 @@ internal static partial class ReplacementShapes
             // twice is written once.
             if (!entailedObjects.Add((subject, state, MemoryTripleCanonicalizer.CanonicalValue(fact.Object)))) continue;
             // Right after its event, so it is written in the order the conversation implies.
-            shaped.Add(fact with { Predicate = entailed.State });
+            // The state holds from the event's day ("moved to Oslo in March" lives there since March); it is no event.
+            shaped.Add(fact.OccurredOn is { } movedOn && fact.ValidFrom is null
+                ? fact with
+                {
+                    Predicate = entailed.State, ValidFrom = movedOn, ValidFromPrecision = fact.OccurredOnPrecision,
+                    OccurredOn = null, OccurredOnPrecision = DatePrecision.Unspecified,
+                }
+                : fact with { Predicate = entailed.State, OccurredOn = null, OccurredOnPrecision = DatePrecision.Unspecified });
         }
         return shaped;
     }

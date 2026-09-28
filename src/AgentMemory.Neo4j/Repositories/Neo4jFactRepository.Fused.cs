@@ -61,6 +61,8 @@ internal sealed partial class Neo4jFactRepository
             ["valid_until"] = fact.ValidUntil?.ToString("O"),
             ["valid_from_precision"] = DatePrecisionProperty.ToStored(fact.ValidFromPrecision),
             ["valid_until_precision"] = DatePrecisionProperty.ToStored(fact.ValidUntilPrecision),
+            ["occurred_on"] = fact.OccurredOn?.ToString("O"),
+            ["occurred_on_precision"] = DatePrecisionProperty.ToStored(fact.OccurredOnPrecision),
             ["source_message_ids"] = fact.SourceMessageIds.ToList(),
             ["created_at"] = fact.CreatedAtUtc.ToString("O"),
             ["updated_at"] = updatedAt,

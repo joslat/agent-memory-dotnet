@@ -86,6 +86,55 @@ public sealed class DatePrecisionIntegrationTests : IAsyncLifetime
         await ShouldReadBackAsync("first");
     }
 
+    private static readonly DateTimeOffset Sept26 = new(2026, 9, 26, 0, 0, 0, TimeSpan.Zero);
+
+    private static Fact Event(string id) => new()
+    {
+        FactId = id, Subject = "Lucas", Predicate = "went hiking in", Object = "Sintra", Confidence = 0.9,
+        OwnerId = "owner-dates", CreatedAtUtc = new DateTimeOffset(2026, 9, 27, 0, 0, 0, TimeSpan.Zero),
+        OccurredOn = Sept26, OccurredOnPrecision = DatePrecision.Day,
+    };
+
+    [Theory]
+    [InlineData("single")]
+    [InlineData("batch")]
+    [InlineData("fused")]
+    public async Task Every_write_path_keeps_the_day_an_event_happened(string path)
+    {
+        var fact = Event(path);
+        await (path switch
+        {
+            "single" => _facts.UpsertAsync(fact),
+            "batch" => _facts.UpsertBatchAsync([fact]),
+            _ => (Task)_facts.UpsertFusedBatchAsync([fact]),
+        });
+
+        var read = await _facts.GetByIdAsync(path);
+        read!.OccurredOn.Should().Be(Sept26);
+        read.OccurredOnPrecision.Should().Be(DatePrecision.Day);
+        read.ValidFrom.Should().BeNull();
+
+        // Told again without a day, it keeps the day; told again with one, the latest telling wins.
+        await _facts.UpsertAsync(Event("again") with { OccurredOn = null, OccurredOnPrecision = DatePrecision.Unspecified });
+        (await _facts.GetByIdAsync(path))!.OccurredOn.Should().Be(Sept26);
+    }
+
+    [Fact]
+    public async Task The_profile_block_reads_an_event_as_its_day_and_keeps_it_after_the_day()
+    {
+        await _facts.UpsertAsync(Event("event"));
+        var options = new MemoryOptions();
+        options.WorkingMemory.MinFactMentionCount = 1;
+        options.WorkingMemory.IncludeDates = true;
+        var service = new Neo4jWorkingMemoryService(
+            _fixture.TransactionRunner, new FixedClock(), new Ids(), Options.Create(options),
+            NullLogger<Neo4jWorkingMemoryService>.Instance);
+
+        var block = await service.ComposeAsync("owner-dates", new FixedClock().UtcNow, CancellationToken.None);
+
+        block.Should().Contain("Lucas went hiking in Sintra (on 2026-09-26)");
+    }
+
     [Fact]
     public async Task A_fact_written_before_precision_was_recorded_reads_as_unspecified()
     {

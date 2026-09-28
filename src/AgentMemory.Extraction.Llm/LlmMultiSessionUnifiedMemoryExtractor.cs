@@ -473,6 +473,8 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                     ValidFromPrecision = item.ValidFrom?.Precision ?? DatePrecision.Unspecified,
                     ValidUntil = item.ValidUntil?.At,
                     ValidUntilPrecision = item.ValidUntil?.Precision ?? DatePrecision.Unspecified,
+                    OccurredOn = item.OccurredOn?.At,
+                    OccurredOnPrecision = item.OccurredOn?.Precision ?? DatePrecision.Unspecified,
                     SourceRole = item.SourceRole,
                     SourceTurn = item.SourceTurn,
                     Replaces = item.Replaces,

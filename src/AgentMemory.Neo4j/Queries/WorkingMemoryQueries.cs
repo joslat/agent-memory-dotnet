@@ -52,7 +52,8 @@ internal static class WorkingMemoryQueries
             UNWIND top + recent AS f
             RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object,
                    f.valid_from AS validFrom, f.valid_from_precision AS validFromPrecision,
-                   f.valid_until AS validUntil, f.valid_until_precision AS validUntilPrecision
+                   f.valid_until AS validUntil, f.valid_until_precision AS validUntilPrecision,
+                   f.occurred_on AS occurredOn, f.occurred_on_precision AS occurredOnPrecision
             ORDER BY f.created_at ASC, f.id ASC";
 
     /// <summary>Active preferences: live and above the confidence floor.</summary>

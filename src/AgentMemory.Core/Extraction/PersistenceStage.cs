@@ -556,6 +556,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     ValidFromPrecision = extracted.ValidFromPrecision,
                     ValidUntil = extracted.ValidUntil,
                     ValidUntilPrecision = extracted.ValidUntilPrecision,
+                    OccurredOn = extracted.OccurredOn,
+                    OccurredOnPrecision = extracted.OccurredOnPrecision,
                     Embedding = preparedFact.Embedding,
                     OwnerId = ownerId,
                     SourceMessageIds = factMessageIds,
@@ -1571,6 +1573,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     ValidUntil = winner.Item.ValidUntil ?? (carry ? loser.Item.ValidUntil : null),
                     ValidUntilPrecision = winner.Item.ValidUntil is not null ? winner.Item.ValidUntilPrecision
                         : carry ? loser.Item.ValidUntilPrecision : DatePrecision.Unspecified,
+                    OccurredOn = winner.Item.OccurredOn ?? (carry ? loser.Item.OccurredOn : null),
+                    OccurredOnPrecision = winner.Item.OccurredOn is not null ? winner.Item.OccurredOnPrecision
+                        : carry ? loser.Item.OccurredOnPrecision : DatePrecision.Unspecified,
                     SourceTurn = winner.Item.SourceTurn ?? (carry ? loser.Item.SourceTurn : null),
                     Replaces = winner.Item.Replaces ?? (carry ? loser.Item.Replaces : null),
                 },

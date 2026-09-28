@@ -167,6 +167,26 @@ public sealed class WithinExtractionDedupTests
     }
 
     [Fact]
+    public async Task The_day_an_event_happened_is_carried_like_its_other_dates()
+    {
+        var extraction = new ExtractionStageResult
+        {
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics", Confidence = 0.8,
+                    OccurredOn = DateTimeOffset.Parse("2026-09-01T00:00:00Z"), OccurredOnPrecision = DatePrecision.Month },
+                new ExtractedFact { Subject = "Tomás Silva", Predicate = "moved to", Object = "analytics team", Confidence = 0.9 },
+            ],
+        };
+
+        await Sut(dedup: true).PersistAsync(extraction, ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        var stored = _upserted.Should().ContainSingle().Subject;
+        stored.OccurredOn.Should().Be(DateTimeOffset.Parse("2026-09-01T00:00:00Z"));
+        stored.OccurredOnPrecision.Should().Be(DatePrecision.Month);
+    }
+
+    [Fact]
     public async Task The_dropped_phrasings_correction_is_carried_like_its_date()
     {
         // 36.4: a correction the merged-away phrasing carried still closes what it replaces.

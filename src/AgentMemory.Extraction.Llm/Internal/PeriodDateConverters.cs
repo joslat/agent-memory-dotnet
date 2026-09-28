@@ -13,6 +13,9 @@ namespace AgentMemory.Extraction.Llm.Internal;
 /// </summary>
 internal sealed class PeriodStartDateConverter() : PeriodDateConverter(PeriodEdge.Start, "valid_from");
 
+/// <summary>Reads the day an event happened (36.1), as the start of the period written: <c>"2026-09"</c> → 1 September.</summary>
+internal sealed class OccurredOnDateConverter() : PeriodDateConverter(PeriodEdge.Start, "occurred_on");
+
 /// <summary>
 /// Reads a model-written validity date into the last instant of the period it names:
 /// <c>"2026"</c> → 2026-12-31T23:59:59.9999999Z, <c>"2026-08"</c> → 2026-08-31T23:59:59.9999999Z,

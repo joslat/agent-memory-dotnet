@@ -252,7 +252,10 @@ internal static class ExtractionPromptSemantics
             "spring records last spring's dates. Omit both when the fact has no stated " +
             "time bound - never guess an expiry, because an unbounded fact recorded as expiring is " +
             "worse than one recorded as permanent. Write a date only as precisely as it was stated: " +
-            "\"2024-03\" for \"in March 2024\", \"2024\" for \"in 2024\", a full date only when the day was said.",
+            "\"2024-03\" for \"in March 2024\", \"2024\" for \"in 2024\", a full date only when the day was said. " +
+            "A one-off event that already happened (\"yesterday I went hiking\", \"last Friday I cooked paella\") " +
+            "is not a period: give it \"occurred_on\", the date it happened, just as precisely, and no valid_from " +
+            "or valid_until.",
         _ => string.Empty,
     };
 

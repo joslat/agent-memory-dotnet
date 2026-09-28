@@ -102,6 +102,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["validUntil"] = (object?)(fact.ValidUntil?.ToString("O")),
                 ["validFromPrecision"] = DatePrecisionProperty.ToStored(fact.ValidFromPrecision),
                 ["validUntilPrecision"] = DatePrecisionProperty.ToStored(fact.ValidUntilPrecision),
+                ["occurredOn"] = (object?)(fact.OccurredOn?.ToString("O")),
+                ["occurredOnPrecision"] = DatePrecisionProperty.ToStored(fact.OccurredOnPrecision),
                 ["sourceMessageIds"] = fact.SourceMessageIds.ToList(),
                 ["createdAtUtc"] = fact.CreatedAtUtc.ToString("O"),
                 ["updatedAtUtc"] = DateTimeOffset.UtcNow.ToString("O"),
@@ -190,6 +192,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["valid_until"] = (object?)(f.ValidUntil?.ToString("O")),
             ["valid_from_precision"] = DatePrecisionProperty.ToStored(f.ValidFromPrecision),
             ["valid_until_precision"] = DatePrecisionProperty.ToStored(f.ValidUntilPrecision),
+            ["occurred_on"] = (object?)(f.OccurredOn?.ToString("O")),
+            ["occurred_on_precision"] = DatePrecisionProperty.ToStored(f.OccurredOnPrecision),
             ["source_message_ids"] = f.SourceMessageIds.ToList(),
             ["created_at"] = f.CreatedAtUtc.ToString("O"),
             ["updated_at"] = updatedAt,
@@ -717,6 +721,10 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                                 : null,
             ValidFromPrecision = DatePrecisionProperty.Read(properties, "valid_from_precision"),
             ValidUntilPrecision = DatePrecisionProperty.Read(properties, "valid_until_precision"),
+            OccurredOn = properties.TryGetValue("occurred_on", out var occurred)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(occurred)
+                                : null,
+            OccurredOnPrecision = DatePrecisionProperty.Read(properties, "occurred_on_precision"),
             InvalidatedAtUtc = properties.TryGetValue("invalidated_at", out var iat)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(iat)
                                 : null,

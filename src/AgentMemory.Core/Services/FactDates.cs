@@ -27,8 +27,11 @@ internal static class FactDates
     /// when both ends name the same period, or an empty string for a fact without dates.
     /// </summary>
     internal static string Suffix(
-        DateTimeOffset? validFrom, DatePrecision fromPrecision, DateTimeOffset? validUntil, DatePrecision untilPrecision)
+        DateTimeOffset? validFrom, DatePrecision fromPrecision, DateTimeOffset? validUntil, DatePrecision untilPrecision,
+        DateTimeOffset? occurredOn = null, DatePrecision occurredOnPrecision = DatePrecision.Unspecified)
     {
+        // An event reads as the day it happened, whatever else it carries.
+        if (occurredOn is { } on) return $" (on {Format(on, occurredOnPrecision)})";
         var from = validFrom is { } f ? Format(f, fromPrecision) : null;
         var until = validUntil is { } u && u != DateTimeOffset.MaxValue ? Format(u, untilPrecision) : null;
         return (from, until) switch
@@ -41,9 +44,9 @@ internal static class FactDates
         };
     }
 
-    /// <inheritdoc cref="Suffix(DateTimeOffset?, DatePrecision, DateTimeOffset?, DatePrecision)"/>
+    /// <inheritdoc cref="Suffix(DateTimeOffset?, DatePrecision, DateTimeOffset?, DatePrecision, DateTimeOffset?, DatePrecision)"/>
     internal static string Suffix(Fact fact) =>
-        Suffix(fact.ValidFrom, fact.ValidFromPrecision, fact.ValidUntil, fact.ValidUntilPrecision);
+        Suffix(fact.ValidFrom, fact.ValidFromPrecision, fact.ValidUntil, fact.ValidUntilPrecision, fact.OccurredOn, fact.OccurredOnPrecision);
 
     /// <summary>One date at its precision: <c>2024</c>, <c>2024-03</c>, <c>2024-03-12</c>, <c>2024-03-12 17:00 UTC</c>.</summary>
     internal static string Format(DateTimeOffset at, DatePrecision precision)

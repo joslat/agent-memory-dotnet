@@ -59,6 +59,11 @@ internal sealed class LlmFactDto
     [JsonConverter(typeof(PeriodEndDateConverter))]
     public PeriodDate? ValidUntil { get; set; }
 
+    // 36.1. The day a one-off event happened. Null unless TemporalValidityMode.Extract asked for it.
+    [JsonPropertyName("occurred_on")]
+    [JsonConverter(typeof(OccurredOnDateConverter))]
+    public PeriodDate? OccurredOn { get; set; }
+
     // Which turn stated this. Null unless AssistantContentMode asked for it, and null is meaningful:
     // it leaves the request's own trust level applying, exactly as before this field existed.
     [JsonPropertyName("source_role")]

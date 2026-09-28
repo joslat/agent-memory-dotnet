@@ -42,6 +42,16 @@ public sealed record ExtractedFact
     public DatePrecision ValidUntilPrecision { get; init; }
 
     /// <summary>
+    /// 36.1. The day a one-off event happened ("yesterday I went hiking in Sintra"), or null for a state. An event is not
+    /// a validity period: it stays true once it happened, so it carries neither <see cref="ValidFrom"/> (which would read
+    /// "since") nor <see cref="ValidUntil"/> (which would expire it from the profile the day after).
+    /// </summary>
+    public DateTimeOffset? OccurredOn { get; init; }
+
+    /// <summary>How precisely <see cref="OccurredOn"/> was stated (36.1).</summary>
+    public DatePrecision OccurredOnPrecision { get; init; }
+
+    /// <summary>
     /// 36.4. The earlier value this statement corrects or replaces, as it was said ("Arcade Fire, not Radiohead"
     /// replaces <c>Radiohead</c>), or null. Written by the extractor only when asked
     /// (<c>LlmExtractionOptions.MarkCorrections</c>); read once, at the write, to close what it replaces.

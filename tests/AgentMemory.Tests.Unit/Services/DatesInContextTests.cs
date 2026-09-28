@@ -90,6 +90,47 @@ public sealed class DatesInContextTests
         FactDates.Suffix(day, DatePrecision.Day, day.AddDays(1).AddTicks(-1), DatePrecision.Day).Should().Be(" (on 2026-09-26)");
     }
 
+    /// <summary>
+    /// 36.1 (run 5): "yesterday I went hiking" was stored as valid_from alone and read "went hiking in Sintra (since
+    /// 2026-09-26)". An event reads as the day it happened, at its precision, whatever validity it also carries.
+    /// </summary>
+    [Fact]
+    public void An_event_reads_as_the_day_it_happened()
+    {
+        var day = new DateTimeOffset(2026, 9, 26, 0, 0, 0, TimeSpan.Zero);
+        var hike = new Fact
+        {
+            FactId = "h", Subject = "Lucas", Predicate = "went hiking in", Object = "Sintra", Confidence = 0.9, CreatedAtUtc = day,
+            OccurredOn = day, OccurredOnPrecision = DatePrecision.Day, ValidFrom = day, ValidFromPrecision = DatePrecision.Day,
+        };
+
+        FactDates.Suffix(hike).Should().Be(" (on 2026-09-26)");
+        FactDates.Suffix(hike with { OccurredOnPrecision = DatePrecision.Month }).Should().Be(" (on 2026-09)");
+        FactDates.Suffix(hike with { OccurredOn = null }).Should().Be(" (since 2026-09-26)", "a state is unchanged");
+    }
+
+    [Fact]
+    public async Task The_extractor_hands_the_event_day_to_the_fact()
+    {
+        var client = Substitute.For<IChatClient>();
+        client.GetResponseAsync(Arg.Any<IEnumerable<ChatMessage>>(), Arg.Any<ChatOptions>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                """{"entities":[],"facts":[{"subject":"user","predicate":"went hiking in","object":"Sintra","confidence":0.9,"occurred_on":"2026-09"}],"preferences":[],"relations":[]}"""))));
+        var sut = new LlmUnifiedMemoryExtractor(client,
+            Options.Create(new LlmExtractionOptions { UseUnifiedExtraction = true }), NullLogger<LlmUnifiedMemoryExtractor>.Instance);
+
+        var result = await sut.ExtractAsync([new Message
+        {
+            MessageId = "m1", ConversationId = "c", SessionId = "s", Role = "user",
+            Content = "I went hiking in Sintra this month.", TimestampUtc = T0,
+        }]);
+
+        var fact = result.Facts.Should().ContainSingle().Subject;
+        fact.OccurredOn.Should().Be(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
+        fact.OccurredOnPrecision.Should().Be(DatePrecision.Month);
+        fact.ValidFrom.Should().BeNull();
+    }
+
     [Fact]
     public void An_unrecorded_precision_reads_as_a_day_as_it_always_has()
     {
@@ -212,7 +253,8 @@ public sealed class DatesInContextTests
     public void The_temporal_instruction_asks_for_the_stated_precision()
     {
         ExtractionPromptSemantics.TemporalValidityInstruction(TemporalValidityMode.Extract)
-            .Should().Contain("only as precisely as it was stated").And.Contain("\"2024-03\" for \"in March 2024\"");
+            .Should().Contain("only as precisely as it was stated").And.Contain("\"2024-03\" for \"in March 2024\"")
+            .And.Contain("\"occurred_on\"", "36.1: a one-off event gets the day it happened, not a period");
         ExtractionPromptSemantics.TemporalValidityInstruction(TemporalValidityMode.Ignore).Should().BeEmpty();
     }
 

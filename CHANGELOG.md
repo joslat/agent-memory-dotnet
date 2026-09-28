@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Preference.InvalidatedAtUtc`**, projected as it is on `Fact`, so a caller can tell a superseded preference from a
   live one.
 
+- **An event carries the day it happened (`Fact.OccurredOn` / `OccurredOnPrecision`, stored as `occurred_on` /
+  `occurred_on_precision`).** Under `TemporalValidityMode.Extract` the extractor is asked to give a one-off event that
+  already happened ("yesterday I went hiking") the date it happened instead of a validity period, and every renderer
+  reads it "(on 2026-09-26)". Before, the model wrote the day as `valid_from` alone, which read "since", or as
+  `valid_from` = `valid_until`, which dropped the event from the profile block the day after. An event keeps no
+  validity of its own; told again without a date it keeps its day. "Moved to" a place entails living there since the
+  move's day.
+
 - **Dates reach the prompt, at the precision they were stated.** A fact's validity dates now keep how precisely
   they were written (`Fact.ValidFromPrecision` / `ValidUntilPrecision`, the new `DatePrecision` enum, stored as
   `valid_from_precision` / `valid_until_precision` on every fact write path); the extractor records it, because only

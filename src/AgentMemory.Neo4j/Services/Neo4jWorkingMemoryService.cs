@@ -249,7 +249,9 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                             Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["validFrom"]),
                             DatePrecisionProperty.FromStored(r["validFromPrecision"] as string),
                             Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["validUntil"]),
-                            DatePrecisionProperty.FromStored(r["validUntilPrecision"] as string))
+                            DatePrecisionProperty.FromStored(r["validUntilPrecision"] as string),
+                            Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["occurredOn"]),
+                            DatePrecisionProperty.FromStored(r["occurredOnPrecision"] as string))
                         : string.Empty))
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
