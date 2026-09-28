@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using AgentMemory.Abstractions.Domain;
 
 namespace AgentMemory.Core.Extraction;
@@ -230,36 +229,4 @@ internal static class ExtractionNoveltyGate
 
     private static readonly char[] Punctuation =
         ['.', ',', '!', '?', ';', ':', '-', '—', '–', '"', '\'', '(', ')', '[', ']', '…'];
-
-    // ── 36.5: a turn that only asks (the generous rule, for deferring) ─────────────────────────────
-
-    private const RegexOptions AskOptions = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
-    private static readonly TimeSpan AskTimeout = TimeSpan.FromMilliseconds(100);
-    private static readonly Regex Sentences = new(@"(?<=[.!?])\s+|\n+", AskOptions, AskTimeout);
-    private static readonly Regex Request = new(
-        @"^(please|(can|could|would|will)\s+you|tell\s+me|show\s+me|recommend|suggest|explain|help\s+me)\b", AskOptions, AskTimeout);
-
-    /// <summary>
-    /// Asked to keep something is telling it ("can you remember that my sister is Ana?", "please remind me to call her"):
-    /// such a turn never only asks.
-    /// </summary>
-    private static readonly Regex KeepThis = new(@"\b(remember|remind|note|save|don'?t\s+forget|keep\s+in\s+mind)\b", AskOptions, AskTimeout);
-
-    /// <summary>
-    /// 36.5. Whether every sentence the user said in <paramref name="turn"/> is a question or a request: the GENEROUS
-    /// rule, for deferring a turn's extraction (nothing is lost, the turn is extracted with the next one). It is not
-    /// <see cref="IsPlainQuestion"/>, the strict rule for skipping (a skipped fact is never formed), and it holds every
-    /// plain question: a plain question only asks. False for a turn without a user sentence.
-    /// </summary>
-    internal static bool OnlyAsks(IReadOnlyList<Message> turn)
-    {
-        var sentences = turn
-            .Where(message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))
-            .SelectMany(message => Sentences.Split(message.Content ?? string.Empty))
-            .Select(sentence => sentence.Trim())
-            .Where(sentence => sentence.Length > 0)
-            .ToList();
-        return sentences.Count > 0 && sentences.All(sentence =>
-            !KeepThis.IsMatch(sentence) && (sentence.EndsWith('?') || Request.IsMatch(sentence)));
-    }
 }

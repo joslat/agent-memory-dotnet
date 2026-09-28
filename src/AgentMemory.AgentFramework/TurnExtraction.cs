@@ -42,7 +42,7 @@ internal static class TurnExtraction
         {
             var held = Held.GetValue(options, _ => new DeferredTurns());
             var key = OrderingKey(request.UserId, request.SessionId);
-            if (AgentMemory.Core.Extraction.ExtractionNoveltyGate.OnlyAsks(request.Messages) && held.TryHold(key, request.Messages, options.MaxDeferredTurns))
+            if (QuestionTurns.OnlyAsks(request.Messages) && held.TryHold(key, request.Messages, options.MaxDeferredTurns))
                 return;
             if (held.Release(key) is { Count: > 0 } waiting)
                 request = request with { Messages = [.. waiting, .. request.Messages] };

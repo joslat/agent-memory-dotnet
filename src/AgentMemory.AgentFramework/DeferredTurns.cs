@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AgentMemory.Abstractions.Domain;
 
 namespace AgentMemory.AgentFramework;
@@ -39,5 +40,36 @@ internal sealed class DeferredTurns
             _turns.Remove(key);
             return _held.Remove(key, out var messages) ? messages : [];
         }
+    }
+}
+
+/// <summary>36.5. Whether a turn only asks: every sentence the user said is a question or a request.</summary>
+internal static class QuestionTurns
+{
+    private const RegexOptions Options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+    private static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(100);
+
+    private static readonly Regex Sentences = new(@"(?<=[.!?])\s+|\n+", Options, Timeout);
+
+    private static readonly Regex Request = new(
+        @"^(please|(can|could|would|will)\s+you|tell\s+me|show\s+me|recommend|suggest|explain|help\s+me)\b", Options, Timeout);
+
+    /// <summary>
+    /// Asked to keep something is telling it ("can you remember that my sister is Ana?", "please remind me to call her"):
+    /// never held, so it is stored this turn.
+    /// </summary>
+    private static readonly Regex KeepThis = new(@"\b(remember|remind|note|save|don'?t\s+forget|keep\s+in\s+mind)\b", Options, Timeout);
+
+    /// <summary>Whether every sentence of the user's messages in <paramref name="turn"/> asks; false for a turn without one.</summary>
+    internal static bool OnlyAsks(IReadOnlyList<Message> turn)
+    {
+        var sentences = turn
+            .Where(message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))
+            .SelectMany(message => Sentences.Split(message.Content ?? string.Empty))
+            .Select(sentence => sentence.Trim())
+            .Where(sentence => sentence.Length > 0)
+            .ToList();
+        return sentences.Count > 0 && sentences.All(sentence =>
+            !KeepThis.IsMatch(sentence) && (sentence.EndsWith('?') || Request.IsMatch(sentence)));
     }
 }
