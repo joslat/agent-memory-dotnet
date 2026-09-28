@@ -835,8 +835,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             var candidates = SharedScopes.OwnedOrShared(ownerId);
             try
             {
+                // J-6: one clock. The winner was judged to hold at `now`; the candidates are judged at the same instant.
                 var losers = await _factRepository.FindSupersededCandidatesAsync(
-                    winner.FactId, said.Subject, said.Predicate, winner.Object, candidates,
+                    winner.FactId, said.Subject, said.Predicate, winner.Object, now, candidates,
                     cancellationToken).ConfigureAwait(false);
                 // I-5. A fact now stored under the user's name also replaces what was stored before the
                 // name was known, under the words used then ("user | lives in | Lisbon").
@@ -844,7 +845,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     UserNames.IsSelf(surfaceSubject))
                 {
                     losers = [.. losers, .. await _factRepository.FindSupersededCandidatesAsync(
-                        winner.FactId, surfaceSubject, said.Predicate, winner.Object, candidates,
+                        winner.FactId, surfaceSubject, said.Predicate, winner.Object, now, candidates,
                         cancellationToken).ConfigureAwait(false)];
                 }
 

@@ -43,7 +43,7 @@ internal static class StoreFakes
         ((IBatchMemoryRepository<Fact>)facts).UpsertBatchAsync(Arg.Any<IReadOnlyList<Fact>>(), Arg.Any<CancellationToken>())
             .Returns(ci => Task.FromResult<IReadOnlyList<Fact>>(ci.Arg<IReadOnlyList<Fact>>().Select(Merge).ToList()));
         facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+                Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
                 var keys = MemoryRelationCardinality.ReplacedKeys(ci.ArgAt<string>(2));

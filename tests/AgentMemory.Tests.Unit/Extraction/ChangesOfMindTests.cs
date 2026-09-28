@@ -184,7 +184,7 @@ public sealed class ChangesOfMindTests
         _clock.UtcNow.Returns(new DateTimeOffset(2026, 9, 27, 0, 0, 0, TimeSpan.Zero));
         _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
         _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+                Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
         _facts.GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>([Stored("half", "plans to run", "the half marathon in April")]));
@@ -265,7 +265,7 @@ public sealed class ChangesOfMindTests
         await Sut(supersede: true).PersistAsync(extraction, ownerId: "owner-1");
 
         await _facts.DidNotReceive().FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     // ── The extractor is asked, and hands the value on ───────────────────────────────────────────
@@ -338,7 +338,7 @@ public sealed class ChangesOfMindTests
         _facts.GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(ci => { order.Add("correction"); return Task.FromResult<IReadOnlyList<Fact>>([]); });
         _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+                Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(ci => { order.Add("supersession"); return Task.FromResult<IReadOnlyList<Fact>>([]); });
 
         await Sut(supersede: true).PersistAsync(

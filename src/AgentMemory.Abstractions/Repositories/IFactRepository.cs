@@ -175,6 +175,22 @@ public interface IFactRepository
         Task.FromResult<IReadOnlyList<Fact>>([]);
 
     /// <summary>
+    /// J-6. As <see cref="FindSupersededCandidatesAsync(string, string, string, string, MemoryScope?, CancellationToken)"/>,
+    /// judging "holds now" at <paramref name="now"/>: the caller's clock, so the write side (which decides whether the
+    /// winner holds) and this read (which decides whether a candidate does) agree. The default ignores
+    /// <paramref name="now"/> and reads with the store's own notion of now.
+    /// </summary>
+    Task<IReadOnlyList<Fact>> FindSupersededCandidatesAsync(
+        string winnerFactId,
+        string subject,
+        string predicate,
+        string @object,
+        DateTimeOffset now,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        FindSupersededCandidatesAsync(winnerFactId, subject, predicate, @object, scope, cancellationToken);
+
+    /// <summary>
     /// Finds an existing fact matching the subject-predicate-object triple. When <paramref name="scope"/>
     /// is supplied (R1) the lookup is confined to the owner's own and (optionally) shared facts. Null
     /// scope ⇒ unscoped.

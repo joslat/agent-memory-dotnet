@@ -281,11 +281,21 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public Task<IReadOnlyList<Fact>> FindSupersededCandidatesAsync(
+        string winnerFactId,
+        string subject,
+        string predicate,
+        string @object,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        FindSupersededCandidatesAsync(winnerFactId, subject, predicate, @object, DateTimeOffset.UtcNow, scope, cancellationToken);
+
     public async Task<IReadOnlyList<Fact>> FindSupersededCandidatesAsync(
         string winnerFactId,
         string subject,
         string predicate,
         string @object,
+        DateTimeOffset now,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
@@ -301,7 +311,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             // fact stored as "works at", and "lives in" one stored as "lived in".
             ["predicateKeys"] = MemoryRelationCardinality.ReplacedKeys(predicate).ToList(),
             ["objectKey"]    = MemoryTripleCanonicalizer.CanonicalValue(@object),
-            ["now"]          = DateTimeOffset.UtcNow.ToString("O"),
+            ["now"]          = now.ToUniversalTime().ToString("O"),
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 

@@ -56,7 +56,7 @@ internal static class FusedPersistenceQueries
 
     public const string FactUpsertBatch = @"
             UNWIND $items AS item
-            MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key})
+            MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key, period_key: ''})
             ON CREATE SET
                 f.subject            = item.subject,
                 f.predicate          = item.predicate,

@@ -64,6 +64,19 @@ internal static class FactQueries
                 f.updated_at = datetime($now)
             RETURN count(f) AS updated";
 
+    /// <summary>
+    /// J-6. Gives every fact written before periods existed its <c>period_key</c>, in batches: the open period ('') for
+    /// a fact nothing replaced, its own id for one a newer value superseded (a closed period). Idempotent: it selects
+    /// on <c>period_key IS NULL</c>. Runs at bootstrap, before any write, like the canonical-key backfill, because a
+    /// MERGE on the open period would not find an unkeyed live fact and would write a duplicate of it.
+    /// </summary>
+    public const string BackfillPeriodKeys = @"
+            MATCH (f:Fact)
+            WHERE f.period_key IS NULL
+            WITH f LIMIT $limit
+            SET f.period_key = CASE WHEN EXISTS { (f)-[:SUPERSEDED_BY]->(:Fact) } THEN f.id ELSE $open END
+            RETURN count(f) AS updated";
+
     public const string ApplyCanonicalKeys = @"
             UNWIND $items AS item
             MATCH (f:Fact {id: item.id})
@@ -134,7 +147,7 @@ internal static class FactQueries
 
     /// <summary>Merge a fact by subject/predicate/object triple, setting all properties.</summary>
     public const string Upsert = @"
-            MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey})
+            MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey, period_key: ''})
             ON CREATE SET
                 f.subject            = $subject,
                 f.predicate          = $predicate,
@@ -196,7 +209,7 @@ internal static class FactQueries
     /// </summary>
     public const string UpsertBatch = @"
             UNWIND $items AS item
-            MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key})
+            MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key, period_key: ''})
             ON CREATE SET
                 f.subject            = item.subject,
                 f.predicate          = item.predicate,
@@ -583,6 +596,9 @@ internal static class FactQueries
               AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
               AND loser <> winner
             SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now)),
+                // J-6. A replaced value is a closed period: its period_key leaves the open one (''), so the same
+                // triple said again later (back to Copenhagen) starts a second period instead of reopening this one.
+                loser.period_key     = loser.id,
                 loser.valid_until    = coalesce(loser.valid_until, datetime($now)),
                 // S2 contradiction. Twice the corroboration step, and downward: being contradicted is
                 // stronger evidence against a fact than one more restatement is for it. Floored at 0
@@ -941,6 +957,9 @@ internal static class FactQueries
             WHERE f.subject_key = $subjectKey
               AND f.predicate_key = $predicateKey
               AND f.object_key = $objectKey{owner}
-            RETURN f LIMIT 1";
+            // J-6: a triple can have several periods; the live one first, then the latest closed one.
+            RETURN f
+            ORDER BY (f.invalidated_at IS NOT NULL), coalesce(f.updated_at, f.created_at) DESC
+            LIMIT 1";
     }
 }

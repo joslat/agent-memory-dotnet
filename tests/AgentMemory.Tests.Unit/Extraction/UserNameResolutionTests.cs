@@ -136,7 +136,7 @@ public sealed class UserNameResolutionTests
         var sut = Sut(resolve: true);
         OwnerIsAlreadyNamed("Dana");
         _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+                Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
 
         await new PersistenceStage(Substitute.For<IEmbeddingOrchestrator>(), Substitute.For<IEntityRepository>(), _facts,
@@ -146,7 +146,7 @@ public sealed class UserNameResolutionTests
             .PersistAsync(Extraction(F("user", "lives_in", "Porto")), ownerId: "owner-1", cancellationToken: CancellationToken.None);
 
         await _facts.Received(1).FindSupersededCandidatesAsync(Arg.Any<string>(), "user", "lives_in", "Porto",
-            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     private sealed class SequentialIds : IIdGenerator

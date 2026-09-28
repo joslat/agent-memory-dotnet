@@ -199,7 +199,7 @@ public sealed class Neo4jFactRepositoryDeduplicationTests
         await repo.UpsertAsync(fact);
         calls.Should().HaveCountGreaterThanOrEqualTo(1);
         // The triple is the dedup key, scoped per owner (owner_key keeps shared vs owned facts distinct, R1).
-        calls[0].Cypher.Should().Contain("MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey})");
+        calls[0].Cypher.Should().Contain("MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey, period_key: ''})");
         // The canonical key is what deduplicates; the raw triple must still be persisted.
         calls[0].Cypher.Should().Contain("f.subject            = $subject");
         calls[0].Cypher.Should().Contain("f.predicate          = $predicate");

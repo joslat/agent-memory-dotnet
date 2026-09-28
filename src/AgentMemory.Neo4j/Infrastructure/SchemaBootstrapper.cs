@@ -177,6 +177,32 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         return total;
     }
 
+    /// <summary>
+    /// J-6. Gives every fact written before periods existed its <c>period_key</c> (open, or closed when a newer value
+    /// superseded it), in batches, so the fact writes (which MERGE on the open period) find the existing live fact
+    /// instead of writing a second one. Idempotent. Returns how many facts it updated.
+    /// </summary>
+    internal async Task<int> BackfillFactPeriodKeysAsync(int batchSize, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(batchSize);
+        var total = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var updated = await _txRunner.WriteAsync(async runner =>
+            {
+                var cursor = await runner.RunAsync(FactQueries.BackfillPeriodKeys, new { limit = batchSize, open = string.Empty }).ConfigureAwait(false);
+                var record = await cursor.SingleAsync().ConfigureAwait(false);
+                return record["updated"].As<long>();
+            }, cancellationToken).ConfigureAwait(false);
+            total += (int)updated;
+            if (updated < batchSize) break;
+        }
+        if (total > 0)
+            _logger.LogInformation("Gave {Count} existing facts their period key.", total);
+        return total;
+    }
+
     /// <inheritdoc />
     public async Task<int> RetrimEchoedPredicatesAsync(bool apply, CancellationToken cancellationToken = default)
     {
@@ -296,6 +322,7 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         await BackfillCanonicalFactKeysAsync(CanonicalKeyBackfillBatchSize, cancellationToken)
             .ConfigureAwait(false);
         await BackfillEntityOwnerKeysAsync(CanonicalKeyBackfillBatchSize, cancellationToken).ConfigureAwait(false);
+        await BackfillFactPeriodKeysAsync(CanonicalKeyBackfillBatchSize, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("Schema bootstrap complete.");
     }

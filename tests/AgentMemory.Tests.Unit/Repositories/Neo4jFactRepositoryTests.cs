@@ -275,7 +275,7 @@ public sealed class Neo4jFactRepositoryTests
             // Identity moved to the canonical trio so surface variants of one relation
             // ("were_born_in" / "were born in") stop creating separate nodes. The raw strings are
             // still written for display and audit.
-            "MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key})");
+            "MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key, period_key: ''})");
         calls[0].Cypher.Should().NotContain("MERGE (f:Fact {id:");
     }
 

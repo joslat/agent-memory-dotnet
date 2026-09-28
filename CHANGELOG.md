@@ -23,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ILongTermMemoryService.GetRelationshipsAroundAsync` / `IRelationshipRepository.GetLiveAroundAsync` (defaults fall
   back to the id-only reads).
 
+- **A value said again after it was replaced starts a second period.** "Copenhagen, then Oslo, then back to
+  Copenhagen" used to re-open the first Copenhagen fact: live again, but still ended at the Oslo move, and its first
+  period lost, so "as of the Oslo months" believed both cities. Facts now carry a `period_key`: open ('') while
+  nothing replaced them, the fact's own id once a newer value supersedes it. The fact writes MERGE on the open period,
+  so the triple said again later is a new fact (its own period) and the closed one keeps its end; a restatement of a
+  live fact still lands on it (mention count, confidence), and a fact closed any other way (retracted, decayed,
+  consolidated) re-opens as before. Existing stores get their period keys at bootstrap, before any write.
+  `FindByTripleAsync` prefers the live period. `IFactRepository.FindSupersededCandidatesAsync` gains an overload
+  taking `now`, so write-time supersession judges the candidates at the same instant it judged the new value (it read
+  the store's wall clock before).
+
 - **`agentmemory retrim [--apply]`: repair facts stored before predicate-echo trimming.** Facts written before the
   write-time trim ("Daniel | is a chef | chef", rendered "is a chef chef") are rewritten as they read once trimmed
   ("Daniel | is | a chef", identity keys included), or superseded by the trimmed fact when it is already stored. A dry

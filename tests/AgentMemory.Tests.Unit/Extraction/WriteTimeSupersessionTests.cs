@@ -52,7 +52,7 @@ public sealed class WriteTimeSupersessionTests
             .Returns(ci => Task.FromResult(ci.Arg<Fact>()));
         _factRepo.FindSupersededCandidatesAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+                Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>([Stored("Basel")]));
         _factRepo.SupersedeAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
@@ -122,6 +122,21 @@ public sealed class WriteTimeSupersessionTests
     }
 
     [Fact]
+    public async Task TheCandidatesAreJudgedAtTheSameInstantAsTheWinner()
+    {
+        // J-6, one clock: the stage decides whether the winner holds by its clock; the store must judge whether each
+        // candidate holds at that same instant, not by its own wall clock (a replayed or test clock disagreed).
+        var then = new DateTimeOffset(2026, 3, 1, 12, 0, 0, TimeSpan.Zero);
+        _clock.UtcNow.Returns(then);
+
+        await CreateSut(supersede: true).PersistAsync(Incoming("lives in", "Zurich"), ownerId: "alice");
+
+        await _factRepo.Received().FindSupersededCandidatesAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            then, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task TheSupersessionIsOwnerScoped()
     {
         // Supersession closes a fact. A cross-owner one would close somebody else's, from a
@@ -130,7 +145,7 @@ public sealed class WriteTimeSupersessionTests
 
         await _factRepo.Received().FindSupersededCandidatesAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Is<MemoryScope?>(scope => scope != null && scope.OwnerId == "alice" && !scope.IncludeShared),
+            Arg.Any<DateTimeOffset>(), Arg.Is<MemoryScope?>(scope => scope != null && scope.OwnerId == "alice" && !scope.IncludeShared),
             Arg.Any<CancellationToken>());
     }
 
@@ -148,7 +163,7 @@ public sealed class WriteTimeSupersessionTests
 
         await _factRepo.Received().FindSupersededCandidatesAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Is<MemoryScope?>(scope => SharedScopes.IsSharedOnly(scope) && scope!.IncludeShared),
+            Arg.Any<DateTimeOffset>(), Arg.Is<MemoryScope?>(scope => SharedScopes.IsSharedOnly(scope) && scope!.IncludeShared),
             Arg.Any<CancellationToken>());
         await _factRepo.DidNotReceive().FindSupersededCandidatesAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -168,7 +183,7 @@ public sealed class WriteTimeSupersessionTests
         _superseded.Should().BeEmpty();
         await _factRepo.DidNotReceive().FindSupersededCandidatesAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -203,7 +218,7 @@ public sealed class WriteTimeSupersessionTests
         // append-only behaviour -- never a half-resolved graph.
         _factRepo.FindSupersededCandidatesAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+                Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns<Task<IReadOnlyList<Fact>>>(_ => throw new InvalidOperationException("store is down"));
 
         var result = await CreateSut(supersede: true)

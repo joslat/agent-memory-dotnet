@@ -196,7 +196,7 @@ public sealed class WithinExtractionDedupTests
                 new Fact { FactId = "finance", Subject = "Tomás Silva", Predicate = "moved to", Object = "finance", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UnixEpoch },
             ]));
         _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+                Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
         var extraction = new ExtractionStageResult
         {
