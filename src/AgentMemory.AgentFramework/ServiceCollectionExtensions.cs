@@ -39,8 +39,6 @@ public static class ServiceCollectionExtensions
                 + "every turn as a session resume.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.DefaultDeltaCheckpointKey),
                 "AgentFrameworkOptions.DefaultDeltaCheckpointKey must not be blank.")
-            .Validate(o => o.MaxDeferredTurns > 0,
-                "AgentFrameworkOptions.MaxDeferredTurns must be positive.")
             .Validate(o => o.BackgroundExtractionConcurrency > 0,
                 "AgentFrameworkOptions.BackgroundExtractionConcurrency must be positive.")
             .Validate(o => o.RecallWaitsForPendingExtraction >= TimeSpan.Zero,

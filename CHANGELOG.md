@@ -31,12 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Preference.InvalidatedAtUtc`**, projected as it is on `Fact`, so a caller can tell a superseded preference from a
   live one.
 
-- **`AgentFrameworkOptions.DeferQuestionTurns`** (default off) and **`MaxDeferredTurns`** (default 3): a turn in
-  which the user only asks is not extracted on its own but with the next turn that tells something, as part of it, so
-  nothing is lost; asking to be reminded or to have something remembered is never held. In simulated conversations 43 %
-  of extraction calls returned nothing, almost all on question turns. Held per owner, in memory, for the host's
-  lifetime.
-
 - **An event carries the day it happened (`Fact.OccurredOn` / `OccurredOnPrecision`, stored as `occurred_on` /
   `occurred_on_precision`).** Under `TemporalValidityMode.Extract` the extractor is asked to give a one-off event that
   already happened ("yesterday I went hiking") the date it happened instead of a validity period, and every renderer
