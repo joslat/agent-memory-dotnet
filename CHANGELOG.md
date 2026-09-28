@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is still recognised, and the old entity is closed. The live facts said about the old name are restated under the new
   one, each superseding its original. Facts that mention the old name as their object are not rewritten.
 
+- **A held question turn says so.** `ExtractionResult.Deferred` (and the public `ExtractionResult.DeferredMetadataKey`)
+  tell a host that the turn was held for the next one that tells something, rather than extracted with nothing in it;
+  the `memory.ingestion.operations` counter tags it `status=Deferred`, apart from successes.
+
 - **A turn in which the user only asks waits for the next turn that tells something**
   (`AgentFrameworkOptions.DeferQuestionTurns`, off by default; `ExtractionRequest.DeferIfOnlyAsking` for other hosts;
   `ExtractionOptions.MaxDeferredTurns` 3). In simulated conversations 43 % of extraction calls returned nothing, almost

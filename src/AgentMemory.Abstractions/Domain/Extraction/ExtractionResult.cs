@@ -52,4 +52,16 @@ public sealed record ExtractionResult
 
     /// <summary>Convenience accessor: <see langword="true"/> when <see cref="Status"/> is <see cref="IngestionStatus.PartiallySucceeded"/>.</summary>
     public bool IsPartial => Status == IngestionStatus.PartiallySucceeded;
+
+    /// <summary>
+    /// The <see cref="Metadata"/> key set on a result whose turn only asked and was held for the next turn that tells
+    /// something (<c>ExtractionRequest.DeferIfOnlyAsking</c>): nothing was extracted yet, and nothing failed.
+    /// </summary>
+    public const string DeferredMetadataKey = "agentMemory.extraction.deferred";
+
+    /// <summary>
+    /// <see langword="true"/> when the turn was held rather than extracted (<see cref="DeferredMetadataKey"/>): an empty
+    /// result that is neither a success with nothing in it nor a failure. The ingestion metrics count it apart.
+    /// </summary>
+    public bool Deferred => Metadata.TryGetValue(DeferredMetadataKey, out var held) && held is true;
 }

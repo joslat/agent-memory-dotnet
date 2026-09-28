@@ -420,7 +420,7 @@ internal sealed class MemoryService : IMemoryService
     }
 
     /// <summary>37.4. Result metadata key set (true) when a turn was held for later extraction.</summary>
-    internal const string DeferredMetadataKey = "agentMemory.extraction.deferred";
+    internal const string DeferredMetadataKey = ExtractionResult.DeferredMetadataKey;
 
     /// <summary>
     /// Attaches the preceding turns an extractor may read to resolve references (E2).

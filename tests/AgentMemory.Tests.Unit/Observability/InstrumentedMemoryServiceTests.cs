@@ -523,6 +523,37 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractAndPersist_AHeldQuestionTurn_IsCountedAsDeferred_NotAsASuccess()
+    {
+        var request = new ExtractionRequest { SessionId = "s1", Messages = new[] { CreateMessage("msg-1", "s1") } };
+        _inner.ExtractAndPersistAsync(request, Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult { Metadata = new Dictionary<string, object> { [ExtractionResult.DeferredMetadataKey] = true } });
+        var sut = new InstrumentedMemoryService(_inner, _metrics);
+
+        string? status = null;
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == MemoryMetrics.MeterName) l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) =>
+        {
+            if (instrument.Name != "memory.ingestion.operations") return;
+            foreach (var tag in tags)
+                if (tag.Key == "status") status = tag.Value?.ToString();
+        });
+        listener.Start();
+
+        var result = await sut.ExtractAndPersistAsync(request);
+        listener.Dispose();
+
+        result.Deferred.Should().BeTrue();
+        status.Should().Be("Deferred");
+    }
+
+    [Fact]
     public async Task ExtractAndPersist_FailFast_RecordsCompletedOutcomesBeforeRethrowing()
     {
         var request = new ExtractionRequest { SessionId = "s1", Messages = new[] { CreateMessage("msg-1", "s1") } };

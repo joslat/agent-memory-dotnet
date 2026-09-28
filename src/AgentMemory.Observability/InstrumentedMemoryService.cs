@@ -282,9 +282,11 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     /// <summary>Emits ingestion metrics/tags for a completed (non-throwing) ingestion (#101).</summary>
     private void RecordIngestionOutcome(ExtractionResult result, Activity? activity)
     {
-        activity?.SetTag("memory.ingestion.status", result.Status.ToString());
+        // J-8 (L6): a held question turn is neither a success with nothing in it nor a failure: counted apart.
+        var status = result.Deferred ? "Deferred" : result.Status.ToString();
+        activity?.SetTag("memory.ingestion.status", status);
         _metrics.IngestionOperations.Add(1,
-            new KeyValuePair<string, object?>("status", result.Status.ToString()),
+            new KeyValuePair<string, object?>("status", status),
             new KeyValuePair<string, object?>("failure_mode", _failureMode.ToString()));
         RecordItemOutcomes(result.Outcomes);
     }
