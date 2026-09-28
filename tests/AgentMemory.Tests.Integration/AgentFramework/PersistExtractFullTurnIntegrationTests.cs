@@ -46,7 +46,9 @@ public sealed class PersistExtractFullTurnIntegrationTests : IAsyncLifetime
                 o.Database = "neo4j";
                 o.EmbeddingDimensions = Neo4jIntegrationFixture.TestEmbeddingDimensions;
             });
-        services.AddAgentMemoryFramework(o => o.AutoExtractOnPersist = true);
+        // Inline extraction: the test reads what the turn stored right after it returns (see
+        // MemoryOwnerScopingAgentIntegrationTests: with ExtractInBackground on by default that was a race).
+        services.AddAgentMemoryFramework(o => { o.AutoExtractOnPersist = true; o.ExtractInBackground = false; });
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
             new StubEmbeddingGenerator(
                 sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(),

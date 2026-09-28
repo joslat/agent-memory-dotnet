@@ -60,6 +60,7 @@ public sealed class StoredPromptInjectionCrossSessionIntegrationTests : IAsyncLi
         services.AddAgentMemoryFramework(o =>
         {
             o.AutoExtractOnPersist = true;
+            o.ExtractInBackground = false; // session B reads what session A stored as soon as A returns
             o.ContextFormat.MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted;
         });
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>

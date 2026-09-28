@@ -60,7 +60,9 @@ public sealed class MemoryOwnerScopingAgentIntegrationTests : IAsyncLifetime
                 o.Database = "neo4j";
                 o.EmbeddingDimensions = Neo4jIntegrationFixture.TestEmbeddingDimensions;
             });
-        services.AddAgentMemoryFramework(o => o.AutoExtractOnPersist = true);
+        // Inline extraction: these tests read what the turn stored right after it returns, and ExtractInBackground
+        // (on by default since 2026-09-27) made that a race the test lost when run on its own.
+        services.AddAgentMemoryFramework(o => { o.AutoExtractOnPersist = true; o.ExtractInBackground = false; });
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
             new StubEmbeddingGenerator(
                 sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(),
