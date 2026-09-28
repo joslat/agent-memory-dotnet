@@ -14,6 +14,8 @@ namespace AgentMemory.AgentFramework;
 /// </summary>
 internal static class TurnExtraction
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<AgentFrameworkOptions, DeferredTurns> Held = new();
+
     /// <summary>
     /// Extracts the turn now, or queues it (<see cref="AgentFrameworkOptions.ExtractInBackground"/>). A
     /// failure is logged and recorded on the current span, never thrown: the turn itself succeeded.
@@ -32,6 +34,18 @@ internal static class TurnExtraction
             var said = request.Messages.Where(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase)).ToList();
             if (said.Count == 0) return;
             request = request with { Messages = said };
+        }
+
+        // 36.5. A turn that only asks waits for the next one that tells something; that one takes it along. The held
+        // turns belong to the host's options, which every entry point of one host shares.
+        if (options.DeferQuestionTurns)
+        {
+            var held = Held.GetValue(options, _ => new DeferredTurns());
+            var key = OrderingKey(request.UserId, request.SessionId);
+            if (QuestionTurns.OnlyAsks(request.Messages) && held.TryHold(key, request.Messages, options.MaxDeferredTurns))
+                return;
+            if (held.Release(key) is { Count: > 0 } waiting)
+                request = request with { Messages = [.. waiting, .. request.Messages] };
         }
 
         if (options.ExtractInBackground && background is not null)
