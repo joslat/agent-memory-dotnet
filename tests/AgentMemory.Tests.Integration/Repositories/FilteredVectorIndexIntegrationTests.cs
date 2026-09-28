@@ -41,14 +41,6 @@ public sealed class FilteredVectorIndexIntegrationTests : IAsyncLifetime
         FilteredVectorIndexes = filtered,
     });
 
-    private async Task<int> ServerMajorAsync()
-    {
-        await using var session = _fixture.Driver.AsyncSession();
-        var cursor = await session.RunAsync("CALL dbms.components() YIELD name, versions WHERE name = 'Neo4j Kernel' RETURN versions[0] AS v");
-        var version = ValueExtensions.As<string>((await cursor.SingleAsync())["v"]);
-        return int.Parse(version.Split('.')[0], System.Globalization.CultureInfo.InvariantCulture);
-    }
-
     private static float[] Vector(int hot)
     {
         var v = new float[Neo4jIntegrationFixture.TestEmbeddingDimensions];
@@ -59,7 +51,7 @@ public sealed class FilteredVectorIndexIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task On_an_older_server_the_option_is_refused_by_name()
     {
-        if (await ServerMajorAsync() >= 2026) return;
+        if (await _fixture.ServerMajorAsync() >= 2026) return;
         var bootstrapper = new SchemaBootstrapper(_fixture.TransactionRunner, Options(filtered: true), NullLogger<SchemaBootstrapper>.Instance);
 
         var act = () => bootstrapper.BootstrapAsync();
@@ -70,7 +62,7 @@ public sealed class FilteredVectorIndexIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task On_a_newer_server_an_owner_is_found_through_the_filtered_index_however_crowded()
     {
-        if (await ServerMajorAsync() < 2026) return;
+        if (await _fixture.ServerMajorAsync() < 2026) return;
         await new SchemaBootstrapper(_fixture.TransactionRunner, Options(filtered: true), NullLogger<SchemaBootstrapper>.Instance)
             .BootstrapAsync();
         await using (var session = _fixture.Driver.AsyncSession())

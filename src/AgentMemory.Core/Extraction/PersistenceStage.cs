@@ -282,7 +282,21 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     SourceMessageIds = source.SourceMessageIds,
                     Embedding = await _embeddingOrchestrator.EmbedAsync(name, cancellationToken).ConfigureAwait(false),
                 }, cancellationToken).ConfigureAwait(false);
-            if (target.EntityId != source.EntityId)
+            if (target.EntityId == source.EntityId)
+            {
+                // Entity resolution already filed the new name under the old entity (as an alias): it is the same one,
+                // so it is renamed in place, the new name its own and the old one kept as an alias.
+                await _entityRepository.UpsertAsync(source with
+                {
+                    Name = name,
+                    CanonicalName = name,
+                    Aliases = [.. source.Aliases.Where(a => !string.Equals(a, name, StringComparison.OrdinalIgnoreCase))
+                                   .Append(old).Distinct(StringComparer.OrdinalIgnoreCase)],
+                    Embedding = await _embeddingOrchestrator.EmbedAsync(name, cancellationToken).ConfigureAwait(false),
+                }, cancellationToken).ConfigureAwait(false);
+                _logger.LogDebug("Renamed entity '{Old}' to '{Name}' in place ({Id}).", old, name, source.EntityId);
+            }
+            else
             {
                 // Relationships and mentions move, the old name becomes an alias; then the old entity is closed.
                 await _entityRepository.MergeEntitiesAsync(source.EntityId, target.EntityId, scope, cancellationToken).ConfigureAwait(false);

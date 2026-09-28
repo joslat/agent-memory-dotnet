@@ -36,6 +36,18 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
     /// (e.g. the GraphRAG retrievers).</summary>
     public IDriver Driver => _driver!;
 
+    /// <summary>
+    /// The server's major version (5 for 5.26, 2026 for 2026.02). Some measurements are specific to one index
+    /// implementation: 5.26's global vector index starves a crowded owner, 2026.x's does not.
+    /// </summary>
+    public async Task<int> ServerMajorAsync()
+    {
+        await using var session = Driver.AsyncSession();
+        var cursor = await session.RunAsync("CALL dbms.components() YIELD name, versions WHERE name = 'Neo4j Kernel' RETURN versions[0] AS v");
+        var version = global::Neo4j.Driver.ValueExtensions.As<string>((await cursor.SingleAsync())["v"]);
+        return int.Parse(version.Split('.')[0], System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     public async Task InitializeAsync()
     {
         // G-16: the server under test. 5.26 by default (what CI and most deployments run); set

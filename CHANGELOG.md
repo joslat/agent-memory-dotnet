@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   person, with what was said under that name still attached. Now, when a persist closes a naming fact (`is named`,
   `is called`, any subject: the user, a person, a pet) in favour of a new name, the owner's entity with the old name is
   merged into the one with the new name (created if missing): relationships move, the old name stays as an alias so it
-  is still recognised, and the old entity is closed. The live facts said about the old name are restated under the new
+  is still recognised, and the old entity is closed; when entity resolution already filed the new name under the old entity (as an alias), that entity is renamed in place. The live facts said about the old name are restated under the new
   one, each superseding its original. Facts that mention the old name as their object are not rewritten.
 
 - **The people a recalled fact names bring their relationships** (with `RecallOptions.MaxRelationships` set). Recall

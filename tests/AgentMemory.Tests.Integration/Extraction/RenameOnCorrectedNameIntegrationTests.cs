@@ -89,6 +89,25 @@ public sealed class RenameOnCorrectedNameIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task When_resolution_already_filed_the_new_name_under_the_old_entity_it_is_renamed_in_place()
+    {
+        await using var provider = Build(rename: true);
+        await SayAsync(provider, "I just adopted a cat called Missou.");
+        // Entity resolution can attach the corrected name to the existing entity as an alias (a close embedding):
+        // then "Miso" finds "Missou" itself, and there is no second entity to merge.
+        await using (var session = _fixture.Driver.AsyncSession())
+            await session.RunAsync("MATCH (e:Entity {name: 'Missou', owner_id: $owner}) SET e.aliases = ['Miso']", new { owner = Owner });
+
+        await SayAsync(provider, "No, the cat's name is Miso.");
+
+        using var services = provider.CreateScope();
+        var (entities, _) = Repositories(services.ServiceProvider);
+        var cat = await entities.FindLiveByNameAsync("Miso", null, MemoryScope.For(Owner, includeShared: false));
+        cat!.Name.Should().Be("Miso", "renamed in place: the corrected name is its own");
+        cat.Aliases.Should().Contain("Missou").And.NotContain("Miso");
+    }
+
+    [Fact]
     public async Task Off_by_default_the_old_name_stays_beside_the_new_one()
     {
         await using var provider = Build(rename: false);

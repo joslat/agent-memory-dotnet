@@ -78,7 +78,9 @@ public sealed class OwnerFirstRecallIntegrationTests : IAsyncLifetime
         watch.Stop();
         _output.WriteLine($"OWNER-FIRST  index path: {indexed.Count}/{FactsPerOwner}   owner-first: {ownerFirst.Count}/{FactsPerOwner} in {watch.ElapsedMilliseconds} ms");
 
-        indexed.Count.Should().BeLessThan(FactsPerOwner, "void witness: the construction must starve the index path");
+        // The starvation is 5.26's global index: 2026.x finds this owner through it, and there is nothing to rescue.
+        if (await _fixture.ServerMajorAsync() < 2026)
+            indexed.Count.Should().BeLessThan(FactsPerOwner, "void witness: the construction must starve the index path");
         ownerFirst.Should().HaveCount(FactsPerOwner);
         ownerFirst.Should().OnlyContain(r => r.Fact.OwnerId == "owner-000");
         ownerFirst.Select(r => r.Score).Should().BeInDescendingOrder();
@@ -102,10 +104,12 @@ public sealed class OwnerFirstRecallIntegrationTests : IAsyncLifetime
         await SeedAsync();
         var scope = MemoryScope.For("owner-000", includeShared: false);
 
-        // Threshold 3 < the owner's 4 facts: the index path, starved exactly as before.
+        // Threshold 3 < the owner's 4 facts: the index path, starved exactly as before (on 5.26: 2026.x's index is not
+        // starved by this construction, so there the path cannot be told apart by its yield).
         var results = await Repository(3).SearchByVectorAsync(Query, Limit, 0.0, scope);
 
-        results.Count.Should().BeLessThan(FactsPerOwner);
+        if (await _fixture.ServerMajorAsync() < 2026)
+            results.Count.Should().BeLessThan(FactsPerOwner);
     }
 
     [Fact]

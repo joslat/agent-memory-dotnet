@@ -53,6 +53,16 @@ public sealed class CypherQueryExecutionSweepTests
         var skipped = new List<string>(uninvokableMethods);
         var swept = 0;
         var cypher25 = await SupportsCypher25Async();
+        // G-16: on a Cypher 25 server the owner-filtered SEARCH queries are EXPLAINed too, and EXPLAIN resolves the
+        // index they name, so the sweep creates them for its duration (the option would, at bootstrap).
+        if (cypher25)
+        {
+            await using var ddl = _fixture.Driver.AsyncSession();
+            foreach (var statement in AgentMemory.Neo4j.Queries.SchemaQueries.BuildOwnerFilteredVectorIndexes(Neo4jIntegrationFixture.TestEmbeddingDimensions))
+                await ddl.RunAsync(statement);
+        }
+        try
+        {
 
         foreach (var (origin, cypher) in collected)
         {
@@ -78,6 +88,17 @@ public sealed class CypherQueryExecutionSweepTests
         }
 
         // Surface the coverage numbers on every run (visible with `--logger "console;verbosity=detailed"`).
+        }
+        finally
+        {
+            if (cypher25)
+            {
+                await using var ddl = _fixture.Driver.AsyncSession();
+                foreach (var name in new[] { "fact_embedding_owner_idx", "entity_embedding_owner_idx" })
+                    await ddl.RunAsync($"DROP INDEX {name} IF EXISTS");
+            }
+        }
+
         _output.WriteLine($"Cypher execution sweep: EXPLAIN-validated {swept} queries, skipped {skipped.Count}.");
         foreach (var s in skipped.OrderBy(x => x, StringComparer.Ordinal))
             _output.WriteLine("  SKIP  " + s);
