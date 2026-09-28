@@ -378,9 +378,9 @@ Eight capabilities are collected below — seven that shipped after the mapping 
 procedural promotion, which §2.2 already places but which belongs here as the fourth shipped schema
 extension. **Not one of them is a seventh memory type**, and saying so is the useful part of this
 section: three are new *kinds* or *tiers* inside existing types, one is a new *read mode*, one is a
-rendering layer, one is plumbing. **Every one is off by default** — the flag is named in each row, and
+rendering layer, one is plumbing. **Each ships off unless its row says otherwise** — the flag is named in each row, and
 the full posture table lives in
-[`architecture.md` §3.6](architecture.md#36-every-capability-in-this-cycle-ships-dark).
+[`architecture.md` §3.6](architecture.md#36-this-cycles-capabilities-ship-dark-unless-stated-otherwise).
 
 | Addition | What it actually is | Type it serves | Own channel + budget? | Status |
 |---|---|---|---|---|

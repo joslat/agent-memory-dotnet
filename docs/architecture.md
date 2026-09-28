@@ -1262,9 +1262,9 @@ carry the full per-phase detail):
   explicit opt-in (`AddNamsAgentMemoryMcpWriteTools`); `nams_graph_query` (raw Cypher passthrough)
   deliberately excluded.
 
-### 3.6 Every capability in this cycle ships dark
+### 3.6 This cycle's capabilities ship dark unless stated otherwise
 
-**Not one of the memory capabilities described in §3.2.7–§3.2.11 is on in a default configuration.**
+**The memory capabilities described in §3.2.7–§3.2.11 ship off, except where their rows say a default was later turned on on measured evidence (the profile block and the renderers' dates).**
 That is a deliberate, uniform posture, not a coincidence of scheduling: a memory layer that changes
 what reaches the model on upgrade is a memory layer that changes an application's answers without its
 author deciding to. Off is defined as *byte-identical*, and each feature's own invariant table says
