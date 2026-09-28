@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
     <!-- `perf` only. Safe to carry here because this project is IsPackable=false operator tooling: the
          release packs src/*/*.csproj only, so Testcontainers never reaches a published package. Docker is
          required to RUN `perf`, not to build or run any other verb. -->

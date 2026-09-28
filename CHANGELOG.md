@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Microsoft Agent Framework 1.22.0** (from 1.9.0), with Microsoft.Extensions.AI 10.10.1 (from 10.8.3), the
+  Microsoft.Extensions packages 10.0.12 (from 10.0.10) and OpenAI 2.14.0 (from 2.12.0, required by
+  Microsoft.Extensions.AI.OpenAI 10.10). No API or behaviour change in AgentMemory: the same code builds and every
+  unit and integration test passes on the new versions.
+
 ## [1.6.0] - 2026-09-28
 
 ### Upgrading from 1.5.0

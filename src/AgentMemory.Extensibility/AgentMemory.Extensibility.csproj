@@ -37,9 +37,9 @@
   <ItemGroup>
     <!-- Logging abstractions only. The SDK logs; it never configures logging, and a host that has
          already chosen a provider must not have a second one arrive behind a memory package. -->
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <!-- Abstractions again: the SDK offers registration helpers, it does not build a container. -->
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>
