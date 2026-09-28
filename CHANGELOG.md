@@ -34,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   taking `now`, so write-time supersession judges the candidates at the same instant it judged the new value (it read
   the store's wall clock before).
 
+- **Owner-filtered vector indexes on Neo4j 2026.x** (`Neo4jOptions.FilteredVectorIndexes`, off by default). A 2026.x
+  vector index can carry filter properties and filter inside the index. With the option on, bootstrap creates
+  `fact_embedding_owner_idx` and `entity_embedding_owner_idx` (the embedding, filtered on `owner_key`; it refuses, by
+  name, to start on an older server), and owner-scoped fact and entity recall searches them with the Cypher 25
+  `SEARCH` clause: the owner's rows, then the shared rows (`owner_key = '*'`; the server takes an exact value, not a
+  list or an OR), merged by score. An owner is then never crowded out of a global top-K, so the widening and rescue
+  scans that work around that on 5.26 are not needed. Off, nothing changes. The integration suite runs against another
+  server with `AGENTMEMORY_TEST_NEO4J_IMAGE` (e.g. `neo4j:2026.02`).
+
 - **Who an event was shared with is kept as its own fact** (`LlmExtractionOptions.CaptureEventCompanions`, off by
   default). "Yesterday I went hiking in Sintra with my friend Pedro" was kept whole in one extraction and split without
   Pedro in the next, so "who was with me?" had no answer. With the option on, every extractor (unified, multi-session,

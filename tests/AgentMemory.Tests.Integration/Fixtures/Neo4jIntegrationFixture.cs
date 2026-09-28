@@ -38,8 +38,14 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _container = new Neo4jBuilder("neo4j:5.26")
+        // G-16: the server under test. 5.26 by default (what CI and most deployments run); set
+        // AGENTMEMORY_TEST_NEO4J_IMAGE (e.g. neo4j:2026.02) to run the whole suite against a newer server.
+        var image = Environment.GetEnvironmentVariable("AGENTMEMORY_TEST_NEO4J_IMAGE") is { Length: > 0 } configured
+            ? configured
+            : "neo4j:5.26";
+        _container = new Neo4jBuilder(image)
             .WithEnvironment("NEO4J_AUTH", $"{ContainerUsername}/{ContainerPassword}")
+            .WithEnvironment("NEO4J_ACCEPT_LICENSE_AGREEMENT", "yes")
             .Build();
 
         await _container.StartAsync();

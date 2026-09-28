@@ -399,6 +399,20 @@ internal static class SchemaQueries
     /// <summary>
     /// Builds the set of vector index CREATE statements for the given embedding dimensions.
     /// </summary>
+    /// <summary>The server's kernel version ("2026.02.3", "5.26.29"): G-16 needs 2026.x for filtered vector indexes.</summary>
+    public const string ServerVersion =
+        "CALL dbms.components() YIELD name, versions WHERE name = $kernel RETURN versions[0] AS version";
+
+    /// <summary>
+    /// G-16. Owner-filtered vector indexes (Neo4j 2026.x+): the embedding, with <c>owner_key</c> as a filter property,
+    /// so an owner's search filters inside the index. Same dimensions and similarity as the global indexes.
+    /// </summary>
+    public static string[] BuildOwnerFilteredVectorIndexes(int dimensions) =>
+    [
+        $"CYPHER 25 CREATE VECTOR INDEX fact_embedding_owner_idx IF NOT EXISTS FOR (n:Fact) ON n.embedding WITH [n.owner_key] OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
+        $"CYPHER 25 CREATE VECTOR INDEX entity_embedding_owner_idx IF NOT EXISTS FOR (n:Entity) ON n.embedding WITH [n.owner_key] OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
+    ];
+
     public static string[] BuildVectorIndexes(int dimensions) =>
         dimensions > 0
         ?

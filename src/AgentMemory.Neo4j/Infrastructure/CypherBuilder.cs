@@ -117,6 +117,24 @@ internal sealed class CypherBuilder
     }
 
     /// <summary>
+    /// G-16: the head of an owner-filtered vector search (Neo4j 2026.x, Cypher 25): the owner-filtered index, filtered
+    /// inside the index on <c>owner_key = {ownerKeyParam}</c> (the server accepts an exact value there, not a list or
+    /// an OR), yielding the same <c>node, score</c> pair as <see cref="WithVectorSearch"/> so every clause after it is
+    /// shared with the global-index query.
+    /// </summary>
+    public CypherBuilder WithFilteredVectorSearch(string label, string indexName, string embeddingParam, string nodeAlias, int topK, string ownerKeyParam)
+    {
+        var lines = new List<string>(_lines)
+        {
+            "CYPHER 25",
+            $"MATCH ({nodeAlias}:{label})",
+            $"SEARCH {nodeAlias} IN (VECTOR INDEX {indexName} FOR {embeddingParam} WHERE {nodeAlias}.owner_key = {ownerKeyParam} LIMIT {topK}) SCORE AS score",
+            $"WITH {nodeAlias}, score",
+        };
+        return new CypherBuilder(lines, whereStarted: false);
+    }
+
+    /// <summary>
     /// G-14: the head of an owner-scoped similarity scan, the index-free twin of
     /// <see cref="WithVectorSearch"/>: this owner's rows by the indexed <c>owner_id</c> (derived facts and rows
     /// older than <c>owner_key</c> included) and, with shared included, the shared rows by the indexed

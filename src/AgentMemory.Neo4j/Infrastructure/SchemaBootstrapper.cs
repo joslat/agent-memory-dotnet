@@ -14,6 +14,7 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
     private readonly string[] _vectorIndexes;
     private readonly int _embeddingDimensions;
     private readonly bool _validateVectorIndexDimensions;
+    private readonly bool _filteredVectorIndexes;
 
     /// <summary>Bounded so a large store migrates in pages rather than one transaction.</summary>
     internal const int CanonicalKeyBackfillBatchSize = 500;
@@ -29,6 +30,7 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         _embeddingDimensions = options.Value.EmbeddingDimensions;
         _validateVectorIndexDimensions = options.Value.ValidateVectorIndexDimensions;
         _vectorIndexes = SchemaQueries.BuildVectorIndexes(_embeddingDimensions);
+        _filteredVectorIndexes = options.Value.FilteredVectorIndexes;
     }
 
     /// <summary>
@@ -203,6 +205,32 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         return total;
     }
 
+    /// <summary>
+    /// G-16. Creates the owner-filtered vector indexes, after checking the server can hold them: a vector index with
+    /// filter properties is a Neo4j 2026.x feature, and a 5.x server would reject the statement with a syntax error
+    /// that says nothing about the option that asked for it.
+    /// </summary>
+    private async Task CreateOwnerFilteredVectorIndexesAsync(CancellationToken cancellationToken)
+    {
+        var version = await _txRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(SchemaQueries.ServerVersion, new { kernel = "Neo4j Kernel" }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Count > 0 ? records[0]["version"].As<string>() : null;
+        }, cancellationToken).ConfigureAwait(false);
+        var major = int.TryParse(version?.Split('.')[0], System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
+        if (major < 2026)
+            throw new InvalidOperationException(
+                $"Neo4jOptions.FilteredVectorIndexes needs Neo4j 2026.x or later (vector indexes with filter properties); " +
+                $"this server is {version ?? "an unknown version"}. Turn the option off, or upgrade the server.");
+        foreach (var index in SchemaQueries.BuildOwnerFilteredVectorIndexes(_embeddingDimensions))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await RunStatementAsync(index, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     /// <inheritdoc />
     public async Task<int> RetrimEchoedPredicatesAsync(bool apply, CancellationToken cancellationToken = default)
     {
@@ -303,6 +331,9 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
             cancellationToken.ThrowIfCancellationRequested();
             await RunStatementAsync(index, cancellationToken).ConfigureAwait(false);
         }
+
+        if (_filteredVectorIndexes)
+            await CreateOwnerFilteredVectorIndexesAsync(cancellationToken).ConfigureAwait(false);
 
         foreach (var index in SchemaQueries.PropertyIndexes)
         {

@@ -58,6 +58,16 @@ public class Neo4jOptions
     public bool ValidateVectorIndexDimensions { get; set; } = true;
 
     /// <summary>
+    /// G-16. Owner-filtered vector indexes, for Neo4j 2026.x and later (default false). A vector index there can carry
+    /// filter properties and filter inside the index, so an owner's search is never crowded out of a global top-K by
+    /// other owners' rows (the starvation <c>RescueShortOwnerResults</c> and the owner-first scans work around on 5.26).
+    /// On: bootstrap creates <c>fact_embedding_owner_idx</c> and <c>entity_embedding_owner_idx</c> (the embedding,
+    /// filtered on <c>owner_key</c>) and refuses to start on an older server; owner-scoped fact and entity recall
+    /// searches them (own rows, then shared rows, merged by score) instead of the global index. Off, nothing changes.
+    /// </summary>
+    public bool FilteredVectorIndexes { get; set; }
+
+    /// <summary>
     /// Ids of the optional schema extensions this deployment activates. Empty (the default) is today's
     /// base schema, byte-identical.
     /// </summary>

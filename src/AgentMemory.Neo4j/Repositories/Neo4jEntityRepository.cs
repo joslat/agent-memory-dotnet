@@ -65,6 +65,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
 
     private readonly IMemoryRankingContext? _rankingContext;
     private readonly ISharedCorpusProbe? _sharedCorpus;
+    private readonly bool _filteredOwnerIndex;
 
     /// <summary>37.1b: a shared (owner-less) entity is being written, so recall's shared search must not be skipped.</summary>
     private void NoteShared(IEnumerable<Entity> items)
@@ -82,8 +83,10 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         // 30.4b. Optional, mirroring every other working-memory injection point: a host that never
         // registered the tier keeps the exact previous construction shape.
         IWorkingMemoryService? workingMemory = null,
-        ISharedCorpusProbe? sharedCorpus = null)
+        ISharedCorpusProbe? sharedCorpus = null,
+        IOptions<Neo4jOptions>? neo4jOptions = null)
     {
+        _filteredOwnerIndex = neo4jOptions?.Value.FilteredVectorIndexes ?? false;
         _workingMemory = workingMemory;
         _sharedCorpus = sharedCorpus;
         _workingMemoryOptions = memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions();
@@ -241,10 +244,10 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         bool recencyRerank = ranking.RecencyRerankEnabled;
         // Payload projection: nothing on the recall path reads the vector back, and it is ~3 KB an item.
         bool omitEmbedding = _omitEmbeddingsFromRecall;
-        async Task<List<(Entity, double)>> QueryAsync(int width, CancellationToken ct)
+        async Task<List<(Entity, double)>> QueryAsync(int width, CancellationToken ct, string? filteredKey = null)
         {
             var cypher = EntityQueries.SearchByVector(
-                hasOwner, includeShared, width, recencyRerank, omitEmbedding);
+                hasOwner, includeShared, width, recencyRerank, omitEmbedding, filteredOwner: filteredKey is not null);
             var parameters = new Dictionary<string, object?>
             {
                 ["embedding"] = queryEmbedding.ToList(),
@@ -252,6 +255,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                 ["minScore"] = minScore,
             };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            if (filteredKey is not null) parameters["ownerKey"] = filteredKey;
             if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
             return await _tx.ReadAsync(async runner =>
@@ -269,6 +273,18 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                     return (MapToEntity(node, ReadEmbedding(node)), score);
                 }).ToList();
             }, ct).ConfigureAwait(false) ?? [];
+        }
+
+        // G-16, as on the fact path: filtered inside the index, so never crowded: own rows, then shared, merged by score.
+        if (hasOwner && _filteredOwnerIndex)
+        {
+            var own = await QueryAsync(topK, cancellationToken, filteredKey: scope!.OwnerId).ConfigureAwait(false);
+            var filtered = includeShared
+                ? ScoredMerge.ByScore(own, await QueryAsync(topK, cancellationToken, filteredKey: Neo4jFactRepository.OwnerKeyShared).ConfigureAwait(false),
+                    entity => entity.EntityId, limit)
+                : own;
+            EmitVectorYield(activity, hasOwner, limit, topK, filtered.Count, escalated: false, requestedTopK: topK);
+            return filtered;
         }
 
         var results = await QueryAsync(topK, cancellationToken).ConfigureAwait(false);

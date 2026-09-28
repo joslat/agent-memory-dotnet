@@ -404,11 +404,14 @@ internal static class FactQueries
     public static string SearchByVector(
         bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false,
         bool currentValidTime = false, bool omitEmbedding = false,
-        bool excludeDerived = false, bool onlyDerived = false, bool ownerScan = false) =>
+        bool excludeDerived = false, bool onlyDerived = false, bool ownerScan = false, bool filteredOwner = false) =>
         VectorRerank.Finish(
             (ownerScan
                 ? new CypherBuilder().WithOwnerScan("Fact", includeShared, "$embedding", "node")
-                : new CypherBuilder().WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK))
+                : filteredOwner
+                    // G-16: one owner key per search ($ownerKey), filtered inside the index.
+                    ? new CypherBuilder().WithFilteredVectorSearch("Fact", "fact_embedding_owner_idx", "$embedding", "node", topK, "$ownerKey")
+                    : new CypherBuilder().WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK))
                 .Where("score >= $minScore")
                 .And("node.invalidated_at IS NULL")
                 // Valid time, copied VERBATIM from TemporalQueries so the two clocks cannot drift: the
@@ -425,7 +428,7 @@ internal static class FactQueries
                 .And("node.derivation_key IS NULL", when: excludeDerived)
                 .And("node.derivation_key IS NOT NULL", when: onlyDerived)
                 // The scan head already confined the rows to the owner (and shared, when included).
-                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter && !ownerScan),
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter && !ownerScan && !filteredOwner),
             recencyRerank, omitEmbedding);
 
     /// <summary>

@@ -98,13 +98,16 @@ internal static class EntityQueries
     /// order key; when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
     public static string SearchByVector(
-        bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false, bool omitEmbedding = false) =>
+        bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false, bool omitEmbedding = false,
+        bool filteredOwner = false) =>
         VectorRerank.Finish(
-            new CypherBuilder()
-                .WithVectorSearch("entity_embedding_idx", "$embedding", "node", topK)
+            (filteredOwner
+                // G-16: one owner key per search ($ownerKey), filtered inside the index.
+                ? new CypherBuilder().WithFilteredVectorSearch("Entity", "entity_embedding_owner_idx", "$embedding", "node", topK, "$ownerKey")
+                : new CypherBuilder().WithVectorSearch("entity_embedding_idx", "$embedding", "node", topK))
                 .Where("score >= $minScore")
                 .And("node.invalidated_at IS NULL")
-                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter && !filteredOwner),
             recencyRerank, omitEmbedding);
 
     // ── Owner key backfill (36.9) ──────────────────────────────────────

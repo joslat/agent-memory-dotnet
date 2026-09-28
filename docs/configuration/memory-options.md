@@ -15,6 +15,7 @@ because their effect depends on the model.
 - `ContextFormatOptions`: `AgentFrameworkOptions.ContextFormat` in `AddAgentMemoryFramework`.
 - `MemoryContextFormatterOptions` (Core) and `MemoryRecallSecurityOptions` (Semantic Kernel): the
   renderer of each surface.
+- `Neo4jOptions`: the `configureNeo4j` lambda of `AddNeo4jAgentMemory`.
 
 ## The switches
 
@@ -46,6 +47,15 @@ Behaviour with no switch:
   "is a | chef").
 - Entities carry `owner_key` (`"*"` when shared), so entity resolution seeks shared candidates by
   index; existing stores are backfilled at bootstrap. See [schema.md](../schema.md).
+- A value said again after it was replaced starts a second period (its own fact), so the first period keeps its end
+  and as-of recall of the time between is right; facts carry `period_key`, backfilled at bootstrap.
+- A plan that has begun takes over from the value it was planned to replace in recall, at the recall's instant.
+
+### Newer Neo4j servers
+
+| Option | Default | What it does |
+|---|---|---|
+| `Neo4jOptions.FilteredVectorIndexes` | `false` | Neo4j 2026.x and later: bootstrap creates owner-filtered vector indexes for facts and entities (the embedding, filtered on `owner_key`), and owner-scoped recall searches them, so an owner is never crowded out of a global top-K by other owners' rows. Refused at bootstrap on an older server. |
 
 ## Example
 

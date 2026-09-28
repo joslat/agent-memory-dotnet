@@ -39,6 +39,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     private readonly int _ownerFirstThreshold;
     private readonly OwnerRowCounts? _ownerRowCounts;
     private readonly ISharedCorpusProbe? _sharedCorpus;
+    private readonly bool _filteredOwnerIndex;
 
     /// <summary>37.1b: a shared (owner-less) fact is being written, so recall's shared search must not be skipped.</summary>
     private void NoteShared(IEnumerable<Fact> facts)
@@ -54,8 +55,10 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         IMemoryRankingContext? rankingContext = null,
         IOptions<MemoryOptions>? memoryOptions = null,
         OwnerRowCounts? ownerRowCounts = null,
-        ISharedCorpusProbe? sharedCorpus = null)
+        ISharedCorpusProbe? sharedCorpus = null,
+        IOptions<Neo4jOptions>? neo4jOptions = null)
     {
+        _filteredOwnerIndex = neo4jOptions?.Value.FilteredVectorIndexes ?? false;
         _ownerFirstThreshold = memoryOptions?.Value.OwnerFirstVectorThreshold ?? 0;
         _ownerRowCounts = ownerRowCounts;
         _sharedCorpus = sharedCorpus;
@@ -399,12 +402,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
     /// <summary>Two result lists as one: each fact once, at its best score, best first, at most <paramref name="limit"/>.</summary>
     private static List<(Fact, double)> MergeByScore(List<(Fact, double)> a, List<(Fact, double)> b, int limit) =>
-        a.Concat(b)
-            .GroupBy(r => r.Item1.FactId, StringComparer.Ordinal)
-            .Select(g => g.MaxBy(r => r.Item2))
-            .OrderByDescending(r => r.Item2)
-            .Take(limit)
-            .ToList();
+        ScoredMerge.ByScore(a, b, fact => fact.FactId, limit);
 
     /// <summary>
     /// Scores this owner's OWN facts directly, bypassing the global vector index.
@@ -506,7 +504,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             : OwnerFirstPlan.Index;
         var ownerFirst = plan == OwnerFirstPlan.Scan;
 
-        async Task<List<(Fact, double)>> QueryAsync(int width, CancellationToken ct, bool scan = false, bool? shared = null)
+        async Task<List<(Fact, double)>> QueryAsync(int width, CancellationToken ct, bool scan = false, bool? shared = null, string? filteredKey = null)
         {
             var cypher = FactQueries.SearchByVector(
                 hasOwner, shared ?? includeShared, width, recencyRerank, currentValidTime,
@@ -514,7 +512,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 // Include (the default) leaves the query byte-for-byte what it has always been.
                 excludeDerived: derivedMode == DerivedFactMode.Exclude,
                 onlyDerived: derivedMode == DerivedFactMode.Only,
-                ownerScan: scan);
+                ownerScan: scan,
+                filteredOwner: filteredKey is not null);
+            if (filteredKey is not null) parameters["ownerKey"] = filteredKey;
             return await _tx.ReadAsync(async runner =>
             {
                 var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
@@ -530,6 +530,20 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                     return (MapToFact(node, ReadEmbedding(node)), score);
                 }).ToList();
             }, ct).ConfigureAwait(false) ?? [];
+        }
+
+        // G-16: on a server with owner-filtered indexes the owner's search filters inside the index, so it cannot be
+        // crowded out: the owner's rows, then (shared included) the shared rows, merged by score. No widening, no scan.
+        if (hasOwner && _filteredOwnerIndex)
+        {
+            var own = await QueryAsync(topK, cancellationToken, filteredKey: scope!.OwnerId).ConfigureAwait(false);
+            var filtered = includeShared
+                ? MergeByScore(own, await QueryAsync(topK, cancellationToken, filteredKey: OwnerKeyShared).ConfigureAwait(false), limit)
+                : own;
+            activity?.SetTag("memory.vector.owner_scoped", true);
+            activity?.SetTag("memory.vector.owner_first", "FilteredIndex");
+            activity?.SetTag("memory.vector.returned", filtered.Count);
+            return filtered.Select(r => (r.Item1, r.Item2)).ToList();
         }
 
         var results = await QueryAsync(topK, cancellationToken, scan: ownerFirst).ConfigureAwait(false);
