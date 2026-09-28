@@ -398,6 +398,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An object the model wrote twice is stored once.** "Daniel | is a chef | chef" rendered "Daniel is a chef chef":
+  a predicate that ends with its own object's words (with or without a leading article) is trimmed at write, on every
+  fact; "works at | Acme" and a predicate that would be left empty are unchanged.
+
 - **"What do I have coming up in October?", asked in September, recalled last October** (`ResolveTemporalQueries`).
   A month still ahead this year, named without a year, now resolves to last year only in a past-tense question
   ("what did I do in October?") that points nowhere ahead ("where did I say I'd be", "what was planned" stay at now);

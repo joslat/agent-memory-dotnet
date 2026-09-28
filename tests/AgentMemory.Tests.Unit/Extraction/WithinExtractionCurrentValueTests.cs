@@ -394,4 +394,15 @@ public sealed class WithinExtractionCurrentValueTests
     [Fact]
     public void The_profile_rebuild_boundary_counts_the_day_an_event_happens() =>
         AgentMemory.Neo4j.Queries.WorkingMemoryQueries.NextValidityBoundary.Should().Contain("coalesce(f.valid_from, f.occurred_on)");
+
+    // 37.2: what is stored reads as said, on either write path.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task The_object_written_twice_is_stored_once(bool batch)
+    {
+        var store = new Store();
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult { FilteredFacts = [F("chef", s: "Daniel", p: "is a chef")] }, ownerId: "u1");
+        store.Facts.Single().Predicate.Should().Be("is a");
+    }
 }

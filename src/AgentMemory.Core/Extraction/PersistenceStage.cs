@@ -136,6 +136,11 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             activity.SetTag("memory.persist.relationships", extraction.FilteredRelationships.Count);
         }
 
+        // 37.2. The object written twice ("Daniel | is a chef | chef") is written once. Always: it is how the triple
+        // reads, not a feature.
+        if (extraction.FilteredFacts.Count > 0)
+            extraction = extraction with { FilteredFacts = [.. extraction.FilteredFacts.Select(PredicateEcho.Trim)] };
+
         // 36.4. A change of mind in the shape supersession can act on: ages as the single-valued `age`, and the
         // state an event entails ("moved to" -> "lives in") beside it. Only with supersession, the feature it serves.
         if (_options.SupersedeReplacedFacts && extraction.FilteredFacts.Count > 0)
