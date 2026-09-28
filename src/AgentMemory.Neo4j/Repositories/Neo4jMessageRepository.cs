@@ -233,6 +233,32 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task SetExtractionDeferredAsync(
+        IReadOnlyCollection<string> messageIds, bool deferred, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messageIds);
+        if (messageIds.Count == 0) return;
+        await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(MessageQueries.SetExtractionDeferred,
+                new { messageIds = messageIds.ToList(), deferred }).ConfigureAwait(false);
+            await cursor.ConsumeAsync().ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<Message>> GetExtractionDeferredAsync(
+        string sessionId, int limit, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(MessageQueries.GetExtractionDeferredBySession,
+                new { sessionId, limit = Math.Max(1, limit) }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r => MapToMessage(r["m"].As<INode>(), embedding: null)).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<Message>> GetAllBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting ALL messages for session {SessionId} (uncapped, chronological)", sessionId);

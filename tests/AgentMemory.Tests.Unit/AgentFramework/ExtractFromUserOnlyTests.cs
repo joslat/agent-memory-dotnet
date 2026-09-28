@@ -117,4 +117,21 @@ public sealed class ExtractFromUserOnlyTests
 
         await memory.DidNotReceiveWithAnyArgs().ExtractAndPersistAsync(default!, default);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task The_host_says_a_question_turn_may_wait_only_when_asked(bool defer)
+    {
+        var memory = Substitute.For<IMemoryService>().RouteIdKeyedAdds();
+        ExtractionRequest? seen = null;
+        memory.ExtractAndPersistAsync(Arg.Do<ExtractionRequest>(r => seen = r), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ExtractionResult { SourceMessageIds = [] }));
+
+        await TurnExtraction.ExtractAsync(memory,
+            new ExtractionRequest { Messages = [M("user", "What's a good hike?")], SessionId = "s1" },
+            new AgentFrameworkOptions { DeferQuestionTurns = defer }, null, NullLogger.Instance, CancellationToken.None);
+
+        seen!.DeferIfOnlyAsking.Should().Be(defer);
+    }
 }

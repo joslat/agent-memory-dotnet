@@ -55,6 +55,16 @@ public sealed class AgentFrameworkOptions
     public bool ExtractFromUserMessagesOnly { get; set; } = true;
 
     /// <summary>
+    /// 37.4. Hold a turn in which the user only asks ("what should I read next?") and extract it with the next turn of
+    /// the session that tells something (default false). Measured in simulated conversations: 43 % of extraction calls
+    /// returned nothing, almost all on question turns. Deferred, never dropped: the turn is marked on its stored message
+    /// (<c>IMessageRepository.SetExtractionDeferredAsync</c>), so it survives a restart, stays in its store and session,
+    /// and is gone when forgotten; at most <c>ExtractionOptions.MaxDeferredTurns</c> wait. Asking to be reminded or to
+    /// have something remembered is never held.
+    /// </summary>
+    public bool DeferQuestionTurns { get; set; }
+
+    /// <summary>
     /// Extract after the turn has returned (default true since 2026-09-27; see RecallWaitsForPendingExtraction for
     /// the next-turn guard, and turn it off on hosts that freeze the process after replying). Extraction is a model call plus
     /// resolution and writes, seconds per turn, and inline it is part of every answer's latency: the

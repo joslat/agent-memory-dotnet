@@ -171,4 +171,21 @@ public sealed class MemoryServiceExtractionContextTests
 
         CapturedRequest().ContextMessages.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task What_was_said_between_a_released_question_and_its_telling_turn_is_context()
+    {
+        // 37.4: a question that waited is a target beside the turn that released it; the agent's reply between them
+        // ("Try the glazing class in Porto") is exactly what resolves the telling turn ("I booked it").
+        var t = DateTimeOffset.Parse("2026-09-27T10:00:00Z");
+        SessionHolds(
+            M("q", "What should I get my sister?") with { TimestampUtc = t },
+            M("a", "Try the glazing class in Porto.") with { Role = "assistant", TimestampUtc = t.AddMinutes(1) },
+            M("s", "I booked it.") with { TimestampUtc = t.AddMinutes(2) },
+            M("later", "And one more thing") with { TimestampUtc = t.AddMinutes(9) });
+
+        await ExtractAsync(3, M("q", "What should I get my sister?") with { TimestampUtc = t }, M("s", "I booked it.") with { TimestampUtc = t.AddMinutes(2) });
+
+        CapturedRequest().ContextMessages.Select(m => m.MessageId).Should().Equal(["a"], "between the targets, never after the last");
+    }
 }

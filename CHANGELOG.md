@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A turn in which the user only asks waits for the next turn that tells something**
+  (`AgentFrameworkOptions.DeferQuestionTurns`, off by default; `ExtractionRequest.DeferIfOnlyAsking` for other hosts;
+  `ExtractionOptions.MaxDeferredTurns` 3). In simulated conversations 43 % of extraction calls returned nothing, almost
+  all on question turns. The waiting turn is marked on its stored message (`IMessageRepository.SetExtractionDeferredAsync`
+  / `GetExtractionDeferredAsync`, default members: a store without them extracts every turn at once), so it survives a
+  restart, stays in its store and session, is gone when forgotten, and is extracted with the next telling turn of its
+  session as a target (or once the maximum waits); the marks clear only when that extraction succeeds. Asking to be
+  reminded or to have something remembered is never held. The extraction context window now reaches up to the last
+  target, so what the agent said between a waiting question and the turn that released it resolves references.
+
 - **"Lately": what the person has talked about most recently** (`WorkingMemoryOptions.RecentTopicsDays`, off by default;
   `MaxRecentTopics` 3, `MinRecentTopicTurns` 2). The profile block ends with one line, `Lately (7 days): marathon (5
   turns), Ana (2 turns)`: entities of the owner named by live facts, counted by the distinct messages those facts

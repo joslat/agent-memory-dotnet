@@ -249,6 +249,12 @@ public sealed class ExtractionOptions
     public int ExtractionContextTurns { get; set; }
 
     /// <summary>
+    /// 37.4. How many question-only turns of a session may wait for the next telling turn
+    /// (<see cref="Domain.ExtractionRequest.DeferIfOnlyAsking"/>) before they are extracted anyway (default 3).
+    /// </summary>
+    public int MaxDeferredTurns { get; set; } = 3;
+
+    /// <summary>
     /// The session accountant: materialises aggregates from what a batch just persisted. Off by default.
     /// </summary>
     /// <remarks>

@@ -40,6 +40,14 @@ public sealed record ExtractionRequest
     public string? UserId { get; init; }
 
     /// <summary>
+    /// 37.4. When every sentence the user said in <see cref="Messages"/> only asks, hold the turn instead of extracting
+    /// it now: its messages are marked in the store and extracted with the next turn of the session that tells
+    /// something, or once <see cref="Options.ExtractionOptions.MaxDeferredTurns"/> turns wait. Set by turn-based hosts
+    /// (<c>AgentFrameworkOptions.DeferQuestionTurns</c>); never for batch ingestion. False by default.
+    /// </summary>
+    public bool DeferIfOnlyAsking { get; init; }
+
+    /// <summary>
     /// Stores what this request teaches as <b>shared</b> knowledge, recalled by everyone (G-15): a book, a
     /// manual, a policy — general knowledge rather than anything about one person. The memories get no owner,
     /// so every owner's recall (with shared included, the default) finds them and nobody's profile lists them.

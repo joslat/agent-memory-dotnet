@@ -34,6 +34,9 @@ internal static class TurnExtraction
             request = request with { Messages = said };
         }
 
+        // 37.4. The decision is the memory service's (stored, per session); the host only says a turn may wait.
+        if (options.DeferQuestionTurns) request = request with { DeferIfOnlyAsking = true };
+
         if (options.ExtractInBackground && background is not null)
         {
             // The caller's ambient owner and store scope (AsyncLocal) travel with the work, so it writes
