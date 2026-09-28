@@ -774,8 +774,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         async Task CloseCorrectedAsync(Fact winner, string replaced, string sourceKey)
         {
             if (!_options.SupersedeReplacedFacts) return;
-            // A plan ("Oslo from next month, not Copenhagen") replaces nothing before it begins, as supersession does not.
-            if (!ReplacementShapes.HoldsNow(winner.ValidFrom ?? winner.OccurredOn, null, now)) return;
+            // No start guard, unlike supersession: a marked correction is the person withdrawing what they said,
+            // now ("the full marathon in May instead of the half in April" retracts the half today, though the full
+            // marathon is dated May; found in simulated conversations after a guard here left both plans live).
             // Read like supersession reads (own, or shared only for a shared write); write with the owner's scope, or
             // none for a shared write: the supersede statement already refuses to link facts of different owners.
             var readScope = SharedScopes.OwnedOrShared(ownerId);

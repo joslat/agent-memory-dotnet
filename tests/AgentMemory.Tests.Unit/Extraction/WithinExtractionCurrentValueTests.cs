@@ -375,19 +375,20 @@ public sealed class WithinExtractionCurrentValueTests
         Current(store).Should().Equal("Oslo");
     }
 
-    // A correction that is a plan ("Oslo from next month, not Copenhagen") leaves the current home until it begins.
+    // A marked correction withdraws what it replaces when it is said, even when the new value is dated ahead ("the full
+    // marathon in May instead of the half in April").
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task A_planned_correction_leaves_the_home_until_it_begins(bool batch)
+    public async Task A_correction_withdraws_what_it_replaces_even_when_the_new_value_is_dated_ahead(bool batch)
     {
         var store = new Store();
-        store.Facts.Add(Stored("cph", "Copenhagen"));
+        store.Facts.Add(Stored("half", "half marathon in April 2027", p: "is training for"));
         await Stage(store, batch).PersistAsync(new ExtractionStageResult
         {
-            FilteredFacts = [F("Oslo") with { ValidFrom = T0.AddDays(30), Replaces = "Copenhagen" }],
+            FilteredFacts = [F("full marathon in May 2027", p: "is running") with { ValidFrom = T0.AddDays(200), Replaces = "half marathon in April 2027" }],
         }, ownerId: "u1");
-        store.Facts.Single(f => f.FactId == "cph").InvalidatedAtUtc.Should().BeNull();
+        store.Facts.Single(f => f.FactId == "half").InvalidatedAtUtc.Should().NotBeNull();
     }
 
     [Fact]
