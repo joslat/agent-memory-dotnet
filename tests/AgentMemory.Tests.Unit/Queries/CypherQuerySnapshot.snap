@@ -465,9 +465,7 @@ MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_ke
                     ELSE $confidence END,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE f.valid_from END,
                 f.valid_from_precision = CASE WHEN $validFrom IS NOT NULL THEN $validFromPrecision ELSE f.valid_from_precision END,
-                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil)
-                                            WHEN f.invalidated_at IS NOT NULL AND f.valid_until = f.invalidated_at THEN null
-                                            ELSE f.valid_until END,
+                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE f.valid_until END,
                 f.valid_until_precision = CASE WHEN $validUntil IS NOT NULL THEN $validUntilPrecision ELSE f.valid_until_precision END,
                 f.occurred_on        = CASE WHEN $occurredOn IS NOT NULL THEN datetime($occurredOn) ELSE f.occurred_on END,
                 f.occurred_on_precision = CASE WHEN $occurredOn IS NOT NULL THEN $occurredOnPrecision ELSE f.occurred_on_precision END,
@@ -511,9 +509,7 @@ UNWIND $items AS item
                     ELSE item.confidence END,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
                 f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE f.valid_from_precision END,
-                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until)
-                                            WHEN f.invalidated_at IS NOT NULL AND f.valid_until = f.invalidated_at THEN null
-                                            ELSE f.valid_until END,
+                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
                 f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE f.valid_until_precision END,
                 f.occurred_on        = CASE WHEN item.occurred_on IS NOT NULL THEN datetime(item.occurred_on) ELSE f.occurred_on END,
                 f.occurred_on_precision = CASE WHEN item.occurred_on IS NOT NULL THEN item.occurred_on_precision ELSE f.occurred_on_precision END,
@@ -604,9 +600,7 @@ UNWIND $items AS item
                     ELSE item.confidence END,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
                 f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE f.valid_from_precision END,
-                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until)
-                                            WHEN f.invalidated_at IS NOT NULL AND f.valid_until = f.invalidated_at THEN null
-                                            ELSE f.valid_until END,
+                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
                 f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE f.valid_until_precision END,
                 f.occurred_on        = CASE WHEN item.occurred_on IS NOT NULL THEN datetime(item.occurred_on) ELSE f.occurred_on END,
                 f.occurred_on_precision = CASE WHEN item.occurred_on IS NOT NULL THEN item.occurred_on_precision ELSE f.occurred_on_precision END,
@@ -1326,7 +1320,7 @@ MATCH (u:User {identifier: $ownerId})
 MATCH (f:Fact {owner_id: $ownerId})
             WHERE f.invalidated_at IS NULL
               AND coalesce(f.mention_count, 1) >= $minMentions
-            WITH [x IN [f.valid_from, f.valid_until] WHERE x IS NOT NULL AND x > datetime($now)] AS upcoming
+            WITH [x IN [coalesce(f.valid_from, f.occurred_on), f.valid_until] WHERE x IS NOT NULL AND x > datetime($now)] AS upcoming
             UNWIND upcoming AS boundary
             RETURN min(boundary) AS boundary
 

@@ -774,6 +774,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         async Task CloseCorrectedAsync(Fact winner, string replaced, string sourceKey)
         {
             if (!_options.SupersedeReplacedFacts) return;
+            // A plan ("Oslo from next month, not Copenhagen") replaces nothing before it begins, as supersession does not.
+            if (!ReplacementShapes.HoldsNow(winner.ValidFrom ?? winner.OccurredOn, null, now)) return;
             // Read like supersession reads (own, or shared only for a shared write); write with the owner's scope, or
             // none for a shared write: the supersede statement already refuses to link facts of different owners.
             var readScope = SharedScopes.OwnedOrShared(ownerId);
@@ -964,7 +966,25 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                         .ThenBy(member => factIndex.GetValueOrDefault(member.Key))
                         .Select(member => member.Fact)
                         .LastOrDefault();
-                    if (standIn is null) continue;
+                    if (standIn is null)
+                    {
+                        // Nothing left to stand in (the correction failed to write): a value this extraction created
+                        // and itself corrected away is withdrawn, not left live beside the stored one.
+                        foreach (var (key, fact) in members.Where(member => factDecision.Old.Contains(member.Key) &&
+                                                                           createdHere.Contains(member.Fact.FactId)))
+                        {
+                            try
+                            {
+                                await _factRepository.InvalidateAsync(fact.FactId, writeScope, cancellationToken).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Withdrawing '{Key}' failed; it stays stored.", key);
+                            }
+                        }
+                        continue;
+                    }
                     current = standIn;
                     currentFactIds.Add(current.FactId);
                     await SupersedeReplacedFactsAsync(current).ConfigureAwait(false);

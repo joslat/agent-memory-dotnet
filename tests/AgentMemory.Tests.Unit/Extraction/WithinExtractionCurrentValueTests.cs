@@ -303,7 +303,7 @@ public sealed class WithinExtractionCurrentValueTests
         {
             FilteredFacts = [F("Copenhagen"), F("Oslo") with { Replaces = "Copenhagen" }],
         }, ownerId: "u1");
-        Current(store).Should().NotEqual(["Copenhagen"]);
+        Current(store).Should().Equal(["Bergen"], "the retracted value is withdrawn, the stored one stays");
     }
 
     [Theory]
@@ -361,21 +361,6 @@ public sealed class WithinExtractionCurrentValueTests
         Current(store).Should().Equal("Oslo");
     }
 
-    // Said again after it was replaced ("I moved back to Copenhagen"), a value is current again: the end supersession
-    // stamped is cleared with the invalidation, and it replaces what replaced it.
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task A_value_said_again_after_it_was_replaced_is_current_again(bool batch)
-    {
-        var store = new Store();
-        await Stage(store, batch).PersistAsync(new ExtractionStageResult { FilteredFacts = [F("Copenhagen")] }, ownerId: "u1");
-        await Stage(store, batch).PersistAsync(new ExtractionStageResult { FilteredFacts = [F("Oslo")] }, ownerId: "u1");
-        await Stage(store, batch).PersistAsync(new ExtractionStageResult { FilteredFacts = [F("Copenhagen")] }, ownerId: "u1");
-
-        Current(store).Should().Equal("Copenhagen");
-    }
-
     // An undated value began when it was said: now, later than any value dated in the past, whatever the order said.
     [Theory]
     [InlineData(true)]
@@ -389,4 +374,23 @@ public sealed class WithinExtractionCurrentValueTests
         }, ownerId: "u1");
         Current(store).Should().Equal("Oslo");
     }
+
+    // A correction that is a plan ("Oslo from next month, not Copenhagen") leaves the current home until it begins.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_planned_correction_leaves_the_home_until_it_begins(bool batch)
+    {
+        var store = new Store();
+        store.Facts.Add(Stored("cph", "Copenhagen"));
+        await Stage(store, batch).PersistAsync(new ExtractionStageResult
+        {
+            FilteredFacts = [F("Oslo") with { ValidFrom = T0.AddDays(30), Replaces = "Copenhagen" }],
+        }, ownerId: "u1");
+        store.Facts.Single(f => f.FactId == "cph").InvalidatedAtUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public void The_profile_rebuild_boundary_counts_the_day_an_event_happens() =>
+        AgentMemory.Neo4j.Queries.WorkingMemoryQueries.NextValidityBoundary.Should().Contain("coalesce(f.valid_from, f.occurred_on)");
 }

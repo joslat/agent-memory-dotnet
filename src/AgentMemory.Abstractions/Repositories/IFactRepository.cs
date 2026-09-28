@@ -148,7 +148,9 @@ public interface IFactRepository
     /// <summary>
     /// The <b>live</b> facts asserting a different object for the same subject and predicate as
     /// <paramref name="winnerFactId"/> — the ones a newly written fact about a functional relation
-    /// replaces (M1 write-time supersession). Never returns the winner itself.
+    /// replaces (M1 write-time supersession). Never returns the winner itself, nor a fact that does not hold
+    /// now: one whose <c>ValidUntil</c> has passed (history) or whose start (<c>ValidFrom</c>, else
+    /// <c>OccurredOn</c>) is still ahead (a plan).
     /// </summary>
     /// <remarks>
     /// <para>

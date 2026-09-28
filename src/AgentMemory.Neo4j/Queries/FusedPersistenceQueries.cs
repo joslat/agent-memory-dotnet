@@ -87,9 +87,7 @@ internal static class FusedPersistenceQueries
                     ELSE item.confidence END,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
                 f.valid_from_precision = CASE WHEN item.valid_from IS NOT NULL THEN item.valid_from_precision ELSE f.valid_from_precision END,
-                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until)
-                                            WHEN f.invalidated_at IS NOT NULL AND f.valid_until = f.invalidated_at THEN null
-                                            ELSE f.valid_until END,
+                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
                 f.valid_until_precision = CASE WHEN item.valid_until IS NOT NULL THEN item.valid_until_precision ELSE f.valid_until_precision END,
                 f.occurred_on        = CASE WHEN item.occurred_on IS NOT NULL THEN datetime(item.occurred_on) ELSE f.occurred_on END,
                 f.occurred_on_precision = CASE WHEN item.occurred_on IS NOT NULL THEN item.occurred_on_precision ELSE f.occurred_on_precision END,

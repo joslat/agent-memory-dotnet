@@ -118,7 +118,7 @@ internal static class WorkingMemoryQueries
             MATCH (f:Fact {owner_id: $ownerId})
             WHERE f.invalidated_at IS NULL
               AND coalesce(f.mention_count, 1) >= $minMentions
-            WITH [x IN [f.valid_from, f.valid_until] WHERE x IS NOT NULL AND x > datetime($now)] AS upcoming
+            WITH [x IN [coalesce(f.valid_from, f.occurred_on), f.valid_until] WHERE x IS NOT NULL AND x > datetime($now)] AS upcoming
             UNWIND upcoming AS boundary
             RETURN min(boundary) AS boundary";
 

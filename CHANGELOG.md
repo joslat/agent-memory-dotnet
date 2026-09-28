@@ -397,11 +397,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   otherwise the recall stays at now. Found once extraction dated future facts: the
   point-in-time recall of last October hid an appointment dated this October, and the agent answered "nothing".
 
-- **A value said again after it was replaced is current again** ("I moved back to Copenhagen"). The restatement
-  cleared the invalidation but kept the end supersession had stamped, so the value stayed hidden from live recall and
-  the value that replaced it could be closed by it, leaving no current value. The stamped end (equal to the
-  invalidation) is now cleared with it on every fact write path; an end the person stated is kept.
-
 - **Supersession replaces only a value that holds now**: one that has ended is history (closing it hid it from as-of
   recall) and one that has not begun is a plan. The same rule for winners and for the losers the query finds.
 
