@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -217,6 +217,8 @@ try
             sp.GetRequiredService<IMigrationRunner>(), output).ExecuteAsync(),
         "bootstrap" => await new BootstrapCommand(
             sp.GetRequiredService<ISchemaBootstrapper>(), output).ExecuteAsync(),
+        "retrim" => await new RetrimCommand(
+            sp.GetRequiredService<ISchemaBootstrapper>(), output).ExecuteAsync(cli.HasFlag("apply")),
         // 30.14: the registry is resolved here so the owners report runs. Resolved rather than
         // required, because a host that has not registered extensions still gets the conformance half.
         "schema-check" => await new SchemaCheckCommand(

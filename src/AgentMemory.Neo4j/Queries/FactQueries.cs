@@ -32,6 +32,38 @@ internal static class FactQueries
     /// the one the write path produces, silently reintroducing the duplication canonical identity
     /// exists to remove. That is also why this is not a .cypher migration file.
     /// </remarks>
+    // ── Re-trim echoed predicates (J-8a) ──────────────────────────────
+
+    /// <summary>
+    /// Live facts whose predicate ends with their own object ("Daniel | is a chef | chef"), stored before 37.2 trimmed
+    /// them at write. A coarse, parameterised pre-filter (underscores read as spaces, the object with or without a
+    /// leading article); the exact rule is <c>PredicateEcho.Trim</c>, applied to each row in code.
+    /// </summary>
+    public const string SelectEchoedPredicates = @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL
+            WITH f, replace(toLower(f.predicate), $underscore, $space) AS p, replace(toLower(f.object), $underscore, $space) AS o
+            WHERE size(o) > 0 AND size(p) > size(o)
+              AND (p ENDS WITH $space + o OR any(a IN $articles WHERE o STARTS WITH a + $space AND p ENDS WITH $space + substring(o, size(a) + 1)))
+            RETURN f.id AS id, f.subject AS subject, f.predicate AS predicate, f.object AS object,
+                   f.subject_key AS subjectKey, f.owner_key AS ownerKey
+            LIMIT $limit";
+
+    /// <summary>The live fact already stating the trimmed triple for the same owner, if any (not the fact itself).</summary>
+    public const string FindTrimmedTwin = @"
+            MATCH (t:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey})
+            WHERE t.id <> $id AND t.invalidated_at IS NULL
+            RETURN t.id AS id
+            LIMIT 1";
+
+    /// <summary>Rewrites an echoed fact as it reads once trimmed, with its identity keys.</summary>
+    public const string RewriteTrimmed = @"
+            MATCH (f:Fact {id: $id})
+            SET f.predicate = $predicate, f.object = $object,
+                f.predicate_key = $predicateKey, f.object_key = $objectKey,
+                f.updated_at = datetime($now)
+            RETURN count(f) AS updated";
+
     public const string ApplyCanonicalKeys = @"
             UNWIND $items AS item
             MATCH (f:Fact {id: item.id})

@@ -90,6 +90,8 @@ public static class CliHelp
               schema-check           Verify the LIVE database has every constraint/index the bootstrap
                                      creates (runtime conformance). Exit 1 listing any missing objects.
               consolidate [--apply]  Run the memory-hygiene pass (dry-run unless --apply).
+              retrim [--apply]       Repair facts whose predicate repeats their object ("is a chef | chef"), stored
+                                     before write-time trimming (dry-run unless --apply).
               conflicts              Detect fact contradictions (detect-only).
               invalidate --type <fact|entity|preference> --id <id> [--owner <id>]
                                      Soft-invalidate a node (D5): drops from live recall, kept + as-of-recallable.

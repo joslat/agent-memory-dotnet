@@ -177,6 +177,81 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         return total;
     }
 
+    /// <inheritdoc />
+    public async Task<int> RetrimEchoedPredicatesAsync(bool apply, CancellationToken cancellationToken = default)
+    {
+        var parameters = new Dictionary<string, object?>
+        {
+            ["space"] = " ", ["underscore"] = "_", ["articles"] = new[] { "a", "an", "the" }, ["limit"] = CanonicalKeyBackfillBatchSize,
+        };
+        var changed = 0;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var rows = await _txRunner.ReadAsync(async runner =>
+            {
+                var cursor = await runner.RunAsync(FactQueries.SelectEchoedPredicates, parameters).ConfigureAwait(false);
+                return await cursor.ToListAsync().ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false) ?? [];
+
+            var progressed = false;
+            foreach (var row in rows)
+            {
+                var id = row["id"].As<string>();
+                if (!seen.Add(id)) continue;                       // a dry run (or a row the rule leaves alone) comes back
+                var said = new AgentMemory.Abstractions.Domain.ExtractedFact
+                {
+                    Subject = row["subject"].As<string>(), Predicate = row["predicate"].As<string>(),
+                    Object = row["object"].As<string>(), Confidence = 1,
+                };
+                var trimmed = AgentMemory.Core.Extraction.PredicateEcho.Trim(said);
+                if (trimmed.Predicate == said.Predicate && trimmed.Object == said.Object) continue;
+                changed++;
+                progressed = true;
+                if (!apply) continue;
+
+                var keys = new Dictionary<string, object?>
+                {
+                    ["id"] = id,
+                    ["subjectKey"] = row["subjectKey"].As<string?>(),
+                    ["ownerKey"] = row["ownerKey"].As<string?>(),
+                    ["predicate"] = trimmed.Predicate,
+                    ["object"] = trimmed.Object,
+                    ["predicateKey"] = MemoryTripleCanonicalizer.Canonical(trimmed.Predicate),
+                    ["objectKey"] = MemoryTripleCanonicalizer.CanonicalValue(trimmed.Object),
+                    ["now"] = DateTimeOffset.UtcNow.ToString("O"),
+                };
+                await _txRunner.WriteAsync(async runner =>
+                {
+                    var twin = await (await runner.RunAsync(FactQueries.FindTrimmedTwin, keys).ConfigureAwait(false))
+                        .ToListAsync().ConfigureAwait(false);
+                    if (twin.Count > 0)
+                    {
+                        // The trimmed statement is already stored: the echoed copy is superseded by it, as any
+                        // restatement would supersede it (the same statement the repositories use).
+                        await (await runner.RunAsync(FactQueries.Supersede(hasOwnerFilter: false), new Dictionary<string, object?>
+                        {
+                            ["loserId"] = id, ["winnerId"] = twin[0]["id"].As<string>(), ["now"] = keys["now"], ["reinforceAlpha"] = 0.0,
+                        }).ConfigureAwait(false)).ConsumeAsync().ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await (await runner.RunAsync(FactQueries.RewriteTrimmed, keys).ConfigureAwait(false)).ConsumeAsync().ConfigureAwait(false);
+                    }
+                    return true;
+                }, cancellationToken).ConfigureAwait(false);
+            }
+
+            // Applied rows leave the selection; a dry run sees the same page again. Stop when a page adds nothing new.
+            if (!progressed || rows.Count < CanonicalKeyBackfillBatchSize) break;
+        }
+
+        _logger.LogInformation("{Mode}: {Count} fact(s) with a predicate that repeats its object.",
+            apply ? "Re-trimmed" : "Would re-trim", changed);
+        return changed;
+    }
+
     public async Task BootstrapAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(

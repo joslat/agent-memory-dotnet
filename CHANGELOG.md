@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ILongTermMemoryService.GetRelationshipsAroundAsync` / `IRelationshipRepository.GetLiveAroundAsync` (defaults fall
   back to the id-only reads).
 
+- **`agentmemory retrim [--apply]`: repair facts stored before predicate-echo trimming.** Facts written before the
+  write-time trim ("Daniel | is a chef | chef", rendered "is a chef chef") are rewritten as they read once trimmed
+  ("Daniel | is | a chef", identity keys included), or superseded by the trimmed fact when it is already stored. A dry
+  run unless `--apply`; on demand only, never at bootstrap (`ISchemaBootstrapper.RetrimEchoedPredicatesAsync`).
+
 - **A held question turn says so.** `ExtractionResult.Deferred` (and the public `ExtractionResult.DeferredMetadataKey`)
   tell a host that the turn was held for the next one that tells something, rather than extracted with nothing in it;
   the `memory.ingestion.operations` counter tags it `status=Deferred`, apart from successes.

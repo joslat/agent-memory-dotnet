@@ -42,6 +42,23 @@ public sealed class BootstrapCommand(ISchemaBootstrapper bootstrapper, TextWrite
 }
 
 /// <summary>
+/// J-8a. Repairs facts stored before predicate-echo trimming ("Daniel | is a chef | chef" read "is a chef chef"):
+/// rewritten as they read once trimmed, or superseded by the trimmed fact when it already exists. A dry run unless
+/// <c>--apply</c>.
+/// </summary>
+public sealed class RetrimCommand(ISchemaBootstrapper bootstrapper, TextWriter output)
+{
+    public async Task<int> ExecuteAsync(bool apply, CancellationToken cancellationToken = default)
+    {
+        var count = await bootstrapper.RetrimEchoedPredicatesAsync(apply, cancellationToken);
+        output.WriteLine(apply
+            ? $"Re-trimmed {count} fact(s) whose predicate repeated its object."
+            : $"DRY-RUN: {count} fact(s) repeat their object in the predicate. Re-run with --apply to fix them.");
+        return 0;
+    }
+}
+
+/// <summary>
 /// Verifies that the LIVE database has every constraint and index the bootstrap creates (runtime
 /// conformance). Exit 0 when conformant, 1 (listing the missing objects) otherwise. This is the runtime
 /// counterpart to <c>bootstrap</c> — distinct from <c>schema-parity</c>, which is a static check that the
