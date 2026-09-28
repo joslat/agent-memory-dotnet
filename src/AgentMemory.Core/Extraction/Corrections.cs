@@ -28,7 +28,16 @@ namespace AgentMemory.Core.Extraction;
 internal static class Corrections
 {
     /// <summary>The live facts, among <paramref name="candidates"/>, that a correction by <paramref name="winner"/> closes.</summary>
-    internal static IReadOnlyList<Fact> Closed(IEnumerable<Fact> candidates, Fact winner, string replaced)
+    /// <param name="candidates">The subject's facts.</param>
+    /// <param name="winner">The correction.</param>
+    /// <param name="replaced">The value it replaces, as said.</param>
+    /// <param name="statedNow">
+    /// Facts of the same extraction as the correction. Only the same relation's closes one of them: under another
+    /// relation it is something else said now ("Oslo now, not Copenhagen; Copenhagen is still my favourite city"),
+    /// and the fallback exists for what was stored before under another phrasing.
+    /// </param>
+    internal static IReadOnlyList<Fact> Closed(
+        IEnumerable<Fact> candidates, Fact winner, string replaced, IReadOnlySet<string>? statedNow = null)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(winner);
@@ -46,6 +55,7 @@ internal static class Corrections
         // Another relation only when the mention is unambiguous and not a coincidence of one word: the object IS the
         // value, or the two share at least two words ("half marathon" for "the half marathon in April"), never "6 kg"
         // for "6" nor "London" for "Google in London".
+        mentioning = [.. mentioning.Where(candidate => statedNow?.Contains(candidate.FactId) != true)];
         return mentioning.Count == 1 &&
                (Value(mentioning[0].Object) == value || Math.Min(WordCount(mentioning[0].Object), WordCount(value)) >= 2)
             ? mentioning
@@ -94,12 +104,18 @@ internal static class Corrections
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(winner);
         if (candidate.InvalidatedAtUtc is not null || candidate.PreferenceId == winner.PreferenceId) return false;
+        return Names(candidate.PreferenceText, replaced);
+    }
+
+    /// <summary>Whether <paramref name="text"/> names the replaced value as whole words.</summary>
+    internal static bool Names(string text, string replaced)
+    {
         var value = Value(replaced);
-        return value.Length > 0 && ContainsWords(candidate.PreferenceText, value);
+        return value.Length > 0 && ContainsWords(text, value);
     }
 
     /// <summary>The replaced value as compared: canonical, without a leading article or possessive.</summary>
-    private static string Value(string? replaced)
+    internal static string Value(string? replaced)
     {
         var value = MemoryTripleCanonicalizer.CanonicalValue(replaced);
         foreach (var lead in new[] { "the ", "a ", "an ", "my ", "our " })

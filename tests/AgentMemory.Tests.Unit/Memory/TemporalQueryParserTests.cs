@@ -128,7 +128,7 @@ public sealed class TemporalQueryParserTests
     public void AMonthLaterInTheYearResolvesToLastYear()
     {
         // Asked in August, "in December" cannot mean this year's December -- that has not happened.
-        Resolve("what was the plan in December")
+        Resolve("what was I doing in December")
             .Should().Be(new DateTimeOffset(2025, 12, 31, 23, 59, 59, TimeSpan.Zero));
     }
 
@@ -178,6 +178,10 @@ public sealed class TemporalQueryParserTests
     [InlineData("What do I have coming up in October?")]
     [InlineData("What am I doing in December?")]
     [InlineData("Is anything planned in November?")]
+    [InlineData("Where did I say I'd be in October?")]
+    [InlineData("Had I booked anything in November?")]
+    [InlineData("What was planned in October?")]
+    [InlineData("What was the plan in December?")]
     public void A_question_about_a_month_still_ahead_recalls_against_now(string query)
     {
         Resolve(query).Should().BeNull();

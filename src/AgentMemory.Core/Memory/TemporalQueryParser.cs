@@ -41,6 +41,15 @@ internal static class TemporalQueryParser
         Options, Timeout);
 
     /// <summary>
+    /// 36.1 (review round 5). A question that points ahead despite a past-tense verb: "where did I say I'd BE in
+    /// October", "had I BOOKED anything in November", "what was PLANNED in October". Any of these keeps the month this
+    /// year's: a missed past reading recalls against now, which is safe; a wrong one hides this year's plan.
+    /// </summary>
+    private static readonly Regex AheadCue = new(
+        @"'d\b|\b(will|would|be|going\s+to|plans?|planned|planning|book|booked|booking|scheduled|coming\s+up|upcoming|next|due)\b",
+        Options, Timeout);
+
+    /// <summary>
     /// <c>last|past N unit(s) ago</c> and the bare <c>last week/month/quarter/year</c>.
     /// </summary>
     /// <remarks>
@@ -140,7 +149,8 @@ internal static class TemporalQueryParser
             // is about the past. "What do I have coming up in October?", asked in September, is about this October: read
             // as last October it recalled what was true then and hid the appointment dated this October (found in
             // simulated conversations, once extraction dated it). A future question recalls against now.
-            if (!month.Groups["year"].Success && monthNumber > now.Month && !PastTense.IsMatch(query))
+            if (!month.Groups["year"].Success && monthNumber > now.Month &&
+                (!PastTense.IsMatch(query) || AheadCue.IsMatch(query)))
                 return null;
 
             var year = month.Groups["year"].Success

@@ -384,14 +384,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **"What do I have coming up in October?", asked in September, recalled last October** (`ResolveTemporalQueries`).
   A month still ahead this year, named without a year, now resolves to last year only in a past-tense question
-  ("what did I do in October?"); otherwise the recall stays at now. Found once extraction dated future facts: the
+  ("what did I do in October?") that points nowhere ahead ("where did I say I'd be", "what was planned" stay at now);
+  otherwise the recall stays at now. Found once extraction dated future facts: the
   point-in-time recall of last October hid an appointment dated this October, and the agent answered "nothing".
 
 - **Two values of one single-valued relation in the same extraction closed each other** (with
   `SupersedeReplacedFacts`, on the default batch path): "I moved to Copenhagen, then to Oslo" or two favourite bands in
   one turn left no live value, because the batch writes both before supersession runs. Within one batch, only a later
-  value closes an earlier one; a marked correction still closes what it names wherever it was said, and a value a
-  correction names never supersedes it.
+  value closes an earlier one. A value a correction replaces, restated in the same extraction ("Oslo now, not
+  Copenhagen", extracted as both), supersedes nothing and is closed by its correction once everything is written, on
+  either write path and for favourites too; a correction naming its own value marks nothing; and a correction's
+  fallback (another relation) never closes a fact stated in the same extraction.
 
 - **A month was stored as a day.** The temporal instruction now asks the model to write a date only as precisely as
   it was stated ("2024-03" for "in March 2024"): it wrote "2024-03-01", the stored precision was a day, and the agent
