@@ -268,7 +268,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Framework `ContextFormatOptions`, Core `MemoryContextFormatterOptions`, Semantic Kernel `MemoryRecallSecurityOptions`,
   `WorkingMemoryOptions`) and `MemoryOptions.SharedRecallBudget` is 3: in simulated conversations both kept every answer
   and improved the dated ones. A store without shared memory of a kind is no longer searched for it (the split had
-  searched twice per memory type everywhere; now one cached existence check per store and kind). Set
+  searched twice per memory type everywhere; now one cached existence check per store and kind). Shared knowledge
+  written in the same process is recalled at once; one written by another process, within 30 seconds. Set
   `IncludeDates = false` or `SharedRecallBudget = null` for the earlier prompt. The model-dependent extraction switches
   (`TemporalValidityMode.Extract`, `MarkCorrections`, `OwnPreferencesOnly`) and `SupersedeReplacedFacts` stay opt-in.
 

@@ -18,6 +18,7 @@ internal sealed partial class Neo4jFactRepository
         if (facts.Count == 0) return Array.Empty<Fact>();
 
         _logger.LogDebug("Fused batch upserting {Count} facts", facts.Count);
+        NoteShared(facts);
         var deduped = facts
             .GroupBy(fact => TripleKey(
                 fact.Subject, fact.Predicate, fact.Object, fact.OwnerId ?? OwnerKeyShared))

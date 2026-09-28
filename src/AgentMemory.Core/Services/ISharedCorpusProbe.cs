@@ -22,4 +22,11 @@ internal enum SharedKind
 internal interface ISharedCorpusProbe
 {
     ValueTask<bool> HasSharedAsync(SharedKind kind, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A shared row of <paramref name="kind"/> is being written in this process: answer "some" from now on, so a book
+    /// taught a moment ago is recalled at once rather than after a cached "none" expires. Called before the write
+    /// commits, which is safe: a "some" that turns out wrong only costs one empty search.
+    /// </summary>
+    void Saw(SharedKind kind);
 }

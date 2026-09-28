@@ -15,6 +15,7 @@ internal sealed partial class Neo4jEntityRepository
         if (entities.Count == 0) return Array.Empty<Entity>();
 
         _logger.LogDebug("Fused batch upserting {Count} entities", entities.Count);
+        NoteShared(entities);
         var items = entities.Select(entity => new Dictionary<string, object?>
         {
             ["id"] = entity.EntityId,

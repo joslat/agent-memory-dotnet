@@ -15,6 +15,7 @@ internal sealed partial class Neo4jPreferenceRepository
         if (preferences.Count == 0) return Array.Empty<Preference>();
 
         _logger.LogDebug("Fused batch upserting {Count} preferences", preferences.Count);
+        NoteShared(preferences);
         var items = preferences.Select(preference => new Dictionary<string, object?>
         {
             ["id"] = preference.PreferenceId,

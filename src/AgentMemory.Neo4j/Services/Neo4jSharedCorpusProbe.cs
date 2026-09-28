@@ -15,6 +15,8 @@ namespace AgentMemory.Neo4j.Services;
 /// Facts and entities are found by an index seek on <c>owner_key = '*'</c>; preferences carry no key, and the
 /// existence check stops at the first shared one (a label scan only when there is none, at most once per window).
 /// The answer is per store: the ambient application scope selects the database the query runs in and the cache key.
+/// A shared write in this process (<see cref="Saw"/>, called by the fact, entity and preference repositories) turns
+/// the answer to "some" at once; only a write from another process waits out <see cref="NoneFor"/>.
 /// </remarks>
 internal sealed class Neo4jSharedCorpusProbe : ISharedCorpusProbe
 {
@@ -58,4 +60,6 @@ internal sealed class Neo4jSharedCorpusProbe : ISharedCorpusProbe
         _answers[key] = (shared, now + (shared ? SomeFor : NoneFor));
         return shared;
     }
+
+    public void Saw(SharedKind kind) => _answers[(_store?.ApplicationId, kind)] = (true, _time.GetUtcNow() + SomeFor);
 }

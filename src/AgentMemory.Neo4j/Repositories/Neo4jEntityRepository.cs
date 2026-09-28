@@ -64,6 +64,13 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         }, cancellationToken).ConfigureAwait(false) ?? [];
 
     private readonly IMemoryRankingContext? _rankingContext;
+    private readonly ISharedCorpusProbe? _sharedCorpus;
+
+    /// <summary>37.1b: a shared (owner-less) entity is being written, so recall's shared search must not be skipped.</summary>
+    private void NoteShared(IEnumerable<Entity> items)
+    {
+        if (_sharedCorpus is not null && items.Any(item => item.OwnerId is null)) _sharedCorpus.Saw(SharedKind.Entity);
+    }
 
     public Neo4jEntityRepository(
         INeo4jTransactionRunner tx,
@@ -74,9 +81,11 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         IOptions<MemoryOptions>? memoryOptions = null,
         // 30.4b. Optional, mirroring every other working-memory injection point: a host that never
         // registered the tier keeps the exact previous construction shape.
-        IWorkingMemoryService? workingMemory = null)
+        IWorkingMemoryService? workingMemory = null,
+        ISharedCorpusProbe? sharedCorpus = null)
     {
         _workingMemory = workingMemory;
+        _sharedCorpus = sharedCorpus;
         _workingMemoryOptions = memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions();
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
         _skipEscalationWhenOwnerHasNoRows =
@@ -92,6 +101,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
     public async Task<Entity> UpsertAsync(Entity entity, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Upserting entity {Id} ({Name})", entity.EntityId, entity.Name);
+        NoteShared([entity]);
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -516,6 +526,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         if (entities.Count == 0) return Array.Empty<Entity>();
 
         _logger.LogDebug("Batch upserting {Count} entities", entities.Count);
+        NoteShared(entities);
 
         var items = entities.Select(e =>
         {

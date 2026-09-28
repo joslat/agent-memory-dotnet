@@ -9,6 +9,7 @@ using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Derivation;
+using AgentMemory.Core.Services;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
@@ -37,6 +38,13 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     /// <summary>G-14: owners up to this many facts are scanned exactly instead of asking the global index.</summary>
     private readonly int _ownerFirstThreshold;
     private readonly OwnerRowCounts? _ownerRowCounts;
+    private readonly ISharedCorpusProbe? _sharedCorpus;
+
+    /// <summary>37.1b: a shared (owner-less) fact is being written, so recall's shared search must not be skipped.</summary>
+    private void NoteShared(IEnumerable<Fact> facts)
+    {
+        if (_sharedCorpus is not null && facts.Any(fact => fact.OwnerId is null)) _sharedCorpus.Saw(SharedKind.Fact);
+    }
 
     public Neo4jFactRepository(
         INeo4jTransactionRunner tx,
@@ -45,10 +53,12 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         IOptions<MemoryDecayOptions>? decay = null,
         IMemoryRankingContext? rankingContext = null,
         IOptions<MemoryOptions>? memoryOptions = null,
-        OwnerRowCounts? ownerRowCounts = null)
+        OwnerRowCounts? ownerRowCounts = null,
+        ISharedCorpusProbe? sharedCorpus = null)
     {
         _ownerFirstThreshold = memoryOptions?.Value.OwnerFirstVectorThreshold ?? 0;
         _ownerRowCounts = ownerRowCounts;
+        _sharedCorpus = sharedCorpus;
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
         _skipEscalationWhenOwnerHasNoRows =
             memoryOptions?.Value.SkipEscalationWhenOwnerHasNoRows ?? false;
@@ -64,6 +74,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     public async Task<Fact> UpsertAsync(Fact fact, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Upserting fact {Id}", fact.FactId);
+        NoteShared([fact]);
 
         var subjectKey = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject);
         var predicateKey = MemoryTripleCanonicalizer.Canonical(fact.Predicate);
@@ -146,6 +157,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (facts.Count == 0) return Array.Empty<Fact>();
 
         _logger.LogDebug("Batch upserting {Count} facts", facts.Count);
+        NoteShared(facts);
 
         // The query MERGEs on the {subject,predicate,object,owner_key} triple (parity with the single
         // Upsert path). Collapse same-triple inputs up front (last-writer-wins) so each surviving node is
@@ -1060,6 +1072,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _logger.LogDebug(
             "Upserting derived fact {Id} ({Key}) from {InputCount} inputs",
             fact.FactId, derivationKey, inputFactIds.Count);
+        NoteShared([fact]);
 
         return await _tx.WriteAsync(async runner =>
         {

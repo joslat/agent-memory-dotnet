@@ -8,6 +8,7 @@ using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Core.Services;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
@@ -60,6 +61,13 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         }, cancellationToken).ConfigureAwait(false) ?? [];
 
     private readonly IMemoryRankingContext? _rankingContext;
+    private readonly ISharedCorpusProbe? _sharedCorpus;
+
+    /// <summary>37.1b: a shared (owner-less) preference is being written, so recall's shared search must not be skipped.</summary>
+    private void NoteShared(IEnumerable<Preference> items)
+    {
+        if (_sharedCorpus is not null && items.Any(item => item.OwnerId is null)) _sharedCorpus.Saw(SharedKind.Preference);
+    }
 
     public Neo4jPreferenceRepository(
         INeo4jTransactionRunner tx,
@@ -67,8 +75,10 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         IOptions<MemoryRankingOptions>? ranking = null,
         IOptions<MemoryDecayOptions>? decay = null,
         IMemoryRankingContext? rankingContext = null,
-        IOptions<MemoryOptions>? memoryOptions = null)
+        IOptions<MemoryOptions>? memoryOptions = null,
+        ISharedCorpusProbe? sharedCorpus = null)
     {
+        _sharedCorpus = sharedCorpus;
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
         _skipEscalationWhenOwnerHasNoRows =
             memoryOptions?.Value.SkipEscalationWhenOwnerHasNoRows ?? false;
@@ -83,6 +93,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
     public async Task<Preference> UpsertAsync(Preference preference, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Upserting preference {Id}", preference.PreferenceId);
+        NoteShared([preference]);
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -131,6 +142,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         if (preferences.Count == 0) return Array.Empty<Preference>();
 
         _logger.LogDebug("Batch upserting {Count} preferences", preferences.Count);
+        NoteShared(preferences);
         var items = preferences.Select(preference => new Dictionary<string, object?>
         {
             ["id"] = preference.PreferenceId,
