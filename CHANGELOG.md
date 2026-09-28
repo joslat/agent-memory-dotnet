@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **"Lately": what the person has talked about most recently** (`WorkingMemoryOptions.RecentTopicsDays`, off by default;
+  `MaxRecentTopics` 3, `MinRecentTopicTurns` 2). The profile block ends with one line, `Lately (7 days): marathon (5
+  turns), Ana (2 turns)`: entities of the owner named by live facts, counted by the distinct messages those facts
+  were extracted from in the window, never the person themselves. Only what the person said counts, not what the
+  agent recalled; ties break by name so the block stays byte-stable. One read per rebuild, only when enabled.
+
 - **`SupersededFact.ValidUntilPrecision`** (and `EffectiveDatePrecision`), so a predecessor's end prints at the
   precision it was stated.
 

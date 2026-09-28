@@ -56,6 +56,27 @@ internal static class WorkingMemoryQueries
                    f.occurred_on AS occurredOn, f.occurred_on_precision AS occurredOnPrecision
             ORDER BY f.created_at ASC, f.id ASC";
 
+    /// <summary>
+    /// 37.5. What the person talked about most since <c>$since</c>: entities of the owner named by live facts, counted
+    /// by the distinct messages those facts were extracted from, never the person (a self word or their stated name).
+    /// Ordered by turns, then name, so the line is byte-stable.
+    /// </summary>
+    public const string SelectRecentTopics = @"
+            MATCH (f:Fact {owner_id: $ownerId})-[:EXTRACTED_FROM]->(m:Message)
+            WHERE f.invalidated_at IS NULL AND m.timestamp >= datetime($since)
+            UNWIND [f.subject, f.object] AS topic
+            WITH topic, count(DISTINCT m) AS turns
+            WHERE turns >= $minTurns
+              AND NOT toLower(topic) IN $selfWords
+              AND EXISTS { MATCH (e:Entity {owner_id: $ownerId}) WHERE e.name = topic AND e.invalidated_at IS NULL }
+              AND NOT EXISTS {
+                  MATCH (n:Fact {owner_id: $ownerId})
+                  WHERE n.invalidated_at IS NULL AND n.object = topic
+                    AND toLower(n.subject) IN $selfWords AND toLower(n.predicate) IN $namingPredicates }
+            RETURN topic, turns
+            ORDER BY turns DESC, topic ASC
+            LIMIT $limit";
+
     /// <summary>Active preferences: live and above the confidence floor.</summary>
     public const string SelectActivePreferences = @"
             MATCH (p:Preference {owner_id: $ownerId})

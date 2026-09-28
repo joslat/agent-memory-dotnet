@@ -142,4 +142,34 @@ public sealed class WorkingMemoryTests
         options.WorkingMemory.MaxStableFacts.Should().Be(4);
         options.WorkingMemory.MinPreferenceConfidence.Should().Be(0.8);
     }
+
+    // ── 37.5: Lately ──────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Lately_is_one_line_at_the_end_of_the_block()
+    {
+        var block = Neo4jWorkingMemoryService.Compose(
+            ["Nadia lives in Lyon"], [], ["Nadia (PERSON)"], maxTokens: 500, lately: ["marathon (5 turns)", "Ana (3 turns)"], latelyDays: 7);
+
+        block.Should().EndWith("\nLately (7 days): marathon (5 turns), Ana (3 turns)");
+    }
+
+    [Fact]
+    public void Without_topics_the_block_is_as_it_was()
+    {
+        Neo4jWorkingMemoryService.Compose(["Nadia lives in Lyon"], [], [], maxTokens: 500, lately: [], latelyDays: 7)
+            .Should().Be(Neo4jWorkingMemoryService.Compose(["Nadia lives in Lyon"], [], [], maxTokens: 500));
+    }
+
+    [Fact]
+    public void Over_budget_lately_goes_first()
+    {
+        var block = Neo4jWorkingMemoryService.Compose(
+            ["Nadia lives in Lyon"], [], ["Nadia (PERSON)"], maxTokens: 14, lately: ["marathon (5 turns)"], latelyDays: 7);
+
+        block.Should().NotContain("Lately").And.Contain("Nadia lives in Lyon");
+    }
+
+    [Fact]
+    public void Lately_is_off_by_default() => new WorkingMemoryOptions().RecentTopicsDays.Should().Be(0);
 }

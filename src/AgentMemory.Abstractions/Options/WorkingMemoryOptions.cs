@@ -73,6 +73,26 @@ public sealed class WorkingMemoryOptions
     /// </summary>
     public bool IncludeDates { get; set; } = true;
 
+    /// <summary>
+    /// 37.5. "What's been on the person's mind lately": the block ends with one line naming the topics the person
+    /// talked about most in the last this-many days (<c>Lately (7 days): marathon (5 turns), Ana (3 turns)</c>).
+    /// 0, the default, leaves the block as it was.
+    /// </summary>
+    /// <remarks>
+    /// A topic is an entity of the owner that a live fact names as its subject or object, never the person
+    /// themselves; it is counted by the distinct messages it was extracted from in the window (the facts'
+    /// <c>EXTRACTED_FROM</c> provenance with the message's time). What the agent recalled does not count: only
+    /// what the person said. No decay inside the window, and ties break by name, so the line is stable between
+    /// rebuilds with the same inputs.
+    /// </remarks>
+    public int RecentTopicsDays { get; set; }
+
+    /// <summary>37.5. Most topics on the "Lately" line (default 3).</summary>
+    public int MaxRecentTopics { get; set; } = 3;
+
+    /// <summary>37.5. How many turns in the window make a topic "top of mind" (default 2: said once is not lately).</summary>
+    public int MinRecentTopicTurns { get; set; } = 2;
+
     /// <summary>On a rebuild failure, clear the stored block rather than leaving it stale.</summary>
     /// <remarks>
     /// Absence degrades to today's behaviour; staleness manufactures errors. That asymmetry is why
