@@ -67,8 +67,13 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted,
         CancellationToken cancellationToken = default)
     {
+        var started = _clock.UtcNow;
         var result = await PersistCoreAsync(extraction, ownerId, trustLevel, cancellationToken)
             .ConfigureAwait(false);
+
+        // J-11. After the write (whichever path produced it), outside its transaction: a name that replaced another
+        // renames what it named. Before the rebuild below, so the working-memory block is compiled from the result.
+        await RenameCorrectedNamesAsync(extraction, ownerId, started, cancellationToken).ConfigureAwait(false);
 
         // Once per persist, and here rather than inside the core so it happens exactly once whichever
         // of the three return paths (atomic / best-effort / replay) produced the result, and outside
@@ -216,6 +221,94 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     }
 
     private sealed class ReplayBestEffortPersistenceException : Exception;
+
+    /// <summary>
+    /// J-11 (<see cref="ExtractionOptions.RenameOnCorrectedName"/>). The renames this persist made: for each naming fact
+    /// it wrote ("user | is named | Priya"), the naming facts of the same subject it closed ("… | Pruya"), found in the
+    /// store rather than threaded through the write, so it holds for every write path (atomic, best-effort, replayed).
+    /// Best-effort, like supersession: a failed rename leaves the two names side by side, never a failed ingestion.
+    /// </summary>
+    private async Task RenameCorrectedNamesAsync(
+        ExtractionStageResult extraction, string? ownerId, DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        if (!_options.RenameOnCorrectedName || string.IsNullOrWhiteSpace(ownerId)) return;
+        var naming = extraction.FilteredFacts
+            .Where(f => UserNames.IsNamingPredicate(f.Predicate) && !string.IsNullOrWhiteSpace(f.Object))
+            .ToList();
+        if (naming.Count == 0) return;
+
+        var scope = MemoryScope.For(ownerId, includeShared: false);
+        // The store's clock stamps invalidated_at; a second of slack keeps a close made by this persist inside.
+        var from = since - TimeSpan.FromSeconds(1);
+        foreach (var named in naming)
+        {
+            var name = named.Object.Trim();
+            try
+            {
+                var replaced = (await _factRepository.GetBySubjectAsync(named.Subject, scope, cancellationToken).ConfigureAwait(false))
+                    .Where(f => UserNames.IsNamingPredicate(f.Predicate) && f.InvalidatedAtUtc >= from &&
+                                !string.Equals(f.Object.Trim(), name, StringComparison.OrdinalIgnoreCase))
+                    .Select(f => f.Object.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                foreach (var old in replaced)
+                    await RenameAsync(old, name, scope, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Renaming to '{Name}' failed; the old name stays beside it.", name);
+            }
+        }
+    }
+
+    /// <summary>J-11: the entity called <paramref name="old"/> becomes <paramref name="name"/>, and so do the facts about it.</summary>
+    private async Task RenameAsync(string old, string name, MemoryScope scope, CancellationToken cancellationToken)
+    {
+        // The entity: only one that bears the old name as its own (an alias match is already the renamed one).
+        var source = await _entityRepository.FindLiveByNameAsync(old, null, scope, cancellationToken).ConfigureAwait(false);
+        if (source is not null && string.Equals(source.Name, old, StringComparison.OrdinalIgnoreCase))
+        {
+            var target = await _entityRepository.FindLiveByNameAsync(name, null, scope, cancellationToken).ConfigureAwait(false)
+                ?? await _entityRepository.UpsertAsync(new Entity
+                {
+                    EntityId = _idGenerator.GenerateId(),
+                    Name = name,
+                    Type = source.Type,
+                    Subtype = source.Subtype,
+                    Confidence = source.Confidence,
+                    OwnerId = scope.OwnerId,
+                    CreatedAtUtc = _clock.UtcNow,
+                    SourceMessageIds = source.SourceMessageIds,
+                    Embedding = await _embeddingOrchestrator.EmbedAsync(name, cancellationToken).ConfigureAwait(false),
+                }, cancellationToken).ConfigureAwait(false);
+            if (target.EntityId != source.EntityId)
+            {
+                // Relationships and mentions move, the old name becomes an alias; then the old entity is closed.
+                await _entityRepository.MergeEntitiesAsync(source.EntityId, target.EntityId, scope, cancellationToken).ConfigureAwait(false);
+                await _entityRepository.InvalidateAsync(source.EntityId, scope, cancellationToken).ConfigureAwait(false);
+                _logger.LogDebug("Renamed entity '{Old}' to '{Name}' ({Source} into {Target}).", old, name, source.EntityId, target.EntityId);
+            }
+        }
+
+        // The facts said about the old name, restated under the new one; each original is superseded by its restatement.
+        var facts = await _factRepository.GetBySubjectAsync(old, scope, cancellationToken).ConfigureAwait(false);
+        foreach (var fact in facts.Where(f => f.InvalidatedAtUtc is null))
+        {
+            var metadata = new Dictionary<string, object>(fact.Metadata) { ["renamed_from"] = old };
+            var restated = await _factRepository.UpsertAsync(fact with
+            {
+                FactId = _idGenerator.GenerateId(),
+                Subject = name,
+                CreatedAtUtc = _clock.UtcNow,
+                Metadata = metadata,
+                Embedding = await _embeddingOrchestrator.EmbedFactAsync(name, fact.Predicate, fact.Object, cancellationToken)
+                    .ConfigureAwait(false),
+            }, cancellationToken).ConfigureAwait(false);
+            if (restated.FactId != fact.FactId)
+                await _factRepository.SupersedeAsync(fact.FactId, restated.FactId, scope, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     private async Task<PersistenceResult> PersistPreparedAsync(
         ExtractionStageResult extraction,

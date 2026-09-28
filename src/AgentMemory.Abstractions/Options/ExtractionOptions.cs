@@ -164,6 +164,17 @@ public sealed class ExtractionOptions
     public bool ResolveUserToName { get; set; } = true;
 
     /// <summary>
+    /// A name that replaces another renames what it named, instead of leaving two of it (default false). When this
+    /// persist closed a naming fact ("user | is named | Pruya", "cat | is called | Missou") in favour of a new name
+    /// (a correction, or a real change of name), the owner's entity with the old name is merged into the one with the
+    /// new name (created if missing): relationships move, the old name stays as an alias so it is still recognised,
+    /// and the old entity is closed. The live facts said about the old name are restated under the new one, each
+    /// superseding its original, so the history stays readable. Needs <see cref="SupersedeReplacedFacts"/> (which
+    /// closes the old naming fact). Owner-scoped: a shared (owner-less) write renames nothing.
+    /// </summary>
+    public bool RenameOnCorrectedName { get; set; }
+
+    /// <summary>
     /// Merge near-identical facts produced by ONE extraction (dark, default false). A single message
     /// produced "moved to | analytics team" and "moved to | analytics", and "requested help with" next to
     /// "needs help with": same fact, two phrasings, two nodes. On, a fact whose vector is at least

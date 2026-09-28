@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A corrected name renames what it named** (`ExtractionOptions.RenameOnCorrectedName`, off by default; needs
+  `SupersedeReplacedFacts`). "It's Priya, not Pruya" used to close the old naming fact but leave "Pruya" as a second
+  person, with what was said under that name still attached. Now, when a persist closes a naming fact (`is named`,
+  `is called`, any subject: the user, a person, a pet) in favour of a new name, the owner's entity with the old name is
+  merged into the one with the new name (created if missing): relationships move, the old name stays as an alias so it
+  is still recognised, and the old entity is closed. The live facts said about the old name are restated under the new
+  one, each superseding its original. Facts that mention the old name as their object are not rewritten.
+
 - **A turn in which the user only asks waits for the next turn that tells something**
   (`AgentFrameworkOptions.DeferQuestionTurns`, off by default; `ExtractionRequest.DeferIfOnlyAsking` for other hosts;
   `ExtractionOptions.MaxDeferredTurns` 3). In simulated conversations 43 % of extraction calls returned nothing, almost
