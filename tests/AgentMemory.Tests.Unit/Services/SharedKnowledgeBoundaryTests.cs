@@ -378,4 +378,9 @@ public sealed class SharedKnowledgeBoundaryTests
 
         text.Should().Contain("[closest match, 0.42] Alice followed the White Rabbit", "a shared near-miss must not read as a confident match");
     }
+
+    /// <summary>37.1: the separate budget is on by default (it kept every answer in simulated conversations).</summary>
+    [Fact]
+    public void Shared_knowledge_has_its_own_budget_by_default() =>
+        new AgentMemory.Abstractions.Options.MemoryOptions().SharedRecallBudget.Should().Be(3);
 }

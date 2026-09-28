@@ -69,7 +69,7 @@ public sealed class ContextFormatOptions
     /// <summary>
     /// 36.1. Renders what memory knows about <i>when</i>: a fact's validity dates at the precision they were
     /// stated (<c>Rosa moved to Lyon (since 2024-03)</c>), and the day of a recalled turn from another session
-    /// (<c>[2026-09-26] I went hiking yesterday</c>). Default false: the prompt is byte-for-byte what it was.
+    /// (<c>[2026-09-26] I went hiking yesterday</c>). Default true (37.1: simulated conversations answered dated questions from these dates, with no answer made worse); false renders as before, without dates.
     /// </summary>
     /// <remarks>
     /// Measured before: dates were extracted and stored but relevant facts rendered as <c>subject predicate
@@ -78,7 +78,7 @@ public sealed class ContextFormatOptions
     /// surface (the Agent Framework mapper, the Core formatter and the profile block's own switch,
     /// <c>WorkingMemoryOptions.IncludeDates</c>).
     /// </remarks>
-    public bool IncludeDates { get; set; }
+    public bool IncludeDates { get; set; } = true;
 
     /// <summary>
     /// System-message text prepended to the context block. Set to <see cref="string.Empty"/> to omit the

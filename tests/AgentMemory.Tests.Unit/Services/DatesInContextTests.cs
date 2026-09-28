@@ -173,10 +173,10 @@ public sealed class DatesInContextTests
     };
 
     [Fact]
-    public void The_agent_framework_renderer_shows_the_date_when_asked()
+    public void The_agent_framework_renderer_shows_the_date_unless_switched_off()
     {
-        var on = MafTypeMapper.ToContextMessages(Context(), new ContextFormatOptions { IncludeDates = true }).Select(m => m.Text).ToList();
-        var off = MafTypeMapper.ToContextMessages(Context(), new ContextFormatOptions()).Select(m => m.Text).ToList();
+        var on = MafTypeMapper.ToContextMessages(Context(), new ContextFormatOptions()).Select(m => m.Text).ToList();
+        var off = MafTypeMapper.ToContextMessages(Context(), new ContextFormatOptions { IncludeDates = false }).Select(m => m.Text).ToList();
 
         on.Should().Contain(t => t.Contains("Nadia moved to Lyon (since 2024-03)"));
         on.Should().Contain(t => t == "[2026-09-20] I went hiking yesterday.", "a turn from another session says which day it was");
@@ -185,12 +185,12 @@ public sealed class DatesInContextTests
     }
 
     [Fact]
-    public void The_core_formatter_shows_the_date_when_asked()
+    public void The_core_formatter_shows_the_date_unless_switched_off()
     {
         var result = new RecallResult { Context = Context(), TotalItemsRetrieved = 3 };
 
-        var on = MemoryContextFormatter.FormatRecallResult(result, new MemoryContextFormatterOptions { IncludeDates = true });
-        var off = MemoryContextFormatter.FormatRecallResult(result);
+        var on = MemoryContextFormatter.FormatRecallResult(result);
+        var off = MemoryContextFormatter.FormatRecallResult(result, new MemoryContextFormatterOptions { IncludeDates = false });
 
         on.Should().Contain("- Nadia moved to Lyon (since 2024-03)")
             .And.Contain("[2026-09-20] [user]: I went hiking yesterday.")
@@ -285,5 +285,14 @@ public sealed class DatesInContextTests
         LlmFactExtractor.BuildSystemPrompt(AssistantContentMode.Ignore, TemporalValidityMode.Ignore, ExtractionProvenanceMode.Batch,
                 ownPreferencesOnly: true)
             .Should().Contain("A preference is the user's own taste");
+    }
+
+    /// <summary>37.1: one default for the twins that render dates (the Semantic Kernel one is pinned in its own suite).</summary>
+    [Fact]
+    public void Every_surface_renders_dates_by_default()
+    {
+        new ContextFormatOptions().IncludeDates.Should().BeTrue();
+        new MemoryContextFormatterOptions().IncludeDates.Should().BeTrue();
+        new WorkingMemoryOptions().IncludeDates.Should().BeTrue();
     }
 }

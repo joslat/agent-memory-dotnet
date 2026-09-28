@@ -245,6 +245,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Dates and the shared-knowledge budget are on by default.** `IncludeDates` is now true on every renderer (Agent
+  Framework `ContextFormatOptions`, Core `MemoryContextFormatterOptions`, Semantic Kernel `MemoryRecallSecurityOptions`,
+  `WorkingMemoryOptions`) and `MemoryOptions.SharedRecallBudget` is 3: in simulated conversations both kept every answer
+  and improved the dated ones. Set `IncludeDates = false` or `SharedRecallBudget = null` for the earlier prompt. The
+  model-dependent extraction switches (`TemporalValidityMode.Extract`, `MarkCorrections`, `OwnPreferencesOnly`) and
+  `SupersedeReplacedFacts` stay opt-in.
+
 - **Entity resolution reads shared candidates by an index seek.** Entities carry `owner_key` (`"*"` when shared) on
   every write path, with an index and a backfill at bootstrap for existing stores, and the "own or shared" candidate
   read seeks the shared half by `owner_key = '*'`. It read every entity of the type across all owners to find the

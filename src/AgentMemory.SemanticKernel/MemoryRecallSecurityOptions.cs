@@ -42,8 +42,8 @@ public sealed class MemoryRecallSecurityOptions
 
     /// <summary>
     /// 36.1. Render what memory knows about when: a fact's validity dates at the precision they were stated, and the
-    /// day of a recalled turn from another session. Default false: the rendering is byte-for-byte what it was. The
+    /// day of a recalled turn from another session. Default true (37.1: simulated conversations answered dated questions from these dates, with no answer made worse); false renders as before, without dates. The
     /// Agent Framework surface's twin is <c>ContextFormatOptions.IncludeDates</c>.
     /// </summary>
-    public bool IncludeDates { get; set; }
+    public bool IncludeDates { get; set; } = true;
 }

@@ -68,10 +68,10 @@ public sealed class WorkingMemoryOptions
 
     /// <summary>
     /// 36.1. The block's facts carry their validity dates, at the precision they were stated
-    /// (<c>Rosa works at the hospital (since 2021)</c>), by the same rule the recall renderers use. Default false:
-    /// the block is byte-for-byte what it was.
+    /// (<c>Rosa works at the hospital (since 2021)</c>), by the same rule the recall renderers use. Default true (37.1),
+    /// as for the recall renderers; false builds the block as before, without dates.
     /// </summary>
-    public bool IncludeDates { get; set; }
+    public bool IncludeDates { get; set; } = true;
 
     /// <summary>On a rebuild failure, clear the stored block rather than leaving it stale.</summary>
     /// <remarks>

@@ -460,6 +460,7 @@ public sealed class Neo4jTextSearchTests
     public void IncludeDates_crosses_to_the_formatter()
     {
         new MemoryRecallSecurityOptions { IncludeDates = true }.ToFormatterOptions().IncludeDates.Should().BeTrue();
-        new MemoryRecallSecurityOptions().ToFormatterOptions().IncludeDates.Should().BeFalse();
+        new MemoryRecallSecurityOptions { IncludeDates = false }.ToFormatterOptions().IncludeDates.Should().BeFalse();
+        new MemoryRecallSecurityOptions().ToFormatterOptions().IncludeDates.Should().BeTrue("37.1: on by default");
     }
 }
