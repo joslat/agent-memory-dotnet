@@ -48,7 +48,7 @@
     <!-- Embedded vocabularies, so counting never needs a network fetch at run time. -->
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.O200kBase" Version="2.0.0" />
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.Cl100kBase" Version="2.0.0" />
-    <PackageReference Include="Testcontainers.Neo4j" Version="4.14.0" />
+    <PackageReference Include="Testcontainers.Neo4j" Version="4.15.0" />
   </ItemGroup>
 
   <ItemGroup>
