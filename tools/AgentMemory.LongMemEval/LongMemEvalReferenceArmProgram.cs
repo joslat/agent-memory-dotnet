@@ -21,6 +21,29 @@ internal static class LongMemEvalReferenceArmProgram
         {
             var options = Parse(args);
 
+            // --question-ids narrows the usual draw, exactly as it does for the prepared pair, and before
+            // any client exists: an id outside the draw stops the run before a single call is made.
+            var selection = LongMemEvalQuestionSelection.Resolve(
+                options.DatasetPath,
+                CreateBenchmarkOptions(options),
+                options.QuestionFilter,
+                (path, count) => CreateBenchmarkOptions(options with
+                {
+                    DatasetPath = path,
+                    Questions = count,
+                    // The derived file holds exactly the kept questions, so it is read as it stands.
+                    AbstentionPolicy = AbstentionSamplingPolicy.AsSampled,
+                    AbstentionProportion = null,
+                }));
+            var questionCount = options.QuestionFilter is null ? options.Questions : selection.QuestionCount;
+            if (selection.Record is { } filterRecord)
+            {
+                Console.WriteLine(
+                    $"longmemeval: {LongMemEvalQuestionFilter.Option} keeps {filterRecord.QuestionCount} of "
+                    + $"{filterRecord.DrawnQuestions} drawn questions ({filterRecord.Draw}): "
+                    + $"{string.Join(",", filterRecord.QuestionIds)}.");
+            }
+
             var model = HarnessClients.Create();
             // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
             // backend build but not the HOST; the same model id on two providers is not the
@@ -33,14 +56,9 @@ internal static class LongMemEvalReferenceArmProgram
             using var diagnosticChatClient = new LongMemEvalChatCallMeter(
                 model.CreateAnswerClient());
 
-            var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
-                options.DatasetPath,
-                options.Questions,
-                options.Seed,
-                options.JudgeRetryAttempts,
-                LongMemEvalEvidenceDetail.Identifiers,
-                options.MaxRelevantMessages);
-            var evidenceIndex = LongMemEvalEvidenceIndex.Load(options.DatasetPath, benchmarkOptions);
+            var benchmarkOptions = selection.Options;
+            var evidenceIndex = selection.EvidenceIndex
+                ?? LongMemEvalEvidenceIndex.Load(options.DatasetPath, benchmarkOptions);
 
             var runId = $"longmemeval-reference-{options.Arm.ToString().ToLowerInvariant()}-" +
                 $"{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}";
@@ -52,10 +70,10 @@ internal static class LongMemEvalReferenceArmProgram
                 new LongMemEvalEvidenceOriginResolver(evidenceIndex));
 
             Console.WriteLine(
-                $"longmemeval: reference arm {options.Arm.Fingerprint()}, {options.Questions} stratified questions, seed {options.Seed}. " +
+                $"longmemeval: reference arm {options.Arm.Fingerprint()}, {questionCount} stratified questions, seed {options.Seed}. " +
                 "No Neo4j container, no embeddings, no extraction, no recall.");
 
-            var runner = LongMemEvalBenchmarkRunner.Create(judgeChatClient, options.DatasetPath);
+            var runner = LongMemEvalBenchmarkRunner.Create(judgeChatClient, selection.DatasetPath);
             var result = await runner.RunAsync(
                 agent,
                 new AgentBenchmarkConfig
@@ -71,21 +89,23 @@ internal static class LongMemEvalReferenceArmProgram
                 diagnosticChatClient,
                 evidenceIndex,
                 result.QuestionResults,
-                options.JudgeRetryAttempts).ConfigureAwait(false);
+                options.JudgeRetryAttempts,
+                verdictProtocol: options.JudgeProtocol).ConfigureAwait(false);
             var diagnosticJudgeCalls = judgeRetries.Sum(retry => retry.LlmCalls);
 
             var answerCalls = answerChatClient.Snapshot();
             var judgeCalls = judgeChatClient.Snapshot();
             var telemetry = agent.QuestionTelemetry;
             var validation = LongMemEvalReferenceArmValidator.Validate(
-                options.Questions,
+                questionCount,
                 result.TotalLlmCalls,
                 telemetry,
                 result.QuestionResults,
                 answerCalls,
                 judgeCalls,
                 judgeRetries.Count,
-                options.JudgeRetryAttempts);
+                options.JudgeRetryAttempts,
+                options.JudgeProtocol);
 
             var destination = Path.GetFullPath(options.OutputPath ??
                 Path.Combine("artifacts", "evaluation", runId, "report.json"));
@@ -104,10 +124,16 @@ internal static class LongMemEvalReferenceArmProgram
                         System.Security.Cryptography.SHA256.HashData(
                             await File.ReadAllBytesAsync(options.DatasetPath).ConfigureAwait(false))),
                     questions = options.Questions,
+                    // The questions actually evaluated: the draw above, or the --question-ids subset of it.
+                    questionsEvaluated = questionCount,
+                    questionFilter = selection.Record,
                     seed = options.Seed,
                     stratified = true,
                     answerModel = deployment,
-                    judgeModel = deployment,
+                    // The JUDGE's identity. This read `deployment` (the answer model) at all three report
+                    // sites, which was true only while one deployment served both roles; with AI_JUDGE_*
+                    // set, every report claimed the subject had graded itself.
+                    judgeModel = model.JudgeIdentity,
                     // Deliberately prefixed: a reference arm must never be comparable to an
                     // AgentMemory arm by accident in a ledger.
                     operatingMode = options.Arm.Fingerprint(),
@@ -116,8 +142,14 @@ internal static class LongMemEvalReferenceArmProgram
                     // prompt, and that difference is a limitation of the comparison.
                     systemPrompt = options.Arm.SystemPrompt(),
                     contextFitDecidedBy = "provider-context-window-rejection-not-estimated",
-                    judgeRequest = "AgentEval-source-native-null-temperature-256-tokens",
+                    judgeRequest = $"AgentEval-source-native-null-temperature-{options.JudgeMaxOutputTokens}-tokens",
                     judgeRetryAttempts = options.JudgeRetryAttempts,
+                    // The sampling that decided WHICH questions ran. Before these were forwarded, a
+                    // reference arm silently drew the as-sampled set whatever it was asked for, so an
+                    // artifact that does not state them cannot be matched to the arm it brackets.
+                    abstentionPolicy = options.AbstentionPolicy.ToString(),
+                    abstentionProportion = options.AbstentionProportion,
+                    judgeVerdictProtocol = options.JudgeProtocol.ToString(),
                     agentEval = typeof(ExternalBenchmarkOptions).Assembly.GetName().Version?.ToString(),
                     agentEvalDependency = "source-project:AgentEval.Memory"
                 },
@@ -170,11 +202,11 @@ internal static class LongMemEvalReferenceArmProgram
             // this deployment for any question, so the ceiling is simply not measurable here.
             Console.WriteLine(validation.FittedAccuracyPercent is { } fitted
                 ? $"longmemeval: arm={options.Arm.Fingerprint()} fitted_accuracy={fitted:F1}% " +
-                  $"answered={validation.AnsweredQuestions}/{options.Questions} " +
+                  $"answered={validation.AnsweredQuestions}/{questionCount} " +
                   $"skipped_context_window={validation.SkippedQuestions} " +
                   $"overall_including_skips={result.OverallAccuracy:F1}% llm_calls={result.TotalLlmCalls}"
                 : $"longmemeval: arm={options.Arm.Fingerprint()} NOT MEASURABLE on this deployment — " +
-                  $"all {validation.SkippedQuestions}/{options.Questions} questions exceeded the context window.");
+                  $"all {validation.SkippedQuestions}/{questionCount} questions exceeded the context window.");
             Console.WriteLine($"longmemeval: report {destination}");
             return 0;
         }
@@ -185,8 +217,57 @@ internal static class LongMemEvalReferenceArmProgram
         }
     }
 
-    private static ReferenceOptions Parse(string[] args)
+    /// <summary>
+    /// Every option this verb accepts. Kept beside the parser so the two move together.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This verb used to accept anything.</b> <c>Program</c> dispatches <c>--reference-arm</c>
+    /// before its own validator runs, and this parser only ever read the names it knew, so a flag it did
+    /// not know vanished. That made a set-B command run set A: the sampling flags were dropped, the arm
+    /// drew a different 50 questions, and the report looked like a normal bracket of the prepared pair.
+    /// </para>
+    /// <para>
+    /// The incompatible memory-arm flags are listed deliberately, so they reach their own, more specific
+    /// refusal below instead of a generic "unknown option".
+    /// </para>
+    /// </remarks>
+    internal static readonly string[] KnownOptions =
+    [
+        "--reference-arm", "--dataset", "--questions", "--seed", "--max-relevant", "--judge-retries",
+        "--output", "--abstention", "--abstention-proportion", "--judge-protocol", "--question-ids",
+        "--judge-max-output-tokens",
+        // Recognised only to be refused with a specific reason.
+        "--prepared-pair", "--memory-mode", "--exclude-synthetic-messages", "--oracle",
+    ];
+
+    /// <summary>
+    /// The AgentEval options this arm runs under, built the same way the prepared pair builds its own.
+    /// </summary>
+    /// <remarks>
+    /// A separate method so the forwarding is testable without a model: the sampling flags have to reach
+    /// <c>ExternalBenchmarkOptions</c>, not merely parse.
+    /// </remarks>
+    internal static ExternalBenchmarkOptions CreateBenchmarkOptions(ReferenceOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        return LongMemEvalBenchmarkProtocol.CreateOptions(
+            options.DatasetPath,
+            options.Questions,
+            options.Seed,
+            options.JudgeRetryAttempts,
+            LongMemEvalEvidenceDetail.Identifiers,
+            options.MaxRelevantMessages,
+            options.JudgeProtocol,
+            abstentionPolicy: options.AbstentionPolicy,
+            abstentionTargetProportion: options.AbstentionProportion,
+            judgeMaxOutputTokens: options.JudgeMaxOutputTokens);
+    }
+
+    internal static ReferenceOptions Parse(string[] args)
+    {
+        LongMemEvalArgumentValidator.Validate(args, KnownOptions);
+
         string? Value(string name)
         {
             var index = Array.IndexOf(args, name);
@@ -234,7 +315,12 @@ internal static class LongMemEvalReferenceArmProgram
             ParsePositive(Value("--seed"), 42, "--seed"),
             ParsePositive(Value("--max-relevant"), 30, "--max-relevant"),
             ParseNonNegative(Value("--judge-retries"), 2, "--judge-retries"),
-            Value("--output"));
+            Value("--output"),
+            LongMemEvalSamplingOptions.ParseAbstention(Value("--abstention")),
+            LongMemEvalSamplingOptions.ParseAbstentionProportion(Value("--abstention-proportion")),
+            LongMemEvalSamplingOptions.ParseJudgeProtocol(Value("--judge-protocol")),
+            LongMemEvalQuestionFilter.Parse(Value("--question-ids")),
+            LongMemEvalSamplingOptions.ParseJudgeMaxOutputTokens(Value("--judge-max-output-tokens")));
     }
 
     private static object Project(LongMemEvalChatCallSnapshot snapshot) => new
@@ -266,12 +352,17 @@ internal static class LongMemEvalReferenceArmProgram
             : throw new InvalidOperationException(
                 $"{name} is required; refusing to create a synthetic LongMemEval score.");
 
-    private sealed record ReferenceOptions(
+    internal sealed record ReferenceOptions(
         LongMemEvalReferenceArm Arm,
         string DatasetPath,
         int Questions,
         int Seed,
         int MaxRelevantMessages,
         int JudgeRetryAttempts,
-        string? OutputPath);
+        string? OutputPath,
+        AbstentionSamplingPolicy AbstentionPolicy = AbstentionSamplingPolicy.AsSampled,
+        double? AbstentionProportion = null,
+        JudgeVerdictProtocol JudgeProtocol = JudgeVerdictProtocol.FreeText,
+        LongMemEvalQuestionFilter? QuestionFilter = null,
+        int JudgeMaxOutputTokens = LongMemEvalBenchmarkProtocol.DefaultJudgeMaxOutputTokens);
 }

@@ -26,12 +26,23 @@ below full-history on accuracy, and it is two and a half orders of magnitude bel
 
 ## 2. The honest part: these are bands, not points
 
-Two runs that the harness **accepted**, same configuration, same 50 questions:
+Two 50-question runs that the harness **accepted**, both with seed 42:
 
 | Run | Structured | Hybrid |
 |---|---:|---:|
 | `20260810T092614Z-reuse-20260810T163701Z` | 76.0% | 90.0% |
 | `20260812T140253Z-reuse-20260813T221547Z` | **90.0%** | 84.0% |
+
+*Correction (2026-09-29).* An earlier version of this section said these runs had the same configuration
+and the same 50 questions. They had neither.
+- **The 10 August run** drew the plain `--questions 50 --seed 42` sample, which holds no abstention
+  questions. It was built with assistant utterances, the predicate vocabulary, fact expansion,
+  query-relation resolution, a 50,000 maximum input size and 5 workers, and it was judged free-text.
+- **The 12–13 August run** drew `--questions 50 --seed 42 --abstention target --abstention-proportion 0.4`,
+  which holds 20 abstention questions. It was built with the harness defaults and judged with the
+  structured-JSON protocol.
+- **The two samples share 4 of their 50 questions.** The spread below therefore mixes sample,
+  configuration and nondeterminism.
 
 **Structured moved 14 points between two accepted runs.** Hybrid moved 6, and in the *opposite*
 direction. The two arms swap places depending on which run you read.

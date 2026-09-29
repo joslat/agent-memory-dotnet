@@ -56,7 +56,56 @@ internal static class LongMemEvalPreparedPairProgram
                     "longmemeval: warning: content evidence retains public dataset questions, recalled text, and model answers; keep the output gitignored.");
             }
 
+            var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
+                options.DatasetPath,
+                options.Questions,
+                options.Seed,
+                options.JudgeRetryAttempts,
+                options.EvidenceDetail,
+                options.MaxRelevantMessages,
+                options.JudgeProtocol,
+                judgeMaxOutputTokens: options.JudgeMaxOutputTokens,
+                // Typed sampling reaches the PREPARATION, not only the evaluation: an episodic-only
+                // sample selects different questions, whose conversation histories have to be ingested
+                // for the corpus to answer them at all. This is why an episodic arm cannot reuse a
+                // stratified corpus and needs its own cold build.
+                includeQuestionTypes: LongMemEvalMemoryTypeSelection.TaskTypesFor(options.MemoryTypes),
+                // The unanswerable class. Without it the sufficiency AUC has nothing to order
+                // against: a stratified 50 gave 32 present and 1 absent, so the metric rested on one
+                // observation and the two arms reported 0.969 and 0.094 from the same corpus.
+                abstentionPolicy: options.AbstentionPolicy,
+                abstentionTargetProportion: options.AbstentionProportion);
+            // --question-ids narrows the usual draw. It is applied here, after sampling and before any
+            // client is built, so an id outside the draw stops the run before a container starts or any call is made.
+            var selection = LongMemEvalQuestionSelection.Resolve(
+                options.DatasetPath,
+                benchmarkOptions,
+                options.QuestionFilter,
+                (path, count) => LongMemEvalBenchmarkProtocol.CreateOptions(
+                    path,
+                    count,
+                    options.Seed,
+                    options.JudgeRetryAttempts,
+                    options.EvidenceDetail,
+                    options.MaxRelevantMessages,
+                    options.JudgeProtocol,
+                    judgeMaxOutputTokens: options.JudgeMaxOutputTokens));
+            benchmarkOptions = selection.Options;
+            var evaluationDatasetPath = selection.DatasetPath;
+            var effectiveQuestions = options.QuestionFilter is null ? options.Questions : selection.QuestionCount;
+            if (selection.Record is { } filterRecord)
+            {
+                Console.WriteLine(
+                    $"longmemeval: {LongMemEvalQuestionFilter.Option} keeps {filterRecord.QuestionCount} of "
+                    + $"{filterRecord.DrawnQuestions} drawn questions ({filterRecord.Draw}): "
+                    + $"{string.Join(",", filterRecord.QuestionIds)}; derived dataset sha256 {filterRecord.DerivedDatasetSha256}.");
+            }
             var model = HarnessClients.Create();
+            // The extraction identity sealed into the manifest and compared on reuse. The reasoning effort
+            // is part of it because it changes what the extractor writes; without the flag this is
+            // model.ExtractionIdentity unchanged.
+            var extractionIdentity = LongMemEvalExtractionReasoning.Identity(
+                model.ExtractionIdentity, options.ExtractionReasoning);
             // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
             // backend build but not the HOST; the same model id on two providers is not the
             // same measurement, and without this the two artifacts are indistinguishable.
@@ -68,24 +117,6 @@ internal static class LongMemEvalPreparedPairProgram
             var embeddingDimensions = await LongMemEvalRuntime
                 .ProbeEmbeddingDimensionsAsync(embeddingGenerator, model.Settings.EmbeddingDimensions)
                 .ConfigureAwait(false);
-            var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
-                options.DatasetPath,
-                options.Questions,
-                options.Seed,
-                options.JudgeRetryAttempts,
-                options.EvidenceDetail,
-                options.MaxRelevantMessages,
-                options.JudgeProtocol,
-                // Typed sampling reaches the PREPARATION, not only the evaluation: an episodic-only
-                // sample selects different questions, whose conversation histories have to be ingested
-                // for the corpus to answer them at all. This is why an episodic arm cannot reuse a
-                // stratified corpus and needs its own cold build.
-                includeQuestionTypes: LongMemEvalMemoryTypeSelection.TaskTypesFor(options.MemoryTypes),
-                // The unanswerable class. Without it the sufficiency AUC has nothing to order
-                // against: a stratified 50 gave 32 present and 1 absent, so the metric rested on one
-                // observation and the two arms reported 0.969 and 0.094 from the same corpus.
-                abstentionPolicy: options.AbstentionPolicy,
-                abstentionTargetProportion: options.AbstentionProportion);
             var datasetSha256 = Convert.ToHexStringLower(
                 SHA256.HashData(
                     await File.ReadAllBytesAsync(options.DatasetPath).ConfigureAwait(false)));
@@ -108,7 +139,7 @@ internal static class LongMemEvalPreparedPairProgram
                 // manifest that still names the answer model would assert a run was graded by
                 // something it was not -- which is the one thing provenance exists to prevent.
                 model.JudgeIdentity,
-                model.ExtractionIdentity,
+                extractionIdentity,
                 embeddingDeployment,
                 embeddingDimensions,
                 options.MaxRelevantMessages,
@@ -166,7 +197,8 @@ internal static class LongMemEvalPreparedPairProgram
             }
             using var extractionCalls = new LongMemEvalChatCallMeter(
                 new ProviderCompatibleExtractionChatClient(
-                    model.CreateExtractionClient()));
+                    LongMemEvalExtractionReasoning.Apply(
+                        model.CreateExtractionClient(), options.ExtractionReasoning)));
             LongMemEvalPreparationManifest manifest;
             IReadOnlyList<LongMemEvalRefusedEvidence.RefusedSession> refusedEvidence = [];
             IReadOnlyList<LongMemEvalPreparedCorpusDrift.Difference> reuseDrift = [];
@@ -202,13 +234,14 @@ internal static class LongMemEvalPreparedPairProgram
                 profileStartup.Stop();
 
                 var evidenceIndex = diagnosticEvidenceIndex ??
+                    selection.EvidenceIndex ??
                     LongMemEvalEvidenceIndex.Load(
-                        options.DatasetPath, benchmarkOptions);
+                        evaluationDatasetPath, benchmarkOptions);
                 var questions = evidenceIndex.Questions.ToArray();
-                if (questions.Length != options.Questions)
+                if (questions.Length != effectiveQuestions)
                 {
                     throw new InvalidOperationException(
-                        $"Prepared LongMemEval selected {questions.Length} questions; expected {options.Questions}.");
+                        $"Prepared LongMemEval selected {questions.Length} questions; expected {effectiveQuestions}.");
                 }
 
                 var driver = baseProfile.Services.GetRequiredService<IDriver>();
@@ -239,7 +272,7 @@ internal static class LongMemEvalPreparedPairProgram
                         new PreparedCorpusIdentity
                         {
                             DatasetSha256 = datasetSha256,
-                            ExtractionModelId = model.ExtractionIdentity,
+                            ExtractionModelId = extractionIdentity,
                             EmbeddingModelId = embeddingDeployment,
                             EmbeddingDimensions = embeddingDimensions,
                             AssistantContent = options.AssistantContent.ToString(),
@@ -248,7 +281,7 @@ internal static class LongMemEvalPreparedPairProgram
                             ExtractionVocabularySha256 = MemoryPredicateSeedVocabulary.Fingerprint,
                             QueryRelationLexiconSha256 = MemoryRelationSeedTable.Fingerprint,
                             QuestionSeed = options.Seed,
-                            QuestionCount = options.Questions,
+                            QuestionCount = effectiveQuestions,
                             MemoryTypes = options.MemoryTypes,
                             AbstentionPolicy = options.AbstentionPolicy.ToString(),
                         });
@@ -360,7 +393,8 @@ internal static class LongMemEvalPreparedPairProgram
                 // describe it. Enumerated rather than inferred, so adding a third sampling knob later
                 // fails this comparison loudly instead of silently inheriting the canonical count.
                 var canonicalSampling = options.MemoryTypes.Count == 0
-                    && options.AbstentionPolicy == AbstentionSamplingPolicy.AsSampled;
+                    && options.AbstentionPolicy == AbstentionSamplingPolicy.AsSampled
+                    && options.QuestionFilter is null;
                 var canonicalPlan = options.Questions == DefaultQuestions
                     && options.Seed == DefaultSeed
                     && canonicalSampling;
@@ -378,9 +412,12 @@ internal static class LongMemEvalPreparedPairProgram
                     var abstention = options.AbstentionPolicy == AbstentionSamplingPolicy.AsSampled
                         ? string.Empty
                         : $"abstention={options.AbstentionPolicy}";
+                    var filtered = options.QuestionFilter is null
+                        ? string.Empty
+                        : $"question-ids={effectiveQuestions}";
                     Console.WriteLine(
                         "longmemeval: non-canonical sample ("
-                        + string.Join(", ", new[] { how, abstention }.Where(s => s.Length > 0))
+                        + string.Join(", ", new[] { how, abstention, filtered }.Where(s => s.Length > 0))
                         + $") -- the canonical fixed-ten source-session guard "
                         + $"({FixedTenExpectedSourceSessions}) does not apply, because this sample "
                         + "selects different questions by construction.");
@@ -420,7 +457,7 @@ internal static class LongMemEvalPreparedPairProgram
                             datasetSha256,
                             agentEvalRevision,
                             answerModelId = deployment,
-                            extractionModelId = model.ExtractionIdentity,
+                            extractionModelId = extractionIdentity,
                             embeddingModelId = embeddingDeployment,
                             embeddingDimensions,
                             options.MaxRelevantMessages,
@@ -484,21 +521,40 @@ internal static class LongMemEvalPreparedPairProgram
                     ValidateCheckpointTelemetry(
                         checkpointExecution.Telemetry, questions, plans, checkpointIndexes);
                     var checkpointSnapshot = extractionCalls.Snapshot();
+                    // The SAME accounting decision as the full preparation below. The checkpoint used to
+                    // demand an exact call count, so the first Bitdeer checkpoint (2026-09-29) was
+                    // rejected for 15 calls against 13 planned. The two extra calls were one batch the
+                    // library split (a reply that acknowledged 1 of its 4 source sessions), which the full
+                    // run accepts by design. Two guards for one question had drifted apart: the defect the
+                    // full-run guard's own comment records. Failures stay forbidden here: a checkpoint
+                    // exists to prove the path clean.
+                    var checkpointSplits = baseProfile.Services
+                        .GetRequiredService<LlmExtractionBatchDiagnostics>().Snapshot().Splits;
                     if (checkpointExecution.PlannedCalls != checkpointCalls ||
                         checkpointExecution.EstimatedInputTokens != checkpointInputTokens ||
-                        checkpointSnapshot.Calls != checkpointCalls ||
-                        checkpointSnapshot.CompletedCalls != checkpointCalls ||
-                        checkpointSnapshot.RetryCalls != 0 ||
-                        checkpointSnapshot.MaximumConcurrency <= 1 ||
-                        checkpointSnapshot.MaximumConcurrency >
-                        options.MaxConcurrentExtractionBatches ||
+                        !IsExtractionAccountingAcceptable(
+                            checkpointSnapshot,
+                            checkpointSplits,
+                            checkpointCalls,
+                            options.MaxConcurrentExtractionBatches) ||
                         checkpointSnapshot.Failures != 0 ||
                         checkpointExecution.MaximumConcurrency <= 0 ||
                         checkpointExecution.MaximumConcurrency >
                         Math.Min(checkpointQuestions, options.PreparationWorkers))
                     {
                         throw new InvalidOperationException(
-                            "LongMemEval checkpoint accounting or concurrency guard failed.");
+                            "LongMemEval checkpoint accounting or concurrency guard failed: started/completed " +
+                            $"{checkpointSnapshot.Calls}/{checkpointSnapshot.CompletedCalls} against " +
+                            $"{checkpointCalls} planned, failures {checkpointSnapshot.Failures}, retries " +
+                            $"{checkpointSnapshot.RetryCalls}, recorded splits {checkpointSplits}, maximum " +
+                            $"provider concurrency {checkpointSnapshot.MaximumConcurrency}.");
+                    }
+                    if (checkpointSnapshot.Calls > checkpointCalls)
+                    {
+                        Console.WriteLine(
+                            $"longmemeval: checkpoint made {checkpointSnapshot.Calls - checkpointCalls} call(s) " +
+                            $"beyond the {checkpointCalls} planned, explained by {checkpointSplits} recorded " +
+                            $"split(s) and {checkpointSnapshot.RetryCalls} retry call(s).");
                     }
 
                     var projectedMilliseconds = LongMemEvalPreparedBatchExecutor
@@ -610,19 +666,11 @@ internal static class LongMemEvalPreparedPairProgram
                             + "different corpus, and measuring against it would attribute the loss to recall.");
                     }
                 }
-                var successfulCalls = extractionSnapshot.Calls - extractionSnapshot.Failures;
-                var accountingAcceptable =
-                    AgentMemoryLongMemEvalAdapter.IsBatchAccountingAcceptable(
-                        successfulCalls,
-                        successfulCalls,
-                        otherCalls: 0,
+                if (!IsExtractionAccountingAcceptable(
+                        extractionSnapshot,
                         recordedSplits,
-                        extractionSnapshot.RetryCalls,
-                        checked((int)initialExtractionCalls));
-                if (!accountingAcceptable ||
-                    extractionSnapshot.CompletedCalls != extractionSnapshot.Calls ||
-                    extractionSnapshot.MaximumConcurrency <= 1 ||
-                    extractionSnapshot.MaximumConcurrency > options.MaxConcurrentExtractionBatches)
+                        initialExtractionCalls,
+                        options.MaxConcurrentExtractionBatches))
                 {
                     throw new InvalidOperationException(
                         $"Prepared LongMemEval extraction accounting mismatch: started/completed " +
@@ -674,7 +722,7 @@ internal static class LongMemEvalPreparedPairProgram
                     // could not see this one; the source guard found it. Same reasoning: these two
                     // were one string while a single deployment served both roles.
                     model.JudgeIdentity,
-                    model.ExtractionIdentity,
+                    extractionIdentity,
                     embeddingDeployment,
                     embeddingDimensions,
                     options.MaxRelevantMessages,
@@ -755,7 +803,9 @@ internal static class LongMemEvalPreparedPairProgram
                     embeddingGenerator,
                     extractionDeployment,
                     deployment,
-                    embeddingDimensions)
+                    embeddingDimensions,
+                    evaluationDatasetPath,
+                    effectiveQuestions)
                 .ConfigureAwait(false);
             var hybrid = await RunArmAsync(
                     LongMemEvalMemoryMode.Hybrid,
@@ -769,7 +819,9 @@ internal static class LongMemEvalPreparedPairProgram
                     embeddingGenerator,
                     extractionDeployment,
                     deployment,
-                    embeddingDimensions)
+                    embeddingDimensions,
+                    evaluationDatasetPath,
+                    effectiveQuestions)
                 .ConfigureAwait(false);
             overall.Stop();
 
@@ -818,11 +870,19 @@ internal static class LongMemEvalPreparedPairProgram
                     dataset = Path.GetFileName(options.DatasetPath),
                     datasetSha256,
                     questions = options.Questions,
+                    // The questions actually evaluated: the draw above, or the --question-ids subset of it.
+                    questionsEvaluated = effectiveQuestions,
+                    questionFilter = selection.Record,
                     seed = options.Seed,
                     stratified = true,
                     answerModel = deployment,
-                    judgeModel = deployment,
+                    // The JUDGE's identity. This read `deployment` (the answer model) at all three report
+                    // sites, which was true only while one deployment served both roles; with AI_JUDGE_*
+                    // set, every report claimed the subject had graded itself.
+                    judgeModel = model.JudgeIdentity,
                     extractionModel = extractionDeployment,
+                    // provider-default, or the effort --extraction-reasoning requested on extraction calls.
+                    extractionReasoningEffort = LongMemEvalExtractionReasoning.Token(options.ExtractionReasoning),
                     embeddingModel = embeddingDeployment,
                     embeddingDimensions,
                     maxRelevantMessages = options.MaxRelevantMessages,
@@ -877,6 +937,9 @@ internal static class LongMemEvalPreparedPairProgram
                     // without it is confounded with the larger context. Recorded here so no later
                     // reader can mistake the two runs for a controlled comparison.
                     graphRagItems = options.GraphRagItems,
+                    // Recall-side rendering: not ingestion, so it is not drift and a reuse may turn it
+                    // on. Recorded because it changes the answer prompt and therefore the score.
+                    annotateMatchQuality = options.AnnotateMatchQuality,
                     // The vocabulary decides what is stored and the lexicon decides what is
                     // retrieved, so a run under a different table is not comparable to this one.
                     // Without these the artifact would not record which tables produced it.
@@ -906,6 +969,8 @@ internal static class LongMemEvalPreparedPairProgram
                     // StructuredJson score can never be read beside a FreeText one without the
                     // difference being visible in the artifact itself.
                     judgeVerdictProtocol = options.JudgeProtocol.ToString(),
+                    // The judge's output ceiling: 256 on every run before --judge-max-output-tokens.
+                    judgeMaxOutputTokens = options.JudgeMaxOutputTokens,
                     neo4jImage = "neo4j:5.26",
                     agentEval = agentEvalRevision,
                     agentEvalDependency = "source-project:AgentEval.Memory"
@@ -998,6 +1063,37 @@ internal static class LongMemEvalPreparedPairProgram
         }
     }
 
+    /// <summary>
+    /// Whether an extraction phase's provider accounting is acceptable. One decision, used by both the
+    /// full preparation and the checkpoint.
+    /// </summary>
+    /// <remarks>
+    /// At least the planned number of calls succeeded, and any excess is explained by a recorded batch
+    /// split or retry (<see cref="AgentMemoryLongMemEvalAdapter.IsBatchAccountingAcceptable"/>). Every
+    /// started call completed, and provider concurrency stayed within 2..<paramref name="maxConcurrency"/>.
+    /// Unexplained excess still fails: calls nobody can account for mean the plan did not describe
+    /// the run.
+    /// </remarks>
+    internal static bool IsExtractionAccountingAcceptable(
+        LongMemEvalChatCallSnapshot snapshot,
+        long recordedSplits,
+        long plannedCalls,
+        int maxConcurrency)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var successfulCalls = snapshot.Calls - snapshot.Failures;
+        return AgentMemoryLongMemEvalAdapter.IsBatchAccountingAcceptable(
+                   successfulCalls,
+                   successfulCalls,
+                   otherCalls: 0,
+                   recordedSplits,
+                   snapshot.RetryCalls,
+                   checked((int)plannedCalls))
+               && snapshot.CompletedCalls == snapshot.Calls
+               && snapshot.MaximumConcurrency > 1
+               && snapshot.MaximumConcurrency <= maxConcurrency;
+    }
+
     private static async Task<PreparedArmExecution> RunArmAsync(
         LongMemEvalMemoryMode mode,
         string volumeName,
@@ -1010,7 +1106,9 @@ internal static class LongMemEvalPreparedPairProgram
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         string extractionDeployment,
         string deployment,
-        int embeddingDimensions)
+        int embeddingDimensions,
+        string evaluationDatasetPath,
+        int effectiveQuestions)
     {
         // Scoped to this arm so structured and hybrid yields never mix. Until now the eight
         // instrumented vector searches emitted these spans on every run and NOTHING listened, so the
@@ -1032,7 +1130,8 @@ internal static class LongMemEvalPreparedPairProgram
             model.CreateAnswerClient());
         using var evaluationExtractionCalls = new LongMemEvalChatCallMeter(
             new ProviderCompatibleExtractionChatClient(
-                model.CreateExtractionClient()));
+                LongMemEvalExtractionReasoning.Apply(
+                    model.CreateExtractionClient(), options.ExtractionReasoning)));
         var total = Stopwatch.StartNew();
         var profileStartup = Stopwatch.StartNew();
         await using var profile = await LongMemEvalMemoryProfile.StartAsync(
@@ -1048,7 +1147,10 @@ internal static class LongMemEvalPreparedPairProgram
                 // knowledge graph, which is the setting GraphRAG was designed for. Retrieving the
                 // same Fact nodes the Structured arm already retrieves is the whole question - does
                 // a second budget over the same data add anything?
-                graphRagIndexName: options.GraphRagItems > 0 ? "fact_embedding_idx" : null)
+                graphRagIndexName: options.GraphRagItems > 0 ? "fact_embedding_idx" : null,
+                // Recall-side only, so it belongs to the evaluation profiles and never to the
+                // preparation base: the same sealed store is read with and without it.
+                annotateMatchQuality: options.AnnotateMatchQuality)
             .ConfigureAwait(false);
         profileStartup.Stop();
 
@@ -1063,7 +1165,7 @@ internal static class LongMemEvalPreparedPairProgram
             expectation);
         validationTiming.Stop();
         var evidenceIndex = LongMemEvalEvidenceIndex.Load(
-            options.DatasetPath,
+            evaluationDatasetPath,
             benchmarkOptions);
         var adapter = new AgentMemoryLongMemEvalAdapter(
             profile.Services.GetRequiredService<IMemoryService>(),
@@ -1098,7 +1200,7 @@ internal static class LongMemEvalPreparedPairProgram
             });
         var runner = LongMemEvalBenchmarkRunner.Create(
             judgeCalls,
-            options.DatasetPath);
+            evaluationDatasetPath);
         var result = await runner.RunAsync(
                 adapter,
                 new AgentBenchmarkConfig
@@ -1126,7 +1228,7 @@ internal static class LongMemEvalPreparedPairProgram
         var diagnosticSnapshot = diagnosticCalls.Snapshot();
         var extractionSnapshot = evaluationExtractionCalls.Snapshot();
         var validation = LongMemEvalRunValidator.Validate(
-            options.Questions,
+            effectiveQuestions,
             result.TotalLlmCalls,
             adapter.QuestionTelemetry,
             result.QuestionResults,
@@ -1523,7 +1625,7 @@ internal static class LongMemEvalPreparedPairProgram
     /// `--mode` typo for `--memory-mode` once ran a whole measurement in the wrong configuration and
     /// produced a report that looked successful.
     /// </remarks>
-    private static readonly string[] KnownOptions =
+    internal static readonly string[] KnownOptions =
     [
         "--prepared-pair", "--assistant-content", "--checkpoint-questions",
         "--checkpoint-timeout-seconds", "--dataset", "--diagnostic-question",
@@ -1537,10 +1639,11 @@ internal static class LongMemEvalPreparedPairProgram
         "--description", "--memory-types", "--allow-stale-prepared",
         "--abstention", "--abstention-proportion", "--query-formulation",
         "--use-predicate-vocabulary", "--judge-protocol", "--rescue-short-owner-results",
-        "--extraction-seed",
+        "--extraction-seed", "--question-ids", "--annotate-match-quality", "--extraction-reasoning",
+        "--judge-max-output-tokens",
     ];
 
-    private static PreparedPairOptions Parse(string[] args)
+    internal static PreparedPairOptions Parse(string[] args)
     {
         LongMemEvalArgumentValidator.Validate(args, KnownOptions);
 
@@ -1615,13 +1718,18 @@ internal static class LongMemEvalPreparedPairProgram
             Value("--description"),
             ParseMemoryTypes(Value("--memory-types")),
             Has("--allow-stale-prepared"),
-            ParseAbstention(Value("--abstention")),
-            ParseAbstentionProportion(Value("--abstention-proportion")),
-            ParseJudgeProtocol(Value("--judge-protocol")),
+            LongMemEvalSamplingOptions.ParseAbstention(Value("--abstention")),
+            LongMemEvalSamplingOptions.ParseAbstentionProportion(Value("--abstention-proportion")),
+            LongMemEvalSamplingOptions.ParseJudgeProtocol(Value("--judge-protocol")),
             queryFormulation,
             // 30.1. Null reproduces every corpus built so far. A value is sealed into the manifest and
             // drift-checked, so a seeded corpus can never be adopted by an unseeded run or vice versa.
-            ParseExtractionSeed(Value("--extraction-seed")));
+            ParseExtractionSeed(Value("--extraction-seed")),
+            QuestionFilter: LongMemEvalQuestionFilter.Parse(Value("--question-ids")),
+            AnnotateMatchQuality: Has("--annotate-match-quality"),
+            ExtractionReasoning: LongMemEvalExtractionReasoning.Parse(Value("--extraction-reasoning")),
+            JudgeMaxOutputTokens: LongMemEvalSamplingOptions.ParseJudgeMaxOutputTokens(
+                Value("--judge-max-output-tokens")));
     }
 
     /// <summary>Parses <c>--extraction-seed &lt;int&gt;</c>; absent means send no seed.</summary>
@@ -1651,76 +1759,9 @@ internal static class LongMemEvalPreparedPairProgram
         return types;
     }
 
-    /// <summary>
-    /// Parses <c>--abstention exclude|as-sampled|only|target</c>.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Abstention questions are the only <b>unanswerable</b> questions in this dataset, and they are
-    /// what the retrieval-sufficiency AUC has to order against. Measured on a stratified 50: 32 of 33
-    /// checkable questions had their answer present in memory, so the AUC rested on a single
-    /// observation and the two arms landed at 0.969 and 0.094 from the same data. Without an absent
-    /// class the metric is not noisy -- it is undefined.
-    /// </para>
-    /// <para>
-    /// Default <c>as-sampled</c>, which is what every recorded run used: LongMemEval-S contains few
-    /// _abs questions and stratified sampling almost never draws one, so across 52 recorded runs not
-    /// one ever ran. That default is preserved exactly rather than improved, because changing what a
-    /// sample contains changes every number computed from it.
-    /// </para>
-    /// </remarks>
-    /// <summary>
-    /// Parses <c>--judge-protocol</c>. Defaults to <c>FreeText</c> — the protocol every sealed base
-    /// here was scored under.
-    /// </summary>
-    /// <remarks>
-    /// <b>Never flipped silently.</b> StructuredJson is the real fix for a systematic free-text
-    /// mis-scoring, and AgentEval's own documentation says results under it are not comparable with a
-    /// free-text base. Changing the default would not produce a wrong number; it would produce a
-    /// better one that silently invalidates every comparison anybody makes against the existing runs.
-    /// </remarks>
-    private static JudgeVerdictProtocol ParseJudgeProtocol(string? value) => value?.ToLowerInvariant() switch
-    {
-        null or "" or "free-text" or "freetext" => JudgeVerdictProtocol.FreeText,
-        "structured-json" or "structuredjson" or "json" => JudgeVerdictProtocol.StructuredJson,
-        _ => throw new ArgumentException(
-            "--judge-protocol must be one of: free-text, structured-json."),
-    };
-
-    /// <summary>Test seam for the parser above; the method itself stays private.</summary>
+    /// <summary>Test seam for the judge-protocol parser, which is shared with the reference arms.</summary>
     internal static JudgeVerdictProtocol ParseJudgeProtocolForTests(string? value) =>
-        ParseJudgeProtocol(value);
-
-    private static AbstentionSamplingPolicy ParseAbstention(string? value) =>
-        value?.ToLowerInvariant() switch
-        {
-            null or "" or "as-sampled" => AbstentionSamplingPolicy.AsSampled,
-            "exclude" => AbstentionSamplingPolicy.Exclude,
-            "only" => AbstentionSamplingPolicy.Only,
-            "target" => AbstentionSamplingPolicy.TargetProportion,
-            _ => throw new ArgumentException(
-                "--abstention must be one of: as-sampled, exclude, only, target."),
-        };
-
-    /// <summary>Parses <c>--abstention-proportion</c>, the share of the sample that must abstain.</summary>
-    /// <remarks>
-    /// Only meaningful with <c>--abstention target</c>. Rejected outside (0,1): a proportion of 0
-    /// silently means "exclude" and 1 means "only", and expressing either by accident would produce a
-    /// sample nobody chose.
-    /// </remarks>
-    private static double? ParseAbstentionProportion(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        if (!double.TryParse(value, System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
-            || parsed is <= 0 or >= 1)
-        {
-            throw new ArgumentException(
-                "--abstention-proportion must be strictly between 0 and 1; use --abstention exclude "
-                + "or --abstention only for the endpoints.");
-        }
-        return parsed;
-    }
+        LongMemEvalSamplingOptions.ParseJudgeProtocol(value);
 
     private static void Validate(PreparedPairOptions options)
     {
@@ -1765,6 +1806,13 @@ internal static class LongMemEvalPreparedPairProgram
         {
             throw new ArgumentException(
                 "Content evidence is forbidden for diagnostic-only extraction.");
+        }
+        if (options.QuestionFilter is not null && options.IsDiagnostic)
+        {
+            // Diagnostic selection addresses a question by its position in the unfiltered draw, and a
+            // filter renumbers the draw; allowing both would leave "question N" ambiguous.
+            throw new ArgumentException(
+                "--question-ids cannot be combined with diagnostic-only extraction.");
         }
         if (options.PreflightOnly && options.IsDiagnostic)
         {
@@ -1981,7 +2029,14 @@ internal static class LongMemEvalPreparedPairProgram
         LongMemEvalQueryFormulation QueryFormulation = LongMemEvalQueryFormulation.Verbatim,
         // 30.1. The extraction sampling seed, sealed into the manifest because it changes what the
         // extractor returned and therefore what is in the graph. Null sends no seed at all.
-        int? ExtractionSeed = null)
+        int? ExtractionSeed = null,
+        // --question-ids. Null runs the whole draw, which is every run recorded before it existed.
+        LongMemEvalQuestionFilter? QuestionFilter = null,
+        // MemoryProjectionOptions.AnnotateMatchQuality on the evaluation arms. Off is byte-identical.
+        bool AnnotateMatchQuality = false,
+        // --extraction-reasoning. Null sends no reasoning setting: the provider default, as every run before it.
+        ReasoningEffort? ExtractionReasoning = null,
+        int JudgeMaxOutputTokens = LongMemEvalBenchmarkProtocol.DefaultJudgeMaxOutputTokens)
     {
         /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
         internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];

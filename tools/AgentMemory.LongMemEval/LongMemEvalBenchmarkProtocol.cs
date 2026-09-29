@@ -5,6 +5,9 @@ namespace AgentMemory.LongMemEval;
 
 internal static class LongMemEvalBenchmarkProtocol
 {
+    /// <summary>The judge's output ceiling every recorded run used.</summary>
+    internal const int DefaultJudgeMaxOutputTokens = 256;
+
     internal static ExternalBenchmarkOptions CreateOptions(
         string datasetPath,
         int questions,
@@ -16,7 +19,8 @@ internal static class LongMemEvalBenchmarkProtocol
         IReadOnlyList<string>? includeQuestionTypes = null,
         AbstentionSamplingPolicy abstentionPolicy = AbstentionSamplingPolicy.AsSampled,
         double? abstentionTargetProportion = null,
-        bool suppressSyntheticBoundaries = false) =>
+        bool suppressSyntheticBoundaries = false,
+        int judgeMaxOutputTokens = DefaultJudgeMaxOutputTokens) =>
         new()
         {
             DatasetPath = datasetPath,
@@ -30,7 +34,9 @@ internal static class LongMemEvalBenchmarkProtocol
             JudgeFailurePolicy = JudgeFailurePolicy.RetryThenInconclusive,
             MaxJudgeRetries = judgeRetryAttempts,
             JudgeTemperature = null,
-            JudgeMaxOutputTokens = 256,
+            // 256 unless --judge-max-output-tokens says otherwise. A reasoning judge can spend that
+            // whole budget before it writes a verdict, and an empty verdict rejects the arm.
+            JudgeMaxOutputTokens = judgeMaxOutputTokens,
             // Raw, not Outcome. In Outcome mode AgentEval renders the explanation as
             // $"Judge outcome: {status}" -- the status as a STRING -- and we then parsed that string
             // back into a status, reporting the failed round trip as "the judge returned no valid

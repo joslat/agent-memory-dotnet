@@ -25,7 +25,8 @@ internal static class LongMemEvalReferenceArmValidator
         LongMemEvalChatCallSnapshot? answerCalls = null,
         LongMemEvalChatCallSnapshot? judgeCalls = null,
         int diagnosticJudgeCalls = 0,
-        int agentEvalJudgeRetryAllowance = 0)
+        int agentEvalJudgeRetryAllowance = 0,
+        JudgeVerdictProtocol verdictProtocol = JudgeVerdictProtocol.FreeText)
     {
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(questionResults);
@@ -135,17 +136,35 @@ internal static class LongMemEvalReferenceArmValidator
                 continue;
             }
 
-            if (!LongMemEvalRunValidator.TryParseJudgeVerdict(explanation, out var judgedCorrect))
+            bool judgedCorrect;
+            if (verdictProtocol == JudgeVerdictProtocol.StructuredJson)
             {
-                issues.Add(
-                    $"AgentEval judge returned no valid yes/no verdict for question {question.QuestionId}.");
-                continue;
+                // Same rule as the memory arms (LongMemEvalRunValidator, 3.7): under StructuredJson
+                // the judge does not answer in prose, so re-parsing the explanation as free text would
+                // reject every question. AgentEval's own Correct is the verdict, and a missing one is
+                // still a missing verdict rather than a wrong answer.
+                if (question.Correct is not { } structuredVerdict)
+                {
+                    issues.Add(
+                        $"AgentEval judge returned no structured verdict for question {question.QuestionId}.");
+                    continue;
+                }
+                judgedCorrect = structuredVerdict;
             }
-
-            if (question.Correct != judgedCorrect)
+            else
             {
-                issues.Add(
-                    $"AgentEval judge verdict and recorded correctness disagree for question {question.QuestionId}.");
+                if (!LongMemEvalRunValidator.TryParseJudgeVerdict(explanation, out judgedCorrect))
+                {
+                    issues.Add(
+                        $"AgentEval judge returned no valid yes/no verdict for question {question.QuestionId}.");
+                    continue;
+                }
+
+                if (question.Correct != judgedCorrect)
+                {
+                    issues.Add(
+                        $"AgentEval judge verdict and recorded correctness disagree for question {question.QuestionId}.");
+                }
             }
 
             // A skipped question is excluded from the score rather than counted wrong. Scoring it

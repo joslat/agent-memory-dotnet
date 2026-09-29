@@ -59,7 +59,9 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         // 30.9c gap: every Phase-30 Wave-C capability ships dark AND had no way in from the harness,
         // so the features built to move these very numbers were the one thing no run could exercise.
         // Same defect the RescueShortOwnerResults comment below records, one wave later.
-        PhaseThirtyFeatures? phase30 = null)
+        PhaseThirtyFeatures? phase30 = null,
+        // Recall-side only: tells the reader how well each item matched. Off unless asked for.
+        bool annotateMatchQuality = false)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
@@ -101,6 +103,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     phase30 ?? PhaseThirtyFeatures.AllOff,
                     graphRagIndexName,
                     extractionSeed,
+                    annotateMatchQuality,
                     cancellationToken)
                 .ConfigureAwait(false);
             return profile;
@@ -138,6 +141,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         int? extractionSeed,
+        bool annotateMatchQuality,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
@@ -173,7 +177,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             phase30,
             graphRagIndexName,
             multiSessionBatch,
-            extractionSeed);
+            extractionSeed,
+            annotateMatchQuality);
 
         _provider = services.BuildServiceProvider();
         _scope = _provider.CreateAsyncScope();
@@ -219,7 +224,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         PhaseThirtyFeatures phase30,
         string? graphRagIndexName,
         bool multiSessionBatch = true,
-        int? extractionSeed = null)
+        int? extractionSeed = null,
+        bool annotateMatchQuality = false)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -349,8 +355,16 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 //
                 // `Default with` also preserves MaxSupersessionChain = 3, which this arm deliberately
                 // does NOT tune: chain depth is its own ablation with its own pre-registration.
-                Projection = resolveSupersessions
-                    ? MemoryProjectionOptions.Default with { ResolveSupersessions = true }
+                //
+                // AnnotateMatchQuality joins it under the same rule. It renders each recalled item's
+                // match score and says when nothing matched well: the memory-layer half of an
+                // abstention. It is recall-only, so a prepared store is re-read with it on, never rebuilt.
+                Projection = resolveSupersessions || annotateMatchQuality
+                    ? MemoryProjectionOptions.Default with
+                    {
+                        ResolveSupersessions = resolveSupersessions,
+                        AnnotateMatchQuality = annotateMatchQuality,
+                    }
                     : MemoryProjectionOptions.Default,
             },
             neo4j =>

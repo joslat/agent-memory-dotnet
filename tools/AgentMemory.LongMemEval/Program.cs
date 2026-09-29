@@ -34,6 +34,7 @@ internal static class LongMemEvalProgram
         }
         if (args.Contains("--surface-probe", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--surface-probe") is { } rejected) return rejected;
             // K2. Read-only, credential-free: reports whether the reasoning-trace and GraphRAG
             // surfaces have anything to return, and checks index health first because a FAILED index
             // is indistinguishable from an empty corpus from the outside.
@@ -41,6 +42,7 @@ internal static class LongMemEvalProgram
         }
         if (args.Contains("--predicate-distribution", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--predicate-distribution") is { } rejected) return rejected;
             // J1.2. Read-only, and dispatched before any Azure environment is required: counting
             // relation names in an existing volume must not need the credentials of a paid run.
             return await LongMemEvalPredicateDistributionProgram.RunAsync(args)
@@ -52,11 +54,13 @@ internal static class LongMemEvalProgram
         // field completeness that no accuracy number would ever surface.
         if (args.Contains("--extraction-compare", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--extraction-compare") is { } rejected) return rejected;
             return await LongMemEvalExtractionCompareProgram.RunAsync(args).ConfigureAwait(false);
         }
 
         if (args.Contains("--list-prepared-corpora", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--list-prepared-corpora") is { } rejected) return rejected;
             // Read-only and credential-free: answering "which frozen corpus should I reuse?" must not
             // need the credentials of a paid run, or it stops being asked.
             Console.WriteLine(LongMemEvalPreparedCorpusRegistry.Describe(
@@ -66,6 +70,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--capture-headroom", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--capture-headroom") is { } rejected) return rejected;
             // 8.3c. Read-only, credential-free, and dispatched before any Azure environment is required:
             // this verb exists to decide whether a ~96M-input-token run could show anything, and a check
             // that needs the credentials of a paid run is a check nobody makes before buying.
@@ -74,6 +79,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--oracle-representation", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--oracle-representation") is { } rejected) return rejected;
             // P2. Extracts from the gold sessions only and answers from the structured rendering, so
             // recall stays at 100% and the only variable is the representation.
             return await LongMemEvalRepresentationProgram.RunAsync(args).ConfigureAwait(false);
@@ -81,6 +87,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--oracle-precision", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--oracle-precision") is { } rejected) return rejected;
             // P1. Adds distractor sessions to a context that already holds all the gold, so recall is
             // pinned at 100% and the only variable is how much wrong material sits beside the answer.
             return await LongMemEvalContextPrecisionProgram.RunAsync(args).ConfigureAwait(false);
@@ -88,6 +95,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--oracle-decomposition", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--oracle-decomposition") is { } rejected) return rejected;
             // B4. Needs answer + judge credentials but NO Neo4j, Docker or prepared corpus: the oracle
             // reads gold sessions from the dataset, so the question "does decomposing help?" is
             // answerable without paying for a build.
@@ -96,6 +104,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--typed-report", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--typed-report") is { } rejected) return rejected;
             // 25.7. Purely retrospective: reads reports already on disk, no provider call, no Neo4j.
             // Wires up a per-type reporting stack that was complete, tested and called by nothing.
             return await LongMemEvalTypedReportProgram.RunAsync(args).ConfigureAwait(false);
@@ -103,6 +112,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--probe-answer-determinism", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--probe-answer-determinism") is { } rejected) return rejected;
             // 27.2. Answer calls only, no judge and no infrastructure. Asks whether the answer model
             // -- which the adapter currently invokes with NO ChatOptions, and which disagrees with
             // itself on 13 of 14 flipping questions under byte-identical retrieval -- can be pinned by
@@ -112,6 +122,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--upstream-oracle", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--upstream-oracle") is { } rejected) return rejected;
             // 28.2. AgentEval's oracle, now public. Runs before ours so the two can be compared on the
             // same level -- retirement of the hand-rolled one has to be earned, not assumed.
             return await LongMemEvalUpstreamOracleProgram.RunAsync(args).ConfigureAwait(false);
@@ -119,6 +130,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--time-grounded-oracle", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--time-grounded-oracle") is { } rejected) return rejected;
             // 26.3. Prospective memory, measurable for the first time: AgentEval 0.21.0-beta ships a
             // time-grounded corpus. Oracle first -- gold context only, no Neo4j and no extraction --
             // because a question the model fails WITH the evidence cannot be fixed by any memory work.
@@ -127,6 +139,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--procedure-retrieval", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--procedure-retrieval") is { } rejected) return rejected;
             // 26.2. Procedural RETRIEVAL precision: does recall return the RIGHT procedure, and does it
             // stay quiet when none applies? Embedding calls only -- no chat model, no judge.
             return await ProcedureRetrievalProgram.RunAsync(args).ConfigureAwait(false);
@@ -134,6 +147,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--procedural-benefit", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--procedural-benefit") is { } rejected) return rejected;
             // 7.6. The arms differ in exactly two things -- trace recall and promotion -- so that any
             // measured gap is attributable to memory rather than to a differently-equipped agent.
             return await ProceduralBenefitProgram.RunAsync(args).ConfigureAwait(false);
@@ -154,6 +168,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--scoreboard", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--scoreboard") is { } rejected) return rejected;
             // Reads stored artifacts only -- no store, no judge, no spend. Checked before the verbs
             // that name a vertical because the scoreboard names all ten, and an absent one is a row
             // it has to print rather than an argument it could take.
@@ -171,6 +186,7 @@ internal static class LongMemEvalProgram
 
         if (args.Contains("--census", StringComparer.Ordinal))
         {
+            if (LongMemEvalVerbOptions.Reject(args, "--census") is { } rejected) return rejected;
             // Recomputes the counting census from reports already on disk. No model, no container,
             // no spend -- the statistic the identity preregs decide on, derived from runs that were
             // already paid for instead of read off by hand.
@@ -345,7 +361,10 @@ internal static class LongMemEvalProgram
                         ? null
                         : LongMemEvalMemoryTypeMap.Default.Revision,
                     answerModel = deployment,
-                    judgeModel = deployment,
+                    // The JUDGE's identity. This read `deployment` (the answer model) at all three report
+                    // sites, which was true only while one deployment served both roles; with AI_JUDGE_*
+                    // set, every report claimed the subject had graded itself.
+                    judgeModel = model.JudgeIdentity,
                     maxRelevantMessages = options.MaxRelevantMessages,
                     operatingMode = options.MemoryMode.Fingerprint(),
                     // 27.2. A seeded run and an unseeded one have different answer-variance, so they
@@ -738,6 +757,19 @@ internal static class LongMemEvalProgram
         prints source-session/call/token totals, cleans up, and emits no accepted report.
         --checkpoint-questions selects the highest-token frozen questions, executes the identical
         preparation path under a hard deadline, projects full cold-build time, cleans up, and emits no report.
+
+        --question-ids <a,b,c | @file> (prepared pair and reference arms) narrows the usual draw to the
+        named questions, run in draw order. Every id must belong to the draw (same --questions, --seed and
+        --abstention); an id outside it fails the run and is named.
+        --abstention, --abstention-proportion, --judge-protocol now reach the reference arms exactly as
+        they reach the prepared pair.
+        --extraction-reasoning default|low|medium|high (prepared pair) sets the reasoning effort on
+        extraction calls only; it is part of the sealed extraction identity, so reuse under another
+        effort is refused as drift.
+        --annotate-match-quality (prepared pair) turns on MemoryProjectionOptions.AnnotateMatchQuality in
+        the evaluation arms only; not ingestion, so a --reuse-prepared-volumes run may use it.
+        --judge-max-output-tokens N (prepared pair and reference arms) lifts the judge's 256-token
+        ceiling for a reasoning judge.
 
 
         Requires ONE inference provider, auto-detected in this order:
