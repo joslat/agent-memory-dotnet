@@ -113,6 +113,8 @@ public sealed class ReadOnlyModeTests
     [InlineData("memory_list_sessions")]
     [InlineData("memory_get_entity")]
     [InlineData("memory_get_observations")]
+    [InlineData("memory_recall_as_of")]
+    [InlineData("memory_lineage")]
     public void TheReadsSurviveReadOnlyMode(string name)
     {
         // The other half: a read-only server that exposes nothing useful is a mode nobody will turn
