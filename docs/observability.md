@@ -26,7 +26,7 @@ memory.hook.recall                       PRE hook (session, conversation, owner_
 ├─ memory.route                          the recall policy's decision (policy, should_recall, categories, intent)
 ├─ memory.recall.embedding               the query embedding
 │  └─ memory.embed                       inputs / cache hits / sent
-├─ memory.recall.total
+├─ memory.recall.total                   event memory.route.plan: the recall's four routing decisions side by side
 │  ├─ memory.recall.{section}            one per memory type: memory.type, memory.results.count
 │  │  └─ memory.recall.{section}_vector  the vector search behind it
 │  │     └─ memory.db.tx → memory.db.query
@@ -54,6 +54,7 @@ memory.background.enrichment             own trace, LINKED to the ingestion that
 | `memory.results.count` | recall legs | Items the leg returned |
 | `memory.route.*` | `memory.route` | `policy`, `should_recall`, `categories`, `intent` |
 | `memory.route.temporal.as_of`, `memory.route.fanout.fired` / `.rules` / `.legs` | `memory.hook.recall` | What routing resolved after the policy: the point in time a temporal question resolved to, and whether the fan-out planner split the query (which rules, how many legs) |
+| `memory.route.recall`, `memory.route.time`, `memory.route.temporal.as_of` / `.known_as_of`, `memory.route.fanout.*`, `memory.route.budget.max_tokens` / `.max_characters` / `.truncated` | event `memory.route.plan` on `memory.recall.total` | One recall's four routing decisions side by side, for every caller (agent adapter, MCP, direct): the items asked for per kind, how time was read (`now`, `as of, named in the question`, `as of, asked for`) and at which moments, whether the query was split, and how the result was fitted. The same record is `MemoryContext.Route` |
 | `memory.context.items` | `memory.hook.recall`, `memory.compose` | Context messages handed to the model |
 | `memory.compose.flagged` / `.excluded` / `.deduplicated` | `memory.compose` | Recalled items flagged as instruction-like but kept, excluded by the admission policy, and dropped because the live thread already carries them |
 | `memory.embed.inputs` / `.cache_hits` / `.sent` | `memory.embed` | Inputs, those answered by `MemoryOptions.EmbeddingCacheCapacity`, those sent to the provider |

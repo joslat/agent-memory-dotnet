@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fact or preference replaced and what replaced it, oldest first, with when each was stated, held and closed, and the
   messages it came from. Both are reads (allowed on a read-only server) and owner-scoped; `memory_lineage` fails closed
   under strict owner isolation, like every tenant-facing tool.
+- **One route plan per recall: `MemoryContext.Route`.** The four routing decisions a recall made, side by side: the
+  items asked for per memory kind, how time was read (now, a moment named in the question, or one asked for, with both
+  clocks), whether the query was split and by which rules, and the budget it was fitted to. The same record is traced
+  as one `memory.route.plan` event on `memory.recall.total`, for every caller (agent adapter, MCP, direct). It reports;
+  it decides nothing. (`MemoryRoutePlan`; tag names in `MemoryTelemetry`.)
 
 ### Changed
 

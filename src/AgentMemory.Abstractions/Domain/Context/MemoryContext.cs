@@ -212,6 +212,12 @@ public sealed record MemoryContext
     public RecallFanOutReport? FanOutReport { get; init; }
 
     /// <summary>
+    /// PLAN 40.20. The four routing decisions this recall made (how much, how time was read, whether it split, how it was
+    /// fitted), side by side. Set by the memory service's recall; null when a context was assembled some other way.
+    /// </summary>
+    public MemoryRoutePlan? Route { get; init; }
+
+    /// <summary>
     /// 36.7. The live relationships touching the recalled entities (<c>RecallOptions.MaxRelationships</c>); empty
     /// unless asked for.
     /// </summary>
