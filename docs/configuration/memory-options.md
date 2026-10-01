@@ -6,6 +6,10 @@ conversations. Dates in the prompt and the shared-knowledge budget are on by def
 in recall are opt-in, and so are the switches that change what the extractor is asked to write,
 because their effect depends on the model.
 
+**All at once:** `MemoryOptions.CreateConversational()`, `LlmExtractionOptions.ApplyConversational()` and
+`AgentFrameworkOptions.ApplyConversational()` switch on the options below that a conversational assistant needs, together
+with strict owner isolation. See [getting-started §4.5](../getting-started.md#45-the-conversational-preset).
+
 ## Where each option lives
 
 - `MemoryOptions` and its nested `Recall`, `Extraction` and `WorkingMemory`: the `configureMemory`

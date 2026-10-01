@@ -362,6 +362,32 @@ builder.Services.AddNeo4jAgentMemory(
 
 The full table, with defaults, is in [configuration/memory-options.md](configuration/memory-options.md).
 
+### 4.5 The Conversational preset
+
+For an assistant that talks with one person over many sessions, the options above, and the ones that keep one person
+as one person, are switched on together by one call per package:
+
+```csharp
+builder.Services.AddNeo4jAgentMemory(
+    MemoryOptions.CreateConversational(),
+    neo4j => { /* ... */ },
+    llm => llm.ApplyConversational());
+builder.Services.AddAgentMemoryFramework(options => options.ApplyConversational());
+```
+
+What it switches on:
+
+- **Changes of mind close what they replace:** supersession, corrections, and renames on a corrected name.
+- **One person stays one person:** canonical subjects, facts linked to entities, partial names.
+- **One statement is stored once.**
+- **Dates and periods** come from the conversation's own time, and an event keeps who was there.
+- **Questions and greetings teach nothing:** they are held until a turn says something.
+- **Recall** brings the relationships of what it finds, reads time in questions, splits compound questions, and adds a "Lately" line.
+- **Strict owner isolation.** Every call needs an owner, so set one with `WithMemoryIdentity(userId: …)` on the session. A host that sets none is refused, which keeps one person's memories from reaching another.
+
+Every option stays individually settable afterwards: the preset returns ordinary options objects. Its contents are
+frozen for a major version.
+
 ---
 
 ## 5. Microsoft Agent Framework Integration

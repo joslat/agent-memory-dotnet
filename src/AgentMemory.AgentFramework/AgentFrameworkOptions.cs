@@ -1,4 +1,4 @@
-namespace AgentMemory.AgentFramework;
+﻿namespace AgentMemory.AgentFramework;
 
 /// <summary>
 /// Top-level options for the Agent Framework memory adapter.
@@ -198,4 +198,14 @@ public sealed class AgentFrameworkOptions
     /// truncation is visible rather than silently mistaken for "that was everything".
     /// </summary>
     public int MaxDeltaItemsPerSection { get; set; } = 20;
+
+    /// <summary>
+    /// The Agent Framework half of the Conversational preset (see <c>MemoryOptions.CreateConversational()</c>): a turn
+    /// that only asks is held and extracted with the next turn that tells something. Returns this instance.
+    /// </summary>
+    public AgentFrameworkOptions ApplyConversational()
+    {
+        DeferQuestionTurns = true;
+        return this;
+    }
 }

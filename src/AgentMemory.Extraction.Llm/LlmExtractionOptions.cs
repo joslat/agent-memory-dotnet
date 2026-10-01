@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Options;
+﻿using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Extraction.Llm;
 
@@ -227,4 +227,23 @@ public sealed class LlmExtractionOptions
     /// unchanged control before it becomes the default.
     /// </remarks>
     public bool UsePredicateVocabulary { get; set; }
+
+    /// <summary>
+    /// The extraction half of the Conversational preset (see <c>MemoryOptions.CreateConversational()</c>): dates and
+    /// periods from the conversation's own time, corrections marked, only the speaker's own preferences, and who an
+    /// event was shared with, through the unified extractor. Returns this instance, so it composes in a configure lambda.
+    /// </summary>
+    /// <remarks>
+    /// These change what the model is asked, so they ship in the preset rather than as defaults: each was kept on the
+    /// evidence of DemoBrain's self-checking conversations (PLAN 40.9).
+    /// </remarks>
+    public LlmExtractionOptions ApplyConversational()
+    {
+        TemporalValidity = TemporalValidityMode.Extract;
+        MarkCorrections = true;
+        OwnPreferencesOnly = true;
+        CaptureEventCompanions = true;
+        UseUnifiedExtraction = true;
+        return this;
+    }
 }

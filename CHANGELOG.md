@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The Conversational preset**: `MemoryOptions.CreateConversational()`, `LlmExtractionOptions.ApplyConversational()`
+  and `AgentFrameworkOptions.ApplyConversational()`. One call per package switches on what an assistant that talks with
+  one person over many sessions needs, together. It covers changes of mind (supersession, corrections, renames), one
+  person as one person, one statement stored once, dates from the conversation's time, nothing learned from questions,
+  relationships and time in recall, and **strict owner isolation**. Contents are frozen per major version, and each
+  option stays settable afterwards. See getting-started §4.5.
+
 ### Fixed
 
 - **Two different plans said in one turn stay two.** Within-extraction de-duplication
@@ -39,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   environment names, and reports agreement (percentage and Cohen's kappa). Grading goes through AgentEval's own judge,
   under the judge settings the run recorded, after checking the dataset's SHA-256. `--limit N` gives the one-item stage
   of the run protocol.
+- **LongMemEval harness: `--preset sealed|defaults|conversational`.** `sealed` (the default) is the harness's own
+  profile, unchanged. `defaults` and `conversational` measure what a user gets: the shipped defaults, or those plus the
+  preset objects themselves. The preset is sealed into the corpus identity, so a store is never reused under another
+  preset, and each report lists what of the preset a prepared pair cannot exercise (the per-turn gates).
 - **Reference-arm reports keep each answer** (`judgments`), through the same projection as the prepared pair. Before,
   they kept only verdicts and could not be re-judged or audited.
 

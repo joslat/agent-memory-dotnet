@@ -1,4 +1,4 @@
-namespace AgentMemory.Abstractions.Options;
+﻿namespace AgentMemory.Abstractions.Options;
 
 /// <summary>
 /// Root configuration for the memory system.
@@ -427,4 +427,57 @@ public sealed record MemoryOptions
     /// <c>docs/getting-started.md</c> "Owner isolation" before enabling a stricter mode.
     /// </summary>
     public MemoryIsolationOptions Isolation { get; init; } = new();
+
+    /// <summary>
+    /// The Conversational preset: what an assistant that talks with one person over many sessions needs, switched on
+    /// together. Register it with <c>services.AddAgentMemoryCore(MemoryOptions.CreateConversational())</c>, and pair it
+    /// with <c>LlmExtractionOptions.ApplyConversational()</c> and <c>AgentFrameworkOptions.ApplyConversational()</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What it switches on.</b>
+    /// <list type="bullet">
+    /// <item>Changes of mind close what they replace: <see cref="ExtractionOptions.SupersedeReplacedFacts"/> and <see cref="ExtractionOptions.RenameOnCorrectedName"/>.</item>
+    /// <item>One person stays one person: <see cref="ExtractionOptions.CanonicalFactSubjects"/>, <see cref="ExtractionOptions.LinkFactsToEntities"/>, partial-name matching, and type-tolerant resolution.</item>
+    /// <item>One statement stays one fact: <see cref="ExtractionOptions.DeduplicateWithinExtraction"/>.</item>
+    /// <item>Nothing is learned from questions and greetings: <see cref="ExtractionOptions.SkipPlainQuestions"/> and <see cref="ExtractionOptions.SkipUninformativeTurns"/>.</item>
+    /// <item>Recall: the relationships of what is recalled (<see cref="RecallOptions.MaxRelationships"/> = 5), questions that name a time (<see cref="ResolveTemporalQueries"/>), compound questions split (<see cref="FanOut"/>), and "Lately" in the profile block.</item>
+    /// <item><b>Strict owner isolation</b> (<see cref="MemoryIsolationMode.StrictMultiTenant"/>): every call needs an owner, and a host that sets none is refused rather than mixing people's memories.</item>
+    /// <item>Speed: an embedding cache, access stamps off the answer path, and no escalation for kinds an owner has none of.</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// <b>Proved, not asserted.</b> Each option was kept only after DemoBrain's self-checking conversations (answer and
+    /// graph checks, held-out ones included) showed it doing no harm when left in and some harm when left out (PLAN 40.9).
+    /// The contents are frozen for a major version: a later minor release does not change what this preset means.
+    /// </para>
+    /// <para>
+    /// Everything here stays individually settable afterwards: this returns an ordinary <see cref="MemoryOptions"/>.
+    /// </para>
+    /// </remarks>
+    public static MemoryOptions CreateConversational()
+    {
+        var options = new MemoryOptions
+        {
+            Recall = RecallOptions.Default with { MaxRelationships = 5 },
+            ResolveTemporalQueries = true,
+            EmbeddingCacheCapacity = 512,
+            UseAccessTrackingQueue = true,
+            SkipEscalationWhenOwnerHasNoRows = true,
+        };
+        options.FanOut.Enabled = true;
+        options.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant;
+        options.WorkingMemory.RecentTopicsDays = 7;
+        var extraction = options.Extraction;
+        extraction.SupersedeReplacedFacts = true;
+        extraction.RenameOnCorrectedName = true;
+        extraction.CanonicalFactSubjects = true;
+        extraction.DeduplicateWithinExtraction = true;
+        extraction.LinkFactsToEntities = true;
+        extraction.SkipPlainQuestions = true;
+        extraction.SkipUninformativeTurns = true;
+        extraction.EntityResolution.EnablePartialNameMatch = true;
+        extraction.EntityResolution.TypeStrictFiltering = false;
+        return options;
+    }
 }

@@ -61,7 +61,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         // Same defect the RescueShortOwnerResults comment below records, one wave later.
         PhaseThirtyFeatures? phase30 = null,
         // Recall-side only: tells the reader how well each item matched. Off unless asked for.
-        bool annotateMatchQuality = false)
+        bool annotateMatchQuality = false,
+        LongMemEvalPreset preset = LongMemEvalPreset.Sealed)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
@@ -104,6 +105,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     graphRagIndexName,
                     extractionSeed,
                     annotateMatchQuality,
+                    preset,
                     cancellationToken)
                 .ConfigureAwait(false);
             return profile;
@@ -142,6 +144,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         string? graphRagIndexName,
         int? extractionSeed,
         bool annotateMatchQuality,
+        LongMemEvalPreset preset,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
@@ -178,7 +181,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             graphRagIndexName,
             multiSessionBatch,
             extractionSeed,
-            annotateMatchQuality);
+            annotateMatchQuality,
+            preset);
 
         _provider = services.BuildServiceProvider();
         _scope = _provider.CreateAsyncScope();
@@ -225,7 +229,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         string? graphRagIndexName,
         bool multiSessionBatch = true,
         int? extractionSeed = null,
-        bool annotateMatchQuality = false)
+        bool annotateMatchQuality = false,
+        LongMemEvalPreset preset = LongMemEvalPreset.Sealed)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -271,16 +276,32 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // this project has built records the corpus's stated identities -- "the new flat is
                 // the place on Ferrow Row" -- as ordinary prose and never as an alias.
                 options.CaptureIdentityAliases = captureIdentityAliases;
-                // 2026-09-27 defaults (name capture, questions ignored) pinned off: the measured path.
-                options.CaptureUserName = false;
-                options.IgnoreQuestions = false;
+                if (preset == LongMemEvalPreset.Sealed)
+                {
+                    // 2026-09-27 defaults (name capture, questions ignored) pinned off: the measured path.
+                    options.CaptureUserName = false;
+                    options.IgnoreQuestions = false;
+                    return;
+                }
+
+                // 40.10. A product configuration: the shipped extraction defaults (plus the preset object itself),
+                // and only the harness's mechanics kept: model, retries, JSON, the extractor it selects, concurrency.
+                options.TemporalValidity = TemporalValidityMode.Ignore;
+                options.CaptureIdentityAliases = false;
+                if (preset == LongMemEvalPreset.Conversational)
+                    options.ApplyConversational();
+                options.UseUnifiedExtraction = enableBatchedPreparation;
+                options.UseMultiSessionBatchExtraction = enableBatchedPreparation && multiSessionBatch;
             }
             : null;
+        var memoryOptions = preset == LongMemEvalPreset.Sealed
+            ? null
+            : ProductOptions(preset, graphRagIndexName is not null, annotateMatchQuality);
         services.AddNeo4jAgentMemory(
             // K9.1: the instance overload. The Action<MemoryOptions> one cannot set anything -
             // MemoryOptions is an init-only record, so a configure lambda can neither assign its
             // properties nor keep a `with` expression's result.
-            new MemoryOptions
+            memoryOptions ?? new MemoryOptions
             {
                 EnableGraphRag = graphRagIndexName is not null,
                 // 13.3. Off by default so every sealed measurement keeps taking the path it was taken
@@ -411,6 +432,19 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             services.AddSingleton(extractionChatClient);
 
         return services;
+    }
+
+    /// <summary>
+    /// 40.10. What a user gets: the library's own defaults, or those plus the Conversational preset object. Only the
+    /// harness's recall-side mechanics are added (a GraphRAG index when asked, match quality when asked).
+    /// </summary>
+    internal static MemoryOptions ProductOptions(LongMemEvalPreset preset, bool graphRag, bool annotateMatchQuality)
+    {
+        var options = preset == LongMemEvalPreset.Conversational ? MemoryOptions.CreateConversational() : new MemoryOptions();
+        options.EnableGraphRag = graphRag;
+        return annotateMatchQuality
+            ? options with { Projection = MemoryProjectionOptions.Default with { AnnotateMatchQuality = true } }
+            : options;
     }
 
     public async ValueTask DisposeAsync()

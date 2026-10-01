@@ -104,8 +104,9 @@ internal static class LongMemEvalPreparedPairProgram
             // The extraction identity sealed into the manifest and compared on reuse. The reasoning effort
             // is part of it because it changes what the extractor writes; without the flag this is
             // model.ExtractionIdentity unchanged.
-            var extractionIdentity = LongMemEvalExtractionReasoning.Identity(
-                model.ExtractionIdentity, options.ExtractionReasoning);
+            var extractionIdentity = LongMemEvalPresets.Seal(
+                LongMemEvalExtractionReasoning.Identity(model.ExtractionIdentity, options.ExtractionReasoning),
+                options.Preset);
             // THE RUN IDENTITY, not a deployment name. PR #224 stamped the model and the
             // backend build but not the HOST; the same model id on two providers is not the
             // same measurement, and without this the two artifacts are indistinguishable.
@@ -229,7 +230,8 @@ internal static class LongMemEvalPreparedPairProgram
                         usePredicateVocabulary: options.UsePredicateVocabulary,
                         assistantContent: options.AssistantContent,
                         rescueShortOwnerResults: options.RescueShortOwnerResults,
-                        extractionSeed: options.ExtractionSeed)
+                        extractionSeed: options.ExtractionSeed,
+                        preset: options.Preset)
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
@@ -883,6 +885,9 @@ internal static class LongMemEvalPreparedPairProgram
                     extractionModel = extractionDeployment,
                     // provider-default, or the effort --extraction-reasoning requested on extraction calls.
                     extractionReasoningEffort = LongMemEvalExtractionReasoning.Token(options.ExtractionReasoning),
+                    // 40.10. Which configuration was measured, and what of the preset this harness could not exercise.
+                    preset = LongMemEvalPresets.Token(options.Preset),
+                    presetCoverage = LongMemEvalPresets.Coverage(options.Preset),
                     embeddingModel = embeddingDeployment,
                     embeddingDimensions,
                     maxRelevantMessages = options.MaxRelevantMessages,
@@ -1150,7 +1155,8 @@ internal static class LongMemEvalPreparedPairProgram
                 graphRagIndexName: options.GraphRagItems > 0 ? "fact_embedding_idx" : null,
                 // Recall-side only, so it belongs to the evaluation profiles and never to the
                 // preparation base: the same sealed store is read with and without it.
-                annotateMatchQuality: options.AnnotateMatchQuality)
+                annotateMatchQuality: options.AnnotateMatchQuality,
+                preset: options.Preset)
             .ConfigureAwait(false);
         profileStartup.Stop();
 
@@ -1624,7 +1630,7 @@ internal static class LongMemEvalPreparedPairProgram
         "--abstention", "--abstention-proportion", "--query-formulation",
         "--use-predicate-vocabulary", "--judge-protocol", "--rescue-short-owner-results",
         "--extraction-seed", "--question-ids", "--annotate-match-quality", "--extraction-reasoning",
-        "--judge-max-output-tokens",
+        "--judge-max-output-tokens", LongMemEvalPresets.Option,
     ];
 
     internal static PreparedPairOptions Parse(string[] args)
@@ -1713,7 +1719,8 @@ internal static class LongMemEvalPreparedPairProgram
             AnnotateMatchQuality: Has("--annotate-match-quality"),
             ExtractionReasoning: LongMemEvalExtractionReasoning.Parse(Value("--extraction-reasoning")),
             JudgeMaxOutputTokens: LongMemEvalSamplingOptions.ParseJudgeMaxOutputTokens(
-                Value("--judge-max-output-tokens")));
+                Value("--judge-max-output-tokens")),
+            Preset: LongMemEvalPresets.Parse(Value(LongMemEvalPresets.Option)));
     }
 
     /// <summary>Parses <c>--extraction-seed &lt;int&gt;</c>; absent means send no seed.</summary>
@@ -2020,7 +2027,9 @@ internal static class LongMemEvalPreparedPairProgram
         bool AnnotateMatchQuality = false,
         // --extraction-reasoning. Null sends no reasoning setting: the provider default, as every run before it.
         ReasoningEffort? ExtractionReasoning = null,
-        int JudgeMaxOutputTokens = LongMemEvalBenchmarkProtocol.DefaultJudgeMaxOutputTokens)
+        int JudgeMaxOutputTokens = LongMemEvalBenchmarkProtocol.DefaultJudgeMaxOutputTokens,
+        // 40.10. Sealed (the default) is every run before this existed; defaults/conversational measure what a user gets.
+        LongMemEvalPreset Preset = LongMemEvalPreset.Sealed)
     {
         /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
         internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];
