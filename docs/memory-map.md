@@ -994,6 +994,24 @@ corpus — a ranking instrument only, never quoted as accuracy — and it should
 candidate worth ranking. Cross-referenced from [§8.6](#86-isolation-pushed-into-the-index), which this
 finding qualifies.
 
+### 5.7 Association
+
+Human memory is associative: one thing brings back what it is linked to. In AgentMemory **the structure is the
+graph**, and every link is stored as a relationship:
+- who a fact is about (`ABOUT`, written under `LinkFactsToEntities`);
+- how people and things relate (`RELATED_TO`, with the relation as `relation_type`);
+- what replaced what (`SUPERSEDED_BY`);
+- where a memory came from (`EXTRACTED_FROM`, to the message).
+
+**Recall follows the graph one hop, and only when asked.** With `RecallOptions.MaxRelationships` above `0`, live recall
+adds the relationships of the recalled entities, and of the entities the recalled facts name. The second half lets a
+question about "my manager's husband" reach the husband through the manager (`MemoryContextAssembler`,
+`GetRelationshipsAroundAsync`). The default is `0`; the Conversational preset sets `5`. It costs no extra round trip:
+the read rides the same query.
+
+**Not built:** spreading activation (activation flowing along edges and weakening per hop) and session priming (what
+the last turns touched ranking higher in the next recall). Both are planned as a module once modules can own schema.
+
 ---
 
 ## 6. Our coverage today
