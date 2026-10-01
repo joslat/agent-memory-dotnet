@@ -94,7 +94,7 @@ public static class MemoryTelemetry
     /// <summary>The items asked for per memory kind ("facts:10,entities:10,…"; kinds at 0 are left out).</summary>
     public const string RouteRecall = "memory.route.recall";
 
-    /// <summary>How time was read: "now", "as of, named in the question", or "as of, asked for".</summary>
+    /// <summary>How time was read, a token: <c>now</c>, <c>question</c> (the question named a moment) or <c>requested</c>.</summary>
     public const string RouteTime = "memory.route.time";
 
     /// <summary>The transaction-time moment ("as known then") of an as-of recall.</summary>

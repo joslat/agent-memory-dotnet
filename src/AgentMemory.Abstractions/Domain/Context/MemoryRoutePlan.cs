@@ -12,19 +12,23 @@
 /// </remarks>
 public sealed record MemoryRoutePlan
 {
-    /// <summary>How the plan names a recall made against now.</summary>
+    /// <summary>Token for a recall made against now.</summary>
     public const string TimeNow = "now";
 
-    /// <summary>How the plan names a recall at a moment the question itself named ("where did I live in March?").</summary>
-    public const string TimeFromQuestion = "as of, named in the question";
+    /// <summary>Token for a recall at a moment the question itself named ("where did I live in March?").</summary>
+    public const string TimeFromQuestion = "question";
 
-    /// <summary>How the plan names a recall at a moment the caller asked for (<c>RecallAsOfAsync</c>).</summary>
-    public const string TimeRequested = "as of, asked for";
+    /// <summary>Token for a recall at a moment the caller asked for (<c>RecallAsOfAsync</c>).</summary>
+    public const string TimeRequested = "requested";
 
     /// <summary>Whether and how much: the items asked for per memory kind (0 = that kind is not recalled).</summary>
     public required IReadOnlyDictionary<string, int> Recall { get; init; }
 
-    /// <summary>How time was read: <see cref="TimeNow"/>, <see cref="TimeFromQuestion"/> or <see cref="TimeRequested"/>.</summary>
+    /// <summary>
+    /// How time was read, as a stable token: <see cref="TimeNow"/> (<c>now</c>), <see cref="TimeFromQuestion"/>
+    /// (<c>question</c>: the question named a moment) or <see cref="TimeRequested"/> (<c>requested</c>: the caller asked
+    /// for one).
+    /// </summary>
     public required string Time { get; init; }
 
     /// <summary>The valid-time moment recalled, when not now.</summary>
