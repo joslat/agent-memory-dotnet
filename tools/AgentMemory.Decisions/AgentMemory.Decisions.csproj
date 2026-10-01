@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>AgentMemory.Decisions</RootNamespace>
+    <!-- Measurement tooling (PLAN 40.15/40.16), not a published library: the release packs src/*/*.csproj only. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Inference\AgentMemory.Inference.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+  </ItemGroup>
+
+</Project>
