@@ -52,6 +52,16 @@ internal static class Corrections
             .Where(candidate => relationKeys.Contains(MemoryTripleCanonicalizer.Canonical(candidate.Predicate), StringComparer.Ordinal))
             .ToList();
         if (sameRelation.Count > 0) return sameRelation;
+        // 38.6 (held-out show 11, 2026-10-01). "works as | designer at Contoso" is the job at Contoso: a role held AT the
+        // value. A new employer that replaces "Contoso" ends it too; with one word in common it was left as a possible
+        // coincidence, and Contoso stayed the employer beside the new one. Narrow on purpose: the correction must be an
+        // employment and the stored object must END in "at/for/with <value>". "Google in London" is untouched.
+        if (IsEmployment(winner.Predicate))
+        {
+            var roles = mentioning.Where(candidate => statedNow?.Contains(candidate.FactId) != true && HeldAt(candidate.Object, value))
+                .ToList();
+            if (roles.Count > 0) return roles;
+        }
         // Another relation only when the mention is unambiguous and not a coincidence of one word: the object IS the
         // value, or the two share at least two words ("half marathon" for "the half marathon in April"), never "6 kg"
         // for "6" nor "London" for "Google in London".
@@ -63,14 +73,90 @@ internal static class Corrections
         // the new one. A changed plan closes every phrasing of the old one, but only when the correction and each of them
         // is a plan and each names the value unambiguously; anything else ("bought shoes for the half marathon") keeps
         // the conservative answer.
-        return mentioning.Count > 1 && IsPlan(winner.Predicate) &&
-               mentioning.All(candidate => IsPlan(candidate.Predicate) && Unambiguous(candidate))
-            ? mentioning
-            : [];
+        if (mentioning.Count > 1 && IsPlan(winner.Predicate) &&
+            mentioning.All(candidate => IsPlan(candidate.Predicate) && Unambiguous(candidate)))
+            return mentioning;
+        return EllipticalPlan(candidates, winner, value, statedNow);
 
         bool Unambiguous(Fact candidate) =>
             Value(candidate.Object) == value || Math.Min(WordCount(candidate.Object), WordCount(value)) >= 2;
     }
+
+    private static bool IsEmployment(string? predicate)
+    {
+        if (MemoryRelationCardinality.Relation(predicate) == "works at") return true;
+        var canonical = MemoryTripleCanonicalizer.Canonical(predicate);
+        return canonical is "joined" or "started at" or "started working at" or "moved to work at";
+    }
+
+    /// <summary>Whether <paramref name="text"/> is a role held at <paramref name="value"/>: "designer at contoso".</summary>
+    private static bool HeldAt(string text, string value)
+    {
+        var canonical = Value(text);
+        return canonical != value &&
+               (canonical.EndsWith($" at {value}", StringComparison.Ordinal) ||
+                canonical.EndsWith($" for {value}", StringComparison.Ordinal) ||
+                canonical.EndsWith($" with {value}", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 38.6. A changed plan that names the old one by ellipsis: "the full marathon in May instead of <b>the half</b> in
+    /// April" for a stored "is training for | half marathon". Two pieces of evidence, both required: every word the
+    /// correction names (dates aside) is in the stored plan ("half"), and the stored plan shares a word with the new one
+    /// ("marathon"). Plans only, on both sides; "a trip to Lisbon in April" shares nothing with "full marathon" and stays.
+    /// </summary>
+    private static IReadOnlyList<Fact> EllipticalPlan(
+        IEnumerable<Fact> candidates, Fact winner, string value, IReadOnlySet<string>? statedNow)
+    {
+        if (!IsPlan(winner.Predicate)) return [];
+        var named = ContentWords(value).Where(word => !IsDateWord(word)).ToHashSet(StringComparer.Ordinal);
+        var winnerWords = ContentWords(winner.Object).Where(word => !IsDateWord(word)).ToHashSet(StringComparer.Ordinal);
+        if (named.Count == 0 || winnerWords.Count == 0) return [];
+        return [.. candidates.Where(candidate =>
+            candidate.InvalidatedAtUtc is null && candidate.FactId != winner.FactId &&
+            statedNow?.Contains(candidate.FactId) != true && IsPlan(candidate.Predicate) &&
+            named.IsSubsetOf(ContentWords(candidate.Object)) &&
+            ContentWords(candidate.Object).Overlaps(winnerWords))];
+    }
+
+    private static readonly HashSet<string> DateWords = new(StringComparer.Ordinal)
+    {
+        "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november",
+        "december", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "next", "last", "this", "week", "month", "year", "spring", "summer", "autumn", "fall", "winter",
+    };
+
+    /// <summary>
+    /// 38.6. The event a plan names, without its date: "Half marathon in April 2027" is "Half marathon". Case is kept (facts
+    /// are looked up by their exact subject); a leading article goes. Empty when nothing is left.
+    /// </summary>
+    internal static string Undated(string? text)
+    {
+        var words = (text ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (words.Count > 0 && words[0].ToLowerInvariant() is "the" or "a" or "an" or "my" or "our") words.RemoveAt(0);
+        while (words.Count > 0 && (IsDateToken(words[^1]) || words[^1].ToLowerInvariant() is "in" or "on" or "at" or "by" or "of"))
+            words.RemoveAt(words.Count - 1);
+        return string.Join(' ', words);
+    }
+
+    /// <summary>38.6. Whether a value is only a date: "2027-04", "April 2027", "on 12 May".</summary>
+    internal static bool IsDateOnly(string? text)
+    {
+        var words = (text ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => word.ToLowerInvariant() is not ("in" or "on" or "at" or "by" or "of" or "the"))
+            .ToList();
+        return words.Count > 0 && words.All(IsDateToken);
+    }
+
+    private static bool IsDateToken(string word)
+    {
+        var bare = word.Trim(',', '.', ';').ToLowerInvariant();
+        return bare.Length > 0 && (IsDateWord(bare) || bare.All(c => char.IsAsciiDigit(c) || c is '-' or '/' or ':'));
+    }
+
+    private static bool IsDateWord(string word) =>
+        DateWords.Contains(word) || (word.Length == 4 && word.All(char.IsAsciiDigit));
 
     /// <summary>
     /// 38.6. Whether a predicate states an intention or a plan in progress ("plans to run", "is training for", "is
@@ -89,12 +175,25 @@ internal static class Corrections
     private static int WordCount(string text) =>
         Value(text).Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
 
+    /// <summary>Whether <paramref name="text"/> and <paramref name="name"/> name the same thing: one holds the other as whole words.</summary>
+    internal static bool NamesEither(string text, string name) => Mentions(text, Value(name));
+
     /// <summary>Whether one of <paramref name="text"/> and <paramref name="value"/> contains the other as whole words.</summary>
     private static bool Mentions(string text, string value)
     {
         var canonical = Value(text);
         return canonical.Length > 0 && (ContainsWords(canonical, value) || ContainsWords(value, canonical));
     }
+
+    private static readonly HashSet<string> FunctionWords = new(StringComparer.Ordinal)
+    {
+        "a", "an", "the", "my", "our", "his", "her", "their", "in", "on", "at", "of", "to", "for", "with", "by", "from", "and",
+    };
+
+    private static HashSet<string> ContentWords(string text) =>
+        Value(text).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => !FunctionWords.Contains(word))
+            .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// 36.4. The single-valued relation a preference states, when it states one: "Favourite band is Arcade Fire" states

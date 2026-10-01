@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The adapter references only Microsoft.Agents.AI.Abstractions; a runnable agent needs the concrete package. -->
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.22.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The meta-package: Core, Neo4j and model-based extraction in one registration. -->
+    <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
+    <ProjectReference Include="..\AgentMemory.Samples.Shared\AgentMemory.Samples.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

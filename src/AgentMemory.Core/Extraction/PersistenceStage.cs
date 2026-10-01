@@ -870,6 +870,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     _logger.LogDebug(
                         "Superseded fact '{Loser}' with '{Winner}' ({S} {P}).",
                         loser.FactId, winner.FactId, winner.Subject, winner.Predicate);
+                    // 38.6. Its edge too ("Lena —lives in→ Lyon" stayed live beside "moved to → Copenhagen"). The relation
+                    // is single-valued, so the winner is the only value still said.
+                    await EndMirroredEdgesAsync(loser, [winner], candidates, scope, cancellationToken).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -912,13 +915,27 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 {
                     if (factIndex.GetValueOrDefault(key) > saidAt) spared.Add(fact.FactId);
                 }
-                foreach (var loser in Corrections.Closed(
-                             candidates.Where(candidate => !currentFactIds.Contains(candidate.FactId)), winner, replaced, spared))
+                var closed = Corrections.Closed(
+                    candidates.Where(candidate => !currentFactIds.Contains(candidate.FactId)), winner, replaced, spared);
+                foreach (var loser in closed)
                 {
                     await _factRepository.SupersedeAsync(loser.FactId, winner.FactId, writeScope, cancellationToken)
                         .ConfigureAwait(false);
                     _logger.LogDebug("Correction '{Winner}' closed fact '{Loser}' (replaces '{Replaced}').",
                         winner.FactId, loser.FactId, replaced);
+                }
+                if (closed.Count > 0)
+                {
+                    var closedIds = closed.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
+                    var stillLive = candidates
+                        .Where(fact => fact.InvalidatedAtUtc is null && !closedIds.Contains(fact.FactId))
+                        .Append(winner)
+                        .ToList();
+                    foreach (var loser in closed)
+                    {
+                        await EndMirroredEdgesAsync(loser, stillLive, readScope, writeScope, cancellationToken).ConfigureAwait(false);
+                        await CloseDatesOfWithdrawnAsync(loser, winner, readScope, writeScope, cancellationToken).ConfigureAwait(false);
+                    }
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -1626,6 +1643,103 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             RelationshipCount = persistedRelCount,
             Outcomes = outcomes
         };
+    }
+
+    /// <summary>
+    /// 38.6 (the Conversational sample, 2026-10-01). A correction closed "Lena | is training for | half marathon", and the
+    /// edge extracted from the same words ("Lena —is training for→ half marathon") stayed live: recall rendered it, and the
+    /// agent answered from it. The fact and its edge are one statement kept in two places, so they end together: the live
+    /// edge from the fact's subject, of the fact's relation, to an entity the fact names. Unless a fact still live (or the
+    /// correction itself) says the same relation to that entity. Best-effort, like the edge ending of a single-valued relation.
+    /// </summary>
+    private async Task EndMirroredEdgesAsync(
+        Fact closed, IReadOnlyList<Fact> stillLive, MemoryScope readScope, MemoryScope? writeScope, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var source = await _entityRepository.FindLiveByNameAsync(closed.Subject, null, readScope, cancellationToken)
+                .ConfigureAwait(false);
+            if (source is null) return;
+            var now = _clock.UtcNow;
+            var edges = await _relationshipRepository.GetBySourceEntityAsync(source.EntityId, readScope, cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var edge in edges.Where(edge => (edge.ValidUntil is not { } until || until > now) &&
+                                                     SameRelation(edge.RelationshipType, closed.Predicate)))
+            {
+                var target = await _entityRepository.GetByIdAsync(edge.TargetEntityId, cancellationToken).ConfigureAwait(false);
+                if (target is null || !Corrections.NamesEither(closed.Object, target.Name)) continue;
+                if (stillLive.Any(fact => SameRelation(fact.Predicate, closed.Predicate) && Corrections.NamesEither(fact.Object, target.Name)))
+                    continue;
+                await _relationshipRepository.EndAsync(edge.RelationshipId, now, writeScope, cancellationToken).ConfigureAwait(false);
+                _logger.LogDebug("Ended relationship '{Edge}' with the fact '{Fact}' it mirrors.", edge.RelationshipId, closed.FactId);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (NotSupportedException) { }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Ending the edge beside closed fact '{Id}' failed; it stays live.", closed.FactId);
+        }
+    }
+
+    /// <summary>
+    /// 38.6 (the Conversational sample, 2026-10-01). "I'm training for the half marathon in April" was stored as the plan
+    /// and, from the same words, as "half marathon | takes place in | 2027-04". The correction closed the plan; the date
+    /// stayed, and the agent answered "with the half marathon in April as a milestone along the way". A withdrawn statement
+    /// takes its own date with it: a live fact about the event it named, from the same message, whose value is only a date.
+    /// Corrections only, never supersession ("Lyon is in France" outlives a move, and is not a date anyway).
+    /// </summary>
+    private async Task CloseDatesOfWithdrawnAsync(
+        Fact closed, Fact winner, MemoryScope readScope, MemoryScope? writeScope, CancellationToken cancellationToken)
+    {
+        if (closed.SourceMessageIds.Count == 0) return;
+        var said = Corrections.Undated(closed.Object);
+        if (said.Length == 0) return;
+        try
+        {
+            var facts = new List<Fact>();
+            foreach (var subject in new[] { said, said.ToLowerInvariant() }.Distinct(StringComparer.Ordinal))
+                facts.AddRange(await _factRepository.GetBySubjectAsync(subject, readScope, cancellationToken).ConfigureAwait(false));
+            foreach (var date in facts.DistinctBy(fact => fact.FactId).Where(fact =>
+                         fact.InvalidatedAtUtc is null && fact.FactId != closed.FactId && fact.FactId != winner.FactId &&
+                         fact.SourceMessageIds.Intersect(closed.SourceMessageIds, StringComparer.Ordinal).Any() &&
+                         Corrections.IsDateOnly(fact.Object)))
+            {
+                await _factRepository.SupersedeAsync(date.FactId, winner.FactId, writeScope, cancellationToken).ConfigureAwait(false);
+                _logger.LogDebug("Closed '{Date}', the date of withdrawn fact '{Fact}'.", date.FactId, closed.FactId);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Closing the date of withdrawn fact '{Id}' failed; it stays live.", closed.FactId);
+        }
+    }
+
+    /// <summary>
+    /// Whether an edge type and a predicate are one relation: the same words without a leading "is/am/are" (the sample
+    /// stored "is training for" as a fact and TRAINING_FOR as its edge), or two stored forms of one relation ("works for",
+    /// "works at").
+    /// </summary>
+    private static bool SameRelation(string a, string b)
+    {
+        var x = Bare(a);
+        var y = Bare(b);
+        if (x.Length == 0 || y.Length == 0) return false;
+        if (x == y) return true;
+        var resolved = MemoryRelationLexicon.Default.ResolveStored(x);
+        return resolved is not null && resolved == MemoryRelationLexicon.Default.ResolveStored(y);
+
+        static string Bare(string predicate)
+        {
+            var canonical = MemoryTripleCanonicalizer.Canonical(predicate);
+            foreach (var auxiliary in new[] { "is ", "am ", "are " })
+            {
+                if (canonical.StartsWith(auxiliary, StringComparison.Ordinal) && canonical.Length > auxiliary.Length)
+                    return canonical[auxiliary.Length..];
+            }
+            return canonical;
+        }
     }
 
     private async Task<PreparedEmbeddings> PrepareEmbeddingsIndividuallyAsync(

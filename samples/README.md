@@ -38,6 +38,7 @@ a memory **context provider** (injects memory before each run, persists after) p
 | Sample | Demonstrates |
 | --- | --- |
 | **AgentWithMemory** | The flagship golden path — the .NET equivalent of the official [`04_memory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/01-get-started/04_memory) / [`AgentWithMemory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/AgentWithMemory) sample, backed by **durable Neo4j memory**: `Neo4jMemoryContextProvider` + memory tools, explicit `WithMemoryIdentity(...)` owner/application/session scope, multi-turn session, **session serialize/restore** (`SerializeSessionAsync`/`DeserializeSessionAsync`), and **durable cross-session recall**. |
+| **ConversationalAgent** | The **Conversational preset** (`MemoryOptions.CreateConversational()` + `ApplyConversational()` on extraction and the agent adapter): memory learned from what the person says by a model, no memory tools. Three sessions: the person tells, changes their mind, then asks; the sample prints what is current and what each change replaced. Needs a live Neo4j and a model. |
 | **ShoppingAssistant** | The **.NET reimplementation of the official Neo4j retail-assistant example** — a shopping assistant that learns preferences and recommends products via graph traversal: `Neo4jMemoryContextProvider` + memory tools + **custom product tools** over a Neo4j product graph, a retail prompt, and durable cross-session recall. The agent itself decides when to call the memory/product tools — nothing is scripted. |
 | **NamsAgent** | The NAMS-backed sibling of AgentWithMemory — the same golden-path shape, but memory lives in the real [NAMS](https://memory.neo4jlabs.com) SaaS via `NamsMemoryContextProvider` (`AgentMemory.AgentFramework.Nams`) instead of a direct Neo4j connection: multi-turn session, session serialize/restore, and durable cross-session recall, all against the live service. |
 | **RealAgent** | A real `ChatClientAgent` with `Neo4jMemoryContextProvider` (long-term memory) **and** the memory tools, multi-turn `AgentSession`, and native MAF `UseOpenTelemetry()`. |
@@ -49,7 +50,7 @@ a memory **context provider** (injects memory before each run, persists after) p
 | **McpHost** | Hosting the AgentMemory MCP server. |
 | **AspireDemo** | A .NET Aspire AppHost orchestrating Neo4j + a scripted demo app. |
 
-**AgentWithMemory, RealAgent, MemoryToolsAgent, ChatHistoryProvider, ShoppingAssistant, and NamsAgent call
+**AgentWithMemory, ConversationalAgent, RealAgent, MemoryToolsAgent, ChatHistoryProvider, ShoppingAssistant, and NamsAgent call
 a REAL Azure OpenAI chat model — there is no mock `IChatClient` and no offline fallback.** Each fails fast
 with setup instructions if credentials are missing. The model decides on its own when to call the memory
 (and, for ShoppingAssistant, product) tools — nothing is scripted. Live tool calls and any memory the
@@ -80,6 +81,7 @@ export BITDEER_API_KEY=...            # chat + embeddings, one variable
 
 # Defaults: bolt://localhost:7687, neo4j/password (override via Neo4j__Uri / Neo4j__Username / Neo4j__Password)
 dotnet run --project samples/AgentMemory.Sample.AgentWithMemory
+dotnet run --project samples/AgentMemory.Sample.ConversationalAgent
 dotnet run --project samples/AgentMemory.Sample.RealAgent
 dotnet run --project samples/AgentMemory.Sample.MemoryToolsAgent
 dotnet run --project samples/AgentMemory.Sample.ChatHistoryProvider

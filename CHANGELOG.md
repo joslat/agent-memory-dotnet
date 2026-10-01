@@ -27,6 +27,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closed neither, and both plans stayed live. It now closes all of them, but only when the correction and each of them
   is a plan ("plans to", "is training for", "will", …). A mention that is not a plan keeps the conservative answer.
 
+- **A closed fact takes its edge with it.** When a correction or a new value closed a fact ("Lena | lives in | Lyon",
+  "Lena | is training for | half marathon"), the relationship extracted from the same words ("Lena —lives in→ Lyon")
+  stayed live: recall rendered it beside the new value, and the agent answered from it. The live edge from the fact's
+  subject, of the same relation (ignoring a leading "is/am/are"), to an entity the fact names now ends with the fact,
+  unless a fact still live says the same thing. Found by the new ConversationalAgent sample.
+- **A withdrawn plan takes its own date with it** (`MarkCorrections`). "I'm training for the half marathon in April" was
+  also stored as "half marathon | takes place in | 2027-04"; after the change of mind the date stayed live and the agent
+  called the old race "a milestone along the way". A correction now also closes a fact about the event it named, from
+  the same message, whose value is only a date.
+- **A plan named by ellipsis is closed** ("the full marathon in May instead of **the half** in April"): when the
+  correction and the stored fact are both plans, every word the correction names (dates aside) is in the stored plan, and
+  the stored plan shares a word with the new one.
+- **A new employer closes the role held at the old one.** "works at Fabrikam", replacing "Contoso", now also closes
+  "works as | designer at Contoso" (a role held *at* the value). Narrow on purpose: an employment correction, and an
+  object that ends in "at/for/with" the replaced value.
+
 ### Changed
 
 - **`MemoryOptions.Recall.ProspectiveFiring` without `Recall.ValidTime = ValidTimeMode.Current` now fails at startup.**
@@ -38,6 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a distance. The extraction prompt's bytes change under `Extract` only.
 
 ### Documentation
+
+- **New sample: ConversationalAgent** (`samples/AgentMemory.Sample.ConversationalAgent`). The Conversational preset in one
+  call per package, memory learned from the conversation by a model (no memory tools), three sessions (tell, change your
+  mind, ask), and what memory holds at the end: what is current and what each change replaced.
 
 - `RecallOptions.ValidTime` and `RecallOptions.ProspectiveFiring` no longer claim that `MemoryProfile.Parity` resolves
   them. Nothing derives either from the profile.
