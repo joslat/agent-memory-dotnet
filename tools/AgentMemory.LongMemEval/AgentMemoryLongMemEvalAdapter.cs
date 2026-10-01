@@ -100,11 +100,11 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 nameof(options));
         }
         if (_options.PreparedMemory &&
-            (!string.Equals(
+            ((!_options.AnswerModelMayDiffer && !string.Equals(
                  _options.PreparedState!.Manifest.AnswerModelId,
                  _options.ModelId,
-                 StringComparison.Ordinal) ||
-             _options.PreparedState.Manifest.MaxRelevantMessages != _options.MaxRelevantMessages))
+                 StringComparison.Ordinal)) ||
+             _options.PreparedState!.Manifest.MaxRelevantMessages != _options.MaxRelevantMessages))
         {
             throw new ArgumentException(
                 "Prepared LongMemEval adapter configuration does not match the sealed manifest.",
@@ -2056,6 +2056,9 @@ public sealed record LongMemEvalAdapterOptions
     public int SyntheticExclusionCandidateMultiplier { get; init; } = 5;
 
     public double MinSimilarityScore { get; init; } = 0;
+
+    /// <summary>K-28 (--reanswer): the sealed store may be answered by a model other than the one it was sealed with.</summary>
+    public bool AnswerModelMayDiffer { get; init; }
 
     public string? ModelId { get; init; }
 

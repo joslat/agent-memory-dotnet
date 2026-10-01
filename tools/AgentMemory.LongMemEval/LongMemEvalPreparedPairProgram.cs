@@ -155,7 +155,8 @@ internal static class LongMemEvalPreparedPairProgram
                 maxConcurrentBatchesPerExtraction:
                     options.IsDiagnostic ? 1 : options.MaxConcurrentBatchesPerExtraction,
                 maxConcurrentExtractionBatches:
-                    options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches);
+                    options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches,
+                answerModelMayDiffer: options.Reanswer);
             var preparationId =
                 $"longmemeval-prepared-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}";
             var overall = Stopwatch.StartNew();
@@ -887,6 +888,8 @@ internal static class LongMemEvalPreparedPairProgram
                     extractionReasoningEffort = LongMemEvalExtractionReasoning.Token(options.ExtractionReasoning),
                     // 40.10. Which configuration was measured, and what of the preset this harness could not exercise.
                     preset = LongMemEvalPresets.Token(options.Preset),
+                    // K-28: answered by a model other than the one the store was sealed with (answerModel above).
+                    reanswer = options.Reanswer,
                     presetCoverage = LongMemEvalPresets.Coverage(options.Preset),
                     embeddingModel = embeddingDeployment,
                     embeddingDimensions,
@@ -1188,6 +1191,7 @@ internal static class LongMemEvalPreparedPairProgram
                 MaxRelevantMessages = options.MaxRelevantMessages,
                 MinSimilarityScore = 0,
                 ModelId = deployment,
+                AnswerModelMayDiffer = options.Reanswer,
                 EvidenceIndex = evidenceIndex,
                 EvidenceDetail = options.EvidenceDetail,
                 // Every G3B.1-.4 correction previously reached the Raw arm only, so Structured and
@@ -1630,7 +1634,7 @@ internal static class LongMemEvalPreparedPairProgram
         "--abstention", "--abstention-proportion", "--query-formulation",
         "--use-predicate-vocabulary", "--judge-protocol", "--rescue-short-owner-results",
         "--extraction-seed", "--question-ids", "--annotate-match-quality", "--extraction-reasoning",
-        "--judge-max-output-tokens", LongMemEvalPresets.Option,
+        "--judge-max-output-tokens", LongMemEvalPresets.Option, "--reanswer",
     ];
 
     internal static PreparedPairOptions Parse(string[] args)
@@ -1720,7 +1724,11 @@ internal static class LongMemEvalPreparedPairProgram
             ExtractionReasoning: LongMemEvalExtractionReasoning.Parse(Value("--extraction-reasoning")),
             JudgeMaxOutputTokens: LongMemEvalSamplingOptions.ParseJudgeMaxOutputTokens(
                 Value("--judge-max-output-tokens")),
-            Preset: LongMemEvalPresets.Parse(Value(LongMemEvalPresets.Option)));
+            Preset: LongMemEvalPresets.Parse(Value(LongMemEvalPresets.Option)),
+            Reanswer: Has("--reanswer") ? Value("--reuse-prepared-volumes") is not null
+                ? true
+                : throw new ArgumentException("--reanswer re-answers a sealed store: it needs --reuse-prepared-volumes.")
+                : false);
     }
 
     /// <summary>Parses <c>--extraction-seed &lt;int&gt;</c>; absent means send no seed.</summary>
@@ -2029,7 +2037,9 @@ internal static class LongMemEvalPreparedPairProgram
         ReasoningEffort? ExtractionReasoning = null,
         int JudgeMaxOutputTokens = LongMemEvalBenchmarkProtocol.DefaultJudgeMaxOutputTokens,
         // 40.10. Sealed (the default) is every run before this existed; defaults/conversational measure what a user gets.
-        LongMemEvalPreset Preset = LongMemEvalPreset.Sealed)
+        LongMemEvalPreset Preset = LongMemEvalPreset.Sealed,
+        // K-28. A reused store answered by another model (--reanswer); only with --reuse-prepared-volumes.
+        bool Reanswer = false)
     {
         /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
         internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];

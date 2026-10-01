@@ -75,6 +75,35 @@ public sealed class LongMemEvalPreparationManifestTests
             .WithMessage("*configuration*");
     }
 
+    /// <summary>
+    /// K-28 (--reanswer). The answer model writes nothing to the store, so a re-answer may change it, and only it:
+    /// without the flag it is refused, and with it every other field is still checked.
+    /// </summary>
+    [Fact]
+    public void A_reanswer_lifts_only_the_answer_model_check()
+    {
+        var otherAnswer = Expectation() with { AnswerModelId = "another-answer-model" };
+        var refused = () => new LongMemEvalPreparedState(Manifest(), "prepared-run", otherAnswer);
+        refused.Should().Throw<InvalidOperationException>().WithMessage("*answerModelId*");
+
+        var reanswer = otherAnswer with { AnswerModelMayDiffer = true };
+        var accepted = () => new LongMemEvalPreparedState(Manifest(), "prepared-run", reanswer);
+        accepted.Should().NotThrow();
+
+        var stillChecked = () => new LongMemEvalPreparedState(Manifest(), "prepared-run", reanswer with { MaxRelevantMessages = 31 });
+        stillChecked.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Reanswer_needs_a_reused_store()
+    {
+        var act = () => LongMemEvalPreparedPairProgram.Parse(["--prepared-pair", "--reanswer"]);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*--reuse-prepared-volumes*");
+        LongMemEvalPreparedPairProgram.Parse(["--prepared-pair", "--reanswer", "--reuse-prepared-volumes", "am-lme-base"])
+            .Reanswer.Should().BeTrue();
+    }
+
     [Fact]
     public void PreparedState_AcceptsExactConfiguration()
     {

@@ -52,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profile, unchanged. `defaults` and `conversational` measure what a user gets: the shipped defaults, or those plus the
   preset objects themselves. The preset is sealed into the corpus identity, so a store is never reused under another
   preset, and each report lists what of the preset a prepared pair cannot exercise (the per-turn gates).
+- **LongMemEval harness: `--reanswer`** (only with `--reuse-prepared-volumes`): the sealed store answered by another
+  model. The answer model writes nothing to the store, so only that check is lifted, and the report records
+  `reanswer: true`.
 - **Reference-arm reports keep each answer** (`judgments`), through the same projection as the prepared pair. Before,
   they kept only verdicts and could not be re-judged or audited.
 

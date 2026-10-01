@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Neo4j.Driver;
@@ -576,7 +576,10 @@ internal sealed record LongMemEvalPreparationExpectation(
     int MaxSessionsPerBatch = 1,
     int MaxInputTokens = 100_000,
     int MaxConcurrentBatchesPerExtraction = 1,
-    int MaxConcurrentExtractionBatches = 0)
+    int MaxConcurrentExtractionBatches = 0,
+    // K-28. --reanswer: the same sealed store answered by another model. The answer model writes nothing to the
+    // store, so only this check is lifted, and only when asked; the report says so.
+    bool AnswerModelMayDiffer = false)
 {
     internal void Validate(LongMemEvalPreparationManifest manifest)
     {
@@ -589,7 +592,7 @@ internal sealed record LongMemEvalPreparationExpectation(
         }
 
         Check("datasetSha256", DatasetSha256, manifest.DatasetSha256);
-        Check("answerModelId", AnswerModelId, manifest.AnswerModelId);
+        if (!AnswerModelMayDiffer) Check("answerModelId", AnswerModelId, manifest.AnswerModelId);
         Check("judgeModelId", JudgeModelId, manifest.JudgeModelId);
         Check("extractionModelId", ExtractionModelId, manifest.ExtractionModelId);
         Check("embeddingModelId", EmbeddingModelId, manifest.EmbeddingModelId);
@@ -649,7 +652,8 @@ internal static class LongMemEvalPreparationFingerprint
         int maxSessionsPerBatch = 1,
         int maxInputTokens = 100_000,
         int maxConcurrentBatchesPerExtraction = 1,
-        int maxConcurrentExtractionBatches = 0) =>
+        int maxConcurrentExtractionBatches = 0,
+        bool answerModelMayDiffer = false) =>
         new(
             datasetSha256,
             agentEvalRevision,
@@ -668,7 +672,8 @@ internal static class LongMemEvalPreparationFingerprint
             maxSessionsPerBatch,
             maxInputTokens,
             maxConcurrentBatchesPerExtraction,
-            maxConcurrentExtractionBatches);
+            maxConcurrentExtractionBatches,
+            answerModelMayDiffer);
 }
 public sealed class LongMemEvalPreparedState
 {
