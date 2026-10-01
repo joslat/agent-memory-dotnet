@@ -1274,7 +1274,7 @@ what that means for it — for most, the query is never issued at all rather tha
 |---|---|---|---|
 | Valid-time gating (§3.2.7) | `RecallOptions.ValidTime` | `ValidTimeMode.Ignore` | `Current` applies the validity window on both live fact paths |
 | Valid-time capture | `LlmExtractionOptions.TemporalValidity` | `TemporalValidityMode.Ignore` | the only non-supersession writer of `valid_from`/`valid_until` |
-| Prospective firing (§3.2.7) | `RecallOptions.ProspectiveFiring` | `false` | **gated twice** — also requires `ValidTime == Current`; the flag alone does nothing |
+| Prospective firing (§3.2.7) | `RecallOptions.ProspectiveFiring` | `false` | **gated twice** — also requires `ValidTime == Current`; the flag alone does nothing on live recall (one warning is logged when set on `MemoryOptions.Recall`) |
 | Projection layer (§3.2.8) | `MemoryProjectionOptions` × 6 | all `false` | reachable at `MemoryOptions.Projection` and per-request `RecallOptions.Projection`; no flag ⇒ `MemoryContext.Projection` is `null` |
 | Delta recall (§3.2.9) | `AgentFrameworkOptions.InjectDeltaOnSessionResume` | `false` | `IMemoryRecall.RecallChangedSinceAsync` is callable directly regardless; the flag governs automatic injection on session resume |
 | Access-tracking queue (§3.2.8b) | `MemoryOptions.UseAccessTrackingQueue` | `false` | supersedes `MemoryOptions.DeferAccessTracking` (also `false`) where both are set |

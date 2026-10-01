@@ -383,7 +383,7 @@ What it switches on:
 - **Dates and periods** come from the conversation's own time, and an event keeps who was there.
 - **Questions and greetings teach nothing:** they are held until a turn says something.
 - **Recall** brings the relationships of what it finds, reads time in questions, splits compound questions, and adds a "Lately" line.
-- **Strict owner isolation.** Every call needs an owner, so set one with `WithMemoryIdentity(userId: …)` on the session. A host that sets none is refused, which keeps one person's memories from reaching another.
+- **Strict owner isolation.** Every call needs an owner. Set it with `WithMemoryIdentity(userId: …)` on the session, and wrap the agent once with `.WithMemoryOwnerScoping(sp)` so memory-tool calls run as that owner too (see [owner isolation](configuration/memory-options.md) and the ConversationalAgent sample). A host that sets none is refused, which keeps one person's memories from reaching another.
 
 Every option stays individually settable afterwards: the preset returns ordinary options objects. Its contents are
 frozen for a major version.

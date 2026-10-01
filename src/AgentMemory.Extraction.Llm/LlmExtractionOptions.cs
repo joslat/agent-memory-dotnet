@@ -234,8 +234,8 @@ public sealed class LlmExtractionOptions
     /// event was shared with, through the unified extractor. Returns this instance, so it composes in a configure lambda.
     /// </summary>
     /// <remarks>
-    /// These change what the model is asked, so they ship in the preset rather than as defaults: each was kept on the
-    /// evidence of DemoBrain's self-checking conversations (PLAN 40.9).
+    /// These change what the model is asked, so they ship in the preset rather than as defaults; the preset was checked
+    /// against the defaults on scripted conversations with answer and graph checks (PLAN 40.9).
     /// </remarks>
     public LlmExtractionOptions ApplyConversational()
     {

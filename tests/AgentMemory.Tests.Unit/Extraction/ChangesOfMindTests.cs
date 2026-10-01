@@ -163,6 +163,42 @@ public sealed class ChangesOfMindTests
     }
 
     /// <summary>
+    /// 38.6 review. The date a correction names picks the plan: "the April trip" is not the Rome trip in August, and
+    /// "the half in April" is not the half in October. With no date named, two plans of two dates are two plans.
+    /// </summary>
+    [Fact]
+    public void The_date_a_correction_names_picks_the_plan_it_closes()
+    {
+        Corrections.Closed(
+                [Stored("lisbon", "is planning", "trip to Lisbon in April"), Stored("rome", "is planning", "trip to Rome in August")],
+                Stored("new", "is planning", "trip to Porto"), "the April trip")
+            .Select(f => f.FactId).Should().Equal("lisbon");
+
+        Fact[] halves = [Stored("apr", "is training for", "half marathon in April"), Stored("oct", "is training for", "half marathon in October")];
+        var full = Stored("full", "is doing", "full marathon in May");
+        Corrections.Closed(halves, full, "the half in April").Select(f => f.FactId).Should().Equal("apr");
+        Corrections.Closed(halves, full, "the half").Should().BeEmpty("two halves on two dates are two plans, and which one is meant is not said");
+    }
+
+    /// <summary>
+    /// 38.6 review. The role at the old employer and the other phrasing of a changed plan close WITH the same-relation
+    /// match: before, a same-relation match returned alone and they stayed live beside the new value.
+    /// </summary>
+    [Fact]
+    public void A_correction_closes_every_form_of_what_it_names_not_only_the_same_relation()
+    {
+        Corrections.Closed(
+                [Stored("job", "works at", "Contoso"), Stored("role", "works as", "designer at Contoso")],
+                Stored("new", "works at", "Fabrikam"), "Contoso")
+            .Select(f => f.FactId).Should().BeEquivalentTo(["job", "role"]);
+
+        Corrections.Closed(
+                [Stored("a", "is training for", "half marathon"), Stored("b", "is running", "half marathon in April")],
+                Stored("new", "is training for", "full marathon"), "half marathon")
+            .Select(f => f.FactId).Should().BeEquivalentTo(["a", "b"]);
+    }
+
+    /// <summary>
     /// 38.6, held-out show 11 as recorded: "I'm a designer at Contoso" was stored as "works as | designer at Contoso";
     /// "I don't work at Contoso any more, I've joined Fabrikam" came back as "works at | Fabrikam", replaces "Contoso".
     /// </summary>
@@ -450,6 +486,8 @@ public sealed class ChangesOfMindTests
                 From(Stored("date", "takes place in", "2027-04") with { Subject = "half marathon" }, "m1"),
                 From(Stored("other-day", "takes place in", "2026-04") with { Subject = "half marathon" }, "m9"),
                 From(Stored("route", "starts at", "the old harbour") with { Subject = "half marathon" }, "m1"),
+                From(Stored("history", "first held in", "1998") with { Subject = "half marathon" }, "m1"),
+                From(Stored("cap", "is on", "3000") with { Subject = "half marathon" }, "m1"),
             ]));
 
         await Sut(supersede: true).PersistAsync(
@@ -457,7 +495,69 @@ public sealed class ChangesOfMindTests
             ownerId: "owner-1");
 
         _closedFacts.Select(c => c.Loser).Should().BeEquivalentTo(["half", "date"],
-            "the date said with the plan goes; a date said another time, and a detail that is not a date, stay");
+            "the date said with the plan goes; a date said another time, its history, a number and a detail that is not a date stay");
+    }
+
+    /// <summary>38.6 review: the race's date stays while someone else still has a live edge to it (the brother runs it).</summary>
+    [Fact]
+    public async Task A_withdrawn_plan_leaves_the_date_of_a_race_someone_else_still_runs()
+    {
+        var entities = Substitute.For<IEntityRepository>();
+        var relationships = Substitute.For<IRelationshipRepository>();
+        Entity E(string id, string name) => new() { EntityId = id, Name = name, Type = "EVENT", Confidence = 1, CreatedAtUtc = T0 };
+        entities.FindLiveByNameAsync("user", null, Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<Entity?>(E("lena", "Lena")));
+        entities.FindLiveByNameAsync("half marathon", null, Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<Entity?>(E("half", "half marathon")));
+        relationships.GetByTargetEntityAsync("half", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Relationship>>(
+            [
+                new Relationship
+                {
+                    RelationshipId = "brother-runs", SourceEntityId = "brother", TargetEntityId = "half", RelationshipType = "RUNNING",
+                    Confidence = 1, CreatedAtUtc = T0,
+                },
+            ]));
+        _facts.GetBySubjectAsync("user", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([Stored("half", "is training for", "half marathon in April") with { SourceMessageIds = ["m1"] }]));
+        _facts.GetBySubjectAsync("half marathon", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([Stored("date", "takes place in", "2027-04") with { Subject = "half marathon", SourceMessageIds = ["m1"] }]));
+
+        await Sut(supersede: true, entities, relationships).PersistAsync(
+            new ExtractionStageResult { FilteredFacts = [F("user", "is doing", "full marathon") with { Replaces = "the half in April" }] },
+            ownerId: "owner-1");
+
+        _closedFacts.Select(c => c.Loser).Should().Equal("half");
+    }
+
+    /// <summary>
+    /// 38.6 review: "worked at" is history (36.4). A new employer ends the WORKS_AT edge, never the WORKED_AT one, whose
+    /// fact stays live.
+    /// </summary>
+    [Fact]
+    public async Task Supersession_leaves_the_edge_of_a_history_form()
+    {
+        var entities = Substitute.For<IEntityRepository>();
+        var relationships = Substitute.For<IRelationshipRepository>();
+        entities.FindLiveByNameAsync("Lena", null, Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Entity?>(new Entity { EntityId = "lena", Name = "Lena", Type = "PERSON", Confidence = 1, CreatedAtUtc = T0 }));
+        entities.GetByIdAsync("google", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Entity?>(new Entity { EntityId = "google", Name = "Google", Type = "ORGANIZATION", Confidence = 1, CreatedAtUtc = T0 }));
+        Relationship R(string id, string type) => new()
+        {
+            RelationshipId = id, SourceEntityId = "lena", TargetEntityId = "google", RelationshipType = type, Confidence = 1, CreatedAtUtc = T0,
+        };
+        relationships.GetBySourceEntityAsync("lena", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Relationship>>([R("e-works", "WORKS_AT"), R("e-worked", "WORKED_AT")]));
+        relationships.EndAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+        _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), "Lena", Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([Stored("google-fact", "works at", "Google") with { Subject = "Lena" }]));
+
+        await Sut(supersede: true, entities, relationships).PersistAsync(
+            new ExtractionStageResult { FilteredFacts = [F("Lena", "works at", "Meta")] }, ownerId: "owner-1");
+
+        await relationships.Received(1).EndAsync("e-works", Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await relationships.DidNotReceive().EndAsync("e-worked", Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -472,8 +572,11 @@ public sealed class ChangesOfMindTests
     [InlineData("2027-04", true)]
     [InlineData("in April 2027", true)]
     [InlineData("on 12 May", true)]
+    [InlineData("1998", true)]
     [InlineData("the old harbour", false)]
     [InlineData("France", false)]
+    [InlineData("3000", false)]
+    [InlineData("21", false)]
     public void A_date_only_value_is_told_apart(string text, bool expected) =>
         Corrections.IsDateOnly(text).Should().Be(expected);
 

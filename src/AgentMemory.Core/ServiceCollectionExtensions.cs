@@ -269,11 +269,6 @@ public static class ServiceCollectionExtensions
             .Validate(
                 o => o.SharedRecallBudget is null or >= 0,
                 "MemoryOptions.SharedRecallBudget must be 0 or more when set.")
-            .Validate(
-                o => !o.Recall.ProspectiveFiring || o.Recall.ValidTime == ValidTimeMode.Current,
-                "MemoryOptions.Recall.ProspectiveFiring needs Recall.ValidTime = ValidTimeMode.Current: firing reads "
-                + "a fact's valid-time window, so with valid time ignored it never fires while the flag still reads "
-                + "as on. Set both, or neither.")
             .ValidateOnStart();
 
         // Bridge sub-options from parent MemoryOptions so services that depend on

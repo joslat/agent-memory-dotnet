@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Domain;
+﻿using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
@@ -68,7 +68,8 @@ public interface IEntityRepository
 
     /// <summary>
     /// The owner's live entity with this name or alias, if any: never one merged into another or
-    /// invalidated; an exact name before an alias; case-insensitive. The default reads
+    /// invalidated; an exact name before an alias; case-insensitive. With <see cref="MemoryScope.IncludeShared"/>, a
+    /// shared entity too, after the owner's own. The default reads
     /// <see cref="GetByNameAsync"/> and prefers an exact name (it cannot see merges or invalidation); a
     /// backend overrides it with one filtered, ordered read.
     /// </summary>

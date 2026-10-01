@@ -25,6 +25,7 @@ public sealed class ClosedFactTakesItsEdgeIntegrationTests : IAsyncLifetime
     private const string Owner = "closed-fact-probe-lena";
     private const string First = "Hi, I'm Lena. I live in Lyon and I'm training for the half marathon in April.";
     private const string Second = "Big news: I moved to Copenhagen last week. And I'm doing the full marathon in May instead of the half in April.";
+    private const string SameBreath = "I'm training for the full marathon now, not the half.";
     private static readonly DateTimeOffset April = new(2027, 4, 1, 0, 0, 0, TimeSpan.Zero);
     private readonly Neo4jIntegrationFixture _fixture;
 
@@ -66,6 +67,10 @@ public sealed class ClosedFactTakesItsEdgeIntegrationTests : IAsyncLifetime
                 new() { SourceEntity = "user", TargetEntity = "Copenhagen", RelationshipType = "moved to", Confidence = 0.95 },
                 new() { SourceEntity = "user", TargetEntity = "full marathon", RelationshipType = "is doing", Confidence = 0.9 },
             ]),
+        [SameBreath] = (
+            [new() { Name = "full marathon", Type = "EVENT", Confidence = 0.85 }],
+            [new() { Subject = "user", Predicate = "is training for", Object = "full marathon", Confidence = 0.9, Replaces = "the half" }],
+            [new() { SourceEntity = "user", TargetEntity = "full marathon", RelationshipType = "training for", Confidence = 0.9 }]),
     };
 
     [Fact]
@@ -101,25 +106,82 @@ public sealed class ClosedFactTakesItsEdgeIntegrationTests : IAsyncLifetime
             .Should().Contain(["lives in Copenhagen", "is doing full marathon"]).And.NotContain(["lives in Lyon", "is training for half marathon"]);
     }
 
-    private static async Task SayAsync(ServiceProvider provider, string text)
+    /// <summary>
+    /// 38.6 review: a correction and what it corrects in ONE extraction (a session extracted at once). The closed fact's
+    /// edge is written by the same extraction, after the facts: ended before it, it came back live.
+    /// </summary>
+    [Fact]
+    public async Task A_change_of_mind_in_one_extraction_leaves_no_live_edge_to_the_old_plan()
+    {
+        await using var provider = Build();
+        await SayAsync(provider, Owner, First, SameBreath);
+
+        (await LiveEdgesAsync(provider, Owner)).Should().Contain("training for → full marathon")
+            .And.NotContain(edge => edge.EndsWith("→ half marathon"), "the plan it mirrors was corrected in the same breath");
+    }
+
+    /// <summary>
+    /// 38.6 review: a store without owners (single tenant). The shared-only read found no subject, and the facts keep
+    /// "user" there while the edges hang off "Lena", so no closed fact's edge ever ended. (The second turn's own edges,
+    /// from "user", are not stored without an owner: a limit of user-endpoint resolution, unchanged here.)
+    /// </summary>
+    [Fact]
+    public async Task A_change_of_mind_without_an_owner_ends_the_edges_too()
+    {
+        var options = MemoryOptions.CreateConversational();
+        options.Isolation.Mode = MemoryIsolationMode.SingleTenant;
+        await using var provider = Build(options);
+        await SayAsync(provider, null, First);
+        await SayAsync(provider, null, Second);
+
+        (await LiveEdgesAsync(provider, null)).Should().NotContain(edge => edge.EndsWith("→ Lyon") || edge.EndsWith("→ half marathon"));
+        using var scope = provider.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<IFactRepository>().GetBySubjectAsync("half marathon", MemoryScope.Global))
+            .Where(fact => fact.InvalidatedAtUtc is null).Should().BeEmpty("the old race's date was the withdrawn plan's own");
+    }
+
+    private static async Task<List<string>> LiveEdgesAsync(ServiceProvider provider, string? owner)
+    {
+        using var scope = provider.CreateScope();
+        var entities = scope.ServiceProvider.GetRequiredService<IEntityRepository>();
+        var relationships = scope.ServiceProvider.GetRequiredService<IRelationshipRepository>();
+        var read = owner is null ? MemoryScope.Global : MemoryScope.For(owner, includeShared: false);
+        var lena = (await entities.GetByNameAsync("Lena", includeAliases: true, read)).Single();
+        var live = new List<string>();
+        foreach (var edge in await relationships.GetBySourceEntityAsync(lena.EntityId, read))
+        {
+            if (edge.ValidUntil is { } until && until <= DateTimeOffset.UtcNow) continue;
+            var target = await entities.GetByIdAsync(edge.TargetEntityId);
+            live.Add($"{edge.RelationshipType.ToLowerInvariant().Replace('_', ' ')} → {target!.Name}");
+        }
+        return live;
+    }
+
+    private static Task SayAsync(ServiceProvider provider, string text) => SayAsync(provider, Owner, text);
+
+    private static async Task SayAsync(ServiceProvider provider, string? owner, params string[] texts)
     {
         using var scope = provider.CreateScope();
         var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
         var pipeline = scope.ServiceProvider.GetRequiredService<IMemoryExtractionPipeline>();
-        await shortTerm.AddConversationAsync("conv-lena", "session-lena", userId: Owner);
-        var message = await shortTerm.AddMessageAsync(new Message
+        await shortTerm.AddConversationAsync("conv-lena", "session-lena", userId: owner);
+        var messages = new List<Message>();
+        foreach (var text in texts)
         {
-            MessageId = $"m-{Guid.NewGuid():N}",
-            ConversationId = "conv-lena",
-            SessionId = "session-lena",
-            Role = "user",
-            Content = text,
-            TimestampUtc = DateTimeOffset.UtcNow,
-        });
-        await pipeline.ExtractAsync(new ExtractionRequest { SessionId = "session-lena", UserId = Owner, Messages = [message] });
+            messages.Add(await shortTerm.AddMessageAsync(new Message
+            {
+                MessageId = $"m-{Guid.NewGuid():N}",
+                ConversationId = "conv-lena",
+                SessionId = "session-lena",
+                Role = "user",
+                Content = text,
+                TimestampUtc = DateTimeOffset.UtcNow,
+            }));
+        }
+        await pipeline.ExtractAsync(new ExtractionRequest { SessionId = "session-lena", UserId = owner, Messages = messages });
     }
 
-    private ServiceProvider Build()
+    private ServiceProvider Build(MemoryOptions? options = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -127,7 +189,7 @@ public sealed class ClosedFactTakesItsEdgeIntegrationTests : IAsyncLifetime
         services.AddSingleton<IFactExtractor, ScriptedFacts>();
         services.AddSingleton<IRelationshipExtractor, ScriptedRelationships>();
         services.AddNeo4jAgentMemory(
-            MemoryOptions.CreateConversational(),
+            options ?? MemoryOptions.CreateConversational(),
             configureNeo4j: o =>
             {
                 o.Uri = _fixture.ConnectionString;

@@ -440,7 +440,8 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         };
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.FindLiveByName, parameters).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(
+                scope.IncludeShared ? EntityQueries.FindLiveByNameOrShared : EntityQueries.FindLiveByName, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["e"].As<INode>();

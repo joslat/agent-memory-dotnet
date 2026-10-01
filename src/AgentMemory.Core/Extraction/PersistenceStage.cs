@@ -611,6 +611,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // Counted so the batch can say whether the lever did anything at all -- the "you turned this
         // on and it was inert" signal that took a week and four scored runs to notice its absence.
         var supersessionEligible = 0;
+        // 38.6 review: what each closed fact also said elsewhere (its edge, its date) ends after this extraction's own
+        // relationships are written; ended earlier, the same extraction could write the closed fact's edge again, live.
+        var withdrawn = new List<Withdrawn>();
         var supersessionRefusals = 0;
 
         // I-2. The name a subject or object is stored under: the resolved entity's, when it resolved to one.
@@ -872,7 +875,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                         loser.FactId, winner.FactId, winner.Subject, winner.Predicate);
                     // 38.6. Its edge too ("Lena —lives in→ Lyon" stayed live beside "moved to → Copenhagen"). The relation
                     // is single-valued, so the winner is the only value still said.
-                    await EndMirroredEdgesAsync(loser, [winner], candidates, scope, cancellationToken).ConfigureAwait(false);
+                    withdrawn.Add(new Withdrawn(loser, winner, [winner], candidates, scope, Correction: false));
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -932,10 +935,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                         .Append(winner)
                         .ToList();
                     foreach (var loser in closed)
-                    {
-                        await EndMirroredEdgesAsync(loser, stillLive, readScope, writeScope, cancellationToken).ConfigureAwait(false);
-                        await CloseDatesOfWithdrawnAsync(loser, winner, readScope, writeScope, cancellationToken).ConfigureAwait(false);
-                    }
+                        withdrawn.Add(new Withdrawn(loser, winner, stillLive, readScope, writeScope, Correction: true));
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -1619,6 +1619,15 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
             }
         }
+        foreach (var item in withdrawn)
+        {
+            await EndMirroredEdgesAsync(item.Closed, item.StillLive, item.ReadScope, item.WriteScope, cancellationToken)
+                .ConfigureAwait(false);
+            if (item.Correction)
+                await CloseDatesOfWithdrawnAsync(item.Closed, item.Winner, item.ReadScope, item.WriteScope, cancellationToken)
+                    .ConfigureAwait(false);
+        }
+
         // The batch-level signal. Debug-level per-fact logging tells you WHY once you are already
         // looking; this is what makes you look. Warned once per batch rather than per fact so a large
         // ingestion cannot bury it, and only when the option was actually asked for -- a warning on a
@@ -1657,8 +1666,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     {
         try
         {
-            var source = await _entityRepository.FindLiveByNameAsync(closed.Subject, null, readScope, cancellationToken)
-                .ConfigureAwait(false);
+            var source = await SubjectEntityAsync(closed.Subject, readScope, cancellationToken).ConfigureAwait(false);
             if (source is null) return;
             var now = _clock.UtcNow;
             var edges = await _relationshipRepository.GetBySourceEntityAsync(source.EntityId, readScope, cancellationToken)
@@ -1687,7 +1695,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     /// and, from the same words, as "half marathon | takes place in | 2027-04". The correction closed the plan; the date
     /// stayed, and the agent answered "with the half marathon in April as a milestone along the way". A withdrawn statement
     /// takes its own date with it: a live fact about the event it named, from the same message, whose value is only a date.
-    /// Corrections only, never supersession ("Lyon is in France" outlives a move, and is not a date anyway).
+    /// Corrections only, never supersession ("Lyon is in France" outlives a move, and is not a date anyway). Review: only
+    /// a schedule ("takes place in", "is on"), never history ("first held in 1998"); and not while someone else still has
+    /// a live edge to the event (the brother still runs it in April).
     /// </summary>
     private async Task CloseDatesOfWithdrawnAsync(
         Fact closed, Fact winner, MemoryScope readScope, MemoryScope? writeScope, CancellationToken cancellationToken)
@@ -1700,10 +1710,22 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             var facts = new List<Fact>();
             foreach (var subject in new[] { said, said.ToLowerInvariant() }.Distinct(StringComparer.Ordinal))
                 facts.AddRange(await _factRepository.GetBySubjectAsync(subject, readScope, cancellationToken).ConfigureAwait(false));
-            foreach (var date in facts.DistinctBy(fact => fact.FactId).Where(fact =>
-                         fact.InvalidatedAtUtc is null && fact.FactId != closed.FactId && fact.FactId != winner.FactId &&
-                         fact.SourceMessageIds.Intersect(closed.SourceMessageIds, StringComparer.Ordinal).Any() &&
-                         Corrections.IsDateOnly(fact.Object)))
+            var dates = facts.DistinctBy(fact => fact.FactId).Where(fact =>
+                fact.InvalidatedAtUtc is null && fact.FactId != closed.FactId && fact.FactId != winner.FactId &&
+                fact.SourceMessageIds.Intersect(closed.SourceMessageIds, StringComparer.Ordinal).Any() &&
+                IsSchedule(fact.Predicate) && Corrections.IsDateOnly(fact.Object)).ToList();
+            if (dates.Count == 0) return;
+            var theEvent = await _entityRepository.FindLiveByNameAsync(said, null, readScope, cancellationToken).ConfigureAwait(false);
+            if (theEvent is not null)
+            {
+                var subject = await SubjectEntityAsync(closed.Subject, readScope, cancellationToken).ConfigureAwait(false);
+                var now = _clock.UtcNow;
+                var goingStill = await _relationshipRepository.GetByTargetEntityAsync(theEvent.EntityId, readScope, cancellationToken)
+                    .ConfigureAwait(false);
+                if (goingStill.Any(edge => (edge.ValidUntil is not { } until || until > now) && edge.SourceEntityId != subject?.EntityId))
+                    return;
+            }
+            foreach (var date in dates)
             {
                 await _factRepository.SupersedeAsync(date.FactId, winner.FactId, writeScope, cancellationToken).ConfigureAwait(false);
                 _logger.LogDebug("Closed '{Date}', the date of withdrawn fact '{Fact}'.", date.FactId, closed.FactId);
@@ -1717,12 +1739,47 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     }
 
     /// <summary>
+    /// The entity a fact's subject names. "user" is the person who named themselves ("user | is named | Lena"): without
+    /// an owner the facts keep "user" while the person's edges hang off "Lena" (38.6 review).
+    /// </summary>
+    private async Task<Entity?> SubjectEntityAsync(string subject, MemoryScope readScope, CancellationToken cancellationToken)
+    {
+        var named = await _entityRepository.FindLiveByNameAsync(subject, null, readScope, cancellationToken).ConfigureAwait(false);
+        if (named is not null || !UserNames.IsSelf(subject)) return named;
+        var name = await _factRepository.FindLatestObjectAsync(UserNames.SelfWords, UserNames.NamingPredicates, readScope, cancellationToken)
+            .ConfigureAwait(false);
+        return string.IsNullOrWhiteSpace(name)
+            ? null
+            : await _entityRepository.FindLiveByNameAsync(name.Trim(), "PERSON", readScope, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>What a fact that closed also said elsewhere, ended once this extraction's relationships are written.</summary>
+    private sealed record Withdrawn(
+        Fact Closed, Fact Winner, IReadOnlyList<Fact> StillLive, MemoryScope ReadScope, MemoryScope? WriteScope, bool Correction);
+
+    /// <summary>Whether a predicate schedules an event ("takes place in", "is on"), as opposed to telling its history.</summary>
+    private static bool IsSchedule(string predicate)
+    {
+        var words = MemoryTripleCanonicalizer.CanonicalValue(predicate);
+        return words.StartsWith("takes place", StringComparison.Ordinal) || words.StartsWith("is on", StringComparison.Ordinal) ||
+               words.StartsWith("is in", StringComparison.Ordinal) || words.StartsWith("is at", StringComparison.Ordinal) ||
+               words.StartsWith("is scheduled", StringComparison.Ordinal) || words.StartsWith("scheduled", StringComparison.Ordinal) ||
+               words.StartsWith("is held", StringComparison.Ordinal) || words.StartsWith("will be", StringComparison.Ordinal) ||
+               words.StartsWith("happens", StringComparison.Ordinal) || words.StartsWith("starts", StringComparison.Ordinal) ||
+               words.StartsWith("begins", StringComparison.Ordinal) || words is "date" or "on" or "in";
+    }
+
+    /// <summary>
     /// Whether an edge type and a predicate are one relation: the same words without a leading "is/am/are" (the sample
     /// stored "is training for" as a fact and TRAINING_FOR as its edge), or two stored forms of one relation ("works for",
-    /// "works at").
+    /// "works at"). A single-valued relation is one only in its present forms (36.4): "worked at" is history and neither
+    /// ends nor is ended with "works at".
     /// </summary>
     private static bool SameRelation(string a, string b)
     {
+        var present = MemoryRelationCardinality.Relation(a);
+        var other = MemoryRelationCardinality.Relation(b);
+        if (present is not null || other is not null) return present == other;
         var x = Bare(a);
         var y = Bare(b);
         if (x.Length == 0 || y.Length == 0) return false;

@@ -51,31 +51,35 @@ internal static class Corrections
         var sameRelation = mentioning
             .Where(candidate => relationKeys.Contains(MemoryTripleCanonicalizer.Canonical(candidate.Predicate), StringComparer.Ordinal))
             .ToList();
-        if (sameRelation.Count > 0) return sameRelation;
+        // 38.6 review. A correction names the old value in every form it was stored: the role held at the old employer
+        // and the other phrasings of a changed plan close WITH the same-relation match, not only when there is none
+        // ("works at | Contoso" and "works as | designer at Contoso" both end when Fabrikam replaces Contoso).
+        var free = mentioning.Where(candidate => statedNow?.Contains(candidate.FactId) != true).ToList();
+        List<Fact> roles = IsEmployment(winner.Predicate) ? [.. free.Where(candidate => HeldAt(candidate.Object, value))] : [];
+        List<Fact> phrasings = IsPlan(winner.Predicate)
+            ? [.. free.Where(candidate => IsPlan(candidate.Predicate) && Unambiguous(candidate) && DatesAgree(candidate.Object, value))]
+            : [];
+        if (AmbiguousDates([.. sameRelation, .. phrasings], value)) phrasings = [];
+        if (sameRelation.Count > 0) return [.. sameRelation.Concat(roles).Concat(phrasings).DistinctBy(fact => fact.FactId)];
         // 38.6 (held-out show 11, 2026-10-01). "works as | designer at Contoso" is the job at Contoso: a role held AT the
         // value. A new employer that replaces "Contoso" ends it too; with one word in common it was left as a possible
         // coincidence, and Contoso stayed the employer beside the new one. Narrow on purpose: the correction must be an
         // employment and the stored object must END in "at/for/with <value>". "Google in London" is untouched.
-        if (IsEmployment(winner.Predicate))
-        {
-            var roles = mentioning.Where(candidate => statedNow?.Contains(candidate.FactId) != true && HeldAt(candidate.Object, value))
-                .ToList();
-            if (roles.Count > 0) return roles;
-        }
+        if (roles.Count > 0) return roles;
         // Another relation only when the mention is unambiguous and not a coincidence of one word: the object IS the
         // value, or the two share at least two words ("half marathon" for "the half marathon in April"), never "6 kg"
         // for "6" nor "London" for "Google in London".
-        mentioning = [.. mentioning.Where(candidate => statedNow?.Contains(candidate.FactId) != true)];
-        if (mentioning.Count == 1 && Unambiguous(mentioning[0]))
-            return mentioning;
+        if (free.Count == 1 && Unambiguous(free[0]))
+            return free;
         // 38.6 (K-19, show 04 run 14). One plan stored under two phrasings ("is training for | half marathon", "is running
         // | half marathon in April"): with two mentions the rule above closed neither, and the old plan stayed live beside
         // the new one. A changed plan closes every phrasing of the old one, but only when the correction and each of them
-        // is a plan and each names the value unambiguously; anything else ("bought shoes for the half marathon") keeps
-        // the conservative answer.
-        if (mentioning.Count > 1 && IsPlan(winner.Predicate) &&
-            mentioning.All(candidate => IsPlan(candidate.Predicate) && Unambiguous(candidate)))
-            return mentioning;
+        // is a plan, each names the value unambiguously and no date says they are two plans; anything else ("bought shoes
+        // for the half marathon", a half in April and one in October) keeps the conservative answer.
+        if (free.Count > 1 && IsPlan(winner.Predicate) &&
+            free.All(candidate => IsPlan(candidate.Predicate) && Unambiguous(candidate) && DatesAgree(candidate.Object, value)) &&
+            !AmbiguousDates(free, value))
+            return free;
         return EllipticalPlan(candidates, winner, value, statedNow);
 
         bool Unambiguous(Fact candidate) =>
@@ -112,12 +116,44 @@ internal static class Corrections
         var named = ContentWords(value).Where(word => !IsDateWord(word)).ToHashSet(StringComparer.Ordinal);
         var winnerWords = ContentWords(winner.Object).Where(word => !IsDateWord(word)).ToHashSet(StringComparer.Ordinal);
         if (named.Count == 0 || winnerWords.Count == 0) return [];
-        return [.. candidates.Where(candidate =>
+        // 38.6 review: the date the correction names picks the plan ("the April trip" is not the Rome trip in August);
+        // with no date named, two plans of different dates are two plans, and neither is closed.
+        List<Fact> matched = [.. candidates.Where(candidate =>
             candidate.InvalidatedAtUtc is null && candidate.FactId != winner.FactId &&
             statedNow?.Contains(candidate.FactId) != true && IsPlan(candidate.Predicate) &&
             named.IsSubsetOf(ContentWords(candidate.Object)) &&
-            ContentWords(candidate.Object).Overlaps(winnerWords))];
+            ContentWords(candidate.Object).Overlaps(winnerWords) &&
+            DatesAgree(candidate.Object, value))];
+        return AmbiguousDates(matched, value) ? [] : matched;
     }
+
+    private static readonly Dictionary<string, string> CalendarNames = new(StringComparer.Ordinal)
+    {
+        ["january"] = "january", ["jan"] = "january", ["february"] = "february", ["feb"] = "february",
+        ["march"] = "march", ["mar"] = "march", ["april"] = "april", ["apr"] = "april", ["may"] = "may",
+        ["june"] = "june", ["jun"] = "june", ["july"] = "july", ["jul"] = "july", ["august"] = "august", ["aug"] = "august",
+        ["september"] = "september", ["sep"] = "september", ["sept"] = "september", ["october"] = "october",
+        ["oct"] = "october", ["november"] = "november", ["nov"] = "november", ["december"] = "december", ["dec"] = "december",
+        ["spring"] = "spring", ["summer"] = "summer", ["autumn"] = "autumn", ["fall"] = "autumn", ["winter"] = "winter",
+    };
+
+    /// <summary>The months and seasons a text names, by their full name.</summary>
+    private static HashSet<string> Months(string text) =>
+        ContentWords(text).Select(word => CalendarNames.GetValueOrDefault(word)).OfType<string>().ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>Whether a stored plan can be the one a correction names: no month on either side, or one in common.</summary>
+    private static bool DatesAgree(string text, string value)
+    {
+        var named = Months(value);
+        var stored = Months(text);
+        return named.Count == 0 || stored.Count == 0 || named.Overlaps(stored);
+    }
+
+    /// <summary>Whether, with no month named, the facts carry two different months: two plans, not two phrasings of one.</summary>
+    private static bool AmbiguousDates(IEnumerable<Fact> facts, string value) =>
+        Months(value).Count == 0 &&
+        facts.Select(fact => Months(fact.Object)).Where(months => months.Count > 0)
+            .Select(months => string.Join(',', months.Order(StringComparer.Ordinal))).Distinct(StringComparer.Ordinal).Count() > 1;
 
     private static readonly HashSet<string> DateWords = new(StringComparer.Ordinal)
     {
@@ -140,14 +176,23 @@ internal static class Corrections
         return string.Join(' ', words);
     }
 
-    /// <summary>38.6. Whether a value is only a date: "2027-04", "April 2027", "on 12 May".</summary>
+    /// <summary>
+    /// 38.6. Whether a value is only a date: "2027-04", "April 2027", "on 12 May", "2027". A bare number is not a date
+    /// ("3000" entries, "21" km): it needs a month, a weekday, a season, a year or a date's separator.
+    /// </summary>
     internal static bool IsDateOnly(string? text)
     {
         var words = (text ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Where(word => word.ToLowerInvariant() is not ("in" or "on" or "at" or "by" or "of" or "the"))
+            .Select(word => word.Trim(',', '.', ';').ToLowerInvariant())
+            .Where(word => word.Length > 0 && word is not ("in" or "on" or "at" or "by" or "of" or "the"))
             .ToList();
-        return words.Count > 0 && words.All(IsDateToken);
+        return words.Count > 0 && words.All(IsDateToken) && words.Any(word =>
+            CalendarNames.ContainsKey(word) || DateWords.Contains(word) && !RelativeWords.Contains(word) ||
+            (word.Length == 4 && word.All(char.IsAsciiDigit) && int.Parse(word, System.Globalization.CultureInfo.InvariantCulture) is >= 1900 and <= 2100) ||
+            (word.Any(char.IsAsciiDigit) && word.Any(c => c is '-' or '/')));
     }
+
+    private static readonly HashSet<string> RelativeWords = new(StringComparer.Ordinal) { "next", "last", "this", "week", "month", "year" };
 
     private static bool IsDateToken(string word)
     {

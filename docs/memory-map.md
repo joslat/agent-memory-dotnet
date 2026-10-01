@@ -1006,8 +1006,8 @@ graph**, and every link is stored as a relationship:
 **Recall follows the graph one hop, and only when asked.** With `RecallOptions.MaxRelationships` above `0`, live recall
 adds the relationships of the recalled entities, and of the entities the recalled facts name. The second half lets a
 question about "my manager's husband" reach the husband through the manager (`MemoryContextAssembler`,
-`GetRelationshipsAroundAsync`). The default is `0`; the Conversational preset sets `5`. It costs no extra round trip:
-the read rides the same query.
+`GetRelationshipsAroundAsync`). The default is `0`; the Conversational preset sets `5`. Turning relationships on costs
+one extra read per recall; following the facts' names costs none beyond it, because they ride that same query.
 
 **Not built:** spreading activation (activation flowing along edges and weakening per hop) and session priming (what
 the last turns touched ranking higher in the next recall). Both are planned as a module once modules can own schema.
@@ -1234,8 +1234,8 @@ opt-in and off by default**:
 
 **Two things to hold onto before reading that as more than it is.** First, it is **gated twice** — the
 flag *and* `ValidTime == ValidTimeMode.Current`, which is itself off by default. Setting
-`ProspectiveFiring = true` alone does nothing at all, by design: firing reads a validity window, and a
-recall ignoring valid time has no window to read.
+`ProspectiveFiring = true` alone does nothing on live recall, by design: firing reads a validity window, and a
+recall ignoring valid time has no window to read. Set on `MemoryOptions.Recall`, the combination logs one warning.
 
 Second, **the scheduler half of mechanism (3) is still deliberately absent, and that is the honest
 bound on the promise.** There is no timer and no wall-clock trigger: due-item latency remains bounded

@@ -947,6 +947,23 @@ internal static class FactQueries
             ORDER BY coalesce(f.updated_at, f.created_at) DESC
             LIMIT 1";
 
+    /// <summary>
+    /// <see cref="FindLatestObject"/> for a scope that includes shared memory: the owner's facts and the shared ones
+    /// (owner_key '*'). 38.6 review: without an owner, "user" was never resolved to the person who named themselves, so
+    /// a closed fact about "user" never found the edges hanging off that person.
+    /// </summary>
+    public const string FindLatestObjectOrShared = @"
+            MATCH (f:Fact)
+            WHERE f.owner_key IN [$ownerId, '*']
+              AND f.subject_key IN $subjectKeys
+              AND f.predicate_key IN $predicateKeys
+              AND f.invalidated_at IS NULL
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($now))
+              AND f.object IS NOT NULL
+            RETURN f.object AS object
+            ORDER BY CASE WHEN f.owner_key = $ownerId THEN 0 ELSE 1 END, coalesce(f.updated_at, f.created_at) DESC
+            LIMIT 1";
+
     public static string FindByTriple(bool hasOwnerFilter, bool includeShared)
     {
         // owner_key, not owner_id: only owner_key is part of the merge-key index, and only a filter

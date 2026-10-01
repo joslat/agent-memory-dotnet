@@ -1309,7 +1309,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         };
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.FindLatestObject, parameters).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(
+                scope.IncludeShared ? FactQueries.FindLatestObjectOrShared : FactQueries.FindLatestObject, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count == 0 ? null : records[0]["object"].As<string?>();
         }, cancellationToken).ConfigureAwait(false);

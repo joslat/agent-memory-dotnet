@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -98,7 +98,20 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
         _isolationPolicy = isolationPolicy;
+        // PLAN 40.7 (F1), review: firing reads a fact's valid-time window, so with valid time ignored live recall never
+        // fires while the flag reads as on. Said once per process, not refused: 1.6 accepted the combination, and as-of
+        // recall fires without that gate.
+        if (_options.Recall.ProspectiveFiring && _options.Recall.ValidTime != ValidTimeMode.Current &&
+            Interlocked.Exchange(ref _firingWarned, 1) == 0)
+        {
+            _logger.LogWarning(
+                "MemoryOptions.Recall.ProspectiveFiring is on but Recall.ValidTime is {ValidTime}: live recall reads no "
+                + "valid-time window and will never fire due items. Set Recall.ValidTime = ValidTimeMode.Current to fire.",
+                _options.Recall.ValidTime);
+        }
     }
+
+    private static int _firingWarned;
 
     /// <summary>
     /// The projection options in force: the request's when it set them, otherwise the application's.

@@ -25,29 +25,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A changed plan closes every phrasing of the old one** (`LlmExtractionOptions.MarkCorrections`). When the old plan had
   been stored twice ("is training for | half marathon", "is running | half marathon in April"), a correction naming it
   closed neither, and both plans stayed live. It now closes all of them, but only when the correction and each of them
-  is a plan ("plans to", "is training for", "will", …). A mention that is not a plan keeps the conservative answer.
+  is a plan ("plans to", "is training for", "will", …), also beside a same-relation match. A mention that is not a plan
+  keeps the conservative answer, and so do two plans on two different months when the correction names no month.
 
 - **A closed fact takes its edge with it.** When a correction or a new value closed a fact ("Lena | lives in | Lyon",
   "Lena | is training for | half marathon"), the relationship extracted from the same words ("Lena —lives in→ Lyon")
   stayed live: recall rendered it beside the new value, and the agent answered from it. The live edge from the fact's
-  subject, of the same relation (ignoring a leading "is/am/are"), to an entity the fact names now ends with the fact,
-  unless a fact still live says the same thing. Found by the new ConversationalAgent sample.
+  subject, of the same relation (ignoring a leading "is/am/are"; "worked at" history is never the present "works at"), to
+  an entity the fact names now ends with the fact, unless a fact still live says the same thing. It runs after the
+  extraction's own relationships are written, so a correction made in the same extraction ends the edge that extraction
+  wrote. It also works without an owner: "user" resolves to the person who named themselves, and an entity lookup
+  that includes shared memory now finds shared entities (`IEntityRepository.FindLiveByNameAsync` and
+  `IFactRepository.FindLatestObjectAsync` honour `MemoryScope.IncludeShared`; no existing caller passes it). Found by
+  the new ConversationalAgent sample.
 - **A withdrawn plan takes its own date with it** (`MarkCorrections`). "I'm training for the half marathon in April" was
   also stored as "half marathon | takes place in | 2027-04"; after the change of mind the date stayed live and the agent
-  called the old race "a milestone along the way". A correction now also closes a fact about the event it named, from
-  the same message, whose value is only a date.
+  called the old race "a milestone along the way". A correction now also closes a fact that schedules the event it
+  named ("takes place in", "is on"), from the same message, whose value is a date (a month, weekday, season, year or
+  dated form; never a bare number), unless someone else still has a live edge to that event. History ("first held in
+  1998") stays.
 - **A plan named by ellipsis is closed** ("the full marathon in May instead of **the half** in April"): when the
   correction and the stored fact are both plans, every word the correction names (dates aside) is in the stored plan, and
-  the stored plan shares a word with the new one.
+  the stored plan shares a word with the new one. The month the correction names picks the plan: "the April trip" is not
+  the August one; with no month named, two plans on two months close neither.
 - **A new employer closes the role held at the old one.** "works at Fabrikam", replacing "Contoso", now also closes
-  "works as | designer at Contoso" (a role held *at* the value). Narrow on purpose: an employment correction, and an
-  object that ends in "at/for/with" the replaced value.
+  "works as | designer at Contoso" (a role held *at* the value), also when "works at | Contoso" is closed with it. Narrow
+  on purpose: an employment correction, and an object that ends in "at/for/with" the replaced value.
 
 ### Changed
 
-- **`MemoryOptions.Recall.ProspectiveFiring` without `Recall.ValidTime = ValidTimeMode.Current` now fails at startup.**
-  Firing reads a fact's valid-time window, so this combination never fired while the flag read as on. Set both or
-  neither. A per-request `RecallOptions` with the same mismatch still simply does not fire.
+- **`MemoryOptions.Recall.ProspectiveFiring` without `Recall.ValidTime = ValidTimeMode.Current` logs one warning.**
+  Firing reads a fact's valid-time window, so this combination never fires on live recall while the flag reads as on.
+  It stays a valid configuration (as-of recall fires without that gate); the warning says what to set.
 - **Extraction under `TemporalValidityMode.Extract` dates relative periods and events whose object is a measure.**
   "Last month I ran my first 10k in 58 minutes" was stored with no date. The instruction now resolves "last month",
   "last year" and "two weeks ago" from the turn's time, and dates an event even when its object is an amount, a time or
@@ -61,13 +70,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `RecallOptions.ValidTime` and `RecallOptions.ProspectiveFiring` no longer claim that `MemoryProfile.Parity` resolves
   them. Nothing derives either from the profile.
+- Getting-started §4.5: under strict isolation, wrap the agent with `.WithMemoryOwnerScoping(sp)` so memory-tool calls
+  run as the session's owner. The memory map now says relationships cost one extra read per recall.
 
 ### Tools
 
 - **LongMemEval harness: `--rejudge <report>`** re-judges the answers a stored report holds, with the judge the
   environment names, and reports agreement (percentage and Cohen's kappa). Grading goes through AgentEval's own judge,
   under the judge settings the run recorded, after checking the dataset's SHA-256. `--limit N` gives the one-item stage
-  of the run protocol.
+  of the run protocol. Inconclusive recorded verdicts, agent errors and histories skipped for the context window are
+  counted apart rather than re-judged or compared; a misspelled `--arms` name fails; the default output is one file per
+  judge and is never overwritten.
 - **LongMemEval harness: `--preset sealed|defaults|conversational`.** `sealed` (the default) is the harness's own
   profile, unchanged. `defaults` and `conversational` measure what a user gets: the shipped defaults, or those plus the
   preset objects themselves. The preset is sealed into the corpus identity, so a store is never reused under another

@@ -200,7 +200,8 @@ public interface IFactRepository
     /// <summary>
     /// The object of the owner's most recently stated live fact with one of <paramref name="subjects"/>
     /// and one of <paramref name="predicates"/>, compared case- and separator-insensitively; null when
-    /// there is none. Used to find the name the user gave (<c>ExtractionOptions.ResolveUserToName</c>).
+    /// there is none. Used to find the name the user gave (<c>ExtractionOptions.ResolveUserToName</c>). With
+    /// <see cref="MemoryScope.IncludeShared"/>, shared facts count too, after the owner's own.
     /// </summary>
     /// <remarks>
     /// The default reads every fact of each subject and filters in memory; a store should answer it

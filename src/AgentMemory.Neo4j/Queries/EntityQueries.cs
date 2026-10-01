@@ -1,4 +1,4 @@
-using AgentMemory.Neo4j.Infrastructure;
+﻿using AgentMemory.Neo4j.Infrastructure;
 
 namespace AgentMemory.Neo4j.Queries;
 
@@ -157,6 +157,26 @@ internal static class EntityQueries
               AND (toLower(e.name) = $nameLower OR any(a IN coalesce(e.aliases, []) WHERE toLower(a) = $nameLower))
             RETURN e
             ORDER BY CASE WHEN toLower(e.name) = $nameLower THEN 0 ELSE 1 END, coalesce(e.mention_count, 1) DESC, e.id
+            LIMIT 1";
+
+    /// <summary>
+    /// <see cref="FindLiveByName"/> for a scope that includes shared memory: the owner's entity, else a shared one
+    /// (owner_key '*', a seek). 38.6 review: a write without an owner reads shared-only, and the owner-only read found
+    /// nothing, so a closed fact's edge never ended in a single-tenant store.
+    /// </summary>
+    public const string FindLiveByNameOrShared = @"
+            CALL {
+                MATCH (e:Entity {owner_id: $ownerId}) RETURN e
+                UNION
+                MATCH (e:Entity {owner_key: '*'}) RETURN e
+            }
+            WITH e
+            WHERE e.merged_into IS NULL AND e.invalidated_at IS NULL
+              AND ($type IS NULL OR toLower(e.type) = toLower($type))
+              AND (toLower(e.name) = $nameLower OR any(a IN coalesce(e.aliases, []) WHERE toLower(a) = $nameLower))
+            RETURN e
+            ORDER BY CASE WHEN e.owner_id = $ownerId THEN 0 ELSE 1 END,
+                     CASE WHEN toLower(e.name) = $nameLower THEN 0 ELSE 1 END, coalesce(e.mention_count, 1) DESC, e.id
             LIMIT 1";
 
     public static string GetByTypeWithoutEmbedding(bool hasOwnerFilter, bool includeShared)

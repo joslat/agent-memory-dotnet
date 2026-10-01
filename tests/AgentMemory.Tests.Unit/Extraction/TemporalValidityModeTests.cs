@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Options;
+﻿using AgentMemory.Abstractions.Options;
 using AgentMemory.Extraction.Llm;
 using FluentAssertions;
 using Xunit;
@@ -51,7 +51,7 @@ public sealed class TemporalValidityModeTests
     }
 
     /// <summary>
-    /// PLAN 38.5 (DemoBrain K-14). "Last month I ran my first 10k in 58 minutes" was stored with no date in two
+    /// PLAN 38.5 (K-14). "Last month I ran my first 10k in 58 minutes" was stored with no date in two
     /// runs out of two: the instruction resolved "in April" and "yesterday", and the model read a fact whose
     /// object is a measure as having no event to date. The instruction now names both cases; the live check is
     /// show 09's "the 10k carries a date".

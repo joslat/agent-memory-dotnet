@@ -447,8 +447,8 @@ public sealed record MemoryOptions
     /// </list>
     /// </para>
     /// <para>
-    /// <b>Proved, not asserted.</b> Each option was kept only after DemoBrain's self-checking conversations (answer and
-    /// graph checks, held-out ones included) showed it doing no harm when left in and some harm when left out (PLAN 40.9).
+    /// <b>Checked, not asserted.</b> The preset as a whole was run against the library defaults on scripted conversations
+    /// with answer and graph checks, held-out ones included: 100 of 101 checks against 86 (PLAN 40.9).
     /// The contents are frozen for a major version: a later minor release does not change what this preset means.
     /// </para>
     /// <para>

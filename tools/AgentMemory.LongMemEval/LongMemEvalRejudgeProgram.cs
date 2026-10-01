@@ -67,16 +67,9 @@ internal static class LongMemEvalRejudgeProgram
                     ? parsedLimit
                     : throw new ArgumentException("--limit must be a positive integer.")
                 : int.MaxValue;
-            var arms = ReadArms(report)
-                .Where(arm => armFilter is null || armFilter.Contains(arm.Name, StringComparer.OrdinalIgnoreCase))
+            var arms = SelectArms(ReadArms(report), armFilter)
                 .Select(arm => arm with { Items = arm.Items.Take(limit).ToArray() })
                 .ToArray();
-            if (arms.Length == 0)
-            {
-                throw new InvalidDataException(
-                    "The report holds no stored answers to re-judge. Reports written before the shared judgment "
-                    + "projection kept answers only for the prepared pair's arms.");
-            }
 
             var options = LongMemEvalBenchmarkProtocol.CreateOptions(
                 datasetPath,
@@ -91,6 +84,15 @@ internal static class LongMemEvalRejudgeProgram
 
             var model = HarnessClients.Create();
             var judgeIdentity = model.JudgeIdentity;
+            // Review: one default file per judge, never overwritten. A same-judge pass and a cross-judge pass of one
+            // report used to share "-rejudge.json", and the second silently replaced the first, paid for.
+            var explicitOutput = Value(args, "--output");
+            var destination = Path.GetFullPath(explicitOutput ?? DefaultDestination(reportPath, judgeIdentity));
+            if (explicitOutput is null && File.Exists(destination))
+            {
+                throw new ArgumentException(
+                    $"{destination} already holds a re-judge with this judge; pass --output to choose where this pass goes.");
+            }
             using var judgeClient = new LongMemEvalChatCallMeter(model.CreateJudgeClient());
             var judge = new LongMemEvalJudge(judgeClient, NullLogger<LongMemEvalJudge>.Instance);
 
@@ -112,12 +114,10 @@ internal static class LongMemEvalRejudgeProgram
                         judgment.Status.ToString(), judgment.Explanation));
                 }
 
-                results.Add(ArmAgreement.From(arm.Name, rejudged));
+                results.Add(ArmAgreement.From(arm.Name, rejudged, arm.NotJudgeable));
             }
 
             var calls = judgeClient.Snapshot();
-            var destination = Path.GetFullPath(Value(args, "--output")
-                ?? Path.Combine(Path.GetDirectoryName(reportPath)!, Path.GetFileNameWithoutExtension(reportPath) + "-rejudge.json"));
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
             var output = new
             {
@@ -140,7 +140,8 @@ internal static class LongMemEvalRejudgeProgram
             {
                 Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
                     $"  {arm.Arm}: {arm.Agreed}/{arm.Compared} agree ({arm.AgreementPercent:0.0} %), kappa {arm.CohensKappa:0.00}; "
-                    + $"recorded correct {arm.RecordedCorrect}, new correct {arm.NewCorrect}, new inconclusive {arm.NewInconclusive}"));
+                    + $"recorded correct {arm.RecordedCorrect}, new correct {arm.NewCorrect}, new inconclusive {arm.NewInconclusive}, "
+                    + $"recorded inconclusive {arm.RecordedInconclusive}, not re-judged {arm.NotRejudged}"));
             }
 
             Console.WriteLine($"longmemeval: re-judge written to {destination}");
@@ -160,22 +161,26 @@ internal static class LongMemEvalRejudgeProgram
         int JudgeMaxOutputTokens,
         int JudgeRetryAttempts);
 
-    internal sealed record StoredItem(string QuestionId, bool Correct, string AgentResponse);
+    /// <summary>A stored answer; <paramref name="Correct"/> is null when the recorded judge was inconclusive.</summary>
+    internal sealed record StoredItem(string QuestionId, bool? Correct, string AgentResponse);
 
-    internal sealed record StoredArm(string Name, IReadOnlyList<StoredItem> Items);
+    /// <summary>An arm's stored answers, and how many it holds that no judge can grade (an agent error, a skipped history).</summary>
+    internal sealed record StoredArm(string Name, IReadOnlyList<StoredItem> Items, int NotJudgeable = 0);
 
     internal sealed record RejudgedItem(
         string QuestionId,
         string QuestionType,
-        bool Recorded,
+        bool? Recorded,
         bool? New,
         string NewStatus,
         string? NewExplanation);
 
     /// <summary>Agreement between the recorded and the new verdicts for one arm.</summary>
     /// <remarks>
-    /// An inconclusive new verdict is not a disagreement and not an agreement: it is counted apart and
-    /// left out of agreement and kappa, so a judge that refuses to answer cannot look like one that agrees.
+    /// An inconclusive verdict, new or recorded, is not a disagreement and not an agreement: it is counted apart and
+    /// left out of agreement and kappa, so a judge that refuses to answer cannot look like one that agrees. Answers no
+    /// judge can grade (an agent error, a history the context window could not hold) are not re-judged at all, and
+    /// counted as <see cref="NotRejudged"/>: near-certain No/No pairs would inflate the agreement the A/A reads.
     /// </remarks>
     internal sealed record ArmAgreement(
         string Arm,
@@ -186,22 +191,26 @@ internal static class LongMemEvalRejudgeProgram
         int RecordedCorrect,
         int NewCorrect,
         int NewInconclusive,
+        int RecordedInconclusive,
+        int NotRejudged,
         IReadOnlyList<RejudgedItem> Disagreements,
         IReadOnlyList<RejudgedItem> Items)
     {
-        internal static ArmAgreement From(string arm, IReadOnlyList<RejudgedItem> items)
+        internal static ArmAgreement From(string arm, IReadOnlyList<RejudgedItem> items, int notRejudged = 0)
         {
-            var decided = items.Where(item => item.New is not null).ToArray();
+            var decided = items.Where(item => item.New is not null && item.Recorded is not null).ToArray();
             var agreed = decided.Count(item => item.Recorded == item.New);
             return new ArmAgreement(
                 arm,
                 decided.Length,
                 agreed,
                 decided.Length == 0 ? 0 : 100.0 * agreed / decided.Length,
-                Kappa(decided.Select(item => (item.Recorded, item.New!.Value)).ToArray()),
-                items.Count(item => item.Recorded),
-                decided.Count(item => item.New == true),
-                items.Count - decided.Length,
+                Kappa(decided.Select(item => (item.Recorded!.Value, item.New!.Value)).ToArray()),
+                items.Count(item => item.Recorded == true),
+                items.Count(item => item.New == true),
+                items.Count(item => item.New is null),
+                items.Count(item => item.Recorded is null),
+                notRejudged,
                 decided.Where(item => item.Recorded != item.New).ToArray(),
                 items);
         }
@@ -255,27 +264,63 @@ internal static class LongMemEvalRejudgeProgram
         {
             foreach (var (name, node) in pair)
             {
-                if (node?["judgments"] is JsonArray judgments) arms.Add(new StoredArm(name, Items(judgments)));
+                if (node?["judgments"] is JsonArray judgments) arms.Add(Arm(name, judgments));
             }
         }
         else if (report["judgments"] is JsonArray reference)
         {
             var name = report["referenceArm"]?["arm"]?.GetValue<string>() ?? "reference";
-            arms.Add(new StoredArm(name, Items(reference)));
+            arms.Add(Arm(name, reference));
         }
 
         return arms;
     }
 
-    private static IReadOnlyList<StoredItem> Items(JsonArray judgments) =>
-        judgments
-            .OfType<JsonObject>()
-            .Where(judgment => judgment["agentResponse"] is not null)
+    private static StoredArm Arm(string name, JsonArray judgments)
+    {
+        var answered = judgments.OfType<JsonObject>().Where(judgment => judgment["agentResponse"] is not null).ToArray();
+        var items = answered
+            .Where(judgment => Judgeable(judgment["agentResponse"]!.GetValue<string>()))
             .Select(judgment => new StoredItem(
                 judgment["QuestionId"]!.GetValue<string>(),
-                judgment["Correct"]!.GetValue<bool>(),
+                judgment["Correct"]?.GetValue<bool>(),
                 judgment["agentResponse"]!.GetValue<string>()))
             .ToArray();
+        return new StoredArm(name, items, answered.Length - items.Length);
+    }
+
+    /// <summary>Whether an answer can be graded: not an agent error, not a history skipped for the context window.</summary>
+    private static bool Judgeable(string response) =>
+        !response.StartsWith("[ERROR:", StringComparison.OrdinalIgnoreCase) &&
+        !response.StartsWith("[CONTENT_FILTER]", StringComparison.OrdinalIgnoreCase) &&
+        !response.StartsWith(LongMemEvalReferenceAgent.SkippedAnswer, StringComparison.Ordinal);
+
+    /// <summary>The arms <paramref name="filter"/> names, or all; a name the report does not hold fails, never drops silently.</summary>
+    internal static IReadOnlyList<StoredArm> SelectArms(IReadOnlyList<StoredArm> all, string[]? filter)
+    {
+        if (all.Count == 0)
+        {
+            throw new InvalidDataException(
+                "The report holds no stored answers to re-judge. Reports written before the shared judgment "
+                + "projection kept answers only for the prepared pair's arms.");
+        }
+        if (filter is null) return all;
+        var unknown = filter.Where(name => !all.Any(arm => arm.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToArray();
+        if (unknown.Length > 0)
+        {
+            throw new ArgumentException(
+                $"--arms names {string.Join(", ", unknown)}, which the report does not hold; it holds {string.Join(", ", all.Select(arm => arm.Name))}.");
+        }
+        return [.. all.Where(arm => filter.Contains(arm.Name, StringComparer.OrdinalIgnoreCase))];
+    }
+
+    /// <summary>The default output: next to the report, named for the judge (one file per judge).</summary>
+    internal static string DefaultDestination(string reportPath, string judgeIdentity)
+    {
+        var judge = Regex.Replace(judgeIdentity, "[^A-Za-z0-9.]+", "-").Trim('-');
+        return Path.Combine(Path.GetDirectoryName(Path.GetFullPath(reportPath))!,
+            $"{Path.GetFileNameWithoutExtension(reportPath)}-rejudge-{judge}.json");
+    }
 
     private static ExternalBenchmarkQuestion ToQuestion(LongMemEvalEvidenceQuestion indexed) => new()
     {

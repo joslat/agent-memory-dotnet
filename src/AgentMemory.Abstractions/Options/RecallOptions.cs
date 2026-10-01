@@ -184,9 +184,9 @@ public sealed record RecallOptions
     /// <para>
     /// Only evaluated when <see cref="ValidTime"/> is <see cref="ValidTimeMode.Current"/>: firing reads
     /// a fact's valid-time window, and a store that is ignoring valid time has no window to read. Configured
-    /// through <c>MemoryOptions.Recall</c>, setting this without <see cref="ValidTimeMode.Current"/> fails at
-    /// startup rather than doing nothing; a per-request <see cref="RecallOptions"/> with the same mismatch
-    /// simply does not fire. The default is off, which is also what parity with upstream means (upstream
+    /// through <c>MemoryOptions.Recall</c>, setting this without <see cref="ValidTimeMode.Current"/> logs one
+    /// warning and live recall does not fire; a per-request <see cref="RecallOptions"/> with the same mismatch
+    /// simply does not fire. As-of recall fires without this gate. The default is off, which is also what parity with upstream means (upstream
     /// has no firing); nothing derives it from <c>MemoryProfile</c>.
     /// </para>
     /// </remarks>

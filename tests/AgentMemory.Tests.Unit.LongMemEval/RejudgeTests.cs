@@ -66,6 +66,47 @@ public sealed class RejudgeTests
         arms[0].Items[0].Should().Be(new LongMemEvalRejudgeProgram.StoredItem("q1", true, "Lyon"));
     }
 
+    /// <summary>
+    /// Review: a recorded inconclusive verdict (Correct null) was read with GetValue&lt;bool&gt;() and crashed the run; an
+    /// agent error or a history skipped for the context window was sent to the judge and counted in agreement.
+    /// </summary>
+    [Fact]
+    public void AnInconclusiveRecordIsKept_AndAnswersNoJudgeCanGradeAreCountedApart()
+    {
+        var arms = LongMemEvalRejudgeProgram.ReadArms(Report($$"""
+            "arms": { "structured": { "judgments": [
+                { "QuestionId": "q1", "Correct": null, "agentResponse": "Lyon" },
+                { "QuestionId": "q2", "Correct": false, "agentResponse": "[ERROR: the provider timed out]" },
+                { "QuestionId": "q3", "Correct": false, "agentResponse": "{{LongMemEvalReferenceAgent.SkippedAnswer}}" },
+                { "QuestionId": "q4", "Correct": true, "agentResponse": "Paris" } ] } }
+            """));
+
+        arms.Should().ContainSingle();
+        arms[0].Items.Select(item => (item.QuestionId, item.Correct)).Should().Equal(("q1", (bool?)null), ("q4", true));
+        arms[0].NotJudgeable.Should().Be(2);
+    }
+
+    [Fact]
+    public void AMisspelledArmFails_InsteadOfDroppingSilently()
+    {
+        IReadOnlyList<LongMemEvalRejudgeProgram.StoredArm> all = [new("structured", []), new("hybrid", [])];
+
+        LongMemEvalRejudgeProgram.SelectArms(all, ["Structured"]).Should().ContainSingle().Which.Name.Should().Be("structured");
+        var act = () => LongMemEvalRejudgeProgram.SelectArms(all, ["structured", "hybird"]);
+        act.Should().Throw<ArgumentException>().WithMessage("*hybird*structured, hybrid*");
+    }
+
+    [Fact]
+    public void EachJudgeGetsItsOwnDefaultFile()
+    {
+        var report = Path.Combine("runs", "prepared-pair-report.json");
+        var a = LongMemEvalRejudgeProgram.DefaultDestination(report, "zai-org/GLM-5.3@bitdeer");
+        var b = LongMemEvalRejudgeProgram.DefaultDestination(report, "deepseek/DeepSeek-V4-Flash@bitdeer");
+
+        Path.GetFileName(a).Should().Be("prepared-pair-report-rejudge-zai-org-GLM-5.3-bitdeer.json");
+        a.Should().NotBe(b);
+    }
+
     [Fact]
     public void AReferenceArmsJudgmentsAreReadUnderItsArmName()
     {
@@ -94,6 +135,21 @@ public sealed class RejudgeTests
         agreement.RecordedCorrect.Should().Be(2);
         agreement.NewCorrect.Should().Be(1);
         agreement.Disagreements.Should().ContainSingle().Which.QuestionId.Should().Be("q2");
+    }
+
+    [Fact]
+    public void AnInconclusiveRecordIsLeftOutOfAgreement()
+    {
+        var agreement = LongMemEvalRejudgeProgram.ArmAgreement.From("structured",
+        [
+            Item("q1", recorded: true, @new: true),
+            Item("q2", recorded: null, @new: false),
+        ], notRejudged: 3);
+
+        agreement.Compared.Should().Be(1);
+        agreement.RecordedInconclusive.Should().Be(1);
+        agreement.NotRejudged.Should().Be(3);
+        agreement.Disagreements.Should().BeEmpty();
     }
 
     /// <summary>Known values: perfect agreement is 1, chance-level agreement is 0.</summary>
@@ -135,7 +191,7 @@ public sealed class RejudgeTests
         ToolSource(file).Should().Contain("judgments = LongMemEvalJudgmentProjection.Project(");
     }
 
-    private static LongMemEvalRejudgeProgram.RejudgedItem Item(string id, bool recorded, bool? @new) =>
+    private static LongMemEvalRejudgeProgram.RejudgedItem Item(string id, bool? recorded, bool? @new) =>
         new(id, "single-session-user", recorded, @new, @new is null ? "Inconclusive" : "Yes", null);
 
     private static JsonObject Report(string body) =>
