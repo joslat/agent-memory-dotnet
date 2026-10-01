@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
@@ -92,6 +92,9 @@ public sealed class WithinExtractionDedupTests
     [InlineData("user", "started on", "2024-03-01", "user", "started on", "2024-04-01")]
     [InlineData("Tomás Silva", "moved to", "analytics", "Tomás Pereira", "moved to", "analytics")]
     [InlineData("user", "works as", "data engineer at Northwind", "user", "works at", "Northwind")]
+    // 38.6 (F15): the same predicate, objects that each say something the other does not.
+    [InlineData("user", "plans to run", "full marathon in May 2027", "user", "plans to run", "half marathon in April 2027")]
+    [InlineData("user", "lives in", "Porto", "user", "lives in", "Lyon")]
     public void Facts_that_differ_in_what_they_say_are_never_one_statement(
         string s1, string p1, string o1, string s2, string p2, string o2)
     {
@@ -101,9 +104,41 @@ public sealed class WithinExtractionDedupTests
     [Theory]
     [InlineData("Tomás Silva", "moved to", "analytics", "Tomás Silva", "moved to", "analytics team")]
     [InlineData("user", "requested help with", "the dashboard", "user", "needs help with", "the dashboard")]
+    // 38.6: one object is the other's fuller phrasing.
+    [InlineData("user", "is training for", "half marathon", "user", "is training for", "the half marathon in April")]
     public void Rephrasings_of_one_slot_may_be_one_statement(string s1, string p1, string o1, string s2, string p2, string o2)
     {
         PersistenceStage.MayBeOneStatement(F(s1, p1, o1), F(s2, p2, o2)).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 38.6 (F15). Show 04, run 11, the extraction as recorded: the new plan, and the old plan written as ended today.
+    /// Their vectors are near-identical (here: identical), so they were merged, and the full marathon took the half
+    /// marathon's end date: stored as valid until the day it was said, it stopped being live a day later.
+    /// </summary>
+    [Fact]
+    public async Task Two_different_plans_said_together_stay_two_and_keep_their_own_dates()
+    {
+        var said = DateTimeOffset.Parse("2026-09-28T00:00:00Z");
+        var extraction = new ExtractionStageResult
+        {
+            SourceMessageIds = ["message-1"],
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase),
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "user", Predicate = "plans to run", Object = "full marathon in May 2027", Confidence = 0.9,
+                    ValidFrom = said, ValidFromPrecision = DatePrecision.Day },
+                new ExtractedFact { Subject = "user", Predicate = "plans to run", Object = "half marathon in April 2027", Confidence = 0.9,
+                    ValidFrom = said, ValidFromPrecision = DatePrecision.Day, ValidUntil = said, ValidUntilPrecision = DatePrecision.Day,
+                    Replaces = "half marathon in April" },
+            ],
+        };
+
+        await Sut(dedup: true).PersistAsync(extraction, ownerId: "owner-1", cancellationToken: CancellationToken.None);
+
+        _upserted.Select(f => f.Object).Should().BeEquivalentTo(["full marathon in May 2027", "half marathon in April 2027"]);
+        _upserted.Single(f => f.Object.StartsWith("full", StringComparison.Ordinal)).ValidUntil
+            .Should().BeNull("the new plan has no end; only the old one ended today");
     }
 
     [Fact]

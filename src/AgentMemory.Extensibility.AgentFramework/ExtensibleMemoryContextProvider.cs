@@ -32,9 +32,10 @@ namespace AgentMemory.Extensibility.AgentFramework;
 /// needs them, arrive behind ONE new seam rather than by publishing three classes.
 /// </para>
 /// <para>
-/// <b>The composed provider keeps its own state key.</b> It is a separate provider instance with its
-/// own bag entry; this one writes nothing under <c>"Neo4jMemory"</c>, so the after-run correlation the
-/// shipped provider does with itself is untouched.
+/// <b>One provider, one state key.</b> This class inherits the shipped provider rather than composing
+/// it, so there is a single instance and it keeps the shipped <c>"Neo4jMemory"</c> key; the after-run
+/// correlation the base does with itself is untouched, and no second key describes a participant that
+/// does not exist.
 /// </para>
 /// </remarks>
 [Experimental("AMEXT001")]

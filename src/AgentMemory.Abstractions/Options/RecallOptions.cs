@@ -164,8 +164,8 @@ public sealed record RecallOptions
     /// <see cref="ValidTimeMode.Ignore"/> — today's behaviour.
     /// </summary>
     /// <remarks>
-    /// <c>MemoryProfile.Parity</c> must resolve to <see cref="ValidTimeMode.Ignore"/>: parity means
-    /// "ranks exactly like upstream Python", and upstream has no valid-time gate on its live path.
+    /// The default, <see cref="ValidTimeMode.Ignore"/>, is also what parity with upstream Python means: upstream
+    /// has no valid-time gate on its live path. Nothing derives this value from <c>MemoryProfile</c>; set it here.
     /// </remarks>
     public ValidTimeMode ValidTime { get; init; } = ValidTimeMode.Ignore;
 
@@ -183,9 +183,11 @@ public sealed record RecallOptions
     /// </para>
     /// <para>
     /// Only evaluated when <see cref="ValidTime"/> is <see cref="ValidTimeMode.Current"/>: firing reads
-    /// a fact's valid-time window, and a store that is ignoring valid time has no window to read.
-    /// <c>MemoryProfile.Parity</c> resolves this to <see langword="false"/>, because upstream has no
-    /// firing and parity means ranking exactly like upstream.
+    /// a fact's valid-time window, and a store that is ignoring valid time has no window to read. Configured
+    /// through <c>MemoryOptions.Recall</c>, setting this without <see cref="ValidTimeMode.Current"/> fails at
+    /// startup rather than doing nothing; a per-request <see cref="RecallOptions"/> with the same mismatch
+    /// simply does not fire. The default is off, which is also what parity with upstream means (upstream
+    /// has no firing); nothing derives it from <c>MemoryProfile</c>.
     /// </para>
     /// </remarks>
     public bool ProspectiveFiring { get; init; }

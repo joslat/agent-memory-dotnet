@@ -1423,24 +1423,8 @@ internal static class LongMemEvalPreparedPairProgram
             // The judge's own record, kept alongside our telemetry. AgentEval has always handed us
             // the agent's answer, the judge's explanation and a TYPED status; the report dropped all
             // three, so "do you agree with the judge?" was unanswerable and a disagreement between
-            // the answer-presence gate and the judge could not be adjudicated at all. Emitted under
-            // the evidence-detail setting, so a run that must not retain answer text still can't.
-            judgments = evidenceDetail == LongMemEvalEvidenceDetail.None
-                ? null
-                : arm.Result.QuestionResults.Select(q => new
-                {
-                    q.QuestionId,
-                    status = q.JudgeStatus?.ToString(),
-                    q.Correct,
-                    q.RawScore,
-                    q.JudgeLlmCallCount,
-                    // Separated at the question level too: JudgeLlmCallCount mixes primary and retry
-                    // calls, which is what made a run's accounting unauditable after the fact.
-                    q.JudgeRetryLlmCallCount,
-                    q.JudgeTokensUsed,
-                    agentResponse = q.AgentResponse,
-                    judgeExplanation = q.JudgeExplanation,
-                }).ToArray(),
+            // the answer-presence gate and the judge could not be adjudicated at all.
+            judgments = LongMemEvalJudgmentProjection.Project(arm.Result.QuestionResults, evidenceDetail),
             timings = new
             {
                 arm.Timings.ProfileStartupMs,

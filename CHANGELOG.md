@@ -6,6 +6,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Two different plans said in one turn stay two.** Within-extraction de-duplication
+  (`ExtractionOptions.DeduplicateWithinExtraction`) merged "plans to run | full marathon in May 2027" with "plans to
+  run | half marathon in April 2027": same predicate, same digits, near-identical vectors. The kept fact took the other's
+  end date and stopped being live the day after it was said. Under one predicate, two objects now count as one statement
+  only when one is the other's fuller phrasing ("half marathon" / "the half marathon in April").
+- **A changed plan closes every phrasing of the old one** (`LlmExtractionOptions.MarkCorrections`). When the old plan had
+  been stored twice ("is training for | half marathon", "is running | half marathon in April"), a correction naming it
+  closed neither, and both plans stayed live. It now closes all of them, but only when the correction and each of them
+  is a plan ("plans to", "is training for", "will", …). A mention that is not a plan keeps the conservative answer.
+
+### Changed
+
+- **`MemoryOptions.Recall.ProspectiveFiring` without `Recall.ValidTime = ValidTimeMode.Current` now fails at startup.**
+  Firing reads a fact's valid-time window, so this combination never fired while the flag read as on. Set both or
+  neither. A per-request `RecallOptions` with the same mismatch still simply does not fire.
+- **Extraction under `TemporalValidityMode.Extract` dates relative periods and events whose object is a measure.**
+  "Last month I ran my first 10k in 58 minutes" was stored with no date. The instruction now resolves "last month",
+  "last year" and "two weeks ago" from the turn's time, and dates an event even when its object is an amount, a time or
+  a distance. The extraction prompt's bytes change under `Extract` only.
+
+### Documentation
+
+- `RecallOptions.ValidTime` and `RecallOptions.ProspectiveFiring` no longer claim that `MemoryProfile.Parity` resolves
+  them. Nothing derives either from the profile.
+
+### Tools
+
+- **LongMemEval harness: `--rejudge <report>`** re-judges the answers a stored report holds, with the judge the
+  environment names, and reports agreement (percentage and Cohen's kappa). Grading goes through AgentEval's own judge,
+  under the judge settings the run recorded, after checking the dataset's SHA-256. `--limit N` gives the one-item stage
+  of the run protocol.
+- **Reference-arm reports keep each answer** (`judgments`), through the same projection as the prepared pair. Before,
+  they kept only verdicts and could not be re-judged or audited.
+
 ## [1.6.1] - 2026-09-28
 
 ### Changed

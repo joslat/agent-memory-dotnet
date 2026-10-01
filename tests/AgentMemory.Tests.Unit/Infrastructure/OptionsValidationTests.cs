@@ -196,6 +196,31 @@ public sealed class OptionsValidationTests
         act.Should().Throw<OptionsValidationException>();
     }
 
+    /// <summary>
+    /// PLAN 40.7 (F1). Firing reads a fact's valid-time window, so with valid time ignored it never fired while
+    /// the flag read as on — DemoBrain's "Full memory" did exactly that. Recall is an init-only record, so the
+    /// instance overload is the way to set it; it runs the same validator chain.
+    /// </summary>
+    [Theory]
+    [InlineData(ValidTimeMode.Ignore, true)]
+    [InlineData(ValidTimeMode.Current, false)]
+    public void MemoryOptions_ProspectiveFiringWithoutCurrentValidTime_FailsValidation(ValidTimeMode validTime, bool fails)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAgentMemoryCore(new MemoryOptions
+        {
+            Recall = RecallOptions.Default with { ProspectiveFiring = true, ValidTime = validTime },
+        });
+
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => _ = provider.GetRequiredService<IOptions<MemoryOptions>>().Value;
+
+        if (fails) act.Should().Throw<OptionsValidationException>().WithMessage("*ProspectiveFiring*ValidTime*");
+        else act.Should().NotThrow();
+    }
+
     [Fact]
     public void MemoryOptions_ValidConfig_PassesValidation()
     {

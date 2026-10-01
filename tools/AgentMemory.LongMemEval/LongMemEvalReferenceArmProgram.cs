@@ -166,6 +166,10 @@ internal static class LongMemEvalReferenceArmProgram
                     totalHistoryMessagesProvided = telemetry.Sum(item => item.HistoryMessagesProvided),
                     totalSyntheticMessagesDropped = telemetry.Sum(item => item.SyntheticMessagesDropped)
                 },
+                // The same judge record the prepared pair keeps. Without the answers, a reference arm's
+                // verdicts could not be re-judged (--rejudge) or audited: the 29 Sep run kept only them.
+                judgments = LongMemEvalJudgmentProjection.Project(
+                    result.QuestionResults, LongMemEvalEvidenceDetail.Identifiers),
                 callAccounting = new
                 {
                     benchmarkLlmCalls = result.TotalLlmCalls,

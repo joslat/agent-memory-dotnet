@@ -10,7 +10,9 @@ internal static class LongMemEvalBenchmarkProtocol
 
     internal static ExternalBenchmarkOptions CreateOptions(
         string datasetPath,
-        int questions,
+        // Null reads every question in the file: --rejudge resolves stored question ids, whatever
+        // draw produced them.
+        int? questions,
         int seed,
         int judgeRetryAttempts,
         LongMemEvalEvidenceDetail evidenceDetail,

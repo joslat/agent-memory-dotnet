@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Domain;
+﻿using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -146,6 +146,42 @@ public sealed class ChangesOfMindTests
             .Select(f => f.FactId).Should().Equal("half");
         Corrections.Closed([Stored("a", "is training for", "half marathon"), Stored("b", "bought shoes for", "half marathon")],
             winner, "half marathon in April").Should().BeEmpty("two different relations mention it: ambiguous, nothing is closed");
+    }
+
+    /// <summary>
+    /// 38.6 (K-19). Show 04, run 14: the old plan was stored under two phrasings, and the correction named it once
+    /// ("replaces": "half marathon in April 2027"). With two mentions nothing was closed and both plans stayed live.
+    /// </summary>
+    [Fact]
+    public void A_changed_plan_closes_every_phrasing_of_the_old_plan()
+    {
+        var winner = Stored("new", "plans to run", "full marathon in May 2027");
+        Fact[] stored = [Stored("a", "is training for", "half marathon"), Stored("b", "is running", "half marathon in April")];
+
+        Corrections.Closed(stored, winner, "half marathon in April 2027").Select(f => f.FactId).Should().BeEquivalentTo(["a", "b"]);
+    }
+
+    [Fact]
+    public void A_changed_plan_still_leaves_a_mention_that_is_not_a_plan()
+    {
+        var winner = Stored("new", "plans to run", "full marathon in May 2027");
+        Fact[] stored = [Stored("a", "is training for", "half marathon"), Stored("b", "bought shoes for", "half marathon")];
+
+        Corrections.Closed(stored, winner, "half marathon in April").Should().BeEmpty("one mention is not a plan: ambiguous");
+    }
+
+    [Theory]
+    [InlineData("plans to run", true)]
+    [InlineData("is training for", true)]
+    [InlineData("is going to", true)]
+    [InlineData("will run", true)]
+    [InlineData("is running", true)]
+    [InlineData("bought shoes for", false)]
+    [InlineData("left", false)]
+    [InlineData("works at", false)]
+    public void A_plan_is_named_by_its_predicate(string predicate, bool plan)
+    {
+        Corrections.IsPlan(predicate).Should().Be(plan);
     }
 
     [Fact]

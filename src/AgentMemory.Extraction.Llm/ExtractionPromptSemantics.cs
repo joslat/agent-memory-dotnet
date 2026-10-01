@@ -263,7 +263,10 @@ internal static class ExtractionPromptSemantics
             "\"2024-03\" for \"in March 2024\", \"2024\" for \"in 2024\", a full date only when the day was said. " +
             "A one-off event that already happened (\"yesterday I went hiking\", \"last Friday I cooked paella\") " +
             "is not a period: give it \"occurred_on\", the date it happened, just as precisely, and no valid_from " +
-            "or valid_until.",
+            "or valid_until. Relative periods count the same way: \"last month\" is the month before the turn's month " +
+            "(\"2026-08\"), \"last year\" the year before it, \"two weeks ago\" or \"last week\" the day that many weeks " +
+            "before the turn. Date the event even when the fact's object is an amount, a time or a distance: " +
+            "\"last month I ran my first 10k in 58 minutes\" still gets that month as \"occurred_on\".",
         _ => string.Empty,
     };
 

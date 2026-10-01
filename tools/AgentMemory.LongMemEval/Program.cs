@@ -25,6 +25,12 @@ internal static class LongMemEvalProgram
             PrintHelp();
             return 0;
         }
+        if (args.Contains(LongMemEvalRejudgeProgram.Option, StringComparer.Ordinal))
+        {
+            // Phase 40.1. Re-judges the answers a stored report holds: no container, no embeddings, no
+            // extraction, no answering; one judge call per stored answer.
+            return await LongMemEvalRejudgeProgram.RunAsync(args).ConfigureAwait(false);
+        }
         if (args.Contains("--reference-arm", StringComparer.Ordinal))
         {
             // G4-REF. Dispatched before everything else so no AgentMemory service, container, or

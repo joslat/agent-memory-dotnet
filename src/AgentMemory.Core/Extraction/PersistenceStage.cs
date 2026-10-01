@@ -1859,6 +1859,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             string.Equals(fact.SourceRole, "assistant", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Words that carry no content of their own when one object is compared with another.</summary>
+    private static readonly HashSet<string> FunctionWords = new(StringComparer.Ordinal)
+    {
+        "a", "an", "the", "my", "our", "his", "her", "their", "in", "on", "at", "of", "to", "for", "with", "by", "from", "and",
+    };
+
     private static readonly HashSet<string> NegationWords = new(StringComparer.OrdinalIgnoreCase)
     {
         "not", "no", "never", "none", "nothing", "nobody", "neither", "nor", "without", "cannot", "non",
@@ -1877,11 +1883,29 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         if (UserNames.IsNamingFact(left) || UserNames.IsNamingFact(right)) return false;
         if (Key(left.Subject) != Key(right.Subject)) return false;
         if (Key(left.Predicate) != Key(right.Predicate) && Key(left.Object) != Key(right.Object)) return false;
+        // 38.6 (F15, show 04 run 11). Under one predicate, two objects that each say something the other does not
+        // ("full marathon in May 2027" / "half marathon in April 2027") are two statements, however similar their
+        // vectors: merged, the full marathon took the half marathon's end date and stopped being live a day later.
+        // One object must be the other's fuller phrasing ("half marathon" / "half marathon in April").
+        if (Key(left.Predicate) == Key(right.Predicate) && Key(left.Object) != Key(right.Object) &&
+            !OneHoldsTheOther(left.Object, right.Object)) return false;
         if (Numbers(left) != Numbers(right) || Negations(left) != Negations(right)) return false;
         return Agree(left.ValidFrom, right.ValidFrom) && Agree(left.ValidUntil, right.ValidUntil) &&
                Agree(left.OccurredOn, right.OccurredOn);
 
         static bool Agree(DateTimeOffset? a, DateTimeOffset? b) => a is null || b is null || a == b;
+
+        static bool OneHoldsTheOther(string a, string b)
+        {
+            var left = ContentWords(a);
+            var right = ContentWords(b);
+            return left.IsSubsetOf(right) || right.IsSubsetOf(left);
+        }
+
+        static HashSet<string> ContentWords(string value) =>
+            Key(value).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(word => !FunctionWords.Contains(word))
+                .ToHashSet(StringComparer.Ordinal);
 
         static string Numbers(ExtractedFact fact) => string.Join(
             ",", System.Text.RegularExpressions.Regex.Matches($"{fact.Predicate} {fact.Object}", "[0-9]+").Select(m => m.Value));

@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Core.Memory;
 
@@ -56,10 +56,34 @@ internal static class Corrections
         // value, or the two share at least two words ("half marathon" for "the half marathon in April"), never "6 kg"
         // for "6" nor "London" for "Google in London".
         mentioning = [.. mentioning.Where(candidate => statedNow?.Contains(candidate.FactId) != true)];
-        return mentioning.Count == 1 &&
-               (Value(mentioning[0].Object) == value || Math.Min(WordCount(mentioning[0].Object), WordCount(value)) >= 2)
+        if (mentioning.Count == 1 && Unambiguous(mentioning[0]))
+            return mentioning;
+        // 38.6 (K-19, show 04 run 14). One plan stored under two phrasings ("is training for | half marathon", "is running
+        // | half marathon in April"): with two mentions the rule above closed neither, and the old plan stayed live beside
+        // the new one. A changed plan closes every phrasing of the old one, but only when the correction and each of them
+        // is a plan and each names the value unambiguously; anything else ("bought shoes for the half marathon") keeps
+        // the conservative answer.
+        return mentioning.Count > 1 && IsPlan(winner.Predicate) &&
+               mentioning.All(candidate => IsPlan(candidate.Predicate) && Unambiguous(candidate))
             ? mentioning
             : [];
+
+        bool Unambiguous(Fact candidate) =>
+            Value(candidate.Object) == value || Math.Min(WordCount(candidate.Object), WordCount(value)) >= 2;
+    }
+
+    /// <summary>
+    /// 38.6. Whether a predicate states an intention or a plan in progress ("plans to run", "is training for", "is
+    /// going to", "will"): what a changed plan replaces.
+    /// </summary>
+    internal static bool IsPlan(string? predicate)
+    {
+        var words = MemoryTripleCanonicalizer.CanonicalValue(predicate).Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        while (words.Count > 0 && words[0] is "is" or "am" or "are" or "was" or "user") words.RemoveAt(0);
+        if (words.Count == 0) return false;
+        return words[0] is "plans" or "plan" or "planning" or "planned" or "training" or "trains" or "preparing" or "will"
+                   or "intends" or "intending" or "aims" or "aiming" or "registered" or "signed" or "running" or "doing"
+               || (words.Count > 1 && words[0] == "going" && words[1] == "to");
     }
 
     private static int WordCount(string text) =>
