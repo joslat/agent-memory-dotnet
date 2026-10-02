@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace AgentMemory.McpHost;
 
 /// <summary>
-/// The turnkey MCP server: 25 memory tools over stdio or HTTP, configured entirely by environment.
+/// The turnkey MCP server: 27 memory tools over stdio or HTTP, configured entirely by environment.
 /// </summary>
 /// <remarks>
 /// <para>

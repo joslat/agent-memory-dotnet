@@ -7,8 +7,8 @@
 /// <remarks>
 /// Each decision was already made, and partly recorded, in a different place: the recall caps in the options, the time
 /// reading in the temporal query parser, the split in the fan-out report, the fit in truncation. This puts them side by
-/// side so a trace (the <c>memory.route</c> event) and a host showing "why this answer" read one record. It reports what
-/// happened; it decides nothing.
+/// side so a trace (the <c>memory.route.plan</c> event on <c>memory.recall.total</c>) and a host showing "why this answer"
+/// read one record. It reports what happened; it decides nothing.
 /// </remarks>
 public sealed record MemoryRoutePlan
 {

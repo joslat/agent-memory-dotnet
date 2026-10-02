@@ -449,9 +449,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // is true precisely when the caller left the property alone. And it is a no-op for anyone who
         // has not configured anything, because MemoryOptions.Recall itself defaults to that same
         // instance -- so the unconfigured path stays byte-identical.
-        var recallOpts = ReferenceEquals(request.Options, RecallOptions.Default)
-            ? _options.Recall
-            : request.Options;
+        var recallOpts = EffectiveRecall(request.Options, _options.Recall);
         var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
         // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER
         // abstains -- every threshold from 0.00 to 0.86 behaves identically, a measured dead zone --
@@ -1199,9 +1197,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // is true precisely when the caller left the property alone. And it is a no-op for anyone who
         // has not configured anything, because MemoryOptions.Recall itself defaults to that same
         // instance -- so the unconfigured path stays byte-identical.
-        var recallOpts = ReferenceEquals(request.Options, RecallOptions.Default)
-            ? _options.Recall
-            : request.Options;
+        var recallOpts = EffectiveRecall(request.Options, _options.Recall);
         var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
         // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER
         // abstains -- every threshold from 0.00 to 0.86 behaves identically, a measured dead zone --
@@ -1817,6 +1813,14 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     /// &gt; ~536M) cannot overflow int and wrap NEGATIVE — which would make <c>totalChars &lt;= maxChars</c>
     /// always false and silently truncate the whole context to empty.
     /// </summary>
+    /// <summary>
+    /// The recall options a request actually runs with: the host's configured <see cref="MemoryOptions.Recall"/> when the
+    /// caller left <see cref="RecallRequest.Options"/> at the <see cref="RecallOptions.Default"/> singleton (25.2), else the
+    /// caller's. One place, so the assembler and the route plan (40.20) cannot report different caps.
+    /// </summary>
+    internal static RecallOptions EffectiveRecall(RecallOptions requested, RecallOptions configured) =>
+        ReferenceEquals(requested, RecallOptions.Default) ? configured : requested;
+
     internal static int ResolveMaxChars(ContextBudget budget)
     {
         if (budget.MaxCharacters.HasValue) return budget.MaxCharacters.Value;

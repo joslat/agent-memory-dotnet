@@ -17,7 +17,8 @@ items below are how you actually achieve that today.
       "no owner at all" half). `WarnOnUnscoped` is a useful intermediate step to find missing call sites
       before flipping to strict. **As of #100 Stage 1 + Stage 2, this covers the Core recall/extraction/
       reasoning path, `LongTermMemoryService` (entity/fact/preference/relationship reads and writes),
-      GraphRAG retrieval, and all 17 MCP entry points** — `memory_entities`, `memory_preferences`,
+      GraphRAG retrieval, and all 22 MCP entry points that accept a `userId`** — five through the Core services
+      (`memory_search`, `memory_get_context`, `extract_and_persist`, `memory_extract_session`, `memory_start_trace`) and these 17: `memory_entities`, `memory_preferences`,
       `memory_conversations`, `memory_context`, `memory_invalidate`, `memory_supersede`,
       `memory_add_entity`, `memory_add_preference`, `memory_add_fact`, `memory_get_entity`,
       `memory_get_entity_provenance`, `memory_record_entity_feedback`, `memory_create_relationship`,

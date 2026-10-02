@@ -1,6 +1,6 @@
 # agent-memory-mcp
 
-A turnkey MCP server for **AgentMemory for .NET**. It exposes the 25 memory tools over stdio or HTTP,
+A turnkey MCP server for **AgentMemory for .NET**. It exposes the 27 memory tools over stdio or HTTP,
 backed by Neo4j, configured entirely by environment variables.
 
 Before this, the tools shipped with no way to run them without writing a .NET host first — so the only
@@ -23,7 +23,7 @@ export NEO4J_PASSWORD=<password>
 
 agent-memory-mcp                      # stdio, for a desktop MCP client
 agent-memory-mcp --transport http     # http://localhost:5233
-agent-memory-mcp --read-only          # only the 9 tools that read
+agent-memory-mcp --read-only          # only the 11 tools that read
 ```
 
 Schema migrations run at startup. That matters more than it sounds: **a missing vector index returns
@@ -56,9 +56,9 @@ line on it corrupts the session.
 tool list **entirely**, rather than refusing them when called. A tool a client can see is a tool a
 model will try, and an error return teaches it nothing about what the server is for.
 
-Nine tools remain: `memory_search`, `memory_get_context`, `memory_get_conversation`,
+Eleven tools remain: `memory_search`, `memory_get_context`, `memory_get_conversation`,
 `memory_list_sessions`, `memory_get_entity`, `memory_get_entity_provenance`, `memory_get_observations`,
-`memory_export_graph`, `memory_find_duplicates`.
+`memory_export_graph`, `memory_find_duplicates`, `memory_recall_as_of`, `memory_lineage`.
 
 `graph_query` is withheld under `--read-only` even though it is nominally a read. It takes arbitrary
 Cypher, and a mode whose entire value is "this cannot change anything" should not rest on a query

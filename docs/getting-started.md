@@ -242,7 +242,8 @@ services.AddNeo4jAgentMemory(
 **Coverage (#100 Stage 1 + Stage 2).** The policy is wired into the Core services that make up the primary
 recall/extraction/reasoning path (context assembly, extraction, the query facade, reasoning traces,
 long-term invalidate/supersede), `LongTermMemoryService` (every entity/fact/preference/relationship read
-and write), GraphRAG retrieval, and all 17 MCP entry points that accept a `userId`: `memory_entities`,
+and write), GraphRAG retrieval, and all 22 MCP entry points that accept a `userId`: five through the Core services
+above (`memory_search`, `memory_get_context`, `extract_and_persist`, `memory_extract_session`, `memory_start_trace`) and these 17: `memory_entities`,
 `memory_preferences`, `memory_conversations`, `memory_context`, `memory_invalidate`, `memory_supersede`,
 `memory_add_entity`, `memory_add_preference`, `memory_add_fact`, `memory_get_entity`,
 `memory_get_entity_provenance`, `memory_record_entity_feedback`, `memory_create_relationship`,

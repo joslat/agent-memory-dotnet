@@ -5,28 +5,15 @@ updates:
     directory: "/"
     # Actions minutes are scarce: every open Dependabot PR re-ran full CI each time main moved. One grouped PR a
     # month, never rebased automatically; the bumps are folded into the next release branch and tested there.
+    # One group for everything: with several groups and a limit of 1, the bumps outside the first group would wait.
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 1
     rebase-strategy: "disabled"
     groups:
-      microsoft-extensions:
+      nuget:
         patterns:
-          - "Microsoft.Extensions.*"
-      microsoft-ai:
-        patterns:
-          - "Microsoft.SemanticKernel*"
-          - "Microsoft.Agents.AI*"
-      azure:
-        patterns:
-          - "Azure.*"
-      neo4j:
-        patterns:
-          - "Neo4j.*"
-          - "Testcontainers.Neo4j"
-      xunit:
-        patterns:
-          - "xunit*"
+          - "*"
 
   - package-ecosystem: "github-actions"
     directory: "/"

@@ -33,12 +33,16 @@ public sealed class HistoryToolsTests
     [Fact]
     public async Task RecallAsOf_PassesBothClocks_AndTheConfiguredRecallOptions()
     {
+        // A host-configured value the tool must carry through (a tool that started from RecallOptions.Default would
+        // drop it, the bug 25.2 fixed for memory_search), beside the per-call cap.
+        var configured = new MemoryOptions { Recall = RecallOptions.Default with { MinSimilarityScore = 0.42 } };
         var json = await HistoryTools.MemoryRecallAsOf(_memory, Options.Create(new AgentMemoryMcpOptions()),
-            Options.Create(new MemoryOptions()), "where do I live?", "2026-03-15", systemAsOf: "2026-04-01T09:00:00Z",
+            Options.Create(configured), "where do I live?", "2026-03-15", systemAsOf: "2026-04-01T09:00:00Z",
             userId: "alice", maxResults: 3);
 
         await _memory.Received(1).RecallAsOfAsync(
-            Arg.Is<RecallRequest>(r => r.UserId == "alice" && r.Query == "where do I live?" && r.Options!.MaxFacts == 3),
+            Arg.Is<RecallRequest>(r => r.UserId == "alice" && r.Query == "where do I live?" && r.Options!.MaxFacts == 3
+                && r.Options.MinSimilarityScore == 0.42),
             new DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 4, 1, 9, 0, 0, TimeSpan.Zero),
             Arg.Any<CancellationToken>());

@@ -14,7 +14,7 @@ namespace AgentMemory.Tests.Unit.Services;
 
 /// <summary>
 /// PLAN 40.20: one route plan per recall. The four decisions (how much, how time was read, whether it split, how it was
-/// fitted) land side by side on the context and as one <c>memory.route</c> event on the recall's span.
+/// fitted) land side by side on the context and as one <c>memory.route.plan</c> event on <c>memory.recall.total</c>.
 /// </summary>
 [Collection("Observability")]
 public sealed class RoutePlanTests
@@ -65,6 +65,37 @@ public sealed class RoutePlanTests
     }
 
     [Fact]
+    public async Task A_host_that_configured_recall_depth_is_reported_with_the_caps_the_recall_used()
+    {
+        // The caller leaves Options at the default singleton, as the SK plugin, the M.E.AI facade and most direct
+        // callers do; the assembler then runs with the host's MemoryOptions.Recall (25.2), and so must the plan.
+        _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(Context());
+        var configured = new MemoryOptions { Recall = RecallOptions.Default with { MaxFacts = 25, MaxTraces = 0 } };
+
+        var result = await Sut(configured).RecallAsync(new RecallRequest { SessionId = "s", Query = "where do I live?" });
+
+        result.Context.Route!.Recall["facts"].Should().Be(25);
+        result.Context.Route.Recall["traces"].Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(TemporalQueryClocks.ValidTimeOnly, false)]
+    [InlineData(TemporalQueryClocks.ValidAndTransactionTime, true)]
+    public async Task A_question_routed_in_time_reports_the_known_as_clock_only_when_it_was_not_now(
+        TemporalQueryClocks clocks, bool expectKnownAsOf)
+    {
+        _assembler.AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Context());
+
+        var result = await Sut(new MemoryOptions { ResolveTemporalQueries = true, TemporalQueryClocks = clocks })
+            .RecallAsync(new RecallRequest { SessionId = "s", Query = "what did we decide in March 2024" });
+
+        var route = result.Context.Route!;
+        if (expectKnownAsOf) route.KnownAsOf.Should().Be(route.ValidAsOf);
+        else route.KnownAsOf.Should().BeNull();
+    }
+
+    [Fact]
     public async Task A_question_that_names_a_time_is_routed_as_of_it_and_says_so()
     {
         _assembler.AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
@@ -91,6 +122,43 @@ public sealed class RoutePlanTests
         result.Context.Route!.Time.Should().Be(MemoryRoutePlan.TimeRequested);
         result.Context.Route.ValidAsOf.Should().Be(valid);
         result.Context.Route.KnownAsOf.Should().Be(known);
+    }
+
+    [Theory]
+    [InlineData("now")]
+    [InlineData("question")]
+    [InlineData("requested")]
+    public async Task Every_path_puts_exactly_one_route_event_on_its_own_recall_total_span(string path)
+    {
+        _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(Context());
+        _assembler.AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Context());
+        // A parent of our own, so spans from tests running beside this one are told apart by trace id; and an
+        // ambient span that is NOT memory.recall.total, which the event must never land on.
+        using var parent = new Activity("route-plan-test").Start();
+        var stopped = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == AgentMemoryDiagnostics.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity => { if (activity.TraceId == parent.TraceId) lock (stopped) stopped.Add(activity); },
+        };
+        ActivitySource.AddActivityListener(listener);
+        var sut = Sut(new MemoryOptions { ResolveTemporalQueries = true });
+
+        var result = path switch
+        {
+            "now" => await sut.RecallAsync(new RecallRequest { SessionId = "s", Query = "where do I live?" }),
+            "question" => await sut.RecallAsync(new RecallRequest { SessionId = "s", Query = "what did we decide in March 2024" }),
+            _ => await sut.RecallAsOfAsync(new RecallRequest { SessionId = "s", Query = "q" }, Now.AddYears(-1)),
+        };
+
+        result.Context.Route!.Time.Should().Be(path);
+        List<(string Span, ActivityEvent Event)> routeEvents;
+        lock (stopped)
+            routeEvents = stopped.SelectMany(a => a.Events.Where(e => e.Name == MemoryTelemetry.RoutePlanEvent).Select(e => (a.OperationName, e))).ToList();
+        routeEvents.Should().ContainSingle().Which.Span.Should().Be("memory.recall.total");
+        parent.Events.Should().NotContain(e => e.Name == MemoryTelemetry.RoutePlanEvent);
     }
 
     [Fact]
