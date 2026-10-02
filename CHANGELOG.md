@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`StubEmbeddingGenerator` gives the same vector for the same text in every process.** It seeded from
+  `string.GetHashCode()`, which .NET randomises per process, so its "deterministic" vectors changed from run to run;
+  on small dimensions two different names could land close enough to merge in one run and not in the next. It now
+  seeds from the text's SHA-256. Vectors differ from before; nothing stored with a real embedding model is affected.
+
 ## [1.8.0] - 2026-10-02
 
 ### Added
