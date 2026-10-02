@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <!-- The adapter references only Microsoft.Agents.AI.Abstractions; a runnable agent needs the concrete package. -->
-    <PackageReference Include="Microsoft.Agents.AI" Version="1.22.0" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.23.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
   </ItemGroup>
 

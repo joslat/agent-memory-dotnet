@@ -124,10 +124,11 @@ internal sealed class MemoryService : IMemoryService
             // whereas binding the transaction clock excludes every row created after the instant -- and
             // created_at is INGESTION time on any host that imported its history, so that host recalls
             // an empty context, silently, for every past question. Belief reconstruction is opt-in.
-            var systemAsOf = _options.TemporalQueryClocks == TemporalQueryClocks.ValidAndTransactionTime
-                ? asOf
-                : temporalReference;
-            return await RecallAsOfCoreAsync(request, asOf, systemAsOf, cancellationToken, resolvedFromQuery: asOf)
+            var bindsTransactionClock = _options.TemporalQueryClocks == TemporalQueryClocks.ValidAndTransactionTime;
+            var systemAsOf = bindsTransactionClock ? asOf : temporalReference;
+            return await RecallAsOfCoreAsync(
+                    request, asOf, systemAsOf, activity, cancellationToken, resolvedFromQuery: asOf,
+                    transactionClockIsNow: !bindsTransactionClock)
                 .ConfigureAwait(false);
         }
 
@@ -221,6 +222,9 @@ internal sealed class MemoryService : IMemoryService
             activity.SetTag("memory.recall.traces", context.SimilarTraces.Items.Count);
         }
 
+        context = context with { Route = RoutePlan(request, context, validAsOf: null, knownAsOf: null, fromQuestion: false) };
+        EmitRoute(activity, context.Route);
+
         return new RecallResult
         {
             Context = context,
@@ -230,21 +234,77 @@ internal sealed class MemoryService : IMemoryService
         };
     }
 
+    /// <summary>PLAN 40.20: the four routing decisions this recall made, side by side.</summary>
+    private MemoryRoutePlan RoutePlan(
+        RecallRequest request, MemoryContext context, DateTimeOffset? validAsOf, DateTimeOffset? knownAsOf, bool fromQuestion)
+    {
+        var recall = MemoryContextAssembler.EffectiveRecall(request.Options, _options.Recall);
+        return new MemoryRoutePlan
+        {
+            Recall = new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["facts"] = recall.MaxFacts,
+                ["entities"] = recall.MaxEntities,
+                ["preferences"] = recall.MaxPreferences,
+                ["relationships"] = recall.MaxRelationships,
+                ["relevant_messages"] = recall.MaxRelevantMessages,
+                ["recent_messages"] = recall.MaxRecentMessages,
+                ["traces"] = recall.MaxTraces,
+            },
+            Time = validAsOf is null ? MemoryRoutePlan.TimeNow : fromQuestion ? MemoryRoutePlan.TimeFromQuestion : MemoryRoutePlan.TimeRequested,
+            ValidAsOf = validAsOf,
+            KnownAsOf = knownAsOf,
+            Split = context.FanOutReport?.GateFired == true,
+            SplitRules = context.FanOutReport?.FiredRules ?? [],
+            SubQueries = context.FanOutReport?.SubQueries.Count ?? 0,
+            BudgetMaxTokens = _options.ContextBudget.MaxTokens,
+            BudgetMaxCharacters = _options.ContextBudget.MaxCharacters,
+            Truncated = context.Truncated,
+        };
+    }
+
+    /// <summary>The plan as one <c>memory.route.plan</c> event, so a trace reads the four decisions together.</summary>
+    private static void EmitRoute(System.Diagnostics.Activity? activity, MemoryRoutePlan? route)
+    {
+        if (activity is null || route is null) return;
+        var tags = new System.Diagnostics.ActivityTagsCollection
+        {
+            [MemoryTelemetry.RouteRecall] = string.Join(",", route.Recall.Where(pair => pair.Value > 0).Select(pair => $"{pair.Key}:{pair.Value}")),
+            [MemoryTelemetry.RouteTime] = route.Time,
+            [MemoryTelemetry.RouteFanOutFired] = route.Split,
+            [MemoryTelemetry.RouteFanOutLegs] = route.SubQueries,
+            [MemoryTelemetry.RouteBudgetTruncated] = route.Truncated,
+        };
+        if (route.ValidAsOf is { } validAsOf) tags[MemoryTelemetry.RouteTemporalAsOf] = validAsOf.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        if (route.KnownAsOf is { } knownAsOf) tags[MemoryTelemetry.RouteTemporalKnownAsOf] = knownAsOf.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        if (route.SplitRules.Count > 0) tags[MemoryTelemetry.RouteFanOutRules] = string.Join(",", route.SplitRules);
+        if (route.BudgetMaxTokens is { } maxTokens) tags[MemoryTelemetry.RouteBudgetMaxTokens] = maxTokens;
+        if (route.BudgetMaxCharacters is { } maxCharacters) tags[MemoryTelemetry.RouteBudgetMaxCharacters] = maxCharacters;
+        activity.AddEvent(new System.Diagnostics.ActivityEvent(MemoryTelemetry.RoutePlanEvent, tags: tags));
+    }
+
     /// <inheritdoc/>
-    public Task<RecallResult> RecallAsOfAsync(
+    public async Task<RecallResult> RecallAsOfAsync(
         RecallRequest request,
         DateTimeOffset asOf,
         DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default)
+    {
+        // The same parent span as RecallAsync, so the route plan lands on memory.recall.total for a direct as-of
+        // call too (the MCP tool memory_recall_as_of is one), never on whatever span happens to be ambient.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.total");
         // Single-clock recall == bitemporal recall with both clocks equal (D6): default systemAsOf to asOf.
-        => RecallAsOfCoreAsync(request, asOf, systemAsOf ?? asOf, cancellationToken);
+        return await RecallAsOfCoreAsync(request, asOf, systemAsOf ?? asOf, activity, cancellationToken).ConfigureAwait(false);
+    }
 
     private async Task<RecallResult> RecallAsOfCoreAsync(
         RecallRequest request,
         DateTimeOffset validAsOf,
         DateTimeOffset systemAsOf,
+        System.Diagnostics.Activity? activity,
         CancellationToken cancellationToken = default,
-        DateTimeOffset? resolvedFromQuery = null)
+        DateTimeOffset? resolvedFromQuery = null,
+        bool transactionClockIsNow = false)
     {
         ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug(
@@ -257,6 +317,13 @@ internal sealed class MemoryService : IMemoryService
         // is indistinguishable from it never having been reached.
         if (resolvedFromQuery is { } resolved)
             context = context with { ResolvedTemporalAsOf = resolved };
+        // KnownAsOf is "when not now": a question routed on the valid clock alone reads the transaction clock at the
+        // caller's now, which the plan leaves out rather than report as a moment someone asked for.
+        context = context with
+        {
+            Route = RoutePlan(request, context, validAsOf, transactionClockIsNow ? null : systemAsOf, fromQuestion: resolvedFromQuery is not null),
+        };
+        EmitRoute(activity, context.Route);
 
         // Count every populated section so TotalItemsRetrieved matches the documented "across all sections"
         // contract and the live RecallAsync path. SimilarTraces is populated on the as-of path too, so it

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.AI;
+﻿using System.Text.Json;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using FluentAssertions;
@@ -8,6 +9,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Stubs;
+using AgentMemory.McpServer.Tools;
 using AgentMemory.Tests.Integration.Fixtures;
 
 namespace AgentMemory.Tests.Integration.Extraction;
@@ -104,6 +106,35 @@ public sealed class ClosedFactTakesItsEdgeIntegrationTests : IAsyncLifetime
         (await facts.GetBySubjectAsync("Lena", mine)).Where(fact => fact.InvalidatedAtUtc is null)
             .Select(fact => $"{fact.Predicate} {fact.Object}")
             .Should().Contain(["lives in Copenhagen", "is doing full marathon"]).And.NotContain(["lives in Lyon", "is training for half marathon"]);
+    }
+
+    /// <summary>
+    /// PLAN 40.14 on a real store: the change of mind read back through the MCP lineage tool (the old home, then the new
+    /// one, the new one current), for its owner and for nobody else.
+    /// </summary>
+    [Fact]
+    public async Task The_change_of_mind_reads_back_through_the_MCP_lineage_tool()
+    {
+        await using var provider = Build();
+        await SayAsync(provider, First);
+        await SayAsync(provider, Second);
+
+        using var scope = provider.CreateScope();
+        var sp = scope.ServiceProvider;
+        var lyon = (await sp.GetRequiredService<IFactRepository>().GetBySubjectAsync("Lena", MemoryScope.For(Owner, includeShared: false)))
+            .Single(fact => fact.Predicate == "lives in" && fact.Object == "Lyon");
+        var history = sp.GetRequiredService<IMemoryHistoryService>();
+        var policy = sp.GetRequiredService<IMemoryIsolationPolicy>();
+
+        using var mine = JsonDocument.Parse(await HistoryTools.MemoryLineage(history, policy, "fact", lyon.FactId, userId: Owner));
+        var chain = mine.RootElement.GetProperty("chain").EnumerateArray().ToList();
+        chain.Select(link => link.GetProperty("summary").GetString()).Should().Equal("Lena lives in Lyon", "Lena lives in Copenhagen");
+        chain[0].GetProperty("status").GetString().Should().Be("invalidated");
+        mine.RootElement.GetProperty("current").EnumerateArray().Single().GetString()
+            .Should().Be(chain[1].GetProperty("id").GetString());
+
+        using var theirs = JsonDocument.Parse(await HistoryTools.MemoryLineage(history, policy, "fact", lyon.FactId, userId: "someone-else"));
+        theirs.RootElement.GetProperty("found").GetBoolean().Should().BeFalse("another owner's lineage is not readable");
     }
 
     /// <summary>

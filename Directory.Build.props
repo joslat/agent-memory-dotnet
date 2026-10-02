@@ -23,11 +23,11 @@
        which builds and runs cleanly under net10.0). net8.0 costs nothing to add and lets consumers on the
        still-widely-deployed .NET 8 LTS use the library without adopting a newer runtime; net10.0 keeps
        pace with the newest release. Verified with real builds and executed tests on all three TFMs, not
-       just compiled. Scoped the same way as the packaging metadata below, plus excluding the four
-       non-packable tools/ console apps (Cli, LongMemEval, TckBridge, TckBridge.Nams) and the McpHost global tool, which stay
+       just compiled. Scoped the same way as the packaging metadata below, plus excluding the five
+       non-packable tools/ console apps (Cli, LongMemEval, TckBridge, TckBridge.Nams, Decisions) and the McpHost global tool, which stay
        single-targeted: a DotnetTool package resolves one framework at install time, so multi-targeting
        it only inflates the package. -->
-  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample')) and '$(MSBuildProjectName)' != 'AgentMemory.Cli' and '$(MSBuildProjectName)' != 'AgentMemory.LongMemEval' and '$(MSBuildProjectName)' != 'AgentMemory.TckBridge' and '$(MSBuildProjectName)' != 'AgentMemory.TckBridge.Nams' and '$(MSBuildProjectName)' != 'AgentMemory.McpHost'">
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample')) and '$(MSBuildProjectName)' != 'AgentMemory.Cli' and '$(MSBuildProjectName)' != 'AgentMemory.LongMemEval' and '$(MSBuildProjectName)' != 'AgentMemory.TckBridge' and '$(MSBuildProjectName)' != 'AgentMemory.TckBridge.Nams' and '$(MSBuildProjectName)' != 'AgentMemory.Decisions' and '$(MSBuildProjectName)' != 'AgentMemory.McpHost'">
     <TargetFramework></TargetFramework>
     <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
   </PropertyGroup>
@@ -38,7 +38,7 @@
        and never leaks into non-published projects. Per-package Description/PackageTags live in each
        .csproj. NuGet package IDs default to the (already de-Neo4j-renamed) project names. -->
   <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
-    <Version>1.7.0</Version>
+    <Version>1.8.0</Version>
     <Authors>Jose Luis Latorre Millas</Authors>
     <Company>Jose Luis Latorre Millas</Company>
     <Product>AgentMemory for .NET</Product>

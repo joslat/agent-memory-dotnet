@@ -84,6 +84,31 @@ public static class MemoryTelemetry
     /// <summary>How many sub-query legs the fan-out planner produced.</summary>
     public const string RouteFanOutLegs = "memory.route.fanout.legs";
 
+    /// <summary>
+    /// PLAN 40.20: the event on <c>memory.recall.total</c> carrying the recall's four routing decisions side by side (recall
+    /// caps, time, split, budget fit); the same record is <c>MemoryContext.Route</c>. Distinct from the <c>memory.route</c>
+    /// span, which is the agent adapter's recall policy deciding whether to recall at all.
+    /// </summary>
+    public const string RoutePlanEvent = "memory.route.plan";
+
+    /// <summary>The items asked for per memory kind ("facts:10,entities:10,…"; kinds at 0 are left out).</summary>
+    public const string RouteRecall = "memory.route.recall";
+
+    /// <summary>How time was read, a token: <c>now</c>, <c>question</c> (the question named a moment) or <c>requested</c>.</summary>
+    public const string RouteTime = "memory.route.time";
+
+    /// <summary>The transaction-time moment ("as known then") of an as-of recall.</summary>
+    public const string RouteTemporalKnownAsOf = "memory.route.temporal.known_as_of";
+
+    /// <summary>The context budget's token limit, when it has one.</summary>
+    public const string RouteBudgetMaxTokens = "memory.route.budget.max_tokens";
+
+    /// <summary>The context budget's character limit, when it has one.</summary>
+    public const string RouteBudgetMaxCharacters = "memory.route.budget.max_characters";
+
+    /// <summary>Whether anything was cut to fit the budget.</summary>
+    public const string RouteBudgetTruncated = "memory.route.budget.truncated";
+
     /// <summary>Recalled items flagged as instruction-like but still included (permissive mode).</summary>
     public const string ComposeFlagged = "memory.compose.flagged";
 

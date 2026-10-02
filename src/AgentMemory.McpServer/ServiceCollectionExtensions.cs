@@ -38,6 +38,7 @@ public static class ServiceCollectionExtensions
             .WithTools<GraphQueryTools>()
             .WithTools<AdvancedMemoryTools>()
             .WithTools<MaintenanceTools>()
+            .WithTools<HistoryTools>()
             .WithTools<ObservationTools>();
 
         ApplyReadOnlyFilter(builder.Services);

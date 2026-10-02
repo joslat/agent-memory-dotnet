@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Neo4j.Queries;
@@ -86,7 +86,8 @@ internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
         await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            await session.ExecuteWriteAsync(tx => tx.RunAsync($"CREATE DATABASE {QuoteName(database)} IF NOT EXISTS WAIT")).ConfigureAwait(false);
+            await session.ExecuteWriteAsync(tx => RunToEndAsync(tx, $"CREATE DATABASE {QuoteName(database)} IF NOT EXISTS WAIT"))
+                .ConfigureAwait(false);
         }
         catch (Neo4jException ex) when (IsMultiDatabaseUnsupported(ex))
         {
@@ -96,6 +97,16 @@ internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
                 "(isolate users via owner_id), or run a separate Neo4j instance/connection per application.",
                 ex);
         }
+    }
+
+    /// <summary>
+    /// Runs a statement and consumes its result inside the transaction function. Neo4j.Driver 6.3 made returning the
+    /// cursor obsolete: it is backed by the transaction, which closes before the caller could read it.
+    /// </summary>
+    private static async Task RunToEndAsync(IAsyncQueryRunner tx, string statement)
+    {
+        var cursor = await tx.RunAsync(statement).ConfigureAwait(false);
+        await cursor.ConsumeAsync().ConfigureAwait(false);
     }
 
     private async Task BootstrapDatabaseAsync(string database, CancellationToken cancellationToken)
@@ -108,7 +119,7 @@ internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
         foreach (var statement in statements)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await session.ExecuteWriteAsync(tx => tx.RunAsync(statement)).ConfigureAwait(false);
+            await session.ExecuteWriteAsync(tx => RunToEndAsync(tx, statement)).ConfigureAwait(false);
         }
 
         await ValidateVectorIndexDimensionsAsync(session, cancellationToken).ConfigureAwait(false);

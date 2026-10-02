@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Neo4j.Infrastructure;
@@ -93,18 +93,18 @@ public sealed class Neo4jMemoryStoreProvisionerTests
         var systemSession = Substitute.For<IAsyncSession>();
         systemSession
             .ExecuteWriteAsync(
-                Arg.Any<Func<IAsyncQueryRunner, Task<IResultCursor>>>(),
+                Arg.Any<Func<IAsyncQueryRunner, Task>>(),
                 Arg.Any<Action<TransactionConfigBuilder>>())
             .Returns(async ci =>
             {
-                var work = ci.Arg<Func<IAsyncQueryRunner, Task<IResultCursor>>>();
+                var work = ci.Arg<Func<IAsyncQueryRunner, Task>>();
                 var runner = Substitute.For<IAsyncQueryRunner>();
                 runner.RunAsync(Arg.Any<string>()).Returns(c =>
                 {
                     captured.Add(c.Arg<string>());
                     return Task.FromResult(Substitute.For<IResultCursor>());
                 });
-                return await work(runner);
+                await work(runner);
             });
 
         var factory = Substitute.For<INeo4jSessionFactory>();
@@ -130,7 +130,7 @@ public sealed class Neo4jMemoryStoreProvisionerTests
         var systemSession = Substitute.For<IAsyncSession>();
         systemSession
             .ExecuteWriteAsync(
-                Arg.Any<Func<IAsyncQueryRunner, Task<IResultCursor>>>(),
+                Arg.Any<Func<IAsyncQueryRunner, Task>>(),
                 Arg.Any<Action<TransactionConfigBuilder>>())
             .ThrowsAsync(new Neo4jException(
                 "Neo.ClientError.Statement.UnsupportedAdministrationCommand",

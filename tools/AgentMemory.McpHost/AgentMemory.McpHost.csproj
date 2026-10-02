@@ -11,10 +11,10 @@
     <ToolCommandName>agent-memory-mcp</ToolCommandName>
     <PackageId>AgentMemory.McpHost</PackageId>
     <PackageType>DotnetTool</PackageType>
-    <Description>Turnkey MCP server for AgentMemory for .NET — runs the 25 memory tools over stdio or HTTP against Neo4j, configured entirely by environment variables. Install with `dotnet tool install -g AgentMemory.McpHost`.</Description>
+    <Description>Turnkey MCP server for AgentMemory for .NET — runs the 27 memory tools over stdio or HTTP against Neo4j, configured entirely by environment variables. Install with `dotnet tool install -g AgentMemory.McpHost`.</Description>
     <PackageTags>agent-memory;mcp;model-context-protocol;ai;memory;neo4j;dotnet-tool</PackageTags>
 
-    <!-- The 25 tools shipped with no way to run them without writing a .NET host first. This is that
+    <!-- The tools shipped with no way to run them without writing a .NET host first. This is that
          host, so it is the one tools/ project that is packable. -->
     <IsPackable>true</IsPackable>
   </PropertyGroup>

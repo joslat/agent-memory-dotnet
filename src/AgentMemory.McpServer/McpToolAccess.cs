@@ -65,6 +65,8 @@ public static class McpToolAccess
         "memory_get_observations",
         "memory_export_graph",
         "memory_find_duplicates",
+        "memory_recall_as_of",
+        "memory_lineage",
     };
 
     /// <summary>Whether <paramref name="toolName"/> may run on a read-only server.</summary>
