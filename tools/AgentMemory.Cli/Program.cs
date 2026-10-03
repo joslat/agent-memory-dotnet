@@ -256,6 +256,17 @@ try
         "block" => await new BlockCommand(
             sp.GetRequiredService<IMemoryHistoryService>(), output)
             .ExecuteAsync(cli.Get("owner"), cli.Get("limit")),
+        // 40.57: validation packs build their own stack per pack (its options, its extraction, a replayed clock),
+        // against the same store this host is configured for.
+        "evaluate" when cli.HasFlag("pack") => await new PackEvaluationCommand(o =>
+            {
+                o.Uri = uri;
+                o.Username = user;
+                o.Password = password;
+                o.Database = database;
+                o.EmbeddingDimensions = dims;
+            }, output)
+            .ExecuteAsync(cli.Get("pack"), cli.Get("output")),
         "evaluate" => await new EvaluationCommand(
             sp.GetRequiredService<ISchemaBootstrapper>(),
             sp.GetRequiredService<INeo4jTransactionRunner>(),

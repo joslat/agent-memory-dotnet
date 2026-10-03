@@ -20,11 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implementation keeps the old semantics), and `MemoryHistoryRecord.ClosedAs`, shown as `closedAs` by the MCP
   `memory_lineage` tool.
 
+- **Validation packs** (`agentmemory evaluate --pack core|<file>|<directory>`). A pack is a schema, conversations with what
+  extraction yields for each message, the storage they must leave and the questions they must answer, run against a live
+  store with no model: the pack plays the model, and every message and question is stamped on a replayed clock. Every
+  question also checks isolation (another owner's item in a recall fails it). Six core packs ship (changes and
+  corrections on both clocks, names, preferences, episodic, the graph, working memory), each proven by a planted defect
+  that fails the check naming it. The runner lives in `AgentMemory.Validation`, held off NuGet while the format settles.
+
 ### Fixed
 
 - **A fact that says nothing is no longer stored.** "Rosa | is named | Rosa" was written and recalled as a person's first
   memory, taking a recall slot. A fact whose subject and object are the same name, once names are resolved, is skipped
   with the outcome `MEMORY_FACT_TAUTOLOGY` (`MemoryErrorCodes.FactTautology`).
+- **A renamed person or pet stays findable.** When a corrected name merged the old entity into the new one, the merge
+  cleared the survivor's embedding and nothing re-embedded it, so entity recall could no longer find the renamed person
+  (found by the `core.names` validation pack). The survivor is now embedded again from its name.
 - **A corrected name reaches the facts that name it.** With `RenameOnCorrectedName`, "the dog is Max, not Rex" restated
   what was said *about* Rex but left "Priya | walks | Rex" naming the old name. Facts whose object is the old name now
   follow too, closed and restated under the new name (never edited); a naming fact of another subject is left alone, and

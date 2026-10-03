@@ -1,0 +1,43 @@
+{
+  "format": "agentmemory-pack/1",
+  "id": "core.preferences",
+  "title": "A preference is recalled for its owner only, and a corrected preference replaces the old one",
+  "covers": ["preferences"],
+  "options": { "preset": "conversational" },
+  "schema": { "entityTypes": ["PERSON"] },
+  "owners": ["ana", "bob"],
+  "sessions": [
+    {
+      "owner": "ana", "id": "ana-1",
+      "messages": [
+        { "at": "2026-05-01T08:00:00Z", "text": "I prefer tea in the morning.",
+          "preferences": [{ "category": "drinks", "text": "Prefers tea in the morning" }] },
+        { "at": "2026-05-01T08:01:00Z", "text": "Please keep answers short.",
+          "preferences": [{ "category": "communication", "text": "Prefers short answers" }] }
+      ]
+    },
+    {
+      "owner": "bob", "id": "bob-1",
+      "messages": [
+        { "at": "2026-05-02T08:00:00Z", "text": "I prefer green tea, always.",
+          "preferences": [{ "category": "drinks", "text": "Prefers green tea" }] }
+      ]
+    },
+    {
+      "owner": "ana", "id": "ana-2",
+      "messages": [
+        { "at": "2026-05-09T08:00:00Z", "text": "Actually, coffee in the morning, not tea.",
+          "preferences": [{ "category": "drinks", "text": "Prefers coffee in the morning", "replaces": "tea" }] }
+      ]
+    }
+  ],
+  "questions": [
+    { "id": "morning-drink", "owner": "ana", "at": "2026-05-10T09:00:00Z", "ask": "What does Ana like to drink in the morning?",
+      "expect": [{ "preference": "coffee in the morning" }],
+      "exclude": [{ "preference": "tea in the morning" }, { "preference": "green tea" }], "kinds": ["preferences"] },
+    { "id": "style", "owner": "ana", "at": "2026-05-10T09:00:00Z", "ask": "How should answers to Ana be written?",
+      "expect": [{ "preference": "short answers" }], "kinds": ["preferences"] },
+    { "id": "bobs-drink", "owner": "bob", "at": "2026-05-10T09:00:00Z", "ask": "What does Bob like to drink?",
+      "expect": [{ "preference": "green tea" }], "exclude": [{ "preference": "coffee" }], "kinds": ["preferences"] }
+  ]
+}

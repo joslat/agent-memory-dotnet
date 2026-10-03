@@ -1,0 +1,47 @@
+{
+  "format": "agentmemory-pack/1",
+  "id": "core.graph",
+  "title": "Entities and the relationships between them are stored for their owner and recalled with what they connect",
+  "covers": ["entities", "relationships"],
+  "options": { "preset": "conversational" },
+  "schema": {
+    "entityTypes": ["PERSON", "ORGANIZATION"],
+    "relationshipTypes": ["WORKS_WITH", "WORKS_AT", "MANAGES"]
+  },
+  "owners": ["ana", "bob"],
+  "sessions": [
+    {
+      "owner": "ana", "id": "ana-1",
+      "messages": [
+        { "at": "2026-07-01T09:00:00Z", "text": "I'm Ana. Carla Ruiz and I both work at Northwind; Carla manages the data team.",
+          "entities": [{ "name": "Ana", "type": "PERSON" }, { "name": "Carla Ruiz", "type": "PERSON" }, { "name": "Northwind", "type": "ORGANIZATION" }],
+          "relationships": [
+            { "source": "Ana", "type": "WORKS_WITH", "target": "Carla Ruiz" },
+            { "source": "Carla Ruiz", "type": "WORKS_AT", "target": "Northwind" }
+          ] }
+      ]
+    },
+    {
+      "owner": "bob", "id": "bob-1",
+      "messages": [
+        { "at": "2026-07-02T09:00:00Z", "text": "I'm Bob. My manager is Dmitri Volkov.",
+          "entities": [{ "name": "Bob", "type": "PERSON" }, { "name": "Dmitri Volkov", "type": "PERSON" }],
+          "relationships": [{ "source": "Dmitri Volkov", "type": "MANAGES", "target": "Bob" }] }
+      ]
+    }
+  ],
+  "storage": [
+    { "owner": "ana", "entity": "Carla Ruiz", "state": "live" },
+    { "owner": "ana", "entity": "Dmitri Volkov", "state": "absent" },
+    { "owner": "bob", "entity": "Dmitri Volkov", "state": "live" },
+    { "owner": "bob", "entity": "Carla Ruiz", "state": "absent" }
+  ],
+  "questions": [
+    { "id": "colleague", "owner": "ana", "at": "2026-07-03T09:00:00Z", "ask": "Who does Ana work with?",
+      "expect": [{ "entity": "Carla Ruiz" }, { "relationship": "Ana -[WORKS_WITH]-> Carla Ruiz" }],
+      "exclude": [{ "entity": "Dmitri Volkov" }], "kinds": ["entities", "relationships"] },
+    { "id": "manager", "owner": "bob", "at": "2026-07-03T09:00:00Z", "ask": "Who is Bob's manager?",
+      "expect": [{ "entity": "Dmitri Volkov" }, { "relationship": "Dmitri Volkov -[MANAGES]-> Bob" }],
+      "exclude": [{ "entity": "Carla Ruiz" }], "kinds": ["entities", "relationships"] }
+  ]
+}

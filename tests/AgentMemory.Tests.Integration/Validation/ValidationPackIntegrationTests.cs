@@ -1,0 +1,85 @@
+using System.Text.Json;
+using AgentMemory.Tests.Integration.Fixtures;
+using AgentMemory.Validation;
+using FluentAssertions;
+using Xunit.Abstractions;
+
+namespace AgentMemory.Tests.Integration.Validation;
+
+/// <summary>
+/// 40.57: every core validation pack passes on a real store, and a planted defect (the pack's feature switched off) fails
+/// the check that names it. No model: each pack carries what extraction yields for each message.
+/// </summary>
+[Collection("Neo4j Integration")]
+[Trait("Category", "Integration")]
+public sealed class ValidationPackIntegrationTests : IAsyncLifetime
+{
+    private readonly Neo4jIntegrationFixture _fixture;
+    private readonly ITestOutputHelper _output;
+
+    public ValidationPackIntegrationTests(Neo4jIntegrationFixture fixture, ITestOutputHelper output) =>
+        (_fixture, _output) = (fixture, output);
+
+    public Task InitializeAsync() => _fixture.CleanDatabaseAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    public static TheoryData<string> CorePacks() => [.. ValidationPackReader.Core().Select(p => p.Id)];
+
+    [Theory]
+    [MemberData(nameof(CorePacks))]
+    public async Task Every_core_pack_passes(string id)
+    {
+        var result = await Runner().RunAsync(ValidationPackReader.Core().Single(p => p.Id == id));
+        foreach (var check in result.Checks) _output.WriteLine($"{(check.Passed ? "pass" : "FAIL")} {check.Id}: {check.Detail}");
+
+        result.Failures.Select(f => $"{f.Id}: {f.Detail}").Should().BeEmpty();
+        result.Passed.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// A planted defect: the pack's feature switched off. The pack must fail the checks that name what broke, which is
+    /// what makes a passing pack evidence.
+    /// </summary>
+    [Theory]
+    // A change stored as a retraction loses the past, and nothing records why the old value closed.
+    [InlineData("core.semantic.changes", "Extraction.BitemporalChanges", "recall:past-city:expect:1,storage:1")]
+    // A date in the question is not read: the past question is answered live.
+    [InlineData("core.semantic.changes", "ResolveTemporalQueries", "recall:date-in-question:expect:1,recall:date-in-question:exclude:1")]
+    // A corrected name adds a second person instead of renaming, and the dog's facts keep the old name.
+    [InlineData("core.names", "Extraction.RenameOnCorrectedName", "storage:2,storage:6")]
+    // A corrected preference leaves the old one beside it.
+    [InlineData("core.preferences", "Extraction.SupersedeReplacedFacts", "recall:morning-drink:exclude:1")]
+    public async Task A_feature_switched_off_fails_the_checks_that_name_it(string id, string feature, string failing)
+    {
+        var pack = Core(id);
+        var set = new Dictionary<string, JsonElement>(pack.Options.Set) { [feature] = JsonSerializer.SerializeToElement(false) };
+
+        var result = await Runner().RunAsync(pack with { Options = pack.Options with { Set = set } });
+
+        result.Failures.Select(f => f.Id).Should().Contain(failing.Split(','));
+    }
+
+    [Fact]
+    public async Task Two_runs_of_one_pack_never_meet()
+    {
+        var pack = Core("core.semantic.changes");
+
+        var first = await Runner().RunAsync(pack);
+        var second = await Runner().RunAsync(pack);
+
+        first.RunPrefix.Should().NotBe(second.RunPrefix);
+        second.Failures.Select(f => $"{f.Id}: {f.Detail}").Should().BeEmpty("the second run reads only what it wrote");
+    }
+
+    private ValidationPackRunner Runner() => new(o =>
+    {
+        o.Uri = _fixture.ConnectionString;
+        o.Username = _fixture.User;
+        o.Password = _fixture.Password;
+        o.Database = "neo4j";
+        o.EmbeddingDimensions = Neo4jIntegrationFixture.TestEmbeddingDimensions;
+    });
+
+    private static ValidationPack Core(string id) => ValidationPackReader.Core().Single(p => p.Id == id);
+}

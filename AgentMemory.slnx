@@ -31,6 +31,7 @@
     <Project Path="src/AgentMemory.AgentFramework.Nams/AgentMemory.AgentFramework.Nams.csproj" />
     <Project Path="src/AgentMemory.Extensibility/AgentMemory.Extensibility.csproj" />
     <Project Path="src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj" />
+    <Project Path="src/AgentMemory.Validation/AgentMemory.Validation.csproj" />
     <Project Path="src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.Nams.csproj" />
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
     <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />

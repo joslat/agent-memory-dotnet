@@ -20,6 +20,7 @@
          Extraction.AzureLanguage) — transitively exposes IMigrationRunner / ISchemaBootstrapper /
          IConsolidationService / IMemoryDecayService and the rest of the memory services. -->
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Validation\AgentMemory.Validation.csproj" />
     <!-- NOT in the meta-package, and `perf` measures the MAF turn (ProvideAIContext/StoreAIContext),
          which is the whole point of turn-level measurement. -->
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
