@@ -44,6 +44,7 @@
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Validation\AgentMemory.Validation.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.Cli\AgentMemory.Cli.csproj" />
+    <ProjectReference Include="..\..\tools\AgentMemory.RouterArena\AgentMemory.RouterArena.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.Decisions\AgentMemory.Decisions.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge\AgentMemory.TckBridge.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge.Nams\AgentMemory.TckBridge.Nams.csproj" />

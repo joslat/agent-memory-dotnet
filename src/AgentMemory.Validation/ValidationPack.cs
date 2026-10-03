@@ -101,6 +101,47 @@ public sealed record PackSession
 
     /// <summary>The messages, in order.</summary>
     public IReadOnlyList<PackMessage> Messages { get; init; } = [];
+
+    /// <summary>
+    /// Reasoning traces recorded in this conversation (40.72: the procedural and reasoning memory types): how a task was
+    /// done, step by step, and how it went. Written after the messages, each at its own time.
+    /// </summary>
+    public IReadOnlyList<PackTrace> Traces { get; init; } = [];
+}
+
+/// <summary>A reasoning trace: the task, its steps, its outcome; a <c>procedure</c> is promoted to a reusable procedure.</summary>
+public sealed record PackTrace
+{
+    /// <summary>When the trace was recorded.</summary>
+    public required DateTimeOffset At { get; init; }
+
+    /// <summary>The task the agent worked on.</summary>
+    public required string Task { get; init; }
+
+    /// <summary>The steps, in order.</summary>
+    public IReadOnlyList<PackTraceStep> Steps { get; init; } = [];
+
+    /// <summary>How it went.</summary>
+    public string? Outcome { get; init; }
+
+    /// <summary>Whether it worked; null when not known.</summary>
+    public bool? Success { get; init; }
+
+    /// <summary><c>episode</c> (the default: something done once) or <c>procedure</c> (promoted: how this is done).</summary>
+    public string Kind { get; init; } = "episode";
+}
+
+/// <summary>One step of a trace.</summary>
+public sealed record PackTraceStep
+{
+    /// <summary>What the agent thought.</summary>
+    public string? Thought { get; init; }
+
+    /// <summary>What it did.</summary>
+    public string? Action { get; init; }
+
+    /// <summary>What it saw.</summary>
+    public string? Observation { get; init; }
 }
 
 /// <summary>A message and what extraction yields for it.</summary>

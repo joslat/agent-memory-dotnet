@@ -41,6 +41,7 @@
     <Project Path="tools/AgentMemory.Decisions/AgentMemory.Decisions.csproj" />
     <Project Path="tools/AgentMemory.LongMemEval/AgentMemory.LongMemEval.csproj" />
     <Project Path="tools/AgentMemory.McpHost/AgentMemory.McpHost.csproj" />
+    <Project Path="tools/AgentMemory.RouterArena/AgentMemory.RouterArena.csproj" />
     <Project Path="tools/AgentMemory.TckBridge/AgentMemory.TckBridge.csproj" />
     <Project Path="tools/AgentMemory.TckBridge.Nams/AgentMemory.TckBridge.Nams.csproj" />
   </Folder>

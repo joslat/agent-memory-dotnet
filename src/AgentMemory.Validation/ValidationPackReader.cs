@@ -71,6 +71,13 @@ public static class ValidationPackReader
         {
             if (!owners.Contains(session.Owner)) Problem($"session '{session.Id}' is owned by undeclared '{session.Owner}'");
             if (!sessionIds.Add(session.Id)) Problem($"session id '{session.Id}' is used twice");
+            foreach (var (trace, index) in session.Traces.Select((x, i) => (x, i)))
+            {
+                if (string.IsNullOrWhiteSpace(trace.Task)) Problem($"session '{session.Id}' trace {index + 1}: no task");
+                if (trace.Kind is not ("episode" or "procedure"))
+                    Problem($"session '{session.Id}' trace {index + 1}: kind '{trace.Kind}' is not 'episode' or 'procedure'");
+                if (session.Shared) Problem($"session '{session.Id}' trace {index + 1}: a shared session carries no traces");
+            }
             foreach (var (message, index) in session.Messages.Select((m, i) => (m, i)))
             {
                 var where = $"session '{session.Id}' message {index + 1}";
