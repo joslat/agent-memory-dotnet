@@ -54,4 +54,7 @@ public sealed record MemoryRoutePlan
 
     /// <summary>Whether anything was cut to fit.</summary>
     public bool Truncated { get; init; }
+
+    /// <summary>What the memory router chose (PLAN 40.56); null when routing is off and every kind was read.</summary>
+    public MemoryRoute? Routed { get; init; }
 }

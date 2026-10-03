@@ -23,6 +23,13 @@ public sealed record RecallRequest
     public required string Query { get; init; }
 
     /// <summary>
+    /// The turn being answered, when <see cref="Query"/> holds more than it (the Agent Framework provider joins every user
+    /// message of an invocation into the query). The memory router reads this when set (PLAN 40.56); null reads
+    /// <see cref="Query"/>.
+    /// </summary>
+    public string? Question { get; init; }
+
+    /// <summary>
     /// Optional query embedding for semantic search.
     /// </summary>
     public float[]? QueryEmbedding { get; init; }

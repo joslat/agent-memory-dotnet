@@ -1,3 +1,6 @@
+using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Services;
+
 namespace AgentMemory.Validation.Routing;
 
 /// <summary>
@@ -13,6 +16,18 @@ public static class RoutingScorer
         var all = new HashSet<string>(set.Kinds, StringComparer.Ordinal);
         return _ => all;
     }
+
+    /// <summary>
+    /// A memory router as a policy: the kinds it reads for the item's text. Shared knowledge is stored as facts and read
+    /// with them (router design R3), so reading facts reads shared.
+    /// </summary>
+    public static Func<RoutingItem, IReadOnlySet<string>> FromRouter(IMemoryRouter router) => item =>
+    {
+        var route = router.Route(item.Text);
+        var kinds = new HashSet<string>(route.Kinds, StringComparer.Ordinal);
+        if (kinds.Contains(MemoryRoute.Facts)) kinds.Add("shared");
+        return kinds;
+    };
 
     /// <summary>Scores <paramref name="policy"/> on the items of <paramref name="split"/> (<c>dev</c>, <c>heldout</c> or <c>all</c>).</summary>
     public static RoutingScore Score(RoutingSet set, Func<RoutingItem, IReadOnlySet<string>> policy, string split = "dev")
