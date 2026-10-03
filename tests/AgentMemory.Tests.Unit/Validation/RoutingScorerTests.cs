@@ -52,6 +52,16 @@ public sealed class RoutingScorerTests : IDisposable
     }
 
     [Fact]
+    public void Todays_default_skips_a_greeting_and_reads_everything_on_any_other_turn()
+    {
+        var policy = AgentMemory.Cli.Commands.RoutingScoreCommand.Today(Set);
+
+        policy(Set.Items.Single(i => i.Id == "hello")).Should().BeEmpty("TrivialTurnRecallPolicy narrows a greeting to the recent messages");
+        policy(Set.Items.Single(i => i.Id == "job")).Should().BeEquivalentTo(Set.Kinds);
+        RoutingScorer.Score(Set, policy).SilentWhenNothingNeeded.Should().Be(1);
+    }
+
+    [Fact]
     public void Staying_silent_is_counted_on_turns_that_need_nothing()
     {
         var score = RoutingScorer.Score(Set, item => item.Needs.Count == 0 ? new HashSet<string>() : new HashSet<string>(Set.Kinds));
