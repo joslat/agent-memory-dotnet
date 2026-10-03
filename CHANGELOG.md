@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`MemoryRoutePlan.Routed`, `memory.route.kinds`). `RecallRequest.Question` carries the turn being answered; the Agent
   Framework provider sets it. On the frozen routing set it serves every answer the read-everything recall serves while
   reading a third of the kinds; it stays off until the accuracy guard passes on a real store.
+  For modules (Extensibility 0.10): `IMemoryRouter.Route(question, additionalRules)` evaluates a module's own rules in
+  the same engine, compiled without backtracking (`IMemoryRouter.Check` refuses look-arounds, back-references and
+  patterns that do not compile), and `Neo4jMemoryContextProvider.QuestionOf` is the one derivation of the question for a
+  subclass that routes its own sections.
 - **Why a memory was not recalled** (`IMemoryRecallExplainer.WhyNotFactAsync`). For a recall request and a fact: the
   gate that kept it out, in the order recall applies them (another owner's, the router, closed with what replaced it,
   decayed, invalidated, outside its valid time, below the similarity floor with its score, outranked, cut by the

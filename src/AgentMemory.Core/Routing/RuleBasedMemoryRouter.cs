@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
@@ -58,6 +59,12 @@ public sealed class RuleBasedMemoryRouter : IMemoryRouter
 
     private readonly (MemoryRoutingRule Rule, Regex Pattern)[] _rules;
 
+    /// <summary>
+    /// Added rules, compiled once per list (a module set holds one list for its life, so a turn compiles nothing). Weakly
+    /// keyed: a replaced module set's list is collected with it.
+    /// </summary>
+    private readonly ConditionalWeakTable<IReadOnlyList<MemoryRoutingRule>, (MemoryRoutingRule Rule, Regex Pattern)[]> _added = new();
+
     /// <summary>Builds the router from <paramref name="options"/>: the default rules unless turned off, then the added ones.</summary>
     public RuleBasedMemoryRouter(MemoryRoutingOptions options)
     {
@@ -67,15 +74,20 @@ public sealed class RuleBasedMemoryRouter : IMemoryRouter
     }
 
     /// <inheritdoc />
-    public MemoryRoute Route(string question)
+    public MemoryRoute Route(string question) => Route(question, []);
+
+    /// <inheritdoc />
+    public MemoryRoute Route(string question, IReadOnlyList<MemoryRoutingRule> additionalRules)
     {
+        ArgumentNullException.ThrowIfNull(additionalRules);
+        var added = additionalRules.Count == 0 ? [] : _added.GetValue(additionalRules, Compile);
         var text = question?.Trim() ?? string.Empty;
         if (text.Length == 0) return Skip("an empty turn");
         if (!text.Contains('?', StringComparison.Ordinal) && !Matches(Request, text))
             return Skip("a statement: no question and no request");
 
         var chosen = new Dictionary<string, string>(StringComparer.Ordinal) { [MemoryRoute.Facts] = Always };
-        foreach (var (rule, pattern) in _rules)
+        foreach (var (rule, pattern) in _rules.Concat(added))
         {
             if (!chosen.ContainsKey(rule.Kind) && Matches(pattern, text)) chosen[rule.Kind] = rule.Name;
         }
@@ -89,6 +101,40 @@ public sealed class RuleBasedMemoryRouter : IMemoryRouter
     }
 
     private static MemoryRoute Skip(string reason) => new() { Recall = false, SkipReason = reason };
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> Check(IReadOnlyList<MemoryRoutingRule> rules)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+        var problems = new List<string>();
+        foreach (var rule in rules)
+        {
+            if (string.IsNullOrWhiteSpace(rule.Kind) || string.IsNullOrWhiteSpace(rule.Name))
+            {
+                problems.Add($"routing rule '{rule.Name}': a rule needs a kind and a name");
+                continue;
+            }
+            try
+            {
+                _ = Untrusted(rule.Pattern);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+            {
+                problems.Add($"routing rule '{rule.Name}': {ex.Message}");
+            }
+        }
+        return problems;
+    }
+
+    /// <summary>
+    /// Added rules come from outside the host's configuration, so they run without backtracking (spec 0.8 §6.2: a
+    /// repeating group over untrusted text is a review-blocking defect). Constructs that need backtracking (look-arounds,
+    /// back-references) do not compile, and <see cref="Check"/> names the rule.
+    /// </summary>
+    private static Regex Untrusted(string pattern) => new(pattern, Options | RegexOptions.NonBacktracking, Timeout);
+
+    private static (MemoryRoutingRule Rule, Regex Pattern)[] Compile(IReadOnlyList<MemoryRoutingRule> rules) =>
+        [.. rules.Select(rule => (rule, Untrusted(rule.Pattern)))];
 
     private static bool Matches(Regex pattern, string text)
     {
