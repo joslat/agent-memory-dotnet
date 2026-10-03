@@ -134,6 +134,17 @@ public class Neo4jMemoryContextProvider : AIContextProvider
     protected IMemoryContextAdmissionPolicy AdmissionPolicy => _admissionPolicy;
 
     /// <summary>
+    /// The turn being answered: the last user message with text, or null when there is none. The one derivation of the
+    /// question the memory router reads (<c>RecallRequest.Question</c>), for a subclass that routes its own sections
+    /// (Extensibility 0.10) to read the same question core recall was routed on.
+    /// </summary>
+    protected static string? QuestionOf(IEnumerable<ChatMessage> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        return messages.LastOrDefault(m => m.Role == ChatRole.User && !string.IsNullOrWhiteSpace(m.Text))?.Text;
+    }
+
+    /// <summary>
     /// The context format options this provider ACTUALLY uses, never null.
     /// </summary>
     /// <remarks>
@@ -483,7 +494,7 @@ public class Neo4jMemoryContextProvider : AIContextProvider
                 Query = queryText,
                 // 40.56 (R7). The query joins every user message of the invocation; the router reads the turn being
                 // answered. Read only when MemoryOptions.Routing is on.
-                Question = userMessages[^1].Text,
+                Question = QuestionOf(liveThread),
                 QueryEmbedding = queryEmbedding,
                 Options = effectiveOptions
             };
