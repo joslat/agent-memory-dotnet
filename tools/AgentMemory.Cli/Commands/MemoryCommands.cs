@@ -553,8 +553,21 @@ public sealed class HistoryCommand(IMemoryHistoryService service, TextWriter out
         bool liveOnly,
         bool ownOnly,
         string? limitValue,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? asOfValue = null)
     {
+        DateTimeOffset? asOf = null;
+        if (asOfValue is not null)
+        {
+            if (!DateTimeOffset.TryParse(asOfValue, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed))
+            {
+                output.WriteLine($"error: history --as-of '{asOfValue}' is not a date (ISO 8601, e.g. 2026-03-01T00:00:00Z).");
+                return 1;
+            }
+            asOf = parsed;
+        }
+
         if (!TryParseKind(type, out var kind))
         {
             output.WriteLine($"error: unknown --type '{type}' (expected fact|entity|preference). omit --type to list all.");
@@ -575,6 +588,7 @@ public sealed class HistoryCommand(IMemoryHistoryService service, TextWriter out
             IncludeInvalidated = !liveOnly,
             IncludeShared = !ownOnly,
             Limit = limit,
+            AsOf = asOf,
         };
 
         var records = await service.GetHistoryAsync(query, cancellationToken).ConfigureAwait(false);

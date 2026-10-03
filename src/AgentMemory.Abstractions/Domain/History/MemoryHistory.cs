@@ -51,6 +51,13 @@ public sealed record MemoryHistoryQuery
 
     /// <summary>Maximum number of records to return.</summary>
     public int Limit { get; init; } = 50;
+
+    /// <summary>
+    /// G2 (PLAN 40.46), the owner's memory as it was known at this instant: rows written after it are left out, and with
+    /// <see cref="IncludeInvalidated"/> false a row invalidated after it is kept (it was live then). Each row still says
+    /// when it was invalidated, if ever. Null reads the store as it is now.
+    /// </summary>
+    public DateTimeOffset? AsOf { get; init; }
 }
 
 /// <summary>

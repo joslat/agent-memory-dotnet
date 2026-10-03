@@ -230,6 +230,38 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
             .Contain("Bilbao").And.NotContain("Madrid");
     }
 
+    /// <summary>
+    /// G2 (40.46): the owner's memory as known at an instant, through the history read (validity, closing and successor on
+    /// every row), so a dossier or a module needs no Cypher of its own.
+    /// </summary>
+    [Fact]
+    public async Task The_owners_memory_reads_as_it_was_known_at_an_instant()
+    {
+        var clock = new ReplayClock(new DateTimeOffset(2020, 1, 1, 9, 0, 0, TimeSpan.Zero));
+        Build(bitemporal: true, clock);
+        await SayAsync("Bilbao is home.");
+        clock.Now = new DateTimeOffset(2021, 6, 1, 9, 0, 0, TimeSpan.Zero);
+        await SayAsync("I moved to Madrid.");
+
+        using var scope = _provider!.CreateScope();
+        var history = scope.ServiceProvider.GetRequiredService<IMemoryHistoryService>();
+        async Task<IReadOnlyList<MemoryHistoryRecord>> LiveAt(DateTimeOffset at) => [.. (await history.GetHistoryAsync(new MemoryHistoryQuery
+        {
+            Kind = MemoryHistoryKind.Fact, OwnerId = Owner, IncludeShared = false, IncludeInvalidated = false, AsOf = at,
+        })).Where(r => r.Summary.Contains("lives in", StringComparison.Ordinal))];
+
+        var before = await LiveAt(new DateTimeOffset(2021, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        before.Should().ContainSingle().Which.Summary.Should().Contain("Bilbao", "Madrid was not yet known; Bilbao was live then");
+        before[0].InvalidatedAtUtc.Should().Be(clock.Now, "the row still says when it was closed");
+
+        var after = await LiveAt(clock.Now.AddDays(1));
+        after.Should().ContainSingle().Which.Summary.Should().Contain("Madrid");
+        (await history.GetHistoryAsync(new MemoryHistoryQuery { Kind = MemoryHistoryKind.Fact, OwnerId = Owner, AsOf = clock.Now.AddDays(1) }))
+            .Single(r => r.Summary.Contains("Bilbao", StringComparison.Ordinal))
+            .Should().Match<MemoryHistoryRecord>(r => r.ClosedAs == "change" && r.SupersededByIds.Count == 1,
+                "with closed rows included, the old value says why it closed and what replaced it");
+    }
+
     private sealed class ReplayClock(DateTimeOffset start) : IClock
     {
         public DateTimeOffset Now { get; set; } = start;

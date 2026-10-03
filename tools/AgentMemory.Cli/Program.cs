@@ -255,7 +255,8 @@ try
                 cli.Get("type"), cli.Get("id"), cli.Get("owner"),
                 liveOnly: cli.HasFlag("live-only"),
                 ownOnly: cli.HasFlag("own-only"),
-                limitValue: cli.Get("limit")),
+                limitValue: cli.Get("limit"),
+                asOfValue: cli.Get("as-of")),
         // S4. "ours is capable but opaque" -- memory could be queried but not SEEN. Read-only by
         // design: there is deliberately no `block --write`, because a block an agent can hand back
         // becomes the store, and the graph's provenance and supersession records then describe a

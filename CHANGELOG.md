@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`MemoryRoutePlan.Routed`, `memory.route.kinds`). `RecallRequest.Question` carries the turn being answered; the Agent
   Framework provider sets it. On the frozen routing set it serves every answer the read-everything recall serves while
   reading a third of the kinds; it stays off until the accuracy guard passes on a real store.
+- **An owner's memory as it was known at an instant.** `MemoryHistoryQuery.AsOf` (and `agentmemory history --as-of`):
+  rows written after the instant are left out, and with `IncludeInvalidated = false` a row invalidated after it is kept
+  (it was live then). Every row keeps its validity window, why it closed, what replaced it and its sources, so a
+  dossier or a module reads an owner's memory without Cypher of its own.
 - **An integrity check** (`IMemoryIntegrityService`, `agentmemory integrity [--owner <id>]`): no edge joins two owners'
   memories, a relationship edge belongs to its endpoints' owner, a fact closed as a change or a correction has its
   successor and a live one has none, every validity window ends after it begins, and (a warning) every fact has a source.

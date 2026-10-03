@@ -98,7 +98,7 @@ public static class CliHelp
               supersede --type <fact|preference> --loser <id> --winner <id> [--owner <id>]
                                      Supersede a loser with a winner (D7): non-destructive, links :SUPERSEDED_BY.
               history [--type <fact|entity|preference>] [--id <id>] [--owner <id>]
-                      [--live-only] [--own-only] [--limit <n>]
+                      [--live-only] [--own-only] [--limit <n>] [--as-of <iso-date>]
                                      Read long-term memory lifecycle history, including soft-invalidated
                                      rows, supersession links, valid-time windows, and source messages.
               evaluate [--iterations <n>] [--owner <id>] [--output <path>]
