@@ -35,10 +35,11 @@ and [docs/routing.md](docs/routing.md).
   the same engine, compiled without backtracking (`IMemoryRouter.Check` refuses look-arounds, back-references and
   patterns that do not compile), and `Neo4jMemoryContextProvider.QuestionOf` is the one derivation of the question for a
   subclass that routes its own sections.
-- **Why a memory was not recalled** (`IMemoryRecallExplainer.WhyNotFactAsync`). For a recall request and a fact: the
-  gate that kept it out, in the order recall applies them (another owner's, the router, closed with what replaced it,
-  decayed, invalidated, outside its valid time, below the similarity floor with its score, outranked, cut by the
-  budget), or that it was recalled. Off the hot path: it costs a recall; normal recall is unchanged.
+- **Why a memory was not recalled** (`IMemoryRecallExplainer.WhyNotAsync(request, kind, id)`, for a fact, an entity or a
+  preference): the gate that kept it out, in the order recall applies them (another owner's, the router, merged into
+  another entity, closed with what replaced it, decayed, invalidated, outside its valid time, no embedding, below the
+  similarity floor with its score, outranked, cut by the budget), or that it was recalled. Off the hot path: it costs a
+  recall; normal recall is unchanged. `MemoryHistoryRecord.MergedIntoId` says what a merged-away entity lives on in.
 - **Erase, export and import an owner** (`IMemoryOwnerDataService`, `agentmemory owner export|import|erase`). Erase
   deletes every node stamped with the owner and their conversations with every message, in batches, and reports what
   went by label (the CLI asks for `--confirm`). Export writes the owner's entities, facts and preferences (live and

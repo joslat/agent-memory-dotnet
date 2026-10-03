@@ -115,6 +115,9 @@ public sealed record MemoryHistoryRecord
     /// </summary>
     public string? ClosedAs { get; init; }
 
+    /// <summary>For an entity merged into another (a corrected name, a duplicate), the id of the one it lives on in.</summary>
+    public string? MergedIntoId { get; init; }
+
     /// <summary>The day a one-off event happened (36.1), when the fact is one.</summary>
     public DateTimeOffset? OccurredOnUtc { get; init; }
 

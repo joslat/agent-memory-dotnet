@@ -74,19 +74,56 @@ public sealed class WhyNotIntegrationTests : IAsyncLifetime
             "one slot: one fact is recalled, the other is outranked");
     }
 
-    private async Task<MemoryWhyNot> WhyNotAsync(string factId, double floor, int cap)
+    private async Task<MemoryWhyNot> WhyNotAsync(string id, double floor, int cap, MemoryItemKind kind = MemoryItemKind.Fact)
     {
         using var scope = _provider!.CreateScope();
         var explainer = scope.ServiceProvider.GetRequiredService<IMemoryRecallExplainer>();
-        return await explainer.WhyNotFactAsync(new RecallRequest
+        return await explainer.WhyNotAsync(new RecallRequest
         {
             SessionId = "ask-ana", UserId = "ana", Query = "What do you know about where I live and what I like?",
             Options = new RecallOptions
             {
-                MaxRecentMessages = 0, MaxRelevantMessages = 0, MaxEntities = 0, MaxPreferences = 0, MaxTraces = 0,
-                MaxFacts = cap, MinSimilarityScore = floor,
+                MaxRecentMessages = 0, MaxRelevantMessages = 0, MaxTraces = 0,
+                MaxFacts = cap, MaxEntities = cap, MaxPreferences = cap, MinSimilarityScore = floor,
             },
-        }, factId);
+        }, kind, id);
+    }
+
+    /// <summary>The same gates for an entity (a merge names what it lives on in) and a preference.</summary>
+    [Fact]
+    public async Task Entities_and_preferences_are_explained_by_the_same_gates()
+    {
+        using var scope = _provider!.CreateScope();
+        var entities = scope.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Repositories.IEntityRepository>();
+        var preferences = scope.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Repositories.IPreferenceRepository>();
+        var embed = scope.ServiceProvider.GetRequiredService<IEmbeddingOrchestrator>();
+        async Task<Entity> Person(string name, string owner) => await entities.UpsertAsync(new Entity
+        {
+            EntityId = Guid.NewGuid().ToString("N"), Name = name, Type = "PERSON", Confidence = 0.9, OwnerId = owner,
+            CreatedAtUtc = DateTimeOffset.UtcNow, Embedding = await embed.EmbedAsync(name),
+        });
+        var pruya = await Person("Pruya", "ana");
+        var priya = await Person("Priya", "ana");
+        var bobs = await Person("Dmitri", "bob");
+        (await entities.MergeEntitiesAsync(pruya.EntityId, priya.EntityId, MemoryScope.For("ana", includeShared: false))).Should().BeTrue();
+        await entities.InvalidateAsync(pruya.EntityId, MemoryScope.For("ana", includeShared: false));
+
+        (await WhyNotAsync(pruya.EntityId, floor: 0, cap: 10, MemoryItemKind.Entity)).Should().Match<MemoryWhyNot>(w =>
+            w.Gate == MemoryWhyNot.Merged && w.RelatedId == priya.EntityId);
+        (await WhyNotAsync(bobs.EntityId, floor: 0, cap: 10, MemoryItemKind.Entity)).Gate.Should().Be(MemoryWhyNot.Owner);
+        // A direct merge leaves the survivor without an embedding until the backfill runs (the rename path embeds it).
+        (await WhyNotAsync(priya.EntityId, floor: 0, cap: 10, MemoryItemKind.Entity)).Gate.Should().Be(MemoryWhyNot.NotEmbedded);
+        await scope.ServiceProvider.GetRequiredService<IMemoryService>().GenerateEmbeddingsBatchAsync(MemoryNodeKind.Entity, 50);
+        (await WhyNotAsync(priya.EntityId, floor: 0, cap: 10, MemoryItemKind.Entity)).Gate.Should().Be(MemoryWhyNot.Recalled);
+
+        var tea = await preferences.UpsertAsync(new Preference
+        {
+            PreferenceId = Guid.NewGuid().ToString("N"), Category = "drinks", PreferenceText = "Prefers green tea", Confidence = 0.9,
+            OwnerId = "ana", CreatedAtUtc = DateTimeOffset.UtcNow, Embedding = await embed.EmbedAsync("Prefers green tea"),
+        });
+        (await WhyNotAsync(tea.PreferenceId, floor: 0, cap: 10, MemoryItemKind.Preference)).Gate.Should().Be(MemoryWhyNot.Recalled);
+        await preferences.InvalidateAsync(tea.PreferenceId, MemoryScope.For("ana", includeShared: false));
+        (await WhyNotAsync(tea.PreferenceId, floor: 0, cap: 10, MemoryItemKind.Preference)).Gate.Should().Be(MemoryWhyNot.Invalidated);
     }
 
     /// <summary>Says <paramref name="text"/> as <paramref name="owner"/> and returns the id of the fact it wrote (G4's outcome).</summary>
