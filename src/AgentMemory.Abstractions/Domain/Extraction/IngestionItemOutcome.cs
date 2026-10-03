@@ -37,4 +37,16 @@ public sealed record IngestionItemOutcome
 
     /// <summary>Whether retrying this item (e.g. via fail-fast + re-submission) is expected to be safe/useful.</summary>
     public bool Retryable { get; init; }
+
+    /// <summary>
+    /// G4 (PLAN 40.48): what a successful write did (created, already stored) or, for a skipped duplicate, that it was
+    /// folded into another item. <see cref="MemoryWriteEffect.Unreported"/> where the write path does not know.
+    /// </summary>
+    public MemoryWriteEffect Effect { get; init; }
+
+    /// <summary>
+    /// G4: the ids of the memories this write closed (a change or a correction it superseded). Facts only for now; empty
+    /// when it closed nothing.
+    /// </summary>
+    public IReadOnlyList<string> Closed { get; init; } = [];
 }
