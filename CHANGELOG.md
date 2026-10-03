@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Stores written before keep their closings.** Facts closed before `BitemporalChanges` was turned on carry no reason and
+read exactly as before; the option changes only the closings written from then on. See [docs/time-model.md](docs/time-model.md)
+and [docs/routing.md](docs/routing.md).
+
 ### Added
 
 - **`ExtractionOptions.BitemporalChanges` (off by default): a question about the past keeps the value that was true
