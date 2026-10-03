@@ -72,6 +72,8 @@ public static class MemoryTelemetry
     public const string RouteCategories = "memory.route.categories";
     /// <summary>The recall intent the policy inferred, if any.</summary>
     public const string RouteIntent = "memory.route.intent";
+    /// <summary>The memory kinds the core router chose (PLAN 40.56), comma-separated; <c>none</c> when it read nothing.</summary>
+    public const string RouteKinds = "memory.route.kinds";
     /// <summary>The point in time a temporal query ("what did I think last March?") resolved to.</summary>
     public const string RouteTemporalAsOf = "memory.route.temporal.as_of";
 

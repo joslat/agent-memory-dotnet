@@ -35,6 +35,8 @@ internal sealed class MemoryService : IMemoryService
     private readonly IMessageRepository? _messageRepository;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
+    // 40.56. Optional for the SemVer reason above; DI supplies the rule-based router. Asked only when routing is on.
+    private readonly IMemoryRouter? _router;
     private readonly ILogger<MemoryService> _logger;
 
     /// <summary>
@@ -56,9 +58,11 @@ internal sealed class MemoryService : IMemoryService
         IConversationRepository? conversationRepository = null,
         IMemoryIsolationPolicy? isolationPolicy = null,
         IMemoryAccessTracker? accessTracker = null,
-        IMessageRepository? messageRepository = null)
+        IMessageRepository? messageRepository = null,
+        IMemoryRouter? router = null)
     {
         _messageRepository = messageRepository;
+        _router = router;
         ArgumentNullException.ThrowIfNull(shortTerm);
         ArgumentNullException.ThrowIfNull(assembler);
         ArgumentNullException.ThrowIfNull(extraction);
@@ -102,6 +106,14 @@ internal sealed class MemoryService : IMemoryService
         // outside; both can be present without colliding.
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.total");
 
+        // 40.56. The router, when on, chooses the kinds this question reads; a statement reads nothing.
+        var routed = RouteQuestion(request);
+        if (routed is not null)
+        {
+            request = Restricted(request, routed);
+            if (!routed.Recall) return Unrecalled(request, routed, activity);
+        }
+
         // R4. A turn that names a past time is asking a bitemporal question, and until now no
         // conversational turn could reach RecallAsOfAsync at all. Resolution is deterministic and
         // biased hard toward returning null -- see TemporalQueryParser -- so the ordinary turn takes
@@ -128,7 +140,7 @@ internal sealed class MemoryService : IMemoryService
             var systemAsOf = bindsTransactionClock ? asOf : temporalReference;
             return await RecallAsOfCoreAsync(
                     request, asOf, systemAsOf, activity, cancellationToken, resolvedFromQuery: asOf,
-                    transactionClockIsNow: !bindsTransactionClock)
+                    transactionClockIsNow: !bindsTransactionClock, routed: routed)
                 .ConfigureAwait(false);
         }
 
@@ -222,7 +234,7 @@ internal sealed class MemoryService : IMemoryService
             activity.SetTag("memory.recall.traces", context.SimilarTraces.Items.Count);
         }
 
-        context = context with { Route = RoutePlan(request, context, validAsOf: null, knownAsOf: null, fromQuestion: false) };
+        context = context with { Route = RoutePlan(request, context, validAsOf: null, knownAsOf: null, fromQuestion: false, routed) };
         EmitRoute(activity, context.Route);
 
         return new RecallResult
@@ -236,7 +248,8 @@ internal sealed class MemoryService : IMemoryService
 
     /// <summary>PLAN 40.20: the four routing decisions this recall made, side by side.</summary>
     private MemoryRoutePlan RoutePlan(
-        RecallRequest request, MemoryContext context, DateTimeOffset? validAsOf, DateTimeOffset? knownAsOf, bool fromQuestion)
+        RecallRequest request, MemoryContext context, DateTimeOffset? validAsOf, DateTimeOffset? knownAsOf, bool fromQuestion,
+        MemoryRoute? routed = null)
     {
         var recall = MemoryContextAssembler.EffectiveRecall(request.Options, _options.Recall);
         return new MemoryRoutePlan
@@ -260,7 +273,52 @@ internal sealed class MemoryService : IMemoryService
             BudgetMaxTokens = _options.ContextBudget.MaxTokens,
             BudgetMaxCharacters = _options.ContextBudget.MaxCharacters,
             Truncated = context.Truncated,
+            Routed = routed,
         };
+    }
+
+    /// <summary>40.56: the router's route for this request, or null when routing is off (every kind is read).</summary>
+    private MemoryRoute? RouteQuestion(RecallRequest request)
+    {
+        if (!_options.Routing.Enabled || _router is null) return null;
+        using var span = AgentMemoryDiagnostics.Source.StartActivity(MemoryTelemetry.RouteSpan);
+        var route = _router.Route(request.Question ?? request.Query);
+        span?.SetTag(MemoryTelemetry.RouteKinds, route.Recall ? string.Join(",", route.Kinds) : "none");
+        return route;
+    }
+
+    /// <summary>
+    /// R2, restrict only: a kind the router did not choose gets cap 0, a chosen kind keeps the configured cap. Applied to the
+    /// effective caps (a request on the shared default reads the host's configured ones), so routing never reverts a host's
+    /// caps to the library's. Recent messages, traces and due items are not routed.
+    /// </summary>
+    internal static RecallRequest Restricted(RecallRequest request, MemoryRoute route, RecallOptions configured)
+    {
+        var caps = MemoryContextAssembler.EffectiveRecall(request.Options, configured);
+        bool Reads(string kind) => route.Recall && route.Kinds.Contains(kind);
+        return request with
+        {
+            Options = caps with
+            {
+                MaxFacts = Reads(MemoryRoute.Facts) ? caps.MaxFacts : 0,
+                MaxEntities = Reads(MemoryRoute.Graph) ? caps.MaxEntities : 0,
+                MaxRelationships = Reads(MemoryRoute.Graph) ? caps.MaxRelationships : 0,
+                MaxGraphRagItems = Reads(MemoryRoute.Graph) ? caps.MaxGraphRagItems : 0,
+                MaxPreferences = Reads(MemoryRoute.Preferences) ? caps.MaxPreferences : 0,
+                MaxRelevantMessages = Reads(MemoryRoute.Messages) ? caps.MaxRelevantMessages : 0,
+            },
+        };
+    }
+
+    private RecallRequest Restricted(RecallRequest request, MemoryRoute route) => Restricted(request, route, _options.Recall);
+
+    /// <summary>A question the router sends nowhere: an empty context, with the route on its plan.</summary>
+    private RecallResult Unrecalled(RecallRequest request, MemoryRoute routed, System.Diagnostics.Activity? activity)
+    {
+        var context = new MemoryContext { SessionId = request.SessionId, AssembledAtUtc = _clock.UtcNow };
+        context = context with { Route = RoutePlan(request, context, validAsOf: null, knownAsOf: null, fromQuestion: false, routed) };
+        EmitRoute(activity, context.Route);
+        return new RecallResult { Context = context, TotalItemsRetrieved = 0, EstimatedTokenCount = 0 };
     }
 
     /// <summary>The plan as one <c>memory.route.plan</c> event, so a trace reads the four decisions together.</summary>
@@ -280,6 +338,7 @@ internal sealed class MemoryService : IMemoryService
         if (route.SplitRules.Count > 0) tags[MemoryTelemetry.RouteFanOutRules] = string.Join(",", route.SplitRules);
         if (route.BudgetMaxTokens is { } maxTokens) tags[MemoryTelemetry.RouteBudgetMaxTokens] = maxTokens;
         if (route.BudgetMaxCharacters is { } maxCharacters) tags[MemoryTelemetry.RouteBudgetMaxCharacters] = maxCharacters;
+        if (route.Routed is { } routed) tags[MemoryTelemetry.RouteKinds] = routed.Recall ? string.Join(",", routed.Kinds) : "none";
         activity.AddEvent(new System.Diagnostics.ActivityEvent(MemoryTelemetry.RoutePlanEvent, tags: tags));
     }
 
@@ -293,8 +352,15 @@ internal sealed class MemoryService : IMemoryService
         // The same parent span as RecallAsync, so the route plan lands on memory.recall.total for a direct as-of
         // call too (the MCP tool memory_recall_as_of is one), never on whatever span happens to be ambient.
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.total");
+        ArgumentNullException.ThrowIfNull(request);
+        var routed = RouteQuestion(request);
+        if (routed is not null)
+        {
+            request = Restricted(request, routed);
+            if (!routed.Recall) return Unrecalled(request, routed, activity);
+        }
         // Single-clock recall == bitemporal recall with both clocks equal (D6): default systemAsOf to asOf.
-        return await RecallAsOfCoreAsync(request, asOf, systemAsOf ?? asOf, activity, cancellationToken).ConfigureAwait(false);
+        return await RecallAsOfCoreAsync(request, asOf, systemAsOf ?? asOf, activity, cancellationToken, routed: routed).ConfigureAwait(false);
     }
 
     private async Task<RecallResult> RecallAsOfCoreAsync(
@@ -304,7 +370,8 @@ internal sealed class MemoryService : IMemoryService
         System.Diagnostics.Activity? activity,
         CancellationToken cancellationToken = default,
         DateTimeOffset? resolvedFromQuery = null,
-        bool transactionClockIsNow = false)
+        bool transactionClockIsNow = false,
+        MemoryRoute? routed = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug(
@@ -321,7 +388,7 @@ internal sealed class MemoryService : IMemoryService
         // caller's now, which the plan leaves out rather than report as a moment someone asked for.
         context = context with
         {
-            Route = RoutePlan(request, context, validAsOf, transactionClockIsNow ? null : systemAsOf, fromQuestion: resolvedFromQuery is not null),
+            Route = RoutePlan(request, context, validAsOf, transactionClockIsNow ? null : systemAsOf, fromQuestion: resolvedFromQuery is not null, routed),
         };
         EmitRoute(activity, context.Route);
 

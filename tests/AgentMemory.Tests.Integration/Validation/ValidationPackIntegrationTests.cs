@@ -60,6 +60,38 @@ public sealed class ValidationPackIntegrationTests : IAsyncLifetime
         result.Failures.Select(f => f.Id).Should().Contain(failing.Split(','));
     }
 
+    /// <summary>
+    /// 40.56, the router's second check: with routing on, every core pack still passes, so no question loses the memory
+    /// that answers it to a kind the router left out.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(CorePacks))]
+    public async Task Every_core_pack_passes_with_routing_on(string id)
+    {
+        var pack = Core(id);
+        var set = new Dictionary<string, JsonElement>(pack.Options.Set) { ["Routing.Enabled"] = JsonSerializer.SerializeToElement(true) };
+
+        var result = await Runner().RunAsync(pack with { Options = pack.Options with { Set = set } });
+
+        result.Failures.Select(f => $"{f.Id}: {f.Detail}").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task With_routing_on_a_statement_recalls_nothing()
+    {
+        var pack = Core("core.semantic.changes");
+        var set = new Dictionary<string, JsonElement>(pack.Options.Set) { ["Routing.Enabled"] = JsonSerializer.SerializeToElement(true) };
+        var statement = new PackQuestion
+        {
+            Id = "a-telling", Owner = "ana", At = DateTimeOffset.Parse("2026-04-10T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture),
+            Ask = "I live in Madrid now.", Exclude = [new PackItem { Fact = "Ana | lives in | Madrid" }],
+        };
+
+        var result = await Runner().RunAsync(pack with { Options = pack.Options with { Set = set }, Questions = [statement] });
+
+        result.Failures.Should().BeEmpty("a telling is extracted, not answered from memory");
+    }
+
     [Fact]
     public async Task Two_runs_of_one_pack_never_meet()
     {

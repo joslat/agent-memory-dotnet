@@ -481,6 +481,9 @@ public class Neo4jMemoryContextProvider : AIContextProvider
                 SessionId = sessionId,
                 UserId = userId,
                 Query = queryText,
+                // 40.56 (R7). The query joins every user message of the invocation; the router reads the turn being
+                // answered. Read only when MemoryOptions.Routing is on.
+                Question = userMessages[^1].Text,
                 QueryEmbedding = queryEmbedding,
                 Options = effectiveOptions
             };

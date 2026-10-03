@@ -65,6 +65,12 @@ public sealed record MemoryOptions
     public RecallFanOutOptions FanOut { get; set; } = new();
 
     /// <summary>
+    /// The core memory router (PLAN 40.56): which memory kinds a recall reads, per question. Off by default; restrict-only
+    /// when on. See <see cref="MemoryRoutingOptions"/>.
+    /// </summary>
+    public MemoryRoutingOptions Routing { get; set; } = new();
+
+    /// <summary>
     /// How many distinct texts the embedding orchestrator remembers the vector of (least recently used
     /// evicted). <c>0</c>, the default, disables the cache.
     /// </summary>

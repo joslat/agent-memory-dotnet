@@ -354,6 +354,10 @@ public static class ServiceCollectionExtensions
             // 30.10. Optional for the same reason as every seam above it: a host that has not
             // registered a deriver resolves null and the planner never runs.
             subQueryDeriver: sp.GetService<Services.ISubQueryDeriver>()));
+        // 40.56. The core memory router, asked only when MemoryOptions.Routing.Enabled; built from the options so a host's
+        // added rules (or a module's) are part of it.
+        services.TryAddSingleton<IMemoryRouter>(sp =>
+            new Routing.RuleBasedMemoryRouter(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.Routing));
         services.TryAddScoped<IMemoryService, MemoryService>();
 
         // 30.10. The deriver is selected by options, not registered twice. Two enumerable

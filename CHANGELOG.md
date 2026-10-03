@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implementation keeps the old semantics), and `MemoryHistoryRecord.ClosedAs`, shown as `closedAs` by the MCP
   `memory_lineage` tool.
 
+- **A memory router** (`MemoryOptions.Routing.Enabled`, off). Recall read every memory kind on every turn; with routing
+  on, a statement reads nothing, and a question reads facts plus the graph, preferences or the session's relevant
+  messages when its words call for them. Restrict-only (a kind not chosen gets cap 0, a chosen one keeps its cap), from
+  rules that are data (`Routing.Rules` adds a host's or a module's own), recorded on the route plan
+  (`MemoryRoutePlan.Routed`, `memory.route.kinds`). `RecallRequest.Question` carries the turn being answered; the Agent
+  Framework provider sets it. On the frozen routing set it serves every answer the read-everything recall serves while
+  reading a third of the kinds; it stays off until the accuracy guard passes on a real store.
 - **Validation packs** (`agentmemory evaluate --pack core|<file>|<directory>`). A pack is a schema, conversations with what
   extraction yields for each message, the storage they must leave and the questions they must answer, run against a live
   store with no model: the pack plays the model, and every message and question is stamped on a replayed clock. Every
