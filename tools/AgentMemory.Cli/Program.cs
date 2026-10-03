@@ -21,12 +21,19 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
     CliHelp.Print(Console.Out);
     return 1;
+}
+
+// routing-score reads a frozen routing set and scores a policy on it: no store, no model (40.61).
+if (string.Equals(cli.Command, "routing-score", StringComparison.OrdinalIgnoreCase))
+{
+    return new AgentMemory.Cli.Commands.RoutingScoreCommand(Console.Out)
+        .Execute(cli.Get("set"), cli.Get("split"), cli.Get("policy"));
 }
 
 // schema-parity is pure static analysis of embedded snapshots — no Neo4j connection or host needed.
