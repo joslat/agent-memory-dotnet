@@ -74,12 +74,23 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     /// <paramref name="changedAt"/> and keeps it believed, a correction withdraws belief. Without it, exactly the call
     /// every closing made before, so the default is unchanged.
     /// </summary>
-    private Task<bool> CloseFactAsync(
+    private async Task<bool> CloseFactAsync(
         string loserId, string winnerId, FactClosureReason reason, DateTimeOffset? changedAt, MemoryScope? scope,
-        CancellationToken cancellationToken) =>
-        _options.BitemporalChanges
-            ? _factRepository.SupersedeAsync(loserId, winnerId, reason, changedAt, scope, cancellationToken)
-            : _factRepository.SupersedeAsync(loserId, winnerId, scope, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        var closed = _options.BitemporalChanges
+            ? await _factRepository.SupersedeAsync(loserId, winnerId, reason, changedAt, scope, cancellationToken).ConfigureAwait(false)
+            : await _factRepository.SupersedeAsync(loserId, winnerId, scope, cancellationToken).ConfigureAwait(false);
+        if (closed) s_closings.Value?.Add((winnerId, loserId));
+        return closed;
+    }
+
+    /// <summary>
+    /// G4. The closings of the persist in flight, for its outcomes: set at the start of <see cref="PersistPreparedAsync"/>,
+    /// so every closing awaited inside it lands here and none outside it does (an async method's AsyncLocal does not flow
+    /// back to its caller). No query: the closings are already known when they are written.
+    /// </summary>
+    private static readonly AsyncLocal<List<(string Winner, string Loser)>?> s_closings = new();
 
     /// <summary>When a change took effect: the new value's stated start, else the day it happened, else when it was said.</summary>
     private static DateTimeOffset ChangedAt(Fact winner, DateTimeOffset now) => winner.ValidFrom ?? winner.OccurredOn ?? now;
@@ -409,6 +420,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
         var outcomes = new List<IngestionItemOutcome>(extraction.Outcomes);
         outcomes.AddRange(prepared.Outcomes);
+        var closings = new List<(string Winner, string Loser)>();
+        s_closings.Value = closings;
 
         // 1. Embed + upsert entities; build a name→persisted Entity map for relationship resolution.
         var persistedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
@@ -841,7 +854,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         {
             // Fact upsert MERGEs on the natural triple and may return an older stable id. Always use
             // the repository result for outcomes and provenance rather than the fresh caller id.
-            RecordSuccess(outcomes, MemoryItemKind.Fact, sourceKey, persisted.FactId);
+            RecordSuccess(outcomes, MemoryItemKind.Fact, sourceKey, persisted.FactId,
+                createdHere.Contains(persisted.FactId) ? MemoryWriteEffect.Created : MemoryWriteEffect.AlreadyStored);
             Written(sourceKey, extractedByKey.GetValueOrDefault(sourceKey), persisted);
 
             // W-E1. Link the fact to the entities its subject or object NAMES. Extraction has always
@@ -1294,9 +1308,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         var persistedPrefCount = 0;
 
         async Task RecordPersistedPreferenceAsync(
-            string sourceKey, Preference persisted, IReadOnlyList<string> provenanceMessageIds)
+            string sourceKey, Preference persisted, IReadOnlyList<string> provenanceMessageIds, bool created)
         {
-            RecordSuccess(outcomes, MemoryItemKind.Preference, sourceKey, persisted.PreferenceId);
+            RecordSuccess(outcomes, MemoryItemKind.Preference, sourceKey, persisted.PreferenceId,
+                created ? MemoryWriteEffect.Created : MemoryWriteEffect.AlreadyStored);
             PreferenceWritten(sourceKey, persisted);
 
             // The input item's resolved ids, for the same reason the fact path uses them.
@@ -1360,7 +1375,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             {
                 var persisted = await _preferenceRepository.UpsertAsync(item, cancellationToken).ConfigureAwait(false);
                 await RecordPersistedPreferenceAsync(
-                    sourceKey, persisted, item.SourceMessageIds).ConfigureAwait(false);
+                    sourceKey, persisted, item.SourceMessageIds, created: persisted.PreferenceId == item.PreferenceId).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (MemoryIngestionException) { throw; }
@@ -1419,7 +1434,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             foreach (var input in preferenceInputs)
                 await RecordPersistedPreferenceAsync(
                     input.SourceKey, batchedPreferencesById[input.Item.PreferenceId],
-                    input.Item.SourceMessageIds).ConfigureAwait(false);
+                    input.Item.SourceMessageIds,
+                    created: batchedPreferencesById[input.Item.PreferenceId].PreferenceId == input.Item.PreferenceId).ConfigureAwait(false);
         }
         else
         {
@@ -1616,11 +1632,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         var persistedRelCount = 0;
 
         var persistedRelationshipIds = new HashSet<string>(StringComparer.Ordinal);
-        void RecordPersistedRelationship(string sourceKey, Relationship persisted)
+        void RecordPersistedRelationship(string sourceKey, Relationship persisted, bool created)
         {
             persistedRelationshipIds.Add(persisted.RelationshipId);
             persistedRelCount++;
-            RecordSuccess(outcomes, MemoryItemKind.Relationship, sourceKey, persisted.RelationshipId);
+            RecordSuccess(outcomes, MemoryItemKind.Relationship, sourceKey, persisted.RelationshipId,
+                created ? MemoryWriteEffect.Created : MemoryWriteEffect.AlreadyStored);
             _logger.LogDebug("Persisted relationship '{SourceKey}'.", sourceKey);
         }
 
@@ -1629,7 +1646,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             try
             {
                 var persisted = await _relationshipRepository.UpsertAsync(item, cancellationToken).ConfigureAwait(false);
-                RecordPersistedRelationship(sourceKey, persisted);
+                RecordPersistedRelationship(sourceKey, persisted, created: persisted.RelationshipId == item.RelationshipId);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (MemoryIngestionException) { throw; }
@@ -1673,7 +1690,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         {
             foreach (var input in relationshipInputs)
                 RecordPersistedRelationship(
-                    input.SourceKey, batchedRelationshipsById[input.Item.RelationshipId]);
+                    input.SourceKey, batchedRelationshipsById[input.Item.RelationshipId],
+                    created: batchedRelationshipsById[input.Item.RelationshipId].RelationshipId == input.Item.RelationshipId);
         }
         else
         {
@@ -1741,6 +1759,19 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 + "canonicalise into that set, or supersession does not apply to this material.",
                 supersessionRefusals,
                 string.Join(", ", MemoryRelationCardinality.SingleValuedPredicates));
+        }
+
+        // G4. Each fact that closed others says which.
+        if (closings.Count > 0)
+        {
+            var closedBy = closings.GroupBy(c => c.Winner, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)[.. g.Select(c => c.Loser).Distinct(StringComparer.Ordinal)], StringComparer.Ordinal);
+            for (var i = 0; i < outcomes.Count; i++)
+            {
+                if (outcomes[i] is { Kind: MemoryItemKind.Fact, Status: IngestionItemStatus.Succeeded, PersistedId: { } id } &&
+                    closedBy.TryGetValue(id, out var losers))
+                    outcomes[i] = outcomes[i] with { Closed = losers };
+            }
         }
 
         return new PersistenceResult
@@ -2113,6 +2144,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 Status = IngestionItemStatus.Skipped,
                 SourceKey = $"{loser.Item.Subject} {loser.Item.Predicate} {loser.Item.Object}",
                 ErrorCode = MemoryErrorCodes.FactMergedWithinExtraction,
+                Effect = MemoryWriteEffect.MergedWithinExtraction,
                 ErrorMessage = $"Same statement as '{winner.Item.Subject} {winner.Item.Predicate} {winner.Item.Object}' in this extraction.",
             });
         }
@@ -2205,7 +2237,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
     /// <summary>Appends a <see cref="IngestionItemStatus.Succeeded"/> outcome (#101).</summary>
     private static void RecordSuccess(
-        List<IngestionItemOutcome> outcomes, MemoryItemKind kind, string? sourceKey, string? persistedId) =>
+        List<IngestionItemOutcome> outcomes, MemoryItemKind kind, string? sourceKey, string? persistedId,
+        MemoryWriteEffect effect = MemoryWriteEffect.Unreported) =>
         outcomes.Add(new IngestionItemOutcome
         {
             Kind = kind,
@@ -2213,6 +2246,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             Status = IngestionItemStatus.Succeeded,
             SourceKey = sourceKey,
             PersistedId = persistedId,
+            Effect = effect,
         });
 
     /// <summary>

@@ -80,6 +80,24 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
             "ResolveTemporalQueries off (the library default): the date in the question is not read");
     }
 
+    /// <summary>G4 (40.48), on a real store and the batched write path: a change's outcome names the fact it closed.</summary>
+    [Fact]
+    public async Task A_changes_outcome_names_the_fact_it_closed()
+    {
+        Build(bitemporal: true);
+        var first = await SayAsync("I live in Bilbao.");
+        var bilbao = first.Outcomes.Single(o => o.Kind == MemoryItemKind.Fact && o.Status == IngestionItemStatus.Succeeded);
+        bilbao.Effect.Should().Be(MemoryWriteEffect.Created);
+
+        var moved = await SayAsync("I moved to Madrid in March.");
+
+        var madrid = moved.Outcomes.Single(o => o.Kind == MemoryItemKind.Fact && o.Status == IngestionItemStatus.Succeeded);
+        madrid.Effect.Should().Be(MemoryWriteEffect.Created);
+        madrid.Closed.Should().Equal([bilbao.PersistedId]);
+        (await SayAsync("Bilbao is home.")).Outcomes.Single(o => o.Kind == MemoryItemKind.Fact && o.Status == IngestionItemStatus.Succeeded)
+            .Effect.Should().NotBe(MemoryWriteEffect.Unreported);
+    }
+
     [Fact]
     public async Task Without_the_option_a_change_loses_the_past()
     {
@@ -284,7 +302,7 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
         return await cursor.ToListAsync();
     }
 
-    private async Task SayAsync(string text)
+    private async Task<ExtractionResult> SayAsync(string text)
     {
         using var scope = _provider!.CreateScope();
         var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
@@ -295,7 +313,7 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
             MessageId = $"m-{Guid.NewGuid():N}", ConversationId = "conv-bitemporal", SessionId = "s-bitemporal",
             Role = "user", Content = text, TimestampUtc = DateTimeOffset.UtcNow,
         });
-        await pipeline.ExtractAsync(new ExtractionRequest { SessionId = "s-bitemporal", UserId = Owner, Messages = [message] });
+        return await pipeline.ExtractAsync(new ExtractionRequest { SessionId = "s-bitemporal", UserId = Owner, Messages = [message] });
     }
 
     /// <summary>What each line says, as a model would extract it.</summary>

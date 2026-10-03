@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`MemoryRoutePlan.Routed`, `memory.route.kinds`). `RecallRequest.Question` carries the turn being answered; the Agent
   Framework provider sets it. On the frozen routing set it serves every answer the read-everything recall serves while
   reading a third of the kinds; it stays off until the accuracy guard passes on a real store.
+- **Write effects on ingestion outcomes.** `IngestionItemOutcome.Effect` says what a successful write did: `Created`,
+  `AlreadyStored` (the same fact, preference or relationship was there), or `MergedWithinExtraction` for a duplicate
+  folded into another item; `Closed` lists the facts a change or a correction closed. Entities report `Unreported` for
+  now (resolution decides it and does not say so). No extra query: the effects are known where they are written.
 - **Validation packs** (`agentmemory evaluate --pack core|<file>|<directory>`). A pack is a schema, conversations with what
   extraction yields for each message, the storage they must leave and the questions they must answer, run against a live
   store with no model: the pack plays the model, and every message and question is stamped on a replayed clock. Every
