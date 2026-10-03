@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A fact that says nothing is no longer stored.** "Rosa | is named | Rosa" was written and recalled as a person's first
+  memory, taking a recall slot. A fact whose subject and object are the same name, once names are resolved, is skipped
+  with the outcome `MEMORY_FACT_TAUTOLOGY` (`MemoryErrorCodes.FactTautology`).
 - **One clock.** The Neo4j store stamped closings, live recall's "now", recency and `updated_at` from the wall clock
   while the rest of the library used `IClock`, so a host or a test that registered its own clock set only half of the
   times one recall compares. Every time in the memory path now comes from `IClock` (a guard test keeps it so); without a
