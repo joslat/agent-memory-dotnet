@@ -93,6 +93,12 @@ public sealed record PackSession
     /// <summary>The session id, unique in the pack.</summary>
     public required string Id { get; init; }
 
+    /// <summary>
+    /// Taught for everyone (<c>ExtractionRequest.ShareWithEveryone</c>): what it says is stored with no owner, recalled by
+    /// every owner and listed in nobody's profile. <see cref="Owner"/> is who taught it.
+    /// </summary>
+    public bool Shared { get; init; }
+
     /// <summary>The messages, in order.</summary>
     public IReadOnlyList<PackMessage> Messages { get; init; } = [];
 }

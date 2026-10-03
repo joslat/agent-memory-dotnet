@@ -1,0 +1,41 @@
+{
+  "format": "agentmemory-pack/1",
+  "id": "core.shared",
+  "title": "Knowledge taught for everyone is recalled by every owner, and nobody's own memories travel with it",
+  "covers": ["facts"],
+  "options": { "preset": "conversational" },
+  "schema": {
+    "entityTypes": ["PERSON", "LOCATION", "WORK"],
+    "predicates": [{ "name": "follows" }, { "name": "is written by" }, { "name": "lives in", "single": true }]
+  },
+  "owners": ["ana", "bob"],
+  "sessions": [
+    {
+      "owner": "ana", "id": "book", "shared": true,
+      "messages": [
+        { "at": "2026-09-01T10:00:00Z", "text": "In Alice's Adventures in Wonderland, written by Lewis Carroll, Alice follows the White Rabbit down a rabbit hole.",
+          "entities": [{ "name": "Alice", "type": "PERSON" }, { "name": "White Rabbit", "type": "PERSON" }, { "name": "Lewis Carroll", "type": "PERSON" }],
+          "facts": [
+            { "s": "Alice", "p": "follows", "o": "the White Rabbit" },
+            { "s": "Alice's Adventures in Wonderland", "p": "is written by", "o": "Lewis Carroll" }
+          ] }
+      ]
+    },
+    {
+      "owner": "ana", "id": "ana-1",
+      "messages": [
+        { "at": "2026-09-02T09:00:00Z", "text": "I'm Ana and I live in Lisbon.",
+          "entities": [{ "name": "Ana", "type": "PERSON" }, { "name": "Lisbon", "type": "LOCATION" }],
+          "facts": [{ "s": "Ana", "p": "lives in", "o": "Lisbon" }] }
+      ]
+    }
+  ],
+  "questions": [
+    { "id": "bob-reads-the-book", "owner": "bob", "at": "2026-09-03T09:00:00Z", "ask": "Who did Alice follow down the hole?",
+      "expect": [{ "fact": "Alice | follows | the White Rabbit" }], "exclude": [{ "fact": "Ana | lives in | Lisbon" }], "kinds": ["facts"] },
+    { "id": "ana-reads-the-book", "owner": "ana", "at": "2026-09-03T09:00:00Z", "ask": "Who wrote Alice's Adventures in Wonderland?",
+      "expect": [{ "fact": "Alice's Adventures in Wonderland | is written by | Lewis Carroll" }], "kinds": ["facts"] },
+    { "id": "ana-is-not-alice", "owner": "ana", "at": "2026-09-03T09:00:00Z", "ask": "Where does Ana live?",
+      "expect": [{ "fact": "Ana | lives in | Lisbon" }], "kinds": ["facts"] }
+  ]
+}
