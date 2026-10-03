@@ -900,10 +900,12 @@ MATCH (n) WHERE n.owner_id = $ownerId
 
 ## OwnerDataQueries.ExportAbout
 MATCH (f:Fact)-[:ABOUT]->(e:Entity) WHERE f.owner_id = $ownerId
+              AND ((e.owner_id = $ownerId AND e.invalidated_at IS NULL AND e.merged_into IS NULL) OR e.owner_id IS NULL)
             RETURN f.id AS from, e.id AS to
 
 ## OwnerDataQueries.ExportEntities
-MATCH (n:Entity) WHERE n.owner_id = $ownerId RETURN n ORDER BY n.created_at, n.id
+MATCH (n:Entity) WHERE n.owner_id = $ownerId AND n.invalidated_at IS NULL AND n.merged_into IS NULL
+            RETURN n ORDER BY n.created_at, n.id
 
 ## OwnerDataQueries.ExportFacts
 MATCH (n:Fact) WHERE n.owner_id = $ownerId RETURN n ORDER BY n.created_at, n.id
@@ -912,7 +914,10 @@ MATCH (n:Fact) WHERE n.owner_id = $ownerId RETURN n ORDER BY n.created_at, n.id
 MATCH (n:Preference) WHERE n.owner_id = $ownerId RETURN n ORDER BY n.created_at, n.id
 
 ## OwnerDataQueries.ExportRelationships
-MATCH (:Entity)-[r:RELATED_TO]->(:Entity) WHERE r.owner_id = $ownerId RETURN r
+MATCH (a:Entity)-[r:RELATED_TO]->(b:Entity) WHERE r.owner_id = $ownerId
+              AND ((a.owner_id = $ownerId AND a.invalidated_at IS NULL AND a.merged_into IS NULL) OR a.owner_id IS NULL)
+              AND ((b.owner_id = $ownerId AND b.invalidated_at IS NULL AND b.merged_into IS NULL) OR b.owner_id IS NULL)
+            RETURN r
 
 ## OwnerDataQueries.ExportSupersessions
 MATCH (l:Fact)-[:SUPERSEDED_BY]->(w:Fact) WHERE l.owner_id = $ownerId

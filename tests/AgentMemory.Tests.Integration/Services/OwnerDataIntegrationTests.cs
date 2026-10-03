@@ -79,6 +79,33 @@ public sealed class OwnerDataIntegrationTests : IAsyncLifetime
         (await LiveCitiesAsync("carla")).Should().Equal(["Madrid"]);
     }
 
+    /// <summary>
+    /// The review's finding: a merged-away entity came across live beside its survivor, and a fact still linked to it
+    /// (data from before F8 moved links on merge) was linked, in the same store, to the original owner's entity.
+    /// </summary>
+    [Fact]
+    public async Task An_import_brings_no_merged_away_entity_back_and_joins_no_two_owners()
+    {
+        await SayAsync("ana", "I live in Bilbao.");
+        await using (var session = _fixture.Driver.AsyncSession())
+            await session.RunAsync(@"
+                MATCH (f:Fact {owner_id: 'ana'})
+                CREATE (old:Entity {id: 'e-pruya', name: 'Pruya', type: 'PERSON', owner_id: 'ana', merged_into: 'e-priya',
+                                    invalidated_at: datetime(), created_at: datetime(), confidence: 0.9})
+                CREATE (:Entity {id: 'e-priya', name: 'Priya', type: 'PERSON', owner_id: 'ana', created_at: datetime(), confidence: 0.9})
+                CREATE (f)-[:ABOUT]->(old)");
+
+        using var scope = _provider!.CreateScope();
+        var owners = scope.ServiceProvider.GetRequiredService<IMemoryOwnerDataService>();
+        var export = await owners.ExportAsync("ana");
+        await owners.ImportAsync(export, "carla");
+
+        export.Entities.Select(e => e.Name).Should().Equal(["Priya"], "the merged-away entity is not exported");
+        (await ScalarAsync("MATCH (e:Entity {owner_id: 'carla', name: 'Pruya'}) RETURN count(e)")).Should().Be(0);
+        (await scope.ServiceProvider.GetRequiredService<IMemoryIntegrityService>().CheckAsync("carla")).Passed
+            .Should().BeTrue("no imported link reaches another owner's entity");
+    }
+
     private void Build()
     {
         var services = new ServiceCollection();

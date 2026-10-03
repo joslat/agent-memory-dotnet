@@ -117,11 +117,13 @@ internal sealed class Neo4jMemoryOwnerDataService(
         }
         foreach (var relationship in export.Relationships)
         {
-            // An edge whose ends were not exported (another owner's entity) cannot be placed, and is left out.
-            if (!map.TryGetValue(relationship.SourceEntityId, out var source) || !map.TryGetValue(relationship.TargetEntityId, out var target)) continue;
+            // An end not in the export is a shared entity (the export holds nothing else): the edge goes to it as it is.
             var stored = await relationships.UpsertAsync(relationship with
             {
-                RelationshipId = ids.GenerateId(), SourceEntityId = source, TargetEntityId = target, OwnerId = ownerId,
+                RelationshipId = ids.GenerateId(),
+                SourceEntityId = map.GetValueOrDefault(relationship.SourceEntityId, relationship.SourceEntityId),
+                TargetEntityId = map.GetValueOrDefault(relationship.TargetEntityId, relationship.TargetEntityId),
+                OwnerId = ownerId,
                 Metadata = Plain(relationship.Metadata),
             }, cancellationToken).ConfigureAwait(false);
             map[relationship.RelationshipId] = stored.RelationshipId;

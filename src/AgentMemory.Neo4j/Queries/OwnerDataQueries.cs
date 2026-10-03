@@ -25,8 +25,13 @@ public static class OwnerDataQueries
             DETACH DELETE c
             RETURN 'Conversation' AS label, count(*) AS deleted";
 
-    /// <summary>The owner's entities.</summary>
-    public const string ExportEntities = "MATCH (n:Entity) WHERE n.owner_id = $ownerId RETURN n ORDER BY n.created_at, n.id";
+    /// <summary>
+    /// The owner's live entities. A merged-away or forgotten entity is left out: imported, it would come back live beside
+    /// the one it was merged into.
+    /// </summary>
+    public const string ExportEntities = @"
+            MATCH (n:Entity) WHERE n.owner_id = $ownerId AND n.invalidated_at IS NULL AND n.merged_into IS NULL
+            RETURN n ORDER BY n.created_at, n.id";
 
     /// <summary>The owner's facts, live and closed, oldest first.</summary>
     public const string ExportFacts = "MATCH (n:Fact) WHERE n.owner_id = $ownerId RETURN n ORDER BY n.created_at, n.id";
@@ -34,17 +39,26 @@ public static class OwnerDataQueries
     /// <summary>The owner's preferences, live and closed, oldest first.</summary>
     public const string ExportPreferences = "MATCH (n:Preference) WHERE n.owner_id = $ownerId RETURN n ORDER BY n.created_at, n.id";
 
-    /// <summary>The owner's relationship edges.</summary>
-    public const string ExportRelationships = "MATCH (:Entity)-[r:RELATED_TO]->(:Entity) WHERE r.owner_id = $ownerId RETURN r";
+    /// <summary>The owner's relationship edges between entities that are exported or shared (see <see cref="ExportAbout"/>).</summary>
+    public const string ExportRelationships = @"
+            MATCH (a:Entity)-[r:RELATED_TO]->(b:Entity) WHERE r.owner_id = $ownerId
+              AND ((a.owner_id = $ownerId AND a.invalidated_at IS NULL AND a.merged_into IS NULL) OR a.owner_id IS NULL)
+              AND ((b.owner_id = $ownerId AND b.invalidated_at IS NULL AND b.merged_into IS NULL) OR b.owner_id IS NULL)
+            RETURN r";
 
     /// <summary>Which of the owner's facts replaced which.</summary>
     public const string ExportSupersessions = @"
             MATCH (l:Fact)-[:SUPERSEDED_BY]->(w:Fact) WHERE l.owner_id = $ownerId
             RETURN l.id AS from, w.id AS to";
 
-    /// <summary>Which entities the owner's facts are about.</summary>
+    /// <summary>
+    /// Which entities the owner's facts are about: the exported ones, or shared ones. Nothing else: an import keeps a link
+    /// to an entity it did not write by its id, which is right only for a shared entity (in the same store, the id of a
+    /// merged-away entity of the owner would join two owners).
+    /// </summary>
     public const string ExportAbout = @"
             MATCH (f:Fact)-[:ABOUT]->(e:Entity) WHERE f.owner_id = $ownerId
+              AND ((e.owner_id = $ownerId AND e.invalidated_at IS NULL AND e.merged_into IS NULL) OR e.owner_id IS NULL)
             RETURN f.id AS from, e.id AS to";
 
     /// <summary>An imported fact's closing, as it was.</summary>
