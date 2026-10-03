@@ -21,6 +21,9 @@ public sealed record MemoryWhyNot
     /// <summary>Closed by a change or a correction; <see cref="RelatedId"/> is what replaced it, when known.</summary>
     public const string Closed = "closed";
 
+    /// <summary>An entity merged into another (a corrected name, a duplicate); <see cref="RelatedId"/> is the one it lives on in.</summary>
+    public const string Merged = "merged";
+
     /// <summary>Let go by decay.</summary>
     public const string Decayed = "decayed";
 
@@ -29,6 +32,12 @@ public sealed record MemoryWhyNot
 
     /// <summary>Outside its valid time at the recall's instant, and the recall reads valid time.</summary>
     public const string Validity = "validity";
+
+    /// <summary>
+    /// Has no embedding (written without one, or an entity merged and not yet embedded again), so similarity search
+    /// cannot find it. <c>IMemoryMaintenance.GenerateEmbeddingsBatchAsync</c> embeds what has none.
+    /// </summary>
+    public const string NotEmbedded = "not-embedded";
 
     /// <summary>Scored below the similarity floor; <see cref="Score"/> and <see cref="Floor"/> say by how much.</summary>
     public const string Similarity = "similarity";

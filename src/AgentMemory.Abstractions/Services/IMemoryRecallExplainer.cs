@@ -8,6 +8,9 @@ namespace AgentMemory.Abstractions.Services;
 /// </summary>
 public interface IMemoryRecallExplainer
 {
-    /// <summary>For <paramref name="request"/>, why the fact <paramref name="factId"/> was or was not recalled.</summary>
-    Task<MemoryWhyNot> WhyNotFactAsync(RecallRequest request, string factId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// For <paramref name="request"/>, why the memory <paramref name="itemId"/> of <paramref name="kind"/> (a fact, an entity
+    /// or a preference) was or was not recalled.
+    /// </summary>
+    Task<MemoryWhyNot> WhyNotAsync(RecallRequest request, MemoryItemKind kind, string itemId, CancellationToken cancellationToken = default);
 }

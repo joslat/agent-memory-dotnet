@@ -43,7 +43,7 @@ public sealed class MemoryRecallExplainerTests
         var options = new MemoryOptions();
         options.Routing.Enabled = true;
 
-        var why = await Sut(Fact(), options).WhyNotFactAsync(Ask("I have a dentist appointment on Friday."), "f1");
+        var why = await Sut(Fact(), options).WhyNotAsync(Ask("I have a dentist appointment on Friday."), MemoryItemKind.Fact, "f1");
 
         why.Gate.Should().Be(MemoryWhyNot.Router);
         why.Detail.Should().Contain("statement");
@@ -53,7 +53,7 @@ public sealed class MemoryRecallExplainerTests
     public async Task A_fact_past_its_window_is_kept_out_when_recall_reads_valid_time()
     {
         var why = await Sut(Fact(validUntil: Now.AddDays(-1)), new MemoryOptions())
-            .WhyNotFactAsync(Ask("When is my dentist appointment?", RecallOptions.Default with { ValidTime = ValidTimeMode.Current }), "f1");
+            .WhyNotAsync(Ask("When is my dentist appointment?", RecallOptions.Default with { ValidTime = ValidTimeMode.Current }), MemoryItemKind.Fact, "f1");
 
         why.Gate.Should().Be(MemoryWhyNot.Validity);
     }

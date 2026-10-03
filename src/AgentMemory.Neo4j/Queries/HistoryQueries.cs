@@ -20,7 +20,7 @@ internal static class HistoryQueries
 
         return "CALL {\n" + string.Join("\nUNION ALL\n", segments) + @"
 }
-RETURN kind, id, summary, ownerId, createdAt, updatedAt, invalidatedAt, closedAs, lastAccessedAt, accessCount,
+RETURN kind, id, summary, ownerId, createdAt, updatedAt, invalidatedAt, closedAs, mergedInto, lastAccessedAt, accessCount,
        readAuditCount, lastReadAuditAt, validFrom, validUntil, occurredOn, sourceMessageIds, supersededByIds,
        supersedesIds, metadata
 ORDER BY coalesce(lastReadAuditAt, lastAccessedAt, invalidatedAt, updatedAt, createdAt) DESC, id ASC
@@ -53,6 +53,7 @@ RETURN 'Entity' AS kind,
        n.updated_at AS updatedAt,
        n.invalidated_at AS invalidatedAt,
        n.invalidated_reason AS closedAs,
+       n.merged_into AS mergedInto,
        n.last_accessed_at AS lastAccessedAt,
        coalesce(n.access_count, 0) AS accessCount,
        readAuditCount,
@@ -85,6 +86,7 @@ RETURN 'Fact' AS kind,
        n.updated_at AS updatedAt,
        n.invalidated_at AS invalidatedAt,
        n.invalidated_reason AS closedAs,
+       n.merged_into AS mergedInto,
        n.last_accessed_at AS lastAccessedAt,
        coalesce(n.access_count, 0) AS accessCount,
        readAuditCount,
@@ -117,6 +119,7 @@ RETURN 'Preference' AS kind,
        n.updated_at AS updatedAt,
        n.invalidated_at AS invalidatedAt,
        n.invalidated_reason AS closedAs,
+       n.merged_into AS mergedInto,
        n.last_accessed_at AS lastAccessedAt,
        coalesce(n.access_count, 0) AS accessCount,
        readAuditCount,
