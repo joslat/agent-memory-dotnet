@@ -37,6 +37,14 @@ public interface IFactRepository
     /// <summary>Gets facts by subject.</summary>
     Task<IReadOnlyList<Fact>> GetBySubjectAsync(string subject, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Gets facts whose object is exactly <paramref name="object"/>: what a rename reaches on the object side ("Priya |
+    /// owns | Rex" when Rex is renamed). An implementation without it returns none, so a rename then restates only the
+    /// facts whose subject carries the old name.
+    /// </summary>
+    Task<IReadOnlyList<Fact>> GetByObjectAsync(string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>([]);
+
     /// <summary>Searches facts by vector similarity.</summary>
     Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
         float[] queryEmbedding,

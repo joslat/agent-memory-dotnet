@@ -294,6 +294,15 @@ internal static class FactQueries
         return $"MATCH (f:Fact) WHERE f.subject = $subject{owner} RETURN f";
     }
 
+    /// <summary>K-4 (38.2). <see cref="GetBySubject"/>'s shape on the object side.</summary>
+    public static string GetByObject(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+        return $"MATCH (f:Fact) WHERE f.object = $object{owner} RETURN f";
+    }
+
     // ── Write-time supersession (M1) ───────────────────────────────────
 
     /// <summary>

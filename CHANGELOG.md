@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A fact that says nothing is no longer stored.** "Rosa | is named | Rosa" was written and recalled as a person's first
   memory, taking a recall slot. A fact whose subject and object are the same name, once names are resolved, is skipped
   with the outcome `MEMORY_FACT_TAUTOLOGY` (`MemoryErrorCodes.FactTautology`).
+- **A corrected name reaches the facts that name it.** With `RenameOnCorrectedName`, "the dog is Max, not Rex" restated
+  what was said *about* Rex but left "Priya | walks | Rex" naming the old name. Facts whose object is the old name now
+  follow too, closed and restated under the new name (never edited); a naming fact of another subject is left alone, and
+  another owner's facts are never touched. Restated facts are closed as corrections (with `BitemporalChanges` their valid
+  time stays as it was) and, with `LinkFactsToEntities`, linked to their entities as a new fact would be. New
+  `IFactRepository.GetByObjectAsync` (a default implementation returns none, so the rename stays subject-side only).
 - **A merge moves facts' links too.** Merging two entities moved mentions, same-as links and relationships to the
   survivor but left facts' `ABOUT` links on the merged-away entity, which every live read skips, so those facts dropped
   out of identity expansion and the structural re-ranker. They now move with the rest; a scoped merge moves only the

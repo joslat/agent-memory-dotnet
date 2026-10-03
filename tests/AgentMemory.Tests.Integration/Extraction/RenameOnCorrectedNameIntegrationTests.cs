@@ -2,6 +2,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using FluentAssertions;
+using Neo4j.Driver;
 using AgentMemory;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
@@ -22,6 +23,7 @@ namespace AgentMemory.Tests.Integration.Extraction;
 public sealed class RenameOnCorrectedNameIntegrationTests : IAsyncLifetime
 {
     private const string Owner = "rename-probe-priya";
+    private const string OtherOwner = "rename-probe-bob";
     private readonly Neo4jIntegrationFixture _fixture;
 
     public RenameOnCorrectedNameIntegrationTests(Neo4jIntegrationFixture fixture) => _fixture = fixture;
@@ -47,6 +49,16 @@ public sealed class RenameOnCorrectedNameIntegrationTests : IAsyncLifetime
         ["No, the cat's name is Miso."] = (
             [new() { Name = "Miso", Type = "ANIMAL", Confidence = 0.95 }],
             [new() { Subject = "cat", Predicate = "is called", Object = "Miso", Confidence = 0.95, Replaces = "Missou" }]),
+        ["My dog is called Rex, and I walk Rex every morning."] = (
+            [new() { Name = "Rex", Type = "ANIMAL", Confidence = 0.95 }, new() { Name = "Priya", Type = "PERSON", Confidence = 0.95 }],
+            [new() { Subject = "dog", Predicate = "is called", Object = "Rex", Confidence = 0.95 },
+             new() { Subject = "Priya", Predicate = "walks", Object = "Rex", Confidence = 0.9 }]),
+        ["Sorry, the dog is Max, not Rex."] = (
+            [new() { Name = "Max", Type = "ANIMAL", Confidence = 0.95 }],
+            [new() { Subject = "dog", Predicate = "is called", Object = "Max", Confidence = 0.95, Replaces = "Rex" }]),
+        ["Bob walks a dog called Rex too."] = (
+            [new() { Name = "Rex", Type = "ANIMAL", Confidence = 0.95 }],
+            [new() { Subject = "Bob", Predicate = "walks", Object = "Rex", Confidence = 0.9 }]),
     };
 
     [Fact]
@@ -107,6 +119,36 @@ public sealed class RenameOnCorrectedNameIntegrationTests : IAsyncLifetime
         cat.Aliases.Should().Contain("Missou").And.NotContain("Miso");
     }
 
+    /// <summary>
+    /// K-4 (38.2): a fact that names the old name as its object follows the rename too, closed and restated (never
+    /// edited), and is linked to the renamed entity; another owner's "Rex" is another dog and stays as it was.
+    /// </summary>
+    [Fact]
+    public async Task Facts_naming_the_old_name_as_their_object_follow_and_another_owners_stay()
+    {
+        await using var provider = Build(rename: true, link: true);
+        await SayAsync(provider, "Bob walks a dog called Rex too.", OtherOwner);
+        await SayAsync(provider, "My dog is called Rex, and I walk Rex every morning.");
+        await SayAsync(provider, "Sorry, the dog is Max, not Rex.");
+
+        using var services = provider.CreateScope();
+        var (_, facts) = Repositories(services.ServiceProvider);
+        var scope = MemoryScope.For(Owner, includeShared: false);
+
+        var walks = await facts.FindByTripleAsync("Priya", "walks", "Max", scope);
+        walks.Should().NotBeNull().And.Match<Fact>(f => f.InvalidatedAtUtc == null, "the fact naming the dog now names it rightly");
+        (await facts.FindByTripleAsync("Priya", "walks", "Rex", scope))!.InvalidatedAtUtc.Should().NotBeNull(
+            "the original is closed, kept as history");
+        (await facts.FindByTripleAsync("Bob", "walks", "Rex", MemoryScope.For(OtherOwner, includeShared: false)))!
+            .InvalidatedAtUtc.Should().BeNull("another owner's Rex is another dog");
+
+        await using var session = _fixture.Driver.AsyncSession();
+        var cursor = await session.RunAsync(
+            "MATCH (:Fact {id: $id})-[:ABOUT]->(e:Entity) RETURN collect(e.name) AS names", new { id = walks!.FactId });
+        var names = ValueExtensions.As<List<string>>((await cursor.SingleAsync())["names"]);
+        names.Should().BeEquivalentTo(["Priya", "Max"], "a restated fact is linked as a new one would be");
+    }
+
     [Fact]
     public async Task Off_by_default_the_old_name_stays_beside_the_new_one()
     {
@@ -125,32 +167,32 @@ public sealed class RenameOnCorrectedNameIntegrationTests : IAsyncLifetime
     private static (IEntityRepository Entities, IFactRepository Facts) Repositories(IServiceProvider provider) =>
         (provider.GetRequiredService<IEntityRepository>(), provider.GetRequiredService<IFactRepository>());
 
-    private static async Task SayAsync(ServiceProvider provider, string text)
+    private static async Task SayAsync(ServiceProvider provider, string text, string owner = Owner)
     {
         using var scope = provider.CreateScope();
         var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
         var pipeline = scope.ServiceProvider.GetRequiredService<IMemoryExtractionPipeline>();
-        await shortTerm.AddConversationAsync("conv-rename", "session-rename", userId: Owner);
+        await shortTerm.AddConversationAsync($"conv-rename-{owner}", $"session-rename-{owner}", userId: owner);
         var message = await shortTerm.AddMessageAsync(new Message
         {
             MessageId = $"m-{Guid.NewGuid():N}",
-            ConversationId = "conv-rename",
-            SessionId = "session-rename",
+            ConversationId = $"conv-rename-{owner}",
+            SessionId = $"session-rename-{owner}",
             Role = "user",
             Content = text,
             TimestampUtc = DateTimeOffset.UtcNow,
         });
-        await pipeline.ExtractAsync(new ExtractionRequest { SessionId = "session-rename", UserId = Owner, Messages = [message] });
+        await pipeline.ExtractAsync(new ExtractionRequest { SessionId = $"session-rename-{owner}", UserId = owner, Messages = [message] });
     }
 
-    private ServiceProvider Build(bool rename)
+    private ServiceProvider Build(bool rename, bool link = false)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IEntityExtractor, ScriptedEntities>();
         services.AddSingleton<IFactExtractor, ScriptedFacts>();
         services.AddNeo4jAgentMemory(
-            new MemoryOptions { Extraction = { SupersedeReplacedFacts = true, RenameOnCorrectedName = rename } },
+            new MemoryOptions { Extraction = { SupersedeReplacedFacts = true, RenameOnCorrectedName = rename, LinkFactsToEntities = link } },
             configureNeo4j: o =>
             {
                 o.Uri = _fixture.ConnectionString;

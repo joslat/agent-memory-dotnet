@@ -359,6 +359,28 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Fact>> GetByObjectAsync(
+        string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        var cypher = FactQueries.GetByObject(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["object"] = @object };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r =>
+            {
+                var node = r["f"].As<INode>();
+                return MapToFact(node, ReadEmbedding(node));
+            }).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>G-14: how a scoped vector search runs.</summary>
     private enum OwnerFirstPlan
     {
