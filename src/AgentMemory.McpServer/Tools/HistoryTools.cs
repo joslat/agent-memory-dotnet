@@ -127,6 +127,7 @@ internal sealed class HistoryTools
                 validFrom = record.ValidFromUtc,
                 validUntil = record.ValidUntilUtc,
                 closedAt = record.InvalidatedAtUtc,
+                closedAs = record.ClosedAs,
                 supersedes = record.SupersedesIds,
                 supersededBy = record.SupersededByIds,
                 sourceMessageIds = record.SourceMessageIds,

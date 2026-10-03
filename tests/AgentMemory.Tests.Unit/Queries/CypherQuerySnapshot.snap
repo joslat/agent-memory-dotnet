@@ -1286,9 +1286,9 @@ MATCH (e:Entity {id: $id})
 ## TemporalQueries.GetFactByIdAsOf
 MATCH (f:Fact {id: $id})
             WHERE f.created_at <= datetime($asOf)
-              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($asOf))
-              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($asOf))
-              AND (f.valid_until IS NULL OR f.valid_until > datetime($asOf))
+              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($asOf) OR f.invalidated_reason = 'change')
+              AND (coalesce(f.valid_from, f.occurred_on, f.valid_from_inferred) IS NULL OR coalesce(f.valid_from, f.occurred_on, f.valid_from_inferred) <= datetime($asOf))
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($asOf) OR f.valid_until_recorded_at > datetime($asOf))
             RETURN f
 
 ## TemporalQueries.GetPreferenceByIdAsOf

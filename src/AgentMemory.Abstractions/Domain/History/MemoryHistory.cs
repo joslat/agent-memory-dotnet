@@ -101,6 +101,13 @@ public sealed record MemoryHistoryRecord
     /// <summary>End of the fact's valid-time window, when applicable.</summary>
     public DateTimeOffset? ValidUntilUtc { get; init; }
 
+    /// <summary>
+    /// Why the memory was closed, when the store says (40.65): <c>change</c> (the world changed; still true for the time
+    /// it held), <c>correction</c> (it was never right), <c>decay</c> (forgotten). Null while live, and for a memory closed
+    /// before reasons were recorded.
+    /// </summary>
+    public string? ClosedAs { get; init; }
+
     /// <summary>The day a one-off event happened (36.1), when the fact is one.</summary>
     public DateTimeOffset? OccurredOnUtc { get; init; }
 

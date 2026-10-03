@@ -55,11 +55,34 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         _logger = logger;
         _persistenceTransaction = persistenceTransaction ?? throw new ArgumentNullException(nameof(persistenceTransaction));
         _options = extractionOptions?.Value ?? new ExtractionOptions();
+        // 40.65. The same "on and inert" signal supersession gives: the option only says how a closing is recorded.
+        if (_options.BitemporalChanges && !_options.SupersedeReplacedFacts && Interlocked.Exchange(ref s_warnedInertBitemporal, 1) == 0)
+            _logger.LogWarning(
+                "ExtractionOptions.BitemporalChanges is ENABLED but SupersedeReplacedFacts is off, so nothing is closed and "
+                + "the option is on and inert. Turn SupersedeReplacedFacts on for changes and corrections to be recorded.");
         _rebuilder = new WorkingMemoryRebuilder(
             workingMemory,
             memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions(),
             _logger);
     }
+
+    private static int s_warnedInertBitemporal;
+
+    /// <summary>
+    /// Closes <paramref name="loserId"/> in favour of <paramref name="winnerId"/> (40.65). With
+    /// <see cref="ExtractionOptions.BitemporalChanges"/> the closing says why: a change ends the loser's valid time at
+    /// <paramref name="changedAt"/> and keeps it believed, a correction withdraws belief. Without it, exactly the call
+    /// every closing made before, so the default is unchanged.
+    /// </summary>
+    private Task<bool> CloseFactAsync(
+        string loserId, string winnerId, FactClosureReason reason, DateTimeOffset? changedAt, MemoryScope? scope,
+        CancellationToken cancellationToken) =>
+        _options.BitemporalChanges
+            ? _factRepository.SupersedeAsync(loserId, winnerId, reason, changedAt, scope, cancellationToken)
+            : _factRepository.SupersedeAsync(loserId, winnerId, scope, cancellationToken);
+
+    /// <summary>When a change took effect: the new value's stated start, else the day it happened, else when it was said.</summary>
+    private static DateTimeOffset ChangedAt(Fact winner, DateTimeOffset now) => winner.ValidFrom ?? winner.OccurredOn ?? now;
 
     public async Task<PersistenceResult> PersistAsync(
         ExtractionStageResult extraction,
@@ -868,8 +891,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
                 foreach (var loser in losers.DistinctBy(fact => fact.FactId).Where(loser => loser.FactId != winner.FactId))
                 {
-                    await _factRepository.SupersedeAsync(
-                        loser.FactId, winner.FactId, scope, cancellationToken).ConfigureAwait(false);
+                    await CloseFactAsync(
+                        loser.FactId, winner.FactId, FactClosureReason.Change, ChangedAt(winner, now), scope, cancellationToken)
+                        .ConfigureAwait(false);
                     _logger.LogDebug(
                         "Superseded fact '{Loser}' with '{Winner}' ({S} {P}).",
                         loser.FactId, winner.FactId, winner.Subject, winner.Predicate);
@@ -922,7 +946,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     candidates.Where(candidate => !currentFactIds.Contains(candidate.FactId)), winner, replaced, spared);
                 foreach (var loser in closed)
                 {
-                    await _factRepository.SupersedeAsync(loser.FactId, winner.FactId, writeScope, cancellationToken)
+                    await CloseFactAsync(loser.FactId, winner.FactId, FactClosureReason.Correction, null, writeScope, cancellationToken)
                         .ConfigureAwait(false);
                     _logger.LogDebug("Correction '{Winner}' closed fact '{Loser}' (replaces '{Replaced}').",
                         winner.FactId, loser.FactId, replaced);
@@ -1120,14 +1144,16 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     currentFactIds.Add(current.FactId);
                     await SupersedeReplacedFactsAsync(current).ConfigureAwait(false);
                 }
-                foreach (var member in members.Select(member => member.Fact).Where(member => member.FactId != current.FactId))
+                foreach (var (memberKey, member) in members.Where(member => member.Fact.FactId != current.FactId))
                 {
                     try
                     {
                         if (await _factRepository.GetByIdAsync(member.FactId, cancellationToken).ConfigureAwait(false) is
                             { InvalidatedAtUtc: null })
                         {
-                            await _factRepository.SupersedeAsync(member.FactId, current.FactId, writeScope, cancellationToken)
+                            await CloseFactAsync(member.FactId, current.FactId,
+                                    factDecision.Old.Contains(memberKey) ? FactClosureReason.Correction : FactClosureReason.Change,
+                                    ChangedAt(current, now), writeScope, cancellationToken)
                                 .ConfigureAwait(false);
                             _logger.LogDebug("'{Winner}' closed '{Loser}', replaced in the same extraction.", current.FactId, member.FactId);
                         }
@@ -1606,7 +1632,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 {
                     try
                     {
-                        await _relationshipRepository.EndAsync(previous.RelationshipId, _clock.UtcNow, endScope, cancellationToken)
+                        // 40.65. With BitemporalChanges the edge ends when the new one began, as its fact does.
+                        var endedAt = _clock.UtcNow;
+                        if (_options.BitemporalChanges && item.ValidFrom is { } began && began <= endedAt) endedAt = began;
+                        await _relationshipRepository.EndAsync(previous.RelationshipId, endedAt, endScope, cancellationToken)
                             .ConfigureAwait(false);
                         _logger.LogDebug("Ended relationship '{Old}': replaced by '{New}'.", previous.RelationshipId, item.RelationshipId);
                     }
@@ -1621,7 +1650,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
         foreach (var item in withdrawn)
         {
-            await EndMirroredEdgesAsync(item.Closed, item.StillLive, item.ReadScope, item.WriteScope, cancellationToken)
+            // 40.65. A change's edge ends when the change took effect, as its fact does; a correction's at once.
+            DateTimeOffset? endAt = _options.BitemporalChanges && !item.Correction ? ChangedAt(item.Winner, _clock.UtcNow) : null;
+            await EndMirroredEdgesAsync(item.Closed, item.StillLive, item.ReadScope, item.WriteScope, cancellationToken, endAt)
                 .ConfigureAwait(false);
             if (item.Correction)
                 await CloseDatesOfWithdrawnAsync(item.Closed, item.Winner, item.ReadScope, item.WriteScope, cancellationToken)
@@ -1662,7 +1693,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     /// correction itself) says the same relation to that entity. Best-effort, like the edge ending of a single-valued relation.
     /// </summary>
     private async Task EndMirroredEdgesAsync(
-        Fact closed, IReadOnlyList<Fact> stillLive, MemoryScope readScope, MemoryScope? writeScope, CancellationToken cancellationToken)
+        Fact closed, IReadOnlyList<Fact> stillLive, MemoryScope readScope, MemoryScope? writeScope, CancellationToken cancellationToken,
+        DateTimeOffset? endAt = null)
     {
         try
         {
@@ -1678,7 +1710,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 if (target is null || !Corrections.NamesEither(closed.Object, target.Name)) continue;
                 if (stillLive.Any(fact => SameRelation(fact.Predicate, closed.Predicate) && Corrections.NamesEither(fact.Object, target.Name)))
                     continue;
-                await _relationshipRepository.EndAsync(edge.RelationshipId, now, writeScope, cancellationToken).ConfigureAwait(false);
+                await _relationshipRepository.EndAsync(edge.RelationshipId, endAt is { } at && at <= now ? at : now, writeScope, cancellationToken)
+                    .ConfigureAwait(false);
                 _logger.LogDebug("Ended relationship '{Edge}' with the fact '{Fact}' it mirrors.", edge.RelationshipId, closed.FactId);
             }
         }
@@ -1727,7 +1760,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
             foreach (var date in dates)
             {
-                await _factRepository.SupersedeAsync(date.FactId, winner.FactId, writeScope, cancellationToken).ConfigureAwait(false);
+                await CloseFactAsync(date.FactId, winner.FactId, FactClosureReason.Correction, null, writeScope, cancellationToken)
+                    .ConfigureAwait(false);
                 _logger.LogDebug("Closed '{Date}', the date of withdrawn fact '{Fact}'.", date.FactId, closed.FactId);
             }
         }

@@ -146,6 +146,22 @@ public interface IFactRepository
     Task<bool> SupersedeAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Supersedes like <see cref="SupersedeAsync(string, string, MemoryScope?, CancellationToken)"/>, and records why
+    /// (<c>ExtractionOptions.BitemporalChanges</c>): a <see cref="FactClosureReason.Change"/> ends the loser's valid time at
+    /// <paramref name="changedAt"/> (the moment of writing when null), records when that was learned, gives an undated
+    /// winner that start, and leaves the loser believed for as-of reads; a <see cref="FactClosureReason.Correction"/>
+    /// withdraws belief and leaves valid time alone.
+    /// </summary>
+    /// <remarks>
+    /// The default implementation ignores the reason and supersedes as before, so an implementer written against an
+    /// earlier version keeps working and keeps its old closing semantics.
+    /// </remarks>
+    Task<bool> SupersedeAsync(
+        string loserFactId, string winnerFactId, FactClosureReason reason, DateTimeOffset? changedAt,
+        MemoryScope? scope = null, CancellationToken cancellationToken = default)
+        => SupersedeAsync(loserFactId, winnerFactId, scope, cancellationToken);
+
+    /// <summary>
     /// The <b>live</b> facts asserting a different object for the same subject and predicate as
     /// <paramref name="winnerFactId"/> — the ones a newly written fact about a functional relation
     /// replaces (M1 write-time supersession). Never returns the winner itself, nor a fact that does not hold

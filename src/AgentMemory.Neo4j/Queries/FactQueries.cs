@@ -620,6 +620,56 @@ internal static class FactQueries
             RETURN count(loser) > 0 AS superseded";
     }
 
+    /// <summary>
+    /// <see cref="Supersede"/> with the reason recorded (<c>ExtractionOptions.BitemporalChanges</c>, 40.65): a
+    /// <c>change</c> ends the loser's valid time when the winner began (<c>$changedAt</c>, else the moment of writing),
+    /// records when that end was learned, and gives an undated winner that start; a <c>correction</c> withdraws belief and
+    /// leaves valid time alone. Both still stamp <c>invalidated_at</c>, so live recall is unchanged; the as-of predicates
+    /// read the reason (<see cref="TemporalQueries.FactBelievedAsOf"/>).
+    /// </summary>
+    /// <remarks>
+    /// SET items run in order, so <c>valid_until_recorded_at</c> is read off the loser's <c>valid_until</c> before that is
+    /// written. An end the extractor already stated is kept, unrecorded, as before. A change dated at or before the
+    /// loser's own start is not a change of that value, so it ends at the moment of writing, as before.
+    /// </remarks>
+    public static string SupersedeWithReason(bool hasOwnerFilter)
+    {
+        var loserOwner = hasOwnerFilter ? " AND loser.owner_id = $ownerId" : string.Empty;
+        var winnerOwner = hasOwnerFilter ? " AND winner.owner_id = $ownerId" : string.Empty;
+        return @"
+            MATCH (loser:Fact {id: $loserId})
+            WHERE true" + loserOwner + @"
+            MATCH (winner:Fact {id: $winnerId})
+            WHERE true" + winnerOwner + @"
+              AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
+              AND loser <> winner
+            SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now)),
+                loser.invalidated_reason = coalesce(loser.invalidated_reason, $reason),
+                loser.period_key     = loser.id,
+                loser.valid_until_recorded_at = CASE
+                    WHEN $reason = 'change' AND loser.valid_until IS NULL THEN datetime($now)
+                    ELSE loser.valid_until_recorded_at END,
+                loser.valid_until    = CASE
+                    WHEN loser.valid_until IS NOT NULL THEN loser.valid_until
+                    WHEN $reason <> 'change' THEN null
+                    WHEN $changedAt IS NULL THEN datetime($now)
+                    WHEN coalesce(loser.valid_from, loser.occurred_on) IS NOT NULL
+                         AND datetime($changedAt) <= coalesce(loser.valid_from, loser.occurred_on) THEN datetime($now)
+                    ELSE datetime($changedAt) END,
+                winner.valid_from_inferred = CASE
+                    WHEN $reason = 'change' AND winner.valid_from IS NULL AND winner.occurred_on IS NULL
+                         AND winner.valid_from_inferred IS NULL THEN datetime(coalesce($changedAt, $now))
+                    ELSE winner.valid_from_inferred END,
+                loser.confidence     = CASE WHEN $reinforceAlpha > 0
+                    THEN CASE WHEN coalesce(loser.confidence, 0.0) - (2 * $reinforceAlpha) < 0.0
+                        THEN 0.0
+                        ELSE coalesce(loser.confidence, 0.0) - (2 * $reinforceAlpha) END
+                    ELSE loser.confidence END
+            MERGE (loser)-[:SUPERSEDED_BY]->(winner)"
+            + DerivedFactQueries.CascadeInvalidateDerived("loser") + @"
+            RETURN count(loser) > 0 AS superseded";
+    }
+
     // ── Legible forgetting (30.8) ──────────────────────────────────────
 
     /// <summary>
@@ -773,10 +823,8 @@ internal static class FactQueries
             WHERE seed.id IN $seedFactIds
               AND NOT f.id IN $seedFactIds
               AND e.aliases IS NOT NULL AND size(e.aliases) > 0
-              AND f.created_at <= datetime($systemAsOf)
-              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($systemAsOf))
-              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($validAsOf))
-              AND (f.valid_until IS NULL OR f.valid_until > datetime($validAsOf))"
+              AND " + TemporalQueries.FactBelievedAsOf("f", "$systemAsOf") + @"
+              AND " + TemporalQueries.FactValidAsOf("f", "$validAsOf", "$systemAsOf") + @""
         + DeltaOwner(hasOwnerFilter, includeShared)
         + DeltaOwner(hasOwnerFilter, includeShared, alias: "seed")
         + DeltaOwner(hasOwnerFilter, includeShared, alias: "e") + @"

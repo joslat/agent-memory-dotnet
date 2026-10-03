@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ExtractionOptions.BitemporalChanges` (off by default): a question about the past keeps the value that was true
+  then.** Without it every closing is a retraction: after "I moved to Madrid", the old city is no longer believed at
+  all, so "where did I live in 2020?" (a date in the question, or `RecallAsOfAsync` with today's belief) cannot return
+  it, and an undated new value counts as true at every past moment. With it, a closing says why
+  (`invalidated_reason`): a **change** ends the old value's valid time when the new one began and keeps it believed, and
+  records when that end was learned, so belief at an earlier instant still sees it open; an undated new value starts
+  when it was said; a marked **correction** withdraws belief and leaves valid time alone. A change's mirrored edge ends
+  at the same moment. Live recall is unchanged either way, and stores written without the option keep their closings as
+  they were. New: `FactClosureReason`, an `IFactRepository.SupersedeAsync` overload that takes it (the default
+  implementation keeps the old semantics), and `MemoryHistoryRecord.ClosedAs`, shown as `closedAs` by the MCP
+  `memory_lineage` tool.
+
 ### Fixed
 
 - **`StubEmbeddingGenerator` gives the same vector for the same text in every process.** It seeded from

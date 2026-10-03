@@ -1291,6 +1291,32 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<bool> SupersedeAsync(
+        string loserFactId, string winnerFactId, FactClosureReason reason, DateTimeOffset? changedAt,
+        MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Superseding fact {Loser} with {Winner} ({Reason}), owner={Owner}", loserFactId, winnerFactId, reason, scope?.OwnerId);
+
+        var cypher = FactQueries.SupersedeWithReason(hasOwner);
+        string now = DateTimeOffset.UtcNow.ToString("O");
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var parameters = new Dictionary<string, object?>
+            {
+                ["loserId"] = loserFactId, ["winnerId"] = winnerFactId, ["now"] = now,
+                ["reason"] = reason == FactClosureReason.Correction ? "correction" : "change",
+                ["changedAt"] = changedAt?.ToString("O"),
+                ["reinforceAlpha"] = _reinforceAlpha,
+            };
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Count > 0 && records[0]["superseded"].As<bool>();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<string?> FindLatestObjectAsync(
         IReadOnlyCollection<string> subjects, IReadOnlyCollection<string> predicates, MemoryScope scope,
         CancellationToken cancellationToken = default)

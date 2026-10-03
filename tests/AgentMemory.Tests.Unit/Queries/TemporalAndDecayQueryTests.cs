@@ -73,8 +73,22 @@ public sealed class TemporalQueryTests
         // transaction clock ($systemAsOf) that binds created_at/invalidated_at.
         TemporalQueries.SearchFactsAsOf(hasOwnerFilter: false, includeShared: true, topK: 10)
             // 36.1: an event is bounded by the day it happened (occurred_on), as a state by its start.
-            .Should().Contain("coalesce(node.valid_from, node.occurred_on) IS NULL OR coalesce(node.valid_from, node.occurred_on) <= datetime($validAsOf)")
-            .And.Contain("node.valid_until IS NULL OR node.valid_until > datetime($validAsOf)");
+            // 40.65: or the start inferred when it replaced a value; and an end recorded after the belief instant was
+            // not yet known.
+            .Should().Contain("coalesce(node.valid_from, node.occurred_on, node.valid_from_inferred) IS NULL OR coalesce(node.valid_from, node.occurred_on, node.valid_from_inferred) <= datetime($validAsOf)")
+            .And.Contain("node.valid_until IS NULL OR node.valid_until > datetime($validAsOf) OR node.valid_until_recorded_at > datetime($systemAsOf)");
+    }
+
+    [Fact]
+    public void SearchFactsAsOf_KeepsAChangedValueBelieved()
+    {
+        // 40.65: a change ends valid time and is not a withdrawal of belief; only the reason tells them apart.
+        TemporalQueries.SearchFactsAsOf(hasOwnerFilter: false, includeShared: true, topK: 10)
+            .Should().Contain("node.invalidated_at IS NULL OR node.invalidated_at > datetime($systemAsOf) OR node.invalidated_reason = 'change'");
+        TemporalQueries.SearchFactsByCanonicalPredicatesAsOf(hasOwnerFilter: false, includeShared: true)
+            .Should().Contain("f.invalidated_reason = 'change'", "the expansion half of one recall reads 'as of' the same way");
+        TemporalQueries.GetDueFactsAsOf(hasOwnerFilter: false, includeShared: true)
+            .Should().NotContain("invalidated_reason", "firing does not fire for a value a change replaced");
     }
 
     [Fact]
