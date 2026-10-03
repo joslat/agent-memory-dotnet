@@ -670,6 +670,23 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             var factSourceKey = FactSourceKey(extracted);
             var subject = StoredName(extracted, subject: true);
             var @object = StoredName(extracted, subject: false);
+            // G7 (40.51). Found live: "Rosa | is named | Rosa" was stored and recalled as the first memory, taking a slot
+            // and saying nothing. A fact whose subject and object are the same name, after the names are resolved, is
+            // skipped with its reason.
+            if (string.Equals(subject.Trim(), @object.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                outcomes.Add(new IngestionItemOutcome
+                {
+                    Kind = MemoryItemKind.Fact,
+                    Stage = IngestionStage.Validation,
+                    Status = IngestionItemStatus.Skipped,
+                    SourceKey = factSourceKey,
+                    ErrorCode = MemoryErrorCodes.FactTautology,
+                    ErrorMessage = "Subject and object are the same name, so the fact says nothing.",
+                });
+                _logger.LogDebug("Skipped fact '{Fact}': its subject and object are the same name.", factSourceKey);
+                return null;
+            }
             try
             {
                 // Trust is monotonic for owner-scoped facts. The pre-fetch deliberately excludes shared

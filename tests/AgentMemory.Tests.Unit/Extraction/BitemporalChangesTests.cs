@@ -114,6 +114,30 @@ public sealed class BitemporalChangesTests
         _closed.Should().BeEmpty();
     }
 
+    /// <summary>G7 (40.51): found live, "Rosa | is named | Rosa" was stored and recalled first. It says nothing.</summary>
+    [Fact]
+    public async Task A_fact_whose_subject_and_object_are_the_same_name_is_skipped_with_its_reason()
+    {
+        var written = new List<Fact>();
+        _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { written.Add(ci.Arg<Fact>()); return Task.FromResult(ci.Arg<Fact>()); });
+
+        var result = await Sut(bitemporal: false).PersistAsync(
+            new ExtractionStageResult
+            {
+                FilteredFacts =
+                [
+                    new ExtractedFact { Subject = "Rosa", Predicate = "is named", Object = "rosa ", Confidence = 0.9 },
+                    new ExtractedFact { Subject = "Rosa", Predicate = "works as", Object = "an architect", Confidence = 0.9 },
+                ],
+            },
+            ownerId: "owner-1");
+
+        written.Select(f => f.Predicate).Should().Equal(["works as"], "the tautology is not stored; the real fact beside it is");
+        result.Outcomes.Should().Contain(o => o.ErrorCode == Abstractions.Exceptions.MemoryErrorCodes.FactTautology &&
+                                              o.Status == IngestionItemStatus.Skipped && o.SourceKey == "Rosa is named rosa ");
+    }
+
     [Fact]
     public async Task A_changes_edge_ends_when_the_change_took_effect()
     {
