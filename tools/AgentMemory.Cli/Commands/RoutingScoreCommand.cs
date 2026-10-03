@@ -13,7 +13,7 @@ namespace AgentMemory.Cli.Commands;
 /// </summary>
 public sealed class RoutingScoreCommand(TextWriter output)
 {
-    public int Execute(string? setPath, string? split, string? policy)
+    public int Execute(string? setPath, string? split, string? policy, bool misses = false)
     {
         if (setPath is null)
         {
@@ -59,6 +59,17 @@ public sealed class RoutingScoreCommand(TextWriter output)
         output.WriteLine(string.Create(c, $"  reads per item {score.MeanReads:0.00}, wasted {score.MeanWastedReads:0.00}; silent when nothing is needed {score.SilentWhenNothingNeeded}/{score.NothingNeeded}"));
         foreach (var kind in score.PerKind)
             output.WriteLine($"  {kind.Kind,-12} read when needed {kind.ReadWhenNeeded}/{kind.Needed}, read when not needed {kind.ReadWhenNotNeeded}/{kind.NotNeeded}");
+        if (misses)
+        {
+            // Each answer not fully served: what it needs and what the policy read.
+            foreach (var item in set.Items.Where(i => split == "all" || i.Split == split))
+            {
+                var row = score.Rows.Single(r => r.Id == item.Id);
+                if (row.Satisfied == row.Groups) continue;
+                var needs = string.Join(" & ", item.Needs.Select(g => string.Join("|", g)));
+                output.WriteLine($"  miss {item.Id}: needs {needs}, read {string.Join(",", scored(item).Order(StringComparer.Ordinal))} | {item.Text}");
+            }
+        }
         return 0;
     }
 }

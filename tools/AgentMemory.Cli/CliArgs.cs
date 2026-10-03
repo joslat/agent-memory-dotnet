@@ -107,7 +107,7 @@ public static class CliHelp
               evaluate --pack <core|file|directory> [--output <path>]
                                      Run validation packs (a schema, conversations with what extraction
                                      yields, expected storage, questions): deterministic, no model.
-              routing-score --set <file> [--split <dev|heldout|all>] [--policy <everything|rules>]
+              routing-score --set <file> [--split <dev|heldout|all>] [--policy <everything|rules>] [--misses]
                                      Score a routing policy on a frozen routing set: which memory kinds
                                      it reads against the kinds that hold each answer. No store, no model.
               perf [--label <name>] [--scenarios <ids|all>] [--iterations <n>] [--warmup <n>]
