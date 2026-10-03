@@ -20,10 +20,9 @@ namespace AgentMemory.Tests.Unit.Configuration;
 /// <b>What is genuinely missing, and what it costs a caller.</b>
 /// </para>
 /// <list type="bullet">
-/// <item><b>Semantic message search.</b> <c>IMessageRepository</c> has no <c>SearchByVectorAsOfAsync</c>,
-/// so an as-of recall returns <i>recent</i> messages but never <i>relevant</i> ones —
-/// <c>MaxRelevantMessages</c> has nothing to cap. This is the largest gap: a bitemporal query gets a
-/// strictly narrower message set than the same query at present time.</item>
+/// <item><b>Semantic message search</b> is no longer missing (B-6, 2026-10-03): the as-of path runs the session's
+/// relevant-message search and keeps the messages said by the transaction instant and not withdrawn by then, the rule
+/// <c>GetRecentMessagesAsOf</c> applies. <c>MaxRelevantMessages</c> left the list below.</item>
 /// <item><b>GraphRAG.</b> The context source has no as-of variant; a traversal cannot be replayed at a
 /// past instant without temporal predicates the provider does not expose.</item>
 /// <item><b>Fact expansion by predicate</b> and <b>query-relation resolution</b>, for the same reason.</item>
@@ -47,7 +46,6 @@ public sealed class AsOfRecallDivergenceTests
         "BlendMode",
         "EnableGraphRag",
         "LatencyBudget",
-        "MaxRelevantMessages",
         "ValidTime",
 
         // W1c REMOVED three entries from this list: ExpandFactsByPredicate, MaxExpandedFacts and

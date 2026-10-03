@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A fact that says nothing is no longer stored.** "Rosa | is named | Rosa" was written and recalled as a person's first
   memory, taking a recall slot. A fact whose subject and object are the same name, once names are resolved, is skipped
   with the outcome `MEMORY_FACT_TAUTOLOGY` (`MemoryErrorCodes.FactTautology`).
+- **A question that names a time keeps the conversation.** A date in the question (or `RecallAsOfAsync`) recalled
+  recent messages but never the session's relevant ones, so "what did we talk about last weekend?" lost them. The as-of
+  path now searches them and keeps the messages said by its instant and not withdrawn by then.
 - **A renamed person or pet stays findable.** When a corrected name merged the old entity into the new one, the merge
   cleared the survivor's embedding and nothing re-embedded it, so entity recall could no longer find the renamed person
   (found by the `core.names` validation pack). The survivor is now embedded again from its name.

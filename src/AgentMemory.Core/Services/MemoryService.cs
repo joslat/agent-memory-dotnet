@@ -393,9 +393,10 @@ internal sealed class MemoryService : IMemoryService
         EmitRoute(activity, context.Route);
 
         // Count every populated section so TotalItemsRetrieved matches the documented "across all sections"
-        // contract and the live RecallAsync path. SimilarTraces is populated on the as-of path too, so it
-        // must be included (RelevantMessages is intentionally Empty here — see the assembler's as-of path).
+        // contract and the live RecallAsync path. SimilarTraces and (B-6) RelevantMessages are populated on the as-of
+        // path too, so both are included.
         int totalItems = context.RecentMessages.Items.Count
+            + context.RelevantMessages.Items.Count
             + context.RelevantEntities.Items.Count
             + context.RelevantPreferences.Items.Count
             + context.RelevantFacts.Items.Count
