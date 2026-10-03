@@ -84,6 +84,15 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     /// <summary>When a change took effect: the new value's stated start, else the day it happened, else when it was said.</summary>
     private static DateTimeOffset ChangedAt(Fact winner, DateTimeOffset now) => winner.ValidFrom ?? winner.OccurredOn ?? now;
 
+    /// <summary>
+    /// 40.65. A new value that starts no later than the one it replaces is a correction of that period ("Calderwick as of
+    /// February", then "actually Ardenholm as of February"): the old value was never right for it. Otherwise a change.
+    /// </summary>
+    private static FactClosureReason ClosingOf(Fact loser, Fact winner) =>
+        (winner.ValidFrom ?? winner.OccurredOn) is { } began && (loser.ValidFrom ?? loser.OccurredOn) is { } held && began <= held
+            ? FactClosureReason.Correction
+            : FactClosureReason.Change;
+
     public async Task<PersistenceResult> PersistAsync(
         ExtractionStageResult extraction,
         string? ownerId = null,
@@ -909,7 +918,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 foreach (var loser in losers.DistinctBy(fact => fact.FactId).Where(loser => loser.FactId != winner.FactId))
                 {
                     await CloseFactAsync(
-                        loser.FactId, winner.FactId, FactClosureReason.Change, ChangedAt(winner, now), scope, cancellationToken)
+                        loser.FactId, winner.FactId, ClosingOf(loser, winner), ChangedAt(winner, now), scope, cancellationToken)
                         .ConfigureAwait(false);
                     _logger.LogDebug(
                         "Superseded fact '{Loser}' with '{Winner}' ({S} {P}).",
