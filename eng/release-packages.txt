@@ -40,5 +40,5 @@ AgentMemory.SemanticKernel|src/AgentMemory.SemanticKernel/AgentMemory.SemanticKe
 HELD:AgentMemory.Extensibility
 HELD:AgentMemory.Extensibility.AgentFramework
 # Validation packs (root PLAN 40.57): a pack format still settling, consumed by the CLI, the integration tests and
-# DemoBrain; modules ship packs later as conformance fixtures. Held until the format is settled.
+# hosts that run packs; modules ship packs later as conformance fixtures. Held until the format is settled.
 HELD:AgentMemory.Validation

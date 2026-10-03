@@ -5,7 +5,7 @@ using Xunit;
 
 namespace AgentMemory.Tests.Unit.Validation;
 
-/// <summary>40.61: the routing scorer, on a set built by hand (the frozen set is private: its turns come from DemoBrain).</summary>
+/// <summary>40.61: the routing scorer, on a set built by hand (the frozen set is private).</summary>
 public sealed class RoutingScorerTests : IDisposable
 {
     private readonly string _directory = Directory.CreateTempSubdirectory("routing-").FullName;

@@ -16,7 +16,13 @@ namespace AgentMemory.Validation;
 /// prefix, so runs never meet; nothing is deleted.
 /// </summary>
 /// <param name="configureNeo4j">The store to run against (URI, credentials, database, embedding dimensions).</param>
-public sealed class ValidationPackRunner(Action<Neo4jOptions> configureNeo4j)
+/// <param name="embeddings">
+/// A real embedding model instead of the stub (40.68: the routing matrix records recall scores, which the stub's vectors
+/// cannot give); the store's embedding dimensions must match it. Null: the stub, as every pack check runs.
+/// </param>
+public sealed class ValidationPackRunner(
+    Action<Neo4jOptions> configureNeo4j,
+    Func<IServiceProvider, IEmbeddingGenerator<string, Embedding<float>>>? embeddings = null)
 {
     /// <summary>Recall caps for every kind (V2: membership, not rank); the similarity floor is 0.</summary>
     internal const int Cap = 50;
@@ -29,70 +35,17 @@ public sealed class ValidationPackRunner(Action<Neo4jOptions> configureNeo4j)
         var routes = new List<PackRouteRecord>();
         PackRunResult Result() => new() { PackId = pack.Id, Title = pack.Title, RunPrefix = prefix, Checks = checks, Routes = routes };
 
-        var problems = ValidationPackReader.Check(pack).ToList();
-        var options = pack.Options.Preset == "conversational" ? MemoryOptions.CreateConversational() : new MemoryOptions();
-        foreach (var (path, value) in pack.Options.Set)
-            if (OptionPaths.Apply(options, path, value) is { } problem) problems.Add(problem);
+        var (options, problems) = Configure(pack);
         if (problems.Count > 0)
         {
             checks.AddRange(problems.Select((p, i) => new PackCheckResult($"pack:{i + 1}", "pack", false, p)));
             return Result();
         }
 
-        string Owner(string owner) => $"{prefix}-{owner}";
-        var neo4j = new Neo4jOptions();
-        configureNeo4j(neo4j);
-        var script = new PackScript();
-        var clock = new ReplayClock(pack.Sessions.SelectMany(s => s.Messages).Select(m => m.At).DefaultIfEmpty(DateTimeOffset.UtcNow).Min());
-
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddSingleton<IClock>(clock);
-        services.AddSingleton<IEntityExtractor>(new ScriptedEntities(script));
-        services.AddSingleton<IFactExtractor>(new ScriptedFacts(script));
-        services.AddSingleton<IRelationshipExtractor>(new ScriptedRelationships(script));
-        services.AddSingleton<IPreferenceExtractor>(new ScriptedPreferences(script));
-        services.AddNeo4jAgentMemory(options, configureNeo4j);
-        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
-            new StubEmbeddingGenerator(sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(), neo4j.EmbeddingDimensions));
-        var provider = services.BuildServiceProvider(validateScopes: true);
-        await using var disposeProvider = provider.ConfigureAwait(false);
-
-        await provider.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(cancellationToken).ConfigureAwait(false);
-        await provider.GetRequiredService<INeo4jTransactionRunner>().WriteAsync(async runner =>
-            await runner.RunAsync("CALL db.awaitIndexes(60)").ConfigureAwait(false)).ConfigureAwait(false);
-
-        // Ingestion: each message stored and extracted at its own time.
-        foreach (var session in pack.Sessions)
-        {
-            // A shared session is written for everyone: no user, the explicit shared write (it cannot carry one).
-            var owner = session.Shared ? null : Owner(session.Owner);
-            var sessionId = $"{prefix}-{session.Id}";
-            using var scope = provider.CreateScope();
-            var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
-            var pipeline = scope.ServiceProvider.GetRequiredService<IMemoryExtractionPipeline>();
-            clock.Now = session.Messages.Select(m => m.At).DefaultIfEmpty(clock.Now).First();
-            await shortTerm.AddConversationAsync(sessionId, sessionId, userId: owner, cancellationToken: cancellationToken).ConfigureAwait(false);
-            foreach (var said in session.Messages)
-            {
-                clock.Now = said.At;
-                var messageId = $"{sessionId}-m{script.Count}";
-                script.Add(messageId, said);
-                var message = await shortTerm.AddMessageAsync(new Message
-                {
-                    MessageId = messageId,
-                    ConversationId = sessionId,
-                    SessionId = sessionId,
-                    Role = said.Role,
-                    Content = said.Text,
-                    TimestampUtc = said.At,
-                }, cancellationToken).ConfigureAwait(false);
-                await pipeline.ExtractAsync(new ExtractionRequest
-                {
-                    SessionId = sessionId, UserId = owner, Messages = [message], ShareWithEveryone = session.Shared,
-                }, cancellationToken).ConfigureAwait(false);
-            }
-        }
+        var store = await LoadAsync(pack, options, prefix, cancellationToken).ConfigureAwait(false);
+        await using var disposeStore = store.ConfigureAwait(false);
+        var provider = store.Provider;
+        string Owner(string owner) => store.Owner(owner);
 
         // Storage.
         using (var scope = provider.CreateScope())
@@ -121,25 +74,13 @@ public sealed class ValidationPackRunner(Action<Neo4jOptions> configureNeo4j)
         // Questions.
         foreach (var question in pack.Questions)
         {
-            clock.Now = question.At;
             var owner = Owner(question.Owner);
-            using var scope = provider.CreateScope();
-            var memory = scope.ServiceProvider.GetRequiredService<IMemoryService>();
-            var request = new RecallRequest
-            {
-                SessionId = question.Session is { } asked ? $"{prefix}-{asked}" : $"{prefix}-ask-{question.Owner}",
-                UserId = owner,
-                Query = question.Ask,
-                TemporalReferenceTime = question.At,
-                Options = options.Recall with
+            var context = await store.RecallAsync(question.Owner, question.Session, question.Ask, question.At,
+                recall => recall with
                 {
                     MaxFacts = Cap, MaxEntities = Cap, MaxRelationships = Cap, MaxPreferences = Cap,
                     MaxRelevantMessages = Cap, MaxRecentMessages = Cap, MaxTraces = 0, MinSimilarityScore = 0,
-                },
-            };
-            var context = (question.AsOf is { } asOf
-                ? await memory.RecallAsOfAsync(request, asOf.Valid ?? question.At, asOf.System ?? question.At, cancellationToken).ConfigureAwait(false)
-                : await memory.RecallAsync(request, cancellationToken).ConfigureAwait(false)).Context;
+                }, question.AsOf, cancellationToken).ConfigureAwait(false);
             var recalled = new Recalled(context);
 
             var foundIn = new SortedSet<string>(StringComparer.Ordinal);
@@ -165,6 +106,109 @@ public sealed class ValidationPackRunner(Action<Neo4jOptions> configureNeo4j)
             routes.Add(new(question.Id, question.Kinds, [.. foundIn]));
         }
         return Result();
+    }
+
+    /// <summary>
+    /// Loads a pack's sessions into a fresh store (40.68): its options, its scripted extraction, a replayed clock, and the
+    /// runner's embeddings; the questions are the caller's. Throws when the pack's options do not apply.
+    /// </summary>
+    public async Task<PackStore> LoadAsync(ValidationPack pack, string? runPrefix = null, CancellationToken cancellationToken = default)
+    {
+        var (options, problems) = Configure(pack);
+        if (problems.Count > 0) throw new InvalidOperationException($"pack {pack.Id}: {string.Join("; ", problems)}");
+        return await LoadAsync(pack, options, runPrefix ?? $"pack-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..28],
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static (MemoryOptions Options, List<string> Problems) Configure(ValidationPack pack)
+    {
+        var problems = ValidationPackReader.Check(pack).ToList();
+        var options = pack.Options.Preset == "conversational" ? MemoryOptions.CreateConversational() : new MemoryOptions();
+        foreach (var (path, value) in pack.Options.Set)
+            if (OptionPaths.Apply(options, path, value) is { } problem) problems.Add(problem);
+        return (options, problems);
+    }
+
+    private async Task<PackStore> LoadAsync(ValidationPack pack, MemoryOptions options, string prefix, CancellationToken cancellationToken)
+    {
+        string Owner(string owner) => $"{prefix}-{owner}";
+        var neo4j = new Neo4jOptions();
+        configureNeo4j(neo4j);
+        var script = new PackScript();
+        var clock = new ReplayClock(pack.Sessions.SelectMany(s => s.Messages).Select(m => m.At).DefaultIfEmpty(DateTimeOffset.UtcNow).Min());
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IClock>(clock);
+        services.AddSingleton<IEntityExtractor>(new ScriptedEntities(script));
+        services.AddSingleton<IFactExtractor>(new ScriptedFacts(script));
+        services.AddSingleton<IRelationshipExtractor>(new ScriptedRelationships(script));
+        services.AddSingleton<IPreferenceExtractor>(new ScriptedPreferences(script));
+        services.AddNeo4jAgentMemory(options, configureNeo4j);
+        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp => embeddings?.Invoke(sp)
+            ?? new StubEmbeddingGenerator(sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(), neo4j.EmbeddingDimensions));
+        var provider = services.BuildServiceProvider(validateScopes: true);
+        var store = new PackStore(provider, prefix, clock, options);
+        try
+        {
+            await provider.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(cancellationToken).ConfigureAwait(false);
+            await provider.GetRequiredService<INeo4jTransactionRunner>().WriteAsync(async runner =>
+                await runner.RunAsync("CALL db.awaitIndexes(60)").ConfigureAwait(false)).ConfigureAwait(false);
+
+            // Ingestion: each message stored and extracted at its own time.
+            foreach (var session in pack.Sessions)
+            {
+                // A shared session is written for everyone: no user, the explicit shared write (it cannot carry one).
+                var owner = session.Shared ? null : Owner(session.Owner);
+                var sessionId = $"{prefix}-{session.Id}";
+                using var scope = provider.CreateScope();
+                var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
+                var pipeline = scope.ServiceProvider.GetRequiredService<IMemoryExtractionPipeline>();
+                clock.Now = session.Messages.Select(m => m.At).DefaultIfEmpty(clock.Now).First();
+                await shortTerm.AddConversationAsync(sessionId, sessionId, userId: owner, cancellationToken: cancellationToken).ConfigureAwait(false);
+                foreach (var said in session.Messages)
+                {
+                    clock.Now = said.At;
+                    var messageId = $"{sessionId}-m{script.Count}";
+                    script.Add(messageId, said);
+                    var message = await shortTerm.AddMessageAsync(new Message
+                    {
+                        MessageId = messageId,
+                        ConversationId = sessionId,
+                        SessionId = sessionId,
+                        Role = said.Role,
+                        Content = said.Text,
+                        TimestampUtc = said.At,
+                    }, cancellationToken).ConfigureAwait(false);
+                    await pipeline.ExtractAsync(new ExtractionRequest
+                    {
+                        SessionId = sessionId, UserId = owner, Messages = [message], ShareWithEveryone = session.Shared,
+                    }, cancellationToken).ConfigureAwait(false);
+                }
+                if (session.Traces.Count > 0)
+                {
+                    var reasoning = scope.ServiceProvider.GetRequiredService<IReasoningMemoryService>();
+                    foreach (var trace in session.Traces)
+                    {
+                        clock.Now = trace.At;
+                        var started = await reasoning.StartTraceAsync(sessionId, trace.Task, ownerId: owner, cancellationToken: cancellationToken)
+                            .ConfigureAwait(false);
+                        foreach (var (step, n) in trace.Steps.Select((s, i) => (s, i + 1)))
+                            await reasoning.AddStepAsync(started.TraceId, n, step.Thought, step.Action, step.Observation, cancellationToken: cancellationToken)
+                                .ConfigureAwait(false);
+                        await reasoning.CompleteTraceAsync(started.TraceId, trace.Outcome, trace.Success, cancellationToken).ConfigureAwait(false);
+                        if (trace.Kind == "procedure")
+                            await reasoning.PromoteTraceAsync(started.TraceId, TraceKind.Procedure, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+            }
+            return store;
+        }
+        catch
+        {
+            await store.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private static async Task<PackCheckResult> CheckStorageAsync(
@@ -255,4 +299,73 @@ public sealed class ValidationPackRunner(Action<Neo4jOptions> configureNeo4j)
         private static bool Contains(string? text, string part) =>
             text?.Contains(part, StringComparison.OrdinalIgnoreCase) == true;
     }
+}
+
+/// <summary>
+/// A pack loaded into a store (40.68): its stack, its run prefix and its replayed clock. Recall runs as a host's would,
+/// for an owner of the pack, in one of its sessions. Disposing it disposes the stack; the data stays (runs never meet).
+/// </summary>
+public sealed class PackStore : IAsyncDisposable
+{
+    private readonly ReplayClock _clock;
+
+    internal PackStore(ServiceProvider provider, string prefix, ReplayClock clock, MemoryOptions options)
+    {
+        Provider = provider;
+        Prefix = prefix;
+        _clock = clock;
+        Options = options;
+    }
+
+    /// <summary>The stack.</summary>
+    public ServiceProvider Provider { get; }
+
+    /// <summary>The run prefix every owner and session id carries.</summary>
+    public string Prefix { get; }
+
+    /// <summary>The options the pack runs with.</summary>
+    public MemoryOptions Options { get; }
+
+    /// <summary>The store's id for a pack owner.</summary>
+    public string Owner(string owner) => $"{Prefix}-{owner}";
+
+    /// <summary>
+    /// Recalls for <paramref name="owner"/> at <paramref name="at"/>, in the pack session <paramref name="session"/> (or a
+    /// session of its own), with the pack's recall options changed by <paramref name="adjust"/>; as of the given clocks
+    /// when <paramref name="asOf"/> is set.
+    /// </summary>
+    public async Task<MemoryContext> RecallAsync(string owner, string? session, string query, DateTimeOffset at,
+        Func<RecallOptions, RecallOptions>? adjust = null, PackAsOf? asOf = null, CancellationToken cancellationToken = default)
+    {
+        _clock.Now = at;
+        using var scope = Provider.CreateScope();
+        var memory = scope.ServiceProvider.GetRequiredService<IMemoryService>();
+        var request = new RecallRequest
+        {
+            SessionId = session is { } asked ? $"{Prefix}-{asked}" : $"{Prefix}-ask-{owner}",
+            UserId = Owner(owner),
+            Query = query,
+            TemporalReferenceTime = at,
+            Options = adjust is null ? Options.Recall : adjust(Options.Recall),
+        };
+        return (asOf is { } clocks
+            ? await memory.RecallAsOfAsync(request, clocks.Valid ?? at, clocks.System ?? at, cancellationToken).ConfigureAwait(false)
+            : await memory.RecallAsync(request, cancellationToken).ConfigureAwait(false)).Context;
+    }
+
+    /// <summary>
+    /// Runs the decay pass for <paramref name="owner"/>'s own memories as of <paramref name="at"/> (40.72, the forgetting
+    /// switch): what has faded by then is aged out, non-destructively, and legible forgetting can say so later.
+    /// </summary>
+    /// <returns>How many memories faded.</returns>
+    public async Task<int> DecayAsync(string owner, DateTimeOffset at, CancellationToken cancellationToken = default)
+    {
+        _clock.Now = at;
+        using var scope = Provider.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IMemoryDecayService>()
+            .PruneExpiredMemoriesAsync(MemoryScope.For(Owner(owner), includeShared: false), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public ValueTask DisposeAsync() => Provider.DisposeAsync();
 }

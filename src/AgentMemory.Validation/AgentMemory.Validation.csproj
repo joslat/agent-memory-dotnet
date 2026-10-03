@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <!-- HELD (eng/release-packages.txt): the pack format is not settled enough to SemVer-lock on the 1.x line.
-       Its consumers today are the CLI (`evaluate pack`), the integration tests and DemoBrain; module packs
+       Its consumers today are the CLI (`evaluate pack`), the integration tests and a host workbench; module packs
        (the extensibility spec's conformance fixtures) come later. -->
   <PropertyGroup>
     <Version>0.1.0</Version>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>AgentMemory.RouterArena</RootNamespace>
+    <AssemblyName>router-arena</AssemblyName>
+    <!-- Operator tooling, not a published library. The release packs src/*/*.csproj only. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- `record` only: the matrix's world goes into a Neo4j of its own. Docker is needed to record, not to fight. -->
+    <PackageReference Include="Testcontainers.Neo4j" Version="4.15.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Validation\AgentMemory.Validation.csproj" />
+    <!-- The host's default recall policy is a contestant's baseline. -->
+    <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+  </ItemGroup>
+
+</Project>
