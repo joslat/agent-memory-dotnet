@@ -223,7 +223,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private static Relationship MapToRelationship(IRelationship r) =>
+    internal static Relationship MapToRelationship(IRelationship r) =>
         new()
         {
             RelationshipId = r["id"].As<string>(),

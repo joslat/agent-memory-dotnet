@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`MemoryRoutePlan.Routed`, `memory.route.kinds`). `RecallRequest.Question` carries the turn being answered; the Agent
   Framework provider sets it. On the frozen routing set it serves every answer the read-everything recall serves while
   reading a third of the kinds; it stays off until the accuracy guard passes on a real store.
+- **Erase, export and import an owner** (`IMemoryOwnerDataService`, `agentmemory owner export|import|erase`). Erase
+  deletes every node stamped with the owner and their conversations with every message, in batches, and reports what
+  went by label (the CLI asks for `--confirm`). Export writes the owner's entities, facts and preferences (live and
+  closed), relationships, supersessions and `ABOUT` links as `agentmemory-export/1` JSON, without embeddings; import
+  writes it under an owner with fresh ids, embedded again, closings and links kept. Shared knowledge and other owners
+  are never touched. Not carried: when a closed value's end was recorded (`valid_until_recorded_at`), so a question about
+  belief before a change reads the closed value's end as known from the start.
 - **An owner's memory as it was known at an instant.** `MemoryHistoryQuery.AsOf` (and `agentmemory history --as-of`):
   rows written after the instant are left out, and with `IncludeInvalidated = false` a row invalidated after it is kept
   (it was live then). Every row keeps its validity window, why it closed, what replaced it and its sources, so a

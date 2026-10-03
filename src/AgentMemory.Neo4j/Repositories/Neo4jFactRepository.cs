@@ -809,7 +809,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             Metadata = DeserializeMetadata(properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
-    private static Fact MapToFact(INode node, float[]? embedding) =>
+    internal static Fact MapToFact(INode node, float[]? embedding) =>
         MapToFact(node.Properties, embedding);
 
     private static float[]? ReadEmbedding(INode node)

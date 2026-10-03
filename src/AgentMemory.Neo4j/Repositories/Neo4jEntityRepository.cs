@@ -777,7 +777,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         };
     }
 
-    private static Entity MapToEntity(INode node, float[]? embedding) =>
+    internal static Entity MapToEntity(INode node, float[]? embedding) =>
         MapToEntity(node.Properties, embedding);
 
     public async Task<Entity?> ApplyConfidenceDeltaAsync(

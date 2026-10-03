@@ -153,6 +153,9 @@ public static class ServiceCollectionExtensions
         // G6 (40.50). Store integrity rules; read-only.
         services.TryAddTransient<IMemoryIntegrityService, Neo4jMemoryIntegrityService>();
 
+        // G3 (40.47). Erase, export and import an owner's data. Scoped: it writes through the scoped repositories.
+        services.TryAddScoped<IMemoryOwnerDataService, Neo4jMemoryOwnerDataService>();
+
         // Memory-hygiene / consolidation (PR #113) — dry-run by default.
         services.TryAddTransient<IConsolidationService, Neo4jConsolidationService>();
 
