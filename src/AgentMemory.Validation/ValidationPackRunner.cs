@@ -65,7 +65,8 @@ public sealed class ValidationPackRunner(Action<Neo4jOptions> configureNeo4j)
         // Ingestion: each message stored and extracted at its own time.
         foreach (var session in pack.Sessions)
         {
-            var owner = Owner(session.Owner);
+            // A shared session is written for everyone: no user, the explicit shared write (it cannot carry one).
+            var owner = session.Shared ? null : Owner(session.Owner);
             var sessionId = $"{prefix}-{session.Id}";
             using var scope = provider.CreateScope();
             var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
@@ -86,8 +87,10 @@ public sealed class ValidationPackRunner(Action<Neo4jOptions> configureNeo4j)
                     Content = said.Text,
                     TimestampUtc = said.At,
                 }, cancellationToken).ConfigureAwait(false);
-                await pipeline.ExtractAsync(new ExtractionRequest { SessionId = sessionId, UserId = owner, Messages = [message] }, cancellationToken)
-                    .ConfigureAwait(false);
+                await pipeline.ExtractAsync(new ExtractionRequest
+                {
+                    SessionId = sessionId, UserId = owner, Messages = [message], ShareWithEveryone = session.Shared,
+                }, cancellationToken).ConfigureAwait(false);
             }
         }
 
