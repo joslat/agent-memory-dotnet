@@ -53,6 +53,33 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
         (await LiveCitiesAsync()).Should().Equal(["Madrid"], "live recall is unchanged: only the current value");
     }
 
+    /// <summary>
+    /// The readiness matrix's "a date in the question" row had no integration test (40.54, second pass): an ordinary
+    /// turn that names a past time recalls as of it, on a real store, with nothing but the question to go on.
+    /// </summary>
+    [Fact]
+    public async Task A_question_that_names_a_past_time_is_answered_as_of_it()
+    {
+        Build(bitemporal: true, resolveTemporalQueries: true);
+        await SayAsync("I live in Bilbao.");
+        await SayAsync("I moved to Madrid in March.");
+
+        (await CitiesAskedAsync("Where did the user live 6 years ago?")).Should().Equal(["Bilbao"],
+            "the question names a time six years back, when the person lived in Bilbao");
+        (await CitiesAskedAsync("Where does the user live?")).Should().Equal(["Madrid"], "a question naming no time is live");
+    }
+
+    [Fact]
+    public async Task Without_question_dates_a_past_question_is_answered_as_of_now()
+    {
+        Build(bitemporal: true);
+        await SayAsync("I live in Bilbao.");
+        await SayAsync("I moved to Madrid in March.");
+
+        (await CitiesAskedAsync("Where did the user live 6 years ago?")).Should().Equal(["Madrid"],
+            "ResolveTemporalQueries off (the library default): the date in the question is not read");
+    }
+
     [Fact]
     public async Task Without_the_option_a_change_loses_the_past()
     {
@@ -191,14 +218,18 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
         public DateTimeOffset UtcNow => Now;
     }
 
-    private void Build(bool bitemporal, IClock? clock = null)
+    private void Build(bool bitemporal, IClock? clock = null, bool resolveTemporalQueries = false)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         if (clock is not null) services.AddSingleton(clock);
         services.AddSingleton<IFactExtractor, ScriptedFacts>();
         services.AddNeo4jAgentMemory(
-            new MemoryOptions { Extraction = { SupersedeReplacedFacts = true, BitemporalChanges = bitemporal } },
+            new MemoryOptions
+            {
+                ResolveTemporalQueries = resolveTemporalQueries,
+                Extraction = { SupersedeReplacedFacts = true, BitemporalChanges = bitemporal },
+            },
             configureNeo4j: o =>
             {
                 o.Uri = _fixture.ConnectionString;
@@ -212,9 +243,9 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
         _provider = services.BuildServiceProvider(validateScopes: true);
     }
 
-    private static RecallRequest Question() => new()
+    private static RecallRequest Question(string query = "Where does the user live?") => new()
     {
-        SessionId = "s-bitemporal", UserId = Owner, Query = "Where does the user live?",
+        SessionId = "s-bitemporal", UserId = Owner, Query = query,
         Options = new RecallOptions
         {
             MaxRecentMessages = 0, MaxRelevantMessages = 0, MaxEntities = 0, MaxPreferences = 0, MaxTraces = 0,
@@ -227,6 +258,14 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
         using var scope = _provider!.CreateScope();
         var memory = scope.ServiceProvider.GetRequiredService<IMemoryService>();
         var context = (await memory.RecallAsOfAsync(Question(), validAsOf, systemAsOf, CancellationToken.None)).Context;
+        return [.. context.RelevantFacts.Items.Where(f => f.Predicate == "lives in").Select(f => f.Object)];
+    }
+
+    private async Task<IReadOnlyList<string>> CitiesAskedAsync(string query)
+    {
+        using var scope = _provider!.CreateScope();
+        var memory = scope.ServiceProvider.GetRequiredService<IMemoryService>();
+        var context = (await memory.RecallAsync(Question(query), CancellationToken.None)).Context;
         return [.. context.RelevantFacts.Items.Where(f => f.Predicate == "lives in").Select(f => f.Object)];
     }
 
