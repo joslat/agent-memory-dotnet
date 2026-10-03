@@ -32,7 +32,7 @@ public sealed record OwnerMemoryExport
     /// <summary>When it was exported.</summary>
     public required DateTimeOffset ExportedAtUtc { get; init; }
 
-    /// <summary>The owner's entities.</summary>
+    /// <summary>The owner's live entities (merged-away and forgotten ones are left out).</summary>
     public IReadOnlyList<Entity> Entities { get; init; } = [];
 
     /// <summary>The owner's facts, live and closed.</summary>
@@ -41,13 +41,13 @@ public sealed record OwnerMemoryExport
     /// <summary>The owner's preferences, live and closed.</summary>
     public IReadOnlyList<Preference> Preferences { get; init; } = [];
 
-    /// <summary>The owner's relationships.</summary>
+    /// <summary>The owner's relationships between exported or shared entities.</summary>
     public IReadOnlyList<Relationship> Relationships { get; init; } = [];
 
     /// <summary>Supersession: a closed fact (<see cref="MemoryLink.From"/>) and the fact that replaced it.</summary>
     public IReadOnlyList<MemoryLink> Supersessions { get; init; } = [];
 
-    /// <summary>A fact (<see cref="MemoryLink.From"/>) and an entity it is about (the owner's, or a shared one).</summary>
+    /// <summary>A fact (<see cref="MemoryLink.From"/>) and an entity it is about (an exported one, or a shared one).</summary>
     public IReadOnlyList<MemoryLink> About { get; init; } = [];
 }
 
