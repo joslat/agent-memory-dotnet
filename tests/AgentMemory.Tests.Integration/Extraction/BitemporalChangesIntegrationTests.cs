@@ -98,6 +98,35 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
             .Effect.Should().NotBe(MemoryWriteEffect.Unreported);
     }
 
+    /// <summary>B-13 (the branch review): a correction reaches a value a change had already made history.</summary>
+    [Fact]
+    public async Task Correcting_a_past_value_withdraws_it_from_the_past()
+    {
+        Build(bitemporal: true);
+        await SayAsync("I live in Bilbao.");
+        await SayAsync("I moved to Madrid in March.");
+        (await CitiesAsOfAsync(Now.AddYears(-6), DateTimeOffset.UtcNow)).Should().Equal(["Bilbao"]);
+
+        await SayAsync("I never lived in Bilbao; it was Bermeo.");
+
+        (await CitiesAsOfAsync(Now.AddYears(-6), DateTimeOffset.UtcNow)).Should().Equal(["Bermeo"],
+            "the corrected past answers with the corrected value");
+        (await LiveCitiesAsync()).Should().Equal(["Madrid"], "the present is untouched");
+    }
+
+    /// <summary>B-13's guard: saying a change again, with the old value named, is not a correction of the past.</summary>
+    [Fact]
+    public async Task Restating_a_change_keeps_the_past()
+    {
+        Build(bitemporal: true);
+        await SayAsync("I live in Bilbao.");
+        await SayAsync("I moved to Madrid in March.");
+
+        await SayAsync("I moved to Madrid in March, not Bilbao.");
+
+        (await CitiesAsOfAsync(Now.AddYears(-6), DateTimeOffset.UtcNow)).Should().Equal(["Bilbao"]);
+    }
+
     [Fact]
     public async Task Without_the_option_a_change_loses_the_past()
     {
@@ -359,6 +388,15 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
                 "Bilbao is home." => Lives("Bilbao"),
                 "I moved to Madrid." => Lives("Madrid"),
                 "Sorry, I meant Madrid, not Bilbao." => Lives("Madrid") with { Replaces = "Bilbao" },
+                "I never lived in Bilbao; it was Bermeo." => Lives("Bermeo") with
+                {
+                    Replaces = "Bilbao", ValidFrom = BilbaoSince, ValidFromPrecision = DatePrecision.Year,
+                    ValidUntil = MadridSince, ValidUntilPrecision = DatePrecision.Month,
+                },
+                "I moved to Madrid in March, not Bilbao." => Lives("Madrid") with
+                {
+                    ValidFrom = MadridSince, ValidFromPrecision = DatePrecision.Month, Replaces = "Bilbao",
+                },
                 _ => throw new InvalidOperationException($"No script for '{m.Content}'."),
             })]);
 

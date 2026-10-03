@@ -36,15 +36,22 @@ internal static class Corrections
     /// relation it is something else said now ("Oslo now, not Copenhagen; Copenhagen is still my favourite city"),
     /// and the fallback exists for what was stored before under another phrasing.
     /// </param>
+    /// <param name="includeHistory">
+    /// B-13: also a value a change closed (history, still believed for its time), which a correction can withdraw.
+    /// </param>
     internal static IReadOnlyList<Fact> Closed(
-        IEnumerable<Fact> candidates, Fact winner, string replaced, IReadOnlySet<string>? statedNow = null)
+        IEnumerable<Fact> candidates, Fact winner, string replaced, IReadOnlySet<string>? statedNow = null,
+        bool includeHistory = false)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(winner);
         var value = Value(replaced);
         if (value.Length == 0) return [];
         var mentioning = candidates
-            .Where(candidate => candidate.InvalidatedAtUtc is null && candidate.FactId != winner.FactId)
+            // B-13: with includeHistory, a value already closed by a change (history, still believed for its time) is one
+            // a correction can withdraw too ("I never lived in Bilbao").
+            .Where(candidate => (candidate.InvalidatedAtUtc is null || (includeHistory && candidate.InvalidatedReason == "change"))
+                                && candidate.FactId != winner.FactId)
             .Where(candidate => Mentions(candidate.Object, value))
             .ToList();
         var relationKeys = MemoryRelationCardinality.ReplacedKeys(winner.Predicate);

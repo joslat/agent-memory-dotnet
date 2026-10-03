@@ -1024,8 +1024,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 {
                     if (factIndex.GetValueOrDefault(key) > saidAt) spared.Add(fact.FactId);
                 }
+                // B-13 (the branch review). With BitemporalChanges a change keeps the old value believed as history, so a
+                // correction of it ("I never lived in Bilbao") must reach it too. Only when the correction is new: a value said
+                // again ("I moved to Madrid, not Bilbao", Madrid already stored) is a restatement, and must not erase the past.
                 var closed = Corrections.Closed(
-                    candidates.Where(candidate => !currentFactIds.Contains(candidate.FactId)), winner, replaced, spared);
+                    candidates.Where(candidate => !currentFactIds.Contains(candidate.FactId)), winner, replaced, spared,
+                    includeHistory: _options.BitemporalChanges && createdHere.Contains(winner.FactId));
                 foreach (var loser in closed)
                 {
                     await CloseFactAsync(loser.FactId, winner.FactId, FactClosureReason.Correction, null, writeScope, cancellationToken)

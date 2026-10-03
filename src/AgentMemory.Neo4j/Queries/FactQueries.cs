@@ -652,8 +652,13 @@ internal static class FactQueries
             WHERE true" + winnerOwner + @"
               AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
               AND loser <> winner
-            SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now)),
-                loser.invalidated_reason = coalesce(loser.invalidated_reason, $reason),
+            WITH loser, winner,
+                 // B-13: a correction of a value a change had made history withdraws it from now on.
+                 $reason = 'correction' AND loser.invalidated_reason = 'change' AS withdrawsHistory
+            SET loser.invalidated_at = CASE WHEN withdrawsHistory THEN datetime($now)
+                    ELSE coalesce(loser.invalidated_at, datetime($now)) END,
+                loser.invalidated_reason = CASE WHEN withdrawsHistory THEN 'correction'
+                    ELSE coalesce(loser.invalidated_reason, $reason) END,
                 loser.period_key     = loser.id,
                 loser.valid_until_recorded_at = CASE
                     WHEN $reason = 'change' AND loser.valid_until IS NULL THEN datetime($now)
