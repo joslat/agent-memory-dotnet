@@ -62,7 +62,11 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         PhaseThirtyFeatures? phase30 = null,
         // Recall-side only: tells the reader how well each item matched. Off unless asked for.
         bool annotateMatchQuality = false,
-        LongMemEvalPreset preset = LongMemEvalPreset.Sealed)
+        LongMemEvalPreset preset = LongMemEvalPreset.Sealed,
+        // 40.65/40.66. The bitemporal option under test, and a replayed clock: with one, every time the store
+        // stamps (when a fact was learned, closed, recorded) is the replayed session's date, not the run's.
+        bool bitemporalChanges = false,
+        IClock? clock = null)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
@@ -106,6 +110,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     extractionSeed,
                     annotateMatchQuality,
                     preset,
+                    bitemporalChanges,
+                    clock,
                     cancellationToken)
                 .ConfigureAwait(false);
             return profile;
@@ -145,6 +151,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int? extractionSeed,
         bool annotateMatchQuality,
         LongMemEvalPreset preset,
+        bool bitemporalChanges,
+        IClock? clock,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
@@ -182,7 +190,9 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             multiSessionBatch,
             extractionSeed,
             annotateMatchQuality,
-            preset);
+            preset,
+            bitemporalChanges,
+            clock);
 
         _provider = services.BuildServiceProvider();
         _scope = _provider.CreateAsyncScope();
@@ -230,10 +240,14 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool multiSessionBatch = true,
         int? extractionSeed = null,
         bool annotateMatchQuality = false,
-        LongMemEvalPreset preset = LongMemEvalPreset.Sealed)
+        LongMemEvalPreset preset = LongMemEvalPreset.Sealed,
+        bool bitemporalChanges = false,
+        IClock? clock = null)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+        // Registered before the library's TryAdd, so the replayed clock is the one every service reads (G1).
+        if (clock is not null) services.AddSingleton(clock);
         Action<LlmExtractionOptions>? configureLlm = memoryMode.UsesExtraction()
             ? options =>
             {
@@ -296,7 +310,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             : null;
         var memoryOptions = preset == LongMemEvalPreset.Sealed
             ? null
-            : ProductOptions(preset, graphRagIndexName is not null, annotateMatchQuality);
+            : ProductOptions(preset, graphRagIndexName is not null, annotateMatchQuality, bitemporalChanges);
         services.AddNeo4jAgentMemory(
             // K9.1: the instance overload. The Action<MemoryOptions> one cannot set anything -
             // MemoryOptions is an init-only record, so a configure lambda can neither assign its
@@ -345,6 +359,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     // squarely at the measured failure mode was the one thing no run could set. Off
                     // unless asked for, so every sealed measurement keeps its path.
                     SupersedeReplacedFacts = supersedeReplacedFacts,
+                    // 40.65. Off unless asked for, so every sealed measurement keeps its path.
+                    BitemporalChanges = bitemporalChanges,
                     // W-E1, and the SEVENTH reachable-but-never-fed lever this project has found.
                     // `CreateAboutRelationshipAsync` is public, unit-tested and proven against live
                     // Neo4j; no ingestion path ever called it, so every store probe reports
@@ -438,10 +454,13 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
     /// 40.10. What a user gets: the library's own defaults, or those plus the Conversational preset object. Only the
     /// harness's recall-side mechanics are added (a GraphRAG index when asked, match quality when asked).
     /// </summary>
-    internal static MemoryOptions ProductOptions(LongMemEvalPreset preset, bool graphRag, bool annotateMatchQuality)
+    internal static MemoryOptions ProductOptions(
+        LongMemEvalPreset preset, bool graphRag, bool annotateMatchQuality, bool bitemporalChanges = false)
     {
         var options = preset == LongMemEvalPreset.Conversational ? MemoryOptions.CreateConversational() : new MemoryOptions();
         options.EnableGraphRag = graphRag;
+        // 40.65: the one product option an arm may add on top of the preset; off keeps the preset as shipped.
+        options.Extraction.BitemporalChanges = bitemporalChanges;
         return annotateMatchQuality
             ? options with { Projection = MemoryProjectionOptions.Default with { AnnotateMatchQuality = true } }
             : options;

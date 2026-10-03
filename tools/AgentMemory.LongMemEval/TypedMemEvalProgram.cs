@@ -106,6 +106,11 @@ internal static class TypedMemEvalProgram
         // Firing requires `valid_from IS NOT NULL`, and ValidTime=Current filters on
         // `(valid_from IS NULL OR ...)` which NULL satisfies. So both were no-ops by construction.
         "--temporal-validity",
+        // 40.65/40.66. The bitemporal option under test, and the clocks that let a run see it: each session stamped at
+        // its own date by a replayed clock, and each question recalled at the time it names (valid) and, for a belief
+        // question, at the corpus's as-of instant (transaction). A preset applies a product configuration, as the
+        // LongMemEval verb's --preset does.
+        "--bitemporal-changes", "--bitemporal-clocks", "--preset",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -174,7 +179,10 @@ internal static class TypedMemEvalProgram
                             captureIdentityAliases: options.CaptureIdentityAliases,
                             usePredicateVocabulary: options.UsePredicateVocabulary,
                             resolveSupersessions: options.ResolveSupersessions,
-                            recallFanOut: options.RecallFanOut)
+                            recallFanOut: options.RecallFanOut,
+                            preset: options.Preset,
+                            bitemporalChanges: options.BitemporalChanges,
+                            clock: options.BitemporalClocks ? new ReplayClock() : null)
                         .ConfigureAwait(false);
                 }
 
@@ -295,7 +303,10 @@ internal static class TypedMemEvalProgram
                         GraphProbe = new Neo4jLongMemEvalGraphProbe(
                             profile.Services.GetRequiredService<global::Neo4j.Driver.IDriver>()),
                         ExtractionProgress = (completed, total) => Console.WriteLine(
-                            $"typedmemeval: extraction units {completed}/{total}.")
+                            $"typedmemeval: extraction units {completed}/{total}."),
+                        // 40.66. Null unless --bitemporal-clocks: the profile then registered a ReplayClock.
+                        ReplayClock = profile.Services.GetService<IClock>() as ReplayClock,
+                        AskedClocks = options.BitemporalClocks ? TypedMemEvalClocks.Read(vertical) : null,
                     });
                 result = await runner.RunAsync(adapter, vertical, facade).ConfigureAwait(false);
             }
@@ -705,6 +716,21 @@ internal static class TypedMemEvalProgram
             }
 
             Console.WriteLine($"typedmemeval:   e.g. \"{Truncate(entries[0].Question)}\"");
+
+            // 40.66. Proves the clocks before anything is spent: one question of each clock, with the instants the run
+            // will recall it at. A belief question recalled at today's date would measure nothing.
+            if (options.BitemporalClocks)
+            {
+                var asked = TypedMemEvalClocks.Read(vertical);
+                foreach (var entry in entries.Where(e => asked.ContainsKey(e.QuestionId))
+                             .GroupBy(e => asked[e.QuestionId].Clock ?? "none").Select(g => g.First()))
+                {
+                    var date = entry.QuestionDate is { } d ? TypedMemEvalClocks.ParseDate(d) : DateTimeOffset.MinValue;
+                    var (valid, system) = TypedMemEvalClocks.Resolve(entry.Question, date, asked[entry.QuestionId]);
+                    Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                        $"typedmemeval:   clock {asked[entry.QuestionId].Clock ?? "none"}: \"{Truncate(entry.Question)}\" asked {date:yyyy-MM-dd} -> valid {valid:yyyy-MM-dd}, believed {system:yyyy-MM-dd HH:mm}"));
+                }
+            }
         }
 
         Console.WriteLine("typedmemeval: DRY RUN COMPLETE — nothing spent.");
@@ -1119,7 +1145,10 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--temporal-validity") >= 0,
             Array.IndexOf(args, "--capture-identity-aliases") >= 0,
             Array.IndexOf(args, "--expand-by-identity") >= 0,
-            Array.IndexOf(args, "--predicate-vocabulary") >= 0);
+            Array.IndexOf(args, "--predicate-vocabulary") >= 0,
+            Array.IndexOf(args, "--bitemporal-changes") >= 0,
+            Array.IndexOf(args, "--bitemporal-clocks") >= 0,
+            LongMemEvalPresets.Parse(Value(LongMemEvalPresets.Option)));
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1333,7 +1362,13 @@ internal static class TypedMemEvalProgram
         // predicate invented per sentence -- measured at 700 facts under 421 distinct predicates.
         // It is the precondition for supersession: `CanSupersede` requires a CANONICAL single-valued
         // predicate, and a free-form one can never be recognised as replacing anything.
-        bool UsePredicateVocabulary = false)
+        bool UsePredicateVocabulary = false,
+        // 40.65. An INGESTION lever: how a closing is recorded, so arms differing by it are two stores.
+        bool BitemporalChanges = false,
+        // 40.66. Replayed session dates as transaction time, and the two clocks each question asks on.
+        bool BitemporalClocks = false,
+        // A product configuration (LongMemEvalPreset); Sealed keeps every measured path.
+        LongMemEvalPreset Preset = LongMemEvalPreset.Sealed)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
@@ -1347,6 +1382,7 @@ internal static class TypedMemEvalProgram
                 ResolveSupersessions, ExpandFactsByPredicate, ResolveQueryRelations, RecallFanOut,
                 MaxDerivedFacts, CurrentValidTimeOnly, ProspectiveFiring, LinkFactsToEntities,
                 NodeDistanceReranking, TemporalValidity, CaptureIdentityAliases,
-                ExpandFactsByIdentity, UsePredicateVocabulary);
+                ExpandFactsByIdentity, UsePredicateVocabulary, BitemporalChanges, BitemporalClocks,
+                LongMemEvalPresets.Token(Preset));
     }
 }
