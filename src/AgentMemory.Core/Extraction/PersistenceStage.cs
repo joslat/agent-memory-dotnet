@@ -333,6 +333,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 // Relationships and mentions move, the old name becomes an alias; then the old entity is closed.
                 await _entityRepository.MergeEntitiesAsync(source.EntityId, target.EntityId, scope, cancellationToken).ConfigureAwait(false);
                 await _entityRepository.InvalidateAsync(source.EntityId, scope, cancellationToken).ConfigureAwait(false);
+                // The merge clears the survivor's embedding (its aliases changed), and nothing on this path re-embeds it:
+                // the renamed person or pet dropped out of entity recall (found by the core.names validation pack). It is
+                // embedded again from its name, as extraction embeds an entity and as the in-place branch above does.
+                await _entityRepository.UpdateEmbeddingAsync(
+                    target.EntityId, await _embeddingOrchestrator.EmbedAsync(target.Name, cancellationToken).ConfigureAwait(false),
+                    cancellationToken).ConfigureAwait(false);
                 _logger.LogDebug("Renamed entity '{Old}' to '{Name}' ({Source} into {Target}).", old, name, source.EntityId, target.EntityId);
             }
         }

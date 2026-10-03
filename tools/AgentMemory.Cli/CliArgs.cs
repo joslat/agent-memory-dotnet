@@ -104,6 +104,9 @@ public static class CliHelp
               evaluate [--iterations <n>] [--owner <id>] [--output <path>]
                                      Run deterministic memory-layer quality/performance scenarios and
                                      write a JSON report under artifacts/evaluation by default.
+              evaluate --pack <core|file|directory> [--output <path>]
+                                     Run validation packs (a schema, conversations with what extraction
+                                     yields, expected storage, questions): deterministic, no model.
               perf [--label <name>] [--scenarios <ids|all>] [--iterations <n>] [--warmup <n>]
                    [--scale <S|M>] [--latency <zero|remote>] [--embedding-dimensions <n>]
                    [--output <dir>] [--quality-gate <true|false>]
@@ -190,6 +193,7 @@ public static class CliHelp
               agentmemory decay --owner user-42  # prune only user-42's memories
               agentmemory history --type fact --owner user-42 --limit 20
               agentmemory evaluate --iterations 3 --output artifacts/evaluation/local.json
+              agentmemory evaluate --pack core
               agentmemory perf --label baseline --iterations 10
               agentmemory perf --label scale-m --scale M --scenarios PERF-R-04
               agentmemory perf cold --label cold-r04 --scenarios PERF-R-04 --samples 5

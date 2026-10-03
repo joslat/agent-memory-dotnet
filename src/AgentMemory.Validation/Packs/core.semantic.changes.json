@@ -1,0 +1,86 @@
+{
+  "format": "agentmemory-pack/1",
+  "id": "core.semantic.changes",
+  "title": "A change keeps the past, a correction withdraws it; both clocks answer; another owner's facts never move",
+  "covers": ["facts"],
+  "options": { "preset": "conversational", "set": { "Extraction.BitemporalChanges": true } },
+  "schema": {
+    "entityTypes": ["PERSON", "LOCATION", "ORGANIZATION"],
+    "predicates": [
+      { "name": "lives in", "single": true },
+      { "name": "works at", "single": true },
+      { "name": "likes" }
+    ]
+  },
+  "owners": ["ana", "bob"],
+  "sessions": [
+    {
+      "owner": "ana", "id": "ana-1",
+      "messages": [
+        { "at": "2026-01-10T09:00:00Z", "text": "I'm Ana and I live in Bilbao.",
+          "entities": [{ "name": "Ana", "type": "PERSON" }, { "name": "Bilbao", "type": "LOCATION" }],
+          "facts": [{ "s": "Ana", "p": "lives in", "o": "Bilbao", "validFrom": "2010-01-01T00:00:00Z", "precision": "year" }] },
+        { "at": "2026-01-10T09:01:00Z", "text": "I work at Northwind.",
+          "entities": [{ "name": "Northwind", "type": "ORGANIZATION" }],
+          "facts": [{ "s": "Ana", "p": "works at", "o": "Northwind", "validFrom": "2024-06-01T00:00:00Z", "precision": "month" }] }
+      ]
+    },
+    {
+      "owner": "bob", "id": "bob-1",
+      "messages": [
+        { "at": "2026-01-12T10:00:00Z", "text": "I'm Bob and I live in Bilbao too.",
+          "entities": [{ "name": "Bob", "type": "PERSON" }, { "name": "Bilbao", "type": "LOCATION" }],
+          "facts": [{ "s": "Bob", "p": "lives in", "o": "Bilbao", "validFrom": "2015-01-01T00:00:00Z", "precision": "year" }] }
+      ]
+    },
+    {
+      "owner": "ana", "id": "ana-2",
+      "messages": [
+        { "at": "2026-03-15T09:00:00Z", "text": "I moved to Madrid in March.",
+          "entities": [{ "name": "Madrid", "type": "LOCATION" }],
+          "facts": [{ "s": "Ana", "p": "lives in", "o": "Madrid", "validFrom": "2026-03-01T00:00:00Z", "precision": "month" }] },
+        { "at": "2026-03-15T09:01:00Z", "text": "Sorry, I work at Contoso, not Northwind.",
+          "entities": [{ "name": "Contoso", "type": "ORGANIZATION" }],
+          "facts": [{ "s": "Ana", "p": "works at", "o": "Contoso", "replaces": "Northwind" }] }
+      ]
+    },
+    {
+      "owner": "ana", "id": "ana-3",
+      "messages": [
+        { "at": "2026-04-01T18:00:00Z", "text": "I like hiking.",
+          "facts": [{ "s": "Ana", "p": "likes", "o": "hiking" }] }
+      ]
+    }
+  ],
+  "storage": [
+    { "owner": "ana", "fact": "Ana | lives in | Bilbao", "state": "closed", "closedAs": "change" },
+    { "owner": "ana", "fact": "Ana | lives in | Madrid", "state": "live" },
+    { "owner": "ana", "fact": "Ana | works at | Northwind", "state": "closed", "closedAs": "correction" },
+    { "owner": "ana", "fact": "Ana | works at | Contoso", "state": "live" },
+    { "owner": "ana", "fact": "Ana | likes | hiking", "state": "live" },
+    { "owner": "bob", "fact": "Bob | lives in | Bilbao", "state": "live" },
+    { "owner": "ana", "fact": "Bob | lives in | Bilbao", "state": "absent" }
+  ],
+  "questions": [
+    { "id": "live-city", "owner": "ana", "at": "2026-04-10T12:00:00Z", "ask": "Where does Ana live?",
+      "expect": [{ "fact": "Ana | lives in | Madrid" }], "exclude": [{ "fact": "Ana | lives in | Bilbao" }], "kinds": ["facts"] },
+    { "id": "past-city", "owner": "ana", "at": "2026-04-10T12:00:00Z", "ask": "Where did Ana live in 2020?",
+      "asOf": { "valid": "2020-06-01T00:00:00Z" },
+      "expect": [{ "fact": "Ana | lives in | Bilbao" }], "exclude": [{ "fact": "Ana | lives in | Madrid" }], "kinds": ["facts"] },
+    { "id": "belief-before-move", "owner": "ana", "at": "2026-04-10T12:00:00Z",
+      "ask": "As of 1 March, where did the record show Ana living on 20 March?",
+      "asOf": { "valid": "2026-03-20T00:00:00Z", "system": "2026-03-01T00:00:00Z" },
+      "expect": [{ "fact": "Ana | lives in | Bilbao" }], "exclude": [{ "fact": "Ana | lives in | Madrid" }], "kinds": ["facts"] },
+    { "id": "live-employer", "owner": "ana", "at": "2026-04-10T12:00:00Z", "ask": "Where does Ana work?",
+      "expect": [{ "fact": "Ana | works at | Contoso" }], "exclude": [{ "fact": "Ana | works at | Northwind" }], "kinds": ["facts"] },
+    { "id": "corrected-past", "owner": "ana", "at": "2026-04-10T12:00:00Z", "ask": "Where did Ana work and live in January 2025?",
+      "asOf": { "valid": "2025-01-15T00:00:00Z" },
+      "expect": [{ "fact": "Ana | lives in | Bilbao" }], "exclude": [{ "fact": "Ana | works at | Northwind" }], "kinds": ["facts"] },
+    { "id": "many-values", "owner": "ana", "at": "2026-04-10T12:00:00Z", "ask": "What does Ana like?",
+      "expect": [{ "fact": "Ana | likes | hiking" }], "kinds": ["facts"] },
+    { "id": "date-in-question", "owner": "ana", "at": "2026-04-10T12:00:00Z", "ask": "Where did Ana live 6 years ago?",
+      "expect": [{ "fact": "Ana | lives in | Bilbao" }], "exclude": [{ "fact": "Ana | lives in | Madrid" }], "kinds": ["facts"] },
+    { "id": "other-owner", "owner": "bob", "at": "2026-04-10T12:00:00Z", "ask": "Where does Bob live?",
+      "expect": [{ "fact": "Bob | lives in | Bilbao" }], "exclude": [{ "fact": "Ana | lives in | Madrid" }], "kinds": ["facts"] }
+  ]
+}
