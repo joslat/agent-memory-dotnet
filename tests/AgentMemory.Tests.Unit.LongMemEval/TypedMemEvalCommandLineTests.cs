@@ -203,6 +203,7 @@ public sealed class TypedMemEvalCommandLineTests
             ["--bitemporal-changes"] = "BitemporalChanges",
             ["--bitemporal-clocks"] = "BitemporalClocks",
             ["--preset"] = "Preset",
+            ["--judge-max-output-tokens"] = "JudgeMaxOutputTokens",
             // 30.9d. The renderer half of the same mechanism: --supersede-replaced-facts writes the
             // :SUPERSEDED_BY edges and this one renders them, so an arm carrying only one of the two
             // measures an off-state. Both must be nameable, or the pair is indistinguishable again.
