@@ -114,6 +114,22 @@ public sealed class BitemporalChangesTests
         _closed.Should().BeEmpty();
     }
 
+    /// <summary>The corpus's shape: "Calderwick as of February", then "actually Ardenholm as of February".</summary>
+    [Fact]
+    public async Task A_new_value_for_the_same_period_corrects_the_old_one()
+    {
+        _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([Stored("bilbao", "Bilbao") with { ValidFrom = MovedIn }]));
+
+        await Sut(bitemporal: true).PersistAsync(
+            new ExtractionStageResult { FilteredFacts = [Lives("Madrid") with { ValidFrom = MovedIn, ValidFromPrecision = DatePrecision.Month }] },
+            ownerId: "owner-1");
+
+        _closed.Should().ContainSingle().Which.Reason.Should().Be(FactClosureReason.Correction,
+            "the new value starts no later than the old one, so the old one was never right for that period");
+    }
+
     /// <summary>G7 (40.51): found live, "Rosa | is named | Rosa" was stored and recalled first. It says nothing.</summary>
     [Fact]
     public async Task A_fact_whose_subject_and_object_are_the_same_name_is_skipped_with_its_reason()
