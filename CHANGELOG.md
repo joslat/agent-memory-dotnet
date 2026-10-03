@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One clock.** The Neo4j store stamped closings, live recall's "now", recency and `updated_at` from the wall clock
+  while the rest of the library used `IClock`, so a host or a test that registered its own clock set only half of the
+  times one recall compares. Every time in the memory path now comes from `IClock` (a guard test keeps it so); without a
+  registered clock nothing changes.
 - **`StubEmbeddingGenerator` gives the same vector for the same text in every process.** It seeded from
   `string.GetHashCode()`, which .NET randomises per process, so its "deterministic" vectors changed from run to run;
   on small dimensions two different names could land close enough to merge in one run and not in the next. It now

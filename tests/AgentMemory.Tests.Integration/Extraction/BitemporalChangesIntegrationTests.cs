@@ -153,10 +153,49 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
             "fact history (and the MCP memory_lineage tool built on it) says why the old value was closed");
     }
 
-    private void Build(bool bitemporal)
+    /// <summary>
+    /// G1 (40.45): with the clock replayed, every stamp a closing and an as-of read compare comes from it, not the wall
+    /// clock: what a replay of dated conversations needs.
+    /// </summary>
+    [Fact]
+    public async Task A_replayed_clock_stamps_every_time_a_closing_writes()
+    {
+        var clock = new ReplayClock(new DateTimeOffset(2020, 1, 1, 9, 0, 0, TimeSpan.Zero));
+        Build(bitemporal: true, clock);
+        await SayAsync("Bilbao is home.");
+        clock.Now = new DateTimeOffset(2021, 6, 1, 9, 0, 0, TimeSpan.Zero);
+        await SayAsync("I moved to Madrid.");
+
+        var rows = await ReadAsync(
+            "MATCH (f:Fact {owner_id: $owner}) RETURN f.object AS city, f.created_at AS created, f.invalidated_at AS closed, " +
+            "f.valid_until AS until, f.valid_until_recorded_at AS recorded, f.valid_from_inferred AS inferred ORDER BY f.created_at",
+            new { owner = Owner });
+        DateTimeOffset? At(IRecord row, string key) =>
+            row[key] is ZonedDateTime z ? z.ToDateTimeOffset() : null;
+        rows.Select(r => ValueExtensions.As<string>(r["city"])).Should().Equal(["Bilbao", "Madrid"]);
+        At(rows[0], "created").Should().Be(new DateTimeOffset(2020, 1, 1, 9, 0, 0, TimeSpan.Zero));
+        At(rows[0], "closed").Should().Be(clock.Now, "the closing is stamped by the replayed clock");
+        At(rows[0], "until").Should().Be(clock.Now, "an undated change takes effect when it was said");
+        At(rows[0], "recorded").Should().Be(clock.Now);
+        At(rows[1], "created").Should().Be(clock.Now);
+        At(rows[1], "inferred").Should().Be(clock.Now);
+
+        clock.Now = new DateTimeOffset(2021, 7, 1, 9, 0, 0, TimeSpan.Zero);
+        (await CitiesAsOfAsync(new DateTimeOffset(2020, 6, 1, 0, 0, 0, TimeSpan.Zero), clock.Now)).Should()
+            .Contain("Bilbao").And.NotContain("Madrid");
+    }
+
+    private sealed class ReplayClock(DateTimeOffset start) : IClock
+    {
+        public DateTimeOffset Now { get; set; } = start;
+        public DateTimeOffset UtcNow => Now;
+    }
+
+    private void Build(bool bitemporal, IClock? clock = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        if (clock is not null) services.AddSingleton(clock);
         services.AddSingleton<IFactExtractor, ScriptedFacts>();
         services.AddNeo4jAgentMemory(
             new MemoryOptions { Extraction = { SupersedeReplacedFacts = true, BitemporalChanges = bitemporal } },

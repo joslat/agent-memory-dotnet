@@ -1,3 +1,5 @@
+using AgentMemory.Core.Stubs;
+using AgentMemory.Abstractions.Services;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
@@ -12,13 +14,19 @@ namespace AgentMemory.Neo4j.Repositories;
 
 internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBatchMemoryRepository<Relationship>
 {
+    /// <summary>
+    /// G1 (40.45): every time this repository stamps or compares comes from here, so a host (or a replay) that sets the
+    /// clock sets all of it. Without DI, the system clock.
+    /// </summary>
+    private readonly IClock _clock;
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jRelationshipRepository> _logger;
 
-    public Neo4jRelationshipRepository(INeo4jTransactionRunner tx, ILogger<Neo4jRelationshipRepository> logger)
+    public Neo4jRelationshipRepository(INeo4jTransactionRunner tx, ILogger<Neo4jRelationshipRepository> logger, IClock? clock = null)
     {
         _tx = tx;
         _logger = logger;
+        _clock = clock ?? new SystemClock();
     }
 
     public async Task<Relationship> UpsertAsync(Relationship relationship, CancellationToken cancellationToken = default)
@@ -42,7 +50,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
                 ["attributes"] = SerializeMetadata(relationship.Attributes),
                 ["sourceMessageIds"] = relationship.SourceMessageIds.ToList(),
                 ["createdAt"] = relationship.CreatedAtUtc.ToString("O"),
-                ["updatedAt"] = DateTimeOffset.UtcNow.ToString("O"),
+                ["updatedAt"] = _clock.UtcNow.ToString("O"),
                 ["metadata"] = SerializeMetadata(relationship.Metadata)
             };
 
@@ -59,7 +67,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         if (relationships.Count == 0) return Array.Empty<Relationship>();
 
         _logger.LogDebug("Batch upserting {Count} relationships", relationships.Count);
-        var updatedAt = DateTimeOffset.UtcNow.ToString("O");
+        var updatedAt = _clock.UtcNow.ToString("O");
         var items = relationships.Select(relationship => new Dictionary<string, object?>
         {
             ["id"] = relationship.RelationshipId,

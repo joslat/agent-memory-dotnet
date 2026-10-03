@@ -24,7 +24,7 @@ internal sealed partial class Neo4jFactRepository
                 fact.Subject, fact.Predicate, fact.Object, fact.OwnerId ?? OwnerKeyShared))
             .Select(group => group.Last())
             .ToList();
-        var updatedAt = DateTimeOffset.UtcNow.ToString("O");
+        var updatedAt = _clock.UtcNow.ToString("O");
 
         // L11. The fact merge key is the composite {subject_key, predicate_key, object_key,
         // owner_key}, and it is now backed by a range index — so an oversized value stops being a
