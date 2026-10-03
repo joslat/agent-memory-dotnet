@@ -337,22 +337,58 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
         }
 
-        // The facts said about the old name, restated under the new one; each original is superseded by its restatement.
-        var facts = await _factRepository.GetBySubjectAsync(old, scope, cancellationToken).ConfigureAwait(false);
-        foreach (var fact in facts.Where(f => f.InvalidatedAtUtc is null))
+        // The facts said about the old name, restated under the new one, and (K-4, 38.2) the facts that name it as their
+        // object ("Priya | owns | Rex"). A naming fact of another subject names a different thing and is left alone.
+        var about = await _factRepository.GetBySubjectAsync(old, scope, cancellationToken).ConfigureAwait(false);
+        var naming = await _factRepository.GetByObjectAsync(old, scope, cancellationToken).ConfigureAwait(false);
+        var facts = about
+            .Concat(naming.Where(f => !UserNames.IsNamingPredicate(f.Predicate)))
+            .Where(f => f.InvalidatedAtUtc is null)
+            .DistinctBy(f => f.FactId, StringComparer.Ordinal);
+        string Renamed(string text) => string.Equals(text, old, StringComparison.Ordinal) ? name : text;
+        foreach (var fact in facts)
         {
+            var (subject, @object) = (Renamed(fact.Subject), Renamed(fact.Object));
             var metadata = new Dictionary<string, object>(fact.Metadata) { ["renamed_from"] = old };
             var restated = await _factRepository.UpsertAsync(fact with
             {
                 FactId = _idGenerator.GenerateId(),
-                Subject = name,
+                Subject = subject,
+                Object = @object,
                 CreatedAtUtc = _clock.UtcNow,
                 Metadata = metadata,
-                Embedding = await _embeddingOrchestrator.EmbedFactAsync(name, fact.Predicate, fact.Object, cancellationToken)
+                Embedding = await _embeddingOrchestrator.EmbedFactAsync(subject, fact.Predicate, @object, cancellationToken)
                     .ConfigureAwait(false),
             }, cancellationToken).ConfigureAwait(false);
-            if (restated.FactId != fact.FactId)
-                await _factRepository.SupersedeAsync(fact.FactId, restated.FactId, scope, cancellationToken).ConfigureAwait(false);
+            if (restated.FactId == fact.FactId) continue;
+            // Period-aware: the original is closed, never edited. The same fact under the right name corrects it, so
+            // with BitemporalChanges its valid time stays as it was.
+            await CloseFactAsync(fact.FactId, restated.FactId, FactClosureReason.Correction, changedAt: null, scope, cancellationToken)
+                .ConfigureAwait(false);
+            if (_options.LinkFactsToEntities)
+                await LinkRestatedAsync(restated, scope, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// K-4. A restated fact is linked, as extraction links a new one, to the live entities its subject and object name (the
+    /// original's links stay on the closed original). An enrichment: a failure is logged, never the rename's failure.
+    /// </summary>
+    private async Task LinkRestatedAsync(Fact restated, MemoryScope scope, CancellationToken cancellationToken)
+    {
+        foreach (var named in new[] { restated.Subject, restated.Object }.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                if (await _entityRepository.FindLiveByNameAsync(named, null, scope, cancellationToken).ConfigureAwait(false) is { } entity)
+                    await _factRepository.CreateAboutRelationshipAsync(restated.FactId, entity.EntityId, cancellationToken)
+                        .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Linking restated fact '{Id}' to '{Name}' failed.", restated.FactId, named);
+            }
         }
     }
 
