@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`MemoryRoutePlan.Routed`, `memory.route.kinds`). `RecallRequest.Question` carries the turn being answered; the Agent
   Framework provider sets it. On the frozen routing set it serves every answer the read-everything recall serves while
   reading a third of the kinds; it stays off until the accuracy guard passes on a real store.
+- **Why a memory was not recalled** (`IMemoryRecallExplainer.WhyNotFactAsync`). For a recall request and a fact: the
+  gate that kept it out, in the order recall applies them (another owner's, the router, closed with what replaced it,
+  decayed, invalidated, outside its valid time, below the similarity floor with its score, outranked, cut by the
+  budget), or that it was recalled. Off the hot path: it costs a recall; normal recall is unchanged.
 - **Erase, export and import an owner** (`IMemoryOwnerDataService`, `agentmemory owner export|import|erase`). Erase
   deletes every node stamped with the owner and their conversations with every message, in batches, and reports what
   went by label (the CLI asks for `--confirm`). Export writes the owner's entities, facts and preferences (live and

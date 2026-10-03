@@ -359,6 +359,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IMemoryRouter>(sp =>
             new Routing.RuleBasedMemoryRouter(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.Routing));
         services.TryAddScoped<IMemoryService, MemoryService>();
+        // G5 (40.49): why a memory was not recalled, off the hot path.
+        services.TryAddScoped<IMemoryRecallExplainer, MemoryRecallExplainer>();
 
         // 30.10. The deriver is selected by options, not registered twice. Two enumerable
         // registrations would let both run, and the witness would then name one deriver while the
