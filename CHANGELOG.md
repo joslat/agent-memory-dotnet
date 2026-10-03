@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`MemoryRoutePlan.Routed`, `memory.route.kinds`). `RecallRequest.Question` carries the turn being answered; the Agent
   Framework provider sets it. On the frozen routing set it serves every answer the read-everything recall serves while
   reading a third of the kinds; it stays off until the accuracy guard passes on a real store.
+- **An integrity check** (`IMemoryIntegrityService`, `agentmemory integrity [--owner <id>]`): no edge joins two owners'
+  memories, a relationship edge belongs to its endpoints' owner, a fact closed as a change or a correction has its
+  successor and a live one has none, every validity window ends after it begins, and (a warning) every fact has a source.
+  Read-only; each rule reports a count and up to five ids. Validation packs run it on what their ingestion wrote.
 - **Write effects on ingestion outcomes.** `IngestionItemOutcome.Effect` says what a successful write did: `Created`,
   `AlreadyStored` (the same fact, preference or relationship was there), or `MergedWithinExtraction` for a duplicate
   folded into another item; `Closed` lists the facts a change or a correction closed. Entities report `Unreported` for

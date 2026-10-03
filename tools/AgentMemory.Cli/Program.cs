@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -260,6 +260,9 @@ try
         // design: there is deliberately no `block --write`, because a block an agent can hand back
         // becomes the store, and the graph's provenance and supersession records then describe a
         // shadow of what the system believes.
+        // G6 (40.50): the store's integrity rules, read-only.
+        "integrity" => await new IntegrityCommand(
+            sp.GetRequiredService<IMemoryIntegrityService>(), output).ExecuteAsync(cli.Get("owner")),
         "block" => await new BlockCommand(
             sp.GetRequiredService<IMemoryHistoryService>(), output)
             .ExecuteAsync(cli.Get("owner"), cli.Get("limit")),

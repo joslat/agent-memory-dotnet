@@ -26,11 +26,11 @@ public sealed record PackRunResult
 }
 
 /// <summary>
-/// One check: <c>pack</c> (the pack's own data or options), <c>storage</c>, <c>recall</c> (an expected or excluded item)
-/// or <c>isolation</c> (another owner's item in a recall).
+/// One check: <c>pack</c> (the pack's own data or options), <c>storage</c>, <c>integrity</c> (the store's rules, per owner,
+/// G6), <c>recall</c> (an expected or excluded item) or <c>isolation</c> (another owner's item in a recall).
 /// </summary>
 /// <param name="Id">Stable within the pack: <c>storage:2</c>, <c>recall:q1:expect:1</c>, <c>isolation:q1</c>.</param>
-/// <param name="Kind">pack, storage, recall or isolation.</param>
+/// <param name="Kind">pack, storage, integrity, recall or isolation.</param>
 /// <param name="Passed">Whether it held.</param>
 /// <param name="Detail">What was checked and, when it failed, what was found instead.</param>
 public sealed record PackCheckResult(string Id, string Kind, bool Passed, string Detail);

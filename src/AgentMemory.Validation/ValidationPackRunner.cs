@@ -101,6 +101,20 @@ public sealed class ValidationPackRunner(Action<Neo4jOptions> configureNeo4j)
                     facts, entities, cancellationToken).ConfigureAwait(false));
         }
 
+        // G6 (40.50): what ingestion wrote keeps the store's integrity rules, owner by owner (warnings do not fail).
+        using (var scope = provider.CreateScope())
+        {
+            var integrity = scope.ServiceProvider.GetService<IMemoryIntegrityService>();
+            foreach (var owner in integrity is null ? [] : pack.Owners)
+            {
+                var report = await integrity!.CheckAsync(Owner(owner), cancellationToken).ConfigureAwait(false);
+                var broken = report.Rules.Where(r => r.Violations > 0 && r.Severity == MemoryIntegrityRule.Error).ToList();
+                checks.Add(new($"integrity:{owner}", "integrity", broken.Count == 0, broken.Count == 0
+                    ? $"{owner}: every integrity rule holds"
+                    : $"{owner}: {string.Join("; ", broken.Select(r => $"{r.Id} ({r.Violations}: {string.Join(", ", r.Examples)})"))}"));
+            }
+        }
+
         // Questions.
         foreach (var question in pack.Questions)
         {
