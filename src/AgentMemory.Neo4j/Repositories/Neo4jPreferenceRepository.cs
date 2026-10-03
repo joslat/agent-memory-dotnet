@@ -554,7 +554,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
             Metadata = DeserializeMetadata(properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
-    private static Preference MapToPreference(INode node, float[]? embedding) =>
+    internal static Preference MapToPreference(INode node, float[]? embedding) =>
         MapToPreference(node.Properties, embedding);
 
     private static float[]? ReadEmbedding(INode node)

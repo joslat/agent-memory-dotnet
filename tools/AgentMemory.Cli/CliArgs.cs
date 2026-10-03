@@ -107,6 +107,9 @@ public static class CliHelp
               evaluate --pack <core|file|directory> [--output <path>]
                                      Run validation packs (a schema, conversations with what extraction
                                      yields, expected storage, questions): deterministic, no model.
+              owner <export|import|erase> --owner <id> [--file <path>] [--confirm]
+                                     An owner's data as a whole: export to a JSON file, import a file under
+                                     an owner (fresh ids), or erase everything of theirs (needs --confirm).
               integrity [--owner <id>]
                                      Check the store's integrity rules (no edge across owners, closed facts
                                      have successors, ordered validity windows, sources). Read-only.

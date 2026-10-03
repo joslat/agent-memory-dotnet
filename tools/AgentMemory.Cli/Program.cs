@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -261,6 +261,10 @@ try
         // design: there is deliberately no `block --write`, because a block an agent can hand back
         // becomes the store, and the graph's provenance and supersession records then describe a
         // shadow of what the system believes.
+        // G3 (40.47): an owner's data as a whole; erase asks for --confirm.
+        "owner" => await new OwnerCommand(
+            sp.GetRequiredService<IMemoryOwnerDataService>(), output)
+            .ExecuteAsync(cli.Subcommand, cli.Get("owner"), cli.Get("file"), cli.HasFlag("confirm")),
         // G6 (40.50): the store's integrity rules, read-only.
         "integrity" => await new IntegrityCommand(
             sp.GetRequiredService<IMemoryIntegrityService>(), output).ExecuteAsync(cli.Get("owner")),
