@@ -33,7 +33,7 @@ if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 if (string.Equals(cli.Command, "routing-score", StringComparison.OrdinalIgnoreCase))
 {
     return new AgentMemory.Cli.Commands.RoutingScoreCommand(Console.Out)
-        .Execute(cli.Get("set"), cli.Get("split"), cli.Get("policy"));
+        .Execute(cli.Get("set"), cli.Get("split"), cli.Get("policy"), cli.HasFlag("misses"));
 }
 
 // schema-parity is pure static analysis of embedded snapshots — no Neo4j connection or host needed.
