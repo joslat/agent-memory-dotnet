@@ -111,6 +111,10 @@ internal static class TypedMemEvalProgram
         // question, at the corpus's as-of instant (transaction). A preset applies a product configuration, as the
         // LongMemEval verb's --preset does.
         "--bitemporal-changes", "--bitemporal-clocks", "--preset",
+        // The judge's output ceiling. AgentEval's default (1500) is the value its calibration was measured at; a
+        // reasoning judge (GLM-5.3 on the Bitdeer lineage, which records 4096) can run out at 1500 and return no
+        // verdict, which is spend with no measurement. Stamped per run by AgentEval's provenance.
+        "--judge-max-output-tokens",
         // Stage 1 of the three-stage run protocol. Spends nothing.
         "--dry-run",
     ];
@@ -393,6 +397,7 @@ internal static class TypedMemEvalProgram
         // fed shape this project has now found on four codepaths.
         EvidenceCaptureMode = LongMemEvalBenchmarkProtocol.CaptureModeFor(options.EvidenceDetail),
         EvidenceTopK = DefaultMaxRelevant,
+        JudgeMaxOutputTokens = options.JudgeMaxOutputTokens ?? new TypedMemEvalOptions().JudgeMaxOutputTokens,
     };
 
     /// <summary>
@@ -1148,7 +1153,8 @@ internal static class TypedMemEvalProgram
             Array.IndexOf(args, "--predicate-vocabulary") >= 0,
             Array.IndexOf(args, "--bitemporal-changes") >= 0,
             Array.IndexOf(args, "--bitemporal-clocks") >= 0,
-            LongMemEvalPresets.Parse(Value(LongMemEvalPresets.Option)));
+            LongMemEvalPresets.Parse(Value(LongMemEvalPresets.Option)),
+            ParsePositive(Value("--judge-max-output-tokens"), "--judge-max-output-tokens"));
 
         // Validated at parse time, before any container, client, or provider call exists: a run
         // set that cannot be banded, or a control arm with no pair to control, must stop here.
@@ -1368,7 +1374,9 @@ internal static class TypedMemEvalProgram
         // 40.66. Replayed session dates as transaction time, and the two clocks each question asks on.
         bool BitemporalClocks = false,
         // A product configuration (LongMemEvalPreset); Sealed keeps every measured path.
-        LongMemEvalPreset Preset = LongMemEvalPreset.Sealed)
+        LongMemEvalPreset Preset = LongMemEvalPreset.Sealed,
+        // Null keeps AgentEval's calibrated default; a judge setting, so not part of the memory arm.
+        int? JudgeMaxOutputTokens = null)
     {
         /// <summary>
         /// Every lever this run had on, composed into one identity for the filename and the sidecar.
