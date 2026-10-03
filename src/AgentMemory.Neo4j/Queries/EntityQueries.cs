@@ -291,7 +291,7 @@ internal static class EntityQueries
 
     /// <summary>
     /// Merge a source entity into a target entity, transferring relationships and aliases. Moves MENTIONS
-    /// (message provenance), SAME_AS (dedup links), and all typed <c>RELATED_TO</c> relationships — both
+    /// (message provenance), SAME_AS (dedup links), facts' <c>ABOUT</c> links, and all typed <c>RELATED_TO</c> relationships — both
     /// outgoing and incoming, with every property (incl. the stable relationship id) preserved — from the
     /// source onto the target. The merge is non-destructive: only edges that would collapse into a
     /// target→target self-loop are dropped; every real relationship is re-pointed, never discarded (duplicate
@@ -314,6 +314,11 @@ internal static class EntityQueries
             : includeShared
                 ? "WHERE (r.owner_id = $ownerId OR r.owner_id IS NULL)\n                "
                 : "WHERE r.owner_id = $ownerId\n                ";
+        // F8 (40.60). The same rule for the facts whose ABOUT link moves: only the owner's own (or shared) ones.
+        var factGuard = !hasOwnerFilter ? string.Empty
+            : includeShared
+                ? "WHERE (f.owner_id = $ownerId OR f.owner_id IS NULL)\n                "
+                : "WHERE f.owner_id = $ownerId\n                ";
         return @"
             MATCH (source:Entity {id: $sourceEntityId})
             MATCH (target:Entity {id: $targetEntityId})
@@ -356,6 +361,15 @@ internal static class EntityQueries
                 )
                 DELETE r
                 RETURN count(r) AS relatedIncomingMoved
+            }
+            // F8 (40.60). Facts linked to the source (LinkFactsToEntities writes (:Fact)-[:ABOUT]->(:Entity)) follow it.
+            // Left behind, they hung from an entity every live read skips (merged_into), so identity expansion and the
+            // structural re-ranker lost them, and a module linking to the person would too.
+            CALL (source, target) {
+                MATCH (f:Fact)-[r:ABOUT]->(source)
+                " + factGuard + @"MERGE (f)-[:ABOUT]->(target)
+                DELETE r
+                RETURN count(r) AS aboutMoved
             }
             SET source.merged_into = target.id, source.merged_at = datetime()
             WITH source, target,

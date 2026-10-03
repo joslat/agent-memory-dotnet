@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A fact that says nothing is no longer stored.** "Rosa | is named | Rosa" was written and recalled as a person's first
   memory, taking a recall slot. A fact whose subject and object are the same name, once names are resolved, is skipped
   with the outcome `MEMORY_FACT_TAUTOLOGY` (`MemoryErrorCodes.FactTautology`).
+- **A merge moves facts' links too.** Merging two entities moved mentions, same-as links and relationships to the
+  survivor but left facts' `ABOUT` links on the merged-away entity, which every live read skips, so those facts dropped
+  out of identity expansion and the structural re-ranker. They now move with the rest; a scoped merge moves only the
+  owner's own (or shared) facts' links.
 - **One clock.** The Neo4j store stamped closings, live recall's "now", recency and `updated_at` from the wall clock
   while the rest of the library used `IClock`, so a host or a test that registered its own clock set only half of the
   times one recall compares. Every time in the memory path now comes from `IClock` (a guard test keeps it so); without a
