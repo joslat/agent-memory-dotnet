@@ -27,6 +27,7 @@ internal sealed class Neo4jMemoryHistoryService(INeo4jTransactionRunner tx) : IM
             ["includeShared"] = query.IncludeShared,
             ["includeInvalidated"] = query.IncludeInvalidated,
             ["limit"] = ClampLimit(query.Limit),
+            ["asOf"] = query.AsOf?.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         };
 
         return await tx.ReadAsync(async runner =>

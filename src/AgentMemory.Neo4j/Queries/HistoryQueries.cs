@@ -29,7 +29,8 @@ LIMIT $limit";
 
     private const string OwnerAndLifecycleWhere = @"
 WHERE ($id IS NULL OR n.id = $id)
-  AND ($includeInvalidated OR n.invalidated_at IS NULL)
+  AND ($asOf IS NULL OR n.created_at <= datetime($asOf))
+  AND ($includeInvalidated OR n.invalidated_at IS NULL OR ($asOf IS NOT NULL AND n.invalidated_at > datetime($asOf)))
   AND ($ownerId IS NULL OR n.owner_id = $ownerId OR ($includeShared AND n.owner_id IS NULL))";
 
     private const string EntitySegment = @"
