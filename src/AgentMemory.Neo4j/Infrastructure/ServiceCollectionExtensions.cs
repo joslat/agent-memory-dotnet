@@ -150,6 +150,9 @@ public static class ServiceCollectionExtensions
         // Long-term memory history / audit read model.
         services.TryAddTransient<IMemoryHistoryService, Neo4jMemoryHistoryService>();
 
+        // G6 (40.50). Store integrity rules; read-only.
+        services.TryAddTransient<IMemoryIntegrityService, Neo4jMemoryIntegrityService>();
+
         // Memory-hygiene / consolidation (PR #113) — dry-run by default.
         services.TryAddTransient<IConsolidationService, Neo4jConsolidationService>();
 
