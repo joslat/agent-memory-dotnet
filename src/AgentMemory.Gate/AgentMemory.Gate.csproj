@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AgentMemory.Gate</RootNamespace>
+    <AssemblyName>AgentMemory.Gate</AssemblyName>
+    <Description>Experimental gate for AgentMemory for .NET: a judge at the fan-in that decides, memory by memory, what a recall puts in front of the assistant, and a judge on the write path that decides what a new memory replaces. Speaks the System One decision protocol (online or local). Ships on a 0.x line and is marked [Experimental] while the contracts settle.</Description>
+    <PackageTags>agent-memory;ai;llm;memory;retrieval;gate;router</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The module's own code uses its own experimental types. -->
+    <NoWarn>$(NoWarn);AMGATE001</NoWarn>
+  </PropertyGroup>
+
+  <!-- A 0.x LINE, held from the release (eng/release-packages.txt), as Extensibility is: the contracts were measured on
+       labelled turns, not yet on a second host. -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ABSTRACTIONS ONLY: the gate decorates IMemoryContextAssembler and implements IMemoryGate and IMemoryUpdateJudge,
+         all Abstractions interfaces, so it runs over any store. -->
+    <ProjectReference Include="..\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+  </ItemGroup>
+
+</Project>

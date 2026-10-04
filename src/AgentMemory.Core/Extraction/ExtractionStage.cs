@@ -395,6 +395,7 @@ internal sealed class ExtractionStage : IExtractionStage
             FilteredPreferences = filteredPrefs.AsReadOnly(),
             FilteredRelationships = filteredRels.AsReadOnly(),
             SourceMessageIds = sourceMessageIds,
+            SourceText = string.Join(" ", messages.Select(m => m.Content).Where(c => !string.IsNullOrWhiteSpace(c))),
             MergeStrategy = strategy,
             EntityExtractorCount = _entityExtractors.Count,
             FactExtractorCount = _factExtractors.Count,

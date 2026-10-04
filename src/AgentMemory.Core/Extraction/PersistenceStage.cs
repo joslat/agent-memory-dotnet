@@ -28,6 +28,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private readonly IMemoryPersistenceTransaction _persistenceTransaction;
     private readonly ILogger<PersistenceStage> _logger;
     private readonly WorkingMemoryRebuilder _rebuilder;
+    private readonly IMemoryUpdateJudge? _updateJudge;
 
     public PersistenceStage(
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -43,8 +44,11 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // 30.4. Optional and last, mirroring LongTermMemoryService: a host that has not registered the
         // working-memory tier keeps the exact previous construction shape.
         IWorkingMemoryService? workingMemory = null,
-        IOptions<MemoryOptions>? memoryOptions = null)
+        IOptions<MemoryOptions>? memoryOptions = null,
+        // 41.06. Optional and last for the same reason: without a judge the write path is exactly what it was.
+        IMemoryUpdateJudge? updateJudge = null)
     {
+        _updateJudge = updateJudge;
         _embeddingOrchestrator = embeddingOrchestrator;
         _entityRepository = entityRepository;
         _factRepository = factRepository;
@@ -91,6 +95,105 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     /// back to its caller). No query: the closings are already known when they are written.
     /// </summary>
     private static readonly AsyncLocal<List<(string Winner, string Loser)>?> s_closings = new();
+
+    /// <summary>
+    /// 41.06. The update judge: each fact and preference this extraction created is set against the owner's most similar
+    /// live memories of its kind (<see cref="ExtractionOptions.UpdateJudgeCandidates"/>), the judge is asked of each pair
+    /// whether the new one replaces the stored one, and a stored memory is closed, as a change, at
+    /// <see cref="ExtractionOptions.UpdateJudgeThreshold"/>. A failing judge closes nothing.
+    /// </summary>
+    private async Task JudgeUpdatesAsync(
+        ExtractionStageResult extraction, string? ownerId, IReadOnlyList<Fact> newFacts, IReadOnlyList<Preference> newPreferences,
+        CancellationToken cancellationToken)
+    {
+        if (newFacts.Count == 0 && newPreferences.Count == 0) return;
+        // The owner's own memories only: a shared fact is not the owner's to close.
+        var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
+        var created = new HashSet<string>(
+            newFacts.Select(f => f.FactId).Concat(newPreferences.Select(p => p.PreferenceId)), StringComparer.Ordinal);
+        var limit = Math.Max(1, _options.UpdateJudgeCandidates);
+        var pairs = new List<MemoryUpdatePair>();
+        var targets = new Dictionary<string, (Fact? NewFact, string Winner, string Loser)>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var fact in newFacts)
+            {
+                var vector = fact.Embedding
+                    ?? await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, cancellationToken).ConfigureAwait(false);
+                var similar = await _factRepository.SearchByVectorAsync(
+                    vector, ValidTimeMode.Current, limit + created.Count, 0.0, scope, cancellationToken).ConfigureAwait(false);
+                foreach (var stored in similar.Select(s => s.Fact).Where(f => !created.Contains(f.FactId) && f.InvalidatedAtUtc is null).Take(limit))
+                {
+                    var key = $"p{pairs.Count + 1}";
+                    pairs.Add(new MemoryUpdatePair(key, FactText(fact), FactText(stored)));
+                    targets[key] = (fact, fact.FactId, stored.FactId);
+                }
+            }
+            foreach (var preference in newPreferences)
+            {
+                var vector = preference.Embedding
+                    ?? await _embeddingOrchestrator.EmbedAsync(preference.PreferenceText, cancellationToken).ConfigureAwait(false);
+                var similar = await _preferenceRepository.SearchByVectorAsync(
+                    vector, limit + created.Count, 0.0, scope, cancellationToken).ConfigureAwait(false);
+                foreach (var stored in similar.Select(s => s.Preference).Where(p => !created.Contains(p.PreferenceId) && p.InvalidatedAtUtc is null).Take(limit))
+                {
+                    var key = $"p{pairs.Count + 1}";
+                    pairs.Add(new MemoryUpdatePair(key, preference.PreferenceText, stored.PreferenceText));
+                    targets[key] = (null, preference.PreferenceId, stored.PreferenceId);
+                }
+            }
+            if (pairs.Count == 0)
+            {
+                // Said, not silent: "nothing to compare" and "the judge said no" must be told apart when closings are missing.
+                _logger.LogInformation(
+                    "Update judge: nothing to compare for {Facts} new fact(s) and {Preferences} new preference(s): no live memory of the owner was found similar to them.",
+                    newFacts.Count, newPreferences.Count);
+                return;
+            }
+            var verdicts = await _updateJudge!.JudgeAsync(
+                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.UtcNow, pairs),
+                cancellationToken).ConfigureAwait(false);
+            var closedOnce = new HashSet<string>(StringComparer.Ordinal);
+            var closings = 0;
+            foreach (var (key, (newFact, winner, loser)) in targets)
+            {
+                if (!verdicts.TryGetValue(key, out var probability))
+                {
+                    _logger.LogWarning("Update judge: no answer for pair '{Key}' ('{New}' against '{Stored}'); it is left open.",
+                        key, pairs.First(p => p.Key == key).NewMemory, pairs.First(p => p.Key == key).StoredMemory);
+                    continue;
+                }
+                if (probability < _options.UpdateJudgeThreshold || !closedOnce.Add(loser))
+                    continue;
+                var closed = newFact is not null
+                    ? await CloseFactAsync(loser, winner, FactClosureReason.Change, ChangedAt(newFact, _clock.UtcNow), scope, cancellationToken)
+                        .ConfigureAwait(false)
+                    : await _preferenceRepository.SupersedeAsync(loser, winner, scope, cancellationToken).ConfigureAwait(false);
+                if (closed)
+                {
+                    closings++;
+                    _logger.LogInformation("Update judge: closed '{Stored}', replaced by '{New}' (P {Probability:0.00}).",
+                        pairs.First(p => p.Key == key).StoredMemory, pairs.First(p => p.Key == key).NewMemory, probability);
+                }
+                else
+                {
+                    _logger.LogWarning("Update judge: '{Stored}' should close (P {Probability:0.00}) but the store closed nothing (id '{Loser}').",
+                        pairs.First(p => p.Key == key).StoredMemory, probability, loser);
+                }
+            }
+            _logger.LogInformation(
+                "Update judge: {Pairs} pair(s) asked for {Facts} new fact(s) and {Preferences} new preference(s); {Closed} closed at P >= {Threshold}; highest P {Highest:0.00}.",
+                pairs.Count, newFacts.Count, newPreferences.Count, closings, _options.UpdateJudgeThreshold,
+                verdicts.Count == 0 ? 0 : verdicts.Values.Max());
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Update judge FAILED ({Error}); nothing it would have closed was closed.", ex.Message);
+        }
+
+        static string FactText(Fact fact) => $"{fact.Subject} | {fact.Predicate} | {fact.Object}";
+    }
 
     /// <summary>When a change took effect: the new value's stated start, else the day it happened, else when it was said.</summary>
     private static DateTimeOffset ChangedAt(Fact winner, DateTimeOffset now) => winner.ValidFrom ?? winner.OccurredOn ?? now;
@@ -1288,6 +1391,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             preferenceIndex.TryAdd(preparedPreference.Item.PreferenceText, index);
         var writtenPreferences = new List<(string Key, Preference Preference)>();
         var preferencesByKey = new Dictionary<string, Preference>(StringComparer.Ordinal);
+        // 41.06. The preferences this extraction created, for the update judge (a restated one replaces nothing).
+        var preferencesCreatedHere = new HashSet<string>(StringComparer.Ordinal);
         var currentPreferenceIds = new HashSet<string>(StringComparer.Ordinal);
 
         var preferenceInputs = prepared.Preferences.Select(preparedPreference =>
@@ -1314,6 +1419,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         async Task RecordPersistedPreferenceAsync(
             string sourceKey, Preference persisted, IReadOnlyList<string> provenanceMessageIds, bool created)
         {
+            if (created) preferencesCreatedHere.Add(persisted.PreferenceId);
             RecordSuccess(outcomes, MemoryItemKind.Preference, sourceKey, persisted.PreferenceId,
                 created ? MemoryWriteEffect.Created : MemoryWriteEffect.AlreadyStored);
             PreferenceWritten(sourceKey, persisted);
@@ -1793,6 +1899,14 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 supersessionRefusals,
                 string.Join(", ", MemoryRelationCardinality.SingleValuedPredicates));
         }
+
+        // 41.06. A change said in other words closes what it replaces, when a judge is registered.
+        if (_updateJudge is { IsEnabled: true })
+            await JudgeUpdatesAsync(
+                extraction, ownerId,
+                [.. factsByKey.Values.Where(fact => createdHere.Contains(fact.FactId)).DistinctBy(fact => fact.FactId)],
+                [.. preferencesByKey.Values.Where(p => preferencesCreatedHere.Contains(p.PreferenceId)).DistinctBy(p => p.PreferenceId)],
+                cancellationToken).ConfigureAwait(false);
 
         // G4. Each fact that closed others says which.
         if (closings.Count > 0)

@@ -39,6 +39,8 @@ AgentMemory.SemanticKernel|src/AgentMemory.SemanticKernel/AgentMemory.SemanticKe
 # there is something to release.
 HELD:AgentMemory.Extensibility
 HELD:AgentMemory.Extensibility.AgentFramework
+# The gate (41.06): a judge at the fan-in and on the write path; measured on labelled turns, not yet on a second host.
+HELD:AgentMemory.Gate
 # Validation packs (root PLAN 40.57): a pack format still settling, consumed by the CLI, the integration tests and
 # hosts that run packs; modules ship packs later as conformance fixtures. Held until the format is settled.
 HELD:AgentMemory.Validation

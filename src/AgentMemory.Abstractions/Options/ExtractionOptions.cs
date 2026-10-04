@@ -299,6 +299,20 @@ public sealed class ExtractionOptions
     /// owner scoping, invalidation gate and valid-time gate for free.
     /// </remarks>
     public DerivedMemoryOptions DerivedMemory { get; set; } = new();
+
+    /// <summary>
+    /// The probability at which a registered <see cref="Services.IMemoryUpdateJudge"/>'s "the new memory replaces this one"
+    /// closes the stored memory. 0.8 by default: at that bar the judge closed 10 of 21 replaced memories on two unseen
+    /// sets and nothing that stayed true; lower bars closed more and, on one set, history that stays true.
+    /// </summary>
+    /// <remarks>Read only when an update judge is registered and enabled; otherwise nothing changes.</remarks>
+    public double UpdateJudgeThreshold { get; set; } = 0.8;
+
+    /// <summary>
+    /// How many of the owner's most similar stored memories of its kind each new fact or preference is set against.
+    /// </summary>
+    public int UpdateJudgeCandidates { get; set; } = 3;
+
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>
