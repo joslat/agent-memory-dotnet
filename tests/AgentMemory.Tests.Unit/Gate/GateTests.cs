@@ -13,7 +13,7 @@ using Xunit;
 namespace AgentMemory.Tests.Unit.Gate;
 
 /// <summary>
-/// 41.06: the gate. Judge mode keeps what the judges score at the threshold; today's recall is the mode for "off" and the
+/// 41.06: the gate. Judge mode keeps what the judges score at the threshold; the similarity floor is the mode for "off" and the
 /// fallback when the judges fail or are late; everything delivers what the wide search found. The request the judge reads
 /// is the one measured.
 /// </summary>
@@ -109,22 +109,22 @@ public sealed class GateTests
     }
 
     [Fact]
-    public async Task A_failing_judge_falls_back_to_today_s_recall_and_says_why()
+    public async Task A_failing_judge_falls_back_to_the_floor_and_says_why()
     {
         var (gate, inner) = Sut(MemoryGateMode.Judge, new Judge((_, _) => throw new HttpRequestException("503")));
 
         var context = await gate.AssembleContextAsync(Request());
 
         context.RelevantFacts.Items.Select(f => f.FactId).Should().Equal("f3");
-        context.Metadata["gate"].Should().Be("today (fallback)");
+        context.Metadata["gate"].Should().Be("floor (fallback)");
         ((string)context.Metadata["gate.reason"]).Should().Contain("503");
         inner.Requests.Should().HaveCount(2);
         inner.Requests[1].Should().BeSameAs(inner.Requests[1]).And.Match<RecallRequest>(r => ReferenceEquals(r.Options, RecallOptions.Default),
-            "the fallback is today's recall exactly: the caller's own request");
+            "the fallback is the floor exactly: the caller's own request");
     }
 
     [Fact]
-    public async Task A_late_judge_falls_back_to_today_s_recall()
+    public async Task A_late_judge_falls_back_to_the_floor()
     {
         var (gate, _) = Sut(MemoryGateMode.Judge, new Judge(async (_, ct) =>
         {
@@ -134,16 +134,16 @@ public sealed class GateTests
 
         var context = await gate.AssembleContextAsync(Request());
 
-        context.Metadata["gate"].Should().Be("today (fallback)");
+        context.Metadata["gate"].Should().Be("floor (fallback)");
         ((string)context.Metadata["gate.reason"]).Should().Contain("did not answer within 50 ms");
     }
 
     [Fact]
-    public async Task Today_mode_is_recall_without_the_gate_and_everything_mode_delivers_the_wide_search()
+    public async Task Floor_mode_is_recall_without_the_gate_and_everything_mode_delivers_the_wide_search()
     {
         var judge = Scores(0, 0, 0);
-        var (today, inner) = Sut(MemoryGateMode.Today, judge);
-        (await today.AssembleContextAsync(Request())).RelevantFacts.Items.Select(f => f.FactId).Should().Equal("f3");
+        var (floor, inner) = Sut(MemoryGateMode.Floor, judge);
+        (await floor.AssembleContextAsync(Request())).RelevantFacts.Items.Select(f => f.FactId).Should().Equal("f3");
         inner.Requests.Should().ContainSingle().Which.Options.Should().BeSameAs(RecallOptions.Default);
 
         var (everything, _) = Sut(MemoryGateMode.Everything, judge);

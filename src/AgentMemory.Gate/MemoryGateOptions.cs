@@ -7,10 +7,11 @@ namespace AgentMemory.Gate;
 public enum MemoryGateMode
 {
     /// <summary>
-    /// Today's recall, as without the gate: every memory type searched, cut by the similarity floor and a cap per type.
-    /// Also what <see cref="Judge"/> falls back to when no judge answers in time.
+    /// Recall as without the gate: every memory type searched, cut by the similarity floor
+    /// (<c>RecallOptions.MinSimilarityScore</c>, 0.7) and a cap per type. Also what <see cref="Judge"/> falls back to when
+    /// no judge answers in time.
     /// </summary>
-    Today = 0,
+    Floor = 0,
 
     /// <summary>
     /// Every memory type searched wide; the judges score every memory found; what reaches
@@ -19,8 +20,9 @@ public enum MemoryGateMode
     Judge = 1,
 
     /// <summary>
-    /// Every memory found, no cut and no judge: the fan-out delivered whole. For comparison; it uses ten to twenty
-    /// times the tokens of <see cref="Judge"/> and, measured, replies less well.
+    /// Every memory found, no cut and no judge: the fan-out delivered whole. For a host that values accuracy over tokens:
+    /// measured, it carried ten to seventeen times the memory tokens of <see cref="Judge"/>, and replies from it were
+    /// graded about five points more accurate.
     /// </summary>
     Everything = 2,
 }
@@ -67,7 +69,7 @@ public sealed class MemoryGateOptions
     /// <summary>How many memories each type is asked for in the wide search (with no similarity floor).</summary>
     public int WideLimit { get; set; } = 50;
 
-    /// <summary>How long the judges may take; past it, recall falls back to <see cref="MemoryGateMode.Today"/>.</summary>
+    /// <summary>How long the judges may take; past it, recall falls back to <see cref="MemoryGateMode.Floor"/>.</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(3);
 
     /// <summary>
@@ -81,7 +83,7 @@ public sealed class MemoryGateOptions
 
     /// <summary>
     /// Whether the write path asks the first judge whether each new fact or preference replaces a stored one
-    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.8). Off: today's write path.
+    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.8). Off: the write path without a judge.
     /// </summary>
     public bool UpdateJudge { get; set; }
 }

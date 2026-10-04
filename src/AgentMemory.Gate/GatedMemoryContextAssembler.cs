@@ -10,13 +10,13 @@ namespace AgentMemory.Gate;
 
 /// <summary>
 /// Recall with the gate: every memory type searched wide, the judges score every memory found, and only what reaches the
-/// threshold reaches the prompt. <see cref="MemoryGateMode.Today"/> is recall as without the gate (and the fallback when
+/// threshold reaches the prompt. <see cref="MemoryGateMode.Floor"/> is recall as without the gate (and the fallback when
 /// no judge answers in time); <see cref="MemoryGateMode.Everything"/> delivers everything found.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The context says what happened in <see cref="MemoryContext.Metadata"/>: <c>gate</c> (judge, today, everything, or
-/// today after a judge failure), <c>gate.reason</c> on a fallback, <c>gate.offered</c> and <c>gate.kept</c>,
+/// The context says what happened in <see cref="MemoryContext.Metadata"/>: <c>gate</c> (judge, floor, everything, or
+/// floor after a judge failure), <c>gate.reason</c> on a fallback, <c>gate.offered</c> and <c>gate.kept</c>,
 /// <c>gate.judgedBy</c> and <c>gate.ms</c> (the judges' time).
 /// </para>
 /// <para>
@@ -52,8 +52,8 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
     {
         ArgumentNullException.ThrowIfNull(request);
         var o = _options.Value;
-        if (o.Mode == MemoryGateMode.Today)
-            return Mark(await _inner.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false), "today");
+        if (o.Mode == MemoryGateMode.Floor)
+            return Mark(await _inner.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false), "floor");
         var wide = await _inner.AssembleContextAsync(request with { Options = Wide(request.Options, o) }, cancellationToken)
             .ConfigureAwait(false);
         var candidates = GateCandidates.Of(wide);
@@ -87,16 +87,16 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             reason = $"the judges did not answer within {o.Timeout.TotalMilliseconds:0} ms";
-            _logger.LogWarning("Memory gate: {Reason}; recall falls back to today's.", reason);
+            _logger.LogWarning("Memory gate: {Reason}; recall falls back to the similarity floor.", reason);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             reason = ex.Message;
-            _logger.LogWarning(ex, "The memory gate failed; recall falls back to today's.");
+            _logger.LogWarning(ex, "The memory gate failed; recall falls back to the similarity floor.");
         }
-        var today = await _inner.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
-        return Mark(today, "today (fallback)", ("gate.reason", reason), ("gate.ms", (int)watch.ElapsedMilliseconds));
+        var floor = await _inner.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
+        return Mark(floor, "floor (fallback)", ("gate.reason", reason), ("gate.ms", (int)watch.ElapsedMilliseconds));
     }
 
     /// <inheritdoc />

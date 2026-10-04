@@ -44,7 +44,7 @@ public sealed class Showcase(TextWriter output)
         };
         if (o.Laya is not null)
             judges.Add(new SystemOneEndpoint { Name = "laya", Endpoint = new Uri(o.Laya), Weight = 0.2 });
-        var modes = new[] { MemoryGateMode.Everything, MemoryGateMode.Today, MemoryGateMode.Judge };
+        var modes = new[] { MemoryGateMode.Everything, MemoryGateMode.Floor, MemoryGateMode.Judge };
         output.WriteLine($"showcase: {o.Questions.Count} questions x {modes.Length} ways x {o.Repeats} timings; replies by {settings.Provider} ({settings.Model}); "
             + $"judges {string.Join(" + ", judges.Select(j => $"{j.Name} {j.Weight}"))}");
         if (dryRun)

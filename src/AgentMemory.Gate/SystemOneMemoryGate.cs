@@ -13,7 +13,7 @@ namespace AgentMemory.Gate;
 /// </summary>
 /// <remarks>
 /// A judge that fails is left out of the blend for that type (the weights renormalise over those that answered); when no
-/// judge answers a type, the decision fails as a whole and recall falls back to today's.
+/// judge answers a type, the decision fails as a whole and recall falls back to the similarity floor.
 /// </remarks>
 [Experimental("AMGATE001")]
 public sealed class SystemOneMemoryGate : IMemoryGate
