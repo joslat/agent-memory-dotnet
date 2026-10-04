@@ -20,9 +20,14 @@ namespace AgentMemory.Validation;
 /// A real embedding model instead of the stub (40.68: the routing matrix records recall scores, which the stub's vectors
 /// cannot give); the store's embedding dimensions must match it. Null: the stub, as every pack check runs.
 /// </param>
+/// <param name="logging">
+/// Where each pack's stack logs (41.08: a failure inside a pack, an embedding that could not be made, must reach the
+/// caller's output, not a logger nobody reads). Null: no provider, as before.
+/// </param>
 public sealed class ValidationPackRunner(
     Action<Neo4jOptions> configureNeo4j,
-    Func<IServiceProvider, IEmbeddingGenerator<string, Embedding<float>>>? embeddings = null)
+    Func<IServiceProvider, IEmbeddingGenerator<string, Embedding<float>>>? embeddings = null,
+    Action<ILoggingBuilder>? logging = null)
 {
     /// <summary>Recall caps for every kind (V2: membership, not rank); the similarity floor is 0.</summary>
     internal const int Cap = 50;
@@ -138,15 +143,20 @@ public sealed class ValidationPackRunner(
         var clock = new ReplayClock(pack.Sessions.SelectMany(s => s.Messages).Select(m => m.At).DefaultIfEmpty(DateTimeOffset.UtcNow).Min());
 
         var services = new ServiceCollection();
-        services.AddLogging();
+        services.AddLogging(builder => logging?.Invoke(builder));
         services.AddSingleton<IClock>(clock);
         services.AddSingleton<IEntityExtractor>(new ScriptedEntities(script));
         services.AddSingleton<IFactExtractor>(new ScriptedFacts(script));
         services.AddSingleton<IRelationshipExtractor>(new ScriptedRelationships(script));
         services.AddSingleton<IPreferenceExtractor>(new ScriptedPreferences(script));
         services.AddNeo4jAgentMemory(options, configureNeo4j);
-        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp => embeddings?.Invoke(sp)
-            ?? new StubEmbeddingGenerator(sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(), neo4j.EmbeddingDimensions));
+        // The caller's generator is borrowed, never owned: registered through a factory, the container would dispose it with
+        // this pack's store, and every later pack of the same runner would embed with a disposed client (empty vectors,
+        // logged only as warnings). Found 2026-10-04: a runner loading one store per turn wrote every turn after the first
+        // without embeddings.
+        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp => embeddings is not null
+            ? new BorrowedEmbeddingGenerator(embeddings(sp))
+            : new StubEmbeddingGenerator(sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(), neo4j.EmbeddingDimensions));
         var provider = services.BuildServiceProvider(validateScopes: true);
         var store = new PackStore(provider, prefix, clock, options);
         try

@@ -104,6 +104,55 @@ public sealed class ValidationPackIntegrationTests : IAsyncLifetime
         second.Failures.Select(f => $"{f.Id}: {f.Detail}").Should().BeEmpty("the second run reads only what it wrote");
     }
 
+    /// <summary>
+    /// 41.08 (found by the storage showcase): a caller's embedding generator serves every pack one runner loads. It was
+    /// registered so the first pack's store disposed it, and every later pack embedded with a disposed client.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_s_embedding_generator_outlives_each_pack_of_its_runner()
+    {
+        var pack = Core("core.semantic.changes");
+        using var generator = new DisposalWitness(Neo4jIntegrationFixture.TestEmbeddingDimensions);
+        var runner = new ValidationPackRunner(o =>
+        {
+            o.Uri = _fixture.ConnectionString;
+            o.Username = _fixture.User;
+            o.Password = _fixture.Password;
+            o.Database = "neo4j";
+            o.EmbeddingDimensions = Neo4jIntegrationFixture.TestEmbeddingDimensions;
+        }, _ => generator);
+
+        await runner.RunAsync(pack);
+        var second = await runner.RunAsync(pack);
+
+        generator.Disposed.Should().BeFalse("the generator belongs to the caller, not to a pack");
+        generator.CallsAfterDisposal.Should().Be(0);
+        second.Failures.Select(f => $"{f.Id}: {f.Detail}").Should().BeEmpty();
+    }
+
+    private sealed class DisposalWitness(int dimensions) : Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>
+    {
+        public bool Disposed { get; private set; }
+
+        public int CallsAfterDisposal { get; private set; }
+
+        public Task<Microsoft.Extensions.AI.GeneratedEmbeddings<Microsoft.Extensions.AI.Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values, Microsoft.Extensions.AI.EmbeddingGenerationOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            if (Disposed) CallsAfterDisposal++;
+            return Task.FromResult(new Microsoft.Extensions.AI.GeneratedEmbeddings<Microsoft.Extensions.AI.Embedding<float>>(values.Select(v =>
+            {
+                var vector = new float[dimensions];
+                vector[(v.GetHashCode() & int.MaxValue) % dimensions] = 1f;
+                return new Microsoft.Extensions.AI.Embedding<float>(vector);
+            })));
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() => Disposed = true;
+    }
+
     private ValidationPackRunner Runner() => new(o =>
     {
         o.Uri = _fixture.ConnectionString;
