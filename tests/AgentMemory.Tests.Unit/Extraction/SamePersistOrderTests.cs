@@ -125,7 +125,7 @@ public sealed class SamePersistOrderTests
         var written = new List<Entity>();
         entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
             .Returns(ci => { written.Add(ci.Arg<Entity>()); return Task.FromResult(ci.Arg<Entity>()); });
-        entities.FindLiveByNameAsync("Rosa", Arg.Any<string?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+        entities.FindLiveByNameAsync("Rosa", Arg.Any<string?>(), Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Entity?>(E("stored-rosa")));
 
         await Stage(new Store(), entities).PersistAsync(SpeakerSays("user"), ownerId: "u1");

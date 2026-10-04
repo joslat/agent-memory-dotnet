@@ -41,12 +41,12 @@ public sealed class ExtractionReasoningTests
     }
 
     [Fact]
-    public void TheRequestedEffortReachesTheExtractionRequest()
+    public async Task TheRequestedEffortReachesTheExtractionRequest()
     {
         var inner = new RecordingChatClient();
 
-        LongMemEvalExtractionReasoning.Apply(inner, ReasoningEffort.Low)
-            .GetResponseAsync([new ChatMessage(ChatRole.User, "extract")], new ChatOptions()).GetAwaiter().GetResult();
+        await LongMemEvalExtractionReasoning.Apply(inner, ReasoningEffort.Low)
+            .GetResponseAsync([new ChatMessage(ChatRole.User, "extract")], new ChatOptions());
 
         inner.Options!.Reasoning!.Effort.Should().Be(ReasoningEffort.Low);
     }
