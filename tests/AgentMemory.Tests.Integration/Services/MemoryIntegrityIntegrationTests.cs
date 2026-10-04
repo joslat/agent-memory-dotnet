@@ -38,11 +38,11 @@ public sealed class MemoryIntegrityIntegrationTests : IAsyncLifetime
 
     private const string CleanStore = @"
         CREATE (m:Message {id: 'm1'})
-        CREATE (a:Entity {id: 'e-ana', owner_id: 'ana'}), (b:Entity {id: 'e-bilbao', owner_id: 'ana'}), (s:Entity {id: 'e-shared'})
+        CREATE (a:Entity {id: 'e-ana', owner_id: 'ana', embedding: [0.1, 0.2]}), (b:Entity {id: 'e-bilbao', owner_id: 'ana', embedding: [0.1, 0.2]}), (s:Entity {id: 'e-shared', embedding: [0.1, 0.2]})
         CREATE (a)-[:RELATED_TO {id: 'r1', owner_id: 'ana'}]->(b), (a)-[:RELATED_TO {id: 'r2', owner_id: 'ana'}]->(s)
         CREATE (old:Fact {id: 'f-old', owner_id: 'ana', source_message_ids: ['m1'], invalidated_at: datetime(), invalidated_reason: 'change',
                           valid_from: datetime('2010-01-01T00:00:00Z'), valid_until: datetime('2026-03-01T00:00:00Z')})
-        CREATE (new:Fact {id: 'f-new', owner_id: 'ana', source_message_ids: ['m1'], valid_from: datetime('2026-03-01T00:00:00Z')})
+        CREATE (new:Fact {id: 'f-new', owner_id: 'ana', source_message_ids: ['m1'], valid_from: datetime('2026-03-01T00:00:00Z'), embedding: [0.1, 0.2]})
         CREATE (old)-[:SUPERSEDED_BY]->(new), (new)-[:ABOUT]->(a)";
 
     [Fact]
@@ -57,11 +57,11 @@ public sealed class MemoryIntegrityIntegrationTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("owner.edge-endpoints", "MATCH (f:Fact {id: 'f-new'}) CREATE (f)-[:ABOUT]->(:Entity {id: 'e-bob', owner_id: 'bob'})")]
+    [InlineData("owner.edge-endpoints", "MATCH (f:Fact {id: 'f-new'}) CREATE (f)-[:ABOUT]->(:Entity {id: 'e-bob', owner_id: 'bob', embedding: [0.1, 0.2]})")]
     [InlineData("owner.edge-owner", "MATCH (a:Entity {id: 'e-ana'}), (b:Entity {id: 'e-bilbao'}) CREATE (a)-[:RELATED_TO {id: 'r-bob', owner_id: 'bob'}]->(b)")]
     [InlineData("supersession.closed-has-successor", "CREATE (:Fact {id: 'f-orphan', owner_id: 'ana', source_message_ids: ['m1'], invalidated_at: datetime(), invalidated_reason: 'correction'})")]
-    [InlineData("supersession.live-has-no-successor", "MATCH (n:Fact {id: 'f-new'}) CREATE (:Fact {id: 'f-live', owner_id: 'ana', source_message_ids: ['m1']})-[:SUPERSEDED_BY]->(n)")]
-    [InlineData("validity.window-ordered", "CREATE (:Fact {id: 'f-inverted', owner_id: 'ana', source_message_ids: ['m1'], valid_from: datetime('2026-01-01T00:00:00Z'), valid_until: datetime('2025-01-01T00:00:00Z')})")]
+    [InlineData("supersession.live-has-no-successor", "MATCH (n:Fact {id: 'f-new'}) CREATE (:Fact {id: 'f-live', owner_id: 'ana', source_message_ids: ['m1'], embedding: [0.1, 0.2]})-[:SUPERSEDED_BY]->(n)")]
+    [InlineData("validity.window-ordered", "CREATE (:Fact {id: 'f-inverted', owner_id: 'ana', source_message_ids: ['m1'], valid_from: datetime('2026-01-01T00:00:00Z'), valid_until: datetime('2025-01-01T00:00:00Z'), embedding: [0.1, 0.2]})")]
     public async Task A_planted_defect_fails_the_rule_that_names_it(string rule, string defect)
     {
         await WriteAsync(CleanStore);
@@ -78,13 +78,28 @@ public sealed class MemoryIntegrityIntegrationTests : IAsyncLifetime
     public async Task A_fact_with_no_source_is_a_warning_that_does_not_fail_the_store()
     {
         await WriteAsync(CleanStore);
-        await WriteAsync("CREATE (:Fact {id: 'f-api', owner_id: 'ana'})");
+        await WriteAsync("CREATE (:Fact {id: 'f-api', owner_id: 'ana', embedding: [0.1, 0.2]})");
 
         var report = await Sut().CheckAsync();
 
         var rule = report.Rules.Single(r => r.Id == "provenance.fact-has-source");
         (rule.Violations, rule.Severity, rule.Examples.Single()).Should().Be((1L, MemoryIntegrityRule.Warning, "f-api"));
         report.Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_live_memory_without_an_embedding_is_a_warning_and_a_closed_one_is_not_counted()
+    {
+        // A write whose embedding failed stores the memory without one; recall by meaning never finds it again.
+        await WriteAsync(CleanStore);
+        await WriteAsync("CREATE (:Fact {id: 'f-unembedded', owner_id: 'ana', source_message_ids: ['m1']}), " +
+                         "(:Preference {id: 'p-closed', owner_id: 'ana', invalidated_at: datetime()})");
+
+        var report = await Sut().CheckAsync();
+
+        var rule = report.Rules.Single(r => r.Id == "recall.memory-has-embedding");
+        (rule.Violations, rule.Severity, rule.Examples.Single()).Should().Be((1L, MemoryIntegrityRule.Warning, "f-unembedded"));
+        report.Passed.Should().BeTrue("a missing embedding is repairable and fails no write");
     }
 
     [Fact]

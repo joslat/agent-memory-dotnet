@@ -17,6 +17,7 @@ internal sealed class Neo4jMemoryIntegrityService(INeo4jTransactionRunner tx, IC
         ("supersession.live-has-no-successor", "A live fact has no successor", MemoryIntegrityRule.Error, IntegrityQueries.LiveWithSuccessor),
         ("validity.window-ordered", "A validity window ends after it begins", MemoryIntegrityRule.Error, IntegrityQueries.InvertedWindow),
         ("provenance.fact-has-source", "A fact has a source message (a fact written through the API may not)", MemoryIntegrityRule.Warning, IntegrityQueries.FactWithoutSource),
+        ("recall.memory-has-embedding", "A live memory has an embedding (without one it is never recalled by meaning; GenerateEmbeddingsBatchAsync repairs it)", MemoryIntegrityRule.Warning, IntegrityQueries.MemoryWithoutEmbedding),
     ];
 
     public async Task<MemoryIntegrityReport> CheckAsync(string? ownerId = null, CancellationToken cancellationToken = default)

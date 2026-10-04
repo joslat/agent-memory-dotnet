@@ -51,4 +51,15 @@ public static class IntegrityQueries
               AND NOT EXISTS { (f)-[:EXTRACTED_FROM]->(:Message) }
               AND ($ownerId IS NULL OR f.owner_id = $ownerId)
             RETURN count(f) AS violations, collect(f.id)[..5] AS examples";
+
+    /// <summary>
+    /// A live fact, preference or entity with no embedding. A write whose embedding failed stores the memory without one
+    /// (the failure is only logged), and recall by meaning never finds it again;
+    /// <c>IMemoryMaintenance.GenerateEmbeddingsBatchAsync</c> repairs it.
+    /// </summary>
+    public const string MemoryWithoutEmbedding = @"
+            MATCH (m)
+            WHERE (m:Fact OR m:Preference OR m:Entity) AND m.embedding IS NULL AND m.invalidated_at IS NULL
+              AND ($ownerId IS NULL OR m.owner_id = $ownerId)
+            RETURN count(m) AS violations, collect(m.id)[..5] AS examples";
 }
