@@ -181,7 +181,7 @@ public sealed class JevAsk(TextWriter output)
             {
                 turn = n.Example.Text,
                 neededThisType = Referee.DoorsNeeded(n.Example, data, data.Matrix.DoorsLabelled).Contains(door),
-                memoriesItNeeded = n.Example.Needs.SelectMany(g => g.Take(1)).Take(4).Select(data.World.RefOf).ToList(),
+                memoriesItNeeded = n.Example.Needs.SelectMany(g => g.Take(1)).Take(4).Select((data.TrainWorld ?? data.World).RefOf).ToList(),
             }).ToList();
             if (mode == "gates")
             {

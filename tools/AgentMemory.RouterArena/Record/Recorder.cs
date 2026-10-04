@@ -110,6 +110,9 @@ public sealed class Recorder(TextWriter output)
                 doors["faded"] = new Section([.. decayed.Select((f, i) => new Hit($"{f.Subject} | {f.Predicate} | {f.Object}", null, i + 1, f.OwnerId, "faded"))],
                     [], [], [], [], [], null);
             }
+            // 40.91. The history the as-of readings at fixed dates never reached: the facts the found facts replaced
+            // ("the 10k in 54 minutes" behind "51"), read by the found facts' ids, whatever date the question means.
+            doors["history"] = await HistoryAsync(store, wide, cancellationToken).ConfigureAwait(false);
             foreach (var then in request.AsOfDates)
                 doors[$"asOf:{then:yyyy-MM-dd}"] = Section.Of(await store.RecallAsync(request.Owner, request.Session, turn.Text, request.AskedAt,
                     _ => shipped, new PackAsOf { Valid = then, System = request.AskedAt }, cancellationToken).ConfigureAwait(false));
@@ -134,6 +137,21 @@ public sealed class Recorder(TextWriter output)
         await File.WriteAllTextAsync(request.OutPath, JsonSerializer.Serialize(recording, Recording.Json), cancellationToken).ConfigureAwait(false);
         output.WriteLine($"record: {records.Count} turns recorded to {request.OutPath}");
         return 0;
+    }
+
+    /// <summary>40.91. The facts the recalled facts replaced, newest first, as "subject | predicate | what it said".</summary>
+    internal static async Task<Section> HistoryAsync(PackStore store, MemoryContext recalled, CancellationToken cancellationToken)
+    {
+        var facts = recalled.RelevantFacts.Items;
+        using var scope = store.Provider.CreateScope();
+        var chains = await scope.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Repositories.IFactRepository>()
+            .GetSupersessionPredecessorsAsync([.. facts.Select(f => f.FactId)], 5, cancellationToken).ConfigureAwait(false);
+        var hits = new List<Hit>();
+        foreach (var fact in facts)
+            if (chains.TryGetValue(fact.FactId, out var before))
+                foreach (var old in before)
+                    hits.Add(new Hit($"{fact.Subject} | {fact.Predicate} | {old.Object}", null, hits.Count + 1, fact.OwnerId, "history"));
+        return new Section(hits, [], [], [], [], [], null);
     }
 
     internal static RecallOptions WideOpen(RecallOptions recall) => recall with

@@ -200,6 +200,33 @@ public sealed class Rounds(ArenaData data, string home, TextWriter output)
         return roster;
     }
 
+    /// <summary>
+    /// 40.83, 40.87: every specimen the jar has bred, by batch, each as its batch left it (tuned on the tuning turns only):
+    /// 0 the bounds; 1 round 1, untuned; 2 rounds 2–3, tuned and crossed; 3 round 4, JEV improved; 4 the local gate and the
+    /// hybrid. Scored together on one pool of turns, so every batch sits on one chart.
+    /// </summary>
+    public List<(int Batch, string Name, IContestant Contestant)> Specimens()
+    {
+        var list = new List<(int, string, IContestant)>
+        {
+            (0, "C00 oracle", new Oracle()), (0, "C01w search everything, wide", new WideOpen()),
+        };
+        foreach (var (name, contestant) in Round1Roster().Where(r => !r.Key.StartsWith("C00", StringComparison.Ordinal) && !r.Key.StartsWith("C01w", StringComparison.Ordinal)))
+            list.Add((1, name, contestant));
+        foreach (var (name, contestant) in Round2Roster().Where(r => r.Key.StartsWith("C0", StringComparison.Ordinal) && r.Key[2] is '5' or '6' || r.Key.StartsWith("C18t", StringComparison.Ordinal)
+                     || r.Key.StartsWith("C19t", StringComparison.Ordinal) || r.Key.StartsWith("C20t", StringComparison.Ordinal) || r.Key.StartsWith('X') || r.Key.StartsWith("C01t", StringComparison.Ordinal)))
+            list.Add((2, name, contestant));
+        foreach (var (name, contestant) in Round4Roster(new HashSet<string> { "items", "items-k12ctx" })
+                     .Where(r => r.Key.StartsWith("C20m", StringComparison.Ordinal) || r.Key.StartsWith("C20l", StringComparison.Ordinal) || r.Key.StartsWith("X8", StringComparison.Ordinal)))
+            list.Add((3, name, contestant));
+        list.Add((3, "C22 JEV gate per memory, plain (12 shown, context, examples, 0.25)", new JevItems(new JevItemSettings { Threshold = 0.25, Answers = "items-k12ctx" })));
+        list.Add((4, "C24 local gate alone, strict (0.279)", new JevItems(new JevItemSettings { Threshold = 0.2787, Answers = "items-xenc-mini-acc" })));
+        list.Add((4, "C24g local gate alone, generous (0.213)", new JevItems(new JevItemSettings { Threshold = 0.2129, Answers = "items-xenc-mini-acc" })));
+        list.Add((4, "C23 hybrid: local gate first, JEV on the unsure types", new GateCascade("items-xenc-mini-acc", "items-k12ctx", 0.2, 0.8, 0.25)));
+        list.Add((4, "C25 Laya fine-tuned (0.5)", new JevItems(new JevItemSettings { Threshold = 0.5, Answers = "items-laya-ft" })));
+        return list;
+    }
+
     /// <summary>40.73: who is timed: today's recall and its variants, the routers without a model, and every tuned finalist and JEV variant.</summary>
     public Dictionary<string, IContestant> TimeRoster()
     {

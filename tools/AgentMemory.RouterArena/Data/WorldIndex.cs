@@ -89,7 +89,8 @@ public sealed class WorldIndex
 
     internal static string Norm(string? text) => string.Join(' ', (text ?? "").ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
-    /// <summary>Reads <c>world-index.json</c> and the aliases from the world pack beside it (<c>world.pack.json</c>).</summary>
+    /// <summary>Reads the index and the aliases from the world pack beside it (<c>world.pack.json</c>, else the one <c>*.pack.json</c>
+    /// there: 40.92, a second world).</summary>
     public static WorldIndex Read(string indexPath, string owner = "marta")
     {
         using var index = JsonDocument.Parse(File.ReadAllBytes(indexPath));
@@ -98,7 +99,10 @@ public sealed class WorldIndex
                 m.TryGetProperty("note", out var note) ? note.GetString() ?? "" : ""))
             .ToList();
         var aliases = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
-        var packPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(indexPath))!, "world.pack.json");
+        var folder = Path.GetDirectoryName(Path.GetFullPath(indexPath))!;
+        var packPath = Path.Combine(folder, "world.pack.json");
+        if (!File.Exists(packPath) && Directory.GetFiles(folder, "*.pack.json") is [var only])
+            packPath = only;
         if (File.Exists(packPath))
         {
             using var pack = JsonDocument.Parse(File.ReadAllBytes(packPath));

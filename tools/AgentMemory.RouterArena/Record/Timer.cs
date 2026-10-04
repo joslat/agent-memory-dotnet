@@ -25,6 +25,12 @@ public sealed record TimeScore(string Contestant, double RecallP50, double Recal
 /// </summary>
 public sealed class Timer(TextWriter output)
 {
+    /// <summary>Fan-out on for every contestant (as the recordings were made); off: only today's recall keeps it (the gate's design).</summary>
+    public bool FanOutForAll { get; init; } = true;
+
+    /// <summary>40.83: time each door alone instead of the contestants: its own search (wide), or its own reading.</summary>
+    public bool DoorsOnly { get; init; }
+
     public async Task<int> RunAsync(ArenaData data, IReadOnlyDictionary<string, IContestant> roster, RecordRequest request, string outPath,
         string split, int? limit, CancellationToken cancellationToken = default)
     {
@@ -37,14 +43,26 @@ public sealed class Timer(TextWriter output)
         var items = data.Matrix.InSplit(split).Take(limit ?? int.MaxValue).ToList();
         var contexts = new Dictionary<string, TurnContext>(StringComparer.Ordinal);
 
-        // Warm the store and the embedder: the first recalls pay for cold caches.
-        foreach (var item in items.Take(25))
-            await store.RecallAsync(request.Owner, request.Session, item.Text, request.AskedAt, _ => shipped, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // Warm the store and the embedder on every turn, wide and fan-out on, so no contestant pays for cold caches: timed
+        // first, today's recall once paid 88 ms against 24 ms warm (40.83).
+        foreach (var item in items)
+            await store.RecallAsync(request.Owner, request.Session, item.Text, request.AskedAt, _ => Recorder.WideOpen(shipped), cancellationToken: cancellationToken).ConfigureAwait(false);
+        // The faded search takes the turn's vector, which the recall has already embedded (and the library caches): embed
+        // each text once here, not once per contestant (that cost ~70 ms a turn the library never pays).
+        var vectors = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        foreach (var item in items)
+            if (!vectors.ContainsKey(item.Text))
+                vectors[item.Text] = (await matrix.Embeddings.GenerateAsync([item.Text], cancellationToken: cancellationToken).ConfigureAwait(false))[0].Vector.ToArray();
 
         var scores = new List<TimeScore>();
-        foreach (var (name, contestant) in roster)
+        // 40.83: a door alone is a contestant that opens and searches only that door (wide), fan-out off.
+        IEnumerable<(string Name, IContestant Contestant)> timed = DoorsOnly
+            ? Doors.All.Select(d => ($"door {Doors.Name(d)}", (IContestant)new OneDoor(d)))
+            : roster.Select(r => (r.Key, r.Value));
+        foreach (var (name, contestant) in timed)
         {
-            store.Options.FanOut.Enabled = contestant is WithoutFanOut ? false : fanOutShipped;
+            store.Options.FanOut.Enabled = contestant is WithoutFanOut || contestant is OneDoor ? false
+                : contestant is OldMethod || FanOutForAll ? fanOutShipped : false;
             var recall = new List<double>();
             var model = new List<double>();
             foreach (var item in items)
@@ -52,7 +70,7 @@ public sealed class Timer(TextWriter output)
                 if (!contexts.TryGetValue(item.Id, out var context)) contexts[item.Id] = context = new TurnContext(data.Records[item.Id], data);
                 var decision = contestant.Decide(item, context);
                 var watch = Stopwatch.StartNew();
-                await RecallAsync(store, matrix, shipped, request, item.Text, decision, contestant, cancellationToken).ConfigureAwait(false);
+                await RecallAsync(store, shipped, request, item.Text, vectors[item.Text], decision, contestant, cancellationToken).ConfigureAwait(false);
                 recall.Add(watch.Elapsed.TotalMilliseconds);
                 model.Add(1000 * (decision.ModelSeconds ?? decision.ModelCalls * Referee.ModelSeconds));
             }
@@ -73,14 +91,18 @@ public sealed class Timer(TextWriter output)
     }
 
     /// <summary>The recall a decision implies, run for real: one main recall, and the reading doors beside it, all at once.</summary>
-    private static Task RecallAsync(PackStore store, MatrixStore matrix, RecallOptions shipped, RecordRequest request, string text,
+    private static Task RecallAsync(PackStore store, RecallOptions shipped, RecordRequest request, string text, float[] vector,
         Decision decision, IContestant contestant, CancellationToken cancellationToken)
     {
         if (contestant is OldMethod or WithoutFanOut) return store.RecallAsync(request.Owner, request.Session, text, request.AskedAt, _ => shipped, cancellationToken: cancellationToken);
         var doors = decision.SearchedDoors ?? decision.Opened;
         var wide = decision.Wide;
         var main = Options(shipped, doors, wide);
-        var calls = new List<Task> { store.RecallAsync(request.Owner, request.Session, text, request.AskedAt, _ => main, cancellationToken: cancellationToken) };
+        var mainRecall = store.RecallAsync(request.Owner, request.Session, text, request.AskedAt, _ => main, cancellationToken: cancellationToken);
+        // 40.91: the bi-temporal door also reads the facts the found ones replaced, once the search has found them.
+        var calls = new List<Task> { doors.Contains(Door.BiTemporal)
+            ? mainRecall.ContinueWith(r => Recorder.HistoryAsync(store, r.Result, cancellationToken), cancellationToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default).Unwrap()
+            : mainRecall };
         if (wide && doors.Contains(Door.Temporal))
             calls.Add(store.RecallAsync(request.Owner, request.Session, text, request.AskedAt, _ => Recorder.WideOpen(shipped) with { ValidTime = ValidTimeMode.Current }, cancellationToken: cancellationToken));
         if (doors.Contains(Door.Prospective))
@@ -88,13 +110,12 @@ public sealed class Timer(TextWriter output)
         if (doors.Contains(Door.BiTemporal))
             foreach (var then in request.AsOfDates)
                 calls.Add(store.RecallAsync(request.Owner, request.Session, text, request.AskedAt, _ => shipped, new PackAsOf { Valid = then, System = request.AskedAt }, cancellationToken));
-        if (doors.Contains(Door.Forgetting)) calls.Add(FadedAsync(store, matrix, shipped, request, text, cancellationToken));
+        if (doors.Contains(Door.Forgetting)) calls.Add(FadedAsync(store, shipped, request, vector, cancellationToken));
         return Task.WhenAll(calls);
     }
 
-    private static async Task FadedAsync(PackStore store, MatrixStore matrix, RecallOptions shipped, RecordRequest request, string text, CancellationToken cancellationToken)
+    private static async Task FadedAsync(PackStore store, RecallOptions shipped, RecordRequest request, float[] vector, CancellationToken cancellationToken)
     {
-        var vector = (await matrix.Embeddings.GenerateAsync([text], cancellationToken: cancellationToken).ConfigureAwait(false))[0].Vector.ToArray();
         using var scope = store.Provider.CreateScope();
         await scope.ServiceProvider.GetRequiredService<ILongTermMemoryService>()
             .SearchDecayedFactsAsync(vector, 10, shipped.MinSimilarityScore, MemoryScope.For(store.Owner(request.Owner), includeShared: false), cancellationToken)
@@ -122,6 +143,17 @@ public sealed class Timer(TextWriter output)
             ValidTime = !wide && doors.Contains(Door.Temporal) ? ValidTimeMode.Current : b.ValidTime,
             IncludeDiagnostics = false,
         };
+    }
+
+    /// <summary>One door, searched wide (its reading, for a reading door), and nothing else.</summary>
+    private sealed class OneDoor(Door door) : IContestant
+    {
+        public string Family => "door";
+
+        public IReadOnlyDictionary<string, object?> Parameters { get; } = new Dictionary<string, object?> { ["door"] = Doors.Name(door) };
+
+        public Decision Decide(MatrixItem item, TurnContext context) =>
+            new(new HashSet<string>(), new HashSet<Door> { door }, 1) { Wide = Doors.Searching.Contains(door), SearchedDoors = new HashSet<Door> { door } };
     }
 
     private static double P(List<double> values, int percentile)

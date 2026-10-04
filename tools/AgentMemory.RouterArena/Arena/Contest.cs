@@ -94,7 +94,8 @@ public sealed class TurnContext(TurnRecord record, ArenaData data)
         return door switch
         {
             Door.Temporal => Facts(doors.GetValueOrDefault("temporal"), Door.Temporal),
-            Door.BiTemporal => [.. doors.Where(d => d.Key.StartsWith("asOf:", StringComparison.Ordinal)).OrderBy(d => d.Key, StringComparer.Ordinal)
+            // 40.91: the replaced facts behind the found ones ("history") beside the readings as of fixed dates.
+            Door.BiTemporal => [.. doors.Where(d => d.Key.StartsWith("asOf:", StringComparison.Ordinal) || d.Key == "history").OrderBy(d => d.Key, StringComparer.Ordinal)
                 .SelectMany(d => Facts(d.Value, Door.BiTemporal)).DistinctBy(c => c.Id)],
             Door.Prospective => doors.GetValueOrDefault("prospective") is { } p
                 ? [.. Candidates.Of(Data.World, p, Door.Prospective).Where(c => c.Section is RecallSection.Due or RecallSection.Expiring)]
@@ -168,6 +169,10 @@ public sealed class ArenaData
     public required Recording Recording { get; init; }
     public required string RecordingSha256 { get; init; }
     public required WorldIndex World { get; init; }
+
+    /// <summary>40.92: the world the training turns' memories belong to (another world's turns learn from world 1's examples).</summary>
+    public WorldIndex? TrainWorld { get; init; }
+
     public required IReadOnlyDictionary<string, TurnRecord> Records { get; init; }
 
     /// <summary>The model lane's recorded answers by turn: its doors (or, asked before the doors, its kinds), or null when the call failed.</summary>
@@ -192,7 +197,7 @@ public sealed class ArenaData
     {
         var matrix = Matrix.Read(paths.Matrix);
         var (recording, recordingSha) = Recording.ReadFile(paths.Recording);
-        var world = WorldIndex.Read(paths.WorldIndex);
+        var world = WorldIndex.Read(paths.WorldIndex, paths.Owner);
         var answers = new Dictionary<string, IReadOnlyList<string>?>(StringComparer.Ordinal);
         using (var model = JsonDocument.Parse(File.ReadAllBytes(paths.ModelAnswers)))
             foreach (var answer in model.RootElement.GetProperty("answers").EnumerateObject())
@@ -222,6 +227,7 @@ public sealed class ArenaData
             Recording = recording,
             RecordingSha256 = recordingSha,
             World = world,
+            TrainWorld = paths.TrainWorldIndex is { } trainWorld ? WorldIndex.Read(trainWorld) : null,
             Records = recording.Records.ToDictionary(r => r.Id, StringComparer.Ordinal),
             ModelAnswers = answers,
             Embeddings = embeddings,
@@ -242,6 +248,12 @@ public sealed record ArenaPaths(string Matrix, string Recording, string WorldInd
 {
     /// <summary>40.77: on a fresh set, the matrix whose tuning turns are the contestants' examples (the set they were tuned on).</summary>
     public string? TrainMatrix { get; init; }
+
+    /// <summary>40.92: the index of the world the training matrix belongs to, when it is not this one's.</summary>
+    public string? TrainWorldIndex { get; init; }
+
+    /// <summary>40.92: the world's person (a second world names its own: --owner sven).</summary>
+    public string Owner { get; init; } = "marta";
 }
 
 /// <summary>JEV's answer for one turn: P(yes) by question key (a door, or "door|memory id"), its calls, time and cost.</summary>

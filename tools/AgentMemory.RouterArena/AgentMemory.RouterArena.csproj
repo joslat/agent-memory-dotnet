@@ -6,16 +6,23 @@
     <AssemblyName>router-arena</AssemblyName>
     <!-- Operator tooling, not a published library. The release packs src/*/*.csproj only. -->
     <IsPackable>false</IsPackable>
+    <!-- `showcase` runs the gate (AgentMemory.Gate, experimental). -->
+    <NoWarn>$(NoWarn);AMGATE001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- `record` only: the matrix's world goes into a Neo4j of its own. Docker is needed to record, not to fight. -->
     <PackageReference Include="Testcontainers.Neo4j" Version="4.15.0" />
+    <!-- The library's own logs in the showcases' output (41.07, 41.08): a judge that fails or closes nothing says so. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Validation\AgentMemory.Validation.csproj" />
+    <!-- 40.97: the storage jar writes through the library's model extraction, on the configured provider. -->
+    <ProjectReference Include="..\..\src\AgentMemory.Inference\AgentMemory.Inference.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Gate\AgentMemory.Gate.csproj" />
     <!-- The host's default recall policy is a contestant's baseline. -->
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
   </ItemGroup>

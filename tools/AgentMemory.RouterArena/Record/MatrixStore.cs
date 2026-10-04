@@ -12,8 +12,9 @@ namespace AgentMemory.RouterArena.Record;
 /// </summary>
 public sealed class MatrixStore : IAsyncDisposable
 {
-    private MatrixStore(OllamaEmbeddingGenerator embeddings, Neo4jContainer container, PackStore store, int dimensions, int faded)
+    private MatrixStore(OllamaEmbeddingGenerator embeddings, Neo4jContainer container, PackStore store, int dimensions, int faded, string password)
     {
+        Password = password;
         Embeddings = embeddings;
         Container = container;
         Store = store;
@@ -25,6 +26,9 @@ public sealed class MatrixStore : IAsyncDisposable
     public Neo4jContainer Container { get; }
     public PackStore Store { get; }
     public int Dimensions { get; }
+
+    /// <summary>The throwaway store's password (random, for this run only): for probes that read the graph directly.</summary>
+    public string Password { get; }
 
     /// <summary>How many memories the decay pass faded.</summary>
     public int Faded { get; }
@@ -65,13 +69,13 @@ public sealed class MatrixStore : IAsyncDisposable
             o.EmbeddingDimensions = dimensions;
             // The derived door: the accountant's derived facts need the arithmetic extension's indexes.
             o.Extensions.Add("arithmetic");
-        }, _ => embeddings);
+        }, _ => embeddings, ArenaLogging.Console);
         var store = await runner.LoadAsync(world, "matrix", cancellationToken).ConfigureAwait(false);
         // The forgetting switch: a decay pass run as of August 2023, when the 2023 memory was months old and nothing else had
         // been said yet, so it is the only memory that fades; every turn is still asked in October 2026.
         var faded = await store.DecayAsync(request.Owner, request.DecayAt, cancellationToken).ConfigureAwait(false);
         output.WriteLine($"{verb}: world {world.Id} loaded, embeddings {request.Model} ({dimensions}); the decay pass as of {request.DecayAt:yyyy-MM-dd} faded {faded}");
-        return new MatrixStore(embeddings, container, store, dimensions, faded);
+        return new MatrixStore(embeddings, container, store, dimensions, faded, password);
     }
 
     public async ValueTask DisposeAsync()
