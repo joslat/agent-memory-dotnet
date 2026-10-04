@@ -254,6 +254,53 @@ public sealed class PersistenceStageTests
     }
 
     [Fact]
+    public async Task PersistAsync_Relationship_EndpointMetInAnEarlierMessage_ResolvesTheOwnersStoredEntity()
+    {
+        // 40.91: "Marta Ruiz -[SIBLING_OF]-> Iker" said after Marta was introduced; this extraction wrote only Iker.
+        _idGen.GenerateId().Returns("rel-1");
+        var iker = new Entity { EntityId = "e-iker", Name = "Iker", Type = "PERSON", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        var marta = new Entity { EntityId = "e-marta", Name = "Marta Ruiz", Type = "PERSON", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        _entityRepo.FindLiveByNameAsync("Marta Ruiz", null, Arg.Is<MemoryScope>(s => s.OwnerId == "marta" && !s.IncludeShared), Arg.Any<CancellationToken>())
+            .Returns(marta);
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Iker"] = iker },
+            FilteredRelationships = new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Marta Ruiz", TargetEntity = "Iker", RelationshipType = "SIBLING_OF", Confidence = 0.95 }
+            }
+        };
+
+        await CreateSut().PersistAsync(extraction, ownerId: "marta");
+
+        await _relRepo.Received(1).UpsertAsync(
+            Arg.Is<Relationship>(r => r.SourceEntityId == "e-marta" && r.TargetEntityId == "e-iker" && r.RelationshipType == "SIBLING_OF"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Relationship_EndpointNowhereInTheOwnersMemory_RecordsUnresolved()
+    {
+        // 40.91: deferred by extraction, looked for in the owner's memory, not found: the outcome extraction used to give.
+        var extraction = EmptyResult() with
+        {
+            FilteredRelationships = new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Ghost", TargetEntity = "Nobody", RelationshipType = "KNOWS", Confidence = 0.9 }
+            }
+        };
+
+        var result = await CreateSut().PersistAsync(extraction, ownerId: "marta");
+
+        await _relRepo.DidNotReceive().UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>());
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Relationship &&
+            o.Stage == IngestionStage.Resolution &&
+            o.Status == IngestionItemStatus.Skipped &&
+            o.ErrorCode == MemoryErrorCodes.RelationshipEndpointUnresolved);
+    }
+
+    [Fact]
     public async Task PersistAsync_Relationship_SkippedWhenEntityNotInPersistedMap()
     {
         // No entities in the resolved map, so relationship can't be wired

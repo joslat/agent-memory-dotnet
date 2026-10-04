@@ -762,6 +762,24 @@ public sealed class ExtractionStageTests
     }
 
     [Fact]
+    public async Task ExtractAsync_RelationshipEndpointNotInThisExtraction_WithAnOwner_IsDeferredToPersistence()
+    {
+        // 40.91: the owner's memory may already hold the person (met in an earlier message); persistence looks.
+        var relExt = Substitute.For<IRelationshipExtractor>();
+        relExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Marta Ruiz", TargetEntity = "Iker", RelationshipType = "SIBLING_OF", Confidence = 0.9 }
+            });
+
+        var sut = CreateSut(relExtractors: new[] { relExt });
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All, MemoryScope.For("marta", includeShared: false));
+
+        result.FilteredRelationships.Should().ContainSingle(r => r.SourceEntity == "Marta Ruiz" && r.TargetEntity == "Iker");
+        result.Outcomes.Should().NotContain(o => o.ErrorCode == MemoryErrorCodes.RelationshipEndpointUnresolved);
+    }
+
+    [Fact]
     public async Task ExtractAsync_RelationshipEndpointUnresolved_RecordsSkippedOutcome()
     {
         var relExt = Substitute.For<IRelationshipExtractor>();

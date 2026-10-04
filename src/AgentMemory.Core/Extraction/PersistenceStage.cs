@@ -1518,7 +1518,29 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         async Task<Entity?> EndpointAsync(string name, bool source) =>
             persistedEntityMap.TryGetValue(name, out var entity) ? entity
             : UserNames.MeansUserEndpoint(name, source) ? await UserEntityAsync().ConfigureAwait(false)
-            : null;
+            : await KnownEntityAsync(name).ConfigureAwait(false);
+
+        // 40.91. A relationship may name someone met in an earlier message ("Marta Ruiz -[SIBLING_OF]-> Iker" said after
+        // Marta was introduced): the owner's live entity with that name or alias, read once per name, best-effort. Before
+        // this, such a relationship was skipped as "not persisted" and never reached the graph.
+        var knownEntities = new Dictionary<string, Entity?>(StringComparer.OrdinalIgnoreCase);
+        async Task<Entity?> KnownEntityAsync(string name)
+        {
+            if (ownerId is null || string.IsNullOrWhiteSpace(name)) return null;
+            if (knownEntities.TryGetValue(name, out var known)) return known;
+            try
+            {
+                known = await _entityRepository.FindLiveByNameAsync(
+                    name, type: null, MemoryScope.For(ownerId, includeShared: false), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not read the entity named '{Name}' for owner {Owner}; its relationships are skipped.", name, ownerId);
+                known = null;
+            }
+            return knownEntities[name] = known;
+        }
 
         // 36.7 (D-8c). An extracted relationship is the live edge it restates, not a second one: its id is that
         // edge's id. The store merges relationships on their id, and extraction gave every one a fresh id, so the same
@@ -1547,6 +1569,29 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         static string EdgeType(string type) => MemoryTripleCanonicalizer.Canonical(type);
         bool IsLive(Relationship edge) => edge.ValidUntil is not { } until || until > _clock.UtcNow;
 
+        // An endpoint looked for in the owner's memory and not found was never resolved (the outcome extraction gives when it
+        // has no owner to look in); one the extraction resolved but did not write was not persisted.
+        IngestionItemOutcome Unreached(string name, string end, string sourceKey) =>
+            knownEntities.ContainsKey(name) && !persistedEntityMap.ContainsKey(name)
+                ? new IngestionItemOutcome
+                {
+                    Kind = MemoryItemKind.Relationship,
+                    Stage = IngestionStage.Resolution,
+                    Status = IngestionItemStatus.Skipped,
+                    SourceKey = sourceKey,
+                    ErrorCode = MemoryErrorCodes.RelationshipEndpointUnresolved,
+                    ErrorMessage = $"{end} entity '{name}' was not resolved.",
+                }
+                : new IngestionItemOutcome
+                {
+                    Kind = MemoryItemKind.Relationship,
+                    Stage = IngestionStage.RelationshipPersistence,
+                    Status = IngestionItemStatus.Skipped,
+                    SourceKey = sourceKey,
+                    ErrorCode = MemoryErrorCodes.RelationshipEndpointNotPersisted,
+                    ErrorMessage = $"{end} entity '{name}' was not persisted.",
+                };
+
         var relationshipInputs = new List<(Relationship Item, string SourceKey)>(
             extraction.FilteredRelationships.Count);
         foreach (var extracted in extraction.FilteredRelationships)
@@ -1558,15 +1603,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 _logger.LogWarning(
                     "Skipping relationship — source entity '{Source}' was not persisted.",
                     extracted.SourceEntity);
-                outcomes.Add(new IngestionItemOutcome
-                {
-                    Kind = MemoryItemKind.Relationship,
-                    Stage = IngestionStage.RelationshipPersistence,
-                    Status = IngestionItemStatus.Skipped,
-                    SourceKey = relSourceKey,
-                    ErrorCode = MemoryErrorCodes.RelationshipEndpointNotPersisted,
-                    ErrorMessage = $"Source entity '{extracted.SourceEntity}' was not persisted.",
-                });
+                outcomes.Add(Unreached(extracted.SourceEntity, "Source", relSourceKey));
                 continue;
             }
 
@@ -1575,15 +1612,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 _logger.LogWarning(
                     "Skipping relationship — target entity '{Target}' was not persisted.",
                     extracted.TargetEntity);
-                outcomes.Add(new IngestionItemOutcome
-                {
-                    Kind = MemoryItemKind.Relationship,
-                    Stage = IngestionStage.RelationshipPersistence,
-                    Status = IngestionItemStatus.Skipped,
-                    SourceKey = relSourceKey,
-                    ErrorCode = MemoryErrorCodes.RelationshipEndpointNotPersisted,
-                    ErrorMessage = $"Target entity '{extracted.TargetEntity}' was not persisted.",
-                });
+                outcomes.Add(Unreached(extracted.TargetEntity, "Target", relSourceKey));
                 continue;
             }
 
