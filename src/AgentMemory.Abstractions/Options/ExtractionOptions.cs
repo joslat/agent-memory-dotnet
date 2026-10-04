@@ -302,11 +302,12 @@ public sealed class ExtractionOptions
 
     /// <summary>
     /// The probability at which a registered <see cref="Services.IMemoryUpdateJudge"/>'s "the new memory replaces this one"
-    /// closes the stored memory. 0.8 by default: at that bar the judge closed 10 of 21 replaced memories on two unseen
-    /// sets and nothing that stayed true; lower bars closed more and, on one set, history that stays true.
+    /// closes the stored memory. 0.65 by default, chosen by cross-validation on training turns for a question that keeps
+    /// past results and earlier events as history: with a write gate before it, it closed 13 of 21 replaced memories on two
+    /// unseen sets, one of them wrongly, and kept every labelled write.
     /// </summary>
     /// <remarks>Read only when an update judge is registered and enabled; otherwise nothing changes.</remarks>
-    public double UpdateJudgeThreshold { get; set; } = 0.8;
+    public double UpdateJudgeThreshold { get; set; } = 0.65;
 
     /// <summary>
     /// How many of the owner's most similar stored memories of its kind each new fact or preference is set against.

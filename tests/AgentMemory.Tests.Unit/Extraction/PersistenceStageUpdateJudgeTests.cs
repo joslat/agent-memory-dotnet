@@ -78,7 +78,7 @@ public sealed class PersistenceStageUpdateJudgeTests
     }
 
     [Theory]
-    [InlineData(0.79)]
+    [InlineData(0.64)]
     [InlineData(0.2)]
     public async Task Below_the_threshold_nothing_is_closed(double p)
     {

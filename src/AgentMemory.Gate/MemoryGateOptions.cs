@@ -83,7 +83,7 @@ public sealed class MemoryGateOptions
 
     /// <summary>
     /// Whether the write path asks the first judge whether each new fact or preference replaces a stored one
-    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.8). Off: the write path without a judge.
+    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.65). Off: the write path without a judge.
     /// </summary>
     public bool UpdateJudge { get; set; }
 }

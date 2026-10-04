@@ -24,7 +24,8 @@ public sealed class SystemOneUpdateJudge : IMemoryUpdateJudge
     public bool IsEnabled => _options.Value.UpdateJudge && _options.Value.Judges.Any(j => j.Endpoint is not null);
 
     internal static readonly (string True, string False) Criteria =
-        ("the stored memory is no longer true once the new one is stored", "both stay true, or they are about different things");
+        ("the stored memory stops being true now: it is changed, cancelled or corrected by the new one",
+         "both stay true: the stored memory is a past result or earlier event that remains history, or they are about different things");
 
     /// <inheritdoc />
     public Task<IReadOnlyDictionary<string, double>> JudgeAsync(MemoryUpdateRequest request, CancellationToken cancellationToken = default)

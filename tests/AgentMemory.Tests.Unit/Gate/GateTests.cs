@@ -224,7 +224,7 @@ public sealed class GateTests
         var q = SystemOneUpdateJudge.Questions(request)["p1"];
 
         q.Instructions.Should().Be("Does the new memory \"Marta | is not doing | the 10k\" replace this stored one: \"Marta | is running | the Lyon 10k\"?");
-        q.True.Should().Be("the stored memory is no longer true once the new one is stored");
-        q.False.Should().Be("both stay true, or they are about different things");
+        q.True.Should().Be("the stored memory stops being true now: it is changed, cancelled or corrected by the new one");
+        q.False.Should().Be("both stay true: the stored memory is a past result or earlier event that remains history, or they are about different things");
     }
 }

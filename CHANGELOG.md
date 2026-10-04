@@ -53,8 +53,10 @@ and [docs/routing.md](docs/routing.md).
   dossier or a module reads an owner's memory without Cypher of its own.
 - **An integrity check** (`IMemoryIntegrityService`, `agentmemory integrity [--owner <id>]`): no edge joins two owners'
   memories, a relationship edge belongs to its endpoints' owner, a fact closed as a change or a correction has its
-  successor and a live one has none, every validity window ends after it begins, and (a warning) every fact has a source.
-  Read-only; each rule reports a count and up to five ids. Validation packs run it on what their ingestion wrote.
+  successor and a live one has none, every validity window ends after it begins, and (warnings) every fact has a source
+  and every live memory has an embedding: a failed embedding call stores the memory without one and only logs it, and
+  recall by meaning never finds it again (`IMemoryMaintenance.GenerateEmbeddingsBatchAsync` repairs it). Read-only; each
+  rule reports a count and up to five ids. Validation packs run it on what their ingestion wrote.
 - **Write effects on ingestion outcomes.** `IngestionItemOutcome.Effect` says what a successful write did: `Created`,
   `AlreadyStored` (the same fact, preference or relationship was there), or `MergedWithinExtraction` for a duplicate
   folded into another item; `Closed` lists the facts a change or a correction closed. Entities report `Unreported` for
@@ -64,10 +66,29 @@ and [docs/routing.md](docs/routing.md).
   store with no model: the pack plays the model, and every message and question is stamped on a replayed clock. Every
   question also checks isolation (another owner's item in a recall fails it). Six core packs ship (changes and
   corrections on both clocks, names, preferences, episodic, the graph, working memory), each proven by a planted defect
-  that fails the check naming it. The runner lives in `AgentMemory.Validation`, held off NuGet while the format settles.
+  that fails the check naming it. The runner lives in `AgentMemory.Validation`, held off NuGet while the format settles;
+  it borrows a caller's embedding generator (never disposing it, however many packs run) and takes a logging
+  configuration, so what the stack decided and what failed is visible.
+- **A judge at the fan-in and a judge on the write path** (`IMemoryGate`, `IMemoryUpdateJudge`; both used only when
+  registered). The gate sees the turn and everything a wide recall found and keeps what helps the reply: measured on two
+  unseen test sets, every needed memory reached the prompt on 96.1% and 96.5% of turns, against 67.6% and 76.8% for the
+  similarity floor, with less than half the memory tokens. The update judge closes the stored fact or preference a new
+  one replaces (`ExtractionOptions.UpdateJudgeThreshold`, `UpdateJudgeCandidates`); without a judge the write path is
+  unchanged. `AgentMemory.Gate` 0.1 (experimental, `AMGATE001`, held off NuGet) implements both over System One
+  endpoints: `AddAgentMemoryGate` decorates the context assembler with the modes `Floor` (recall as without the gate),
+  `Judge` and `Everything`; the floor is the automatic fallback on a timeout, an error or a judge that does not answer,
+  with a warning naming the reason, and the decision is in the context's metadata (`gate.*`).
 
 ### Fixed
 
+- **Recalled relationships answer the question.** They were ordered by confidence and age only, so every recall returned
+  the same few edges; they are now ordered by how closely their ends match the recalled entities and the names the
+  recalled facts give. And a relationship naming someone met in an earlier message is resolved against the owner's
+  stored entities instead of being dropped at extraction.
+- **Two people who share a surname stay two people.** "Erik Halvorsen" and "Sven Halvorsen" score 0.88 on name
+  embeddings, and resolving one onto the other erased the brother and pointed his relationships at the owner. Similarity
+  alone no longer merges two people with different given names; a different order, an initial, a short form, an
+  honorific or a one-letter typo still resolve.
 - **A fact that says nothing is no longer stored.** "Rosa | is named | Rosa" was written and recalled as a person's first
   memory, taking a recall slot. A fact whose subject and object are the same name, once names are resolved, is skipped
   with the outcome `MEMORY_FACT_TAUTOLOGY` (`MemoryErrorCodes.FactTautology`).
