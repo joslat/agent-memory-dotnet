@@ -29,6 +29,10 @@ AgentMemory.McpServer.Nams|src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.
 AgentMemory.Nams|src/AgentMemory.Nams/AgentMemory.Nams.csproj
 AgentMemory.Neo4j|src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj
 AgentMemory.Observability|src/AgentMemory.Observability/AgentMemory.Observability.csproj
+# The retrieval memory router (41.06, 41.19): a judge at the fan-in and on the write path. Rides the core version, opt-in,
+# with every public type [Experimental("AMGATE001")] (a compile error until a host opts in), so the contracts can still
+# change on a minor release: the attribute, not a 0.x line, is what keeps them changeable.
+AgentMemory.Gate|src/AgentMemory.Gate/AgentMemory.Gate.csproj
 AgentMemory.SemanticKernel|src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj
 
 # ── Held back from the core release line ──────────────────────────────────────
@@ -39,8 +43,6 @@ AgentMemory.SemanticKernel|src/AgentMemory.SemanticKernel/AgentMemory.SemanticKe
 # there is something to release.
 HELD:AgentMemory.Extensibility
 HELD:AgentMemory.Extensibility.AgentFramework
-# The gate (41.06): a judge at the fan-in and on the write path; measured on labelled turns, not yet on a second host.
-HELD:AgentMemory.Gate
 # Validation packs (root PLAN 40.57): a pack format still settling, consumed by the CLI, the integration tests and
 # hosts that run packs; modules ship packs later as conformance fixtures. Held until the format is settled.
 HELD:AgentMemory.Validation

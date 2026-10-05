@@ -50,7 +50,10 @@ public sealed class SystemOneEndpoint
     public double Weight { get; set; } = 1.0;
 }
 
-/// <summary>The gate's settings (<see cref="GateServiceCollectionExtensions.AddAgentMemoryGate"/>).</summary>
+/// <summary>
+/// The gate's settings (<see cref="GateServiceCollectionExtensions.AddAgentMemoryGate(Microsoft.Extensions.DependencyInjection.IServiceCollection, Action{MemoryGateOptions})"/>,
+/// or from the configuration section <see cref="GateServiceCollectionExtensions.SectionName"/>).
+/// </summary>
 [Experimental("AMGATE001")]
 public sealed class MemoryGateOptions
 {

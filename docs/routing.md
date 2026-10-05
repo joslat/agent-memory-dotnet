@@ -51,6 +51,46 @@ A module's own memory is routed by the same engine: `IMemoryRouter.Route(questio
 module's rules beside the configured ones, compiled without backtracking (`IMemoryRouter.Check` refuses patterns that
 need it). See the Extensibility preview for how a module declares them.
 
+## The retrieval memory router: a judge per memory (`AgentMemory.Gate`, experimental)
+
+The router above chooses which **kinds** a question reads, by rules. The retrieval memory router chooses which
+**memories** reach the prompt, by a judge: every kind is searched wide (no similarity floor), and the judges score each
+memory found against the turn and the conversation; what reaches `Threshold` (0.23) goes in. Measured on two unseen test
+sets, every needed memory reached the prompt on 96.1% and 96.5% of turns, against 67.6% and 76.8% for the similarity
+floor, with less than half the memory tokens. It is a separate package, opt-in, and every public type is
+`[Experimental("AMGATE001")]` while its contracts settle.
+
+| `Mode` | What fills the prompt |
+|---|---|
+| `Floor` | Recall as without the gate: the similarity floor and a cap per kind. Also the fallback. |
+| `Judge` | Everything found, judged memory by memory. |
+| `Everything` | Everything found, no cut: 10–17× the memory tokens of `Judge`. |
+
+```csharp
+#pragma warning disable AMGATE001
+services.AddAgentMemoryGate(configuration.GetSection(GateServiceCollectionExtensions.SectionName));
+#pragma warning restore AMGATE001
+```
+
+```json
+{ "AgentMemory": { "RetrievalRouter": {
+    "Mode": "Judge", "Threshold": 0.23, "Timeout": "00:00:03", "UpdateJudge": false,
+    "Judges": [ { "Name": "jev", "Endpoint": "https://api.typesafe.ai/v1/systemone", "KeyVariable": "TYPESAFE_API_KEY", "Weight": 0.8 },
+                { "Name": "laya", "Endpoint": "http://127.0.0.1:8765/v1/systemone", "Weight": 0.2 } ] } } }
+```
+
+- **Never worse than the floor.** A judge that times out (`Timeout`) or fails, a kind no judge answered, or `Judge` with
+  no judge configured: recall uses the floor and logs why. A judge that is down is left out of the blend (the weights
+  renormalise over those that answered), but it is still asked on every turn: a local judge that is not running costs
+  its connection failure each time (≈2 s on Windows), so configure only judges that run.
+- **Said every time.** Each live recall's context carries a `MemoryGateTrace` in its metadata (`gate.trace`): the mode,
+  what ran (`floor (fallback)` with its reason), and every memory considered with its probability and whether it went
+  in. A `memory.gate` span carries the counts and the judges' time (`MemoryGateTelemetry`), never a memory's text. An
+  as-of recall is not gated.
+- **The update judge** (`UpdateJudge = true`) asks the first judge, on the write path, whether each new fact or
+  preference replaces one of the owner's most similar stored ones, and closes it at P ≥ 0.65
+  (`ExtractionOptions.UpdateJudgeThreshold`); what it closed is on the write's outcome (`IngestionItemOutcome.Closed`).
+
 ## The NAMS backend
 
 A store on Neo4j Agent Memory as a Service recalls through its own service, so the router does not apply to it.

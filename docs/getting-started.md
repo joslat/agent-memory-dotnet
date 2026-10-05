@@ -49,6 +49,7 @@ dotnet add package AgentMemory.AgentFramework     # optional: Microsoft Agent Fr
 dotnet add package AgentMemory.SemanticKernel     # optional: Semantic Kernel
 dotnet add package AgentMemory.McpServer          # optional: MCP server
 dotnet add package AgentMemory.Observability      # optional: OpenTelemetry
+dotnet add package AgentMemory.Gate               # optional, experimental: the retrieval memory router (a judge per memory)
 ```
 
 ---

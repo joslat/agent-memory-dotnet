@@ -174,6 +174,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     ? await CloseFactAsync(loser, winner, FactClosureReason.Change, ChangedAt(newFact, _clock.UtcNow), scope, cancellationToken)
                         .ConfigureAwait(false)
                     : await _preferenceRepository.SupersedeAsync(loser, winner, scope, cancellationToken).ConfigureAwait(false);
+                // A preference's closing reaches its outcome as a fact's does (CloseFactAsync records those).
+                if (closed && newFact is null) s_closings.Value?.Add((winner, loser));
                 if (closed)
                 {
                     closings++;
@@ -1913,14 +1915,14 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 [.. preferencesByKey.Values.Where(p => preferencesCreatedHere.Contains(p.PreferenceId)).DistinctBy(p => p.PreferenceId)],
                 cancellationToken).ConfigureAwait(false);
 
-        // G4. Each fact that closed others says which.
+        // G4. Each fact (or, through the update judge, preference) that closed others says which.
         if (closings.Count > 0)
         {
             var closedBy = closings.GroupBy(c => c.Winner, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)[.. g.Select(c => c.Loser).Distinct(StringComparer.Ordinal)], StringComparer.Ordinal);
             for (var i = 0; i < outcomes.Count; i++)
             {
-                if (outcomes[i] is { Kind: MemoryItemKind.Fact, Status: IngestionItemStatus.Succeeded, PersistedId: { } id } &&
+                if (outcomes[i] is { Kind: MemoryItemKind.Fact or MemoryItemKind.Preference, Status: IngestionItemStatus.Succeeded, PersistedId: { } id } &&
                     closedBy.TryGetValue(id, out var losers))
                     outcomes[i] = outcomes[i] with { Closed = losers };
             }

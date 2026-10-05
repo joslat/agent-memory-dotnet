@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Services;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -34,7 +35,13 @@ public static class GateServiceCollectionExtensions
         var original = services.LastOrDefault(d => d.ServiceType == typeof(IMemoryContextAssembler))
             ?? throw new InvalidOperationException(
                 "AddAgentMemoryGate wraps the memory context assembler: register AgentMemory first, then add the gate.");
-        services.Configure(configure);
+        services.AddOptions<MemoryGateOptions>()
+            .Configure(configure)
+            // A configuration binds any integer to an enum; an undefined mode would silently be none of the three.
+            .Validate(o => Enum.IsDefined(o.Mode), "MemoryGateOptions.Mode must be Floor, Judge or Everything.")
+            .Validate(o => o.Threshold is >= 0 and <= 1, "MemoryGateOptions.Threshold must be between 0 and 1.")
+            .Validate(o => o.Timeout > TimeSpan.Zero, "MemoryGateOptions.Timeout must be positive.")
+            .Validate(o => o.WideLimit > 0, "MemoryGateOptions.WideLimit must be positive.");
         services.TryAddSingleton(_ => new SystemOneClient(new HttpClient(new SocketsHttpHandler
         {
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
@@ -52,6 +59,31 @@ public static class GateServiceCollectionExtensions
             sp.GetService<ILogger<GatedMemoryContextAssembler>>() ?? NullLogger<GatedMemoryContextAssembler>.Instance,
             sp.GetService<IOptions<AgentMemory.Abstractions.Options.MemoryOptions>>(), sp.GetService<IClock>()), original.Lifetime));
         return services;
+    }
+
+    /// <summary>The configuration section <see cref="AddAgentMemoryGate(IServiceCollection, IConfiguration, Action{MemoryGateOptions}?)"/> reads by convention.</summary>
+    public const string SectionName = "AgentMemory:RetrievalRouter";
+
+    /// <summary>
+    /// The same, with the settings from a configuration section (by convention <see cref="SectionName"/>), then
+    /// <paramref name="configure"/>. The section names the properties of <see cref="MemoryGateOptions"/>.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// // "AgentMemory": { "RetrievalRouter": { "Mode": "Judge", "Threshold": 0.23, "Timeout": "00:00:03",
+    /// //   "Judges": [ { "Name": "jev", "Endpoint": "https://api.typesafe.ai/v1/systemone", "KeyVariable": "TYPESAFE_API_KEY", "Weight": 0.8 } ] } }
+    /// services.AddAgentMemoryGate(configuration.GetSection(GateServiceCollectionExtensions.SectionName));
+    /// </code>
+    /// </example>
+    public static IServiceCollection AddAgentMemoryGate(
+        this IServiceCollection services, IConfiguration section, Action<MemoryGateOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(section);
+        return services.AddAgentMemoryGate(o =>
+        {
+            section.Bind(o);
+            configure?.Invoke(o);
+        });
     }
 
     private static IMemoryContextAssembler Inner(IServiceProvider sp, ServiceDescriptor original) =>

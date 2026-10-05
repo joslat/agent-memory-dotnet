@@ -1,11 +1,16 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Gate;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -151,6 +156,144 @@ public sealed class GateTests
         all.RelevantFacts.Items.Should().HaveCount(3);
         all.Metadata["gate"].Should().Be("everything");
         judge.Seen.Should().BeNull("neither mode asks a judge");
+    }
+
+    // ---- 41.19: the trace every engine leaves, the span, Judge without a judge, the configuration section ----
+
+    private static MemoryGateTrace TraceOf(MemoryContext context) => (MemoryGateTrace)context.Metadata[MemoryGateTrace.MetadataKey];
+
+    [Fact]
+    public async Task Every_engine_leaves_a_trace_of_each_memory_considered_and_whether_it_went_in()
+    {
+        var judged = TraceOf(await Sut(MemoryGateMode.Judge, Scores(0.9, 0.4, 0.1)).Gate.AssembleContextAsync(Request()));
+        judged.Should().Match<MemoryGateTrace>(t => t.Mode == MemoryGateMode.Judge && t.Outcome == "judge" && t.Threshold == 0.23
+            && t.AnsweredBy == "jev" && t.Offered == 3 && t.Kept == 2 && t.FallbackReason == null);
+        judged.Items.Select(i => (i.ItemId, i.Probability, i.Kept)).Should().Equal(("f1", 0.9, true), ("f2", 0.4, true), ("f3", 0.1, false));
+        judged.Items.Should().OnlyContain(i => i.MemoryType == "semantic");
+        judged.Items[2].Text.Should().Be("Marta | likes | jazz");
+
+        var floor = TraceOf(await Sut(MemoryGateMode.Floor, Scores(0, 0, 0)).Gate.AssembleContextAsync(Request()));
+        floor.Outcome.Should().Be("floor");
+        floor.Items.Should().ContainSingle().Which.Should().Be(new MemoryGateTraceItem("f3", "semantic", "Marta | likes | jazz", null, true));
+
+        var everything = TraceOf(await Sut(MemoryGateMode.Everything, Scores(0, 0, 0)).Gate.AssembleContextAsync(Request()));
+        everything.Items.Should().HaveCount(3).And.OnlyContain(i => i.Kept && i.Probability == null);
+
+        var fallback = TraceOf(await Sut(MemoryGateMode.Judge, new Judge((_, _) => throw new HttpRequestException("503"))).Gate
+            .AssembleContextAsync(Request()));
+        fallback.Outcome.Should().Be("floor (fallback)");
+        fallback.FallbackReason.Should().Contain("503");
+        fallback.Items.Select(i => i.ItemId).Should().Equal(["f3"], "what reached the prompt is the floor's");
+    }
+
+    [Fact]
+    public async Task A_memory_in_two_sections_counts_the_same_in_the_metadata_the_trace_and_the_span()
+    {
+        // f2 is relevant and due: two entries in the prompt, judged once each.
+        var wide = Wide with { DueFacts = new MemoryContextSection<Fact> { Items = [Wide.RelevantFacts.Items[1]] } };
+        var gate = new GatedMemoryContextAssembler(new Inner(wide, Today), Scores(0.9, 0.4, 0.1, 0.5),
+            Options.Create(new MemoryGateOptions { Mode = MemoryGateMode.Judge }), NullLogger<GatedMemoryContextAssembler>.Instance);
+
+        var context = await gate.AssembleContextAsync(Request());
+
+        var trace = TraceOf(context);
+        (trace.Offered, trace.Kept).Should().Be((4, 3));
+        context.Metadata["gate.offered"].Should().Be(trace.Offered);
+        context.Metadata["gate.kept"].Should().Be(trace.Kept);
+        context.DueFacts.Items.Should().ContainSingle().Which.FactId.Should().Be("f2");
+    }
+
+    [Fact]
+    public async Task Each_recall_is_a_gate_span_with_the_counts_and_no_memory_text()
+    {
+        var spans = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == AgentMemoryDiagnostics.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = a => { if (a.OperationName == MemoryGateTelemetry.Span) lock (spans) spans.Add(a); },
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        await Sut(MemoryGateMode.Judge, Scores(0.9, 0.4, 0.1)).Gate.AssembleContextAsync(Request());
+
+        Activity span;
+        lock (spans) span = spans.Last(a => (string?)a.GetTagItem(MemoryGateTelemetry.Outcome) == "judge");
+        span.GetTagItem(MemoryGateTelemetry.Mode).Should().Be("judge");
+        span.GetTagItem(MemoryGateTelemetry.Offered).Should().Be(3);
+        span.GetTagItem(MemoryGateTelemetry.Kept).Should().Be(2);
+        span.GetTagItem(MemoryGateTelemetry.JudgedBy).Should().Be("jev");
+        span.TagObjects.Select(t => t.Value?.ToString() ?? "").Should().NotContain(v => v.Contains("jazz"), "content is never an attribute");
+    }
+
+    private sealed class Warnings : ILogger<GatedMemoryContextAssembler>
+    {
+        public List<string> Lines { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning) Lines.Add(formatter(state, exception));
+        }
+    }
+
+    [Fact]
+    public async Task Judge_mode_without_a_judge_is_the_floor_and_says_so_once()
+    {
+        var inner = new Inner(Wide, Today);
+        var options = Options.Create(new MemoryGateOptions { Mode = MemoryGateMode.Judge });
+        var noCall = new Server(_ => throw new InvalidOperationException("no judge may be called"));
+        var log = new Warnings();
+        var gate = new GatedMemoryContextAssembler(inner,
+            new SystemOneMemoryGate(new SystemOneClient(new HttpClient(noCall)), options, NullLogger<SystemOneMemoryGate>.Instance), options, log);
+
+        var first = await gate.AssembleContextAsync(Request());
+        await gate.AssembleContextAsync(Request());
+
+        first.RelevantFacts.Items.Select(f => f.FactId).Should().Equal("f3");
+        first.Metadata["gate"].Should().Be("floor (fallback)");
+        TraceOf(first).FallbackReason.Should().Contain("no judge is configured");
+        inner.Requests.Should().HaveCount(2).And.OnlyContain(r => ReferenceEquals(r.Options, RecallOptions.Default),
+            "no wide search is paid for a judge that is not there");
+        noCall.Calls.Should().BeEmpty();
+        log.Lines.Should().ContainSingle().Which.Should().Contain("no judge configured");
+    }
+
+    [Fact]
+    public void The_settings_bind_from_the_retrieval_router_section_and_an_undefined_mode_is_refused()
+    {
+        static IServiceProvider Build(Dictionary<string, string?> values)
+        {
+            var section = new ConfigurationBuilder().AddInMemoryCollection(values).Build().GetSection(GateServiceCollectionExtensions.SectionName);
+            var services = new ServiceCollection();
+            services.AddSingleton<IMemoryContextAssembler>(new Inner(Wide, Today));
+            services.AddAgentMemoryGate(section, o => o.Examples = 5);
+            return services.BuildServiceProvider();
+        }
+
+        var options = Build(new()
+        {
+            ["AgentMemory:RetrievalRouter:Mode"] = "Judge",
+            ["AgentMemory:RetrievalRouter:Threshold"] = "0.3",
+            ["AgentMemory:RetrievalRouter:Timeout"] = "00:00:02",
+            ["AgentMemory:RetrievalRouter:UpdateJudge"] = "true",
+            ["AgentMemory:RetrievalRouter:Judges:0:Name"] = "jev",
+            ["AgentMemory:RetrievalRouter:Judges:0:Endpoint"] = "https://jev.test/v1/systemone",
+            ["AgentMemory:RetrievalRouter:Judges:0:KeyVariable"] = "TYPESAFE_API_KEY",
+            ["AgentMemory:RetrievalRouter:Judges:0:Weight"] = "0.8",
+            ["AgentMemory:RetrievalRouter:Judges:1:Name"] = "laya",
+            ["AgentMemory:RetrievalRouter:Judges:1:Endpoint"] = "http://127.0.0.1:8765/v1/systemone",
+            ["AgentMemory:RetrievalRouter:Judges:1:Weight"] = "0.2",
+        }).GetRequiredService<IOptions<MemoryGateOptions>>().Value;
+
+        options.Should().Match<MemoryGateOptions>(o => o.Mode == MemoryGateMode.Judge && o.Threshold == 0.3
+            && o.Timeout == TimeSpan.FromSeconds(2) && o.UpdateJudge && o.Examples == 5);
+        options.Judges.Select(j => (j.Name, j.Endpoint!.ToString(), j.KeyVariable, j.Weight)).Should().Equal(
+            ("jev", "https://jev.test/v1/systemone", "TYPESAFE_API_KEY", 0.8), ("laya", "http://127.0.0.1:8765/v1/systemone", null, 0.2));
+
+        var undefined = Build(new() { ["AgentMemory:RetrievalRouter:Mode"] = "7" });
+        undefined.Invoking(sp => sp.GetRequiredService<IOptions<MemoryGateOptions>>().Value)
+            .Should().Throw<OptionsValidationException>().WithMessage("*Floor, Judge or Everything*");
     }
 
     // ---- the System One judges ----

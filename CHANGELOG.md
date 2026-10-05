@@ -77,10 +77,15 @@ and [docs/routing.md](docs/routing.md).
   similarity floor, with less than half the memory tokens. The update judge closes the stored fact or preference a new
   one replaces (`ExtractionOptions.UpdateJudgeThreshold`, `UpdateJudgeCandidates`); without a judge the write path is
   unchanged, and the judge only ever closes the writer's own memories (without an owner, only ownerless ones).
-  `AgentMemory.Gate` 0.1 (experimental, `AMGATE001`, held off NuGet) implements both over System One
-  endpoints: `AddAgentMemoryGate` decorates the context assembler with the modes `Floor` (recall as without the gate),
-  `Judge` and `Everything`; the floor is the automatic fallback on a timeout, an error or a judge that does not answer,
-  with a warning naming the reason, and the decision is in the context's metadata (`gate.*`).
+  The new package `AgentMemory.Gate` (experimental: every public type is `AMGATE001`, so a host opts in by name)
+  implements both over System One endpoints: `AddAgentMemoryGate` decorates the context assembler with the modes `Floor`
+  (recall as without the gate), `Judge` and `Everything`, from code or from the configuration section
+  `AgentMemory:RetrievalRouter` (`AddAgentMemoryGate(IConfiguration)`, validated: an undefined mode fails at startup).
+  The floor is the automatic fallback on a timeout, an error, a judge that does not answer, or Judge mode with no judge
+  configured (said once), with a warning naming the reason. Every live recall says what happened, whatever the mode: the
+  context's metadata (`gate.*`) carries a `MemoryGateTrace` with each memory considered, the judges' probability and
+  whether it went in, and a `memory.gate` span carries the counts (`MemoryGateTelemetry`; never a memory's text).
+  `IngestionItemOutcome.Closed` now also lists the preferences the update judge closed, as it lists facts.
 
 ### Fixed
 

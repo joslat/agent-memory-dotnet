@@ -34,11 +34,15 @@ public sealed class SystemOneMemoryGate : IMemoryGate
         _bank = new Lazy<Task<IReadOnlyList<BankTurn>>>(LoadBankAsync);
     }
 
+    /// <summary>The judges that can be asked: an endpoint and a share of the blend.</summary>
+    internal static IEnumerable<SystemOneEndpoint> UsableJudges(MemoryGateOptions options) =>
+        options.Judges.Where(j => j.Endpoint is not null && j.Weight > 0);
+
     /// <inheritdoc />
     public async Task<MemoryGateDecision> DecideAsync(MemoryGateRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var judges = _options.Value.Judges.Where(j => j.Endpoint is not null && j.Weight > 0).ToList();
+        var judges = UsableJudges(_options.Value).ToList();
         if (judges.Count == 0)
             throw new InvalidOperationException("The memory gate has no judge configured (MemoryGateOptions.Judges).");
         var neighbours = await NeighboursAsync(request.Turn, cancellationToken).ConfigureAwait(false);

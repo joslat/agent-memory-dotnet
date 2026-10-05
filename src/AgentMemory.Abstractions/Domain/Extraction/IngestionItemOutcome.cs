@@ -45,8 +45,8 @@ public sealed record IngestionItemOutcome
     public MemoryWriteEffect Effect { get; init; }
 
     /// <summary>
-    /// G4: the ids of the memories this write closed (a change or a correction it superseded). Facts only for now; empty
-    /// when it closed nothing.
+    /// G4: the ids of the memories this write closed (a change or a correction it superseded): a fact's, and a preference's
+    /// closed by the update judge (<c>IMemoryUpdateJudge</c>). Empty when it closed nothing.
     /// </summary>
     public IReadOnlyList<string> Closed { get; init; } = [];
 }

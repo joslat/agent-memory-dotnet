@@ -138,7 +138,7 @@ public sealed class PersistenceStageUpdateJudgeTests
             });
         _prefRepo.SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        await CreateSut().PersistAsync(new ExtractionStageResult
+        var result = await CreateSut().PersistAsync(new ExtractionStageResult
         {
             SourceMessageIds = ["msg-1"],
             SourceText = "From now on bullet points are fine, actually.",
@@ -146,5 +146,18 @@ public sealed class PersistenceStageUpdateJudgeTests
         });
 
         await _prefRepo.Received(1).SupersedeAsync("pref-old", "pref-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        result.Outcomes.Should().ContainSingle(o => o.Kind == MemoryItemKind.Preference && o.PersistedId == "pref-new")
+            .Which.Closed.Should().Equal(["pref-old"], "a host sees what a preference closed, as it sees a fact's");
+    }
+
+    [Fact]
+    public async Task A_closed_fact_is_on_the_outcome_of_the_fact_that_replaced_it()
+    {
+        JudgeSays(0.93);
+
+        var result = await CreateSut().PersistAsync(Dropped10k());
+
+        result.Outcomes.Should().ContainSingle(o => o.Kind == MemoryItemKind.Fact && o.PersistedId == "fact-new")
+            .Which.Closed.Should().Equal(["fact-old"]);
     }
 }
