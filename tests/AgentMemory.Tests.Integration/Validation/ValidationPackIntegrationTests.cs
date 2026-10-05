@@ -130,8 +130,16 @@ public sealed class ValidationPackIntegrationTests : IAsyncLifetime
         second.Failures.Select(f => $"{f.Id}: {f.Detail}").Should().BeEmpty();
     }
 
+    /// <summary>
+    /// The runner's own default embedder, watched for disposal. It embeds exactly as a runner without a caller's generator
+    /// does: a one-hot vector from <c>string.GetHashCode</c> (randomised per process) over the fixture's four dimensions made
+    /// a quarter of unrelated texts identical, so the pack's correction was read as a restatement on some runs (CI, 10-05).
+    /// </summary>
     private sealed class DisposalWitness(int dimensions) : Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>
     {
+        private readonly AgentMemory.Core.Stubs.StubEmbeddingGenerator _inner =
+            new(Microsoft.Extensions.Logging.Abstractions.NullLogger<AgentMemory.Core.Stubs.StubEmbeddingGenerator>.Instance, dimensions);
+
         public bool Disposed { get; private set; }
 
         public int CallsAfterDisposal { get; private set; }
@@ -140,12 +148,7 @@ public sealed class ValidationPackIntegrationTests : IAsyncLifetime
             IEnumerable<string> values, Microsoft.Extensions.AI.EmbeddingGenerationOptions? options = null, CancellationToken cancellationToken = default)
         {
             if (Disposed) CallsAfterDisposal++;
-            return Task.FromResult(new Microsoft.Extensions.AI.GeneratedEmbeddings<Microsoft.Extensions.AI.Embedding<float>>(values.Select(v =>
-            {
-                var vector = new float[dimensions];
-                vector[(v.GetHashCode() & int.MaxValue) % dimensions] = 1f;
-                return new Microsoft.Extensions.AI.Embedding<float>(vector);
-            })));
+            return _inner.GenerateAsync(values, options, cancellationToken);
         }
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
