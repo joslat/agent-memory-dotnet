@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-05
+
 **Stores written before keep their closings.** Facts closed before `BitemporalChanges` was turned on carry no reason and
 read exactly as before; the option changes only the closings written from then on. See [docs/time-model.md](docs/time-model.md)
 and [docs/routing.md](docs/routing.md).
@@ -70,7 +72,7 @@ and [docs/routing.md](docs/routing.md).
   it borrows a caller's embedding generator (never disposing it, however many packs run) and takes a logging
   configuration, so what the stack decided and what failed is visible.
 - **A judge at the fan-in and a judge on the write path** (`IMemoryGate`, `IMemoryUpdateJudge`; both used only when
-  registered). The gate sees the turn and everything a wide recall found and keeps what helps the reply: measured on two
+  registered, and experimental (`AMGATE001`) with the update-judge options until the storage work settles). The gate sees the turn and everything a wide recall found and keeps what helps the reply: measured on two
   unseen test sets, every needed memory reached the prompt on 96.1% and 96.5% of turns, against 67.6% and 76.8% for the
   similarity floor, with less than half the memory tokens. The update judge closes the stored fact or preference a new
   one replaces (`ExtractionOptions.UpdateJudgeThreshold`, `UpdateJudgeCandidates`); without a judge the write path is
