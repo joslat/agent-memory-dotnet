@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Domain;
 
 namespace AgentMemory.Abstractions.Options;
@@ -307,11 +308,13 @@ public sealed class ExtractionOptions
     /// unseen sets, one of them wrongly, and kept every labelled write.
     /// </summary>
     /// <remarks>Read only when an update judge is registered and enabled; otherwise nothing changes.</remarks>
+    [Experimental("AMGATE001")]
     public double UpdateJudgeThreshold { get; set; } = 0.65;
 
     /// <summary>
     /// How many of the owner's most similar stored memories of its kind each new fact or preference is set against.
     /// </summary>
+    [Experimental("AMGATE001")]
     public int UpdateJudgeCandidates { get; set; } = 3;
 
 }

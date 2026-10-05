@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace AgentMemory.Abstractions.Services;
 
 /// <summary>
@@ -17,6 +19,7 @@ namespace AgentMemory.Abstractions.Services;
 /// it were whole.
 /// </para>
 /// </remarks>
+[Experimental("AMGATE001")]
 public interface IMemoryGate
 {
     /// <summary>The probability, for every candidate, that the reply to the turn needs it.</summary>
@@ -31,9 +34,11 @@ public interface IMemoryGate
 /// <c>prospective</c> (due or expiring).
 /// </param>
 /// <param name="Text">The memory as the gate reads it, with its dates and what it is.</param>
+[Experimental("AMGATE001")]
 public sealed record MemoryGateCandidate(string Key, string MemoryType, string Text);
 
 /// <summary>An earlier turn of the conversation the gate is shown.</summary>
+[Experimental("AMGATE001")]
 public sealed record MemoryGateTurn(string Role, string Text);
 
 /// <summary>What the gate decides about.</summary>
@@ -41,10 +46,12 @@ public sealed record MemoryGateTurn(string Role, string Text);
 /// <param name="Conversation">The turns before it, oldest first.</param>
 /// <param name="Now">The moment of the turn, for dates.</param>
 /// <param name="Candidates">Every memory the recall found.</param>
+[Experimental("AMGATE001")]
 public sealed record MemoryGateRequest(
     string Turn, IReadOnlyList<MemoryGateTurn> Conversation, DateTimeOffset Now, IReadOnlyList<MemoryGateCandidate> Candidates);
 
 /// <summary>The gate's answer.</summary>
 /// <param name="Probabilities">P(the reply needs it), by candidate key; every candidate has one.</param>
 /// <param name="AnsweredBy">Which judges answered (for diagnostics): one name, or several joined.</param>
+[Experimental("AMGATE001")]
 public sealed record MemoryGateDecision(IReadOnlyDictionary<string, double> Probabilities, string AnsweredBy);
