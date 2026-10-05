@@ -1,0 +1,69 @@
+{
+  "format": "agentmemory-pack/1",
+  "id": "core.names",
+  "title": "A corrected name renames the person, the pet and every fact that names them; another owner's same name stays",
+  "covers": ["facts", "entities"],
+  "options": { "preset": "conversational", "set": { "Extraction.BitemporalChanges": true } },
+  "schema": {
+    "entityTypes": ["PERSON", "LOCATION", "ANIMAL"],
+    "predicates": [
+      { "name": "is named", "single": true },
+      { "name": "lives in", "single": true },
+      { "name": "is called", "single": true },
+      { "name": "walks" }
+    ]
+  },
+  "owners": ["priya", "bob"],
+  "sessions": [
+    {
+      "owner": "bob", "id": "bob-1",
+      "messages": [
+        { "at": "2026-02-01T08:00:00Z", "text": "I'm Bob. I walk a dog called Rex.",
+          "entities": [{ "name": "Bob", "type": "PERSON" }, { "name": "Rex", "type": "ANIMAL" }],
+          "facts": [{ "s": "user", "p": "is named", "o": "Bob" }, { "s": "Bob", "p": "walks", "o": "Rex" }] }
+      ]
+    },
+    {
+      "owner": "priya", "id": "priya-1",
+      "messages": [
+        { "at": "2026-02-02T09:00:00Z", "text": "Hi, I'm Pruya. I live in Lisbon.",
+          "entities": [{ "name": "Pruya", "type": "PERSON" }, { "name": "Lisbon", "type": "LOCATION" }],
+          "facts": [{ "s": "user", "p": "is named", "o": "Pruya" }, { "s": "user", "p": "lives in", "o": "Lisbon" }] },
+        { "at": "2026-02-02T09:02:00Z", "text": "Sorry, you got my name wrong: it's Priya, not Pruya.",
+          "entities": [{ "name": "Priya", "type": "PERSON" }],
+          "facts": [{ "s": "user", "p": "is named", "o": "Priya", "replaces": "Pruya" }] }
+      ]
+    },
+    {
+      "owner": "priya", "id": "priya-2",
+      "messages": [
+        { "at": "2026-02-05T07:30:00Z", "text": "My dog is called Rex, and I walk Rex every morning.",
+          "entities": [{ "name": "Rex", "type": "ANIMAL" }],
+          "facts": [{ "s": "dog", "p": "is called", "o": "Rex" }, { "s": "Priya", "p": "walks", "o": "Rex" }] },
+        { "at": "2026-02-05T07:31:00Z", "text": "Sorry, the dog is Max, not Rex.",
+          "entities": [{ "name": "Max", "type": "ANIMAL" }],
+          "facts": [{ "s": "dog", "p": "is called", "o": "Max", "replaces": "Rex" }] }
+      ]
+    }
+  ],
+  "storage": [
+    { "owner": "priya", "entity": "Priya", "state": "live" },
+    { "owner": "priya", "entity": "Pruya", "state": "alias", "of": "Priya" },
+    { "owner": "priya", "fact": "Priya | lives in | Lisbon", "state": "live" },
+    { "owner": "priya", "fact": "Pruya | lives in | Lisbon", "state": "closed" },
+    { "owner": "priya", "entity": "Rex", "state": "alias", "of": "Max" },
+    { "owner": "priya", "fact": "Priya | walks | Max", "state": "live" },
+    { "owner": "priya", "fact": "Priya | walks | Rex", "state": "closed", "closedAs": "correction" },
+    { "owner": "bob", "entity": "Rex", "state": "live" },
+    { "owner": "bob", "fact": "Bob | walks | Rex", "state": "live" }
+  ],
+  "questions": [
+    { "id": "where-she-lives", "owner": "priya", "at": "2026-02-10T10:00:00Z", "ask": "Where does Priya live?",
+      "expect": [{ "fact": "Priya | lives in | Lisbon" }], "exclude": [{ "fact": "Pruya | lives in | Lisbon" }], "kinds": ["facts"] },
+    { "id": "the-dog", "owner": "priya", "at": "2026-02-10T10:00:00Z", "ask": "Which dog does Priya walk?",
+      "expect": [{ "fact": "Priya | walks | Max" }, { "entity": "Max" }], "exclude": [{ "fact": "Priya | walks | Rex" }],
+      "kinds": ["facts", "entities"] },
+    { "id": "bobs-dog", "owner": "bob", "at": "2026-02-10T10:00:00Z", "ask": "Which dog does Bob walk?",
+      "expect": [{ "fact": "Bob | walks | Rex" }], "exclude": [{ "fact": "Priya | walks | Max" }], "kinds": ["facts"] }
+  ]
+}

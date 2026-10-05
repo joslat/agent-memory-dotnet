@@ -4,6 +4,7 @@
   <ItemGroup Condition="'$(ConsumerIsInert)' != 'true'">
     <PackageReference Include="AgentMemory" Version="$(ConsumerPackageVersion)" />
     <PackageReference Include="AgentMemory.AgentFramework" Version="$(ConsumerPackageVersion)" />
+    <PackageReference Include="AgentMemory.Gate" Version="$(ConsumerPackageVersion)" />
   </ItemGroup>
 
 </Project>

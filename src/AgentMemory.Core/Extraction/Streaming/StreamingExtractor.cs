@@ -1,3 +1,4 @@
+using AgentMemory.Core.Stubs;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
@@ -19,11 +20,15 @@ internal sealed class StreamingExtractor : IStreamingExtractor
     private static readonly Regex TokenPattern = new(@"\S+", RegexOptions.Compiled);
 
     private readonly ILogger<StreamingExtractor> _logger;
+    private readonly IClock _clock;
 
     /// <summary>Initialises a new <see cref="StreamingExtractor"/>.</summary>
-    public StreamingExtractor(ILogger<StreamingExtractor> logger)
+    /// <param name="logger">The logger.</param>
+    /// <param name="clock">G1 (40.45): the time a chunk is said at, which relative dates in it are read against. The system clock without DI.</param>
+    public StreamingExtractor(ILogger<StreamingExtractor> logger, IClock? clock = null)
     {
         _logger = logger;
+        _clock = clock ?? new SystemClock();
     }
 
     /// <inheritdoc/>
@@ -168,13 +173,13 @@ internal sealed class StreamingExtractor : IStreamingExtractor
         };
     }
 
-    private static Message BuildMessage(string content) => new()
+    private Message BuildMessage(string content) => new()
     {
         MessageId = Guid.NewGuid().ToString(),
         ConversationId = "streaming",
         SessionId = "streaming",
         Role = "user",
         Content = content,
-        TimestampUtc = DateTimeOffset.UtcNow
+        TimestampUtc = _clock.UtcNow
     };
 }

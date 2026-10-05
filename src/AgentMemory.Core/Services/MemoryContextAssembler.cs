@@ -1317,17 +1317,31 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, traceMinScore, scope, cancellationToken)
             : null;
 
+        // B-6 (the bitemporal recheck). A date in the question routes here, and this path ran no message search: "what
+        // did we talk about last weekend?" lost its messages. The session's relevant messages, found as the live path finds
+        // them, kept to those said by the transaction instant and not withdrawn by then: GetRecentMessagesAsOf's rule. A
+        // message withdrawn after the instant is not found (the live search no longer returns it); messages are rarely
+        // withdrawn (an erase), and recent messages, read as of the instant, still carry it.
+        var relevantTask = hasEmbedding && recallOpts.MaxRelevantMessages > 0
+            ? SearchRelevantMessagesAsync(
+                request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore,
+                includeDiagnostics: false, cancellationToken)
+            : Task.FromResult(RelevantMessageSearchResult.Empty);
+
         // Reset before the first await, exactly as the live path does.
         if (overrideRanking) _rankingContext!.Current = null;
 
         await Task.WhenAll(
             recentTask,
+            relevantTask,
             entitiesScoredTask ?? (Task)entitiesTask,
             preferencesScoredTask ?? (Task)preferencesTask,
             factsScoredTask ?? (Task)factsTask,
             tracesScoredTask ?? (Task)tracesTask).ConfigureAwait(false);
 
         var recentMessages = await recentTask.ConfigureAwait(false);
+        IReadOnlyList<Message> relevantMessages = [.. (await relevantTask.ConfigureAwait(false)).Messages
+            .Where(m => m.TimestampUtc <= systemAsOf && (m.InvalidatedAtUtc is null || m.InvalidatedAtUtc > systemAsOf))];
 
         // Scores for the sections that were searched with the scored contract; empty — never fabricated —
         // for any section that was not.
@@ -1388,16 +1402,16 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         }
 
         // Enforce the same context budget as the live recall path so temporal recall cannot blow
-        // past the configured token/char limit. (Relevant messages are not part of the temporal
-        // snapshot, so they pass through as empty.)
+        // past the configured token/char limit.
         var budget = _options.ContextBudget;
         bool truncated = false;
         if (budget.MaxTokens.HasValue || budget.MaxCharacters.HasValue)
         {
             var fitted = ApplyBudget(
-                budget, recentMessages, Array.Empty<Message>(), entities, preferences, facts,
+                budget, recentMessages, relevantMessages, entities, preferences, facts,
                 traces, graphRagContext: null);
             recentMessages = fitted.Recent;
+            relevantMessages = fitted.Relevant;
             entities = fitted.Entities;
             preferences = fitted.Preferences;
             facts = fitted.Facts;
@@ -1507,9 +1521,15 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                         recentMessages, Array.Empty<MemoryContextRankedItem>(), minScore)
                     : null
             },
-            // Empty, not unscored: the temporal snapshot runs no semantic message search at all, so there
-            // is no retrieval here to report a rank for.
-            RelevantMessages = MemoryContextSection<Message>.Empty,
+            // B-6: searched, as of the transaction instant; unranked (the search's order is kept).
+            RelevantMessages = new MemoryContextSection<Message>
+            {
+                Items = relevantMessages,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(hasEmbedding && recallOpts.MaxRelevantMessages > 0, recallOpts.MaxRelevantMessages,
+                        relevantMessages, Array.Empty<MemoryContextRankedItem>(), minScore)
+                    : null
+            },
             RelevantEntities = new MemoryContextSection<Entity>
             {
                 Items = entities,

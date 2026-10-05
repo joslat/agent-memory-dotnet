@@ -20,7 +20,7 @@ internal static class HistoryQueries
 
         return "CALL {\n" + string.Join("\nUNION ALL\n", segments) + @"
 }
-RETURN kind, id, summary, ownerId, createdAt, updatedAt, invalidatedAt, lastAccessedAt, accessCount,
+RETURN kind, id, summary, ownerId, createdAt, updatedAt, invalidatedAt, closedAs, mergedInto, lastAccessedAt, accessCount,
        readAuditCount, lastReadAuditAt, validFrom, validUntil, occurredOn, sourceMessageIds, supersededByIds,
        supersedesIds, metadata
 ORDER BY coalesce(lastReadAuditAt, lastAccessedAt, invalidatedAt, updatedAt, createdAt) DESC, id ASC
@@ -29,7 +29,8 @@ LIMIT $limit";
 
     private const string OwnerAndLifecycleWhere = @"
 WHERE ($id IS NULL OR n.id = $id)
-  AND ($includeInvalidated OR n.invalidated_at IS NULL)
+  AND ($asOf IS NULL OR n.created_at <= datetime($asOf))
+  AND ($includeInvalidated OR n.invalidated_at IS NULL OR ($asOf IS NOT NULL AND n.invalidated_at > datetime($asOf)))
   AND ($ownerId IS NULL OR n.owner_id = $ownerId OR ($includeShared AND n.owner_id IS NULL))";
 
     private const string EntitySegment = @"
@@ -51,6 +52,8 @@ RETURN 'Entity' AS kind,
        n.created_at AS createdAt,
        n.updated_at AS updatedAt,
        n.invalidated_at AS invalidatedAt,
+       n.invalidated_reason AS closedAs,
+       n.merged_into AS mergedInto,
        n.last_accessed_at AS lastAccessedAt,
        coalesce(n.access_count, 0) AS accessCount,
        readAuditCount,
@@ -82,6 +85,8 @@ RETURN 'Fact' AS kind,
        n.created_at AS createdAt,
        n.updated_at AS updatedAt,
        n.invalidated_at AS invalidatedAt,
+       n.invalidated_reason AS closedAs,
+       n.merged_into AS mergedInto,
        n.last_accessed_at AS lastAccessedAt,
        coalesce(n.access_count, 0) AS accessCount,
        readAuditCount,
@@ -113,6 +118,8 @@ RETURN 'Preference' AS kind,
        n.created_at AS createdAt,
        n.updated_at AS updatedAt,
        n.invalidated_at AS invalidatedAt,
+       n.invalidated_reason AS closedAs,
+       n.merged_into AS mergedInto,
        n.last_accessed_at AS lastAccessedAt,
        coalesce(n.access_count, 0) AS accessCount,
        readAuditCount,

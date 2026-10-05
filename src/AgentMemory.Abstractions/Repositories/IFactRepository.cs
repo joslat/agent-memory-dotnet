@@ -37,6 +37,14 @@ public interface IFactRepository
     /// <summary>Gets facts by subject.</summary>
     Task<IReadOnlyList<Fact>> GetBySubjectAsync(string subject, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Gets facts whose object is exactly <paramref name="object"/>: what a rename reaches on the object side ("Priya |
+    /// owns | Rex" when Rex is renamed). An implementation without it returns none, so a rename then restates only the
+    /// facts whose subject carries the old name.
+    /// </summary>
+    Task<IReadOnlyList<Fact>> GetByObjectAsync(string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>([]);
+
     /// <summary>Searches facts by vector similarity.</summary>
     Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
         float[] queryEmbedding,
@@ -144,6 +152,22 @@ public interface IFactRepository
     /// facts must belong to the owner. Idempotent. Returns true if a matching loser+winner existed in scope.
     /// </summary>
     Task<bool> SupersedeAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Supersedes like <see cref="SupersedeAsync(string, string, MemoryScope?, CancellationToken)"/>, and records why
+    /// (<c>ExtractionOptions.BitemporalChanges</c>): a <see cref="FactClosureReason.Change"/> ends the loser's valid time at
+    /// <paramref name="changedAt"/> (the moment of writing when null), records when that was learned, gives an undated
+    /// winner that start, and leaves the loser believed for as-of reads; a <see cref="FactClosureReason.Correction"/>
+    /// withdraws belief and leaves valid time alone.
+    /// </summary>
+    /// <remarks>
+    /// The default implementation ignores the reason and supersedes as before, so an implementer written against an
+    /// earlier version keeps working and keeps its old closing semantics.
+    /// </remarks>
+    Task<bool> SupersedeAsync(
+        string loserFactId, string winnerFactId, FactClosureReason reason, DateTimeOffset? changedAt,
+        MemoryScope? scope = null, CancellationToken cancellationToken = default)
+        => SupersedeAsync(loserFactId, winnerFactId, scope, cancellationToken);
 
     /// <summary>
     /// The <b>live</b> facts asserting a different object for the same subject and predicate as

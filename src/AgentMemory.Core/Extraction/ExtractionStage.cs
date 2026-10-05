@@ -336,7 +336,13 @@ internal sealed class ExtractionStage : IExtractionStage
             bool IsUserEndpoint(string endpoint, bool source) =>
                 _options.ResolveUserToName && PersistenceStage.UserNames.MeansUserEndpoint(endpoint, source);
 
-            if (!resolvedEntityMap.ContainsKey(extracted.SourceEntity) && !IsUserEndpoint(extracted.SourceEntity, source: true))
+            // 40.91. An endpoint this extraction did not see may be someone the owner's memory already holds (met in an
+            // earlier message): with an owner, persistence resolves it against the owner's stored entities, and skips it
+            // there, with this same outcome, when none is found. Without an owner there is nothing to look in.
+            bool Deferred(string endpoint) => scope?.OwnerId is not null && !string.IsNullOrWhiteSpace(endpoint);
+
+            if (!resolvedEntityMap.ContainsKey(extracted.SourceEntity) && !IsUserEndpoint(extracted.SourceEntity, source: true)
+                && !Deferred(extracted.SourceEntity))
             {
                 _logger.LogWarning(
                     "Skipping relationship — source entity '{Source}' not resolved.",
@@ -353,7 +359,8 @@ internal sealed class ExtractionStage : IExtractionStage
                 continue;
             }
 
-            if (!resolvedEntityMap.ContainsKey(extracted.TargetEntity) && !IsUserEndpoint(extracted.TargetEntity, source: false))
+            if (!resolvedEntityMap.ContainsKey(extracted.TargetEntity) && !IsUserEndpoint(extracted.TargetEntity, source: false)
+                && !Deferred(extracted.TargetEntity))
             {
                 _logger.LogWarning(
                     "Skipping relationship — target entity '{Target}' not resolved.",
@@ -388,6 +395,7 @@ internal sealed class ExtractionStage : IExtractionStage
             FilteredPreferences = filteredPrefs.AsReadOnly(),
             FilteredRelationships = filteredRels.AsReadOnly(),
             SourceMessageIds = sourceMessageIds,
+            SourceText = string.Join(" ", messages.Select(m => m.Content).Where(c => !string.IsNullOrWhiteSpace(c))),
             MergeStrategy = strategy,
             EntityExtractorCount = _entityExtractors.Count,
             FactExtractorCount = _factExtractors.Count,

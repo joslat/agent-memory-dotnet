@@ -39,6 +39,9 @@ internal sealed record ExtractionStageResult
 
     public IReadOnlyList<string> SourceMessageIds { get; init; } = Array.Empty<string>();
 
+    /// <summary>What the extracted turns said, for a judge on the write path (41.06); empty when nothing was extracted.</summary>
+    public string SourceText { get; init; } = "";
+
     // ── Metadata ──
 
     public MergeStrategyType MergeStrategy { get; init; }

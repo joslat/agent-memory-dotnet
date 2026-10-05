@@ -31,6 +31,8 @@
     <Project Path="src/AgentMemory.AgentFramework.Nams/AgentMemory.AgentFramework.Nams.csproj" />
     <Project Path="src/AgentMemory.Extensibility/AgentMemory.Extensibility.csproj" />
     <Project Path="src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj" />
+    <Project Path="src/AgentMemory.Gate/AgentMemory.Gate.csproj" />
+    <Project Path="src/AgentMemory.Validation/AgentMemory.Validation.csproj" />
     <Project Path="src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.Nams.csproj" />
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
     <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />
@@ -40,6 +42,7 @@
     <Project Path="tools/AgentMemory.Decisions/AgentMemory.Decisions.csproj" />
     <Project Path="tools/AgentMemory.LongMemEval/AgentMemory.LongMemEval.csproj" />
     <Project Path="tools/AgentMemory.McpHost/AgentMemory.McpHost.csproj" />
+    <Project Path="tools/AgentMemory.RouterArena/AgentMemory.RouterArena.csproj" />
     <Project Path="tools/AgentMemory.TckBridge/AgentMemory.TckBridge.csproj" />
     <Project Path="tools/AgentMemory.TckBridge.Nams/AgentMemory.TckBridge.Nams.csproj" />
   </Folder>

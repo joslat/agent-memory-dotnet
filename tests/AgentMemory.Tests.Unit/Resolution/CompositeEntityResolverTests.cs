@@ -144,6 +144,57 @@ public sealed class CompositeEntityResolverTests
         result.EntityId.Should().Be("e1");
     }
 
+    // 40.93: a shared surname is not a shared person.
+    private CompositeEntityResolver SemanticOnly(params Entity[] existing)
+    {
+        var unitVec = new float[] { 1.0f, 0.0f, 0.0f, 0.0f };
+        _entityRepo.GetByTypeAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(unitVec));
+        return CreateSut(new ExtractionOptions
+        {
+            EntityResolution = new EntityResolutionOptions { EnableFuzzyMatch = false, SemanticMatchThreshold = 0.8 },
+            SameAsThreshold = 0.85,
+            AutoMergeThreshold = 0.99,
+        });
+    }
+
+    private static readonly float[] Unit = [1.0f, 0.0f, 0.0f, 0.0f];
+
+    [Fact]
+    public async Task ResolveEntityAsync_APersonWithAnotherGivenName_IsNotResolvedOntoThem_EvenWhenTheNamesEmbedAlike()
+    {
+        var sut = SemanticOnly(MakeEntity("sven", "Sven Halvorsen", "PERSON", Unit, "Sven"));
+
+        var result = await sut.ResolveEntityAsync(MakeCandidate("Erik Halvorsen", "PERSON"), Array.Empty<string>());
+
+        result.EntityId.Should().Be(NewEntityId);
+        result.Name.Should().Be("Erik Halvorsen");
+    }
+
+    [Theory]
+    [InlineData("Sven Halvorson")]   // the same person, misspelt
+    [InlineData("S. Halvorsen")]     // an initial
+    [InlineData("Dr. Sven Halvorsen")] // an honorific
+    public async Task ResolveEntityAsync_TheSameGivenName_StillResolvesBySimilarity(string mention)
+    {
+        var sut = SemanticOnly(MakeEntity("sven", "Sven Halvorsen", "PERSON", Unit, "Sven"));
+
+        var result = await sut.ResolveEntityAsync(MakeCandidate(mention, "PERSON"), Array.Empty<string>());
+
+        result.EntityId.Should().Be("sven");
+    }
+
+    [Fact]
+    public async Task ResolveEntityAsync_TheGivenNameGuard_LeavesOtherKindsAlone()
+    {
+        var sut = SemanticOnly(MakeEntity("clinic", "Leith Animal Hospital", "ORGANIZATION", Unit));
+
+        var result = await sut.ResolveEntityAsync(MakeCandidate("Edinburgh Animal Hospital", "ORGANIZATION"), Array.Empty<string>());
+
+        result.EntityId.Should().Be("clinic");
+    }
+
     [Fact]
     public async Task ResolveEntityAsync_InTheSharedOnlyScope_CreatesASharedEntity()
     {

@@ -92,6 +92,9 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         {
             var offered = await CandidatesForAsync(matcher, extractedEntity, candidates, embeddings, scope, cancellationToken)
                 .ConfigureAwait(false);
+            // 40.93. Similarity alone never makes two people with different given names one person.
+            if (matcher.MatchType != EntityMatchType.Exact && GivenNames.IsPerson(extractedEntity.Type))
+                offered = [.. offered.Where(existing => !GivenNames.Differ(extractedEntity.Name, existing))];
             resolutionResult = await matcher.TryMatchAsync(extractedEntity, offered, cancellationToken)
                 .ConfigureAwait(false);
 

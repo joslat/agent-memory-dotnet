@@ -1,0 +1,33 @@
+{
+  "format": "agentmemory-pack/1",
+  "id": "core.episodic",
+  "title": "What was said is recalled in its conversation, and never in someone else's; a new conversation does not see it",
+  "covers": ["messages"],
+  "options": { "preset": "conversational" },
+  "schema": { "entityTypes": ["PERSON", "LOCATION"] },
+  "owners": ["ana", "bob"],
+  "sessions": [
+    {
+      "owner": "ana", "id": "ana-1",
+      "messages": [
+        { "at": "2026-06-01T10:00:00Z", "text": "We are planning a weekend trip to Lisbon with the twins." },
+        { "role": "assistant", "at": "2026-06-01T10:00:05Z", "text": "A weekend in Lisbon sounds lovely. Do the twins like trams?" }
+      ]
+    },
+    {
+      "owner": "bob", "id": "bob-1",
+      "messages": [
+        { "at": "2026-06-02T10:00:00Z", "text": "My surgery is booked for the ninth of June." }
+      ]
+    }
+  ],
+  "questions": [
+    { "id": "the-trip", "owner": "ana", "session": "ana-1", "at": "2026-06-01T10:05:00Z", "ask": "What were we planning with the twins?",
+      "expect": [{ "message": "weekend trip to Lisbon" }, { "message": "Do the twins like trams?" }],
+      "exclude": [{ "message": "surgery" }], "kinds": ["messages"] },
+    { "id": "bobs-surgery", "owner": "bob", "session": "bob-1", "at": "2026-06-02T10:05:00Z", "ask": "When is my surgery?",
+      "expect": [{ "message": "surgery is booked" }], "exclude": [{ "message": "Lisbon" }], "kinds": ["messages"] },
+    { "id": "new-conversation", "owner": "ana", "at": "2026-06-03T09:00:00Z", "ask": "What were we planning with the twins?",
+      "exclude": [{ "message": "weekend trip to Lisbon" }], "kinds": ["messages"] }
+  ]
+}

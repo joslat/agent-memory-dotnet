@@ -198,6 +198,12 @@ public sealed class TypedMemEvalCommandLineTests
             ["--rescue-short-owner-results"] = "RescueShortOwnerResults",
             ["--evidence-detail"] = "EvidenceDetail",
             ["--supersede-replaced-facts"] = "SupersedeReplacedFacts",
+            // 40.65/40.66. The bitemporal option under test, the clocks a run needs to see it (replayed session dates as
+            // transaction time, each question at the clocks it asks on), and a product preset under them.
+            ["--bitemporal-changes"] = "BitemporalChanges",
+            ["--bitemporal-clocks"] = "BitemporalClocks",
+            ["--preset"] = "Preset",
+            ["--judge-max-output-tokens"] = "JudgeMaxOutputTokens",
             // 30.9d. The renderer half of the same mechanism: --supersede-replaced-facts writes the
             // :SUPERSEDED_BY edges and this one renders them, so an arm carrying only one of the two
             // measures an off-state. Both must be nameable, or the pair is indistinguishable again.

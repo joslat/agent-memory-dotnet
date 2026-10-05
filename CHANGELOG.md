@@ -6,6 +6,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-05
+
+**Stores written before keep their closings.** Facts closed before `BitemporalChanges` was turned on carry no reason and
+read exactly as before; the option changes only the closings written from then on. See [docs/time-model.md](docs/time-model.md)
+and [docs/routing.md](docs/routing.md).
+
+### Added
+
+- **`ExtractionOptions.BitemporalChanges` (off by default): a question about the past keeps the value that was true
+  then.** Without it every closing is a retraction: after "I moved to Madrid", the old city is no longer believed at
+  all, so "where did I live in 2020?" (a date in the question, or `RecallAsOfAsync` with today's belief) cannot return
+  it, and an undated new value counts as true at every past moment. With it, a closing says why
+  (`invalidated_reason`): a **change** ends the old value's valid time when the new one began and keeps it believed, and
+  records when that end was learned, so belief at an earlier instant still sees it open; an undated new value starts
+  when it was said; a marked **correction** withdraws belief and leaves valid time alone. A change's mirrored edge ends
+  at the same moment. Live recall is unchanged either way, and stores written without the option keep their closings as
+  they were. New: `FactClosureReason`, an `IFactRepository.SupersedeAsync` overload that takes it (the default
+  implementation keeps the old semantics), and `MemoryHistoryRecord.ClosedAs`, shown as `closedAs` by the MCP
+  `memory_lineage` tool.
+
+- **A memory router** (`MemoryOptions.Routing.Enabled`, off). Recall read every memory kind on every turn; with routing
+  on, a statement reads nothing, and a question reads facts plus the graph, preferences or the session's relevant
+  messages when its words call for them. Restrict-only (a kind not chosen gets cap 0, a chosen one keeps its cap), from
+  rules that are data (`Routing.Rules` adds a host's or a module's own), recorded on the route plan
+  (`MemoryRoutePlan.Routed`, `memory.route.kinds`). `RecallRequest.Question` carries the turn being answered; the Agent
+  Framework provider sets it. On the frozen routing set it serves every answer the read-everything recall serves while
+  reading a third of the kinds; it stays off until the accuracy guard passes on a real store.
+  For modules (Extensibility 0.10): `IMemoryRouter.Route(question, additionalRules)` evaluates a module's own rules in
+  the same engine, compiled without backtracking (`IMemoryRouter.Check` refuses look-arounds, back-references and
+  patterns that do not compile), and `Neo4jMemoryContextProvider.QuestionOf` is the one derivation of the question for a
+  subclass that routes its own sections.
+- **Why a memory was not recalled** (`IMemoryRecallExplainer.WhyNotAsync(request, kind, id)`, for a fact, an entity or a
+  preference): the gate that kept it out, in the order recall applies them (another owner's, the router, merged into
+  another entity, closed with what replaced it, decayed, invalidated, outside its valid time, no embedding, below the
+  similarity floor with its score, outranked, cut by the budget), or that it was recalled. Off the hot path: it costs a
+  recall; normal recall is unchanged. `MemoryHistoryRecord.MergedIntoId` says what a merged-away entity lives on in.
+- **Erase, export and import an owner** (`IMemoryOwnerDataService`, `agentmemory owner export|import|erase`). Erase
+  deletes every node stamped with the owner and their conversations with every message, in batches, and reports what
+  went by label (the CLI asks for `--confirm`). Export writes the owner's entities, facts and preferences (live and
+  closed), relationships, supersessions and `ABOUT` links as `agentmemory-export/1` JSON, without embeddings; import
+  writes it under an owner with fresh ids, embedded again, closings and links kept. Shared knowledge and other owners
+  are never touched. Not carried: when a closed value's end was recorded (`valid_until_recorded_at`), so a question about
+  belief before a change reads the closed value's end as known from the start.
+- **An owner's memory as it was known at an instant.** `MemoryHistoryQuery.AsOf` (and `agentmemory history --as-of`):
+  rows written after the instant are left out, and with `IncludeInvalidated = false` a row invalidated after it is kept
+  (it was live then). Every row keeps its validity window, why it closed, what replaced it and its sources, so a
+  dossier or a module reads an owner's memory without Cypher of its own.
+- **An integrity check** (`IMemoryIntegrityService`, `agentmemory integrity [--owner <id>]`): no edge joins two owners'
+  memories, a relationship edge belongs to its endpoints' owner, a fact closed as a change or a correction has its
+  successor and a live one has none, every validity window ends after it begins, and (warnings) every fact has a source
+  and every live memory has an embedding: a failed embedding call stores the memory without one and only logs it, and
+  recall by meaning never finds it again (`IMemoryMaintenance.GenerateEmbeddingsBatchAsync` repairs it). Read-only; each
+  rule reports a count and up to five ids. Validation packs run it on what their ingestion wrote.
+- **Write effects on ingestion outcomes.** `IngestionItemOutcome.Effect` says what a successful write did: `Created`,
+  `AlreadyStored` (the same fact, preference or relationship was there), or `MergedWithinExtraction` for a duplicate
+  folded into another item; `Closed` lists the facts a change or a correction closed. Entities report `Unreported` for
+  now (resolution decides it and does not say so). No extra query: the effects are known where they are written.
+- **Validation packs** (`agentmemory evaluate --pack core|<file>|<directory>`). A pack is a schema, conversations with what
+  extraction yields for each message, the storage they must leave and the questions they must answer, run against a live
+  store with no model: the pack plays the model, and every message and question is stamped on a replayed clock. Every
+  question also checks isolation (another owner's item in a recall fails it). Six core packs ship (changes and
+  corrections on both clocks, names, preferences, episodic, the graph, working memory), each proven by a planted defect
+  that fails the check naming it. The runner lives in `AgentMemory.Validation`, held off NuGet while the format settles;
+  it borrows a caller's embedding generator (never disposing it, however many packs run) and takes a logging
+  configuration, so what the stack decided and what failed is visible.
+- **A judge at the fan-in and a judge on the write path** (`IMemoryGate`, `IMemoryUpdateJudge`; both used only when
+  registered, and experimental (`AMGATE001`) with the update-judge options until the storage work settles). The gate sees the turn and everything a wide recall found and keeps what helps the reply: measured on two
+  unseen test sets, every needed memory reached the prompt on 96.1% and 96.5% of turns, against 67.6% and 76.8% for the
+  similarity floor, with less than half the memory tokens. The update judge closes the stored fact or preference a new
+  one replaces (`ExtractionOptions.UpdateJudgeThreshold`, `UpdateJudgeCandidates`); without a judge the write path is
+  unchanged, and the judge only ever closes the writer's own memories (without an owner, only ownerless ones).
+  The new package `AgentMemory.Gate` (experimental: every public type is `AMGATE001`, so a host opts in by name)
+  implements both over System One endpoints: `AddAgentMemoryGate` decorates the context assembler with the modes `Floor`
+  (recall as without the gate), `Judge` and `Everything`, from code or from the configuration section
+  `AgentMemory:RetrievalRouter` (`AddAgentMemoryGate(IConfiguration)`, validated: an undefined mode fails at startup).
+  The floor is the automatic fallback on a timeout, an error, a judge that does not answer, or Judge mode with no judge
+  configured (said once), with a warning naming the reason. Every live recall says what happened, whatever the mode: the
+  context's metadata (`gate.*`) carries a `MemoryGateTrace` with each memory considered, the judges' probability and
+  whether it went in, and a `memory.gate` span carries the counts (`MemoryGateTelemetry`; never a memory's text).
+  `IngestionItemOutcome.Closed` now also lists the preferences the update judge closed, as it lists facts.
+
+### Fixed
+
+- **Recalled relationships answer the question.** They were ordered by confidence and age only, so every recall returned
+  the same few edges; they are now ordered by how closely their ends match the recalled entities and the names the
+  recalled facts give. And a relationship naming someone met in an earlier message is resolved against the owner's
+  stored entities instead of being dropped at extraction.
+- **Two people who share a surname stay two people.** "Erik Halvorsen" and "Sven Halvorsen" score 0.88 on name
+  embeddings, and resolving one onto the other erased the brother and pointed his relationships at the owner. Similarity
+  alone no longer merges two people with different given names; a different order, an initial, a short form, an
+  honorific or a one-letter typo still resolve.
+- **A fact that says nothing is no longer stored.** "Rosa | is named | Rosa" was written and recalled as a person's first
+  memory, taking a recall slot. A fact whose subject and object are the same name, once names are resolved, is skipped
+  with the outcome `MEMORY_FACT_TAUTOLOGY` (`MemoryErrorCodes.FactTautology`).
+- **With `BitemporalChanges`, a correction reaches the past.** A change keeps the old value believed as history; a later
+  correction of that value ("I never lived in Bilbao; it was Bermeo") now withdraws it, so a past question answers with the
+  corrected value. Saying a change again with the old value named ("I moved to Madrid, not Bilbao") is not a correction
+  and leaves the past alone.
+- **A question that names a time keeps the conversation.** A date in the question (or `RecallAsOfAsync`) recalled
+  recent messages but never the session's relevant ones, so "what did we talk about last weekend?" lost them. The as-of
+  path now searches them and keeps the messages said by its instant and not withdrawn by then.
+- **A renamed person or pet stays findable.** When a corrected name merged the old entity into the new one, the merge
+  cleared the survivor's embedding and nothing re-embedded it, so entity recall could no longer find the renamed person
+  (found by the `core.names` validation pack). The survivor is now embedded again from its name.
+- **A corrected name reaches the facts that name it.** With `RenameOnCorrectedName`, "the dog is Max, not Rex" restated
+  what was said *about* Rex but left "Priya | walks | Rex" naming the old name. Facts whose object is the old name now
+  follow too, closed and restated under the new name (never edited); a naming fact of another subject is left alone, and
+  another owner's facts are never touched. Restated facts are closed as corrections (with `BitemporalChanges` their valid
+  time stays as it was) and, with `LinkFactsToEntities`, linked to their entities as a new fact would be. New
+  `IFactRepository.GetByObjectAsync` (a default implementation returns none, so the rename stays subject-side only).
+- **A merge moves facts' links too.** Merging two entities moved mentions, same-as links and relationships to the
+  survivor but left facts' `ABOUT` links on the merged-away entity, which every live read skips, so those facts dropped
+  out of identity expansion and the structural re-ranker. They now move with the rest; a scoped merge moves only the
+  owner's own (or shared) facts' links.
+- **One clock.** The Neo4j store stamped closings, live recall's "now", recency and `updated_at` from the wall clock
+  while the rest of the library used `IClock`, so a host or a test that registered its own clock set only half of the
+  times one recall compares. Every time in the memory path now comes from `IClock` (a guard test keeps it so); without a
+  registered clock nothing changes.
+- **`StubEmbeddingGenerator` gives the same vector for the same text in every process.** It seeded from
+  `string.GetHashCode()`, which .NET randomises per process, so its "deterministic" vectors changed from run to run;
+  on small dimensions two different names could land close enough to merge in one run and not in the next. It now
+  seeds from the text's SHA-256. Vectors differ from before; nothing stored with a real embedding model is affected.
+
 ## [1.8.0] - 2026-10-02
 
 ### Added

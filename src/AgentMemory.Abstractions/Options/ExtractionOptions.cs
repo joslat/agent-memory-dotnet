@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Domain;
 
 namespace AgentMemory.Abstractions.Options;
@@ -109,6 +110,30 @@ public sealed class ExtractionOptions
     /// </para>
     /// </remarks>
     public bool SupersedeReplacedFacts { get; set; }
+
+    /// <summary>
+    /// Record a change of value on the valid-time clock and a marked correction on the transaction clock, so a
+    /// question about the past still finds the value that was true then. Off by default; takes effect only with
+    /// <see cref="SupersedeReplacedFacts"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off, every closing is a retraction: the replaced fact gets <c>invalidated_at</c> and a <c>valid_until</c> at the
+    /// moment of writing, so an as-of question that reads with today's belief (the default when a question names a
+    /// date) no longer sees it. "Where did I live in 2020?", asked after a move, cannot return the old city, and an
+    /// undated new value counts as true at every past moment.
+    /// </para>
+    /// <para>
+    /// On, the closing says why (<c>invalidated_reason</c>). A <b>change</b> ("I moved to Madrid") ends the old value's
+    /// valid time when the new one began (its stated start, else when it was said) and records when that was learned
+    /// (<c>valid_until_recorded_at</c>); the old value stays believed, so as-of reads find it for times before the
+    /// change, and an as-of read of belief before the change was learned still sees it open. An undated new value
+    /// starts when it was said (<c>valid_from_inferred</c>, read only by as-of recall). A marked <b>correction</b>
+    /// ("I said Bilbao, I meant Madrid") withdraws belief and leaves valid time alone. Live recall is unchanged either
+    /// way. Stores written with this off keep their closings as they are.
+    /// </para>
+    /// </remarks>
+    public bool BitemporalChanges { get; set; }
 
     /// <summary>
     /// Write an <c>:ABOUT</c> edge from each persisted fact to the entities its subject or object
@@ -275,6 +300,23 @@ public sealed class ExtractionOptions
     /// owner scoping, invalidation gate and valid-time gate for free.
     /// </remarks>
     public DerivedMemoryOptions DerivedMemory { get; set; } = new();
+
+    /// <summary>
+    /// The probability at which a registered <see cref="Services.IMemoryUpdateJudge"/>'s "the new memory replaces this one"
+    /// closes the stored memory. 0.65 by default, chosen by cross-validation on training turns for a question that keeps
+    /// past results and earlier events as history: with a write gate before it, it closed 13 of 21 replaced memories on two
+    /// unseen sets, one of them wrongly, and kept every labelled write.
+    /// </summary>
+    /// <remarks>Read only when an update judge is registered and enabled; otherwise nothing changes.</remarks>
+    [Experimental("AMGATE001")]
+    public double UpdateJudgeThreshold { get; set; } = 0.65;
+
+    /// <summary>
+    /// How many of the owner's most similar stored memories of its kind each new fact or preference is set against.
+    /// </summary>
+    [Experimental("AMGATE001")]
+    public int UpdateJudgeCandidates { get; set; } = 3;
+
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>

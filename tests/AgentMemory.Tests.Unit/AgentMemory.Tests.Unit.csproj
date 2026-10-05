@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- The gate's tests use its experimental types (AgentMemory.Gate). -->
+    <NoWarn>$(NoWarn);AMGATE001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,6 +32,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Analytics\AgentMemory.Analytics.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extraction.Llm\AgentMemory.Extraction.Llm.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Inference\AgentMemory.Inference.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Gate\AgentMemory.Gate.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework.Nams\AgentMemory.AgentFramework.Nams.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Observability\AgentMemory.Observability.csproj" />
@@ -42,7 +45,9 @@
     <ProjectReference Include="..\..\src\AgentMemory.McpServer.Nams\AgentMemory.McpServer.Nams.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Nams\AgentMemory.Nams.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Validation\AgentMemory.Validation.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.Cli\AgentMemory.Cli.csproj" />
+    <ProjectReference Include="..\..\tools\AgentMemory.RouterArena\AgentMemory.RouterArena.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.Decisions\AgentMemory.Decisions.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge\AgentMemory.TckBridge.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge.Nams\AgentMemory.TckBridge.Nams.csproj" />

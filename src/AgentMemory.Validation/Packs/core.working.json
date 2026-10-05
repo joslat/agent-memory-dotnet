@@ -1,0 +1,40 @@
+{
+  "format": "agentmemory-pack/1",
+  "id": "core.working",
+  "title": "The working-memory block names the person and what they are about, for its owner only",
+  "covers": ["working"],
+  "options": { "preset": "conversational" },
+  "schema": {
+    "entityTypes": ["PERSON", "LOCATION"],
+    "predicates": [{ "name": "is named", "single": true }, { "name": "lives in", "single": true }, { "name": "is training for" }]
+  },
+  "owners": ["ana", "bob"],
+  "sessions": [
+    {
+      "owner": "ana", "id": "ana-1",
+      "messages": [
+        { "at": "2026-08-01T07:00:00Z", "text": "I'm Ana, I live in Bilbao, and I'm training for the Bilbao half marathon.",
+          "entities": [{ "name": "Ana", "type": "PERSON" }, { "name": "Bilbao", "type": "LOCATION" }],
+          "facts": [
+            { "s": "user", "p": "is named", "o": "Ana" },
+            { "s": "Ana", "p": "lives in", "o": "Bilbao" },
+            { "s": "Ana", "p": "is training for", "o": "Bilbao half marathon" }
+          ] }
+      ]
+    },
+    {
+      "owner": "bob", "id": "bob-1",
+      "messages": [
+        { "at": "2026-08-02T07:00:00Z", "text": "I'm Bob and I live in Porto.",
+          "entities": [{ "name": "Bob", "type": "PERSON" }, { "name": "Porto", "type": "LOCATION" }],
+          "facts": [{ "s": "user", "p": "is named", "o": "Bob" }, { "s": "Bob", "p": "lives in", "o": "Porto" }] }
+      ]
+    }
+  ],
+  "questions": [
+    { "id": "who-am-i", "owner": "ana", "at": "2026-08-03T07:00:00Z", "ask": "What do you know about me?",
+      "expect": [{ "working": "Ana" }], "exclude": [{ "working": "Porto" }], "kinds": ["working"] },
+    { "id": "bob-profile", "owner": "bob", "at": "2026-08-03T07:00:00Z", "ask": "What do you know about me?",
+      "expect": [{ "working": "Bob" }], "exclude": [{ "working": "Bilbao" }], "kinds": ["working"] }
+  ]
+}

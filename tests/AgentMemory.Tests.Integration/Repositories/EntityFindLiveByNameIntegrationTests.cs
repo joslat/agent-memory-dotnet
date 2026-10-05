@@ -3,6 +3,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
 using FluentAssertions;
+using Neo4j.Driver;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AgentMemory.Tests.Integration.Repositories;
@@ -45,6 +46,40 @@ public class EntityFindLiveByNameIntegrationTests : IAsyncLifetime
         var found = await _entities.FindLiveByNameAsync("Ana", "PERSON", Alice);
 
         found!.EntityId.Should().Be(survivor.EntityId);
+    }
+
+    /// <summary>F8 (40.60): a fact's ABOUT link follows its entity into the survivor; another owner's does not.</summary>
+    [Fact]
+    public async Task A_merge_moves_the_owners_fact_links_to_the_survivor_and_leaves_other_owners_alone()
+    {
+        var facts = new Neo4jFactRepository(_fixture.TransactionRunner, NullLogger<Neo4jFactRepository>.Instance);
+        var tombstone = await Person("Ana", owner: null!);
+        var survivor = await Person("Ana López", owner: null!);
+        async Task<Fact> FactOf(string owner, string @object)
+        {
+            var fact = await facts.UpsertAsync(new Fact
+            {
+                FactId = Guid.NewGuid().ToString("N"), Subject = "Ana", Predicate = "lives in", Object = @object,
+                Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow, OwnerId = owner,
+            });
+            await facts.CreateAboutRelationshipAsync(fact.FactId, tombstone.EntityId);
+            return fact;
+        }
+        var alices = await FactOf("alice", "Lyon");
+        var bobs = await FactOf("bob", "Porto");
+
+        (await _entities.MergeEntitiesAsync(tombstone.EntityId, survivor.EntityId, MemoryScope.For("alice", includeShared: true)))
+            .Should().BeTrue();
+
+        await using var session = _fixture.Driver.AsyncSession();
+        async Task<string?> AboutOf(string factId)
+        {
+            var cursor = await session.RunAsync("MATCH (:Fact {id: $id})-[:ABOUT]->(e:Entity) RETURN e.id AS id", new { id = factId });
+            var rows = await cursor.ToListAsync();
+            return rows.Count == 1 ? ValueExtensions.As<string>(rows[0]["id"]) : null;
+        }
+        (await AboutOf(alices.FactId)).Should().Be(survivor.EntityId, "the owner's fact follows the merge");
+        (await AboutOf(bobs.FactId)).Should().Be(tombstone.EntityId, "a scoped merge never moves another owner's link");
     }
 
     [Fact]

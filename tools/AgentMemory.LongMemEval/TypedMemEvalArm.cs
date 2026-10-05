@@ -118,7 +118,10 @@ public sealed record TypedMemEvalArm(
     bool TemporalValidity = false,
     bool CaptureIdentityAliases = false,
     bool ExpandFactsByIdentity = false,
-    bool UsePredicateVocabulary = false)
+    bool UsePredicateVocabulary = false,
+    bool BitemporalChanges = false,
+    bool BitemporalClocks = false,
+    string Preset = "sealed")
 {
     /// <summary>The shipped default: every lever off, which is how the sealed measurements were taken.</summary>
     public static TypedMemEvalArm Default { get; } = new(PhaseThirtyFeatures.AllOff);
@@ -130,7 +133,8 @@ public sealed record TypedMemEvalArm(
         && !ExpandFactsByPredicate && !ResolveQueryRelations && !RecallFanOut
         && MaxDerivedFacts is null && !CurrentValidTimeOnly && !ProspectiveFiring
         && !LinkFactsToEntities && !NodeDistanceReranking && !TemporalValidity
-        && !CaptureIdentityAliases && !ExpandFactsByIdentity && !UsePredicateVocabulary;
+        && !CaptureIdentityAliases && !ExpandFactsByIdentity && !UsePredicateVocabulary
+        && !BitemporalChanges && !BitemporalClocks && Preset == "sealed";
 
     /// <summary>
     /// A filename-safe token naming every enabled lever, or <c>"default"</c> when none is.
@@ -187,6 +191,11 @@ public sealed record TypedMemEvalArm(
         // An INGESTION lever, and the precondition for supersession: without a canonical predicate
         // `CanSupersede` refuses, so `bitemporal` measures an off-state whatever its other flags say.
         if (UsePredicateVocabulary) parts.Add("vocab");
+        // 40.65: an INGESTION lever (how a closing is recorded); 40.66: how the store is stamped and read, so a run
+        // with replayed clocks is never compared with one without.
+        if (BitemporalChanges) parts.Add("bitemporal");
+        if (BitemporalClocks) parts.Add("clocks");
+        if (Preset != "sealed") parts.Add($"preset{Preset}");
         return string.Join("-", parts);
     }
 
@@ -208,5 +217,8 @@ public sealed record TypedMemEvalArm(
         $"temporal-validity={TemporalValidity} " +
         $"capture-identity-aliases={CaptureIdentityAliases} " +
         $"expand-facts-by-identity={ExpandFactsByIdentity} " +
-        $"use-predicate-vocabulary={UsePredicateVocabulary}");
+        $"use-predicate-vocabulary={UsePredicateVocabulary} " +
+        $"bitemporal-changes={BitemporalChanges} " +
+        $"bitemporal-clocks={BitemporalClocks} " +
+        $"preset={Preset}");
 }

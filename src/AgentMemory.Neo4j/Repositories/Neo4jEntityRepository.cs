@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using AgentMemory.Core.Stubs;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -22,6 +23,11 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
     private readonly WorkingMemoryOptions _workingMemoryOptions;
 
 
+    /// <summary>
+    /// G1 (40.45): every time this repository stamps or compares comes from here, so a host (or a replay) that sets the
+    /// clock sets all of it. Without DI, the system clock.
+    /// </summary>
+    private readonly IClock _clock;
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
     /// <summary>2.13: skip a futile widened probe + scan for an owner holding nothing.</summary>
@@ -84,7 +90,8 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         // registered the tier keeps the exact previous construction shape.
         IWorkingMemoryService? workingMemory = null,
         ISharedCorpusProbe? sharedCorpus = null,
-        IOptions<Neo4jOptions>? neo4jOptions = null)
+        IOptions<Neo4jOptions>? neo4jOptions = null,
+        IClock? clock = null)
     {
         _filteredOwnerIndex = neo4jOptions?.Value.FilteredVectorIndexes ?? false;
         _workingMemory = workingMemory;
@@ -99,6 +106,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
         _decay = decay?.Value ?? MemoryDecayOptions.Default;
         _rankingContext = rankingContext;
+        _clock = clock ?? new SystemClock();
     }
 
     public async Task<Entity> UpsertAsync(Entity entity, CancellationToken cancellationToken = default)
@@ -256,7 +264,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
             };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
             if (filteredKey is not null) parameters["ownerKey"] = filteredKey;
-            if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
+            if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.UtcNow);
 
             return await _tx.ReadAsync(async runner =>
             {
@@ -719,7 +727,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
             await runner.RunAsync(EntityQueries.RefreshSearchFields, new
             {
                 entityId,
-                updatedAt = DateTimeOffset.UtcNow.ToString("O")
+                updatedAt = _clock.UtcNow.ToString("O")
             }).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
     }
@@ -769,7 +777,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         };
     }
 
-    private static Entity MapToEntity(INode node, float[]? embedding) =>
+    internal static Entity MapToEntity(INode node, float[]? embedding) =>
         MapToEntity(node.Properties, embedding);
 
     public async Task<Entity?> ApplyConfidenceDeltaAsync(
@@ -933,7 +941,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         _logger.LogDebug("Invalidating entity {Id}, owner={Owner}", entityId, scope?.OwnerId);
 
         var cypher = EntityQueries.Invalidate(hasOwner);
-        string now = DateTimeOffset.UtcNow.ToString("O");
+        string now = _clock.UtcNow.ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {

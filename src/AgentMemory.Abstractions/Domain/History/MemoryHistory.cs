@@ -51,6 +51,13 @@ public sealed record MemoryHistoryQuery
 
     /// <summary>Maximum number of records to return.</summary>
     public int Limit { get; init; } = 50;
+
+    /// <summary>
+    /// G2 (PLAN 40.46), the owner's memory as it was known at this instant: rows written after it are left out, and with
+    /// <see cref="IncludeInvalidated"/> false a row invalidated after it is kept (it was live then). Each row still says
+    /// when it was invalidated, if ever. Null reads the store as it is now.
+    /// </summary>
+    public DateTimeOffset? AsOf { get; init; }
 }
 
 /// <summary>
@@ -100,6 +107,16 @@ public sealed record MemoryHistoryRecord
 
     /// <summary>End of the fact's valid-time window, when applicable.</summary>
     public DateTimeOffset? ValidUntilUtc { get; init; }
+
+    /// <summary>
+    /// Why the memory was closed, when the store says (40.65): <c>change</c> (the world changed; still true for the time
+    /// it held), <c>correction</c> (it was never right), <c>decay</c> (forgotten). Null while live, and for a memory closed
+    /// before reasons were recorded.
+    /// </summary>
+    public string? ClosedAs { get; init; }
+
+    /// <summary>For an entity merged into another (a corrected name, a duplicate), the id of the one it lives on in.</summary>
+    public string? MergedIntoId { get; init; }
 
     /// <summary>The day a one-off event happened (36.1), when the fact is one.</summary>
     public DateTimeOffset? OccurredOnUtc { get; init; }

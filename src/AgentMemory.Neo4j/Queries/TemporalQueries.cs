@@ -28,10 +28,9 @@ internal static class TemporalQueries
     /// as-of read of last Tuesday must not fire it at all.
     /// </para>
     /// <para>
-    /// The two transaction predicates are deliberately the SAME two as
-    /// <see cref="SearchFactsAsOf(bool, bool, int, bool)"/>, in the same order, so the similarity half and
-    /// the firing half of one recall cannot disagree about what "as of" means. If one changes, both
-    /// must.
+    /// The two transaction predicates match <see cref="SearchFactsAsOf(bool, bool, int, bool)"/> except for one
+    /// deliberate difference (40.65): a fact closed by a <c>change</c> is history, still believed for its time, but no
+    /// longer a value anything should fire for, so firing keeps reading it as withdrawn.
     /// </para>
     /// </remarks>
     public static string GetDueFactsAsOf(bool hasOwnerFilter, bool includeShared) => @"
@@ -102,6 +101,25 @@ internal static class TemporalQueries
     // ── Facts ───────────────────────────────────────────────────────────
 
     /// <summary>
+    /// The transaction clock for a fact as of <paramref name="clock"/>: written by then, and not withdrawn by then. A fact
+    /// closed by a <c>change</c> is not withdrawn (40.65): the world changed, the old value is still believed for the time
+    /// it held, and its valid-time end is what bounds it (<see cref="FactValidAsOf"/>). Stores written before reasons
+    /// existed carry none, so they read exactly as they did.
+    /// </summary>
+    internal static string FactBelievedAsOf(string alias, string clock) =>
+        $@"{alias}.created_at <= datetime({clock})
+              AND ({alias}.invalidated_at IS NULL OR {alias}.invalidated_at > datetime({clock}) OR {alias}.invalidated_reason = 'change')";
+
+    /// <summary>
+    /// The valid-time clock for a fact at <paramref name="valid"/>, believed at <paramref name="clock"/>: begun by then (a
+    /// stated start, the day it happened, or the start inferred when it replaced a value) and not ended. An end recorded
+    /// after <paramref name="clock"/> was not known then, so belief at that instant still sees the fact open (40.65).
+    /// </summary>
+    internal static string FactValidAsOf(string alias, string valid, string clock) =>
+        $@"(coalesce({alias}.valid_from, {alias}.occurred_on, {alias}.valid_from_inferred) IS NULL OR coalesce({alias}.valid_from, {alias}.occurred_on, {alias}.valid_from_inferred) <= datetime({valid}))
+              AND ({alias}.valid_until IS NULL OR {alias}.valid_until > datetime({valid}) OR {alias}.valid_until_recorded_at > datetime({clock}))";
+
+    /// <summary>
     /// Bitemporal vector similarity search on facts (D6): the transaction clock (<c>$systemAsOf</c>)
     /// filters <c>created_at</c>/<c>invalidated_at</c> ("what we believed"), and the valid-time clock
     /// (<c>$validAsOf</c>) filters the fact's validity window <c>valid_from</c>/<c>valid_until</c> ("what
@@ -115,10 +133,8 @@ internal static class TemporalQueries
                 : $@"CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
             YIELD node, score")}
             WHERE score >= $minScore
-              AND node.created_at <= datetime($systemAsOf)
-              AND (node.invalidated_at IS NULL OR node.invalidated_at > datetime($systemAsOf))
-              AND (coalesce(node.valid_from, node.occurred_on) IS NULL OR coalesce(node.valid_from, node.occurred_on) <= datetime($validAsOf))
-              AND (node.valid_until IS NULL OR node.valid_until > datetime($validAsOf)){OwnerAnd(hasOwnerFilter && !ownerScan, includeShared)}
+              AND {FactBelievedAsOf("node", "$systemAsOf")}
+              AND {FactValidAsOf("node", "$validAsOf", "$systemAsOf")}{OwnerAnd(hasOwnerFilter && !ownerScan, includeShared)}
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit";
@@ -156,22 +172,22 @@ internal static class TemporalQueries
         return $@"
             MATCH (f:Fact)
             WHERE f.predicate_key IN $predicateKeys
-              AND f.created_at <= datetime($systemAsOf)
-              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($systemAsOf))
-              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($validAsOf))
-              AND (f.valid_until IS NULL OR f.valid_until > datetime($validAsOf)){owner}
+              AND {FactBelievedAsOf("f", "$systemAsOf")}
+              AND {FactValidAsOf("f", "$validAsOf", "$systemAsOf")}{owner}
             RETURN f
             ORDER BY {priority}f.confidence DESC, f.id ASC
             LIMIT $limit";
     }
 
     /// <summary>Get a single fact by id as of a point in time.</summary>
+    /// <remarks>A constant, so <c>CypherQueryRegistry</c> finds it: the same predicates as
+    /// <see cref="FactBelievedAsOf"/> and <see cref="FactValidAsOf"/> with both clocks at <c>$asOf</c>, written out.</remarks>
     public const string GetFactByIdAsOf = @"
             MATCH (f:Fact {id: $id})
             WHERE f.created_at <= datetime($asOf)
-              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($asOf))
-              AND (coalesce(f.valid_from, f.occurred_on) IS NULL OR coalesce(f.valid_from, f.occurred_on) <= datetime($asOf))
-              AND (f.valid_until IS NULL OR f.valid_until > datetime($asOf))
+              AND (f.invalidated_at IS NULL OR f.invalidated_at > datetime($asOf) OR f.invalidated_reason = 'change')
+              AND (coalesce(f.valid_from, f.occurred_on, f.valid_from_inferred) IS NULL OR coalesce(f.valid_from, f.occurred_on, f.valid_from_inferred) <= datetime($asOf))
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($asOf) OR f.valid_until_recorded_at > datetime($asOf))
             RETURN f";
 
     // ── Preferences ────────────────────────────────────────────────────

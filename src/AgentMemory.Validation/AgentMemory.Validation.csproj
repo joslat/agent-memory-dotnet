@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AgentMemory.Validation</RootNamespace>
+    <AssemblyName>AgentMemory.Validation</AssemblyName>
+    <Description>Validation packs for AgentMemory for .NET: a schema, conversations with what extraction yields for each message, the storage they must leave and the questions they must answer, run deterministically against a live store.</Description>
+    <PackageTags>agent-memory;ai;memory;validation;testing</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- HELD (eng/release-packages.txt): the pack format is not settled enough to SemVer-lock on the 1.x line.
+       Its consumers today are the CLI (`evaluate pack`), the integration tests and a host workbench; module packs
+       (the extensibility spec's conformance fixtures) come later. -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The meta package: a pack runs on the real stack, built the way a host builds it. -->
+    <ProjectReference Include="..\AgentMemory\AgentMemory.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The core packs ship inside the assembly, so every consumer runs the same ones. -->
+    <EmbeddedResource Include="Packs\*.json" LogicalName="AgentMemory.Validation.Packs.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
+  </ItemGroup>
+
+</Project>

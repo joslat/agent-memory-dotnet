@@ -98,12 +98,24 @@ public static class CliHelp
               supersede --type <fact|preference> --loser <id> --winner <id> [--owner <id>]
                                      Supersede a loser with a winner (D7): non-destructive, links :SUPERSEDED_BY.
               history [--type <fact|entity|preference>] [--id <id>] [--owner <id>]
-                      [--live-only] [--own-only] [--limit <n>]
+                      [--live-only] [--own-only] [--limit <n>] [--as-of <iso-date>]
                                      Read long-term memory lifecycle history, including soft-invalidated
                                      rows, supersession links, valid-time windows, and source messages.
               evaluate [--iterations <n>] [--owner <id>] [--output <path>]
                                      Run deterministic memory-layer quality/performance scenarios and
                                      write a JSON report under artifacts/evaluation by default.
+              evaluate --pack <core|file|directory> [--output <path>]
+                                     Run validation packs (a schema, conversations with what extraction
+                                     yields, expected storage, questions): deterministic, no model.
+              owner <export|import|erase> --owner <id> [--file <path>] [--confirm]
+                                     An owner's data as a whole: export to a JSON file, import a file under
+                                     an owner (fresh ids), or erase everything of theirs (needs --confirm).
+              integrity [--owner <id>]
+                                     Check the store's integrity rules (no edge across owners, closed facts
+                                     have successors, ordered validity windows, sources). Read-only.
+              routing-score --set <file> [--split <dev|heldout|all>] [--policy <today|everything|rules>] [--misses]
+                                     Score a routing policy on a frozen routing set: which memory kinds
+                                     it reads against the kinds that hold each answer. No store, no model.
               perf [--label <name>] [--scenarios <ids|all>] [--iterations <n>] [--warmup <n>]
                    [--scale <S|M>] [--latency <zero|remote>] [--embedding-dimensions <n>]
                    [--output <dir>] [--quality-gate <true|false>]
@@ -190,6 +202,7 @@ public static class CliHelp
               agentmemory decay --owner user-42  # prune only user-42's memories
               agentmemory history --type fact --owner user-42 --limit 20
               agentmemory evaluate --iterations 3 --output artifacts/evaluation/local.json
+              agentmemory evaluate --pack core
               agentmemory perf --label baseline --iterations 10
               agentmemory perf --label scale-m --scale M --scenarios PERF-R-04
               agentmemory perf cold --label cold-r04 --scenarios PERF-R-04 --samples 5

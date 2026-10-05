@@ -51,8 +51,10 @@ public sealed class StubEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
 
     private float[] GenerateVector(string text)
     {
-        // Deterministic seed from text hash: same input → same vector.
-        var seed = text.GetHashCode();
+        // Same text → same vector, in every process. string.GetHashCode() is randomised per process, so the same
+        // text got a different vector in each test run, and on small test dimensions two different names were close
+        // enough to merge in one run and not in the next (PLAN 40.40). A seed from the text's SHA-256 is stable.
+        var seed = BitConverter.ToInt32(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)), 0);
         var rng = new Random(seed);
         var vector = new float[_dimensions];
         for (var i = 0; i < _dimensions; i++)

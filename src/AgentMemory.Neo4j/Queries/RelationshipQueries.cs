@@ -106,8 +106,15 @@ internal static class RelationshipQueries
                        OR any(a IN coalesce(s.aliases, []) WHERE toLower(a) IN $names)
                        OR any(a IN coalesce(t.aliases, []) WHERE toLower(a) IN $names))))
               AND (r.valid_until IS NULL OR r.valid_until > datetime($now)){OwnerAnd(hasOwnerFilter, includeShared)}
+            // 40.91. Most relevant first: by the rank of its best end among the recalled entities ($entityIds is in recall
+            // order), then among the names the recalled facts give ($names, in fact order); confidence and recency only break
+            // ties. Before, every recall returned the same few edges, whatever was asked.
+            WITH r, s, t,
+                 [i IN range(0, size($entityIds) - 1) WHERE $entityIds[i] IN [s.id, t.id]] AS byId,
+                 [i IN range(0, size($names) - 1) WHERE $names[i] IN [toLower(s.name), toLower(t.name)] + [a IN coalesce(s.aliases, []) | toLower(a)] + [a IN coalesce(t.aliases, []) | toLower(a)]] AS byName
             RETURN r, s.name AS sourceName, t.name AS targetName
-            ORDER BY r.confidence DESC, r.created_at DESC
+            ORDER BY CASE WHEN size(byId) > 0 THEN byId[0] WHEN size(byName) > 0 THEN size($entityIds) + byName[0] ELSE size($entityIds) + size($names) END,
+                     r.confidence DESC, r.created_at DESC
             LIMIT $limit";
 
     // ── EndAsync (36.4) ────────────────────────────────────────────────

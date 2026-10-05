@@ -59,6 +59,23 @@ public sealed class RelationshipsInRecallIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_relationships_of_the_best_ranked_entity_come_first_whatever_their_confidence()
+    {
+        // 40.91: Copenhagen ranks first in the recall, Carmen second; the Carmen edge is the more confident one.
+        await _relationships.UpsertAsync(new Relationship
+        {
+            RelationshipId = "friend", SourceEntityId = "Oskar", TargetEntityId = "Carmen", RelationshipType = "best_friend",
+            Confidence = 0.99, CreatedAtUtc = T0.AddDays(1), OwnerId = "owner-rel",
+        });
+
+        var first = await _relationships.GetLiveAmongAsync(["Copenhagen", "Carmen"], 1, T0.AddDays(2), _owner);
+        var flipped = await _relationships.GetLiveAmongAsync(["Carmen", "Copenhagen"], 1, T0.AddDays(2), _owner);
+
+        first.Single().Relationship.RelationshipId.Should().Be("home-new");
+        flipped.Single().Relationship.RelationshipId.Should().Be("friend");
+    }
+
+    [Fact]
     public async Task An_ended_relationship_is_no_longer_live_and_its_first_end_is_kept()
     {
         (await _relationships.EndAsync("home-old", T0, _owner)).Should().BeTrue();

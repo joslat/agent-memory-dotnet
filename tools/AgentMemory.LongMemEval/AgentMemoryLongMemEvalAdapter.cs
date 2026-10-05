@@ -407,6 +407,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // filtering it back out at retrieval. `messages` itself is left whole because the
                 // extraction path indexes it positionally against the evidence origins.
                 var persisted = SelectPersistableMessages(messages, originsByMessageId);
+                if (_options.ReplayClock is { } storedAt && persisted.Count > 0) storedAt.Now = persisted[0].TimestampUtc;
                 _ = await timings.MeasureAsync(
                     LongMemEvalStage.Storage,
                     () => LongMemEvalRuntime.ExecuteStageAsync(
@@ -514,6 +515,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     var sourceMessages = group.Select(item => item.Message).ToArray();
                     if (sourceMessages.Length == 0)
                         continue;
+                    // 40.66. Learned when it was said: everything this session writes or closes is stamped at its date.
+                    if (_options.ReplayClock is { } learnedAt) learnedAt.Now = sourceMessages[0].TimestampUtc;
 
                     var callsBefore = _options.PreparationOnly &&
                         _chatClient is LongMemEvalChatCallMeter callMeter
@@ -771,8 +774,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     // machine's now: the corpus was ingested moments ago, so bounding created_at at
                     // a 2023 QueryTime would erase everything just stored and score an empty memory.
                     () => queryTime is { } asOf
-                        ? _memory.RecallAsOfAsync(
-                            recallRequest, asOf, DateTimeOffset.UtcNow, cancellationToken)
+                        ? RecallAtAsync(recallRequest, asOf, evidenceQuestion?.QuestionId, cancellationToken)
                         : _memory.RecallAsync(recallRequest, cancellationToken))).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
@@ -1575,6 +1577,23 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     }
 
     /// <summary>
+    /// A timestamped question's recall. By default at its own date on the valid clock and the machine's now on the
+    /// transaction clock (the corpus was ingested moments ago). With <see cref="LongMemEvalAdapterOptions.AskedClocks"/>
+    /// (40.66), at the time it names and, for a belief question, at the corpus's as-of instant, with the replayed clock
+    /// at the question's date.
+    /// </summary>
+    private Task<RecallResult> RecallAtAsync(
+        RecallRequest request, DateTimeOffset questionDate, string? questionId, CancellationToken cancellationToken)
+    {
+        if (_options.AskedClocks is not { } asked)
+            return _memory.RecallAsOfAsync(request, questionDate, DateTimeOffset.UtcNow, cancellationToken);
+        if (_options.ReplayClock is { } now) now.Now = questionDate;
+        var (valid, system) = TypedMemEvalClocks.Resolve(
+            request.Query, questionDate, questionId is not null && asked.TryGetValue(questionId, out var a) ? a : null);
+        return _memory.RecallAsOfAsync(request, valid, system, cancellationToken);
+    }
+
+    /// <summary>
     /// Renders a QueryTime for the answer prompt's "Current date" line, in the corpus's own date
     /// style so the anchor and the per-message timestamps read as one convention.
     /// </summary>
@@ -2026,6 +2045,18 @@ public sealed record LongMemEvalAdapterOptions
     /// so an arm that moved them together could not attribute a difference to either.
     /// </remarks>
     public bool CurrentValidTimeOnly { get; init; }
+
+    /// <summary>
+    /// 40.66. When set, the store's clock (registered by the profile): moved to each session's date before that session
+    /// is stored and extracted, and to the question's date before recall, so transaction time is the corpus's own.
+    /// </summary>
+    internal ReplayClock? ReplayClock { get; init; }
+
+    /// <summary>
+    /// 40.66. When set, each timestamped question recalls at the time it names (valid) and, for a belief question, at
+    /// the corpus's as-of instant (transaction), instead of at its own date and the machine's now.
+    /// </summary>
+    internal IReadOnlyDictionary<string, TypedMemEvalClocks.Asked>? AskedClocks { get; init; }
 
     /// <summary>Volunteers facts that just became due or are about to expire, selected by time.</summary>
     /// <remarks>

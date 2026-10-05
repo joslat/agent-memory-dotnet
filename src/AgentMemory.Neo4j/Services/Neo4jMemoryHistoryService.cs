@@ -27,6 +27,7 @@ internal sealed class Neo4jMemoryHistoryService(INeo4jTransactionRunner tx) : IM
             ["includeShared"] = query.IncludeShared,
             ["includeInvalidated"] = query.IncludeInvalidated,
             ["limit"] = ClampLimit(query.Limit),
+            ["asOf"] = query.AsOf?.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         };
 
         return await tx.ReadAsync(async runner =>
@@ -58,6 +59,8 @@ internal sealed class Neo4jMemoryHistoryService(INeo4jTransactionRunner tx) : IM
             LastReadAuditAtUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(record["lastReadAuditAt"]),
             ValidFromUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(record["validFrom"]),
             ValidUntilUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(record["validUntil"]),
+            ClosedAs = ReadOptionalString(record["closedAs"]),
+            MergedIntoId = ReadOptionalString(record["mergedInto"]),
             OccurredOnUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(record["occurredOn"]),
             SourceMessageIds = ReadStringList(record["sourceMessageIds"]),
             SupersededByIds = ReadStringList(record["supersededByIds"]),

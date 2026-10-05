@@ -21,12 +21,19 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
     CliHelp.Print(Console.Out);
     return 1;
+}
+
+// routing-score reads a frozen routing set and scores a policy on it: no store, no model (40.61).
+if (string.Equals(cli.Command, "routing-score", StringComparison.OrdinalIgnoreCase))
+{
+    return new AgentMemory.Cli.Commands.RoutingScoreCommand(Console.Out)
+        .Execute(cli.Get("set"), cli.Get("split"), cli.Get("policy"), cli.HasFlag("misses"));
 }
 
 // schema-parity is pure static analysis of embedded snapshots — no Neo4j connection or host needed.
@@ -248,14 +255,33 @@ try
                 cli.Get("type"), cli.Get("id"), cli.Get("owner"),
                 liveOnly: cli.HasFlag("live-only"),
                 ownOnly: cli.HasFlag("own-only"),
-                limitValue: cli.Get("limit")),
+                limitValue: cli.Get("limit"),
+                asOfValue: cli.Get("as-of")),
         // S4. "ours is capable but opaque" -- memory could be queried but not SEEN. Read-only by
         // design: there is deliberately no `block --write`, because a block an agent can hand back
         // becomes the store, and the graph's provenance and supersession records then describe a
         // shadow of what the system believes.
+        // G3 (40.47): an owner's data as a whole; erase asks for --confirm.
+        "owner" => await new OwnerCommand(
+            sp.GetRequiredService<IMemoryOwnerDataService>(), output)
+            .ExecuteAsync(cli.Subcommand, cli.Get("owner"), cli.Get("file"), cli.HasFlag("confirm")),
+        // G6 (40.50): the store's integrity rules, read-only.
+        "integrity" => await new IntegrityCommand(
+            sp.GetRequiredService<IMemoryIntegrityService>(), output).ExecuteAsync(cli.Get("owner")),
         "block" => await new BlockCommand(
             sp.GetRequiredService<IMemoryHistoryService>(), output)
             .ExecuteAsync(cli.Get("owner"), cli.Get("limit")),
+        // 40.57: validation packs build their own stack per pack (its options, its extraction, a replayed clock),
+        // against the same store this host is configured for.
+        "evaluate" when cli.HasFlag("pack") => await new PackEvaluationCommand(o =>
+            {
+                o.Uri = uri;
+                o.Username = user;
+                o.Password = password;
+                o.Database = database;
+                o.EmbeddingDimensions = dims;
+            }, output)
+            .ExecuteAsync(cli.Get("pack"), cli.Get("output")),
         "evaluate" => await new EvaluationCommand(
             sp.GetRequiredService<ISchemaBootstrapper>(),
             sp.GetRequiredService<INeo4jTransactionRunner>(),

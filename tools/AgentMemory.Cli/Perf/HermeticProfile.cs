@@ -31,7 +31,8 @@ public sealed class HermeticProfile : IAsyncDisposable
 {
     private const string ContainerUser = "neo4j";
     private const string ContainerPassword = "perfpassword";
-    private const string Image = "neo4j:5.26";
+    /// <summary>The Neo4j image every throwaway store of this tool runs (perf, routing-record).</summary>
+    internal const string Image = "neo4j:5.26";
 
     private Neo4jContainer? _container;
     private ServiceProvider? _provider;

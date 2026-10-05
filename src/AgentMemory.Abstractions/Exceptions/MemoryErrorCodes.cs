@@ -103,4 +103,10 @@ public static class MemoryErrorCodes
     /// phrasing carries it (<c>ExtractionOptions.DeduplicateWithinExtraction</c>).
     /// </summary>
     public const string FactMergedWithinExtraction    = "MEMORY_FACT_MERGED_WITHIN_EXTRACTION";
+
+    /// <summary>
+    /// A fact was not written because its subject and object are the same name, so it says nothing
+    /// ("Rosa | is named | Rosa"; 40.51).
+    /// </summary>
+    public const string FactTautology                 = "MEMORY_FACT_TAUTOLOGY";
 }
