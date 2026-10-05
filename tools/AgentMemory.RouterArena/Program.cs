@@ -322,6 +322,15 @@ switch (args.FirstOrDefault())
         return await new AgentMemory.RouterArena.Record.StoreJar(Console.Out).RunAsync(Get("world") ?? Path.Combine(fixtures, "world.pack.json"), picked,
             Get("out") ?? Path.Combine(runs, "store-jar.json"), dryRun, Get("owner") ?? "marta");
     }
+    case "store-sessions":
+    {
+        // World 3 through the library (world3-design.md): one store, every turn in order at its session's date.
+        var world3 = Get("world3") ?? Path.Combine(strategy, "performance", "fixtures", "routing", "world3");
+        var form = Get("form") ?? "today";
+        return await new AgentMemory.RouterArena.Record.StoreSessions(Console.Out).RunAsync(Path.Combine(world3, "world3.pack.json"),
+            Path.Combine(world3, "sets"), form, Get("out") ?? Path.Combine(strategy, "performance", "runs", "2026-10-04_eye", "storage",
+                "world3", $"store-sessions-{form}.json"), dryRun, Limit());
+    }
     case "probe-relationships":
     {
         // 40.91: every relationship as stored, with its owner, validity and both ends, read straight from the graph.

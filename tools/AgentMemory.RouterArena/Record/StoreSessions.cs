@@ -1,0 +1,230 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.Gate;
+using AgentMemory.Inference;
+using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Validation;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Neo4j.Driver;
+using Testcontainers.Neo4j;
+
+namespace AgentMemory.RouterArena.Record;
+
+/// <summary>
+/// <c>store-sessions</c> (world3-design.md, "through the library"): world 3 on one store. The seed pack is loaded once (the pack
+/// plays the model), then every turn, in order, goes through the library's real write path (model extraction, the configured
+/// provider) with the clock at its session's date, so each turn meets the store the library itself made: its earlier
+/// mistakes included. Per turn: what it created or closed at its instant. Per session: the owner's whole live store, for the
+/// end-state measures (stale values, duplicates, drift). Scoring is <c>storage_w3_library.py</c>.
+/// </summary>
+/// <remarks>Forms: <c>today</c> (the library as configured by the pack) and <c>update-judge</c> (the same, with the 1.9 update
+/// judge on the write path: JEV, P ≥ 0.65). Round 1's write gate was never in the library, so it cannot run here.</remarks>
+public sealed class StoreSessions(TextWriter output)
+{
+    public sealed record Turn(
+        [property: JsonPropertyName("id")] string Id, [property: JsonPropertyName("session")] int Session,
+        [property: JsonPropertyName("date")] string Date, [property: JsonPropertyName("text")] string Text,
+        [property: JsonPropertyName("prior")] IReadOnlyList<PriorTurn> Prior);
+
+    public sealed record PriorTurn([property: JsonPropertyName("role")] string Role, [property: JsonPropertyName("text")] string Text);
+
+    private sealed record SetFile([property: JsonPropertyName("items")] IReadOnlyList<Turn> Items);
+
+    /// <summary>World 3's turns in their order (both subsets, sorted by id: sNN:TT).</summary>
+    public static IReadOnlyList<Turn> ReadTurns(string setsDirectory) =>
+        [.. new[] { "w3-stores.json", "w3-none.json" }
+            .SelectMany(f => JsonSerializer.Deserialize<SetFile>(File.ReadAllText(Path.Combine(setsDirectory, f)))!.Items)
+            .OrderBy(t => t.Id, StringComparer.Ordinal)];
+
+    /// <summary>A turn's instant: its session's evening, one minute per turn, so each turn's writes are its own.</summary>
+    public static DateTimeOffset InstantOf(Turn turn) =>
+        DateTimeOffset.Parse($"{turn.Date}T19:00:00Z", System.Globalization.CultureInfo.InvariantCulture)
+            .AddMinutes(int.Parse(turn.Id[^2..], System.Globalization.CultureInfo.InvariantCulture));
+
+    public async Task<int> RunAsync(string packPath, string setsDirectory, string form, string outPath, bool dryRun, int? limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (form is not ("today" or "update-judge"))
+        {
+            output.WriteLine($"error: store-sessions: --form must be today or update-judge (was {form})");
+            return 1;
+        }
+        var pack = ValidationPackReader.ReadFile(packPath);
+        var problems = ValidationPackReader.Check(pack);
+        if (problems.Count > 0)
+        {
+            output.WriteLine($"error: store-sessions: the pack has {problems.Count} problem(s): {string.Join("; ", problems.Take(5))}");
+            return 1;
+        }
+        var turns = ReadTurns(setsDirectory).Take(limit ?? int.MaxValue).ToList();
+        var resolution = InferenceProviderEnvironment.Resolve();
+        if (resolution.Settings is not { } settings)
+        {
+            output.WriteLine("error: store-sessions: no inference provider configured (AI_INFERENCE_PROVIDER, BITDEER_API_KEY)");
+            return 1;
+        }
+        if (!InferenceClientFactory.TryCreateChatClient(settings, "extraction", out var chat, out var why))
+        {
+            output.WriteLine($"error: store-sessions: {why}");
+            return 1;
+        }
+        var owner = pack.Owners[0];
+        output.WriteLine($"store-sessions: form {form}; {turns.Count} turns in {turns.Select(t => t.Session).Distinct().Count()} sessions "
+            + $"({turns[0].Date} to {turns[^1].Date}) on one store seeded by {pack.Id} ({pack.Sessions.Sum(s => s.Messages.Count)} messages); "
+            + $"extraction by {settings.Provider} ({settings.Model}); owner {owner}");
+        if (dryRun)
+        {
+            output.WriteLine($"store-sessions: dry run: one pack load, about {turns.Count} extraction calls"
+                + (form == "update-judge" ? " and an update-judge call for each write that has a similar stored memory" : "")
+                + $"; the first turn would be written at {InstantOf(turns[0]):O}: \"{turns[0].Text}\". Nothing was sent.");
+            return 0;
+        }
+
+        var request = new RecordRequest(packPath, "", outPath, []);
+        using var ollama = new OllamaEmbeddingGenerator(request.Ollama.TrimEnd('/'), request.Model);
+        ollama.Dimensions = (await ollama.GenerateAsync(["ping"], cancellationToken: cancellationToken).ConfigureAwait(false))[0].Vector.Length;
+        var embeddings = new CachingEmbeddingGenerator(ollama);
+        var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
+        await using var container = new Neo4jBuilder(Recorder.Image)
+            .WithEnvironment("NEO4J_AUTH", $"neo4j/{password}")
+            .WithEnvironment("NEO4J_server_memory_heap_max__size", "768m")
+            .WithEnvironment("NEO4J_server_memory_pagecache_size", "128m")
+            .Build();
+        await container.StartAsync(cancellationToken).ConfigureAwait(false);
+        void Neo4j(Neo4jOptions o)
+        {
+            o.Uri = container.GetConnectionString();
+            o.Username = "neo4j";
+            o.Password = password;
+            o.Database = "neo4j";
+            o.EmbeddingDimensions = ollama.Dimensions ?? 1024;
+        }
+        var runner = new ValidationPackRunner(Neo4j, _ => embeddings, ArenaLogging.Console);
+        await using var store = await runner.LoadAsync(pack, "w3", cancellationToken).ConfigureAwait(false);
+        var clock = new MovingClock(InstantOf(turns[0]));
+        var services = new ServiceCollection();
+        services.AddLogging(ArenaLogging.Console);
+        services.AddSingleton<IClock>(clock);
+        services.AddNeo4jAgentMemory(store.Options, Neo4j, _ => { });
+        services.AddSingleton(chat);
+        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
+        if (form == "update-judge")
+        {
+#pragma warning disable AMGATE001
+            services.AddAgentMemoryGate(g =>
+            {
+                g.Mode = MemoryGateMode.Floor;      // recall untouched: only the write path is measured
+                g.UpdateJudge = true;
+                g.Judges.Add(new SystemOneEndpoint
+                {
+                    Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY",
+                });
+            });
+#pragma warning restore AMGATE001
+        }
+        await using var provider = services.BuildServiceProvider();
+        var ownerId = store.Owner(owner);
+        var tx = provider.GetRequiredService<INeo4jTransactionRunner>();
+        var results = new List<object>();
+        var sessions = new List<object>();
+        for (var i = 0; i < turns.Count; i++)
+        {
+            var turn = turns[i];
+            var at = InstantOf(turn);
+            clock.Now = at;
+            var sessionId = $"w3-{owner}-s{turn.Session:00}";
+            string? error = null;
+            using (var scope = provider.CreateScope())
+            {
+                var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
+                var pipeline = scope.ServiceProvider.GetRequiredService<IMemoryExtractionPipeline>();
+                try
+                {
+                    Message? said = null;
+                    var k = 0;
+                    foreach (var (role, text) in turn.Prior.Select(p => (p.Role, p.Text)).Append(("user", turn.Text)))
+                        said = await shortTerm.AddMessageAsync(new Message
+                        {
+                            MessageId = $"{sessionId}-t{turn.Id[^2..]}-{k++}", ConversationId = sessionId, SessionId = sessionId, Role = role,
+                            Content = text, TimestampUtc = at,
+                        }, cancellationToken).ConfigureAwait(false);
+                    await pipeline.ExtractAsync(new ExtractionRequest { SessionId = sessionId, UserId = ownerId, Messages = [said!] }, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    error = $"{ex.GetType().Name}: {ex.Message}";
+                }
+            }
+            var written = await AtAsync(tx, ownerId, at, cancellationToken).ConfigureAwait(false);
+            results.Add(new { turn = turn.Id, session = turn.Session, at, text = turn.Text, written, error });
+            output.WriteLine($"  {i + 1}/{turns.Count} {turn.Id}: {written.Count} written or closed{(error is null ? "" : $" ({error[..Math.Min(80, error.Length)]})")}");
+            var lastOfSession = i == turns.Count - 1 || turns[i + 1].Session != turn.Session;
+            if (lastOfSession)
+            {
+                var live = await LiveAsync(tx, ownerId, cancellationToken).ConfigureAwait(false);
+                sessions.Add(new { session = turn.Session, date = turn.Date, live });
+                output.WriteLine($"  session {turn.Session} ({turn.Date}): {live.Count} live memories");
+            }
+            await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(new
+            {
+                format = "store-sessions/1", form, model = settings.Model, pack = pack.Id, owner, results, sessions,
+            }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);
+        }
+        output.WriteLine($"store-sessions: {results.Count} turns, {sessions.Count} sessions to {outPath}");
+        return 0;
+    }
+
+    private static readonly string[] AtCypher =
+    [
+        "MATCH (x) WHERE x.owner_id = $owner AND (x.created_at = datetime($at) OR x.invalidated_at = datetime($at)) RETURN labels(x) AS kind, properties(x) AS p, null AS s, null AS t",
+        "MATCH (s)-[x]->(t) WHERE x.owner_id = $owner AND (x.created_at = datetime($at) OR x.invalidated_at = datetime($at)) RETURN [type(x)] AS kind, properties(x) AS p, s.name AS s, t.name AS t",
+    ];
+
+    private static readonly string[] LiveCypher =
+    [
+        "MATCH (x) WHERE x.owner_id = $owner AND (x:Fact OR x:Entity OR x:Preference) AND x.invalidated_at IS NULL AND x.merged_into IS NULL RETURN labels(x) AS kind, properties(x) AS p, null AS s, null AS t",
+        "MATCH (s:Entity)-[x]->(t:Entity) WHERE x.owner_id = $owner AND x.invalidated_at IS NULL RETURN [type(x)] AS kind, properties(x) AS p, s.name AS s, t.name AS t",
+    ];
+
+    /// <summary>Every node or relationship of the owner created or closed at the turn's instant, without vectors.</summary>
+    private static Task<List<Dictionary<string, object?>>> AtAsync(INeo4jTransactionRunner tx, string ownerId, DateTimeOffset at, CancellationToken ct) =>
+        QueryAsync(tx, AtCypher, new Dictionary<string, object?> { ["owner"] = ownerId, ["at"] = at.ToString("O") }, ct);
+
+    /// <summary>The owner's live store: facts, entities and preferences not closed or merged, and live connections.</summary>
+    private static Task<List<Dictionary<string, object?>>> LiveAsync(INeo4jTransactionRunner tx, string ownerId, CancellationToken ct) =>
+        QueryAsync(tx, LiveCypher, new Dictionary<string, object?> { ["owner"] = ownerId }, ct);
+
+    private static Task<List<Dictionary<string, object?>>> QueryAsync(INeo4jTransactionRunner tx, string[] cyphers,
+        Dictionary<string, object?> parameters, CancellationToken cancellationToken) =>
+        tx.ReadAsync(async runner =>
+        {
+            var rows = new List<Dictionary<string, object?>>();
+            foreach (var cypher in cyphers)
+            {
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                foreach (var r in await cursor.ToListAsync().ConfigureAwait(false))
+                {
+                    var p = r["p"].As<IDictionary<string, object>>()
+                        .Where(kv => !kv.Key.Contains("embedding", StringComparison.Ordinal))
+                        .ToDictionary(kv => kv.Key, kv => (object?)kv.Value?.ToString());
+                    rows.Add(new Dictionary<string, object?>
+                    {
+                        ["kind"] = string.Join(",", r["kind"].As<List<object>>()), ["source"] = r["s"].As<string?>(), ["target"] = r["t"].As<string?>(), ["props"] = p,
+                    });
+                }
+            }
+            return rows;
+        }, cancellationToken);
+
+    private sealed class MovingClock(DateTimeOffset start) : IClock
+    {
+        public DateTimeOffset Now { get; set; } = start;
+
+        public DateTimeOffset UtcNow => Now;
+    }
+}
