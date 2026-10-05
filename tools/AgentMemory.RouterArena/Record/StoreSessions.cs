@@ -172,16 +172,28 @@ public sealed class StoreSessions(TextWriter output)
             if (lastOfSession)
             {
                 List<object> dreamt = [];
+                List<string> dreamErrors = [];
                 if (dream)
                 {
                     clock.Now = at.AddMinutes(30);         // the pass runs after the session, at its own instant
-                    var pass = await DreamAsync(provider, tx, ownerId, clock.Now, cancellationToken).ConfigureAwait(false);
-                    dreamt = pass.Closed;
-                    output.WriteLine($"  session {turn.Session}: the dream pass read {pass.Live} live facts and preferences, found {pass.Pairs} pairs at "
-                        + $"cosine >= 0.85, asked the judge about them (highest P {pass.Highest:0.00}) and closed {dreamt.Count}");
+                    try
+                    {
+                        var pass = await DreamAsync(provider, tx, ownerId, clock.Now, cancellationToken).ConfigureAwait(false);
+                        dreamt = pass.Closed;
+                        dreamErrors = pass.Errors;
+                        output.WriteLine($"  session {turn.Session}: the dream pass read {pass.Live} live facts and preferences, found {pass.Pairs} pairs at "
+                            + $"cosine >= 0.85, asked the judge about them (highest P {pass.Highest:0.00}) and closed {dreamt.Count}"
+                            + (dreamErrors.Count > 0 ? $"; {dreamErrors.Count} batch(es) failed: {dreamErrors[0]}" : ""));
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // A failed pass is recorded and the run goes on: the session's end state is then what the write path left.
+                        dreamErrors = [$"{ex.GetType().Name}: {ex.Message}"];
+                        output.WriteLine($"  session {turn.Session}: the dream pass FAILED ({dreamErrors[0]}); the run goes on");
+                    }
                 }
                 var live = await LiveAsync(tx, ownerId, cancellationToken).ConfigureAwait(false);
-                sessions.Add(new { session = turn.Session, date = turn.Date, live, dreamt });
+                sessions.Add(new { session = turn.Session, date = turn.Date, live, dreamt, dreamErrors });
                 output.WriteLine($"  session {turn.Session} ({turn.Date}): {live.Count} live memories");
             }
             await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(new
@@ -245,7 +257,7 @@ public sealed class StoreSessions(TextWriter output)
     /// older as the stored memory, the newer as the new one); at P >= 0.65 the older is closed, as a change, by the newer.
     /// Pairs are taken most similar first, and a memory closed once is not offered again.
     /// </summary>
-    private static async Task<(List<object> Closed, int Live, int Pairs, double Highest)> DreamAsync(IServiceProvider provider,
+    private static async Task<(List<object> Closed, int Live, int Pairs, double Highest, List<string> Errors)> DreamAsync(IServiceProvider provider,
         INeo4jTransactionRunner tx, string ownerId, DateTimeOffset now, CancellationToken ct)
     {
         var rows = await tx.ReadAsync(async runner =>
@@ -266,11 +278,27 @@ public sealed class StoreSessions(TextWriter output)
                 pairs.Add((c, older, newer));
             }
         pairs.Sort((a, b) => b.Cos.CompareTo(a.Cos));
-        if (pairs.Count == 0) return ([], rows.Count, 0, 0);
+        if (pairs.Count == 0) return ([], rows.Count, 0, 0, []);
         using var scope = provider.CreateScope();
         var judge = scope.ServiceProvider.GetRequiredService<IMemoryUpdateJudge>();
-        var verdicts = await judge.JudgeAsync(new MemoryUpdateRequest(null, now,
-            [.. pairs.Select((p, k) => new MemoryUpdatePair($"d{k}", rows[p.Newer].Text, rows[p.Older].Text))]), ct).ConfigureAwait(false);
+        // In batches of at most 12 pairs, the size the write path sends: one request does not grow with the store, and a
+        // failed batch is recorded and skipped, never the end of the run.
+        var verdicts = new Dictionary<string, double>(StringComparer.Ordinal);
+        var errors = new List<string>();
+        for (var start = 0; start < pairs.Count; start += 12)
+        {
+            var batch = Enumerable.Range(start, Math.Min(12, pairs.Count - start))
+                .Select(k => new MemoryUpdatePair($"d{k}", rows[pairs[k].Newer].Text, rows[pairs[k].Older].Text)).ToList();
+            try
+            {
+                foreach (var (key, value) in await judge.JudgeAsync(new MemoryUpdateRequest(null, now, batch), ct).ConfigureAwait(false))
+                    verdicts[key] = value;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                errors.Add($"pairs {start}-{start + batch.Count - 1}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
         var facts = scope.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Repositories.IFactRepository>();
         var preferences = scope.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Repositories.IPreferenceRepository>();
         var memoryScope = AgentMemory.Abstractions.Options.MemoryScope.For(ownerId, includeShared: false);
@@ -288,7 +316,7 @@ public sealed class StoreSessions(TextWriter output)
             closedIds.Add(rows[older].Id);
             closed.Add(new { closed = rows[older].Text, by = rows[newer].Text, cosine = Math.Round(c, 3), p = Math.Round(p, 3) });
         }
-        return (closed, rows.Count, pairs.Count, verdicts.Count == 0 ? 0 : verdicts.Values.Max());
+        return (closed, rows.Count, pairs.Count, verdicts.Count == 0 ? 0 : verdicts.Values.Max(), errors);
     }
 
     private static double Cosine(float[] a, float[] b)
