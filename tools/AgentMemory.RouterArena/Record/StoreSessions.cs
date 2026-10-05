@@ -21,8 +21,11 @@ namespace AgentMemory.RouterArena.Record;
 /// mistakes included. Per turn: what it created or closed at its instant. Per session: the owner's whole live store, for the
 /// end-state measures (stale values, duplicates, drift). Scoring is <c>storage_w3_library.py</c>.
 /// </summary>
-/// <remarks>Forms: <c>today</c> (the library as configured by the pack) and <c>update-judge</c> (the same, with the 1.9 update
-/// judge on the write path: JEV, P ≥ 0.65). Round 1's write gate was never in the library, so it cannot run here.</remarks>
+/// <remarks>Forms: <c>today</c> (the library as configured by the pack), <c>update-judge</c> (the same, with the 1.9 update
+/// judge on the write path: JEV, P ≥ 0.65) and <c>update-judge-dream</c> (D1: the same, plus a dream pass after every session:
+/// live facts, or live preferences, at cosine ≥ 0.85 go to the update judge, older as the stored one, newer as the new one,
+/// and the older is closed at P ≥ 0.65, non-destructively). Round 1's write gate was never in the library, so it cannot run
+/// here.</remarks>
 public sealed class StoreSessions(TextWriter output)
 {
     public sealed record Turn(
@@ -48,9 +51,9 @@ public sealed class StoreSessions(TextWriter output)
     public async Task<int> RunAsync(string packPath, string setsDirectory, string form, string outPath, bool dryRun, int? limit,
         CancellationToken cancellationToken = default)
     {
-        if (form is not ("today" or "update-judge"))
+        if (form is not ("today" or "update-judge" or "update-judge-dream"))
         {
-            output.WriteLine($"error: store-sessions: --form must be today or update-judge (was {form})");
+            output.WriteLine($"error: store-sessions: --form must be today, update-judge or update-judge-dream (was {form})");
             return 1;
         }
         var pack = ValidationPackReader.ReadFile(packPath);
@@ -76,10 +79,12 @@ public sealed class StoreSessions(TextWriter output)
         output.WriteLine($"store-sessions: form {form}; {turns.Count} turns in {turns.Select(t => t.Session).Distinct().Count()} sessions "
             + $"({turns[0].Date} to {turns[^1].Date}) on one store seeded by {pack.Id} ({pack.Sessions.Sum(s => s.Messages.Count)} messages); "
             + $"extraction by {settings.Provider} ({settings.Model}); owner {owner}");
+        var dream = form == "update-judge-dream";
         if (dryRun)
         {
             output.WriteLine($"store-sessions: dry run: one pack load, about {turns.Count} extraction calls"
-                + (form == "update-judge" ? " and an update-judge call for each write that has a similar stored memory" : "")
+                + (form != "today" ? " and an update-judge call for each write that has a similar stored memory" : "")
+                + (dream ? "; after each session, a dream pass over live pairs at cosine >= 0.85" : "")
                 + $"; the first turn would be written at {InstantOf(turns[0]):O}: \"{turns[0].Text}\". Nothing was sent.");
             return 0;
         }
@@ -112,7 +117,7 @@ public sealed class StoreSessions(TextWriter output)
         services.AddNeo4jAgentMemory(store.Options, Neo4j, _ => { });
         services.AddSingleton(chat);
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
-        if (form == "update-judge")
+        if (form is "update-judge" or "update-judge-dream")
         {
 #pragma warning disable AMGATE001
             services.AddAgentMemoryGate(g =>
@@ -166,8 +171,17 @@ public sealed class StoreSessions(TextWriter output)
             var lastOfSession = i == turns.Count - 1 || turns[i + 1].Session != turn.Session;
             if (lastOfSession)
             {
+                List<object> dreamt = [];
+                if (dream)
+                {
+                    clock.Now = at.AddMinutes(30);         // the pass runs after the session, at its own instant
+                    var pass = await DreamAsync(provider, tx, ownerId, clock.Now, cancellationToken).ConfigureAwait(false);
+                    dreamt = pass.Closed;
+                    output.WriteLine($"  session {turn.Session}: the dream pass read {pass.Live} live facts and preferences, found {pass.Pairs} pairs at "
+                        + $"cosine >= 0.85, asked the judge about them (highest P {pass.Highest:0.00}) and closed {dreamt.Count}");
+                }
                 var live = await LiveAsync(tx, ownerId, cancellationToken).ConfigureAwait(false);
-                sessions.Add(new { session = turn.Session, date = turn.Date, live });
+                sessions.Add(new { session = turn.Session, date = turn.Date, live, dreamt });
                 output.WriteLine($"  session {turn.Session} ({turn.Date}): {live.Count} live memories");
             }
             await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(new
@@ -220,6 +234,74 @@ public sealed class StoreSessions(TextWriter output)
             }
             return rows;
         }, cancellationToken);
+
+    private const string DreamCypher =
+        "MATCH (x) WHERE x.owner_id = $owner AND (x:Fact OR x:Preference) AND x.invalidated_at IS NULL AND x.embedding IS NOT NULL " +
+        "RETURN x.id AS id, x:Fact AS fact, coalesce(x.subject + ' | ' + x.predicate + ' | ' + x.object, x.preference) AS text, " +
+        "x.embedding AS embedding, toString(x.created_at) AS at";
+
+    /// <summary>
+    /// D1, the dream pass: every pair of live facts, or of live preferences, at cosine >= 0.85 goes to the update judge (the
+    /// older as the stored memory, the newer as the new one); at P >= 0.65 the older is closed, as a change, by the newer.
+    /// Pairs are taken most similar first, and a memory closed once is not offered again.
+    /// </summary>
+    private static async Task<(List<object> Closed, int Live, int Pairs, double Highest)> DreamAsync(IServiceProvider provider,
+        INeo4jTransactionRunner tx, string ownerId, DateTimeOffset now, CancellationToken ct)
+    {
+        var rows = await tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(DreamCypher, new Dictionary<string, object?> { ["owner"] = ownerId }).ConfigureAwait(false);
+            return (await cursor.ToListAsync().ConfigureAwait(false)).Select(r => (
+                Id: r["id"].As<string>(), Fact: r["fact"].As<bool>(), Text: r["text"].As<string>(),
+                Vector: r["embedding"].As<List<double>>().Select(d => (float)d).ToArray(), At: r["at"].As<string>())).ToList();
+        }, ct).ConfigureAwait(false);
+        var pairs = new List<(double Cos, int Older, int Newer)>();
+        for (var i = 0; i < rows.Count; i++)
+            for (var j = i + 1; j < rows.Count; j++)
+            {
+                if (rows[i].Fact != rows[j].Fact) continue;
+                var c = Cosine(rows[i].Vector, rows[j].Vector);
+                if (c < 0.85) continue;
+                var (older, newer) = string.CompareOrdinal(rows[i].At, rows[j].At) <= 0 ? (i, j) : (j, i);
+                pairs.Add((c, older, newer));
+            }
+        pairs.Sort((a, b) => b.Cos.CompareTo(a.Cos));
+        if (pairs.Count == 0) return ([], rows.Count, 0, 0);
+        using var scope = provider.CreateScope();
+        var judge = scope.ServiceProvider.GetRequiredService<IMemoryUpdateJudge>();
+        var verdicts = await judge.JudgeAsync(new MemoryUpdateRequest(null, now,
+            [.. pairs.Select((p, k) => new MemoryUpdatePair($"d{k}", rows[p.Newer].Text, rows[p.Older].Text))]), ct).ConfigureAwait(false);
+        var facts = scope.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Repositories.IFactRepository>();
+        var preferences = scope.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Repositories.IPreferenceRepository>();
+        var memoryScope = AgentMemory.Abstractions.Options.MemoryScope.For(ownerId, includeShared: false);
+        var closedIds = new HashSet<string>(StringComparer.Ordinal);
+        var closed = new List<object>();
+        for (var k = 0; k < pairs.Count; k++)
+        {
+            var (c, older, newer) = pairs[k];
+            if (!verdicts.TryGetValue($"d{k}", out var p) || p < 0.65) continue;
+            if (closedIds.Contains(rows[older].Id) || closedIds.Contains(rows[newer].Id)) continue;
+            var ok = rows[older].Fact
+                ? await facts.SupersedeAsync(rows[older].Id, rows[newer].Id, FactClosureReason.Change, now, memoryScope, ct).ConfigureAwait(false)
+                : await preferences.SupersedeAsync(rows[older].Id, rows[newer].Id, memoryScope, ct).ConfigureAwait(false);
+            if (!ok) continue;
+            closedIds.Add(rows[older].Id);
+            closed.Add(new { closed = rows[older].Text, by = rows[newer].Text, cosine = Math.Round(c, 3), p = Math.Round(p, 3) });
+        }
+        return (closed, rows.Count, pairs.Count, verdicts.Count == 0 ? 0 : verdicts.Values.Max());
+    }
+
+    private static double Cosine(float[] a, float[] b)
+    {
+        double dot = 0, na = 0, nb = 0;
+        for (var i = 0; i < Math.Min(a.Length, b.Length); i++)
+        {
+            dot += a[i] * b[i];
+            na += a[i] * a[i];
+            nb += b[i] * b[i];
+        }
+        return na == 0 || nb == 0 ? 0 : dot / Math.Sqrt(na * nb);
+    }
 
     private sealed class MovingClock(DateTimeOffset start) : IClock
     {
