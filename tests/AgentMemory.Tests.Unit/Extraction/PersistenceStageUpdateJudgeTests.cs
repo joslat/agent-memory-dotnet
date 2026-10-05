@@ -63,6 +63,21 @@ public sealed class PersistenceStageUpdateJudgeTests
         _judge.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>())
             .Returns(ci => (IReadOnlyDictionary<string, double>)ci.Arg<MemoryUpdateRequest>().Pairs.ToDictionary(x => x.Key, _ => p));
 
+    [Theory]
+    [InlineData(null)]      // a write without an owner: a vector search with no scope reads every owner's memories
+    [InlineData("ana")]     // another owner's write
+    public async Task Another_owners_memory_is_never_offered_nor_closed(string? writer)
+    {
+        JudgeSays(0.99);
+        _factRepo.SearchByVectorAsync(Arg.Any<float[]>(), ValidTimeMode.Current, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<(Fact Fact, double Score)> { (Stored with { OwnerId = "bob" }, 0.95) });
+
+        await CreateSut().PersistAsync(Dropped10k(), ownerId: writer);
+
+        await _judge.DidNotReceive().JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task A_change_said_in_other_words_closes_what_it_replaces_when_the_judge_is_sure()
     {

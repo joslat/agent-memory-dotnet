@@ -107,8 +107,11 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         CancellationToken cancellationToken)
     {
         if (newFacts.Count == 0 && newPreferences.Count == 0) return;
-        // The owner's own memories only: a shared fact is not the owner's to close.
+        // The owner's own memories only: a shared fact is not the owner's to close. Without an owner, only ownerless memories:
+        // a vector search with no scope reads every owner's, and a write without an owner must never close another owner's
+        // memory (a single-tenant store, where nothing has an owner, keeps the judge).
         var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
+        bool Closable(string? owner) => string.IsNullOrEmpty(ownerId) ? string.IsNullOrEmpty(owner) : owner == ownerId;
         var created = new HashSet<string>(
             newFacts.Select(f => f.FactId).Concat(newPreferences.Select(p => p.PreferenceId)), StringComparer.Ordinal);
         var limit = Math.Max(1, _options.UpdateJudgeCandidates);
@@ -122,7 +125,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     ?? await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, cancellationToken).ConfigureAwait(false);
                 var similar = await _factRepository.SearchByVectorAsync(
                     vector, ValidTimeMode.Current, limit + created.Count, 0.0, scope, cancellationToken).ConfigureAwait(false);
-                foreach (var stored in similar.Select(s => s.Fact).Where(f => !created.Contains(f.FactId) && f.InvalidatedAtUtc is null).Take(limit))
+                foreach (var stored in similar.Select(s => s.Fact)
+                             .Where(f => !created.Contains(f.FactId) && f.InvalidatedAtUtc is null && Closable(f.OwnerId)).Take(limit))
                 {
                     var key = $"p{pairs.Count + 1}";
                     pairs.Add(new MemoryUpdatePair(key, FactText(fact), FactText(stored)));
@@ -135,7 +139,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     ?? await _embeddingOrchestrator.EmbedAsync(preference.PreferenceText, cancellationToken).ConfigureAwait(false);
                 var similar = await _preferenceRepository.SearchByVectorAsync(
                     vector, limit + created.Count, 0.0, scope, cancellationToken).ConfigureAwait(false);
-                foreach (var stored in similar.Select(s => s.Preference).Where(p => !created.Contains(p.PreferenceId) && p.InvalidatedAtUtc is null).Take(limit))
+                foreach (var stored in similar.Select(s => s.Preference)
+                             .Where(p => !created.Contains(p.PreferenceId) && p.InvalidatedAtUtc is null && Closable(p.OwnerId)).Take(limit))
                 {
                     var key = $"p{pairs.Count + 1}";
                     pairs.Add(new MemoryUpdatePair(key, preference.PreferenceText, stored.PreferenceText));

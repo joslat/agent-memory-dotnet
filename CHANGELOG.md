@@ -76,7 +76,8 @@ and [docs/routing.md](docs/routing.md).
   unseen test sets, every needed memory reached the prompt on 96.1% and 96.5% of turns, against 67.6% and 76.8% for the
   similarity floor, with less than half the memory tokens. The update judge closes the stored fact or preference a new
   one replaces (`ExtractionOptions.UpdateJudgeThreshold`, `UpdateJudgeCandidates`); without a judge the write path is
-  unchanged. `AgentMemory.Gate` 0.1 (experimental, `AMGATE001`, held off NuGet) implements both over System One
+  unchanged, and the judge only ever closes the writer's own memories (without an owner, only ownerless ones).
+  `AgentMemory.Gate` 0.1 (experimental, `AMGATE001`, held off NuGet) implements both over System One
   endpoints: `AddAgentMemoryGate` decorates the context assembler with the modes `Floor` (recall as without the gate),
   `Judge` and `Everything`; the floor is the automatic fallback on a timeout, an error or a judge that does not answer,
   with a warning naming the reason, and the decision is in the context's metadata (`gate.*`).
