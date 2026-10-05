@@ -96,8 +96,11 @@ public sealed class StoreSessions(TextWriter output)
         var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
         await using var container = new Neo4jBuilder(Recorder.Image)
             .WithEnvironment("NEO4J_AUTH", $"neo4j/{password}")
-            .WithEnvironment("NEO4J_server_memory_heap_max__size", "768m")
-            .WithEnvironment("NEO4J_server_memory_pagecache_size", "128m")
+            // Lean, as the sample-run gate runs it: world 3's store is a few thousand memories, and the machine is shared
+            // (two runs at 768m/128m were stopped for low memory, 10-05).
+            .WithEnvironment("NEO4J_server_memory_heap_initial__size", "256m")
+            .WithEnvironment("NEO4J_server_memory_heap_max__size", "512m")
+            .WithEnvironment("NEO4J_server_memory_pagecache_size", "64m")
             .Build();
         await container.StartAsync(cancellationToken).ConfigureAwait(false);
         void Neo4j(Neo4jOptions o)
