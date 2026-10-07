@@ -167,9 +167,10 @@ public sealed class LlmExtractionOptions
     /// AMWRITE001. Writes each turn with the store-aware writer instead of the extractors: one call that sees the owner's
     /// most relevant stored memories and proposes only what is new, what replaces or corrects a stored memory (naming it),
     /// or nothing. Its closings apply only when the update judge (AMGATE001) is registered and confirms them. Off by
-    /// default: measured in the research harness on one fresh 12-session world (storage accuracy 90.8% against the library
-    /// extractors' 42.3% on the same setup), and through the library on that world's first three sessions (93.2%, the
-    /// harness's three runs 91.6-97.2%); not yet on the library's other benchmarks. A window with exactly one user message
+    /// default: measured in the research harness on two fresh 12-session worlds (storage accuracy 90.8% against the library
+    /// extractors' 42.3% on the same setup; on the second, with the judge's named question, 87.8% against 39.1%), and
+    /// through the library on the first world's first three sessions (92.9%, the harness's three runs 91.6-97.2%) and the
+    /// whole second world (88.0%, one run); not yet on the library's other benchmarks. A window with exactly one user message
     /// goes to the writer; any other window to the extractors as configured (unified or per kind). The writer reads the
     /// user's message only (assistant content is not written), and the multi-session batch path does not use it.
     /// </summary>
