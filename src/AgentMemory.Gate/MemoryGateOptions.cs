@@ -86,7 +86,9 @@ public sealed class MemoryGateOptions
 
     /// <summary>
     /// Whether the write path asks the first judge whether each new fact or preference replaces a stored one
-    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.65). Off: the write path without a judge.
+    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.65), and, with the store-aware writer (AMWRITE001), whether each
+    /// closing it names is one (<c>ExtractionOptions.NamedClosingThreshold</c>, 0.60). Off: the write path without a judge,
+    /// and the writer's closings are not applied.
     /// </summary>
     public bool UpdateJudge { get; set; }
 }
