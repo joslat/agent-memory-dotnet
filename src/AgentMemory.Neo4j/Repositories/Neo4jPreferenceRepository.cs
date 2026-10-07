@@ -230,6 +230,25 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Preference>> FindMentioningAsync(
+        IReadOnlyCollection<string> names, MemoryScope scope, int limit, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        ArgumentNullException.ThrowIfNull(scope);
+        var lowered = names.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim().ToLowerInvariant()).Distinct().ToList();
+        if (lowered.Count == 0 || limit <= 0) return [];
+        var parameters = new Dictionary<string, object?> { ["names"] = lowered, ["limit"] = limit };
+        if (scope.HasOwnerFilter) parameters["ownerId"] = scope.OwnerId;
+        var cypher = PreferenceQueries.FindMentioning(scope.HasOwnerFilter, scope.IncludeShared);
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r => MapToPreference(r["p"].As<INode>(), null)).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<(Preference Preference, double Score)>> SearchByVectorAsync(
         float[] queryEmbedding,
         int limit = 10,

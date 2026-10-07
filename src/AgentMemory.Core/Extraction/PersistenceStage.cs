@@ -73,6 +73,18 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private static int s_warnedInertBitemporal;
 
     /// <summary>
+    /// AMWRITE001. True for the persist of a turn a store-aware writer decided (<see cref="ExtractionStageResult.WrittenByWriter"/>):
+    /// set at the start of <see cref="PersistAsync"/>, so every await inside it sees it and none outside it does.
+    /// </summary>
+    private static readonly AsyncLocal<bool> s_writerTurn = new();
+
+    /// <summary>
+    /// <see cref="ExtractionOptions.SupersedeReplacedFacts"/> for this persist: off for a writer's turn, whose closings are only
+    /// the ones it named, each confirmed by the update judge (the measured form had no other closer).
+    /// </summary>
+    private bool SupersedeReplacedFacts => _options.SupersedeReplacedFacts && !s_writerTurn.Value;
+
+    /// <summary>
     /// Closes <paramref name="loserId"/> in favour of <paramref name="winnerId"/> (40.65). With
     /// <see cref="ExtractionOptions.BitemporalChanges"/> the closing says why: a change ends the loser's valid time at
     /// <paramref name="changedAt"/> and keeps it believed, a correction withdraws belief. Without it, exactly the call
@@ -202,6 +214,132 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         static string FactText(Fact fact) => $"{fact.Subject} | {fact.Predicate} | {fact.Object}";
     }
 
+    private static int s_warnedNamedWithoutJudge;
+
+    /// <summary>
+    /// AMWRITE001. The stored memories a store-aware writer said the new ones replace (<see cref="ExtractedFact.ReplacesId"/>,
+    /// <see cref="ExtractedPreference.ReplacesId"/>): each pair goes to the update judge, and the stored memory is closed, as a
+    /// change or as a correction, at <see cref="ExtractionOptions.UpdateJudgeThreshold"/>. A pair the judge does not confirm
+    /// leaves the stored memory open beside the new one (measured: no wrong closure in nine runs of 120 turns). Without a
+    /// judge, or when it fails, nothing is closed: a stale memory is a smaller harm than a true one erased.
+    /// </summary>
+    private async Task CloseNamedAsync(
+        ExtractionStageResult extraction, string? ownerId, IReadOnlyList<ExtractedFact> facts, IReadOnlyList<ExtractedPreference> preferences,
+        IReadOnlyDictionary<string, Fact> factsByKey, IReadOnlyDictionary<string, Preference> preferencesByKey,
+        CancellationToken cancellationToken)
+    {
+        // The items as written: after the within-extraction merge, which carries a merged item's named memory to the one kept.
+        // One question per stored memory: the first item that names it asks.
+        var asked = new HashSet<string>(StringComparer.Ordinal);
+        var namedFacts = facts.Where(f => !string.IsNullOrWhiteSpace(f.ReplacesId) && asked.Add(f.ReplacesId!)).ToList();
+        var namedPreferences = preferences.Where(p => !string.IsNullOrWhiteSpace(p.ReplacesId) && asked.Add(p.ReplacesId!)).ToList();
+        if (namedFacts.Count == 0 && namedPreferences.Count == 0) return;
+        if (_updateJudge is not { IsEnabled: true })
+        {
+            if (Interlocked.Exchange(ref s_warnedNamedWithoutJudge, 1) == 0)
+                _logger.LogWarning(
+                    "The memory writer named {Count} stored memory(ies) as replaced, but no update judge is registered and enabled, "
+                    + "so nothing is closed: the new memories are stored beside the old. Register the update judge (AMGATE001) "
+                    + "for the writer's closings to apply.", namedFacts.Count + namedPreferences.Count);
+            return;
+        }
+        // The owner's own memories only, as the judge's own path (JudgeUpdatesAsync) reads them.
+        var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
+        bool Closable(string? owner) => string.IsNullOrEmpty(ownerId) ? string.IsNullOrEmpty(owner) : owner == ownerId;
+        var pairs = new List<MemoryUpdatePair>();
+        var targets = new Dictionary<string, (Fact? NewFact, string Winner, string Loser, bool Correction)>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var item in namedFacts)
+            {
+                if (!factsByKey.TryGetValue($"{item.Subject} {item.Predicate} {item.Object}", out var written))
+                {
+                    _logger.LogWarning("Memory writer: '{Subject} | {Predicate} | {Object}' named '{Id}' as replaced but was not written; nothing is closed.",
+                        item.Subject, item.Predicate, item.Object, item.ReplacesId);
+                    continue;
+                }
+                var stored = await _factRepository.GetByIdAsync(item.ReplacesId!, cancellationToken).ConfigureAwait(false);
+                if (stored is null || stored.InvalidatedAtUtc is not null || !Closable(stored.OwnerId) || stored.FactId == written.FactId)
+                {
+                    _logger.LogInformation("Memory writer: '{Id}' is not a live fact of this owner; '{New}' is stored without closing it.",
+                        item.ReplacesId, NamedFactText(written));
+                    continue;
+                }
+                var key = $"p{pairs.Count + 1}";
+                pairs.Add(new MemoryUpdatePair(key, NamedFactText(written), NamedFactText(stored)));
+                targets[key] = (written, written.FactId, stored.FactId, item.ReplacementIsCorrection);
+            }
+            foreach (var item in namedPreferences)
+            {
+                if (!preferencesByKey.TryGetValue(item.PreferenceText, out var written))
+                {
+                    _logger.LogWarning("Memory writer: preference '{Text}' named '{Id}' as replaced but was not written; nothing is closed.",
+                        item.PreferenceText, item.ReplacesId);
+                    continue;
+                }
+                var stored = await _preferenceRepository.GetByIdAsync(item.ReplacesId!, cancellationToken).ConfigureAwait(false);
+                if (stored is null || stored.InvalidatedAtUtc is not null || !Closable(stored.OwnerId) || stored.PreferenceId == written.PreferenceId)
+                {
+                    _logger.LogInformation("Memory writer: '{Id}' is not a live preference of this owner; '{New}' is stored without closing it.",
+                        item.ReplacesId, written.PreferenceText);
+                    continue;
+                }
+                var key = $"p{pairs.Count + 1}";
+                pairs.Add(new MemoryUpdatePair(key, written.PreferenceText, stored.PreferenceText));
+                targets[key] = (null, written.PreferenceId, stored.PreferenceId, false);
+            }
+            if (pairs.Count == 0) return;
+            var verdicts = await _updateJudge.JudgeAsync(
+                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.UtcNow, pairs),
+                cancellationToken).ConfigureAwait(false);
+            var closings = 0;
+            var closedOnce = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (key, (newFact, winner, loser, correction)) in targets)
+            {
+                var pair = pairs.First(p => p.Key == key);
+                if (!verdicts.TryGetValue(key, out var probability))
+                {
+                    _logger.LogWarning("Memory writer: the judge gave no answer for '{New}' against '{Stored}'; it is left open.",
+                        pair.NewMemory, pair.StoredMemory);
+                    continue;
+                }
+                if (probability < _options.UpdateJudgeThreshold)
+                {
+                    _logger.LogInformation("Memory writer: the judge did not confirm that '{New}' replaces '{Stored}' (P {Probability:0.00}); both stay.",
+                        pair.NewMemory, pair.StoredMemory, probability);
+                    continue;
+                }
+                if (!closedOnce.Add(loser)) continue;
+                var closed = newFact is not null
+                    ? await CloseFactAsync(loser, winner, correction ? FactClosureReason.Correction : FactClosureReason.Change,
+                        correction ? null : ChangedAt(newFact, _clock.UtcNow), scope, cancellationToken).ConfigureAwait(false)
+                    : await _preferenceRepository.SupersedeAsync(loser, winner, scope, cancellationToken).ConfigureAwait(false);
+                // A preference's closing reaches its outcome as a fact's does (CloseFactAsync records those).
+                if (closed && newFact is null) s_closings.Value?.Add((winner, loser));
+                if (closed)
+                {
+                    closings++;
+                    _logger.LogInformation("Memory writer: closed '{Stored}', {How} by '{New}' (P {Probability:0.00}).",
+                        pair.StoredMemory, correction ? "corrected" : "replaced", pair.NewMemory, probability);
+                }
+                else
+                {
+                    _logger.LogWarning("Memory writer: '{Stored}' should close (P {Probability:0.00}) but the store closed nothing (id '{Loser}').",
+                        pair.StoredMemory, probability, loser);
+                }
+            }
+            _logger.LogInformation("Memory writer: {Pairs} named closing(s) asked; {Closed} closed at P >= {Threshold}.",
+                pairs.Count, closings, _options.UpdateJudgeThreshold);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Memory writer: the judge FAILED ({Error}); nothing the writer named was closed.", ex.Message);
+        }
+
+        static string NamedFactText(Fact fact) => $"{fact.Subject} | {fact.Predicate} | {fact.Object}";
+    }
+
     /// <summary>When a change took effect: the new value's stated start, else the day it happened, else when it was said.</summary>
     private static DateTimeOffset ChangedAt(Fact winner, DateTimeOffset now) => winner.ValidFrom ?? winner.OccurredOn ?? now;
 
@@ -221,6 +359,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         CancellationToken cancellationToken = default)
     {
         var started = _clock.UtcNow;
+        s_writerTurn.Value = extraction.WrittenByWriter;
         var result = await PersistCoreAsync(extraction, ownerId, trustLevel, cancellationToken)
             .ConfigureAwait(false);
 
@@ -301,7 +440,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
         // 36.4. A change of mind in the shape supersession can act on: ages as the single-valued `age`, and the
         // state an event entails ("moved to" -> "lives in") beside it. Only with supersession, the feature it serves.
-        if (_options.SupersedeReplacedFacts && extraction.FilteredFacts.Count > 0)
+        if (SupersedeReplacedFacts && extraction.FilteredFacts.Count > 0)
             extraction = extraction with
             {
                 FilteredFacts = ReplacementShapes.Prepare(
@@ -767,7 +906,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             MemoryRelationCardinality.Relation(fact.Predicate) is { } relation
                 ? FactSubjectKey(fact) + "\u0001" + relation
                 : null;
-        var factDecision = !_options.SupersedeReplacedFacts
+        var factDecision = !SupersedeReplacedFacts
             ? new CurrentValues.Decision(new Dictionary<string, string>(), new HashSet<string>())
             : CurrentValues.Decide(
                 prepared.Facts.Select(f => f.Item).ToList(),
@@ -1019,7 +1158,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // With <under>, the winner supersedes what the replaced fact <under> would have: the same guards, one routine.
         async Task SupersedeReplacedFactsAsync(Fact winner, Fact? under = null)
         {
-            if (!_options.SupersedeReplacedFacts) return;
+            if (!SupersedeReplacedFacts) return;
             var said = under ?? winner;
 
             // The silent no-op this closes. `CanSupersede` requires the predicate to be one of the
@@ -1108,7 +1247,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // as supersession above: best-effort, never the reason a stored memory is reported as failed.
         async Task CloseCorrectedAsync(Fact winner, string replaced, string sourceKey)
         {
-            if (!_options.SupersedeReplacedFacts) return;
+            if (!SupersedeReplacedFacts) return;
             // No start guard, unlike supersession: a marked correction is the person withdrawing what they said,
             // now ("the full marathon in May instead of the half in April" retracts the half today, though the full
             // marathon is dated May; found in simulated conversations after a guard here left both plans live).
@@ -1274,7 +1413,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     await PersistFactIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
             }
         }
-        if (_options.SupersedeReplacedFacts)
+        if (SupersedeReplacedFacts)
             await ResolveWrittenFactsAsync().ConfigureAwait(false);
 
         // 36.4. Everything this extraction wrote is in the store: now, and only now, it closes what it replaces. Marked
@@ -1380,7 +1519,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
         // As for facts (CurrentValues): a relation is the category and the single-valued relation the text states
         // ("Favourite band is ..."); a correction names what of its category contains the value it replaces.
-        var preferenceDecision = !_options.SupersedeReplacedFacts
+        var preferenceDecision = !SupersedeReplacedFacts
             ? new CurrentValues.Decision(new Dictionary<string, string>(), new HashSet<string>())
             : CurrentValues.Decide(
                 prepared.Preferences.Select(p => p.Item).ToList(),
@@ -1461,7 +1600,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // band is Arcade Fire") closes the other values of it, marked or not.
         async Task CloseCorrectedPreferencesAsync(Preference winner, string? replaced, bool sameRelation)
         {
-            if (!_options.SupersedeReplacedFacts) return;
+            if (!SupersedeReplacedFacts) return;
             var readScope = SharedScopes.OwnedOrShared(ownerId);
             var writeScope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
             try
@@ -1559,7 +1698,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             foreach (var input in preferenceInputs)
                 await PersistPreferenceIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
         }
-        if (_options.SupersedeReplacedFacts)
+        if (SupersedeReplacedFacts)
         {
             // As for facts, once every preference is written: what each one closes (only a current one replaces the
             // other values of its relation; a replaced one still closes what it names, older than both), then each
@@ -1849,7 +1988,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // "lives_in Copenhagen" ends "lives_in Hamburg" (and "employed_by" a new firm ends "works_at" the old one),
         // non-destructively, by the edge's own valid_until. Found in simulated conversations: the facts were replaced
         // and both residence edges stayed live. Same gate as fact supersession; best-effort.
-        if (_options.SupersedeReplacedFacts)
+        if (SupersedeReplacedFacts)
         {
             var endScope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
             foreach (var (item, _) in relationshipInputs)
@@ -1895,7 +2034,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // looking; this is what makes you look. Warned once per batch rather than per fact so a large
         // ingestion cannot bury it, and only when the option was actually asked for -- a warning on a
         // feature nobody enabled is how warnings stop being read.
-        if (_options.SupersedeReplacedFacts && supersessionEligible == 0 && supersessionRefusals > 0)
+        if (SupersedeReplacedFacts && supersessionEligible == 0 && supersessionRefusals > 0)
         {
             _logger.LogWarning(
                 "SupersedeReplacedFacts is ENABLED but none of the {Refused} fact(s) in this batch "
@@ -1907,8 +2046,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 string.Join(", ", MemoryRelationCardinality.SingleValuedPredicates));
         }
 
+        // AMWRITE001. A store-aware writer named what each new memory replaces: only those pairs go to the judge.
+        if (extraction.WrittenByWriter)
+            await CloseNamedAsync(extraction, ownerId, [.. prepared.Facts.Select(f => f.Item)], [.. prepared.Preferences.Select(p => p.Item)],
+                factsByKey, preferencesByKey, cancellationToken).ConfigureAwait(false);
         // 41.06. A change said in other words closes what it replaces, when a judge is registered.
-        if (_updateJudge is { IsEnabled: true })
+        else if (_updateJudge is { IsEnabled: true })
             await JudgeUpdatesAsync(
                 extraction, ownerId,
                 [.. factsByKey.Values.Where(fact => createdHere.Contains(fact.FactId)).DistinctBy(fact => fact.FactId)],
@@ -2289,6 +2432,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                         : carry ? loser.Item.OccurredOnPrecision : DatePrecision.Unspecified,
                     SourceTurn = winner.Item.SourceTurn ?? (carry ? loser.Item.SourceTurn : null),
                     Replaces = winner.Item.Replaces ?? (carry ? loser.Item.Replaces : null),
+                    // A stored memory the writer named travels with its kind of closing, from whichever side named it.
+                    ReplacesId = winner.Item.ReplacesId ?? (carry ? loser.Item.ReplacesId : null),
+                    ReplacementIsCorrection = winner.Item.ReplacesId is not null ? winner.Item.ReplacementIsCorrection
+                        : carry && loser.Item.ReplacementIsCorrection,
                 },
             });
             merged.Add(new IngestionItemOutcome

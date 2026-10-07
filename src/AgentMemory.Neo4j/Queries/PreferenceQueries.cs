@@ -63,6 +63,20 @@ internal static class PreferenceQueries
     public const string GetById = "MATCH (p:Preference {id: $id}) RETURN p";
 
     /// <summary>Get all Preferences by category, with an optional owner/shared filter (R1).</summary>
+    /// <summary>
+    /// AMWRITE001. The live preferences whose text contains one of <c>$names</c> (lower-cased by the caller), oldest first:
+    /// what the store-aware writer is shown about the people and things a turn names.
+    /// </summary>
+    public static string FindMentioning(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (p.owner_id = $ownerId OR p.owner_id IS NULL)"
+                            : " AND p.owner_id = $ownerId";
+        return "MATCH (p:Preference) WHERE p.invalidated_at IS NULL AND p.merged_into IS NULL" + owner
+            + " AND any(n IN $names WHERE toLower(p.preference_text) CONTAINS n)"
+            + " RETURN p ORDER BY p.created_at, p.id LIMIT $limit";
+    }
+
     public static string GetByCategory(bool hasOwnerFilter, bool includeShared)
     {
         var owner = !hasOwnerFilter ? string.Empty

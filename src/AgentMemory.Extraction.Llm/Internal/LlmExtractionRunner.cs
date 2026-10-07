@@ -277,6 +277,19 @@ internal sealed class LlmExtractionRunner
         }
     }
 
+    /// <summary>
+    /// One completion with the runner's options and transport retries, for a caller that reads its own reply shape (the
+    /// memory writer). <paramref name="json"/> asks for a JSON reply as the extractors do; without it no format is sent.
+    /// </summary>
+    internal Task<ChatResponse> CompleteAsync(
+        IReadOnlyList<ChatMessage> messages, int maxOutputTokens, bool json, CancellationToken cancellationToken)
+    {
+        var chatOptions = BuildChatOptions(responseFormat: null);
+        if (!json) chatOptions.ResponseFormat = null;
+        chatOptions.MaxOutputTokens = Math.Min(MaxOutputTokenCeiling, maxOutputTokens);
+        return GetResponseWithTransportRetryAsync([.. messages], chatOptions, cancellationToken);
+    }
+
     private ChatOptions BuildChatOptions(ChatResponseFormat? responseFormat)
     {
         var opts = new ChatOptions { Temperature = _options.Temperature };

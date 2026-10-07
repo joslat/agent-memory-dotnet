@@ -51,6 +51,13 @@ internal sealed record ExtractionStageResult
     public int RelationshipExtractorCount { get; init; }
 
     /// <summary>
+    /// True when a store-aware writer (<see cref="AgentMemory.Abstractions.Services.IMemoryWriter"/>) decided these items
+    /// instead of the extractors: persistence then closes only the stored memories the writer named
+    /// (<see cref="ExtractedFact.ReplacesId"/>), each confirmed by the update judge, and asks the judge about nothing else.
+    /// </summary>
+    public bool WrittenByWriter { get; init; }
+
+    /// <summary>
     /// Item outcomes recorded during this stage (extractor failures, validation/resolution
     /// failures and skips) -- see <see cref="IngestionItemOutcome"/> (#101). Carried forward and
     /// appended to by <see cref="IPersistenceStage"/>.

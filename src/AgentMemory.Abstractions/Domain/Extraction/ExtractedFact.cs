@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace AgentMemory.Abstractions.Domain;
 
 /// <summary>
@@ -57,6 +59,21 @@ public sealed record ExtractedFact
     /// (<c>LlmExtractionOptions.MarkCorrections</c>); read once, at the write, to close what it replaces.
     /// </summary>
     public string? Replaces { get; init; }
+
+    /// <summary>
+    /// The id of the stored memory this fact replaces (it stops being true now) or corrects (it was wrong all along), as a
+    /// store-aware writer (<see cref="Services.IMemoryWriter"/>) named it, or null. Closed at the write only when the update
+    /// judge confirms the pair; otherwise this fact is simply added.
+    /// </summary>
+    [Experimental("AMWRITE001")]
+    public string? ReplacesId { get; init; }
+
+    /// <summary>
+    /// With <see cref="ReplacesId"/>: true when the stored memory was wrong all along (a correction), false when it held
+    /// until now (a change).
+    /// </summary>
+    [Experimental("AMWRITE001")]
+    public bool ReplacementIsCorrection { get; init; }
 
     /// <summary>
     /// The conversational role of the turn this fact was derived from (<c>"user"</c>,

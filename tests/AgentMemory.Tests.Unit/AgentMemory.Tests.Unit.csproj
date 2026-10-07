@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <!-- The gate's tests use its experimental types (AgentMemory.Gate). -->
-    <NoWarn>$(NoWarn);AMGATE001</NoWarn>
+    <NoWarn>$(NoWarn);AMGATE001;AMWRITE001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

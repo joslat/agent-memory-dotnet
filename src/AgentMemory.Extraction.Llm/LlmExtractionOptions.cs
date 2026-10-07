@@ -164,6 +164,32 @@ public sealed class LlmExtractionOptions
     public bool UseUnifiedExtraction { get; set; }
 
     /// <summary>
+    /// AMWRITE001. Writes each turn with the store-aware writer instead of the extractors: one call that sees the owner's
+    /// most relevant stored memories and proposes only what is new, what replaces or corrects a stored memory (naming it),
+    /// or nothing. Its closings apply only when the update judge (AMGATE001) is registered and confirms them. Off by
+    /// default: measured in the research harness on one fresh 12-session world (storage accuracy 90.8% against the library
+    /// extractors' 42.3% on the same setup), and through the library on that world's first three sessions (93.2%, the
+    /// harness's three runs 91.6-97.2%); not yet on the library's other benchmarks. A window with exactly one user message
+    /// goes to the writer; any other window to the extractors as configured (unified or per kind). The writer reads the
+    /// user's message only (assistant content is not written), and the multi-session batch path does not use it.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
+    public bool UseMemoryWriter { get; set; }
+
+    /// <summary>How many stored memories the writer is shown by meaning (the people the turn names and what mentions them
+    /// come first, up to six more). 14, as measured.</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
+    public int MemoryWriterCandidates { get; set; } = 14;
+
+    /// <summary>The most operations the writer may propose for one turn. 6, as measured.</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
+    public int MemoryWriterMaxOperations { get; set; } = 6;
+
+    /// <summary>The writer's room to answer, doubled once when a reply holds no JSON. 4,000, as measured.</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
+    public int MemoryWriterMaxOutputTokens { get; set; } = 4000;
+
+    /// <summary>
     /// Enables token-bounded multi-session unified extraction through
     /// <c>IMemoryExtractionPipeline.ExtractBatchAsync</c>. Disabled by default; single-session
     /// extraction behavior is unchanged.

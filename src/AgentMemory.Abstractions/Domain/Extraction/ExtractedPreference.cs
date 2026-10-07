@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace AgentMemory.Abstractions.Domain;
 
 /// <summary>
@@ -42,4 +44,8 @@ public sealed record ExtractedPreference
     /// (<c>LlmExtractionOptions.MarkCorrections</c>); read once, at the write, to close what it replaces.
     /// </summary>
     public string? Replaces { get; init; }
+
+    /// <inheritdoc cref="ExtractedFact.ReplacesId"/>
+    [Experimental("AMWRITE001")]
+    public string? ReplacesId { get; init; }
 }

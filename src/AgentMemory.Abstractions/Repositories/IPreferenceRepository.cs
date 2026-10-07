@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
@@ -36,6 +37,19 @@ public interface IPreferenceRepository
 
     /// <summary>Gets preferences by category.</summary>
     Task<IReadOnlyList<Preference>> GetByCategoryAsync(string category, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// AMWRITE001. The preferences in <paramref name="scope"/> whose text contains any of <paramref name="names"/> (ignoring
+    /// case), oldest first, at most <paramref name="limit"/>, closed ones left out: what the store-aware writer is shown about
+    /// the people and things a turn names. The default finds none; a store answers it with one query.
+    /// </summary>
+    [Experimental("AMWRITE001")]
+    Task<IReadOnlyList<Preference>> FindMentioningAsync(
+        IReadOnlyCollection<string> names,
+        MemoryScope scope,
+        int limit,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Preference>>([]);
 
     /// <summary>Searches preferences by vector similarity.</summary>
     Task<IReadOnlyList<(Preference Preference, double Score)>> SearchByVectorAsync(

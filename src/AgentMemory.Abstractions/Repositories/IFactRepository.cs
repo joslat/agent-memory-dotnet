@@ -1,4 +1,5 @@
-﻿using AgentMemory.Abstractions.Domain;
+﻿using System.Diagnostics.CodeAnalysis;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
@@ -251,6 +252,32 @@ public interface IFactRepository
 
         static string Normalize(string value) =>
             string.Join(' ', value.ToLowerInvariant().Split([' ', '_', '-'], StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    /// <summary>
+    /// AMWRITE001. The facts in <paramref name="scope"/> whose subject, predicate or object contains any of
+    /// <paramref name="names"/> (ignoring case), oldest first, at most <paramref name="limit"/>, closed ones left out: what the
+    /// store-aware writer (<c>IMemoryWriter</c>) is shown about the people and things a turn names.
+    /// </summary>
+    /// <remarks>
+    /// The default finds only the facts whose subject or object IS one of the names (two keyed reads a name), a subset; a
+    /// store should answer the containment with one query.
+    /// </remarks>
+    [Experimental("AMWRITE001")]
+    async Task<IReadOnlyList<Fact>> FindMentioningAsync(
+        IReadOnlyCollection<string> names,
+        MemoryScope scope,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        var found = new List<Fact>();
+        foreach (var name in names.Where(n => !string.IsNullOrWhiteSpace(n)))
+        {
+            found.AddRange(await GetBySubjectAsync(name, scope, cancellationToken).ConfigureAwait(false));
+            found.AddRange(await GetByObjectAsync(name, scope, cancellationToken).ConfigureAwait(false));
+        }
+        return [.. found.Where(f => f.InvalidatedAtUtc is null).DistinctBy(f => f.FactId).OrderBy(f => f.CreatedAtUtc).Take(limit)];
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-﻿using AgentMemory.Core.Stubs;
+﻿﻿using AgentMemory.Core.Stubs;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -356,6 +356,25 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 var node = r["f"].As<INode>();
                 return MapToFact(node, ReadEmbedding(node));
             }).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Fact>> FindMentioningAsync(
+        IReadOnlyCollection<string> names, MemoryScope scope, int limit, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        ArgumentNullException.ThrowIfNull(scope);
+        var lowered = names.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim().ToLowerInvariant()).Distinct().ToList();
+        if (lowered.Count == 0 || limit <= 0) return [];
+        var parameters = new Dictionary<string, object?> { ["names"] = lowered, ["limit"] = limit };
+        if (scope.HasOwnerFilter) parameters["ownerId"] = scope.OwnerId;
+        var cypher = FactQueries.FindMentioning(scope.HasOwnerFilter, scope.IncludeShared);
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r => MapToFact(r["f"].As<INode>(), embedding: null)).ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
 

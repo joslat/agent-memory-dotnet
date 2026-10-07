@@ -50,6 +50,9 @@ public static class ServiceCollectionExtensions
                 "LlmExtraction PreferenceExtractionPrompt cannot be combined with UseUnifiedExtraction: "
                 + "unified extraction uses a single prompt for all memory kinds. Disable "
                 + "UseUnifiedExtraction to use per-kind prompt overrides.")
+            .Validate(o => o.MemoryWriterCandidates > 0, "LlmExtraction MemoryWriterCandidates must be positive.")
+            .Validate(o => o.MemoryWriterMaxOperations > 0, "LlmExtraction MemoryWriterMaxOperations must be positive.")
+            .Validate(o => o.MemoryWriterMaxOutputTokens > 0, "LlmExtraction MemoryWriterMaxOutputTokens must be positive.")
             .ValidateOnStart();
 
         // Replace (not TryAdd) so the real extractors authoritatively override the Core no-op stub
@@ -65,6 +68,8 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IUnifiedMemoryExtractor, LlmUnifiedMemoryExtractor>();
         services.TryAddSingleton<LlmExtractionBatchConcurrencyLimiter>();
         services.TryAddScoped<IMultiSessionUnifiedMemoryExtractor, LlmMultiSessionUnifiedMemoryExtractor>();
+        // AMWRITE001. Registered always, asked only when UseMemoryWriter is on: it reads the store only when asked.
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<IMemoryWriter, LlmMemoryWriter>());
 
         return services;
     }
