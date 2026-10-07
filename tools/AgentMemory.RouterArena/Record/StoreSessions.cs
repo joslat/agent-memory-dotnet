@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Gate;
 using AgentMemory.Inference;
@@ -37,9 +38,10 @@ public sealed class StoreSessions(TextWriter output)
 
     private sealed record SetFile([property: JsonPropertyName("items")] IReadOnlyList<Turn> Items);
 
-    /// <summary>World 3's turns in their order (both subsets, sorted by id: sNN:TT).</summary>
-    public static IReadOnlyList<Turn> ReadTurns(string setsDirectory) =>
-        [.. new[] { "w3-stores.json", "w3-none.json" }
+    /// <summary>A world's turns in their order (both subsets, sorted by id: sNN:TT); <paramref name="set"/> names the files
+    /// (<c>w3</c>: w3-stores.json and w3-none.json; <c>w4</c> for world 4, round 3's test).</summary>
+    public static IReadOnlyList<Turn> ReadTurns(string setsDirectory, string set = "w3") =>
+        [.. new[] { $"{set}-stores.json", $"{set}-none.json" }
             .SelectMany(f => JsonSerializer.Deserialize<SetFile>(File.ReadAllText(Path.Combine(setsDirectory, f)))!.Items)
             .OrderBy(t => t.Id, StringComparer.Ordinal)];
 
@@ -49,11 +51,13 @@ public sealed class StoreSessions(TextWriter output)
             .AddMinutes(int.Parse(turn.Id[^2..], System.Globalization.CultureInfo.InvariantCulture));
 
     public async Task<int> RunAsync(string packPath, string setsDirectory, string form, string outPath, bool dryRun, int? limit,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string set = "w3", string? ownerName = null)
     {
-        if (form is not ("today" or "update-judge" or "update-judge-dream"))
+        // writer: the library with the store-aware writer (AMWRITE001, storage round 3's F ported) and the update judge
+        // confirming its closings; the turn's earlier messages are its context, as the harness gave them.
+        if (form is not ("today" or "update-judge" or "update-judge-dream" or "writer"))
         {
-            output.WriteLine($"error: store-sessions: --form must be today, update-judge or update-judge-dream (was {form})");
+            output.WriteLine($"error: store-sessions: --form must be today, update-judge, update-judge-dream or writer (was {form})");
             return 1;
         }
         var pack = ValidationPackReader.ReadFile(packPath);
@@ -63,7 +67,7 @@ public sealed class StoreSessions(TextWriter output)
             output.WriteLine($"error: store-sessions: the pack has {problems.Count} problem(s): {string.Join("; ", problems.Take(5))}");
             return 1;
         }
-        var turns = ReadTurns(setsDirectory).Take(limit ?? int.MaxValue).ToList();
+        var turns = ReadTurns(setsDirectory, set).Take(limit ?? int.MaxValue).ToList();
         var resolution = InferenceProviderEnvironment.Resolve();
         if (resolution.Settings is not { } settings)
         {
@@ -112,15 +116,15 @@ public sealed class StoreSessions(TextWriter output)
             o.EmbeddingDimensions = ollama.Dimensions ?? 1024;
         }
         var runner = new ValidationPackRunner(Neo4j, _ => embeddings, ArenaLogging.Console);
-        await using var store = await runner.LoadAsync(pack, "w3", cancellationToken).ConfigureAwait(false);
+        await using var store = await runner.LoadAsync(pack, set, cancellationToken).ConfigureAwait(false);
         var clock = new MovingClock(InstantOf(turns[0]));
         var services = new ServiceCollection();
         services.AddLogging(ArenaLogging.Console);
         services.AddSingleton<IClock>(clock);
-        services.AddNeo4jAgentMemory(store.Options, Neo4j, _ => { });
+        services.AddNeo4jAgentMemory(store.Options, Neo4j, form == "writer" ? o => o.UseMemoryWriter = true : _ => { });
         services.AddSingleton(chat);
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
-        if (form is "update-judge" or "update-judge-dream")
+        if (form is "update-judge" or "update-judge-dream" or "writer")
         {
 #pragma warning disable AMGATE001
             services.AddAgentMemoryGate(g =>
@@ -137,6 +141,19 @@ public sealed class StoreSessions(TextWriter output)
         await using var provider = services.BuildServiceProvider();
         var ownerId = store.Owner(owner);
         var tx = provider.GetRequiredService<INeo4jTransactionRunner>();
+        if (!string.IsNullOrWhiteSpace(ownerName))
+        {
+            // --owner-name: the owner has said their name before the first turn ("user | is named | Lukas", written at the seed's
+            // instant, a day before turn 1): what the library learns from such a sentence, and what the harness's prompts were
+            // given. It is not one of any turn's writes; it is one more live memory in every session's end state.
+            using var seedScope = provider.CreateScope();
+            await seedScope.ServiceProvider.GetRequiredService<IFactRepository>().UpsertAsync(new Fact
+            {
+                FactId = $"owner-name-{ownerId}", Subject = "user", Predicate = "is named", Object = ownerName.Trim(), Confidence = 1.0,
+                OwnerId = ownerId, CreatedAtUtc = InstantOf(turns[0]).AddDays(-1),
+            }, cancellationToken).ConfigureAwait(false);
+            output.WriteLine($"store-sessions: the owner's name is known before turn 1: {ownerName.Trim()}");
+        }
         var results = new List<object>();
         var sessions = new List<object>();
         for (var i = 0; i < turns.Count; i++)
@@ -144,7 +161,7 @@ public sealed class StoreSessions(TextWriter output)
             var turn = turns[i];
             var at = InstantOf(turn);
             clock.Now = at;
-            var sessionId = $"w3-{owner}-s{turn.Session:00}";
+            var sessionId = $"{set}-{owner}-s{turn.Session:00}";
             string? error = null;
             using (var scope = provider.CreateScope())
             {
@@ -152,16 +169,21 @@ public sealed class StoreSessions(TextWriter output)
                 var pipeline = scope.ServiceProvider.GetRequiredService<IMemoryExtractionPipeline>();
                 try
                 {
-                    Message? said = null;
+                    var added = new List<Message>();
                     var k = 0;
                     foreach (var (role, text) in turn.Prior.Select(p => (p.Role, p.Text)).Append(("user", turn.Text)))
-                        said = await shortTerm.AddMessageAsync(new Message
+                        added.Add(await shortTerm.AddMessageAsync(new Message
                         {
                             MessageId = $"{sessionId}-t{turn.Id[^2..]}-{k++}", ConversationId = sessionId, SessionId = sessionId, Role = role,
                             Content = text, TimestampUtc = at,
-                        }, cancellationToken).ConfigureAwait(false);
-                    await pipeline.ExtractAsync(new ExtractionRequest { SessionId = sessionId, UserId = ownerId, Messages = [said!] }, cancellationToken)
-                        .ConfigureAwait(false);
+                        }, cancellationToken).ConfigureAwait(false));
+                    // The writer reads the turn's earlier messages as context (the harness's CONVERSATION); the other forms
+                    // extract from the last message alone, as they always did.
+                    await pipeline.ExtractAsync(new ExtractionRequest
+                    {
+                        SessionId = sessionId, UserId = ownerId, Messages = [added[^1]],
+                        ContextMessages = form == "writer" ? added[..^1] : [],
+                    }, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

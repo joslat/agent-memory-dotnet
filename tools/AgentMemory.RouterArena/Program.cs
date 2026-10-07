@@ -324,12 +324,15 @@ switch (args.FirstOrDefault())
     }
     case "store-sessions":
     {
-        // World 3 through the library (world3-design.md): one store, every turn in order at its session's date.
-        var world3 = Get("world3") ?? Path.Combine(strategy, "performance", "fixtures", "routing", "world3");
+        // A world through the library (world3-design.md): one store, every turn in order at its session's date. --set w3 (default)
+        // or w4 (round 3's test, world 4: run only under prereg-round3.md); the world's folder holds world<N>.pack.json and sets/.
+        var worldSet = Get("set") ?? "w3";
+        var worldName = $"world{worldSet[1..]}";
+        var worldDir = Get("world3") ?? Get("world-dir") ?? Path.Combine(strategy, "performance", "fixtures", "routing", worldName);
         var form = Get("form") ?? "today";
-        return await new AgentMemory.RouterArena.Record.StoreSessions(Console.Out).RunAsync(Path.Combine(world3, "world3.pack.json"),
-            Path.Combine(world3, "sets"), form, Get("out") ?? Path.Combine(strategy, "performance", "runs", "2026-10-04_eye", "storage",
-                "world3", $"store-sessions-{form}.json"), dryRun, Limit());
+        return await new AgentMemory.RouterArena.Record.StoreSessions(Console.Out).RunAsync(Path.Combine(worldDir, $"{worldName}.pack.json"),
+            Path.Combine(worldDir, "sets"), form, Get("out") ?? Path.Combine(strategy, "performance", "runs", "2026-10-04_eye", "storage",
+                worldName, $"store-sessions-{form}.json"), dryRun, Limit(), set: worldSet, ownerName: Get("owner-name"));
     }
     case "probe-relationships":
     {
