@@ -40,4 +40,14 @@ public sealed record MemoryUpdatePair(string Key, string NewMemory, string Store
 /// <param name="Now">The moment of the write.</param>
 /// <param name="Pairs">Every new memory beside each stored memory it might replace.</param>
 [Experimental("AMGATE001")]
-public sealed record MemoryUpdateRequest(string? Said, DateTimeOffset Now, IReadOnlyList<MemoryUpdatePair> Pairs);
+public sealed record MemoryUpdateRequest(string? Said, DateTimeOffset Now, IReadOnlyList<MemoryUpdatePair> Pairs)
+{
+    /// <summary>
+    /// True when every pair is a closing a store-aware writer named (<see cref="IMemoryWriter"/>, AMWRITE001) rather than a
+    /// stored memory found by similarity. The judge is then asked what counts as a replacement: a changed value, a correction,
+    /// a more precise statement of the same thing, a plan or activity reported done or called off. Storage round 4 selected
+    /// that question on a fresh, unseen world (with the writer: 87.8% storage accuracy against 84.3% with the question below).
+    /// False (the default): the question the 1.9 update judge was measured with, for pairs found by similarity.
+    /// </summary>
+    public bool Named { get; init; }
+}

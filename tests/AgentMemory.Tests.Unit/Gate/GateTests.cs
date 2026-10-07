@@ -370,4 +370,20 @@ public sealed class GateTests
         q.True.Should().Be("the stored memory stops being true now: it is changed, cancelled or corrected by the new one");
         q.False.Should().Be("both stay true: the stored memory is a past result or earlier event that remains history, or they are about different things");
     }
+
+    [Fact]
+    public void A_closing_the_writer_named_is_asked_round_4s_question_in_its_measured_words()
+    {
+        var request = new MemoryUpdateRequest("I finally had the eye test, all fine", new DateTimeOffset(2027, 3, 5, 19, 0, 0, TimeSpan.Zero),
+            [new MemoryUpdatePair("p1", "Lukas | had | the eye test, all fine", "Lukas | has an eye test on | 3 March 2027")]) { Named = true };
+
+        var q = SystemOneUpdateJudge.Questions(request)["p1"];
+
+        q.Instructions.Should().Be("Does the new memory \"Lukas | had | the eye test, all fine\" replace this stored one: \"Lukas | has an eye test on | 3 March 2027\"?");
+        q.True.Should().Be("the stored memory no longer holds as stored: the new one changes its value (a new job, place, commute, count, time or plan), "
+            + "corrects it, states the same thing more precisely (a date, a place, a number), cancels it, or reports that a planned or ongoing thing "
+            + "has now happened, ended or been called off");
+        q.False.Should().Be("both hold as they are: they are about different things, or the stored memory is a dated past event or result that "
+            + "stays true as history beside a separate new one (an earlier race, a trip already taken)");
+    }
 }

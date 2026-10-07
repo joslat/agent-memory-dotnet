@@ -27,6 +27,18 @@ public sealed class SystemOneUpdateJudge : IMemoryUpdateJudge
         ("the stored memory stops being true now: it is changed, cancelled or corrected by the new one",
          "both stay true: the stored memory is a past result or earlier event that remains history, or they are about different things");
 
+    /// <summary>
+    /// The question for closings a store-aware writer named (<see cref="MemoryUpdateRequest.Named"/>): storage round 4's "v3",
+    /// word for word (strategy arena, round4_rejudge.py). On training it confirmed 180 of the writer's 199 right closings where
+    /// the question above confirmed 148.
+    /// </summary>
+    internal static readonly (string True, string False) NamedCriteria =
+        ("the stored memory no longer holds as stored: the new one changes its value (a new job, place, commute, count, time or "
+         + "plan), corrects it, states the same thing more precisely (a date, a place, a number), cancels it, or reports that a "
+         + "planned or ongoing thing has now happened, ended or been called off",
+         "both hold as they are: they are about different things, or the stored memory is a dated past event or result that "
+         + "stays true as history beside a separate new one (an earlier race, a trip already taken)");
+
     /// <inheritdoc />
     public Task<IReadOnlyDictionary<string, double>> JudgeAsync(MemoryUpdateRequest request, CancellationToken cancellationToken = default)
     {
@@ -43,8 +55,11 @@ public sealed class SystemOneUpdateJudge : IMemoryUpdateJudge
         ["already stored (the most similar)"] = request.Pairs.Select(p => p.StoredMemory).Distinct(StringComparer.Ordinal).ToList(),
     };
 
-    internal static IReadOnlyDictionary<string, YesNo> Questions(MemoryUpdateRequest request) =>
-        request.Pairs.ToDictionary(p => p.Key, p => new YesNo(
-            $"Does the new memory \"{p.NewMemory}\" replace this stored one: \"{p.StoredMemory}\"?", Criteria.True, Criteria.False),
+    internal static IReadOnlyDictionary<string, YesNo> Questions(MemoryUpdateRequest request)
+    {
+        var (yes, no) = request.Named ? NamedCriteria : Criteria;
+        return request.Pairs.ToDictionary(p => p.Key, p => new YesNo(
+            $"Does the new memory \"{p.NewMemory}\" replace this stored one: \"{p.StoredMemory}\"?", yes, no),
             StringComparer.Ordinal);
+    }
 }

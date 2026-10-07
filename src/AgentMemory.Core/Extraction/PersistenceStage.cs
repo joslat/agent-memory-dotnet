@@ -219,9 +219,10 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     /// <summary>
     /// AMWRITE001. The stored memories a store-aware writer said the new ones replace (<see cref="ExtractedFact.ReplacesId"/>,
     /// <see cref="ExtractedPreference.ReplacesId"/>): each pair goes to the update judge, and the stored memory is closed, as a
-    /// change or as a correction, at <see cref="ExtractionOptions.UpdateJudgeThreshold"/>. A pair the judge does not confirm
-    /// leaves the stored memory open beside the new one (measured: no wrong closure in nine runs of 120 turns). Without a
-    /// judge, or when it fails, nothing is closed: a stale memory is a smaller harm than a true one erased.
+    /// change or as a correction, at <see cref="ExtractionOptions.NamedClosingThreshold"/>, the judge asked the named question
+    /// (<see cref="MemoryUpdateRequest.Named"/>). A pair the judge does not confirm leaves the stored memory open beside the new
+    /// one (measured on a fresh world: 20 of 30 replaced memories closed, 1.0 wrong closures a run). Without a judge, or when it
+    /// fails, nothing is closed: a stale memory is a smaller harm than a true one erased.
     /// </summary>
     private async Task CloseNamedAsync(
         ExtractionStageResult extraction, string? ownerId, IReadOnlyList<ExtractedFact> facts, IReadOnlyList<ExtractedPreference> preferences,
@@ -290,7 +291,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
             if (pairs.Count == 0) return;
             var verdicts = await _updateJudge.JudgeAsync(
-                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.UtcNow, pairs),
+                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.UtcNow, pairs) { Named = true },
                 cancellationToken).ConfigureAwait(false);
             var closings = 0;
             var closedOnce = new HashSet<string>(StringComparer.Ordinal);
@@ -303,7 +304,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                         pair.NewMemory, pair.StoredMemory);
                     continue;
                 }
-                if (probability < _options.UpdateJudgeThreshold)
+                if (probability < _options.NamedClosingThreshold)
                 {
                     _logger.LogInformation("Memory writer: the judge did not confirm that '{New}' replaces '{Stored}' (P {Probability:0.00}); both stay.",
                         pair.NewMemory, pair.StoredMemory, probability);
@@ -329,7 +330,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
             }
             _logger.LogInformation("Memory writer: {Pairs} named closing(s) asked; {Closed} closed at P >= {Threshold}.",
-                pairs.Count, closings, _options.UpdateJudgeThreshold);
+                pairs.Count, closings, _options.NamedClosingThreshold);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)

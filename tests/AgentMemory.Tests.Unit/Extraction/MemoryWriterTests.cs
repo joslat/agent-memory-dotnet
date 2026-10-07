@@ -373,7 +373,8 @@ public sealed class PersistenceStageMemoryWriterTests
 
         await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
         await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r =>
-            r.Said == "We finally moved to Leoben last week."
+            r.Named
+            && r.Said == "We finally moved to Leoben last week."
             && r.Pairs.Single().NewMemory == "Lukas | lives in | Leoben"
             && r.Pairs.Single().StoredMemory == "Lukas | lives in | Graz"), Arg.Any<CancellationToken>());
         // The judge's own search for similar memories (41.06) is not run for a writer's turn.
@@ -391,8 +392,18 @@ public sealed class PersistenceStageMemoryWriterTests
         await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", FactClosureReason.Correction, null, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task A_named_closing_has_its_own_bar_of_0_60_below_the_similarity_paths_0_65()
+    {
+        JudgeSays(0.62);
+
+        await CreateSut().PersistAsync(MovedToLeoben(), ownerId: "lukas");
+
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
     [Theory]
-    [InlineData(0.64)]
+    [InlineData(0.59)]
     [InlineData(0.1)]
     public async Task Below_the_threshold_both_stay(double p)
     {

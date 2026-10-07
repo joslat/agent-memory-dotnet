@@ -317,6 +317,18 @@ public sealed class ExtractionOptions
     [Experimental("AMGATE001")]
     public int UpdateJudgeCandidates { get; set; } = 3;
 
+    /// <summary>
+    /// The probability at which the update judge's yes closes a stored memory a store-aware writer named as replaced
+    /// (<see cref="Services.IMemoryWriter"/>, AMWRITE001). 0.60 by default, with the named question
+    /// (<see cref="Services.MemoryUpdateRequest.Named"/>): storage round 4's selected form, read on a fresh world at 87.8%
+    /// storage accuracy with 1.0 wrong closures a run. Through the library on that world (one run) it closed 22 of 30 replaced
+    /// memories where the old question at 0.65 closed 16, at the cost of 2 wrong closures and 2 points of precision; raise it
+    /// toward 0.65 to trade closings for fewer wrong ones. <see cref="UpdateJudgeThreshold"/> stays the bar for pairs found by
+    /// similarity.
+    /// </summary>
+    [Experimental("AMWRITE001")]
+    public double NamedClosingThreshold { get; set; } = 0.60;
+
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>
