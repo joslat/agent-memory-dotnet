@@ -128,7 +128,14 @@ public sealed class ValidationPackRunner(
     private static (MemoryOptions Options, List<string> Problems) Configure(ValidationPack pack)
     {
         var problems = ValidationPackReader.Check(pack).ToList();
-        var options = pack.Options.Preset == "conversational" ? MemoryOptions.CreateConversational() : new MemoryOptions();
+#pragma warning disable AMREC001 // a pack may name the Recommended preset; its memory half is what a pack can exercise
+        var options = pack.Options.Preset switch
+        {
+            "conversational" => MemoryOptions.CreateConversational(),
+            "recommended" => MemoryOptions.CreateRecommended(),
+            _ => new MemoryOptions(),
+        };
+#pragma warning restore AMREC001
         foreach (var (path, value) in pack.Options.Set)
             if (OptionPaths.Apply(options, path, value) is { } problem) problems.Add(problem);
         return (options, problems);

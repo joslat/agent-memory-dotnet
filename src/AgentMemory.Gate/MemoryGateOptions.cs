@@ -91,4 +91,18 @@ public sealed class MemoryGateOptions
     /// and the writer's closings are not applied.
     /// </summary>
     public bool UpdateJudge { get; set; }
+
+    /// <summary>
+    /// The gate's half of the Recommended preset (<c>MemoryOptions.CreateRecommended()</c>): the judge fills the prompt
+    /// (<see cref="MemoryGateMode.Judge"/>) and the write path asks it about replacements and the writer's closings
+    /// (<see cref="UpdateJudge"/>). The judges themselves are the host's to add (<see cref="Judges"/>, or the configuration
+    /// section): with none, recall falls back to <see cref="MemoryGateMode.Floor"/> and nothing is closed by a judge.
+    /// Returns this instance.
+    /// </summary>
+    public MemoryGateOptions ApplyRecommended()
+    {
+        Mode = MemoryGateMode.Judge;
+        UpdateJudge = true;
+        return this;
+    }
 }

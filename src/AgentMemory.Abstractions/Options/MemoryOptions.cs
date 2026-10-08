@@ -486,4 +486,46 @@ public sealed record MemoryOptions
         extraction.EntityResolution.TypeStrictFiltering = false;
         return options;
     }
+
+    /// <summary>
+    /// AMREC001. The Recommended preset: the Conversational preset with what the storage and retrieval research measured
+    /// as better, switched on together. Register it with <c>services.AddAgentMemoryCore(MemoryOptions.CreateRecommended())</c>,
+    /// and pair it with <c>LlmExtractionOptions.ApplyRecommended()</c> (the store-aware writer) and, with a judge endpoint
+    /// configured, <c>MemoryGateOptions.ApplyRecommended()</c> (the update judge and the retrieval memory router).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What it switches on.</b> Everything <see cref="CreateConversational"/> does, plus
+    /// <see cref="ExtractionOptions.BitemporalChanges"/>: a change ends the old value's valid time and keeps it believed,
+    /// so a question about the past keeps the value that was true then. The store-aware writer was measured with exactly
+    /// this memory configuration.
+    /// </para>
+    /// <para>
+    /// <b>The halves in other packages.</b> <c>LlmExtractionOptions.ApplyRecommended()</c> writes each turn with the
+    /// store-aware writer (AMWRITE001): on two fresh twelve-session worlds, 90.8% and 87.8% of what it stored was right
+    /// against the extractors' 42.3% and 39.1%. Its closings apply only when the update judge confirms them, which
+    /// <c>MemoryGateOptions.ApplyRecommended()</c> turns on together with the retrieval memory router (AMGATE001: every
+    /// needed memory reached the prompt on 96.1% and 96.5% of turns, against 67.6% and 76.8% for the similarity floor).
+    /// Both need a System One judge endpoint; without one, recall uses the similarity floor and the writer's closings are
+    /// not applied (it still writes only what is new).
+    /// </para>
+    /// <para>
+    /// <b>Not with held question turns.</b> The writer takes a window with exactly one user message, the turn it was
+    /// measured on, and answers a question turn by writing nothing. <c>AgentFrameworkOptions.DeferQuestionTurns</c> (in the
+    /// Conversational preset's Agent Framework half) releases a held question together with the next turn, a window the
+    /// extractors then write instead; leave it off with this preset.
+    /// </para>
+    /// <para>
+    /// <b>Not frozen yet.</b> Unlike the Conversational preset, its contents may change before 2.0, as the measurements
+    /// on the library's other benchmarks come in; 2.0 is planned to make them the defaults. Everything stays individually
+    /// settable afterwards: this returns an ordinary <see cref="MemoryOptions"/>.
+    /// </para>
+    /// </remarks>
+    [System.Diagnostics.CodeAnalysis.Experimental("AMREC001")]
+    public static MemoryOptions CreateRecommended()
+    {
+        var options = CreateConversational();
+        options.Extraction.BitemporalChanges = true;
+        return options;
+    }
 }

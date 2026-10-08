@@ -53,7 +53,9 @@ public static class PackKinds
 /// <summary>A pack's configuration: a preset and named switches.</summary>
 public sealed record PackOptions
 {
-    /// <summary><c>default</c> (the library's defaults) or <c>conversational</c> (<c>MemoryOptions.CreateConversational()</c>).</summary>
+    /// <summary><c>default</c> (the library's defaults), <c>conversational</c> (<c>MemoryOptions.CreateConversational()</c>)
+    /// or <c>recommended</c> (<c>MemoryOptions.CreateRecommended()</c>, AMREC001: its memory half; a pack loads stores, so
+    /// the writer it pairs with is not exercised).</summary>
     public string Preset { get; init; } = "default";
 
     /// <summary>Switches applied after the preset, by path on <c>MemoryOptions</c>: <c>"Extraction.BitemporalChanges": true</c>.</summary>

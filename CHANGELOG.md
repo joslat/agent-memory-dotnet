@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The store-aware memory writer** (`LlmExtractionOptions.UseMemoryWriter`, experimental `AMWRITE001`, off). Each turn
+  of one user message is written by one call that sees the owner's most relevant stored memories and proposes only what
+  is new, what replaces or corrects a stored memory (naming it), or nothing; its closings apply only when the update
+  judge confirms them (`ExtractionOptions.NamedClosingThreshold`, 0.60). Measured on two fresh twelve-session worlds:
+  90.8% and 87.8% of what it stored was right, against the extractors' 42.3% and 39.1%.
+- **The Recommended preset** (experimental `AMREC001`): `MemoryOptions.CreateRecommended()` (the Conversational preset
+  plus `Extraction.BitemporalChanges`), `LlmExtractionOptions.ApplyRecommended()` (the Conversational extraction half
+  plus the store-aware writer) and `MemoryGateOptions.ApplyRecommended()` (the retrieval memory router and the update
+  judge; the judge endpoint is the host's). Opt-in; the Conversational preset and the defaults are unchanged. Unlike
+  the Conversational preset, its contents may change before 2.0. Validation packs accept `"preset": "recommended"`
+  and the LongMemEval harness `--preset recommended` (its batched preparation does not exercise the writer, and its
+  report says so).
+
 ## [1.9.0] - 2026-10-05
 
 **Stores written before keep their closings.** Facts closed before `BitemporalChanges` was turned on carry no reason and

@@ -20,6 +20,18 @@ public sealed class ValidationPackReaderTests
         packs.Select(p => p.Id).Should().OnlyHaveUniqueItems();
     }
 
+    [Theory]
+    [InlineData("default", true)]
+    [InlineData("conversational", true)]
+    [InlineData("recommended", true)]
+    [InlineData("everything", false)]
+    public void A_pack_names_a_known_preset(string preset, bool known)
+    {
+        var pack = Minimal() with { Options = new PackOptions { Preset = preset } };
+
+        ValidationPackReader.Check(pack).Any(p => p.StartsWith($"preset '{preset}'", StringComparison.Ordinal)).Should().Be(!known);
+    }
+
     [Fact]
     public void A_pack_with_one_owner_cannot_check_isolation()
     {

@@ -3,6 +3,8 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- The Recommended arm's test reads the preset (AMREC001) and the writer's switch (AMWRITE001). -->
+    <NoWarn>$(NoWarn);AMREC001;AMWRITE001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

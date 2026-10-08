@@ -55,8 +55,8 @@ public static class ValidationPackReader
         if (pack.Format != Format) Problem($"format is '{pack.Format}', this reader reads '{Format}'");
         if (string.IsNullOrWhiteSpace(pack.Id)) Problem("the pack has no id");
         foreach (var kind in pack.Covers.Where(k => !PackKinds.All.Contains(k))) Problem($"covers names an unknown kind '{kind}'");
-        if (pack.Options.Preset is not ("default" or "conversational"))
-            Problem($"preset '{pack.Options.Preset}' is not 'default' or 'conversational'");
+        if (pack.Options.Preset is not ("default" or "conversational" or "recommended"))
+            Problem($"preset '{pack.Options.Preset}' is not 'default', 'conversational' or 'recommended'");
 
         var owners = new HashSet<string>(pack.Owners, StringComparer.Ordinal);
         if (owners.Count < 2 || owners.Count != pack.Owners.Count)

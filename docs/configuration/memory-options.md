@@ -9,6 +9,9 @@ because their effect depends on the model.
 **All at once:** `MemoryOptions.CreateConversational()`, `LlmExtractionOptions.ApplyConversational()` and
 `AgentFrameworkOptions.ApplyConversational()` switch on the options below that a conversational assistant needs, together
 with strict owner isolation. See [getting-started §4.5](../getting-started.md#45-the-conversational-preset).
+`MemoryOptions.CreateRecommended()` (experimental, `AMREC001`) adds bitemporal changes, and its extraction and gate
+halves the store-aware writer, the update judge and the retrieval memory router: see
+[getting-started §4.6](../getting-started.md#46-the-recommended-preset-experimental-amrec001).
 
 ## Where each option lives
 

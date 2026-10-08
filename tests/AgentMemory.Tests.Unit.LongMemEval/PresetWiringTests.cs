@@ -21,6 +21,7 @@ public sealed class PresetWiringTests
     [InlineData("sealed", "sealed")]
     [InlineData("defaults", "defaults")]
     [InlineData("Conversational", "conversational")]
+    [InlineData("recommended", "recommended")]
     public void The_preset_option_parses(string? value, string expected)
     {
         LongMemEvalPresets.Token(LongMemEvalPresets.Parse(value)).Should().Be(expected);
@@ -85,6 +86,27 @@ public sealed class PresetWiringTests
 
         provider.GetRequiredService<IOptions<MemoryOptions>>().Value.OwnerFirstVectorThreshold.Should().Be(0);
         provider.GetRequiredService<IOptions<LlmExtractionOptions>>().Value.CaptureUserName.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// AMREC001. The Recommended arm: the preset objects, with bitemporal changes on as the preset ships them (the arm's
+    /// own --bitemporal-changes only adds), and the writer named as not exercised (preparation extracts in batches).
+    /// </summary>
+    [Fact]
+    public void Recommended_reaches_the_options_through_the_preset_objects_and_says_the_writer_is_not_exercised()
+    {
+        using var provider = Resolve(LongMemEvalPreset.Recommended, enableBatchedPreparation: true);
+
+        var memory = provider.GetRequiredService<IOptions<MemoryOptions>>().Value;
+        memory.Extraction.BitemporalChanges.Should().BeTrue();
+        memory.FanOut.Enabled.Should().BeTrue();
+        provider.GetRequiredService<IOptions<LlmExtractionOptions>>().Value.UseMemoryWriter.Should().BeTrue();
+        LongMemEvalMemoryProfile.ProductOptions(LongMemEvalPreset.Conversational, false, false).Extraction.BitemporalChanges.Should().BeFalse();
+        LongMemEvalPresets.Seal("m", LongMemEvalPreset.Recommended).Should().Be("m+preset:recommended");
+
+        var coverage = LongMemEvalPresets.Coverage(LongMemEvalPreset.Recommended);
+        var notExercised = (string[])coverage.GetType().GetProperty("notExercised")!.GetValue(coverage)!;
+        notExercised.Should().Contain(item => item.StartsWith("UseMemoryWriter", StringComparison.Ordinal));
     }
 
     [Fact]

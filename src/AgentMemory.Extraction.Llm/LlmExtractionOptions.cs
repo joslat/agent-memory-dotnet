@@ -273,4 +273,23 @@ public sealed class LlmExtractionOptions
         UseUnifiedExtraction = true;
         return this;
     }
+
+    /// <summary>
+    /// AMREC001. The extraction half of the Recommended preset (<c>MemoryOptions.CreateRecommended()</c>): the Conversational
+    /// half (<see cref="ApplyConversational"/>, for the windows the writer does not take) and the store-aware writer
+    /// (<see cref="UseMemoryWriter"/>, AMWRITE001) for each turn of one user message. Returns this instance.
+    /// </summary>
+    /// <remarks>
+    /// The writer's closings apply only when the update judge is registered and confirms them
+    /// (<c>MemoryGateOptions.ApplyRecommended()</c>). Its contents may change before 2.0.
+    /// </remarks>
+    [System.Diagnostics.CodeAnalysis.Experimental("AMREC001")]
+    public LlmExtractionOptions ApplyRecommended()
+    {
+        ApplyConversational();
+#pragma warning disable AMWRITE001 // The preset is how the writer is meant to be turned on; it is experimental itself.
+        UseMemoryWriter = true;
+#pragma warning restore AMWRITE001
+        return this;
+    }
 }
