@@ -165,6 +165,7 @@ public sealed class StoreSessions(TextWriter output)
             var sessionId = $"{set}-{owner}-s{turn.Session:00}";
             string? error = null;
             var (calls0, input0, output0) = usage.Snapshot();
+            var (prompt0, reply0) = usage.Characters();
             var watch = System.Diagnostics.Stopwatch.StartNew();
             using (var scope = provider.CreateScope())
             {
@@ -195,8 +196,13 @@ public sealed class StoreSessions(TextWriter output)
             }
             watch.Stop();
             var (calls1, input1, output1) = usage.Snapshot();
+            var (prompt1, reply1) = usage.Characters();
             // The turn's cost: the chat model's calls and tokens (the update judge is not a chat client: its time is in ms).
-            var cost = new { calls = calls1 - calls0, inputTokens = input1 - input0, outputTokens = output1 - output0, ms = watch.ElapsedMilliseconds };
+            var cost = new
+            {
+                calls = calls1 - calls0, inputTokens = input1 - input0, outputTokens = output1 - output0,
+                promptChars = prompt1 - prompt0, replyChars = reply1 - reply0, ms = watch.ElapsedMilliseconds,
+            };
             var written = await AtAsync(tx, ownerId, at, cancellationToken).ConfigureAwait(false);
             results.Add(new { turn = turn.Id, session = turn.Session, at, text = turn.Text, written, error, cost });
             output.WriteLine($"  {i + 1}/{turns.Count} {turn.Id}: {written.Count} written or closed{(error is null ? "" : $" ({error[..Math.Min(80, error.Length)]})")}");

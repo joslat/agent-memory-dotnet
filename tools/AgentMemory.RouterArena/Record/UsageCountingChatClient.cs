@@ -3,7 +3,8 @@ using Microsoft.Extensions.AI;
 namespace AgentMemory.RouterArena.Record;
 
 /// <summary>
-/// Counts what a run asks of the chat model: calls, input and output tokens (as the provider reports them). store-sessions
+/// Counts what a run asks of the chat model: calls, input and output tokens (as the provider reports them; a provider may
+/// leave cached prompt tokens out) and the characters of every message sent and of every reply text. store-sessions
 /// reads it before and after each turn, so a turn's cost is recorded with its writes. The update judge (System One) is not
 /// a chat client and is not counted here; a turn's milliseconds include it.
 /// </summary>
@@ -12,15 +13,22 @@ internal sealed class UsageCountingChatClient(IChatClient inner) : DelegatingCha
     private long _calls;
     private long _input;
     private long _output;
+    private long _promptChars;
+    private long _replyChars;
 
     public (long Calls, long Input, long Output) Snapshot() =>
         (Interlocked.Read(ref _calls), Interlocked.Read(ref _input), Interlocked.Read(ref _output));
 
+    public (long Prompt, long Reply) Characters() => (Interlocked.Read(ref _promptChars), Interlocked.Read(ref _replyChars));
+
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var response = await base.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
+        var sent = messages as IList<ChatMessage> ?? [.. messages];
+        var response = await base.GetResponseAsync(sent, options, cancellationToken).ConfigureAwait(false);
         Count(response.Usage);
+        Interlocked.Add(ref _promptChars, sent.Sum(m => (long)(m.Text?.Length ?? 0)));
+        Interlocked.Add(ref _replyChars, response.Text?.Length ?? 0);
         return response;
     }
 
