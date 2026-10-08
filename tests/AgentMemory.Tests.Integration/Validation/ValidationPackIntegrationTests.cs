@@ -76,6 +76,22 @@ public sealed class ValidationPackIntegrationTests : IAsyncLifetime
         result.Failures.Select(f => $"{f.Id}: {f.Detail}").Should().BeEmpty();
     }
 
+    /// <summary>
+    /// AMREC001: under the Recommended preset (its memory half: the Conversational preset plus bitemporal changes), every
+    /// core pack still passes, whichever preset the pack itself names; the pack's own switches still apply on top.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(CorePacks))]
+    public async Task Every_core_pack_passes_under_the_recommended_preset(string id)
+    {
+        var pack = Core(id);
+
+        var result = await Runner().RunAsync(pack with { Options = pack.Options with { Preset = "recommended" } });
+        foreach (var check in result.Checks) _output.WriteLine($"{(check.Passed ? "pass" : "FAIL")} {check.Id}: {check.Detail}");
+
+        result.Failures.Select(f => $"{f.Id}: {f.Detail}").Should().BeEmpty();
+    }
+
     [Fact]
     public async Task With_routing_on_a_statement_recalls_nothing()
     {
