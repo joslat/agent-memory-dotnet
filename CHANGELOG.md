@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`memory.write.fallback`) and reported (`ExtractionStageResult.WriterFallbackReason`);
   `ExtractionOptions.FallBackToExtractorsWhenWriterFails = false` keeps the earlier behaviour (the turn stores nothing
   and its outcomes say why).
+- **Each leg of memory says the tier it runs at** (`IMemoryTiers`, `IMemoryTierSource`, `MemoryTier`; experimental
+  `AMREC001`): storage (the writer with or without the update judge, or the extractors, and what a failed writer call
+  falls back to), retrieval (the gate's judges, or the similarity floor and why) and dreaming (off). Logged once on the
+  first write (`Memory tiers: ...`) and available to a host at any time.
 - **A judge that keeps failing is left out for a cool-down** (`MemoryGateOptions.JudgeFailuresBeforeCooldown`, 3, and
   `JudgeCooldown`, one minute; experimental `AMGATE001`). After three failed calls in a row the gate and the update judge
   stop calling that judge for a minute, then ask it once: an answer brings it back. Meanwhile recall takes the similarity

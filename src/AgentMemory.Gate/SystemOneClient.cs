@@ -86,6 +86,16 @@ internal sealed class SystemOneClient
         }
     }
 
+    /// <summary>Until when the judge is left out, if it is now (for the tier line); null when it is asked.</summary>
+    public DateTimeOffset? OutUntil(SystemOneEndpoint endpoint)
+    {
+        lock (_health)
+        {
+            return _health.TryGetValue($"{endpoint.Name}|{endpoint.Endpoint}", out var health) && health.OutUntil is { } until
+                && until > _time.GetUtcNow() ? until : null;
+        }
+    }
+
     /// <summary>Lets the call through, or throws when the judge is cooling down (one probe goes through once it is over).</summary>
     private void Enter(string name, string key)
     {

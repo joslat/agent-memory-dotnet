@@ -458,6 +458,12 @@ public static class ServiceCollectionExtensions
         // IExtractionStage receives IEnumerable<IExtractor> — all registered extractor implementations.
         services.TryAddSingleton<IMemoryPersistenceTransaction, PassThroughMemoryPersistenceTransaction>();
         services.TryAddScoped<IExtractionStage, ExtractionStage>();
+
+        // AMREC001: each leg's tier, said once on the first write (and to a host that asks, IMemoryTiers). The gate adds
+        // retrieval's; dreaming is off until the library has it.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource, Tiers.StorageTierSource>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource, Tiers.DreamingTierSource>());
+        services.TryAddSingleton<IMemoryTiers, Tiers.MemoryTierReport>();
         services.TryAddScoped<IPersistenceStage, PersistenceStage>();
 
         // Streaming (chunked) extraction (R4). The extractor is a pure text→chunks→entities helper; it

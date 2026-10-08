@@ -9,7 +9,7 @@
     <PackageTags>agent-memory;ai;llm;memory;retrieval;gate;router</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- The module's own code uses its own experimental types. -->
-    <NoWarn>$(NoWarn);AMGATE001</NoWarn>
+    <NoWarn>$(NoWarn);AMGATE001;AMREC001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

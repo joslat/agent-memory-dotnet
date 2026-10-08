@@ -52,6 +52,7 @@ public static class GateServiceCollectionExtensions
             sp.GetRequiredService<SystemOneClient>(), sp.GetRequiredService<IOptions<MemoryGateOptions>>(),
             sp.GetService<ILogger<SystemOneMemoryGate>>() ?? NullLogger<SystemOneMemoryGate>.Instance,
             sp.GetService<IEmbeddingGenerator<string, Embedding<float>>>()));
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource, RetrievalTierSource>());
         services.TryAddSingleton<IMemoryUpdateJudge>(sp => new SystemOneUpdateJudge(
             sp.GetRequiredService<SystemOneClient>(), sp.GetRequiredService<IOptions<MemoryGateOptions>>()));
 

@@ -424,6 +424,12 @@ What it adds to the Conversational preset:
   96.5% of turns, against 67.6% and 76.8% for the similarity floor, with less than half the memory tokens). Without an
   endpoint, recall uses the similarity floor and the writer's closings are not applied.
 
+**What runs, said once.** The library logs each leg's tier on its first write, for example
+`Memory tiers: storage: writer + update judge (a failed writer call falls back to the extractors); retrieval: judge (jev); dreaming: off`,
+and a host can ask for it at any time (`IMemoryTiers`, `AMREC001`): without a judge endpoint it says
+`retrieval: similarity floor (Judge mode has no judge configured)`, and while every judge is left out after repeated
+failures it says so.
+
 Leave `AgentFrameworkOptions.DeferQuestionTurns` off with it: the writer takes one user message at a time and writes
 nothing for a question, and a held question released with the next turn would go to the extractors instead.
 

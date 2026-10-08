@@ -28,6 +28,7 @@ internal sealed class ExtractionStage : IExtractionStage
     private readonly IEntityResolver _entityResolver;
     private readonly ExtractionOptions _options;
     private readonly ILogger<ExtractionStage> _logger;
+    private readonly Tiers.MemoryTierReport? _tiers;
 
     public ExtractionStage(
         IEnumerable<IEntityExtractor> entityExtractors,
@@ -39,9 +40,12 @@ internal sealed class ExtractionStage : IExtractionStage
         IOptions<ExtractionOptions> extractionOptions,
         ILogger<ExtractionStage> logger,
         // Optional and last: without an enabled writer the stage is exactly what it was.
-        IEnumerable<IMemoryWriter>? writers = null)
+        IEnumerable<IMemoryWriter>? writers = null,
+        // Optional: each leg's tier, logged once on the first write (AMREC001).
+        IMemoryTiers? tiers = null)
     {
         _writers = (writers ?? []).ToList().AsReadOnly();
+        _tiers = tiers as Tiers.MemoryTierReport;
         _entityExtractors = entityExtractors.ToList().AsReadOnly();
         _factExtractors = factExtractors.ToList().AsReadOnly();
         _preferenceExtractors = preferenceExtractors.ToList().AsReadOnly();
@@ -95,6 +99,7 @@ internal sealed class ExtractionStage : IExtractionStage
         UnifiedExtractionResult? preExtracted,
         CancellationToken cancellationToken)
     {
+        _tiers?.LogOnce(_logger);
         var messages = window.Targets;
 
         // Targets only, never the context (E2). A context turn in here would become an EXTRACTED_FROM
