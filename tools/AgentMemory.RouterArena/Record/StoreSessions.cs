@@ -55,9 +55,11 @@ public sealed class StoreSessions(TextWriter output)
     {
         // writer: the library with the store-aware writer (AMWRITE001, storage round 3's F ported) and the update judge
         // confirming its closings; the turn's earlier messages are its context, as the harness gave them.
-        if (form is not ("today" or "update-judge" or "update-judge-dream" or "writer"))
+        // writer-nojudge: the writer with no update judge (its closings are not applied); writer-hostjudge: the writer with the
+        // update judge's question asked of the host's chat model instead of JEV (HostModelUpdateJudge). PLAN 41.26 (c).
+        if (form is not ("today" or "update-judge" or "update-judge-dream" or "writer" or "writer-nojudge" or "writer-hostjudge"))
         {
-            output.WriteLine($"error: store-sessions: --form must be today, update-judge, update-judge-dream or writer (was {form})");
+            output.WriteLine($"error: store-sessions: --form must be today, update-judge, update-judge-dream, writer, writer-nojudge or writer-hostjudge (was {form})");
             return 1;
         }
         var pack = ValidationPackReader.ReadFile(packPath);
@@ -126,7 +128,8 @@ public sealed class StoreSessions(TextWriter output)
 #pragma warning disable AMWRITE001
         store.Options.Extraction.FallBackToExtractorsWhenWriterFails = false;
 #pragma warning restore AMWRITE001
-        services.AddNeo4jAgentMemory(store.Options, Neo4j, form == "writer" ? o => o.UseMemoryWriter = true : _ => { });
+        var writerForm = form.StartsWith("writer", StringComparison.Ordinal);
+        services.AddNeo4jAgentMemory(store.Options, Neo4j, writerForm ? o => o.UseMemoryWriter = true : _ => { });
         var usage = new UsageCountingChatClient(chat);
         services.AddSingleton<IChatClient>(usage);
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
@@ -144,6 +147,8 @@ public sealed class StoreSessions(TextWriter output)
             });
 #pragma warning restore AMGATE001
         }
+        if (form == "writer-hostjudge")
+            services.AddSingleton<IMemoryUpdateJudge>(new HostModelUpdateJudge(usage));
         await using var provider = services.BuildServiceProvider();
         var ownerId = store.Owner(owner);
         var tx = provider.GetRequiredService<INeo4jTransactionRunner>();
@@ -191,7 +196,7 @@ public sealed class StoreSessions(TextWriter output)
                     await pipeline.ExtractAsync(new ExtractionRequest
                     {
                         SessionId = sessionId, UserId = ownerId, Messages = [added[^1]],
-                        ContextMessages = form == "writer" ? added[..^1] : [],
+                        ContextMessages = writerForm ? added[..^1] : [],
                     }, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
