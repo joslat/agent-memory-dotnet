@@ -44,7 +44,7 @@ public sealed class SystemOneUpdateJudge : IMemoryUpdateJudge
     {
         ArgumentNullException.ThrowIfNull(request);
         var judge = _options.Value.Judges.First(j => j.Endpoint is not null);
-        return _client.AskAsync(judge, State(request), Questions(request), cancellationToken);
+        return _client.AskAsync(judge, State(request), Questions(request), _options.Value, cancellationToken);
     }
 
     internal static object State(MemoryUpdateRequest request) => new Dictionary<string, object?>

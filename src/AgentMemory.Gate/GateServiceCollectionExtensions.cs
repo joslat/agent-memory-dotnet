@@ -41,11 +41,13 @@ public static class GateServiceCollectionExtensions
             .Validate(o => Enum.IsDefined(o.Mode), "MemoryGateOptions.Mode must be Floor, Judge or Everything.")
             .Validate(o => o.Threshold is >= 0 and <= 1, "MemoryGateOptions.Threshold must be between 0 and 1.")
             .Validate(o => o.Timeout > TimeSpan.Zero, "MemoryGateOptions.Timeout must be positive.")
-            .Validate(o => o.WideLimit > 0, "MemoryGateOptions.WideLimit must be positive.");
-        services.TryAddSingleton(_ => new SystemOneClient(new HttpClient(new SocketsHttpHandler
+            .Validate(o => o.WideLimit > 0, "MemoryGateOptions.WideLimit must be positive.")
+            .Validate(o => o.JudgeFailuresBeforeCooldown >= 0, "MemoryGateOptions.JudgeFailuresBeforeCooldown must be 0 or more.")
+            .Validate(o => o.JudgeCooldown > TimeSpan.Zero, "MemoryGateOptions.JudgeCooldown must be positive.");
+        services.TryAddSingleton(sp => new SystemOneClient(new HttpClient(new SocketsHttpHandler
         {
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-        }) { Timeout = TimeSpan.FromSeconds(30) }));
+        }) { Timeout = TimeSpan.FromSeconds(30) }, sp.GetService<TimeProvider>(), sp.GetService<ILogger<SystemOneClient>>()));
         services.TryAddSingleton<IMemoryGate>(sp => new SystemOneMemoryGate(
             sp.GetRequiredService<SystemOneClient>(), sp.GetRequiredService<IOptions<MemoryGateOptions>>(),
             sp.GetService<ILogger<SystemOneMemoryGate>>() ?? NullLogger<SystemOneMemoryGate>.Instance,

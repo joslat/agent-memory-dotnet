@@ -81,8 +81,11 @@ services.AddAgentMemoryGate(configuration.GetSection(GateServiceCollectionExtens
 
 - **Never worse than the floor.** A judge that times out (`Timeout`) or fails, a kind no judge answered, or `Judge` with
   no judge configured: recall uses the floor and logs why. A judge that is down is left out of the blend (the weights
-  renormalise over those that answered), but it is still asked on every turn: a local judge that is not running costs
-  its connection failure each time (≈2 s on Windows), so configure only judges that run.
+  renormalise over those that answered). One that failed `JudgeFailuresBeforeCooldown` calls in a row (3) is not called
+  for `JudgeCooldown` (a minute), then asked once: an answer brings it back. So a local judge that is not running costs
+  its connection failure (≈2 s on Windows) three times, not on every turn. While every judge is out, recall takes the
+  floor (`floor (fallback)`, the reason naming the judge, the span's fallback `cooldown`) and the update judge closes
+  nothing. 0 asks every judge on every call. A recall cut by `Timeout` is not counted: the timeout already caps it.
 - **Said every time.** Each live recall's context carries a `MemoryGateTrace` in its metadata (`gate.trace`): the mode,
   what ran (`floor (fallback)` with its reason), and every memory considered with its probability and whether it went
   in. A `memory.gate` span carries the counts and the judges' time (`MemoryGateTelemetry`), never a memory's text. An

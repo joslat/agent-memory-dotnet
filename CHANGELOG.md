@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`memory.write.fallback`) and reported (`ExtractionStageResult.WriterFallbackReason`);
   `ExtractionOptions.FallBackToExtractorsWhenWriterFails = false` keeps the earlier behaviour (the turn stores nothing
   and its outcomes say why).
+- **A judge that keeps failing is left out for a cool-down** (`MemoryGateOptions.JudgeFailuresBeforeCooldown`, 3, and
+  `JudgeCooldown`, one minute; experimental `AMGATE001`). After three failed calls in a row the gate and the update judge
+  stop calling that judge for a minute, then ask it once: an answer brings it back. Meanwhile recall takes the similarity
+  floor when no judge is left and the update judge closes nothing; the log, the span (`memory.judge.cooldown`,
+  `memory.judge.skipped`, the gate's fallback `cooldown`) and `MemoryGateTrace` say so. Before, a judge that was down was
+  asked on every turn (a local judge not running cost about 2 s each time). 0 restores that.
 - **The Recommended preset** (experimental `AMREC001`): `MemoryOptions.CreateRecommended()` (the Conversational preset
   plus `Extraction.BitemporalChanges`), `LlmExtractionOptions.ApplyRecommended()` (the Conversational extraction half
   plus the store-aware writer) and `MemoryGateOptions.ApplyRecommended()` (the retrieval memory router and the update

@@ -111,6 +111,12 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
             _logger.LogWarning("Memory gate: {Reason}; recall falls back to the similarity floor.", reason);
         }
         catch (OperationCanceledException) { throw; }
+        catch (JudgeCoolingDownException ex)
+        {
+            reason = ex.Message;
+            span?.SetTag(MemoryGateTelemetry.Fallback, "cooldown");
+            _logger.LogDebug("Memory gate: {Reason}; recall takes the similarity floor.", reason);
+        }
         catch (Exception ex)
         {
             reason = ex.Message;

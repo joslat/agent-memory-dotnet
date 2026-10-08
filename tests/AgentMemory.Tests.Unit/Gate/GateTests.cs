@@ -386,4 +386,130 @@ public sealed class GateTests
         q.False.Should().Be("both hold as they are: they are about different things, or the stored memory is a dated past event or result that "
             + "stays true as history beside a separate new one (an earlier race, a trip already taken)");
     }
+
+    // ---- a judge that keeps failing is left out for a cool-down (41.26 b) ----
+
+    private sealed class ManualTime(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    private static readonly IReadOnlyDictionary<string, YesNo> OneQuestion = new Dictionary<string, YesNo>
+    {
+        ["m1"] = new("Should memory m1 be put in front of the assistant?", "yes", "no"),
+    };
+
+    [Fact]
+    public async Task A_judge_that_keeps_failing_is_left_out_for_its_cooldown_then_asked_once()
+    {
+        var up = false;
+        var server = new Server(call => up ? Answer(call, 0.7) : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var time = new ManualTime(new DateTimeOffset(2026, 10, 8, 23, 0, 0, TimeSpan.Zero));
+        var client = new SystemOneClient(new HttpClient(server), time);
+        var options = new MemoryGateOptions { JudgeFailuresBeforeCooldown = 3, JudgeCooldown = TimeSpan.FromMinutes(1) };
+        Task<IReadOnlyDictionary<string, double>> Ask() => client.AskAsync(Jev, new { turn = "t" }, OneQuestion, options, default);
+
+        for (var i = 0; i < 3; i++)
+            await FluentActions.Awaiting(Ask).Should().ThrowAsync<HttpRequestException>();
+        server.Calls.Should().HaveCount(6, "three calls, each retried once on a server failure");
+
+        (await FluentActions.Awaiting(Ask).Should().ThrowAsync<JudgeCoolingDownException>()).Which.Judge.Should().Be("jev");
+        server.Calls.Should().HaveCount(6, "a judge cooling down is not called");
+
+        time.Now += TimeSpan.FromSeconds(61);
+        up = true;
+        (await Ask())["m1"].Should().Be(0.7, "the one call after the cool-down goes through");
+        (await Ask())["m1"].Should().Be(0.7);
+        server.Calls.Should().HaveCount(8, "an answer brings the judge back to every call");
+    }
+
+    [Fact]
+    public async Task A_judge_that_fails_its_probe_is_left_out_for_another_cooldown()
+    {
+        var server = new Server(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var time = new ManualTime(new DateTimeOffset(2026, 10, 8, 23, 0, 0, TimeSpan.Zero));
+        var client = new SystemOneClient(new HttpClient(server), time);
+        var options = new MemoryGateOptions { JudgeFailuresBeforeCooldown = 2, JudgeCooldown = TimeSpan.FromMinutes(1) };
+        Task<IReadOnlyDictionary<string, double>> Ask() => client.AskAsync(Jev, new { turn = "t" }, OneQuestion, options, default);
+
+        for (var i = 0; i < 2; i++)
+            await FluentActions.Awaiting(Ask).Should().ThrowAsync<HttpRequestException>();
+        time.Now += TimeSpan.FromSeconds(61);
+        await FluentActions.Awaiting(Ask).Should().ThrowAsync<HttpRequestException>("the probe is a real call, and it fails");
+        await FluentActions.Awaiting(Ask).Should().ThrowAsync<JudgeCoolingDownException>("out again, for another minute");
+
+        server.Calls.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task With_no_cooldown_a_failing_judge_is_called_every_time_as_before()
+    {
+        var server = new Server(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var client = new SystemOneClient(new HttpClient(server));
+        var options = new MemoryGateOptions { JudgeFailuresBeforeCooldown = 0 };
+
+        for (var i = 0; i < 5; i++)
+            await FluentActions.Awaiting(() => client.AskAsync(Jev, new { turn = "t" }, OneQuestion, options, default))
+                .Should().ThrowAsync<HttpRequestException>();
+
+        server.Calls.Should().HaveCount(5);
+    }
+
+    [Fact]
+    public async Task While_every_judge_is_out_the_gate_says_so_and_recall_takes_the_floor()
+    {
+        var server = new Server(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var gateOptions = Options.Create(new MemoryGateOptions { Judges = [Jev], JudgeFailuresBeforeCooldown = 1 });
+        var gate = new SystemOneMemoryGate(new SystemOneClient(new HttpClient(server)), gateOptions, NullLogger<SystemOneMemoryGate>.Instance);
+        await gate.Invoking(g => g.DecideAsync(TwoTypes())).Should().ThrowAsync<Exception>(
+            "its first call fails for real (the second type's call, at once, may already find it out)");
+        var called = server.Calls.Count;
+
+        await gate.Invoking(g => g.DecideAsync(TwoTypes())).Should().ThrowAsync<JudgeCoolingDownException>();
+        server.Calls.Should().HaveCount(called, "a judge cooling down is not called");
+
+        var spans = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == AgentMemoryDiagnostics.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = a => { if (a.OperationName == MemoryGateTelemetry.Span) lock (spans) spans.Add(a); },
+        };
+        ActivitySource.AddActivityListener(listener);
+        var (assembler, _) = Sut(MemoryGateMode.Judge, new Judge((_, _) => throw new JudgeCoolingDownException("jev", DateTimeOffset.UnixEpoch)));
+
+        var context = await assembler.AssembleContextAsync(Request());
+
+        context.Metadata["gate"].Should().Be("floor (fallback)");
+        ((string)context.Metadata["gate.reason"]).Should().Contain("the judge 'jev' is left out until");
+        lock (spans) spans.Should().Contain(a => (string?)a.GetTagItem(MemoryGateTelemetry.Fallback) == "cooldown");
+    }
+
+    [Fact]
+    public async Task While_its_judge_is_out_the_update_judge_closes_nothing_and_the_judge_is_not_called()
+    {
+        var server = new Server(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var judge = new SystemOneUpdateJudge(new SystemOneClient(new HttpClient(server)),
+            Options.Create(new MemoryGateOptions { Judges = [Jev], UpdateJudge = true, JudgeFailuresBeforeCooldown = 1 }));
+        var request = new MemoryUpdateRequest("I'm not doing the 10k anymore", new DateTimeOffset(2026, 10, 3, 11, 0, 0, TimeSpan.Zero),
+            [new MemoryUpdatePair("p1", "Marta | is not doing | the 10k", "Marta | is running | the Lyon 10k")]);
+        await judge.Invoking(j => j.JudgeAsync(request)).Should().ThrowAsync<HttpRequestException>();
+
+        await judge.Invoking(j => j.JudgeAsync(request)).Should().ThrowAsync<JudgeCoolingDownException>(
+            "persistence catches it and closes nothing, as for any judge failure");
+        server.Calls.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void A_cooldown_must_be_positive_and_the_failure_count_not_negative()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IMemoryContextAssembler>(new Inner(Wide, Today));
+        services.AddAgentMemoryGate(o => { o.JudgeFailuresBeforeCooldown = -1; o.JudgeCooldown = TimeSpan.Zero; });
+        using var provider = services.BuildServiceProvider();
+
+        FluentActions.Invoking(() => provider.GetRequiredService<IOptions<MemoryGateOptions>>().Value)
+            .Should().Throw<OptionsValidationException>().WithMessage("*JudgeFailuresBeforeCooldown*");
+    }
 }

@@ -13,7 +13,8 @@ namespace AgentMemory.Gate;
 /// </summary>
 /// <remarks>
 /// A judge that fails is left out of the blend for that type (the weights renormalise over those that answered); when no
-/// judge answers a type, the decision fails as a whole and recall falls back to the similarity floor.
+/// judge answers a type, the decision fails as a whole and recall falls back to the similarity floor. A judge that keeps
+/// failing is left out without being called for a cool-down (<see cref="MemoryGateOptions.JudgeFailuresBeforeCooldown"/>).
 /// </remarks>
 [Experimental("AMGATE001")]
 public sealed class SystemOneMemoryGate : IMemoryGate
@@ -46,6 +47,7 @@ public sealed class SystemOneMemoryGate : IMemoryGate
         if (judges.Count == 0)
             throw new InvalidOperationException("The memory gate has no judge configured (MemoryGateOptions.Judges).");
         var neighbours = await NeighboursAsync(request.Turn, cancellationToken).ConfigureAwait(false);
+        var cooling = new System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         var byType = request.Candidates.GroupBy(c => c.MemoryType, StringComparer.Ordinal).ToList();
         var calls = byType.SelectMany(type =>
         {
@@ -55,7 +57,7 @@ public sealed class SystemOneMemoryGate : IMemoryGate
             var state = GatePrompt.State(request, type.Key, [.. memories.Select(m => (m.Key, m.Candidate.Text))], examples);
             var questions = GatePrompt.Questions(memories.Select(m => m.Key));
             return judges.Select(judge => (Judge: judge, Type: type.Key, Memories: memories,
-                Answer: AskOrNullAsync(judge, state, questions, cancellationToken)));
+                Answer: AskOrNullAsync(judge, state, questions, cooling, cancellationToken)));
         }).ToList();
         await Task.WhenAll(calls.Select(c => c.Answer)).ConfigureAwait(false);
 
@@ -65,7 +67,9 @@ public sealed class SystemOneMemoryGate : IMemoryGate
         {
             var answers = type.Where(c => c.Answer.Result is not null).ToList();
             if (answers.Count == 0)
-                throw new InvalidOperationException($"No judge answered for the memory type '{type.Key}'.");
+                throw cooling.Count == judges.Count
+                    ? new JudgeCoolingDownException(string.Join("+", cooling.Keys.Order(StringComparer.Ordinal)), cooling.Values.Min())
+                    : new InvalidOperationException($"No judge answered for the memory type '{type.Key}'.");
             var weight = answers.Sum(a => a.Judge.Weight);
             foreach (var (key, candidate) in type.First().Memories)
                 probabilities[candidate.Key] = answers.Sum(a => a.Judge.Weight * a.Answer.Result![key]) / weight;
@@ -74,14 +78,20 @@ public sealed class SystemOneMemoryGate : IMemoryGate
         return new MemoryGateDecision(probabilities, string.Join("+", answered.Order(StringComparer.Ordinal)));
     }
 
-    private async Task<IReadOnlyDictionary<string, double>?> AskOrNullAsync(
-        SystemOneEndpoint judge, object state, IReadOnlyDictionary<string, YesNo> questions, CancellationToken cancellationToken)
+    private async Task<IReadOnlyDictionary<string, double>?> AskOrNullAsync(SystemOneEndpoint judge, object state,
+        IReadOnlyDictionary<string, YesNo> questions, System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> cooling,
+        CancellationToken cancellationToken)
     {
         try
         {
-            return await _client.AskAsync(judge, state, questions, cancellationToken).ConfigureAwait(false);
+            return await _client.AskAsync(judge, state, questions, _options.Value, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (JudgeCoolingDownException ex)
+        {
+            cooling[judge.Name] = ex.Until;     // not called: the client warned once when it left the judge out
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "The judge '{Judge}' did not answer; it is left out of this blend.", judge.Name);
