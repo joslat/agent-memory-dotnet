@@ -271,17 +271,65 @@ public sealed class MemoryWriterTests
     }
 
     [Fact]
-    public async Task A_writer_that_throws_stores_nothing_and_says_why()
+    public async Task With_the_fallback_off_a_writer_that_throws_stores_nothing_and_says_why()
     {
+        var factExtractor = Substitute.For<IFactExtractor>();
         var writer = Substitute.For<IMemoryWriter>();
         writer.IsEnabled.Returns(true);
         writer.WriteAsync(Arg.Any<MemoryWriteRequest>(), Arg.Any<CancellationToken>())
             .Returns<UnifiedExtractionResult>(_ => throw new FormatException("no JSON"));
 
-        var result = await Stage([], [writer]).ExtractAsync([Msg("user", "We moved to Leoben last week.")], ExtractionTypes.All);
+        var result = await Stage([factExtractor], [writer], fallBack: false)
+            .ExtractAsync([Msg("user", "We moved to Leoben last week.")], ExtractionTypes.All);
 
         result.FilteredFacts.Should().BeEmpty();
+        result.WriterFallbackReason.Should().BeNull();
         result.Outcomes.Should().Contain(o => o.Status == IngestionItemStatus.Failed && o.ErrorMessage == "no JSON");
+        await factExtractor.DidNotReceiveWithAnyArgs().ExtractAsync(default!, default);
+    }
+
+    [Theory]
+    [InlineData("no JSON")]          // the model answered without JSON, twice
+    [InlineData("timed out")]        // the chat client's own timeout: a cancellation the caller did not ask for
+    public async Task A_writer_that_fails_hands_the_turn_to_the_extractors(string failure)
+    {
+        var factExtractor = Substitute.For<IFactExtractor>();
+        factExtractor.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ExtractedFact> { new() { Subject = "user", Predicate = "lives in", Object = "Leoben" } });
+        var writer = Substitute.For<IMemoryWriter>();
+        writer.IsEnabled.Returns(true);
+        writer.WriteAsync(Arg.Any<MemoryWriteRequest>(), Arg.Any<CancellationToken>()).Returns<UnifiedExtractionResult>(_ =>
+            throw (failure == "timed out" ? new TaskCanceledException(failure) : new FormatException(failure)));
+        using var span = new System.Diagnostics.Activity("turn").Start();
+
+        var result = await Stage([factExtractor], [writer]).ExtractAsync([Msg("user", "We moved to Leoben last week.")], ExtractionTypes.All);
+
+        result.WrittenByWriter.Should().BeFalse("the turn is persisted as an extractor turn");
+        result.FilteredFacts.Should().ContainSingle().Which.Object.Should().Be("Leoben");
+        result.WriterFallbackReason.Should().Be(failure);
+        result.Outcomes.Should().NotContain(o => o.Status == IngestionItemStatus.Failed);
+        span.GetTagItem("memory.write.fallback").Should().Be("extractors");
+        span.Events.Should().ContainSingle(e => e.Name == "memory.write.fallback");
+    }
+
+    [Fact]
+    public async Task A_turn_the_caller_cancels_is_not_handed_to_the_extractors()
+    {
+        var factExtractor = Substitute.For<IFactExtractor>();
+        using var cancel = new CancellationTokenSource();
+        var writer = Substitute.For<IMemoryWriter>();
+        writer.IsEnabled.Returns(true);
+        writer.WriteAsync(Arg.Any<MemoryWriteRequest>(), Arg.Any<CancellationToken>()).Returns<UnifiedExtractionResult>(call =>
+        {
+            cancel.Cancel();
+            throw new OperationCanceledException(call.Arg<CancellationToken>());
+        });
+
+        var act = () => Stage([factExtractor], [writer]).ExtractAsync([Msg("user", "We moved to Leoben last week.")], ExtractionTypes.All,
+            cancellationToken: cancel.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        await factExtractor.DidNotReceiveWithAnyArgs().ExtractAsync(default!, default);
     }
 
     [Theory]
@@ -303,9 +351,9 @@ public sealed class MemoryWriterTests
         await writer.DidNotReceiveWithAnyArgs().WriteAsync(default!, default);
     }
 
-    private static ExtractionStage Stage(IFactExtractor[] factExtractors, IMemoryWriter[] writers) =>
+    private static ExtractionStage Stage(IFactExtractor[] factExtractors, IMemoryWriter[] writers, bool fallBack = true) =>
         new([], factExtractors, [], [], [], Substitute.For<IEntityResolver>(),
-            Options.Create(new ExtractionOptions { FailureMode = IngestionFailureMode.BestEffort }),
+            Options.Create(new ExtractionOptions { FailureMode = IngestionFailureMode.BestEffort, FallBackToExtractorsWhenWriterFails = fallBack }),
             NullLogger<ExtractionStage>.Instance, writers);
 
     private static Message Msg(string role, string text) => new()

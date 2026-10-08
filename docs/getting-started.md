@@ -413,7 +413,10 @@ What it adds to the Conversational preset:
 - **The store-aware writer** (`LlmExtractionOptions.UseMemoryWriter`, `AMWRITE001`): each turn is written by one call
   that sees the owner's most relevant stored memories and proposes only what is new, what replaces or corrects a stored
   memory, or nothing. On two fresh twelve-session worlds, 90.8% and 87.8% of what it stored was right, against 42.3% and
-  39.1% for the extractors on the same turns.
+  39.1% for the extractors on the same turns. When its call fails (the model is down, times out, or answers without
+  JSON twice), the extractors write that turn instead, and the warning, the extraction span (`memory.write.fallback`)
+  and `ExtractionStageResult.WriterFallbackReason` say so; `Extraction.FallBackToExtractorsWhenWriterFails = false`
+  stores nothing for such a turn and records the error instead.
 - **Bitemporal changes** (`Extraction.BitemporalChanges`): a question about the past keeps the value that was true then.
   The writer was measured with it on.
 - **With a judge endpoint** (`AgentMemory.Gate`, `AMGATE001`): the update judge confirms the writer's closings, and the

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -146,6 +147,30 @@ internal sealed class ExtractionStage : IExtractionStage
                 messages.Count(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase)));
             writer = null;
         }
+        // The writer is asked first; when its call fails and the fallback is on, the turn goes on to the extractors below as if
+        // no writer were enabled (and is persisted as an extractor turn): the step down is logged, tagged and reported.
+        (UnifiedExtractionResult Result, IReadOnlyList<IngestionItemOutcome> Outcomes)? written = null;
+        string? writerFallback = null;
+        if (preExtracted is null && writer is not null)
+        {
+            var attempt = await WriteSafeAsync(writer, window, scope, typesToExtract, cancellationToken).ConfigureAwait(false);
+            if (attempt.Outcomes.Count > 0 && _options.FallBackToExtractorsWhenWriterFails)
+            {
+                writerFallback = attempt.Outcomes[0].ErrorMessage ?? "the memory writer failed";
+                _logger.LogWarning(
+                    "The memory writer failed ({Reason}); the extractors write this turn instead.", writerFallback);
+                Activity.Current?.SetTag("memory.write.fallback", "extractors");
+                Activity.Current?.AddEvent(new ActivityEvent("memory.write.fallback", tags: new ActivityTagsCollection
+                {
+                    ["memory.write.fallback.to"] = "extractors", ["memory.write.fallback.reason"] = writerFallback,
+                }));
+                writer = null;
+            }
+            else
+            {
+                written = attempt;
+            }
+        }
         if (preExtracted is not null)
         {
             entityRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Entities) ? preExtracted.Entities : []);
@@ -153,14 +178,13 @@ internal sealed class ExtractionStage : IExtractionStage
             prefRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Preferences) ? preExtracted.Preferences : []);
             relRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Relationships) ? preExtracted.Relationships : []);
         }
-        else if (writer is not null)
+        else if (written is { } w)
         {
-            var written = await WriteSafeAsync(writer, window, scope, typesToExtract, cancellationToken).ConfigureAwait(false);
-            unifiedOutcomes = written.Outcomes;
-            entityRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Entities) ? written.Result.Entities : []);
-            factRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Facts) ? written.Result.Facts : []);
-            prefRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Preferences) ? written.Result.Preferences : []);
-            relRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Relationships) ? written.Result.Relationships : []);
+            unifiedOutcomes = w.Outcomes;
+            entityRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Entities) ? w.Result.Entities : []);
+            factRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Facts) ? w.Result.Facts : []);
+            prefRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Preferences) ? w.Result.Preferences : []);
+            relRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Relationships) ? w.Result.Relationships : []);
         }
         else if (unifiedExtractor is not null)
         {
@@ -429,6 +453,7 @@ internal sealed class ExtractionStage : IExtractionStage
             PreferenceExtractorCount = _preferenceExtractors.Count,
             RelationshipExtractorCount = _relationshipExtractors.Count,
             WrittenByWriter = writer is not null,
+            WriterFallbackReason = writerFallback,
             Outcomes = outcomes
         };
     }

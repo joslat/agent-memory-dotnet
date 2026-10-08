@@ -58,6 +58,12 @@ internal sealed record ExtractionStageResult
     public bool WrittenByWriter { get; init; }
 
     /// <summary>
+    /// Why the extractors wrote this turn instead of an enabled store-aware writer, when its call failed and
+    /// <see cref="AgentMemory.Abstractions.Options.ExtractionOptions.FallBackToExtractorsWhenWriterFails"/> is on (the writer's error); null otherwise.
+    /// </summary>
+    public string? WriterFallbackReason { get; init; }
+
+    /// <summary>
     /// Item outcomes recorded during this stage (extractor failures, validation/resolution
     /// failures and skips) -- see <see cref="IngestionItemOutcome"/> (#101). Carried forward and
     /// appended to by <see cref="IPersistenceStage"/>.

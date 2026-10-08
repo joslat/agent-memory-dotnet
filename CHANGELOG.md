@@ -12,7 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of one user message is written by one call that sees the owner's most relevant stored memories and proposes only what
   is new, what replaces or corrects a stored memory (naming it), or nothing; its closings apply only when the update
   judge confirms them (`ExtractionOptions.NamedClosingThreshold`, 0.60). Measured on two fresh twelve-session worlds:
-  90.8% and 87.8% of what it stored was right, against the extractors' 42.3% and 39.1%.
+  90.8% and 87.8% of what it stored was right, against the extractors' 42.3% and 39.1%. A turn whose writer call fails
+  is written by the extractors instead, and the step down is logged, tagged on the extraction span
+  (`memory.write.fallback`) and reported (`ExtractionStageResult.WriterFallbackReason`);
+  `ExtractionOptions.FallBackToExtractorsWhenWriterFails = false` keeps the earlier behaviour (the turn stores nothing
+  and its outcomes say why).
 - **The Recommended preset** (experimental `AMREC001`): `MemoryOptions.CreateRecommended()` (the Conversational preset
   plus `Extraction.BitemporalChanges`), `LlmExtractionOptions.ApplyRecommended()` (the Conversational extraction half
   plus the store-aware writer) and `MemoryGateOptions.ApplyRecommended()` (the retrieval memory router and the update

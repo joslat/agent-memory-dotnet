@@ -329,6 +329,17 @@ public sealed class ExtractionOptions
     [Experimental("AMWRITE001")]
     public double NamedClosingThreshold { get; set; } = 0.60;
 
+    /// <summary>
+    /// What a turn gets when the store-aware writer's call fails (<see cref="Services.IMemoryWriter"/>, AMWRITE001): true by
+    /// default, the extractors write that turn as they would without a writer, so a model that is down, slow or answers
+    /// without JSON costs the turn its writer, never its memory. The step down is logged as a warning, tagged on the
+    /// extraction span (<c>memory.write.fallback</c>) and reported on the stage's result; the turn is then persisted as an
+    /// extractor turn. False: the turn stores nothing and its outcomes say why (the behaviour before 2026-10-08; a
+    /// measurement that must see every writer failure uses it).
+    /// </summary>
+    [Experimental("AMWRITE001")]
+    public bool FallBackToExtractorsWhenWriterFails { get; set; } = true;
+
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>

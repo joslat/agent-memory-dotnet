@@ -121,6 +121,11 @@ public sealed class StoreSessions(TextWriter output)
         var services = new ServiceCollection();
         services.AddLogging(ArenaLogging.Console);
         services.AddSingleton<IClock>(clock);
+        // A measurement sees every writer failure: the turn stores nothing and its error is recorded, never handed to the
+        // extractors (the library's default since 2026-10-08), so a run with a failed turn is visible and is run again.
+#pragma warning disable AMWRITE001
+        store.Options.Extraction.FallBackToExtractorsWhenWriterFails = false;
+#pragma warning restore AMWRITE001
         services.AddNeo4jAgentMemory(store.Options, Neo4j, form == "writer" ? o => o.UseMemoryWriter = true : _ => { });
         var usage = new UsageCountingChatClient(chat);
         services.AddSingleton<IChatClient>(usage);
