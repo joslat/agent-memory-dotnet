@@ -122,7 +122,8 @@ public sealed class StoreSessions(TextWriter output)
         services.AddLogging(ArenaLogging.Console);
         services.AddSingleton<IClock>(clock);
         services.AddNeo4jAgentMemory(store.Options, Neo4j, form == "writer" ? o => o.UseMemoryWriter = true : _ => { });
-        services.AddSingleton(chat);
+        var usage = new UsageCountingChatClient(chat);
+        services.AddSingleton<IChatClient>(usage);
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
         if (form is "update-judge" or "update-judge-dream" or "writer")
         {
@@ -163,6 +164,8 @@ public sealed class StoreSessions(TextWriter output)
             clock.Now = at;
             var sessionId = $"{set}-{owner}-s{turn.Session:00}";
             string? error = null;
+            var (calls0, input0, output0) = usage.Snapshot();
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             using (var scope = provider.CreateScope())
             {
                 var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
@@ -190,8 +193,12 @@ public sealed class StoreSessions(TextWriter output)
                     error = $"{ex.GetType().Name}: {ex.Message}";
                 }
             }
+            watch.Stop();
+            var (calls1, input1, output1) = usage.Snapshot();
+            // The turn's cost: the chat model's calls and tokens (the update judge is not a chat client: its time is in ms).
+            var cost = new { calls = calls1 - calls0, inputTokens = input1 - input0, outputTokens = output1 - output0, ms = watch.ElapsedMilliseconds };
             var written = await AtAsync(tx, ownerId, at, cancellationToken).ConfigureAwait(false);
-            results.Add(new { turn = turn.Id, session = turn.Session, at, text = turn.Text, written, error });
+            results.Add(new { turn = turn.Id, session = turn.Session, at, text = turn.Text, written, error, cost });
             output.WriteLine($"  {i + 1}/{turns.Count} {turn.Id}: {written.Count} written or closed{(error is null ? "" : $" ({error[..Math.Min(80, error.Length)]})")}");
             var lastOfSession = i == turns.Count - 1 || turns[i + 1].Session != turn.Session;
             if (lastOfSession)
