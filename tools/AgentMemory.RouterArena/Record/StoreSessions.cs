@@ -335,7 +335,7 @@ public sealed class StoreSessions(TextWriter output)
     private static Task<List<Dictionary<string, object?>>> LiveAsync(INeo4jTransactionRunner tx, string ownerId, CancellationToken ct) =>
         QueryAsync(tx, LiveCypher, new Dictionary<string, object?> { ["owner"] = ownerId }, ct);
 
-    private static Task<List<Dictionary<string, object?>>> QueryAsync(INeo4jTransactionRunner tx, string[] cyphers,
+    internal static Task<List<Dictionary<string, object?>>> QueryAsync(INeo4jTransactionRunner tx, string[] cyphers,
         Dictionary<string, object?> parameters, CancellationToken cancellationToken) =>
         tx.ReadAsync(async runner =>
         {

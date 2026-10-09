@@ -322,6 +322,17 @@ switch (args.FirstOrDefault())
         return await new AgentMemory.RouterArena.Record.StoreJar(Console.Out).RunAsync(Get("world") ?? Path.Combine(fixtures, "world.pack.json"), picked,
             Get("out") ?? Path.Combine(runs, "store-jar.json"), dryRun, Get("owner") ?? "marta");
     }
+    case "halumem":
+    {
+        // HaluMem (strategy/memoryrouter/halumem-plan.md): one person's sessions through the Recommended preset; what each
+        // session stored and what recall returns for its update points and questions. --person N (1-based), --sessions a-b.
+        var range = (Get("sessions") ?? "1-10").Split('-');
+        var person = int.Parse(Get("person") ?? "1", CultureInfo.InvariantCulture);
+        return await new AgentMemory.RouterArena.Record.HaluMemSessions(Console.Out).RunAsync(
+            Get("halumem") ?? Path.Combine(strategy, "performance", "fixtures", "halumem", "HaluMem-Medium.jsonl"), person,
+            int.Parse(range[0], CultureInfo.InvariantCulture), int.Parse(range[^1], CultureInfo.InvariantCulture),
+            Get("out") ?? Path.Combine(strategy, "performance", "runs", "halumem", $"halumem-p{person:00}.json"), dryRun);
+    }
     case "store-sessions":
     {
         // A world through the library (world3-design.md): one store, every turn in order at its session's date. --set w3 (default)
