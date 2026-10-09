@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`memory.write.fallback`) and reported (`ExtractionStageResult.WriterFallbackReason`);
   `ExtractionOptions.FallBackToExtractorsWhenWriterFails = false` keeps the earlier behaviour (the turn stores nothing
   and its outcomes say why).
+- **The host's chat model as the update judge's second tier** (`LlmExtractionOptions.ChatModelUpdateJudge`,
+  `IMemoryUpdateJudgeFallback`; experimental `AMWRITE001`; on in the Recommended preset): the closings the store-aware
+  writer names are confirmed by the host's chat model, asked the gate's question word for word, when no outside judge
+  answers (none registered, switched off, or it fails). Measured on world 6, three store runs each: stale values 0.33 a
+  store against JEV's 0.33, complete recall 76.4% against 75.0%, precision 97.7% against 97.9%, for about 0.2 chat calls
+  a turn more; with no judge at all, 16 replaced values a store stay live. The extractors' similarity path keeps its own
+  judge.
 - **Each leg of memory says the tier it runs at** (`IMemoryTiers`, `IMemoryTierSource`, `MemoryTier`; experimental
   `AMREC001`): storage (the writer with or without the update judge, or the extractors, and what a failed writer call
   falls back to), retrieval (the gate's judges, or the similarity floor and why) and dreaming (off). Logged once on the

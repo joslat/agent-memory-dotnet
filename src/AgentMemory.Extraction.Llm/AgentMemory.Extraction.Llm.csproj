@@ -15,7 +15,7 @@
     <Description>LLM-based structured extraction backend for AgentMemory for .NET — extracts entities, relationships, facts, and preferences from conversations.</Description>
     <PackageTags>agent-memory;extraction;llm;ai;memory;neo4j</PackageTags>
     <!-- The store-aware writer seam (IMemoryWriter) is experimental (AMWRITE001); this package implements it. -->
-    <NoWarn>$(NoWarn);AMWRITE001</NoWarn>
+    <NoWarn>$(NoWarn);AMWRITE001;AMGATE001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />

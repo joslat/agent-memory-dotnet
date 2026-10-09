@@ -45,3 +45,15 @@ public interface IMemoryWriter
 /// none shared), and with no owner only the ownerless ones; it can close only the owner's own.</param>
 [Experimental("AMWRITE001")]
 public sealed record MemoryWriteRequest(ExtractionWindow Window, MemoryScope? Scope);
+
+/// <summary>
+/// An update judge asked only when the registered <see cref="IMemoryUpdateJudge"/> is missing, switched off, or fails (an
+/// outside judge that is down, or left out after repeated failures), and only for the closings a store-aware writer names:
+/// the write path's second tier. Measured (strategy PLAN 41.26 (c), world 6, three store runs each): the host's chat model
+/// asked the gate's question confirmed the writer's closings as JEV did (stale values 0.33 a store against 0.33, complete
+/// recall 76.4% against 75.0%, precision 97.7% against 97.9%); with no judge at all, 16 replaced values a store stayed live.
+/// </summary>
+[Experimental("AMWRITE001")]
+public interface IMemoryUpdateJudgeFallback : IMemoryUpdateJudge
+{
+}

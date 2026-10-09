@@ -17,13 +17,18 @@ internal sealed class StorageTierSource(IServiceScopeFactory scopes, IOptions<Ex
         using var scope = scopes.CreateScope();
         var writer = scope.ServiceProvider.GetServices<IMemoryWriter>().Any(w => w.IsEnabled);
         var judge = scope.ServiceProvider.GetService<IMemoryUpdateJudge>() is { IsEnabled: true };
+        var hostJudge = scope.ServiceProvider.GetService<IMemoryUpdateJudgeFallback>() is { IsEnabled: true };
         var fallback = extraction.Value.FallBackToExtractorsWhenWriterFails
             ? "a failed writer call falls back to the extractors"
             : "a failed writer call stores nothing";
         if (writer)
-            return judge
-                ? new MemoryTier(MemoryTiers.Storage, "writer + update judge", fallback)
-                : new MemoryTier(MemoryTiers.Storage, "writer", $"no update judge, so the writer's closings are not applied; {fallback}");
+            return (judge, hostJudge) switch
+            {
+                (true, true) => new MemoryTier(MemoryTiers.Storage, "writer + update judge", $"the host's chat model judges if it fails; {fallback}"),
+                (true, false) => new MemoryTier(MemoryTiers.Storage, "writer + update judge", fallback),
+                (false, true) => new MemoryTier(MemoryTiers.Storage, "writer + the host's chat model as judge", fallback),
+                _ => new MemoryTier(MemoryTiers.Storage, "writer", $"no update judge, so the writer's closings are not applied; {fallback}"),
+            };
         return new MemoryTier(MemoryTiers.Storage, judge ? "extractors + update judge" : "extractors");
     }
 }

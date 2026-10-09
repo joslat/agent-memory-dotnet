@@ -374,6 +374,7 @@ public sealed class PersistenceStageMemoryWriterTests
     private readonly IClock _clock = Substitute.For<IClock>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
     private readonly IMemoryUpdateJudge _judge = Substitute.For<IMemoryUpdateJudge>();
+    private readonly IMemoryUpdateJudgeFallback _host = Substitute.For<IMemoryUpdateJudgeFallback>();
 
     private static readonly Fact Graz = new()
     {
@@ -393,12 +394,66 @@ public sealed class PersistenceStageMemoryWriterTests
             .Returns(true);
         _idGen.GenerateId().Returns("fact-new");
         _judge.IsEnabled.Returns(true);
+        _host.IsEnabled.Returns(true);
     }
 
-    private PersistenceStage CreateSut(bool withJudge = true, bool bitemporal = false) =>
+    private PersistenceStage CreateSut(bool withJudge = true, bool bitemporal = false, bool withHost = false) =>
         new(_orchestrator, _entityRepo, _factRepo, _prefRepo, _relRepo, _clock, _idGen, NullLogger<PersistenceStage>.Instance,
             new PassThroughMemoryPersistenceTransaction(), Options.Create(new ExtractionOptions { BitemporalChanges = bitemporal }),
-            updateJudge: withJudge ? _judge : null);
+            updateJudge: withJudge ? _judge : null, fallbackJudge: withHost ? _host : null);
+
+    private void HostSays(double p) =>
+        _host.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => (IReadOnlyDictionary<string, double>)ci.Arg<MemoryUpdateRequest>().Pairs.ToDictionary(x => x.Key, _ => p));
+
+    [Fact]
+    public async Task When_the_update_judge_fails_the_host_model_judges_the_named_closing()
+    {
+        _judge.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyDictionary<string, double>>(_ => throw new HttpRequestException("the judge is down"));
+        HostSays(1.0);
+
+        await CreateSut(withHost: true).PersistAsync(MovedToLeoben(), ownerId: "lukas");
+
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _host.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Named), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Without_an_outside_judge_the_host_model_judges_the_named_closing()
+    {
+        HostSays(1.0);
+
+        await CreateSut(withJudge: false, withHost: true).PersistAsync(MovedToLeoben(), ownerId: "lukas");
+
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task When_the_update_judge_answers_the_host_model_is_not_asked()
+    {
+        JudgeSays(0.91);
+
+        await CreateSut(withHost: true).PersistAsync(MovedToLeoben(), ownerId: "lukas");
+
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _host.DidNotReceiveWithAnyArgs().JudgeAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task The_host_model_judges_only_the_writer_s_closings_as_measured()
+    {
+        HostSays(1.0);
+        var extractorTurn = new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "We moved to Leoben.",
+            FilteredFacts = [new ExtractedFact { Subject = "Lukas", Predicate = "lives in", Object = "Leoben" }],
+        };
+
+        await CreateSut(withJudge: false, withHost: true).PersistAsync(extractorTurn, ownerId: "lukas");
+
+        await _host.DidNotReceiveWithAnyArgs().JudgeAsync(default!, default);
+    }
 
     private static ExtractionStageResult MovedToLeoben(bool correction = false) => new()
     {
@@ -561,5 +616,45 @@ public sealed class PersistenceStageMemoryWriterTests
         }, ownerId: "lukas");
 
         await _prefRepo.Received(1).SupersedeAsync("pref-tea", "pref-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+}
+
+/// <summary>41.26 (c): the update judge's question asked of the host's chat model, the gate's words, for the writer's closings.</summary>
+public sealed class ChatModelUpdateJudgeTests
+{
+    [Fact]
+    public void Its_question_is_the_gate_s_word_for_word()
+    {
+        ChatModelUpdateJudge.Criteria.Should().Be(AgentMemory.Gate.SystemOneUpdateJudge.Criteria);
+        ChatModelUpdateJudge.NamedCriteria.Should().Be(AgentMemory.Gate.SystemOneUpdateJudge.NamedCriteria);
+    }
+
+    [Fact]
+    public void A_yes_is_one_a_no_is_zero_and_an_answer_without_json_confirms_nothing()
+    {
+        var verdicts = ChatModelUpdateJudge.Parse("Here you go: {\"p1\": \"yes\", \"p2\": \"No.\"}", ["p1", "p2", "p3"]);
+
+        verdicts.Should().BeEquivalentTo(new Dictionary<string, double> { ["p1"] = 1.0, ["p2"] = 0.0 });
+        ChatModelUpdateJudge.Parse("I think the first one replaces it.", ["p1"]).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void The_named_question_reaches_the_model_with_both_memories()
+    {
+        var request = new MemoryUpdateRequest("We finally moved to Leoben.", new DateTimeOffset(2027, 3, 5, 19, 0, 0, TimeSpan.Zero),
+            [new MemoryUpdatePair("p1", "Lukas | lives in | Leoben", "Lukas | lives in | Graz")]) { Named = true };
+
+        var messages = ChatModelUpdateJudge.Messages(request);
+
+        messages[0].Text.Should().Contain(ChatModelUpdateJudge.NamedCriteria.True).And.Contain(ChatModelUpdateJudge.NamedCriteria.False);
+        messages[1].Text.Should().Contain("p1: Does the new memory \"Lukas | lives in | Leoben\" replace this stored one: \"Lukas | lives in | Graz\"?")
+            .And.Contain("What the person said: We finally moved to Leoben.");
+    }
+
+    [Fact]
+    public void The_recommended_preset_turns_it_on()
+    {
+        new LlmExtractionOptions().ApplyRecommended().ChatModelUpdateJudge.Should().BeTrue();
+        new LlmExtractionOptions().ChatModelUpdateJudge.Should().BeFalse();
     }
 }

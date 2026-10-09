@@ -88,7 +88,8 @@ public sealed class MemoryGateOptions
     /// Whether the write path asks the first judge whether each new fact or preference replaces a stored one
     /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.65), and, with the store-aware writer (AMWRITE001), whether each
     /// closing it names is one (<c>ExtractionOptions.NamedClosingThreshold</c>, 0.60). Off: the write path without a judge,
-    /// and the writer's closings are not applied.
+    /// and the writer's closings are not applied unless the host's chat model judges them
+    /// (<c>LlmExtractionOptions.ChatModelUpdateJudge</c>, which also steps in when this judge fails).
     /// </summary>
     public bool UpdateJudge { get; set; }
 
@@ -108,7 +109,8 @@ public sealed class MemoryGateOptions
     /// The gate's half of the Recommended preset (<c>MemoryOptions.CreateRecommended()</c>): the judge fills the prompt
     /// (<see cref="MemoryGateMode.Judge"/>) and the write path asks it about replacements and the writer's closings
     /// (<see cref="UpdateJudge"/>). The judges themselves are the host's to add (<see cref="Judges"/>, or the configuration
-    /// section): with none, recall falls back to <see cref="MemoryGateMode.Floor"/> and nothing is closed by a judge.
+    /// section): with none, recall falls back to <see cref="MemoryGateMode.Floor"/>, and the writer's closings are confirmed
+    /// by the host's chat model when the extraction half of the preset is on (<c>LlmExtractionOptions.ApplyRecommended()</c>).
     /// Returns this instance.
     /// </summary>
     public MemoryGateOptions ApplyRecommended()

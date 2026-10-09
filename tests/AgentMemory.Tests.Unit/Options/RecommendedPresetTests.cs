@@ -43,9 +43,12 @@ public sealed class RecommendedPresetTests
 
         options.ApplyRecommended().Should().BeSameAs(options, "it composes inside a configure lambda");
         options.UseMemoryWriter.Should().BeTrue();
-        options.Should().BeEquivalentTo(new LlmExtractionOptions().ApplyConversational(), o => o.Excluding(x => x.UseMemoryWriter),
+        options.ChatModelUpdateJudge.Should().BeTrue("the writer's closings are confirmed by the host's chat model when no outside judge answers (41.26 c)");
+        options.Should().BeEquivalentTo(new LlmExtractionOptions().ApplyConversational(),
+            o => o.Excluding(x => x.UseMemoryWriter).Excluding(x => x.ChatModelUpdateJudge),
             "the windows the writer does not take go to the extractors as the Conversational preset configures them");
         new LlmExtractionOptions().ApplyConversational().UseMemoryWriter.Should().BeFalse();
+        new LlmExtractionOptions().ApplyConversational().ChatModelUpdateJudge.Should().BeFalse();
     }
 
     [Fact]

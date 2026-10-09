@@ -62,6 +62,16 @@ public sealed class MemoryTiersTests
             + "retrieval: similarity floor (Judge mode has no judge configured); dreaming: off");
 
     [Fact]
+    public void Without_an_outside_judge_the_host_model_judges_and_storage_s_tier_says_so() =>
+        Tiers(s =>
+        {
+            Writer(s);
+            var host = Substitute.For<IMemoryUpdateJudgeFallback>();
+            host.IsEnabled.Returns(true);
+            s.AddSingleton(host);
+        }).Line().Should().StartWith("storage: writer + the host's chat model as judge (a failed writer call falls back to the extractors); ");
+
+    [Fact]
     public async Task A_judge_left_out_after_repeated_failures_shows_in_retrieval_s_tier()
     {
         var client = new SystemOneClient(new HttpClient(new Down()));

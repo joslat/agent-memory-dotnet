@@ -177,6 +177,16 @@ public sealed class LlmExtractionOptions
     [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
     public bool UseMemoryWriter { get; set; }
 
+    /// <summary>
+    /// The writer's closings confirmed by this chat model when no outside update judge answers (none registered or enabled,
+    /// or the registered one fails): the gate's question, answered yes or no per closing (default false; on in the
+    /// Recommended preset). Measured on world 6 (strategy PLAN 41.26 (c)): as good as JEV (stale values 0.33 a store against
+    /// 0.33, precision 97.7% against 97.9%) for about 0.2 chat calls a turn more; with no judge, 16 replaced values a store
+    /// stay live. Asked only for the closings the writer names, as measured; the extractors' path keeps its own judge.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
+    public bool ChatModelUpdateJudge { get; set; }
+
     /// <summary>How many stored memories the writer is shown by meaning (the people the turn names and what mentions them
     /// come first, up to six more). 14, as measured.</summary>
     [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
@@ -280,8 +290,8 @@ public sealed class LlmExtractionOptions
     /// (<see cref="UseMemoryWriter"/>, AMWRITE001) for each turn of one user message. Returns this instance.
     /// </summary>
     /// <remarks>
-    /// The writer's closings apply only when the update judge is registered and confirms them
-    /// (<c>MemoryGateOptions.ApplyRecommended()</c>). Its contents may change before 2.0.
+    /// The writer's closings are confirmed by the update judge when one is registered (<c>MemoryGateOptions.ApplyRecommended()</c>),
+    /// and by this chat model when none answers (<see cref="ChatModelUpdateJudge"/>, on here). Its contents may change before 2.0.
     /// </remarks>
     [System.Diagnostics.CodeAnalysis.Experimental("AMREC001")]
     public LlmExtractionOptions ApplyRecommended()
@@ -289,6 +299,7 @@ public sealed class LlmExtractionOptions
         ApplyConversational();
 #pragma warning disable AMWRITE001 // The preset is how the writer is meant to be turned on; it is experimental itself.
         UseMemoryWriter = true;
+        ChatModelUpdateJudge = true;
 #pragma warning restore AMWRITE001
         return this;
     }

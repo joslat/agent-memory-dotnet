@@ -70,6 +70,8 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IMultiSessionUnifiedMemoryExtractor, LlmMultiSessionUnifiedMemoryExtractor>();
         // AMWRITE001. Registered always, asked only when UseMemoryWriter is on: it reads the store only when asked.
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IMemoryWriter, LlmMemoryWriter>());
+        // AMWRITE001. The update judge's second tier, asked only when ChatModelUpdateJudge is on and no outside judge answers.
+        services.TryAddScoped<IMemoryUpdateJudgeFallback, ChatModelUpdateJudge>();
 
         return services;
     }

@@ -29,6 +29,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private readonly ILogger<PersistenceStage> _logger;
     private readonly WorkingMemoryRebuilder _rebuilder;
     private readonly IMemoryUpdateJudge? _updateJudge;
+    private readonly IMemoryUpdateJudgeFallback? _fallbackJudge;
 
     public PersistenceStage(
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -46,9 +47,13 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         IWorkingMemoryService? workingMemory = null,
         IOptions<MemoryOptions>? memoryOptions = null,
         // 41.06. Optional and last for the same reason: without a judge the write path is exactly what it was.
-        IMemoryUpdateJudge? updateJudge = null)
+        IMemoryUpdateJudge? updateJudge = null,
+        // AMWRITE001, 41.26 (c). Optional and last: asked for the writer's named closings only when the judge above is
+        // missing, off or fails.
+        IMemoryUpdateJudgeFallback? fallbackJudge = null)
     {
         _updateJudge = updateJudge;
+        _fallbackJudge = fallbackJudge;
         _embeddingOrchestrator = embeddingOrchestrator;
         _entityRepository = entityRepository;
         _factRepository = factRepository;
@@ -114,6 +119,33 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     /// whether the new one replaces the stored one, and a stored memory is closed, as a change, at
     /// <see cref="ExtractionOptions.UpdateJudgeThreshold"/>. A failing judge closes nothing.
     /// </summary>
+    /// <summary>
+    /// The writer's named closings asked of the update judge, and of its second tier (<see cref="IMemoryUpdateJudgeFallback"/>)
+    /// when that judge is missing, off or fails (an outside judge down or left out after failures): the step down is logged.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, double>> JudgeNamedAsync(MemoryUpdateRequest request, CancellationToken cancellationToken)
+    {
+        if (_updateJudge is { IsEnabled: true } judge)
+        {
+            if (_fallbackJudge is not { IsEnabled: true })
+                return await judge.JudgeAsync(request, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await judge.JudgeAsync(request, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Memory writer: the update judge failed ({Error}); the host's chat model judges these closings instead.",
+                    ex.Message);
+            }
+        }
+        return await _fallbackJudge!.JudgeAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task JudgeUpdatesAsync(
         ExtractionStageResult extraction, string? ownerId, IReadOnlyList<Fact> newFacts, IReadOnlyList<Preference> newPreferences,
         CancellationToken cancellationToken)
@@ -235,7 +267,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         var namedFacts = facts.Where(f => !string.IsNullOrWhiteSpace(f.ReplacesId) && asked.Add(f.ReplacesId!)).ToList();
         var namedPreferences = preferences.Where(p => !string.IsNullOrWhiteSpace(p.ReplacesId) && asked.Add(p.ReplacesId!)).ToList();
         if (namedFacts.Count == 0 && namedPreferences.Count == 0) return;
-        if (_updateJudge is not { IsEnabled: true })
+        if (_updateJudge is not { IsEnabled: true } && _fallbackJudge is not { IsEnabled: true })
         {
             if (Interlocked.Exchange(ref s_warnedNamedWithoutJudge, 1) == 0)
                 _logger.LogWarning(
@@ -290,7 +322,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 targets[key] = (null, written.PreferenceId, stored.PreferenceId, false);
             }
             if (pairs.Count == 0) return;
-            var verdicts = await _updateJudge.JudgeAsync(
+            var verdicts = await JudgeNamedAsync(
                 new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.UtcNow, pairs) { Named = true },
                 cancellationToken).ConfigureAwait(false);
             var closings = 0;
