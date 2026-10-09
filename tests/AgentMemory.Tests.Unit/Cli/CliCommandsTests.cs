@@ -290,6 +290,27 @@ public sealed class CliCommandsTests
     }
 
     [Fact]
+    public async Task ConsolidateCommand_Dreaming_ListsEachProposal_AndPassesTheApprovedOnes()
+    {
+        var svc = Substitute.For<IConsolidationService>();
+        svc.ConsolidateAsync(Arg.Any<ConsolidationOptions>(), Arg.Any<CancellationToken>())
+            .Returns(Report(dryRun: true) with
+            {
+                GenericEntitiesClosed = 1,
+                Proposals = [new ConsolidationProposal("e1", "entity", "o1", "School backpack (OBJECT)", "a generic entity")],
+            });
+
+        await new ConsolidateCommand(svc, _output).ExecuteAsync(apply: false, closeGenericEntities: true, owner: "o1", approved: ["e1"]);
+
+        await svc.Received(1).ConsolidateAsync(
+            Arg.Is<ConsolidationOptions>(o => o.CloseGenericEntities && !o.CloseUnsaidPreferences && o.OwnerId == "o1"
+                && o.ApprovedProposals!.Single() == "e1"),
+            Arg.Any<CancellationToken>());
+        _output.ToString().Should().Contain("Generic entities closed:       1")
+            .And.Contain("[entity] School backpack (OBJECT)  (id e1, owner o1): a generic entity");
+    }
+
+    [Fact]
     public async Task ConflictsCommand_PrintsReport_AndReturnsZero()
     {
         var svc = Substitute.For<IConflictDetectionService>();

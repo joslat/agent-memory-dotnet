@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dreaming as consolidation operations** (`ConsolidationOptions.CloseGenericEntities`, `CloseUnsaidPreferences`,
+  `OwnerId`, `ApprovedProposals`; `ConsolidationReport.Proposals`; `IPreferenceSourceCheck`; experimental `AMDREAM001`;
+  off by default, and a consolidation run stays a dry run unless asked). The Dreaming jar's round 1-2 winner, as the
+  router arena measured it: generic entities closed when a live fact names them, with their connections, and spared when
+  nothing else holds what was said (P4s); preferences closed when the message they came from never said them, asked of
+  the host's chat model with the measured question, one call per source message (P3q). A dry run lists every proposal
+  with its reason; an apply run with `ApprovedProposals` closes exactly the approved ones, without asking the model
+  again. Closings are soft (`invalidated_at`, `invalidated_reason = 'consolidation'`), never deletions. Measured over
+  stores written by the extractors: precision about 54% to 60% with nothing lost (world 7); over stores the store-aware
+  writer wrote it finds almost nothing to close (rounds 3-4), so it is a cleanup for 1.x stores, not a default. The CLI:
+  `consolidate --close-generic-entities --close-unsaid-preferences [--owner <id>] [--approve <id,id,...>] [--apply]`.
 - **The store-aware memory writer** (`LlmExtractionOptions.UseMemoryWriter`, experimental `AMWRITE001`, off). Each turn
   of one user message is written by one call that sees the owner's most relevant stored memories and proposes only what
   is new, what replaces or corrects a stored memory (naming it), or nothing; its closings apply only when the update

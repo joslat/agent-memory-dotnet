@@ -90,6 +90,11 @@ public static class CliHelp
               schema-check           Verify the LIVE database has every constraint/index the bootstrap
                                      creates (runtime conformance). Exit 1 listing any missing objects.
               consolidate [--apply]  Run the memory-hygiene pass (dry-run unless --apply).
+                [--close-generic-entities] [--close-unsaid-preferences] [--owner <id>] [--approve <id,id,...>]
+                                     Dreaming (experimental, off by default): close generic entities a
+                                     live fact names, and preferences their message never said (asks
+                                     the chat model); a dry run lists each proposal, --approve applies
+                                     only the listed ones.
               retrim [--apply]       Repair facts whose predicate repeats their object ("is a chef | chef"), stored
                                      before write-time trimming (dry-run unless --apply).
               conflicts              Detect fact contradictions (detect-only).

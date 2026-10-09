@@ -72,6 +72,8 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IMemoryWriter, LlmMemoryWriter>());
         // AMWRITE001. The update judge's second tier, asked only when ChatModelUpdateJudge is on and no outside judge answers.
         services.TryAddScoped<IMemoryUpdateJudgeFallback, ChatModelUpdateJudge>();
+        // AMDREAM001. Asked only by a consolidation run with CloseUnsaidPreferences on (one chat call per source message).
+        services.TryAddScoped<IPreferenceSourceCheck, ChatModelPreferenceSourceCheck>();
 
         return services;
     }

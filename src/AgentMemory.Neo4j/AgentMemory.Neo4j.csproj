@@ -17,7 +17,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <!-- Implements the store-aware writer's searches (FindMentioningAsync), experimental as AMWRITE001. -->
-    <NoWarn>$(NoWarn);AMWRITE001</NoWarn>
+    <NoWarn>$(NoWarn);AMWRITE001;AMDREAM001</NoWarn>
     <Description>Neo4j persistence and retrieval for AgentMemory for .NET — repositories, schema bootstrapper, and GraphRAG retrievers (vector, fulltext, hybrid, graph).</Description>
     <PackageTags>agent-memory;neo4j;graphrag;memory;ai</PackageTags>
   </PropertyGroup>

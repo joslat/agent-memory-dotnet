@@ -246,6 +246,19 @@ never touches it. The predicate therefore measures conversation *age*, not inact
 WIRED to any automatic path; UNMEASURED — the consolidation tests assert returned counts, never that
 archiving changes what recall returns.
 
+**Dreaming, as two consolidation operations (experimental, `AMDREAM001`, off).** `ConsolidationOptions.CloseGenericEntities`
+reads the live entities and every live fact's and preference's text (`ConsolidationQueries.LiveEntities`,
+`LiveStatementTexts`), decides in code (`GenericEntityRule`: a typed name of at most four words that is an `OBJECT`, or
+lower-case and not a `PERSON`; closed when its owner's facts or preferences name it as whole words, spared when nothing
+does), and closes the entities and their `RELATED_TO` connections by id. `CloseUnsaidPreferences` reads each live
+preference with the first message it was `EXTRACTED_FROM` and up to two earlier messages of the same role in that
+conversation (`LivePreferenceSources`), and asks an `IPreferenceSourceCheck` (the LLM package's asks the host's chat
+model) per source message; only a "guess" is closed, and a failed or unreadable answer closes nothing. Both are dry runs
+unless asked, list every proposal (`ConsolidationReport.Proposals`), and close only approved proposals when
+`ApprovedProposals` is given. BUILT; WIRED only to the CLI verb and to a host that calls `ConsolidateAsync`; MEASURED in
+the router arena as the passes P4s and P3q (`strategy/papers/memory-dreaming/EVIDENCE.md` 7, 10), not yet through this
+code on a stored world.
+
 **"A POLE+O model."** POLE+O is real as a *default prompt vocabulary* and as the shape of the
 persisted `:Schema` document. It is not a model in the sense of a constraint. **Nothing validates an
 entity's type.** `Entity.Type` is a `required string` that reaches Neo4j as free text.

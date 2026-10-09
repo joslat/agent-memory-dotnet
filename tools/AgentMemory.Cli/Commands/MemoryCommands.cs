@@ -297,17 +297,44 @@ public sealed record IndexState(string Name, string State, string Type, double? 
 /// <summary>Runs the consolidation / hygiene pass (dry-run unless <c>apply</c> is set).</summary>
 public sealed class ConsolidateCommand(IConsolidationService service, TextWriter output)
 {
-    public async Task<int> ExecuteAsync(bool apply, CancellationToken cancellationToken = default)
+    /// <param name="apply">Mutate; otherwise a dry run that reports what would change.</param>
+    /// <param name="closeGenericEntities">Dreaming (AMDREAM001): close generic entities a live fact names, with their connections.</param>
+    /// <param name="closeUnsaidPreferences">Dreaming (AMDREAM001): close preferences their source message never said (asks the chat model).</param>
+    /// <param name="owner">Limit the dreaming operations to one owner.</param>
+    /// <param name="approved">With <paramref name="apply"/>: close only these proposals, by id, as a dry run listed them.</param>
+    /// <param name="cancellationToken">Cancels the run.</param>
+    public async Task<int> ExecuteAsync(
+        bool apply,
+        bool closeGenericEntities = false,
+        bool closeUnsaidPreferences = false,
+        string? owner = null,
+        IReadOnlyCollection<string>? approved = null,
+        CancellationToken cancellationToken = default)
     {
-        var report = await service.ConsolidateAsync(new ConsolidationOptions { DryRun = !apply }, cancellationToken);
+#pragma warning disable AMDREAM001
+        var report = await service.ConsolidateAsync(new ConsolidationOptions
+        {
+            DryRun = !apply,
+            CloseGenericEntities = closeGenericEntities,
+            CloseUnsaidPreferences = closeUnsaidPreferences,
+            OwnerId = owner,
+            ApprovedProposals = approved,
+        }, cancellationToken);
 
         output.WriteLine($"Consolidation {(report.DryRun ? "DRY-RUN (no changes written)" : "APPLIED")} — run {report.RunId}");
         output.WriteLine($"  Conversations archived:        {report.ConversationsArchived}");
         output.WriteLine($"  Duplicate preferences removed: {report.DuplicatePreferencesRemoved}");
         output.WriteLine($"  Duplicate entities detected:   {report.DuplicateEntitiesDetected}");
         output.WriteLine($"  Long-trace candidates:         {report.LongTraceCandidates}");
+        if (closeGenericEntities)
+            output.WriteLine($"  Generic entities closed:       {report.GenericEntitiesClosed} (and {report.GenericConnectionsClosed} of their connections)");
+        if (closeUnsaidPreferences)
+            output.WriteLine($"  Unsaid preferences closed:     {report.UnsaidPreferencesClosed}");
+        foreach (var p in report.Proposals)
+            output.WriteLine($"    [{p.Kind}] {p.Text}  (id {p.Id}{(p.OwnerId is null ? "" : $", owner {p.OwnerId}")}): {p.Reason}");
+#pragma warning restore AMDREAM001
         if (report.DryRun)
-            output.WriteLine("  Re-run with --apply to perform the mutating operations.");
+            output.WriteLine("  Re-run with --apply to perform the mutating operations (--approve id,id,... closes only those proposals).");
         return 0;
     }
 }

@@ -233,7 +233,9 @@ try
             sp.GetRequiredService<IOptions<Neo4jOptions>>(), output,
             sp.GetService<AgentMemory.Neo4j.Schema.Extensions.SchemaExtensionRegistry>()).ExecuteAsync(),
         "consolidate" => await new ConsolidateCommand(
-            sp.GetRequiredService<IConsolidationService>(), output).ExecuteAsync(cli.HasFlag("apply")),
+            sp.GetRequiredService<IConsolidationService>(), output).ExecuteAsync(
+                cli.HasFlag("apply"), cli.HasFlag("close-generic-entities"), cli.HasFlag("close-unsaid-preferences"), cli.Get("owner"),
+                cli.Get("approve")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
         "decay" => await new DecayCommand(
             sp.GetRequiredService<IMemoryDecayService>(), output).ExecuteAsync(cli.Get("owner")),
         "conflicts" => await new ConflictsCommand(

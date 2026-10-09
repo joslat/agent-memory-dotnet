@@ -81,15 +81,97 @@ internal static class ConsolidationQueries
             WHERE steps > $threshold
             RETURN count(t) AS count";
 
+    // ── Dreaming (AMDREAM001): generic entities and unsaid preferences ──
+    // Read-only projections feed the decision, made in code (GenericEntityRule; the preference source check), so a dry
+    // run and an apply run decide alike; the Close* queries then stamp exactly the ids decided on. Soft-closed
+    // (invalidated_at plus why), never deleted: a closing is auditable and can be undone. $ownerId null reads every owner.
+
+    /// <summary>Live entities (not invalidated, not merged into another), with owner, name and type.</summary>
+    public const string LiveEntities = @"
+            MATCH (e:Entity)
+            WHERE e.invalidated_at IS NULL AND e.merged_into IS NULL
+              AND ($ownerId IS NULL OR e.owner_id = $ownerId)
+            RETURN e.id AS id, e.owner_id AS ownerId, e.name AS name, e.type AS type";
+
+    /// <summary>What every live fact and preference says, per owner: the text a generic entity must be named in.</summary>
+    public const string LiveStatementTexts = @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL AND ($ownerId IS NULL OR f.owner_id = $ownerId)
+            RETURN f.owner_id AS ownerId,
+                   coalesce(f.subject, '') + ' ' + coalesce(f.predicate, '') + ' ' + coalesce(f.object, '') AS text
+            UNION ALL
+            MATCH (p:Preference)
+            WHERE p.invalidated_at IS NULL AND ($ownerId IS NULL OR p.owner_id = $ownerId)
+            RETURN p.owner_id AS ownerId, coalesce(p.preference, '') AS text";
+
+    /// <summary>Live connections touching any of <c>$closed</c> and none of <c>$spared</c>.</summary>
+    public const string LiveConnectionsOf = @"
+            MATCH (s:Entity)-[r:RELATED_TO]->(t:Entity)
+            WHERE r.invalidated_at IS NULL AND r.id IS NOT NULL
+              AND (s.id IN $closed OR t.id IN $closed)
+              AND NOT (s.id IN $spared OR t.id IN $spared)
+            RETURN r.id AS id, r.owner_id AS ownerId, s.name AS source, coalesce(r.relation_type, type(r)) AS type, t.name AS target";
+
+    /// <summary>
+    /// Live preferences, each with the first message it was stored from and up to two earlier messages of the same role
+    /// in that message's conversation (oldest first).
+    /// </summary>
+    public const string LivePreferenceSources = @"
+            MATCH (p:Preference)-[:EXTRACTED_FROM]->(m:Message)
+            WHERE p.invalidated_at IS NULL AND ($ownerId IS NULL OR p.owner_id = $ownerId)
+            WITH p, m ORDER BY m.created_at ASC
+            WITH p, head(collect(m)) AS m
+            OPTIONAL MATCH (c:Conversation)-[:HAS_MESSAGE]->(m)
+            OPTIONAL MATCH (c)-[:HAS_MESSAGE]->(e:Message)
+            WHERE e.role = m.role AND e.created_at < m.created_at
+            WITH p, m, e ORDER BY e.created_at DESC
+            WITH p, m, collect(e.content)[0..2] AS earlier
+            RETURN p.id AS id, p.owner_id AS ownerId, p.category AS category, p.preference AS text,
+                   m.id AS messageId, m.content AS message, toString(m.created_at) AS saidAt, reverse(earlier) AS earlier";
+
+    /// <summary>Live preferences among <c>$ids</c>: an approved proposal is closed without asking the model again.</summary>
+    public const string LivePreferencesById = @"
+            UNWIND $ids AS id
+            MATCH (p:Preference {id: id})
+            WHERE p.invalidated_at IS NULL
+            RETURN p.id AS id, p.owner_id AS ownerId, p.category AS category, p.preference AS text";
+
+    /// <summary>Closes live entities by id: <c>invalidated_at</c> and why, kept and auditable.</summary>
+    public const string CloseEntities = @"
+            UNWIND $ids AS id
+            MATCH (e:Entity {id: id})
+            WHERE e.invalidated_at IS NULL
+            SET e.invalidated_at = datetime($now), e.invalidated_reason = 'consolidation'
+            RETURN count(e) AS count";
+
+    /// <summary>Closes live connections by id.</summary>
+    public const string CloseConnections = @"
+            UNWIND $ids AS id
+            MATCH (:Entity)-[r:RELATED_TO {id: id}]->(:Entity)
+            WHERE r.invalidated_at IS NULL
+            SET r.invalidated_at = datetime($now), r.invalidated_reason = 'consolidation'
+            RETURN count(r) AS count";
+
+    /// <summary>Closes live preferences by id.</summary>
+    public const string ClosePreferences = @"
+            UNWIND $ids AS id
+            MATCH (p:Preference {id: id})
+            WHERE p.invalidated_at IS NULL
+            SET p.invalidated_at = datetime($now), p.invalidated_reason = 'consolidation'
+            RETURN count(p) AS count";
+
     // ── Audit ────────────────────────────────────────────────────────────
 
     /// <summary>Records a (:ConsolidationRun) audit node for an applied run.</summary>
     public const string RecordConsolidationRun = @"
             MERGE (r:ConsolidationRun {id: $id})
-            SET r.ran_at                  = datetime($ranAt),
-                r.conversations_archived  = $conversationsArchived,
-                r.preferences_removed     = $preferencesRemoved,
-                r.duplicate_entities      = $duplicateEntities,
-                r.long_trace_candidates   = $longTraceCandidates
+            SET r.ran_at                     = datetime($ranAt),
+                r.conversations_archived     = $conversationsArchived,
+                r.preferences_removed        = $preferencesRemoved,
+                r.duplicate_entities         = $duplicateEntities,
+                r.long_trace_candidates      = $longTraceCandidates,
+                r.generic_entities_closed    = $genericEntitiesClosed,
+                r.generic_connections_closed = $genericConnectionsClosed,
+                r.unsaid_preferences_closed  = $unsaidPreferencesClosed
             RETURN r";
 }
