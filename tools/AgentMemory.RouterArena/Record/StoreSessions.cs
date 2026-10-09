@@ -51,7 +51,7 @@ public sealed class StoreSessions(TextWriter output)
             .AddMinutes(int.Parse(turn.Id[^2..], System.Globalization.CultureInfo.InvariantCulture));
 
     public async Task<int> RunAsync(string packPath, string setsDirectory, string form, string outPath, bool dryRun, int? limit,
-        CancellationToken cancellationToken = default, string set = "w3", string? ownerName = null)
+        CancellationToken cancellationToken = default, string set = "w3", string? ownerName = null, bool recall = false)
     {
         // writer: the library with the store-aware writer (AMWRITE001, storage round 3's F ported) and the update judge
         // confirming its closings; the turn's earlier messages are its context, as the harness gave them.
@@ -138,7 +138,9 @@ public sealed class StoreSessions(TextWriter output)
 #pragma warning disable AMGATE001
             services.AddAgentMemoryGate(g =>
             {
-                g.Mode = MemoryGateMode.Floor;      // recall untouched: only the write path is measured
+                // Recall untouched (the floor) unless --recall measures it: then the gate judges what each turn's recall puts in
+                // the prompt (Judge mode on JEV, the retrieval survivor). The write path is the same either way.
+                g.Mode = recall ? MemoryGateMode.Judge : MemoryGateMode.Floor;
                 g.UpdateJudge = true;
                 g.Judges.Add(new SystemOneEndpoint
                 {
@@ -174,6 +176,31 @@ public sealed class StoreSessions(TextWriter output)
             clock.Now = at;
             var sessionId = $"{set}-{owner}-s{turn.Session:00}";
             string? error = null;
+            // --recall (Dreaming round 4's retrieval measure): before the turn is written, what the gate puts in the prompt for
+            // it, from the store as it stood when the person said it. Its chat calls are not counted in the turn's cost (the
+            // gate's judge is not a chat client).
+            object? recalled = null;
+            if (recall)
+            {
+                using var recallScope = provider.CreateScope();
+                try
+                {
+                    var context = await recallScope.ServiceProvider.GetRequiredService<IMemoryContextAssembler>().AssembleContextAsync(
+                        new RecallRequest { SessionId = sessionId, UserId = ownerId, Query = turn.Text }, cancellationToken).ConfigureAwait(false);
+#pragma warning disable AMGATE001
+                    if (context.Metadata.TryGetValue(MemoryGateTrace.MetadataKey, out var traced) && traced is MemoryGateTrace trace)
+                        recalled = new
+                        {
+                            outcome = trace.Outcome, reason = trace.FallbackReason, offered = trace.Offered, kept = trace.Kept, judgeMs = trace.JudgeMilliseconds,
+                            items = trace.Items.Where(x => x.Kept).Select(x => new { id = x.ItemId, type = x.MemoryType, text = x.Text, p = x.Probability }),
+                        };
+#pragma warning restore AMGATE001
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    recalled = new { outcome = "error", reason = $"{ex.GetType().Name}: {ex.Message}" };
+                }
+            }
             var (calls0, input0, output0) = usage.Snapshot();
             var (prompt0, reply0) = usage.Characters();
             var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -214,7 +241,7 @@ public sealed class StoreSessions(TextWriter output)
                 promptChars = prompt1 - prompt0, replyChars = reply1 - reply0, ms = watch.ElapsedMilliseconds,
             };
             var written = await AtAsync(tx, ownerId, at, cancellationToken).ConfigureAwait(false);
-            results.Add(new { turn = turn.Id, session = turn.Session, at, text = turn.Text, written, error, cost });
+            results.Add(new { turn = turn.Id, session = turn.Session, at, text = turn.Text, written, error, cost, recall = recalled });
             output.WriteLine($"  {i + 1}/{turns.Count} {turn.Id}: {written.Count} written or closed{(error is null ? "" : $" ({error[..Math.Min(80, error.Length)]})")}");
             var lastOfSession = i == turns.Count - 1 || turns[i + 1].Session != turn.Session;
             if (lastOfSession)
