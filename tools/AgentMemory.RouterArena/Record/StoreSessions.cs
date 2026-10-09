@@ -272,7 +272,7 @@ public sealed class StoreSessions(TextWriter output)
                 sessions.Add(new { session = turn.Session, date = turn.Date, live, dreamt, dreamErrors });
                 output.WriteLine($"  session {turn.Session} ({turn.Date}): {live.Count} live memories");
             }
-            await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(new
+            await RunFile.WriteAsync(outPath, JsonSerializer.Serialize(new
             {
                 format = "store-sessions/1", form, model = settings.Model, pack = pack.Id, owner, results, sessions,
             }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);
@@ -306,7 +306,7 @@ public sealed class StoreSessions(TextWriter output)
                 consolidation = new { error = $"{ex.GetType().Name}: {ex.Message}" };
                 output.WriteLine($"  consolidation FAILED ({ex.GetType().Name}: {ex.Message})");
             }
-            await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(new
+            await RunFile.WriteAsync(outPath, JsonSerializer.Serialize(new
             {
                 format = "store-sessions/1", form, model = settings.Model, pack = pack.Id, owner, results, sessions, consolidation,
             }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);

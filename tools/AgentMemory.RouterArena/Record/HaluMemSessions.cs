@@ -194,7 +194,7 @@ public sealed class HaluMemSessions(TextWriter output)
             });
             output.WriteLine($"  session {number}: {dialogue.Count} messages, {extracted.Count} memories created or closed, {updates.Count} update points and "
                 + $"{questions.Count} questions recalled, {failed.Count} turn(s) failed, {watch.Elapsed.TotalSeconds:0} s");
-            await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(new
+            await RunFile.WriteAsync(outPath, JsonSerializer.Serialize(new
             {
                 format = "halumem-sessions/1", data = Path.GetFileName(dataPath), person, uuid, owner = ownerId, model = settings.Model, sessions = results,
             }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);
