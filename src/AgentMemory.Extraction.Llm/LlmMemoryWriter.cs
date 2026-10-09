@@ -88,14 +88,18 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     }
 
     /// <summary>
-    /// One call; an answer without JSON is asked again once with twice the room, then fails loudly (the harness's rule): a
-    /// turn whose model gives no JSON stores nothing and is recorded as failed, never read as "nothing to keep".
+    /// One call; an answer without JSON is asked again with twice the room, and once more at that room, then fails loudly
+    /// (the harness's rule): a turn whose model gives no JSON stores nothing and is recorded as failed, never read as
+    /// "nothing to keep". The third try (2026-10-10): over 3,634 turns of the Dreaming jar's store runs the first answer held
+    /// no JSON 104 times and the second 10, each a model that reasoned through its whole room and answered nothing (12,000
+    /// output tokens over the two): a runaway the next call rarely repeats, so one more call saves most of the lost turns.
     /// </summary>
     private async Task<IReadOnlyList<MemoryWriterOps.Op>> AskAsync(string system, string context, CancellationToken cancellationToken)
     {
+        const int Attempts = 3;
         var room = _options.MemoryWriterMaxOutputTokens;
         string? reply = null;
-        for (var attempt = 1; attempt <= 2; attempt++, room *= 2)
+        for (var attempt = 1; attempt <= Attempts; attempt++)
         {
             var response = await _runner.CompleteAsync(
                 [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, context)], room, json: false, cancellationToken)
@@ -103,7 +107,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             reply = response.Text;
             if (MemoryWriterOps.TryParse(reply, _options.MemoryWriterMaxOperations, out var ops))
                 return ops;
-            _logger.LogWarning("Memory writer: the reply held no JSON (attempt {Attempt} of 2, {Room} tokens of room).", attempt, room);
+            _logger.LogWarning("Memory writer: the reply held no JSON (attempt {Attempt} of {Attempts}, {Room} tokens of room).", attempt, Attempts, room);
+            if (attempt == 1) room *= 2;
         }
         throw new FormatException($"The memory writer's model gave no JSON: {(reply is null ? "" : reply[..Math.Min(160, reply.Length)])}");
     }

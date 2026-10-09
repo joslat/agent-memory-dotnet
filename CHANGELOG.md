@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stores written by the extractors: precision about 54% to 60% with nothing lost (world 7); over stores the store-aware
   writer wrote it finds almost nothing to close (rounds 3-4), so it is a cleanup for 1.x stores, not a default. The CLI:
   `consolidate --close-generic-entities --close-unsaid-preferences [--owner <id>] [--approve <id,id,...>] [--apply]`.
+- **The store-aware writer asks a third time** before a turn fails or falls back to the extractors: an answer without JSON
+  is asked again with twice the room (as before) and once more at that room. Over 3,634 turns of the Dreaming jar's store
+  runs the first answer held no JSON 104 times and the second 10, each a model that reasoned through its whole room and
+  answered nothing; a fresh call rarely repeats it, so the turns lost or handed to the extractors fall from about 0.28%
+  to an expected 0.03%, for one more call on 0.3% of turns. A turn whose writer answers is unchanged.
 - **The store-aware memory writer** (`LlmExtractionOptions.UseMemoryWriter`, experimental `AMWRITE001`, off). Each turn
   of one user message is written by one call that sees the owner's most relevant stored memories and proposes only what
   is new, what replaces or corrects a stored memory (naming it), or nothing; its closings apply only when the update

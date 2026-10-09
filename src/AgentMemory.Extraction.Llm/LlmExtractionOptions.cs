@@ -196,7 +196,7 @@ public sealed class LlmExtractionOptions
     [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
     public int MemoryWriterMaxOperations { get; set; } = 6;
 
-    /// <summary>The writer's room to answer, doubled once when a reply holds no JSON. 4,000, as measured.</summary>
+    /// <summary>The writer's room to answer, doubled when a reply holds no JSON and kept for a third try. 4,000, as measured.</summary>
     [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
     public int MemoryWriterMaxOutputTokens { get; set; } = 4000;
 

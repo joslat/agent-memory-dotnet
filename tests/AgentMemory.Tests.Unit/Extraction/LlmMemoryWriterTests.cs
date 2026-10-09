@@ -148,15 +148,28 @@ public sealed class LlmMemoryWriterTests
     }
 
     [Fact]
-    public async Task A_reply_without_JSON_is_asked_again_once_with_twice_the_room_then_the_turn_fails()
+    public async Task A_reply_without_JSON_is_asked_again_with_twice_the_room_and_once_more_then_the_turn_fails()
     {
         _replies.Enqueue("Let me think about what to store here...");
         _replies.Enqueue("Still thinking.");
+        _replies.Enqueue("");
 
         var act = () => Writer().WriteAsync(Turn("We moved to Leoben.", MemoryScope.For("lukas")));
 
         await act.Should().ThrowAsync<FormatException>();
-        _asked.Select(a => a.Room).Should().Equal(4000, 8000);
+        _asked.Select(a => a.Room).Should().Equal(4000, 8000, 8000);
+    }
+
+    [Fact]
+    public async Task A_third_reply_with_JSON_is_used()
+    {
+        _replies.Enqueue("");
+        _replies.Enqueue("");
+        _replies.Enqueue("{\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"Lukas | lives in | Leoben\"}]}");
+
+        var result = await Writer().WriteAsync(Turn("We moved to Leoben.", MemoryScope.For("lukas")));
+
+        result.Facts.Should().ContainSingle().Which.Object.Should().Be("Leoben");
     }
 
     [Fact]
