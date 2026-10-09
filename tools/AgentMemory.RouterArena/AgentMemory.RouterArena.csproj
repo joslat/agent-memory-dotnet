@@ -7,7 +7,7 @@
     <!-- Operator tooling, not a published library. The release packs src/*/*.csproj only. -->
     <IsPackable>false</IsPackable>
     <!-- `showcase` runs the gate (AgentMemory.Gate, experimental). -->
-    <NoWarn>$(NoWarn);AMGATE001;AMWRITE001</NoWarn>
+    <NoWarn>$(NoWarn);AMGATE001;AMWRITE001;AMDREAM001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

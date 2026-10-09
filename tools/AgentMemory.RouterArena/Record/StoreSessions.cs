@@ -51,7 +51,8 @@ public sealed class StoreSessions(TextWriter output)
             .AddMinutes(int.Parse(turn.Id[^2..], System.Globalization.CultureInfo.InvariantCulture));
 
     public async Task<int> RunAsync(string packPath, string setsDirectory, string form, string outPath, bool dryRun, int? limit,
-        CancellationToken cancellationToken = default, string set = "w3", string? ownerName = null, bool recall = false)
+        CancellationToken cancellationToken = default, string set = "w3", string? ownerName = null, bool recall = false,
+        bool consolidate = false)
     {
         // writer: the library with the store-aware writer (AMWRITE001, storage round 3's F ported) and the update judge
         // confirming its closings; the turn's earlier messages are its context, as the harness gave them.
@@ -274,6 +275,40 @@ public sealed class StoreSessions(TextWriter output)
             await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(new
             {
                 format = "store-sessions/1", form, model = settings.Model, pack = pack.Id, owner, results, sessions,
+            }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);
+        }
+        if (consolidate && !dryRun)
+        {
+            // --consolidate (Dreaming queue item 10, AMDREAM001): after the last session, the library's consolidation asked for
+            // its dreaming proposals on this owner, as a dry run: generic entities a live fact names (P4s) and preferences their
+            // message never said (P3q, the host's chat model). Nothing is closed; the store above is what the write path left,
+            // so the arena's own passes can be run on it and compared with what the library proposes.
+            object consolidation;
+            try
+            {
+                using var scope = provider.CreateScope();
+                var report = await scope.ServiceProvider.GetRequiredService<IConsolidationService>().ConsolidateAsync(new ConsolidationOptions
+                {
+                    DryRun = true, ArchiveExpiredConversations = false, RemoveDuplicatePreferences = false,
+                    DetectDuplicateEntities = false, DetectLongTraces = false,
+                    CloseGenericEntities = true, CloseUnsaidPreferences = true, OwnerId = ownerId,
+                }, cancellationToken).ConfigureAwait(false);
+                consolidation = new
+                {
+                    genericEntities = report.GenericEntitiesClosed, genericConnections = report.GenericConnectionsClosed,
+                    unsaidPreferences = report.UnsaidPreferencesClosed, proposals = report.Proposals,
+                };
+                output.WriteLine($"  consolidation (dry run): {report.GenericEntitiesClosed} generic entities, {report.GenericConnectionsClosed} "
+                    + $"connections, {report.UnsaidPreferencesClosed} unsaid preferences proposed");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                consolidation = new { error = $"{ex.GetType().Name}: {ex.Message}" };
+                output.WriteLine($"  consolidation FAILED ({ex.GetType().Name}: {ex.Message})");
+            }
+            await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(new
+            {
+                format = "store-sessions/1", form, model = settings.Model, pack = pack.Id, owner, results, sessions, consolidation,
             }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);
         }
         output.WriteLine($"store-sessions: {results.Count} turns, {sessions.Count} sessions to {outPath}");
