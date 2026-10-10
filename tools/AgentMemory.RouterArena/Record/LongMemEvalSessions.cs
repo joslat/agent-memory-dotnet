@@ -61,8 +61,10 @@ public sealed class LongMemEvalSessions(TextWriter output)
         if (File.Exists(outPath))
         {
             using var previous = JsonDocument.Parse(await File.ReadAllTextAsync(outPath, cancellationToken).ConfigureAwait(false));
+            // A question the library lost writes in (or that errored) is run again; the clean ones are kept.
             foreach (var r in previous.RootElement.GetProperty("results").EnumerateArray())
-                done[r.GetProperty("questionId").GetString()!] = r.Clone();
+                if (!r.TryGetProperty("errors", out var errors) || errors.GetInt32() == 0)
+                    done[r.GetProperty("questionId").GetString()!] = r.Clone();
         }
         var todo = questions.Where(q => !done.ContainsKey(q.Id)).ToList();
         output.WriteLine($"longmemeval: {questions.Count} questions ({string.Join(", ", questions.GroupBy(q => q.Type).Select(g => $"{g.Key} {g.Count()}"))}), "
@@ -132,8 +134,15 @@ public sealed class LongMemEvalSessions(TextWriter output)
         var results = done.Values.Select(v => (object)v).ToList();
         var gate = new object();
         var finished = 0;
-        await Parallel.ForEachAsync(todo, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, parallel), CancellationToken = cancellationToken }, async (q, ct) =>
+        int turnsSoFar = 0, errorsSoFar = 0;
+        var tooMany = false;
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        try
         {
+        await Parallel.ForEachAsync(todo, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, parallel), CancellationToken = stop.Token }, async (q, ct) =>
+        {
+            // The writes the library loses without throwing (a writer that failed, the extractors after it), this question's.
+            var lost = LostWrites.Begin();
             var ownerId = $"lme-{q.Id}".ToLowerInvariant();
             var clock = new Clock(q.Sessions.Count > 0 ? q.Sessions[0].At : q.AskedAt);
             await using var provider = Build(clock);
@@ -192,21 +201,35 @@ public sealed class LongMemEvalSessions(TextWriter output)
             var result = new
             {
                 questionId = q.Id, type = q.Type, question = q.Text, answer = q.Answer, questionDate = q.AskedAt, sessions = q.Sessions.Count, turns,
-                failed, recalled, ms = watch.ElapsedMilliseconds,
+                failed, writerFailed = lost.WriterThrew, errors = lost.Errors, recalled, ms = watch.ElapsedMilliseconds,
             };
             string json;
             lock (gate)
             {
                 results.Add(result);
                 finished++;
-                output.WriteLine($"  {finished}/{todo.Count} {q.Id} ({q.Type}): {turns} turns, {failed.Count} failed, {watch.Elapsed.TotalSeconds:0} s");
+                output.WriteLine($"  {finished}/{todo.Count} {q.Id} ({q.Type}): {turns} turns, {failed.Count} failed, "
+                    + $"{lost.WriterThrew} writer failed, {lost.Errors} library errors, {watch.Elapsed.TotalSeconds:0} s");
+                turnsSoFar += turns;
+                errorsSoFar += lost.Errors + failed.Count;
+                if (!tooMany && LostWrites.TooMany(errorsSoFar, turnsSoFar))
+                {
+                    tooMany = true;
+                    output.WriteLine($"longmemeval: STOPPED: {errorsSoFar} library errors in {turnsSoFar} turns (more than 2%); the questions so far are kept.");
+                    stop.Cancel();
+                }
                 json = JsonSerializer.Serialize(new
                 {
                     format = "longmemeval-turns/1", data = Path.GetFileName(dataPath), writer, history, model = settings.Model, results,
                 }, new JsonSerializerOptions { WriteIndented = true });
             }
-            await WriteLockedAsync(outPath, json, ct).ConfigureAwait(false);
+            await WriteLockedAsync(outPath, json, cancellationToken).ConfigureAwait(false);
         }).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (tooMany && !cancellationToken.IsCancellationRequested)
+        {
+            return 3;
+        }
         var (calls, input, outputTokens) = usage.Snapshot();
         output.WriteLine($"longmemeval: {results.Count} questions to {outPath}; this run {calls} chat calls, {input} in, {outputTokens} out");
         return 0;

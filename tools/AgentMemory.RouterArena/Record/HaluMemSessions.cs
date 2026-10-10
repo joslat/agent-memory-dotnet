@@ -117,6 +117,7 @@ public sealed class HaluMemSessions(TextWriter output)
 
         var ownerId = $"halumem-p{person:00}";
         var results = new List<object>();
+        int turnsSoFar = 0, errorsSoFar = 0;
         for (var si = 0; si < sessions.Count; si++)
         {
             var session = sessions[si];
@@ -128,6 +129,8 @@ public sealed class HaluMemSessions(TextWriter output)
             var watch = System.Diagnostics.Stopwatch.StartNew();
             var failed = new List<string>();
             var said = new List<Message>();
+            // The writes the library loses without throwing (a writer that failed, the extractors after it), this session's.
+            var lost = LostWrites.Begin();
             clock.Now = start;
             using (var scope = provider.CreateScope())
             {
@@ -189,15 +192,24 @@ public sealed class HaluMemSessions(TextWriter output)
             }
             results.Add(new
             {
-                session = number, start, end, userTurns = dialogue.Count(d => d.GetProperty("role").GetString() == "user"), failed, extracted, updates, questions,
+                session = number, start, end, userTurns = dialogue.Count(d => d.GetProperty("role").GetString() == "user"), failed,
+                writerFailed = lost.WriterThrew, errors = lost.Errors, extracted, updates, questions,
                 cost = new { calls = calls1 - calls0, inputTokens = input1 - input0, outputTokens = output1 - output0, ms = watch.ElapsedMilliseconds },
             });
             output.WriteLine($"  session {number}: {dialogue.Count} messages, {extracted.Count} memories created or closed, {updates.Count} update points and "
-                + $"{questions.Count} questions recalled, {failed.Count} turn(s) failed, {watch.Elapsed.TotalSeconds:0} s");
+                + $"{questions.Count} questions recalled, {failed.Count} turn(s) failed, {lost.WriterThrew} writer failed, {lost.Errors} library errors, "
+                + $"{watch.Elapsed.TotalSeconds:0} s");
             await RunFile.WriteAsync(outPath, JsonSerializer.Serialize(new
             {
                 format = "halumem-sessions/1", data = Path.GetFileName(dataPath), person, uuid, owner = ownerId, model = settings.Model, sessions = results,
             }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);
+            turnsSoFar += dialogue.Count(d => d.GetProperty("role").GetString() == "user");
+            errorsSoFar += lost.Errors + failed.Count;
+            if (LostWrites.TooMany(errorsSoFar, turnsSoFar))
+            {
+                output.WriteLine($"halumem: STOPPED: {errorsSoFar} library errors in {turnsSoFar} user turns (more than 2%); the sessions so far are kept.");
+                return 3;
+            }
         }
         output.WriteLine($"halumem: {results.Count} sessions to {outPath}");
         return 0;
