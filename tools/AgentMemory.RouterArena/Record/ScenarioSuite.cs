@@ -184,7 +184,8 @@ public sealed class ScenarioSuite(TextWriter output)
     private static bool Passes(Check check, IReadOnlyList<Item> items, DateTimeOffset at)
     {
         var alternatives = check.Text.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        bool Says(Item i) => alternatives.Any(a => i.Text.Contains(a, StringComparison.OrdinalIgnoreCase));
+        // A fact reads "subject | predicate | object"; a check is a phrase ("works at Gord's shop"), so the separators go.
+        bool Says(Item i) => alternatives.Any(a => i.Text.Replace(" | ", " ", StringComparison.Ordinal).Contains(a, StringComparison.OrdinalIgnoreCase));
         bool Current(Item i) => !i.Closed && (i.Until is null || i.Until > at);
         return check.Kind switch
         {

@@ -199,6 +199,13 @@ internal static class MemoryWriterPrompt
         What the assistant keeps (the labellers' rules):
         - A message stores what it tells: a fact, plan, event, preference, person or connection about {p} or {p}'s world.
         - A change names the stored memory it replaces; a correction names the stored memory that was wrong.
+        - A new event ends what it changes, and that is a change too: a move ends where they lived, a death ends where and
+          how the person lived, a birth ends an expecting, a wedding ends an engagement, a breakup ends a relationship, a
+          new job or a retirement ends the old job. Only the person's own event ends their state: someone else's wedding or
+          move ends nothing of theirs. Replace the stored memory it ends, even when the message names the person by a role
+          (mum, my sister) and the stored memory names them by name.
+        - Something true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's stay) is
+          stored with "until": the last date it holds.
         - A question stores nothing, unless it also tells something ("I'm off to Seville on the 13th, what should I pack?" stores
           the trip and its date).
         - Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.
@@ -213,7 +220,7 @@ internal static class MemoryWriterPrompt
         You write {p}'s long-term memory of one kind: {kind_name} = {what}.
         Look only at {p}'s LAST message; earlier turns are context. {rules}
         Operations:
-        - add: something new that is not stored yet (check the STORED list);
+        - add: something new that is not stored yet (check the STORED list); "until": "YYYY-MM-DD" when it holds only until then;
         - replace: the new value changes a stored memory that stops being true now (moved, new job, quit, changed plans): give its id;
         - correct: a stored memory was wrong all along: give its id;
         - confirm: the last message says again what a stored memory already says, unchanged: give its id (it is not stored
@@ -314,7 +321,7 @@ internal static class MemoryWriterPrompt
 internal static class MemoryWriterOps
 {
     /// <summary>One operation: add, replace, correct or confirm; its kind, text and (for all but add) the stored id it names.</summary>
-    internal sealed record Op(string Action, string Kind, string Text, string? Id);
+    internal sealed record Op(string Action, string Kind, string Text, string? Id, string? Until = null);
 
     /// <summary>A stored memory shown to the writer: its short label (F3, P1, E2, R4), its text, and what it really is.</summary>
     internal sealed record Stored(string Id, char Letter, string Text)
@@ -372,7 +379,7 @@ internal static class MemoryWriterOps
                 if (action is null || !Actions.Contains(action)) continue;
                 if (action == "confirm" ? string.IsNullOrEmpty(id) : string.IsNullOrEmpty(text)) continue;
                 var kind = Str(o, "kind")?.Trim().ToLowerInvariant();
-                kept.Add(new Op(action, kind is not null && ItemKinds.Contains(kind) ? kind : "fact", text ?? "", id));
+                kept.Add(new Op(action, kind is not null && ItemKinds.Contains(kind) ? kind : "fact", text ?? "", id, Str(o, "until")?.Trim()));
             }
             ops = kept;
             return true;
@@ -463,6 +470,8 @@ internal static class MemoryWriterOps
                         Subject = subject, Predicate = predicate, Object = @object, SourceRole = "user",
                         ReplacesId = target?.Letter == 'F' ? target.Id : null,
                         ReplacementIsCorrection = target?.Letter == 'F' && op.Action == "correct",
+                        ValidUntil = EndOfDay(op.Until),
+                        ValidUntilPrecision = EndOfDay(op.Until) is null ? DatePrecision.Unspecified : DatePrecision.Day,
                     });
                     break;
             }
@@ -474,6 +483,15 @@ internal static class MemoryWriterOps
             ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
         };
     }
+
+    /// <summary>
+    /// The end of the day an "until" names (a one-off: tonight's plan holds until the end of that day), in UTC; null when
+    /// there is none or it is not a date.
+    /// </summary>
+    internal static DateTimeOffset? EndOfDay(string? until) =>
+        DateTimeOffset.TryParse(until, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var day)
+            ? new DateTimeOffset(day.Year, day.Month, day.Day, 23, 59, 59, TimeSpan.Zero)
+            : null;
 
     /// <summary>The prompt's PLACE and THING in the library's entity vocabulary (LOCATION, OBJECT).</summary>
     private static string EntityType(string type) => type.Trim().ToUpperInvariant() switch

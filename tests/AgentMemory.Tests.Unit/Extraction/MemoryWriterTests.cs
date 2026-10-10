@@ -22,7 +22,8 @@ public sealed class MemoryWriterTests
 {
     /// <summary>
     /// The harness's system prompt for form F and the person Lukas (round3.py run_turn, storage_round2.py p2), with one rule
-    /// line and one operation added on 2026-10-10: what the turn says again is confirmed, so it is reinforced.
+    /// line and one operation added on 2026-10-10 (what the turn says again is confirmed, so it is reinforced), and two rules
+    /// the same day: an event ends what it changes, and a one-off is stored with the date it ends ("until").
     /// </summary>
     private const string HarnessSystemLukas =
         "You write Lukas's long-term memory of one kind: every kind = \n" +
@@ -32,6 +33,13 @@ public sealed class MemoryWriterTests
         "Look only at Lukas's LAST message; earlier turns are context. What the assistant keeps (the labellers' rules):\n" +
         "- A message stores what it tells: a fact, plan, event, preference, person or connection about Lukas or Lukas's world.\n" +
         "- A change names the stored memory it replaces; a correction names the stored memory that was wrong.\n" +
+        "- A new event ends what it changes, and that is a change too: a move ends where they lived, a death ends where and\n" +
+        "  how the person lived, a birth ends an expecting, a wedding ends an engagement, a breakup ends a relationship, a\n" +
+        "  new job or a retirement ends the old job. Only the person's own event ends their state: someone else's wedding or\n" +
+        "  move ends nothing of theirs. Replace the stored memory it ends, even when the message names the person by a role\n" +
+        "  (mum, my sister) and the stored memory names them by name.\n" +
+        "- Something true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's stay) is\n" +
+        "  stored with \"until\": the last date it holds.\n" +
         "- A question stores nothing, unless it also tells something (\"I'm off to Seville on the 13th, what should I pack?\" stores\n" +
         "  the trip and its date).\n" +
         "- Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.\n" +
@@ -40,7 +48,7 @@ public sealed class MemoryWriterTests
         "  next month?\"), someone's wish or need (\"my neighbour wants to borrow the ladder, is it still in the shed?\"), an\n" +
         "  appointment, a change. Keep that part as a memory; never the question or the request itself.\n" +
         "Operations:\n" +
-        "- add: something new that is not stored yet (check the STORED list);\n" +
+        "- add: something new that is not stored yet (check the STORED list); \"until\": \"YYYY-MM-DD\" when it holds only until then;\n" +
         "- replace: the new value changes a stored memory that stops being true now (moved, new job, quit, changed plans): give its id;\n" +
         "- correct: a stored memory was wrong all along: give its id;\n" +
         "- confirm: the last message says again what a stored memory already says, unchanged: give its id (it is not stored\n" +
@@ -249,6 +257,29 @@ public sealed class MemoryWriterTests
         result.Facts.Should().BeEmpty();
         result.Preferences.Should().BeEmpty();
         result.Entities.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_one_off_carries_until_and_ends_at_the_end_of_that_day()
+    {
+        var reply = "{\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"Owen | is having | pizza night\", \"until\": \"2028-03-01\"}]}";
+
+        MemoryWriterOps.TryParse(reply, 6, out var ops).Should().BeTrue();
+        var fact = MemoryWriterOps.ToResult(ops, [], "Owen").Facts.Single();
+
+        ops.Single().Until.Should().Be("2028-03-01");
+        fact.ValidUntil.Should().Be(new DateTimeOffset(2028, 3, 1, 23, 59, 59, TimeSpan.Zero));
+        fact.ValidUntilPrecision.Should().Be(DatePrecision.Day);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("tonight")]
+    public void An_add_without_a_date_holds_without_end(string? until)
+    {
+        MemoryWriterOps.EndOfDay(until).Should().BeNull();
+        MemoryWriterOps.ToResult([new("add", "fact", "Owen | likes | pizza", null, until)], [], "Owen").Facts.Single().ValidUntil.Should().BeNull();
     }
 
     [Fact]
