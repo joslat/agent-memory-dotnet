@@ -27,11 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against 0.33, complete recall 73.4% against 76.4% (within the registered limit, at its edge).
 - **The store-aware writer ends what an event ends, and lets a one-off end with its day** (AMWRITE001): a move, a death, a
   birth, a wedding, a breakup, a new job or a retirement replaces the stored state it ends (one replace for each, even when
-  the person is named by a role; only the person's own event counts), and something true only for a day or a short while
-  is stored with "until", the end of its validity. The update judge's named question (System One's and the host model's,
-  word for word) now also reads a death, a marriage, a move or a birth as ending the state the person was in. Scenario
-  suite (three repeats): one-offs 0/6 to 6/6 with nothing that should stay closed; a death's closing confirmed 5 of 6
-  (0 before); a wedding in a crowded store still leaves the engagement open (0/3).
+  the person is named by a role; only the person's own event counts), and a plan or a state true only for a short while is
+  stored with "until", the end of its validity, while something that happened stays true with its date. The update judge's
+  named question (System One's and the host model's, word for word) now also reads a death, a marriage, a move or a birth
+  as ending the state the person was in. Scenario suite (three repeats): one-offs 0/6 to 6/6, events said on their day kept
+  6/6; a death's closing confirmed 5 of 6 (0 before), near the judge's bar.
+- **The store-aware writer can end a stored connection** (AMWRITE001): a replace or correct may name a stored relationship,
+  from a fact ("got married" ends "engaged to") or from a relationship (`ExtractedRelationship.ReplacesId`, new); the update
+  judge is asked the same named question and, on a confirm, the relationship is ended (its valid-until set; the edge stays
+  as history), even when its replacement cannot be stored (an endpoint the store does not hold). The writer is now also
+  shown the live connections of the people it finds by meaning, not only of those named exactly. Scenario suite: a move
+  ends "lives in" 0/3 to 3/3, a wedding ends "engaged to" 0/3 to 2/3, a cousin's wedding ends nothing (3/3).
 - **The store-aware writer asks a third time** before a turn fails or falls back to the extractors: an answer without JSON
   is asked again with twice the room (as before) and once more at that room. Over 3,634 turns of the Dreaming jar's store
   runs the first answer held no JSON 104 times and the second 10, each a model that reasoned through its whole room and
