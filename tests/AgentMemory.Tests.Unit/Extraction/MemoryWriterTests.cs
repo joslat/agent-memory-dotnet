@@ -20,7 +20,10 @@ namespace AgentMemory.Tests.Unit.Extraction;
 /// </summary>
 public sealed class MemoryWriterTests
 {
-    /// <summary>The harness's system prompt for form F and the person Lukas (round3.py run_turn, storage_round2.py p2).</summary>
+    /// <summary>
+    /// The harness's system prompt for form F and the person Lukas (round3.py run_turn, storage_round2.py p2), with one rule
+    /// line and one operation added on 2026-10-10: what the turn says again is confirmed, so it is reinforced.
+    /// </summary>
     private const string HarnessSystemLukas =
         "You write Lukas's long-term memory of one kind: every kind = \n" +
         "- fact: a fact, plan, event, change or correction about Lukas or Lukas's world (people, pets, places, work, health, money, plans with their dates)\n" +
@@ -32,22 +35,25 @@ public sealed class MemoryWriterTests
         "- A question stores nothing, unless it also tells something (\"I'm off to Seville on the 13th, what should I pack?\" stores\n" +
         "  the trip and its date).\n" +
         "- Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.\n" +
-        "- What is already stored is not stored again, in any words.\n" +
+        "- What is already stored is not stored again, in any words: when the last message says it again, confirm it.\n" +
         "- A question or a request often tells something in passing: a plan (\"what should I bring when I visit my cousin in Porto\n" +
         "  next month?\"), someone's wish or need (\"my neighbour wants to borrow the ladder, is it still in the shed?\"), an\n" +
         "  appointment, a change. Keep that part as a memory; never the question or the request itself.\n" +
         "Operations:\n" +
         "- add: something new that is not stored yet (check the STORED list);\n" +
         "- replace: the new value changes a stored memory that stops being true now (moved, new job, quit, changed plans): give its id;\n" +
-        "- correct: a stored memory was wrong all along: give its id.\n" +
+        "- correct: a stored memory was wrong all along: give its id;\n" +
+        "- confirm: the last message says again what a stored memory already says, unchanged: give its id (it is not stored\n" +
+        "  again; it counts as said again).\n" +
         "Every operation quotes the exact words of the last message it rests on. One memory per thing told; at most 6.\n" +
         "Format of \"text\": fact: \"subject | predicate | object\", with Lukas as the subject when it is about Lukas; keep dates and names as said (e.g. \"Lukas | is travelling to | Seville on 13 October\"); preference: one short sentence (e.g. \"Prefers short answers with bullet points\"); person: an entity as \"Name (PERSON|PLACE|ORGANIZATION|THING)\"; a connection as \"Name -[RELATION]-> Name\". For kind person, set \"kind\" to \"entity\" or \"relationship\" on each operation.\n" +
         "Answer with JSON only: {\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"...\", \"quote\": \"...\"},\n" +
-        "{\"op\": \"replace\", \"id\": \"F12\", \"kind\": \"fact\", \"text\": \"...\", \"quote\": \"...\"}]} or {\"ops\": []}.\n" +
+        "{\"op\": \"replace\", \"id\": \"F12\", \"kind\": \"fact\", \"text\": \"...\", \"quote\": \"...\"},\n" +
+        "{\"op\": \"confirm\", \"id\": \"P3\", \"quote\": \"...\"}]} or {\"ops\": []}.\n" +
         "Set \"kind\" on every operation to fact, preference, entity or relationship.";
 
     [Fact]
-    public void The_system_prompt_is_the_measured_one_word_for_word()
+    public void The_system_prompt_is_the_measured_one_with_the_confirm()
     {
         MemoryWriterPrompt.System("Lukas", maxOperations: 6).Should().Be(HarnessSystemLukas);
     }
@@ -211,6 +217,38 @@ public sealed class MemoryWriterTests
         result.Preferences.Should().ContainSingle().Which.Should().BeEquivalentTo(new { PreferenceText = "Drinks coffee in the morning", ReplacesId = "pref-tea" });
         result.Entities.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Name = "Bruck an der Mur", Type = "LOCATION" });
         result.Relationships.Should().ContainSingle().Which.Should().BeEquivalentTo(new { SourceEntity = "Mia", TargetEntity = "Lukas", RelationshipType = "SISTER_OF" });
+    }
+
+    [Fact]
+    public void A_confirm_needs_an_id_and_no_text()
+    {
+        var reply = "{\"ops\": [{\"op\": \"confirm\", \"id\": \"P1\", \"quote\": \"I still take the train\"}," +
+                    "{\"op\": \"confirm\", \"text\": \"no id\"}]}";
+
+        MemoryWriterOps.TryParse(reply, 6, out var ops).Should().BeTrue();
+
+        ops.Should().ContainSingle().Which.Should().Be(new MemoryWriterOps.Op("confirm", "fact", "", "P1"));
+    }
+
+    [Fact]
+    public void A_confirm_names_a_stored_fact_or_preference_and_writes_nothing()
+    {
+        var stored = MemoryWriterOps.Stored.Number(
+        [
+            new MemoryWriterOps.Stored("fact-graz", 'F', "Lukas | lives in | Graz"),
+            new MemoryWriterOps.Stored("pref-train", 'P', "Prefers the train to the car"),
+            new MemoryWriterOps.Stored("e-1", 'E', "Renate (PERSON)"),
+        ]);
+
+        var result = MemoryWriterOps.ToResult(
+            [new("confirm", "fact", "", "F1"), new("confirm", "fact", "", "P1"), new("confirm", "fact", "", "E1"), new("confirm", "fact", "", "F9")],
+            stored, "Lukas");
+
+        result.ConfirmedFactIds.Should().Equal("fact-graz");
+        result.ConfirmedPreferenceIds.Should().Equal("pref-train");
+        result.Facts.Should().BeEmpty();
+        result.Preferences.Should().BeEmpty();
+        result.Entities.Should().BeEmpty();
     }
 
     [Fact]
@@ -595,6 +633,50 @@ public sealed class PersistenceStageMemoryWriterTests
 
         var closings = _factRepo.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IFactRepository.SupersedeAsync));
         closings.Should().Be(closed);
+    }
+
+    [Fact]
+    public async Task What_the_writer_confirms_is_reinforced_once_and_nothing_is_written()
+    {
+        _prefRepo.GetByIdAsync("pref-train", Arg.Any<CancellationToken>()).Returns(new Preference
+        {
+            PreferenceId = "pref-train", Category = "general", PreferenceText = "Prefers the train", Confidence = 0.8,
+            CreatedAtUtc = DateTimeOffset.UnixEpoch, OwnerId = "lukas",
+        });
+        _factRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>()).Returns(Graz);
+        _prefRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>()).Returns(new Preference
+        {
+            PreferenceId = "pref-train", Category = "general", PreferenceText = "Prefers the train", Confidence = 0.8,
+            CreatedAtUtc = DateTimeOffset.UnixEpoch, OwnerId = "lukas",
+        });
+        var sut = new PersistenceStage(_orchestrator, _entityRepo, _factRepo, _prefRepo, _relRepo, _clock, _idGen, NullLogger<PersistenceStage>.Instance,
+            new PassThroughMemoryPersistenceTransaction(), Options.Create(new ExtractionOptions()),
+            memoryOptions: Options.Create(new MemoryOptions { ConfidenceReinforcementAlpha = 0.05 }), updateJudge: _judge);
+
+        await sut.PersistAsync(new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "Still in Graz, still taking the train.", WrittenByWriter = true,
+            ConfirmedFactIds = ["fact-graz", "fact-graz"], ConfirmedPreferenceIds = ["pref-train"],
+        }, ownerId: "lukas");
+
+        await _factRepo.Received(1).MarkDeduplicatedAsync("fact-graz", Arg.Is<double>(c => Math.Abs(c - 0.95) < 1e-9), Arg.Any<CancellationToken>());
+        await _prefRepo.Received(1).MarkDeduplicatedAsync("pref-train", Arg.Is<double>(c => Math.Abs(c - 0.85) < 1e-9), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_confirm_of_a_closed_memory_or_another_owner_s_reinforces_nothing()
+    {
+        _factRepo.GetByIdAsync("fact-old", Arg.Any<CancellationToken>()).Returns(Graz with { FactId = "fact-old", InvalidatedAtUtc = DateTimeOffset.UnixEpoch });
+        _factRepo.GetByIdAsync("fact-theirs", Arg.Any<CancellationToken>()).Returns(Graz with { FactId = "fact-theirs", OwnerId = "someone-else" });
+
+        await CreateSut().PersistAsync(new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "Still in Graz.", WrittenByWriter = true,
+            ConfirmedFactIds = ["fact-old", "fact-theirs", "fact-missing"],
+        }, ownerId: "lukas");
+
+        await _factRepo.DidNotReceiveWithAnyArgs().MarkDeduplicatedAsync(default!, default, default);
     }
 
     [Fact]

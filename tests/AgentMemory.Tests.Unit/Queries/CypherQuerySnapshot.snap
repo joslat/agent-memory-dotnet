@@ -1032,7 +1032,7 @@ MATCH (p:Preference {id: $id}) RETURN p
 MATCH (p:Preference) WHERE p.embedding IS NULL RETURN p LIMIT $limit
 
 ## PreferenceQueries.MarkDeduplicated
-MATCH (p:Preference {id: $id}) SET p.confidence = $confidence RETURN p
+MATCH (p:Preference {id: $id}) SET p.confidence = $confidence, p.mention_count = coalesce(p.mention_count, 1) + 1 RETURN p
 
 ## PreferenceQueries.SetEmbedding
 MATCH (p:Preference {id: $id}) SET p.embedding = $embedding

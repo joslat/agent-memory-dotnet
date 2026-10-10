@@ -81,9 +81,10 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         activity?.SetTag("memory.write.operations", ops.Count);
         _logger.LogInformation(
             "Memory writer: {Candidates} stored memories shown; {Ops} operation(s): {Facts} fact(s), {Preferences} preference(s), "
-            + "{Entities} entity(ies), {Relationships} relationship(s); {Named} name a stored memory as replaced.",
+            + "{Entities} entity(ies), {Relationships} relationship(s); {Named} name a stored memory as replaced; {Confirmed} confirm one.",
             stored.Count, ops.Count, result.Facts.Count, result.Preferences.Count, result.Entities.Count, result.Relationships.Count,
-            result.Facts.Count(f => f.ReplacesId is not null) + result.Preferences.Count(p => p.ReplacesId is not null));
+            result.Facts.Count(f => f.ReplacesId is not null) + result.Preferences.Count(p => p.ReplacesId is not null),
+            result.ConfirmedFactIds.Count + result.ConfirmedPreferenceIds.Count);
         return result;
     }
 
@@ -201,7 +202,7 @@ internal static class MemoryWriterPrompt
         - A question stores nothing, unless it also tells something ("I'm off to Seville on the 13th, what should I pack?" stores
           the trip and its date).
         - Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.
-        - What is already stored is not stored again, in any words.
+        - What is already stored is not stored again, in any words: when the last message says it again, confirm it.
         - A question or a request often tells something in passing: a plan ("what should I bring when I visit my cousin in Porto
           next month?"), someone's wish or need ("my neighbour wants to borrow the ladder, is it still in the shed?"), an
           appointment, a change. Keep that part as a memory; never the question or the request itself.
@@ -214,11 +215,14 @@ internal static class MemoryWriterPrompt
         Operations:
         - add: something new that is not stored yet (check the STORED list);
         - replace: the new value changes a stored memory that stops being true now (moved, new job, quit, changed plans): give its id;
-        - correct: a stored memory was wrong all along: give its id.
+        - correct: a stored memory was wrong all along: give its id;
+        - confirm: the last message says again what a stored memory already says, unchanged: give its id (it is not stored
+          again; it counts as said again).
         Every operation quotes the exact words of the last message it rests on. One memory per thing told; at most {max_ops}.
         Format of "text": {fmt}. For kind person, set "kind" to "entity" or "relationship" on each operation.
         Answer with JSON only: {"ops": [{"op": "add", "kind": "{kind_default}", "text": "...", "quote": "..."},
-        {"op": "replace", "id": "F12", "kind": "{kind_default}", "text": "...", "quote": "..."}]} or {"ops": []}.
+        {"op": "replace", "id": "F12", "kind": "{kind_default}", "text": "...", "quote": "..."},
+        {"op": "confirm", "id": "P3", "quote": "..."}]} or {"ops": []}.
         """;
 
     private static readonly (string Kind, string What, string Format)[] Kinds =
@@ -309,7 +313,7 @@ internal static class MemoryWriterPrompt
 /// <summary>The writer's operations: read from the model's JSON as the harness cleaned them, then made into memory items.</summary>
 internal static class MemoryWriterOps
 {
-    /// <summary>One operation: add, replace or correct; its kind, text and (for replace and correct) the stored id it names.</summary>
+    /// <summary>One operation: add, replace, correct or confirm; its kind, text and (for all but add) the stored id it names.</summary>
     internal sealed record Op(string Action, string Kind, string Text, string? Id);
 
     /// <summary>A stored memory shown to the writer: its short label (F3, P1, E2, R4), its text, and what it really is.</summary>
@@ -339,13 +343,14 @@ internal static class MemoryWriterOps
             + (f.ValidUntil is { } until ? $"  [valid until {until.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}]" : "");
     }
 
-    private static readonly string[] Actions = ["add", "replace", "correct"];
+    private static readonly string[] Actions = ["add", "replace", "correct", "confirm"];
     private static readonly string[] ItemKinds = ["fact", "preference", "entity", "relationship"];
 
     /// <summary>
     /// The operations in a reply, or false when it holds no JSON object. As the harness (ask_json, then keep and clean): any
     /// JSON object is an answer, and its "ops" list, when there is one, holds the operations; the first
-    /// <paramref name="max"/> entries are read, and those that are not an add, replace or correct with a text are dropped.
+    /// <paramref name="max"/> entries are read, and those that are not an add, replace or correct with a text, or a confirm with
+    /// an id, are dropped.
     /// </summary>
     internal static bool TryParse(string? reply, int max, out IReadOnlyList<Op> ops)
     {
@@ -363,9 +368,11 @@ internal static class MemoryWriterOps
                 if (o.ValueKind != JsonValueKind.Object) continue;
                 var action = Str(o, "op")?.Trim().ToLowerInvariant();
                 var text = Str(o, "text")?.Trim();
-                if (action is null || !Actions.Contains(action) || string.IsNullOrEmpty(text)) continue;
+                var id = Str(o, "id")?.Trim();
+                if (action is null || !Actions.Contains(action)) continue;
+                if (action == "confirm" ? string.IsNullOrEmpty(id) : string.IsNullOrEmpty(text)) continue;
                 var kind = Str(o, "kind")?.Trim().ToLowerInvariant();
-                kept.Add(new Op(action, kind is not null && ItemKinds.Contains(kind) ? kind : "fact", text, Str(o, "id")?.Trim()));
+                kept.Add(new Op(action, kind is not null && ItemKinds.Contains(kind) ? kind : "fact", text ?? "", id));
             }
             ops = kept;
             return true;
@@ -400,9 +407,19 @@ internal static class MemoryWriterOps
         var preferences = new List<ExtractedPreference>();
         var entities = new List<ExtractedEntity>();
         var relationships = new List<ExtractedRelationship>();
+        var confirmedFacts = new List<string>();
+        var confirmedPreferences = new List<string>();
         foreach (var op in ops)
         {
             var target = op.Action != "add" && op.Id is not null && byLabel.TryGetValue(op.Id, out var named) ? named : null;
+            if (op.Action == "confirm")
+            {
+                // Said again: the stored fact or preference it names is reinforced and nothing is written (an entity or a
+                // connection said again needs nothing, as the prompt says of a mere mention).
+                if (target?.Letter == 'F') confirmedFacts.Add(target.Id);
+                else if (target?.Letter == 'P') confirmedPreferences.Add(target.Id);
+                continue;
+            }
             if (Connection.Match(op.Text) is { Success: true } link)
             {
                 relationships.Add(new ExtractedRelationship
@@ -450,7 +467,12 @@ internal static class MemoryWriterOps
                     break;
             }
         }
-        return new UnifiedExtractionResult { Facts = facts, Preferences = preferences, Entities = entities, Relationships = relationships };
+        return new UnifiedExtractionResult
+        {
+            Facts = facts, Preferences = preferences, Entities = entities, Relationships = relationships,
+            ConfirmedFactIds = [.. confirmedFacts.Distinct(StringComparer.Ordinal)],
+            ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
+        };
     }
 
     /// <summary>The prompt's PLACE and THING in the library's entity vocabulary (LOCATION, OBJECT).</summary>

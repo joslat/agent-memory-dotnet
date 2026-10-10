@@ -30,6 +30,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private readonly WorkingMemoryRebuilder _rebuilder;
     private readonly IMemoryUpdateJudge? _updateJudge;
     private readonly IMemoryUpdateJudgeFallback? _fallbackJudge;
+    private readonly double _reinforceAlpha;
 
     public PersistenceStage(
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -54,6 +55,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     {
         _updateJudge = updateJudge;
         _fallbackJudge = fallbackJudge;
+        _reinforceAlpha = memoryOptions?.Value.ConfidenceReinforcementAlpha ?? 0.0;
         _embeddingOrchestrator = embeddingOrchestrator;
         _entityRepository = entityRepository;
         _factRepository = factRepository;
@@ -249,6 +251,44 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private static int s_warnedNamedWithoutJudge;
 
     /// <summary>
+    /// AMWRITE001. The stored facts and preferences a store-aware writer said the turn says again (its "confirm"): each live
+    /// one of this owner is reinforced as a repeated write reinforces it (one more <c>mention_count</c>, confidence raised by
+    /// <see cref="MemoryOptions.ConfidenceReinforcementAlpha"/>), through the dedup path (<c>MarkDeduplicatedAsync</c>). The
+    /// writer stores nothing twice, so without this a memory said again and again stayed at one mention. A failure is logged
+    /// and leaves the memory as it was.
+    /// </summary>
+    private async Task ReinforceConfirmedAsync(ExtractionStageResult extraction, string? ownerId, CancellationToken cancellationToken)
+    {
+        if (!extraction.WrittenByWriter || extraction.ConfirmedFactIds.Count + extraction.ConfirmedPreferenceIds.Count == 0) return;
+        bool Owned(string? owner) => string.IsNullOrEmpty(ownerId) ? string.IsNullOrEmpty(owner) : owner == ownerId;
+        var reinforced = 0;
+        try
+        {
+            foreach (var id in extraction.ConfirmedFactIds.Distinct(StringComparer.Ordinal))
+            {
+                var fact = await _factRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+                if (fact is null || fact.InvalidatedAtUtc is not null || !Owned(fact.OwnerId)) continue;
+                if (await _factRepository.MarkDeduplicatedAsync(id, Math.Min(1.0, fact.Confidence + _reinforceAlpha), cancellationToken).ConfigureAwait(false) is not null)
+                    reinforced++;
+            }
+            foreach (var id in extraction.ConfirmedPreferenceIds.Distinct(StringComparer.Ordinal))
+            {
+                var preference = await _preferenceRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+                if (preference is null || preference.InvalidatedAtUtc is not null || !Owned(preference.OwnerId)) continue;
+                if (await _preferenceRepository.MarkDeduplicatedAsync(id, Math.Min(1.0, preference.Confidence + _reinforceAlpha), cancellationToken).ConfigureAwait(false) is not null)
+                    reinforced++;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Memory writer: reinforcing what the turn said again FAILED ({Error}); those memories stay as they were.", ex.Message);
+        }
+        if (reinforced > 0)
+            _logger.LogInformation("Memory writer: {Count} stored memory(ies) said again, reinforced.", reinforced);
+    }
+
+    /// <summary>
     /// AMWRITE001. The stored memories a store-aware writer said the new ones replace (<see cref="ExtractedFact.ReplacesId"/>,
     /// <see cref="ExtractedPreference.ReplacesId"/>): each pair goes to the update judge, and the stored memory is closed, as a
     /// change or as a correction, at <see cref="ExtractionOptions.NamedClosingThreshold"/>, the judge asked the named question
@@ -399,6 +439,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // J-11. After the write (whichever path produced it), outside its transaction: a name that replaced another
         // renames what it named. Before the rebuild below, so the working-memory block is compiled from the result.
         await RenameCorrectedNamesAsync(extraction, ownerId, started, cancellationToken).ConfigureAwait(false);
+
+        // AMWRITE001. What the writer said the turn says again is counted again, as a repeated write is; nothing is rewritten.
+        await ReinforceConfirmedAsync(extraction, ownerId, cancellationToken).ConfigureAwait(false);
 
         // Once per persist, and here rather than inside the core so it happens exactly once whichever
         // of the three return paths (atomic / best-effort / replay) produced the result, and outside

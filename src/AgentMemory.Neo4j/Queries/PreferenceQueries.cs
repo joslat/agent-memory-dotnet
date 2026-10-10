@@ -123,8 +123,12 @@ internal static class PreferenceQueries
             LIMIT 1";
     }
 
-    /// <summary>Reinforce an existing preference reached by dedup: bump its confidence.</summary>
-    public const string MarkDeduplicated = "MATCH (p:Preference {id: $id}) SET p.confidence = $confidence RETURN p";
+    /// <summary>
+    /// Reinforce an existing preference reached by dedup (or said again, AMWRITE001's confirm): bump its confidence and count
+    /// the mention, as the fact's MarkDeduplicated does.
+    /// </summary>
+    public const string MarkDeduplicated =
+        "MATCH (p:Preference {id: $id}) SET p.confidence = $confidence, p.mention_count = coalesce(p.mention_count, 1) + 1 RETURN p";
 
     /// <summary>
     /// Delete a Preference and all its relationships. When scoped (R1) the delete only affects the

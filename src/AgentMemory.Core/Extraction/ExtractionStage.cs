@@ -458,6 +458,8 @@ internal sealed class ExtractionStage : IExtractionStage
             PreferenceExtractorCount = _preferenceExtractors.Count,
             RelationshipExtractorCount = _relationshipExtractors.Count,
             WrittenByWriter = writer is not null,
+            ConfirmedFactIds = writer is not null && written is { } confirmed ? confirmed.Result.ConfirmedFactIds : [],
+            ConfirmedPreferenceIds = writer is not null && written is { } confirmedToo ? confirmedToo.Result.ConfirmedPreferenceIds : [],
             WriterFallbackReason = writerFallback,
             Outcomes = outcomes
         };

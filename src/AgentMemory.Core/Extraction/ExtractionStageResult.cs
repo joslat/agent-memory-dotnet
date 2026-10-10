@@ -57,6 +57,12 @@ internal sealed record ExtractionStageResult
     /// </summary>
     public bool WrittenByWriter { get; init; }
 
+    /// <summary>AMWRITE001. Stored facts the writer said the turn says again: persistence reinforces them.</summary>
+    public IReadOnlyList<string> ConfirmedFactIds { get; init; } = Array.Empty<string>();
+
+    /// <summary>AMWRITE001. Stored preferences the writer said the turn says again: persistence reinforces them.</summary>
+    public IReadOnlyList<string> ConfirmedPreferenceIds { get; init; } = Array.Empty<string>();
+
     /// <summary>
     /// Why the extractors wrote this turn instead of an enabled store-aware writer, when its call failed and
     /// <see cref="AgentMemory.Abstractions.Options.ExtractionOptions.FallBackToExtractorsWhenWriterFails"/> is on (the writer's error); null otherwise.
