@@ -45,9 +45,11 @@ public sealed class LongMemEvalSessions(TextWriter output)
         IReadOnlyList<(DateTimeOffset At, string Id, IReadOnlyList<(string Role, string Content)> Messages)> Sessions);
 
     public async Task<int> RunAsync(string dataPath, IReadOnlyCollection<string> types, int limit, bool writer, int parallel, string outPath, bool dryRun,
-        CancellationToken cancellationToken = default)
+        bool history = false, CancellationToken cancellationToken = default)
     {
-        var questions = Read(dataPath).Where(q => types.Count == 0 || types.Contains(q.Type)).OrderBy(q => q.Type, StringComparer.Ordinal)
+        var only = (Environment.GetEnvironmentVariable("LME_IDS") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var questions = Read(dataPath).Where(q => types.Count == 0 || types.Contains(q.Type)).Where(q => only.Length == 0 || only.Contains(q.Id))
+            .OrderBy(q => q.Type, StringComparer.Ordinal)
             .ThenBy(q => q.Id, StringComparer.Ordinal).Take(limit > 0 ? limit : int.MaxValue).ToList();
         var resolution = InferenceProviderEnvironment.Resolve();
         if (resolution.Settings is not { } settings || !InferenceClientFactory.TryCreateChatClient(settings, "extraction", out var chat, out var why))
@@ -66,7 +68,8 @@ public sealed class LongMemEvalSessions(TextWriter output)
         output.WriteLine($"longmemeval: {questions.Count} questions ({string.Join(", ", questions.GroupBy(q => q.Type).Select(g => $"{g.Key} {g.Count()}"))}), "
             + $"{todo.Count} to run ({done.Count} already in {Path.GetFileName(outPath)}), "
             + $"{todo.Sum(q => q.Sessions.Sum(s => s.Messages.Count(m => m.Role == "user")))} user turns; written by {settings.Provider} ({settings.Model}), "
-            + $"the Recommended preset {(writer ? "(the store-aware writer)" : "on the per-turn extractors (--writer off)")}, the gate on JEV, {parallel} at once");
+            + $"the Recommended preset {(writer ? "(the store-aware writer)" : "on the per-turn extractors (--writer off)")}"
+            + $"{(history ? ", replaced values shown (ResolveSupersessions)" : "")}, the gate on JEV, {parallel} at once");
         if (dryRun)
         {
             output.WriteLine("longmemeval: dry run: nothing was sent.");
@@ -99,7 +102,10 @@ public sealed class LongMemEvalSessions(TextWriter output)
             services.AddLogging(ArenaLogging.Console);
             services.AddSingleton<IClock>(clock);
 #pragma warning disable AMREC001, AMGATE001
-            services.AddNeo4jAgentMemory(MemoryOptions.CreateRecommended(), Neo4j, o =>
+            // --history on: recall shows what a kept fact replaced, "(since D; previously X)", as the prompt renders it.
+            var memory = MemoryOptions.CreateRecommended();
+            if (history) memory = memory with { Projection = memory.Projection with { ResolveSupersessions = true } };
+            services.AddNeo4jAgentMemory(memory, Neo4j, o =>
             {
                 o.ApplyRecommended();
                 o.UseMemoryWriter = writer;
@@ -196,7 +202,7 @@ public sealed class LongMemEvalSessions(TextWriter output)
                 output.WriteLine($"  {finished}/{todo.Count} {q.Id} ({q.Type}): {turns} turns, {failed.Count} failed, {watch.Elapsed.TotalSeconds:0} s");
                 json = JsonSerializer.Serialize(new
                 {
-                    format = "longmemeval-turns/1", data = Path.GetFileName(dataPath), writer, model = settings.Model, results,
+                    format = "longmemeval-turns/1", data = Path.GetFileName(dataPath), writer, history, model = settings.Model, results,
                 }, new JsonSerializerOptions { WriteIndented = true });
             }
             await WriteLockedAsync(outPath, json, ct).ConfigureAwait(false);
@@ -262,7 +268,12 @@ public sealed class LongMemEvalSessions(TextWriter output)
             return new
             {
                 outcome = trace.Outcome, reason = trace.FallbackReason, offered = trace.Offered, keptCount = trace.Kept,
-                items = kept.Select(x => new { id = x.ItemId, type = x.MemoryType, text = x.Text, p = x.Probability, at = created.GetValueOrDefault(x.ItemId) }),
+                // The note the prompt adds after the item (a replaced value, a source date), as rendered for the host.
+                items = kept.Select(x => new
+                {
+                    id = x.ItemId, type = x.MemoryType, text = x.Text, p = x.Probability, at = created.GetValueOrDefault(x.ItemId),
+                    note = context.Projection?.Annotations.GetValueOrDefault(x.ItemId)?.SupersessionNote,
+                }),
             };
 #pragma warning restore AMGATE001
         }

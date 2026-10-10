@@ -959,12 +959,19 @@ internal static class FactQueries
     /// per-fact cap is applied inside the collect so a long chain cannot blow up the payload.
     /// </para>
     /// <para>
+    /// <b>Only what held, never what was wrong.</b> A correction also writes <c>:SUPERSEDED_BY</c>, but its
+    /// loser was wrong all along (<c>invalidated_reason = 'correction'</c>): rendered as "previously …" it
+    /// would put a value the person withdrew back in front of the agent. A loser closed before the reason was
+    /// recorded reads as a change, as it did.
+    /// </para>
+    /// <para>
     /// (A const, so it IS in the Cypher snapshot inventory — it is a fixed query with no variants.)
     /// </para>
     /// </remarks>
     public const string GetSupersessionPredecessors = @"
             MATCH (prev:Fact)-[:SUPERSEDED_BY]->(cur:Fact)
             WHERE cur.id IN $factIds
+              AND coalesce(prev.invalidated_reason, 'change') <> 'correction'
             WITH cur, prev
             ORDER BY coalesce(prev.valid_until, prev.invalidated_at) DESC
             WITH cur, collect({

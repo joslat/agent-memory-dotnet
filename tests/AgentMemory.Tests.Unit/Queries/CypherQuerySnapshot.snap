@@ -503,6 +503,7 @@ MATCH (f:Fact) WHERE f.embedding IS NULL RETURN f LIMIT $limit
 ## FactQueries.GetSupersessionPredecessors
 MATCH (prev:Fact)-[:SUPERSEDED_BY]->(cur:Fact)
             WHERE cur.id IN $factIds
+              AND coalesce(prev.invalidated_reason, 'change') <> 'correction'
             WITH cur, prev
             ORDER BY coalesce(prev.valid_until, prev.invalidated_at) DESC
             WITH cur, collect({

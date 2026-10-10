@@ -351,7 +351,8 @@ switch (args.FirstOrDefault())
             (Get("types") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
             int.Parse(Get("limit") ?? "0", CultureInfo.InvariantCulture), (Get("writer") ?? "on") != "off",
             int.Parse(Get("parallel") ?? "6", CultureInfo.InvariantCulture),
-            Get("out") ?? Path.Combine(strategy, "performance", "runs", "longmemeval", "longmemeval-turns.json"), dryRun);
+            Get("out") ?? Path.Combine(strategy, "performance", "runs", "longmemeval", "longmemeval-turns.json"), dryRun,
+            (Get("history") ?? "off") == "on");
     }
     case "store-sessions":
     {

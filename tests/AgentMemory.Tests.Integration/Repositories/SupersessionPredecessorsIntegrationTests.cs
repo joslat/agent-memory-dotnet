@@ -63,6 +63,22 @@ public class SupersessionPredecessorsIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ACorrectedFactIsNotAPredecessor()
+    {
+        // A value that was wrong all along must not come back as "previously ..." (2026-10-10).
+        var wrong = await _facts.UpsertAsync(NewFact("Globex", "alice"));
+        var right = await _facts.UpsertAsync(NewFact("Acme", "alice"));
+        (await _facts.SupersedeAsync(wrong.FactId, right.FactId, FactClosureReason.Correction, null, Alice)).Should().BeTrue();
+        var later = await _facts.UpsertAsync(NewFact("Initech", "alice"));
+        (await _facts.SupersedeAsync(right.FactId, later.FactId, FactClosureReason.Change, null, Alice)).Should().BeTrue();
+
+        var predecessors = await _facts.GetSupersessionPredecessorsAsync([right.FactId, later.FactId], 3);
+
+        predecessors.GetValueOrDefault(right.FactId).Should().BeNullOrEmpty();
+        predecessors[later.FactId].Should().ContainSingle().Which.Object.Should().Be("Acme");
+    }
+
+    [Fact]
     public async Task BothClocksAreReadBack()
     {
         // Supersede stamps invalidated_at AND valid_until; rendering prefers valid time, so both must
