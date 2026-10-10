@@ -56,9 +56,9 @@ public class DreamingConsolidationIntegrationTests : IAsyncLifetime
         await using var session = _fixture.Driver.AsyncSession();
         await session.RunAsync(@"
             CREATE (c:Conversation {id: 'c1', session_id: 's1'})
-            CREATE (m0:Message {id: 'm0', role: 'user', content: 'We had dinner at Helena''s on Sunday.', created_at: datetime('2027-09-14T19:00:00Z')})
+            CREATE (m0:Message {id: 'm0', role: 'user', content: $m0, created_at: datetime('2027-09-14T19:00:00Z')})
             CREATE (ma:Message {id: 'ma', role: 'assistant', content: 'That sounds lovely!', created_at: datetime('2027-09-14T19:00:05Z')})
-            CREATE (m1:Message {id: 'm1', role: 'user', content: 'Helena''s octopus got me eating octopus!', created_at: datetime('2027-09-15T10:00:00Z')})
+            CREATE (m1:Message {id: 'm1', role: 'user', content: $m1, created_at: datetime('2027-09-15T10:00:00Z')})
             CREATE (c)-[:HAS_MESSAGE]->(m0), (c)-[:HAS_MESSAGE]->(ma), (c)-[:HAS_MESSAGE]->(m1)
             CREATE (e1:Entity {id: 'e1', owner_id: 'alice', name: 'School backpack', type: 'OBJECT'})
             CREATE (e2:Entity {id: 'e2', owner_id: 'alice', name: 'New school backpack', type: 'OBJECT'})
@@ -69,7 +69,8 @@ public class DreamingConsolidationIntegrationTests : IAsyncLifetime
             CREATE (:Fact {id: 'f1', owner_id: 'alice', subject: 'Vasco', predicate: 'carries', object: 'his school backpack'})
             CREATE (p1:Preference {id: 'p1', owner_id: 'alice', category: 'food', preference: 'loves octopus'})
             CREATE (p2:Preference {id: 'p2', owner_id: 'alice', category: 'values', preference: 'values family traditions'})
-            CREATE (p1)-[:EXTRACTED_FROM]->(m1), (p2)-[:EXTRACTED_FROM]->(m1)");
+            CREATE (p1)-[:EXTRACTED_FROM]->(m1), (p2)-[:EXTRACTED_FROM]->(m1)",
+            new { m0 = "We had dinner at Helena's on Sunday.", m1 = "Helena's octopus got me eating octopus!" });
     }
 
     private async Task<string?> ClosedReasonAsync(string cypher)
