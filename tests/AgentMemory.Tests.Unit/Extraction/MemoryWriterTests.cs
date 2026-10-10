@@ -37,7 +37,8 @@ public sealed class MemoryWriterTests
         "  how the person lived, a birth ends an expecting, a wedding ends an engagement, a breakup ends a relationship, a\n" +
         "  new job or a retirement ends the old job. Only the person's own event ends their state: someone else's wedding or\n" +
         "  move ends nothing of theirs. Replace the stored memory it ends, even when the message names the person by a role\n" +
-        "  (mum, my sister) and the stored memory names them by name.\n" +
+        "  (mum, my sister) and the stored memory names them by name. When one event ends more than one stored memory (the\n" +
+        "  wedding plan and the engagement), write one replace for each.\n" +
         "- Something true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's stay) is\n" +
         "  stored with \"until\": the last date it holds.\n" +
         "- A question stores nothing, unless it also tells something (\"I'm off to Seville on the 13th, what should I pack?\" stores\n" +

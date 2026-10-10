@@ -203,7 +203,8 @@ internal static class MemoryWriterPrompt
           how the person lived, a birth ends an expecting, a wedding ends an engagement, a breakup ends a relationship, a
           new job or a retirement ends the old job. Only the person's own event ends their state: someone else's wedding or
           move ends nothing of theirs. Replace the stored memory it ends, even when the message names the person by a role
-          (mum, my sister) and the stored memory names them by name.
+          (mum, my sister) and the stored memory names them by name. When one event ends more than one stored memory (the
+          wedding plan and the engagement), write one replace for each.
         - Something true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's stay) is
           stored with "until": the last date it holds.
         - A question stores nothing, unless it also tells something ("I'm off to Seville on the 13th, what should I pack?" stores

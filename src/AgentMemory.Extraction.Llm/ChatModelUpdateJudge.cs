@@ -22,7 +22,8 @@ internal sealed class ChatModelUpdateJudge : IMemoryUpdateJudgeFallback
     internal static readonly (string True, string False) NamedCriteria =
         ("the stored memory no longer holds as stored: the new one changes its value (a new job, place, commute, count, time or "
          + "plan), corrects it, states the same thing more precisely (a date, a place, a number), cancels it, or reports that a "
-         + "planned or ongoing thing has now happened, ended or been called off",
+         + "planned or ongoing thing has now happened, ended or been called off, or that the person it is about has died, married, "
+         + "moved away or had the baby, so a state they were in (where or how they lived, an engagement, an expecting) has ended",
          "both hold as they are: they are about different things, or the stored memory is a dated past event or result that "
          + "stays true as history beside a separate new one (an earlier race, a trip already taken)");
 

@@ -382,7 +382,8 @@ public sealed class GateTests
         q.Instructions.Should().Be("Does the new memory \"Lukas | had | the eye test, all fine\" replace this stored one: \"Lukas | has an eye test on | 3 March 2027\"?");
         q.True.Should().Be("the stored memory no longer holds as stored: the new one changes its value (a new job, place, commute, count, time or plan), "
             + "corrects it, states the same thing more precisely (a date, a place, a number), cancels it, or reports that a planned or ongoing thing "
-            + "has now happened, ended or been called off");
+            + "has now happened, ended or been called off, or that the person it is about has died, married, moved away or had the baby, so a "
+            + "state they were in (where or how they lived, an engagement, an expecting) has ended");
         q.False.Should().Be("both hold as they are: they are about different things, or the stored memory is a dated past event or result that "
             + "stays true as history beside a separate new one (an earlier race, a trip already taken)");
     }
