@@ -122,6 +122,32 @@ public sealed class LlmMemoryWriterTests
     }
 
     [Fact]
+    public async Task The_connections_of_someone_found_by_meaning_are_shown()
+    {
+        // The scenario suite's H6: "Simone" is not a stored name ("Simone Gagné" is), so she is found by meaning, and her
+        // engagement must be shown for the wedding to end it.
+        var simone = new Entity { EntityId = "e-simone", Name = "Simone Gagné", Type = "PERSON", Confidence = 1, CreatedAtUtc = Now };
+        _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(simone, 0.8)]);
+        _relationships.GetLiveAroundAsync(Arg.Is<IReadOnlyList<string>>(ids => ids.Single() == "e-simone"), Arg.Any<IReadOnlyList<string>>(),
+                Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns([new RecalledRelationship
+            {
+                Relationship = new Relationship
+                {
+                    RelationshipId = "rel-engaged", SourceEntityId = "e-owen", TargetEntityId = "e-simone", RelationshipType = "ENGAGED_TO",
+                    Confidence = 1, CreatedAtUtc = Now.AddDays(-300),
+                },
+                SourceName = "Owen Hnatiuk", TargetName = "Simone Gagné",
+            }]);
+
+        await Writer().WriteAsync(Turn("Simone and I got married on Saturday!", MemoryScope.For("lukas")));
+
+        _asked.Single().User.Split("STORED (live, most relevant):\n")[1].Split('\n').Should().Equal(
+            "E1: Simone Gagné (PERSON)",
+            "R1: Owen Hnatiuk -[ENGAGED_TO]-> Simone Gagné");
+    }
+
+    [Fact]
     public async Task At_most_twenty_are_shown()
     {
         var renate = new Entity { EntityId = "e-renate", Name = "Renate Brenner", Type = "PERSON", Confidence = 1, CreatedAtUtc = Now };

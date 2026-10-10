@@ -79,6 +79,10 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var ops = await AskAsync(system, context, cancellationToken).ConfigureAwait(false);
         var result = MemoryWriterOps.ToResult(ops, stored, owner);
         activity?.SetTag("memory.write.operations", ops.Count);
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("Memory writer: shown [{Stored}]; answered [{Ops}].",
+                string.Join(" ; ", stored.Select(s => $"{s.Label} {s.Text}")),
+                string.Join(" ; ", ops.Select(o => $"{o.Action}{(o.Id is null ? "" : " " + o.Id)} {o.Kind}: {o.Text}")));
         _logger.LogInformation(
             "Memory writer: {Candidates} stored memories shown; {Ops} operation(s): {Facts} fact(s), {Preferences} preference(s), "
             + "{Entities} entity(ies), {Relationships} relationship(s); {Named} name a stored memory as replaced; {Confirmed} confirm one.",
@@ -142,7 +146,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     /// The stored memories the writer sees, as the harness chose them (storage_round2.World.candidates): the people and
     /// things the turn names; the live memories that mention them (connections first, then facts, then preferences, oldest
     /// first: the store's order); then the most similar by meaning (<see cref="LlmExtractionOptions.MemoryWriterCandidates"/>,
-    /// taken before the ones already listed are removed); at most that many plus six in all.
+    /// taken before the ones already listed are removed); then the live connections of the people found by meaning; at most
+    /// that many plus six in all.
     /// </summary>
     private async Task<IReadOnlyList<MemoryWriterOps.Stored>> StoredAsync(
         string text, MemoryScope scope, DateTimeOffset now, CancellationToken cancellationToken)
@@ -185,10 +190,18 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             if (preference.InvalidatedAtUtc is null) similar.Add((score, MemoryWriterOps.Stored.Of(preference)));
         foreach (var (entity, score) in await entities.SearchByVectorAsync(vector, limit, 0.0, scope, cancellationToken).ConfigureAwait(false))
             similar.Add((score, MemoryWriterOps.Stored.Of(entity)));
-        var byMeaning = similar.OrderByDescending(s => s.Score).Select(s => s.Item).DistinctBy(item => item.Id).Take(limit);
+        var byMeaning = similar.OrderByDescending(s => s.Score).Select(s => s.Item).DistinctBy(item => item.Id).Take(limit).ToList();
+
+        // 4. The live connections of the people found by meaning, not by their exact name ("Simone and I got married" finds
+        // "Simone Gagné"): without them a wedding could not end "Owen -[ENGAGED_TO]-> Simone Gagné" (the scenario suite, H6).
+        var foundByMeaning = byMeaning.Where(item => item.Letter == 'E' && named.All(e => e.EntityId != item.Id)).Select(item => item.Id).ToList();
+        var theirs = new List<MemoryWriterOps.Stored>();
+        if (foundByMeaning.Count > 0)
+            theirs.AddRange((await relationships.GetLiveAroundAsync(foundByMeaning, [], 6, now, scope, cancellationToken).ConfigureAwait(false))
+                .OrderBy(r => r.Relationship.CreatedAtUtc).Select(MemoryWriterOps.Stored.Of));
 
         return MemoryWriterOps.Stored.Number(
-            [.. named.Select(MemoryWriterOps.Stored.Of).Concat(byName).Concat(byMeaning).DistinctBy(item => item.Id).Take(limit + 6)]);
+            [.. named.Select(MemoryWriterOps.Stored.Of).Concat(byName).Concat(byMeaning).Concat(theirs).DistinctBy(item => item.Id).Take(limit + 6)]);
     }
 }
 
@@ -206,8 +219,9 @@ internal static class MemoryWriterPrompt
           move ends nothing of theirs. Replace the stored memory it ends (a fact or a connection), even when the message
           names the person by a role (mum, my sister) and the stored memory names them by name. When one event ends more
           than one stored memory (the wedding plan and the engagement), write one replace for each.
-        - Something true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's stay) is
-          stored with "until": the last date it holds.
+        - A plan or a state true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's
+          stay) is stored with "until": the last date it holds. Something that happened (the dog stole the butter this
+          morning, she asked me to braid her hair today) stays true: store it with its date, never with "until".
         - A question stores nothing, unless it also tells something ("I'm off to Seville on the 13th, what should I pack?" stores
           the trip and its date).
         - Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.

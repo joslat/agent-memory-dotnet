@@ -13,5 +13,8 @@ internal static class ArenaLogging
         builder.AddSimpleConsole(c => c.SingleLine = true)
             .SetMinimumLevel(LogLevel.Warning)
             .AddFilter("AgentMemory.Gate", LogLevel.Information)
-            .AddFilter("AgentMemory.Core.Extraction.PersistenceStage", LogLevel.Information);
+            .AddFilter("AgentMemory.Core.Extraction.PersistenceStage", LogLevel.Information)
+            // ARENA_WRITER_LOG=debug: what the writer was shown and what it answered, turn by turn (a diagnosis, not a run).
+            .AddFilter("AgentMemory.Extraction.Llm.LlmMemoryWriter",
+                Environment.GetEnvironmentVariable("ARENA_WRITER_LOG") == "debug" ? LogLevel.Debug : LogLevel.Warning);
 }

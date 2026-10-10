@@ -39,8 +39,9 @@ public sealed class MemoryWriterTests
         "  move ends nothing of theirs. Replace the stored memory it ends (a fact or a connection), even when the message\n" +
         "  names the person by a role (mum, my sister) and the stored memory names them by name. When one event ends more\n" +
         "  than one stored memory (the wedding plan and the engagement), write one replace for each.\n" +
-        "- Something true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's stay) is\n" +
-        "  stored with \"until\": the last date it holds.\n" +
+        "- A plan or a state true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's\n" +
+        "  stay) is stored with \"until\": the last date it holds. Something that happened (the dog stole the butter this\n" +
+        "  morning, she asked me to braid her hair today) stays true: store it with its date, never with \"until\".\n" +
         "- A question stores nothing, unless it also tells something (\"I'm off to Seville on the 13th, what should I pack?\" stores\n" +
         "  the trip and its date).\n" +
         "- Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.\n" +
@@ -700,7 +701,7 @@ public sealed class PersistenceStageMemoryWriterTests
     }
 
     [Fact]
-    public async Task A_connection_that_ends_a_named_connection_ends_it_once_it_is_stored()
+    public async Task A_connection_that_ends_a_named_connection_ends_it()
     {
         EngagementStored();
         JudgeSays(0.9);
@@ -722,6 +723,48 @@ public sealed class PersistenceStageMemoryWriterTests
             r.Pairs.Single().NewMemory == "Owen Hnatiuk | married to | Simone Gagné"
             && r.Pairs.Single().StoredMemory == "Owen Hnatiuk | engaged to | Simone Gagné"), Arg.Any<CancellationToken>());
         await _relRepo.Received(1).EndAsync("rel-engaged", Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_connection_whose_new_end_is_not_stored_still_ends_the_named_one_when_the_judge_confirms()
+    {
+        // H7: "Walter -[LIVES_IN]-> Saskatoon", with no Saskatoon stored, cannot be written; Wakaw has still ended.
+        EngagementStored();
+        JudgeSays(0.9);
+        _entityRepo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Entity>()));
+        var turn = new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "We're married!", WrittenByWriter = true,
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Owen Hnatiuk"] = Owen },
+            FilteredRelationships =
+            [
+                new ExtractedRelationship { SourceEntity = "Owen Hnatiuk", TargetEntity = "Simone", RelationshipType = "MARRIED_TO", Confidence = 0.9, ReplacesId = "rel-engaged" },
+            ],
+        };
+
+        await CreateSut().PersistAsync(turn, ownerId: "lukas");
+
+        await _relRepo.DidNotReceive().UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>());
+        await _relRepo.Received(1).EndAsync("rel-engaged", Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task The_same_connection_said_again_ends_nothing()
+    {
+        EngagementStored();
+        JudgeSays(0.99);
+        var turn = new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "Still engaged!", WrittenByWriter = true,
+            FilteredRelationships =
+            [
+                new ExtractedRelationship { SourceEntity = "Owen Hnatiuk", TargetEntity = "Simone Gagné", RelationshipType = "ENGAGED_TO", Confidence = 0.9, ReplacesId = "rel-engaged" },
+            ],
+        };
+
+        await CreateSut().PersistAsync(turn, ownerId: "lukas");
+
+        await _relRepo.DidNotReceiveWithAnyArgs().EndAsync(default!, default, default, default);
     }
 
     [Fact]

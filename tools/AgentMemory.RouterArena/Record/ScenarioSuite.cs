@@ -224,7 +224,9 @@ public sealed class ScenarioSuite(TextWriter output)
     {
         var alternatives = check.Text.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         // A fact reads "subject | predicate | object"; a check is a phrase ("works at Gord's shop"), so the separators go.
-        bool Says(Item i) => alternatives.Any(a => i.Text.Replace(" | ", " ", StringComparison.Ordinal).Contains(a, StringComparison.OrdinalIgnoreCase));
+        // A connection's relation reads as words too: "-[BROKE_UP_WITH]->" says "broke up with".
+        bool Says(Item i) => alternatives.Any(a => SaysPhrase(i.Text.Replace(" | ", " ", StringComparison.Ordinal), a)
+            || (i.Kind == "connection" && SaysPhrase(i.Text.Replace('_', ' '), a)));
         bool Current(Item i) => !i.Closed && (i.Until is null || i.Until > at);
         return check.Kind switch
         {
@@ -234,6 +236,15 @@ public sealed class ScenarioSuite(TextWriter output)
             "mentions" => items.Any(i => Current(i) && Says(i) && i.Mentions >= check.AtLeast),
             _ => false,
         };
+    }
+
+    // A phrase said only as ended ("no longer lives in the care home") is not said.
+    private static bool SaysPhrase(string text, string phrase)
+    {
+        for (var at = text.IndexOf(phrase, StringComparison.OrdinalIgnoreCase); at >= 0; at = text.IndexOf(phrase, at + 1, StringComparison.OrdinalIgnoreCase))
+            if (!text[..at].EndsWith("no longer ", StringComparison.OrdinalIgnoreCase) && !text[..at].EndsWith("not ", StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 
     private static IReadOnlyList<Item> Items(IEnumerable<Dictionary<string, object?>> rows, string person)

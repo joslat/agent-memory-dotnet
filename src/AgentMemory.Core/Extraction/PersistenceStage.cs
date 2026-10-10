@@ -375,14 +375,15 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             foreach (var item in namedRelationships)
             {
                 var text = EdgeText(item.SourceEntity, item.RelationshipType, item.TargetEntity);
-                // Only after the new connection is stored: a failed write must not leave the person with neither.
-                if (!relationshipsByKey.TryGetValue($"{item.SourceEntity}-{item.RelationshipType}->{item.TargetEntity}", out var writtenId))
-                {
-                    _logger.LogWarning("Memory writer: relationship '{New}' named '{Id}' as replaced but was not written; nothing is ended.",
+                // The new connection may not be stored: its other end can be a name the store does not hold yet ("Walter
+                // -[LIVES_IN]-> Saskatoon", the scenario suite's H7). The judge still decides whether the named one holds;
+                // the turn's facts carry the new value.
+                var writtenId = relationshipsByKey.GetValueOrDefault($"{item.SourceEntity}-{item.RelationshipType}->{item.TargetEntity}") ?? "";
+                if (writtenId.Length == 0)
+                    _logger.LogInformation("Memory writer: relationship '{New}' was not stored; the judge is still asked whether '{Id}' ends.",
                         text, item.ReplacesId);
-                    continue;
-                }
-                if (await LiveEdgeAsync(item.ReplacesId!).ConfigureAwait(false) is not { } edge || edge.Id == writtenId)
+                if (await LiveEdgeAsync(item.ReplacesId!).ConfigureAwait(false) is not { } edge || edge.Id == writtenId
+                    || string.Equals(edge.Text, text, StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogInformation("Memory writer: '{Id}' is not another live relationship of this owner; '{New}' is stored without ending it.",
                         item.ReplacesId, text);
