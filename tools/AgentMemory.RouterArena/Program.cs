@@ -322,6 +322,14 @@ switch (args.FirstOrDefault())
         return await new AgentMemory.RouterArena.Record.StoreJar(Console.Out).RunAsync(Get("world") ?? Path.Combine(fixtures, "world.pack.json"), picked,
             Get("out") ?? Path.Combine(runs, "store-jar.json"), dryRun, Get("owner") ?? "marta");
     }
+    case "scenarios":
+    {
+        // The lucid writer's scenario suite: short conversations checked on the stored graph (strategy arena/scenarios/).
+        var file = Get("file") ?? Path.Combine(strategy, "memoryrouter", "arena", "scenarios", "lucid-writer.json");
+        return await new AgentMemory.RouterArena.Record.ScenarioSuite(Console.Out).RunAsync(file,
+            int.Parse(Get("repeat") ?? "1", CultureInfo.InvariantCulture),
+            Get("out") ?? Path.Combine(strategy, "performance", "runs", "scenarios", "lucid-writer.json"), dryRun);
+    }
     case "halumem":
     {
         // HaluMem (strategy/memoryrouter/halumem-plan.md): one person's sessions through the Recommended preset; what each
