@@ -328,7 +328,8 @@ switch (args.FirstOrDefault())
         var file = Get("file") ?? Path.Combine(strategy, "memoryrouter", "arena", "scenarios", "lucid-writer.json");
         return await new AgentMemory.RouterArena.Record.ScenarioSuite(Console.Out).RunAsync(file,
             int.Parse(Get("repeat") ?? "1", CultureInfo.InvariantCulture),
-            Get("out") ?? Path.Combine(strategy, "performance", "runs", "scenarios", "lucid-writer.json"), dryRun);
+            Get("out") ?? Path.Combine(strategy, "performance", "runs", "scenarios", "lucid-writer.json"), dryRun,
+            int.Parse(Get("parallel") ?? "6", CultureInfo.InvariantCulture));
     }
     case "halumem":
     {

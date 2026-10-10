@@ -30,6 +30,9 @@ public sealed class ScenarioSuite(TextWriter output)
         "MATCH (s:Entity)-[x]->(t:Entity) WHERE x.owner_id = $owner RETURN [type(x)] AS kind, properties(x) AS p, s.name AS s, t.name AS t",
     ];
 
+    private static readonly System.Text.RegularExpressions.Regex SeedConnection =
+        new(@"^\s*(?<s>.+?)\s*-\[\s*(?<r>[A-Z_]+)\s*\]->\s*(?<t>.+?)\s*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private sealed record Turn(DateTimeOffset At, string User, string? Assistant);
 
     private sealed record Check(string Kind, string Text, int AtLeast);
@@ -39,7 +42,7 @@ public sealed class ScenarioSuite(TextWriter output)
 
     private sealed record Item(string Kind, string Text, bool Closed, DateTimeOffset? Until, int Mentions);
 
-    public async Task<int> RunAsync(string file, int repeat, string outPath, bool dryRun, CancellationToken cancellationToken = default)
+    public async Task<int> RunAsync(string file, int repeat, string outPath, bool dryRun, int parallel = 6, CancellationToken cancellationToken = default)
     {
         var scenarios = Read(file);
         var resolution = InferenceProviderEnvironment.Resolve();
@@ -77,101 +80,137 @@ public sealed class ScenarioSuite(TextWriter output)
             o.EmbeddingDimensions = ollama.Dimensions ?? 1024;
         }
 
-        var clock = new Clock(scenarios[0].Turns[0].At);
-        var services = new ServiceCollection();
-        services.AddLogging(ArenaLogging.Console);
-        services.AddSingleton<IClock>(clock);
+        ServiceProvider Build(Clock clock)
+        {
+            var services = new ServiceCollection();
+            services.AddLogging(ArenaLogging.Console);
+            services.AddSingleton<IClock>(clock);
 #pragma warning disable AMREC001, AMGATE001
-        services.AddNeo4jAgentMemory(MemoryOptions.CreateRecommended(), Neo4j, o => o.ApplyRecommended());
-        services.AddSingleton<IChatClient>(new UsageCountingChatClient(chat));
-        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
-        services.AddAgentMemoryGate(g =>
-        {
-            g.ApplyRecommended();
-            g.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY" });
-        });
-#pragma warning restore AMREC001, AMGATE001
-        await using var provider = services.BuildServiceProvider();
-        await provider.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(cancellationToken).ConfigureAwait(false);
-        var tx = provider.GetRequiredService<INeo4jTransactionRunner>();
-        await tx.WriteAsync(async runner => await runner.RunAsync("CALL db.awaitIndexes(60)").ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
-
-        var results = new List<object>();
-        var tally = new Dictionary<string, (int Passed, int Total)>(StringComparer.Ordinal);
-        for (var r = 1; r <= repeat; r++)
-        {
-            foreach (var scenario in scenarios)
+            services.AddNeo4jAgentMemory(MemoryOptions.CreateRecommended(), Neo4j, o => o.ApplyRecommended());
+            services.AddSingleton<IChatClient>(new UsageCountingChatClient(chat));
+            // An instance, so the container never disposes the shared generator under another scenario.
+            services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(new CachingEmbeddingGenerator(ollama));
+            services.AddAgentMemoryGate(g =>
             {
-                var owner = $"sc-{scenario.Id}-r{r}".ToLowerInvariant();
-                var sessionId = $"{owner}-s1";
-                var failed = new List<string>();
-                var said = new List<Message>();
-                clock.Now = scenario.Turns[0].At.AddDays(-30);
-                using (var scope = provider.CreateScope())
-                {
-                    var longTerm = scope.ServiceProvider.GetRequiredService<ILongTermMemoryService>();
-                    for (var i = 0; i < scenario.Seeds.Count; i++)
-                    {
-                        var parts = scenario.Seeds[i].Split('|', 3, StringSplitOptions.TrimEntries);
-                        if (parts.Length != 3) continue;
-                        await longTerm.AddFactAsync(new Fact
-                        {
-                            FactId = $"{owner}-seed-{i:00}", Subject = parts[0], Predicate = parts[1], Object = parts[2], Confidence = 0.9,
-                            OwnerId = owner, CreatedAtUtc = clock.Now.AddMinutes(i),
-                        }, cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                clock.Now = scenario.Turns[0].At;
-                using (var scope = provider.CreateScope())
-                    await scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>()
-                        .AddConversationAsync(sessionId, sessionId, userId: owner, cancellationToken: cancellationToken).ConfigureAwait(false);
-                for (var k = 0; k < scenario.Turns.Count; k++)
-                {
-                    var turn = scenario.Turns[k];
-                    clock.Now = turn.At;
-                    using var scope = provider.CreateScope();
-                    var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
-                    var message = await shortTerm.AddMessageAsync(new Message
-                    {
-                        MessageId = $"{sessionId}-m{k:00}u", ConversationId = sessionId, SessionId = sessionId, Role = "user", Content = turn.User, TimestampUtc = turn.At,
-                    }, cancellationToken).ConfigureAwait(false);
-                    try
-                    {
-                        await scope.ServiceProvider.GetRequiredService<IMemoryExtractionPipeline>().ExtractAsync(new ExtractionRequest
-                        {
-                            SessionId = sessionId, UserId = owner, Messages = [message],
-                            ContextMessages = said.Skip(Math.Max(0, said.Count - ContextMessages)).ToList(),
-                        }, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        failed.Add($"{message.MessageId}: {ex.GetType().Name}: {ex.Message}");
-                    }
-                    said.Add(message);
-                    if (turn.Assistant is { } reply)
-                        said.Add(await shortTerm.AddMessageAsync(new Message
-                        {
-                            MessageId = $"{sessionId}-m{k:00}a", ConversationId = sessionId, SessionId = sessionId, Role = "assistant", Content = reply,
-                            TimestampUtc = turn.At.AddSeconds(5),
-                        }, cancellationToken).ConfigureAwait(false));
-                }
+                g.ApplyRecommended();
+                g.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY" });
+            });
+#pragma warning restore AMREC001, AMGATE001
+            return services.BuildServiceProvider();
+        }
 
-                var at = scenario.CheckAt ?? scenario.Turns[^1].At.AddMinutes(1);
-                var items = Items(await StoreSessions.QueryAsync(tx, StoreCypher, new Dictionary<string, object?> { ["owner"] = owner }, cancellationToken)
-                    .ConfigureAwait(false), scenario.Person);
-                var checks = scenario.Checks.Select(c => new { check = $"{c.Kind}: {c.Text}{(c.Kind == "mentions" ? $" >= {c.AtLeast}" : "")}", passed = Passes(c, items, at) }).ToList();
-                var key = scenario.Fix;
-                var (passed, total) = tally.GetValueOrDefault(key);
-                tally[key] = (passed + checks.Count(c => c.passed), total + checks.Count);
-                results.Add(new
+        await using (var first = Build(new Clock(scenarios[0].Turns[0].At)))
+        {
+            await first.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(cancellationToken).ConfigureAwait(false);
+            await first.GetRequiredService<INeo4jTransactionRunner>().WriteAsync(async runner =>
+                await runner.RunAsync("CALL db.awaitIndexes(60)").ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        }
+
+        // Each scenario has its own services and clock (the clock is one per container, and scenarios live on different
+        // dates), all on one store, one owner each; several run at once.
+        var runs = Enumerable.Range(1, repeat).SelectMany(r => scenarios.Select(sc => (Repeat: r, Scenario: sc))).Select((x, i) => (x.Repeat, x.Scenario, Order: i)).ToList();
+        var done = new List<(int Order, string Fix, object Result, int Passed, int Total)>();
+        var gate = new object();
+        await Parallel.ForEachAsync(runs, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, parallel), CancellationToken = cancellationToken }, async (run, ct) =>
+        {
+            var (r, scenario, order) = run;
+            var owner = $"sc-{scenario.Id}-r{r}".ToLowerInvariant();
+            var sessionId = $"{owner}-s1";
+            var failed = new List<string>();
+            var said = new List<Message>();
+            var clock = new Clock(scenario.Turns[0].At.AddDays(-30));
+            await using var provider = Build(clock);
+            var tx = provider.GetRequiredService<INeo4jTransactionRunner>();
+            using (var scope = provider.CreateScope())
+            {
+                var longTerm = scope.ServiceProvider.GetRequiredService<ILongTermMemoryService>();
+                // A seed is a fact ("subject | predicate | object") or a connection ("A -[RELATION]-> B"; its two people are
+                // seeded as entities once each).
+                var people = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                async Task<string> PersonAsync(string name)
                 {
-                    repeat = r, scenario = scenario.Id, fix = scenario.Fix, checkAt = at, failed, checks,
-                    store = items.Select(i => $"{(i.Closed ? "[closed] " : i.Until is { } u && u <= at ? $"[ended {u:yyyy-MM-dd}] " : "")}{i.Kind}: {i.Text}"
-                        + (i.Until is { } until && !(until <= at) ? $" [until {until:yyyy-MM-dd}]" : "") + (i.Mentions > 1 ? $" (x{i.Mentions})" : "")),
-                });
+                    if (people.TryGetValue(name, out var id)) return id;
+                    var entity = await longTerm.AddEntityAsync(new Entity
+                    {
+                        EntityId = $"{owner}-person-{people.Count:00}", Name = name, Type = "PERSON", Confidence = 0.9, OwnerId = owner, CreatedAtUtc = clock.Now,
+                    }, ct).ConfigureAwait(false);
+                    return people[name] = entity.EntityId;
+                }
+                for (var i = 0; i < scenario.Seeds.Count; i++)
+                {
+                    if (SeedConnection.Match(scenario.Seeds[i]) is { Success: true } link)
+                    {
+                        await longTerm.AddRelationshipAsync(new Relationship
+                        {
+                            RelationshipId = $"{owner}-seed-{i:00}", SourceEntityId = await PersonAsync(link.Groups["s"].Value).ConfigureAwait(false),
+                            TargetEntityId = await PersonAsync(link.Groups["t"].Value).ConfigureAwait(false), RelationshipType = link.Groups["r"].Value,
+                            Confidence = 0.9, OwnerId = owner, CreatedAtUtc = clock.Now.AddMinutes(i),
+                        }, ct).ConfigureAwait(false);
+                        continue;
+                    }
+                    var parts = scenario.Seeds[i].Split('|', 3, StringSplitOptions.TrimEntries);
+                    if (parts.Length != 3) continue;
+                    await longTerm.AddFactAsync(new Fact
+                    {
+                        FactId = $"{owner}-seed-{i:00}", Subject = parts[0], Predicate = parts[1], Object = parts[2], Confidence = 0.9,
+                        OwnerId = owner, CreatedAtUtc = clock.Now.AddMinutes(i),
+                    }, ct).ConfigureAwait(false);
+                }
+            }
+            clock.Now = scenario.Turns[0].At;
+            using (var scope = provider.CreateScope())
+                await scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>()
+                    .AddConversationAsync(sessionId, sessionId, userId: owner, cancellationToken: ct).ConfigureAwait(false);
+            for (var k = 0; k < scenario.Turns.Count; k++)
+            {
+                var turn = scenario.Turns[k];
+                clock.Now = turn.At;
+                using var scope = provider.CreateScope();
+                var shortTerm = scope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
+                var message = await shortTerm.AddMessageAsync(new Message
+                {
+                    MessageId = $"{sessionId}-m{k:00}u", ConversationId = sessionId, SessionId = sessionId, Role = "user", Content = turn.User, TimestampUtc = turn.At,
+                }, ct).ConfigureAwait(false);
+                try
+                {
+                    await scope.ServiceProvider.GetRequiredService<IMemoryExtractionPipeline>().ExtractAsync(new ExtractionRequest
+                    {
+                        SessionId = sessionId, UserId = owner, Messages = [message],
+                        ContextMessages = said.Skip(Math.Max(0, said.Count - ContextMessages)).ToList(),
+                    }, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    failed.Add($"{message.MessageId}: {ex.GetType().Name}: {ex.Message}");
+                }
+                said.Add(message);
+                if (turn.Assistant is { } reply)
+                    said.Add(await shortTerm.AddMessageAsync(new Message
+                    {
+                        MessageId = $"{sessionId}-m{k:00}a", ConversationId = sessionId, SessionId = sessionId, Role = "assistant", Content = reply,
+                        TimestampUtc = turn.At.AddSeconds(5),
+                    }, ct).ConfigureAwait(false));
+            }
+
+            var at = scenario.CheckAt ?? scenario.Turns[^1].At.AddMinutes(1);
+            var items = Items(await StoreSessions.QueryAsync(tx, StoreCypher, new Dictionary<string, object?> { ["owner"] = owner }, ct)
+                .ConfigureAwait(false), scenario.Person);
+            var checks = scenario.Checks.Select(c => new { check = $"{c.Kind}: {c.Text}{(c.Kind == "mentions" ? $" >= {c.AtLeast}" : "")}", passed = Passes(c, items, at) }).ToList();
+            var result = new
+            {
+                repeat = r, scenario = scenario.Id, fix = scenario.Fix, checkAt = at, failed, checks,
+                store = items.Select(i => $"{(i.Closed ? "[closed] " : i.Until is { } u && u <= at ? $"[ended {u:yyyy-MM-dd}] " : "")}{i.Kind}: {i.Text}"
+                    + (i.Until is { } until && !(until <= at) ? $" [until {until:yyyy-MM-dd}]" : "") + (i.Mentions > 1 ? $" (x{i.Mentions})" : "")),
+            };
+            lock (gate)
+            {
+                done.Add((order, scenario.Fix, result, checks.Count(c => c.passed), checks.Count));
                 output.WriteLine($"  r{r} {scenario.Id,-28} {string.Join("  ", checks.Select(c => (c.passed ? "PASS " : "FAIL ") + c.check))}{(failed.Count > 0 ? $"  ({failed.Count} turn(s) failed)" : "")}");
             }
-        }
+        }).ConfigureAwait(false);
+
+        var results = done.OrderBy(d => d.Order).Select(d => d.Result).ToList();
+        var tally = done.GroupBy(d => d.Fix).ToDictionary(g => g.Key, g => (Passed: g.Sum(d => d.Passed), Total: g.Sum(d => d.Total)));
         output.WriteLine("scenarios: " + string.Join(", ", tally.Select(t => $"{t.Key} {t.Value.Passed}/{t.Value.Total}")));
         await RunFile.WriteAsync(outPath, JsonSerializer.Serialize(new
         {

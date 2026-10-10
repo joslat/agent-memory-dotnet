@@ -83,7 +83,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             "Memory writer: {Candidates} stored memories shown; {Ops} operation(s): {Facts} fact(s), {Preferences} preference(s), "
             + "{Entities} entity(ies), {Relationships} relationship(s); {Named} name a stored memory as replaced; {Confirmed} confirm one.",
             stored.Count, ops.Count, result.Facts.Count, result.Preferences.Count, result.Entities.Count, result.Relationships.Count,
-            result.Facts.Count(f => f.ReplacesId is not null) + result.Preferences.Count(p => p.ReplacesId is not null),
+            result.Facts.Count(f => f.ReplacesId is not null) + result.Preferences.Count(p => p.ReplacesId is not null)
+                + result.Relationships.Count(r => r.ReplacesId is not null),
             result.ConfirmedFactIds.Count + result.ConfirmedPreferenceIds.Count);
         return result;
     }
@@ -202,9 +203,9 @@ internal static class MemoryWriterPrompt
         - A new event ends what it changes, and that is a change too: a move ends where they lived, a death ends where and
           how the person lived, a birth ends an expecting, a wedding ends an engagement, a breakup ends a relationship, a
           new job or a retirement ends the old job. Only the person's own event ends their state: someone else's wedding or
-          move ends nothing of theirs. Replace the stored memory it ends, even when the message names the person by a role
-          (mum, my sister) and the stored memory names them by name. When one event ends more than one stored memory (the
-          wedding plan and the engagement), write one replace for each.
+          move ends nothing of theirs. Replace the stored memory it ends (a fact or a connection), even when the message
+          names the person by a role (mum, my sister) and the stored memory names them by name. When one event ends more
+          than one stored memory (the wedding plan and the engagement), write one replace for each.
         - Something true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's stay) is
           stored with "until": the last date it holds.
         - A question stores nothing, unless it also tells something ("I'm off to Seville on the 13th, what should I pack?" stores
@@ -404,9 +405,10 @@ internal static class MemoryWriterOps
 
     /// <summary>
     /// The memory items: a fact from "subject | predicate | object", a preference from its sentence, an entity from
-    /// "Name (TYPE)", a connection from "A -[RELATION]-> B". A replace or correct names the stored memory it closes only when
-    /// it names a stored fact (for a fact) or a stored preference (for a preference); otherwise the item is simply added
-    /// (on world 4, none of F's 55 closings named a person or a connection).
+    /// "Name (TYPE)", a connection from "A -[RELATION]-> B". A replace or correct names the stored memory it closes: a stored
+    /// fact or connection for a fact (a wedding ends the engagement, 2026-10-10: world 9 kept "Owen -[ENGAGED_TO]-> Simone"
+    /// live after the wedding in all three stores, the writer having no way to end it), a stored preference for a
+    /// preference, a stored connection for a connection; anything else is simply added.
     /// </summary>
     internal static UnifiedExtractionResult ToResult(IReadOnlyList<Op> ops, IReadOnlyList<Stored> stored, string? owner)
     {
@@ -435,6 +437,7 @@ internal static class MemoryWriterOps
                     SourceEntity = link.Groups["s"].Value,
                     TargetEntity = link.Groups["t"].Value,
                     RelationshipType = link.Groups["r"].Value.Trim().ToUpperInvariant().Replace(' ', '_'),
+                    ReplacesId = target?.Letter == 'R' ? target.Id : null,
                 });
                 continue;
             }
@@ -469,8 +472,8 @@ internal static class MemoryWriterOps
                     facts.Add(new ExtractedFact
                     {
                         Subject = subject, Predicate = predicate, Object = @object, SourceRole = "user",
-                        ReplacesId = target?.Letter == 'F' ? target.Id : null,
-                        ReplacementIsCorrection = target?.Letter == 'F' && op.Action == "correct",
+                        ReplacesId = target?.Letter is 'F' or 'R' ? target.Id : null,
+                        ReplacementIsCorrection = (target?.Letter is 'F' or 'R') && op.Action == "correct",
                         ValidUntil = EndOfDay(op.Until),
                         ValidUntilPrecision = EndOfDay(op.Until) is null ? DatePrecision.Unspecified : DatePrecision.Day,
                     });

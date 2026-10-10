@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace AgentMemory.Abstractions.Domain;
 
 /// <summary>
@@ -35,4 +37,12 @@ public sealed record ExtractedRelationship
     /// </summary>
     public IReadOnlyDictionary<string, object> Attributes { get; init; } =
         new Dictionary<string, object>();
+
+    /// <summary>
+    /// The id of a stored relationship this one ends (married to ends engaged to), as a store-aware writer
+    /// (<see cref="Services.IMemoryWriter"/>) named it, or null. Ended at the write (its valid-until set; the edge stays as
+    /// history) only when the update judge confirms the pair; otherwise this relationship is simply added.
+    /// </summary>
+    [Experimental("AMWRITE001")]
+    public string? ReplacesId { get; init; }
 }

@@ -62,8 +62,9 @@ public sealed record ExtractedFact
 
     /// <summary>
     /// The id of the stored memory this fact replaces (it stops being true now) or corrects (it was wrong all along), as a
-    /// store-aware writer (<see cref="Services.IMemoryWriter"/>) named it, or null. Closed at the write only when the update
-    /// judge confirms the pair; otherwise this fact is simply added.
+    /// store-aware writer (<see cref="Services.IMemoryWriter"/>) named it, or null: a stored fact, or a stored relationship the
+    /// fact ends ("got married" ends "engaged to"; the relationship ends and stays as history). Closed at the write only when
+    /// the update judge confirms the pair; otherwise this fact is simply added.
     /// </summary>
     [Experimental("AMWRITE001")]
     public string? ReplacesId { get; init; }

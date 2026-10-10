@@ -290,8 +290,9 @@ internal sealed partial class PersistenceStage : IPersistenceStage
 
     /// <summary>
     /// AMWRITE001. The stored memories a store-aware writer said the new ones replace (<see cref="ExtractedFact.ReplacesId"/>,
-    /// <see cref="ExtractedPreference.ReplacesId"/>): each pair goes to the update judge, and the stored memory is closed, as a
-    /// change or as a correction, at <see cref="ExtractionOptions.NamedClosingThreshold"/>, the judge asked the named question
+    /// <see cref="ExtractedPreference.ReplacesId"/>, <see cref="ExtractedRelationship.ReplacesId"/>): each pair goes to the
+    /// update judge, and the stored memory is closed, as a change or as a correction (a stored relationship is ended, and
+    /// stays as history), at <see cref="ExtractionOptions.NamedClosingThreshold"/>, the judge asked the named question
     /// (<see cref="MemoryUpdateRequest.Named"/>). A pair the judge does not confirm leaves the stored memory open beside the new
     /// one (measured on a fresh world: 20 of 30 replaced memories closed, 1.0 wrong closures a run). Without a judge, or when it
     /// fails, nothing is closed: a stale memory is a smaller harm than a true one erased.
@@ -299,28 +300,30 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private async Task CloseNamedAsync(
         ExtractionStageResult extraction, string? ownerId, IReadOnlyList<ExtractedFact> facts, IReadOnlyList<ExtractedPreference> preferences,
         IReadOnlyDictionary<string, Fact> factsByKey, IReadOnlyDictionary<string, Preference> preferencesByKey,
-        CancellationToken cancellationToken)
+        IReadOnlyDictionary<string, string> relationshipsByKey, CancellationToken cancellationToken)
     {
         // The items as written: after the within-extraction merge, which carries a merged item's named memory to the one kept.
         // One question per stored memory: the first item that names it asks.
         var asked = new HashSet<string>(StringComparer.Ordinal);
         var namedFacts = facts.Where(f => !string.IsNullOrWhiteSpace(f.ReplacesId) && asked.Add(f.ReplacesId!)).ToList();
         var namedPreferences = preferences.Where(p => !string.IsNullOrWhiteSpace(p.ReplacesId) && asked.Add(p.ReplacesId!)).ToList();
-        if (namedFacts.Count == 0 && namedPreferences.Count == 0) return;
+        var namedRelationships = extraction.FilteredRelationships
+            .Where(r => !string.IsNullOrWhiteSpace(r.ReplacesId) && asked.Add(r.ReplacesId!)).ToList();
+        if (namedFacts.Count == 0 && namedPreferences.Count == 0 && namedRelationships.Count == 0) return;
         if (_updateJudge is not { IsEnabled: true } && _fallbackJudge is not { IsEnabled: true })
         {
             if (Interlocked.Exchange(ref s_warnedNamedWithoutJudge, 1) == 0)
                 _logger.LogWarning(
                     "The memory writer named {Count} stored memory(ies) as replaced, but no update judge is registered and enabled, "
                     + "so nothing is closed: the new memories are stored beside the old. Register the update judge (AMGATE001) "
-                    + "for the writer's closings to apply.", namedFacts.Count + namedPreferences.Count);
+                    + "for the writer's closings to apply.", namedFacts.Count + namedPreferences.Count + namedRelationships.Count);
             return;
         }
         // The owner's own memories only, as the judge's own path (JudgeUpdatesAsync) reads them.
         var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
         bool Closable(string? owner) => string.IsNullOrEmpty(ownerId) ? string.IsNullOrEmpty(owner) : owner == ownerId;
         var pairs = new List<MemoryUpdatePair>();
-        var targets = new Dictionary<string, (Fact? NewFact, string Winner, string Loser, bool Correction)>(StringComparer.Ordinal);
+        var targets = new Dictionary<string, (Fact? NewFact, string Winner, string Loser, bool Correction, bool Edge)>(StringComparer.Ordinal);
         try
         {
             foreach (var item in namedFacts)
@@ -332,15 +335,23 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     continue;
                 }
                 var stored = await _factRepository.GetByIdAsync(item.ReplacesId!, cancellationToken).ConfigureAwait(false);
+                if (stored is null && await LiveEdgeAsync(item.ReplacesId!).ConfigureAwait(false) is { } edge)
+                {
+                    // A fact that ends a stored connection: "Owen and Simone | got married on | 18 August" ends "engaged to".
+                    var edgeKey = $"p{pairs.Count + 1}";
+                    pairs.Add(new MemoryUpdatePair(edgeKey, NamedFactText(written), edge.Text));
+                    targets[edgeKey] = (written, written.FactId, edge.Id, item.ReplacementIsCorrection, true);
+                    continue;
+                }
                 if (stored is null || stored.InvalidatedAtUtc is not null || !Closable(stored.OwnerId) || stored.FactId == written.FactId)
                 {
-                    _logger.LogInformation("Memory writer: '{Id}' is not a live fact of this owner; '{New}' is stored without closing it.",
+                    _logger.LogInformation("Memory writer: '{Id}' is not a live fact or relationship of this owner; '{New}' is stored without closing it.",
                         item.ReplacesId, NamedFactText(written));
                     continue;
                 }
                 var key = $"p{pairs.Count + 1}";
                 pairs.Add(new MemoryUpdatePair(key, NamedFactText(written), NamedFactText(stored)));
-                targets[key] = (written, written.FactId, stored.FactId, item.ReplacementIsCorrection);
+                targets[key] = (written, written.FactId, stored.FactId, item.ReplacementIsCorrection, false);
             }
             foreach (var item in namedPreferences)
             {
@@ -359,7 +370,27 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
                 var key = $"p{pairs.Count + 1}";
                 pairs.Add(new MemoryUpdatePair(key, written.PreferenceText, stored.PreferenceText));
-                targets[key] = (null, written.PreferenceId, stored.PreferenceId, false);
+                targets[key] = (null, written.PreferenceId, stored.PreferenceId, false, false);
+            }
+            foreach (var item in namedRelationships)
+            {
+                var text = EdgeText(item.SourceEntity, item.RelationshipType, item.TargetEntity);
+                // Only after the new connection is stored: a failed write must not leave the person with neither.
+                if (!relationshipsByKey.TryGetValue($"{item.SourceEntity}-{item.RelationshipType}->{item.TargetEntity}", out var writtenId))
+                {
+                    _logger.LogWarning("Memory writer: relationship '{New}' named '{Id}' as replaced but was not written; nothing is ended.",
+                        text, item.ReplacesId);
+                    continue;
+                }
+                if (await LiveEdgeAsync(item.ReplacesId!).ConfigureAwait(false) is not { } edge || edge.Id == writtenId)
+                {
+                    _logger.LogInformation("Memory writer: '{Id}' is not another live relationship of this owner; '{New}' is stored without ending it.",
+                        item.ReplacesId, text);
+                    continue;
+                }
+                var key = $"p{pairs.Count + 1}";
+                pairs.Add(new MemoryUpdatePair(key, text, edge.Text));
+                targets[key] = (null, writtenId, edge.Id, false, true);
             }
             if (pairs.Count == 0) return;
             var verdicts = await JudgeNamedAsync(
@@ -367,7 +398,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 cancellationToken).ConfigureAwait(false);
             var closings = 0;
             var closedOnce = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var (key, (newFact, winner, loser, correction)) in targets)
+            foreach (var (key, (newFact, winner, loser, correction, edge)) in targets)
             {
                 var pair = pairs.First(p => p.Key == key);
                 if (!verdicts.TryGetValue(key, out var probability))
@@ -383,17 +414,20 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     continue;
                 }
                 if (!closedOnce.Add(loser)) continue;
-                var closed = newFact is not null
+                var closed = edge
+                    ? await _relationshipRepository.EndAsync(loser, EdgeEnd(newFact, correction), scope, cancellationToken).ConfigureAwait(false)
+                    : newFact is not null
                     ? await CloseFactAsync(loser, winner, correction ? FactClosureReason.Correction : FactClosureReason.Change,
                         correction ? null : ChangedAt(newFact, _clock.UtcNow), scope, cancellationToken).ConfigureAwait(false)
                     : await _preferenceRepository.SupersedeAsync(loser, winner, scope, cancellationToken).ConfigureAwait(false);
-                // A preference's closing reaches its outcome as a fact's does (CloseFactAsync records those).
-                if (closed && newFact is null) s_closings.Value?.Add((winner, loser));
+                // A preference's closing, and a relationship's ending, reach the outcome as a fact's does (CloseFactAsync
+                // records those).
+                if (closed && (newFact is null || edge)) s_closings.Value?.Add((winner, loser));
                 if (closed)
                 {
                     closings++;
                     _logger.LogInformation("Memory writer: closed '{Stored}', {How} by '{New}' (P {Probability:0.00}).",
-                        pair.StoredMemory, correction ? "corrected" : "replaced", pair.NewMemory, probability);
+                        pair.StoredMemory, edge ? "ended" : correction ? "corrected" : "replaced", pair.NewMemory, probability);
                 }
                 else
                 {
@@ -411,6 +445,28 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
 
         static string NamedFactText(Fact fact) => $"{fact.Subject} | {fact.Predicate} | {fact.Object}";
+
+        // A connection as the judge reads a fact: "Owen Hnatiuk | engaged to | Simone Gagné".
+        static string EdgeText(string source, string type, string target) =>
+            $"{source} | {type.Replace('_', ' ').ToLowerInvariant()} | {target}";
+
+        // A stored relationship the writer named: live, this owner's, with its two ends' names; else null.
+        async Task<(string Id, string Text)?> LiveEdgeAsync(string id)
+        {
+            var stored = await _relationshipRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+            if (stored is null || stored.ValidUntil is { } until && until <= _clock.UtcNow || !Closable(stored.OwnerId)) return null;
+            var source = await _entityRepository.GetByIdAsync(stored.SourceEntityId, cancellationToken).ConfigureAwait(false);
+            var target = await _entityRepository.GetByIdAsync(stored.TargetEntityId, cancellationToken).ConfigureAwait(false);
+            return source is null || target is null ? null : (stored.RelationshipId, EdgeText(source.Name, stored.RelationshipType, target.Name));
+        }
+
+        // A change's edge ends when the change took effect (with BitemporalChanges, as its fact does), never later than now;
+        // a correction's, and a connection's, at once.
+        DateTimeOffset EdgeEnd(Fact? winner, bool correction)
+        {
+            var now = _clock.UtcNow;
+            return winner is not null && !correction && _options.BitemporalChanges && ChangedAt(winner, now) is var at && at <= now ? at : now;
+        }
     }
 
     /// <summary>When a change took effect: the new value's stated start, else the day it happened, else when it was said.</summary>
@@ -2125,7 +2181,11 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         // AMWRITE001. A store-aware writer named what each new memory replaces: only those pairs go to the judge.
         if (extraction.WrittenByWriter)
             await CloseNamedAsync(extraction, ownerId, [.. prepared.Facts.Select(f => f.Item)], [.. prepared.Preferences.Select(p => p.Item)],
-                factsByKey, preferencesByKey, cancellationToken).ConfigureAwait(false);
+                factsByKey, preferencesByKey,
+                relationshipInputs.Where(input => persistedRelationshipIds.Contains(input.Item.RelationshipId))
+                    .GroupBy(input => input.SourceKey, StringComparer.Ordinal)
+                    .ToDictionary(g => g.Key, g => g.First().Item.RelationshipId, StringComparer.Ordinal),
+                cancellationToken).ConfigureAwait(false);
         // 41.06. A change said in other words closes what it replaces, when a judge is registered.
         else if (_updateJudge is { IsEnabled: true })
             await JudgeUpdatesAsync(

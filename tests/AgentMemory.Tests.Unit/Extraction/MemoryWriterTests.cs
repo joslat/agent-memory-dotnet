@@ -36,9 +36,9 @@ public sealed class MemoryWriterTests
         "- A new event ends what it changes, and that is a change too: a move ends where they lived, a death ends where and\n" +
         "  how the person lived, a birth ends an expecting, a wedding ends an engagement, a breakup ends a relationship, a\n" +
         "  new job or a retirement ends the old job. Only the person's own event ends their state: someone else's wedding or\n" +
-        "  move ends nothing of theirs. Replace the stored memory it ends, even when the message names the person by a role\n" +
-        "  (mum, my sister) and the stored memory names them by name. When one event ends more than one stored memory (the\n" +
-        "  wedding plan and the engagement), write one replace for each.\n" +
+        "  move ends nothing of theirs. Replace the stored memory it ends (a fact or a connection), even when the message\n" +
+        "  names the person by a role (mum, my sister) and the stored memory names them by name. When one event ends more\n" +
+        "  than one stored memory (the wedding plan and the engagement), write one replace for each.\n" +
         "- Something true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's stay) is\n" +
         "  stored with \"until\": the last date it holds.\n" +
         "- A question stores nothing, unless it also tells something (\"I'm off to Seville on the 13th, what should I pack?\" stores\n" +
@@ -210,7 +210,7 @@ public sealed class MemoryWriterTests
         [
             new("replace", "fact", "Lukas | lives in | Leoben", "F1"),
             new("correct", "preference", "Drinks coffee in the morning", "p1"),
-            new("replace", "fact", "Lukas | is the son of | Renate Brenner", "R1"),    // a connection is not closed this way
+            new("replace", "fact", "Lukas | is the son of | Renate Brenner", "R1"),    // a fact may end a stored connection
             new("add", "entity", "Bruck an der Mur (PLACE)", null),
             new("add", "relationship", "Mia -[SISTER_OF]-> Lukas", null),
             new("add", "fact", "Felix | started | a new job at Siemens", "F1"),        // an add names nothing
@@ -221,11 +221,33 @@ public sealed class MemoryWriterTests
 
         result.Facts.Should().HaveCount(3);
         result.Facts[0].Should().BeEquivalentTo(new { Subject = "Lukas", Predicate = "lives in", Object = "Leoben", ReplacesId = "fact-graz", ReplacementIsCorrection = false });
-        result.Facts[1].ReplacesId.Should().BeNull();
+        result.Facts[1].ReplacesId.Should().Be("rel-1");
         result.Facts[2].ReplacesId.Should().BeNull();
         result.Preferences.Should().ContainSingle().Which.Should().BeEquivalentTo(new { PreferenceText = "Drinks coffee in the morning", ReplacesId = "pref-tea" });
         result.Entities.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Name = "Bruck an der Mur", Type = "LOCATION" });
         result.Relationships.Should().ContainSingle().Which.Should().BeEquivalentTo(new { SourceEntity = "Mia", TargetEntity = "Lukas", RelationshipType = "SISTER_OF" });
+    }
+
+    [Fact]
+    public void A_replace_may_end_a_stored_connection_from_a_fact_or_from_a_connection()
+    {
+        // World 9 (2026-10-10): "Owen -[ENGAGED_TO]-> Simone" stayed live after the wedding in all three stores.
+        var stored = MemoryWriterOps.Stored.Number(
+        [
+            new MemoryWriterOps.Stored("rel-engaged", 'R', "Owen Hnatiuk -[ENGAGED_TO]-> Simone Gagné"),
+            new MemoryWriterOps.Stored("e-simone", 'E', "Simone Gagné (PERSON)"),
+        ]);
+
+        var result = MemoryWriterOps.ToResult(
+        [
+            new("replace", "fact", "Owen and Simone | got married on | 18 August", "R1"),
+            new("replace", "relationship", "Owen Hnatiuk -[MARRIED_TO]-> Simone Gagné", "R1"),
+            new("replace", "relationship", "Owen Hnatiuk -[MARRIED_TO]-> Simone Gagné", "E1"),   // an entity is not ended this way
+            new("add", "relationship", "Owen Hnatiuk -[MARRIED_TO]-> Simone Gagné", "R1"),       // an add names nothing
+        ], stored, "Owen");
+
+        result.Facts.Single().Should().BeEquivalentTo(new { ReplacesId = "rel-engaged", ReplacementIsCorrection = false });
+        result.Relationships.Select(r => r.ReplacesId).Should().Equal("rel-engaged", null, null);
     }
 
     [Fact]
@@ -608,6 +630,98 @@ public sealed class PersistenceStageMemoryWriterTests
 
         await _judge.DidNotReceive().JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>());
         await _factRepo.DidNotReceive().SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    private static readonly Relationship Engaged = new()
+    {
+        RelationshipId = "rel-engaged", SourceEntityId = "e-owen", TargetEntityId = "e-simone", RelationshipType = "ENGAGED_TO",
+        Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UnixEpoch, OwnerId = "lukas",
+    };
+
+    private static readonly Entity Owen = new() { EntityId = "e-owen", Name = "Owen Hnatiuk", Type = "PERSON", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+    private static readonly Entity Simone = new() { EntityId = "e-simone", Name = "Simone Gagné", Type = "PERSON", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+
+    private void EngagementStored(Relationship? edge = null)
+    {
+        _relRepo.GetByIdAsync("rel-engaged", Arg.Any<CancellationToken>()).Returns(edge ?? Engaged);
+        _entityRepo.GetByIdAsync("e-owen", Arg.Any<CancellationToken>()).Returns(Owen);
+        _entityRepo.GetByIdAsync("e-simone", Arg.Any<CancellationToken>()).Returns(Simone);
+        _relRepo.EndAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+    }
+
+    private static ExtractionStageResult Married(DateTimeOffset? on = null) => new()
+    {
+        SourceMessageIds = ["msg-1"], SourceText = "We're married!", WrittenByWriter = true,
+        FilteredFacts = [new ExtractedFact { Subject = "Owen and Simone", Predicate = "got married on", Object = "18 August", ValidFrom = on, ReplacesId = "rel-engaged" }],
+    };
+
+    [Fact]
+    public async Task A_fact_that_ends_a_named_connection_ends_it_when_the_judge_confirms()
+    {
+        EngagementStored();
+        JudgeSays(0.9);
+
+        await CreateSut().PersistAsync(Married(), ownerId: "lukas");
+
+        await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r =>
+            r.Named
+            && r.Pairs.Single().NewMemory == "Owen and Simone | got married on | 18 August"
+            && r.Pairs.Single().StoredMemory == "Owen Hnatiuk | engaged to | Simone Gagné"), Arg.Any<CancellationToken>());
+        // Ended, not deleted: its valid-until is set and the edge stays as history.
+        await _relRepo.Received(1).EndAsync("rel-engaged", new DateTimeOffset(2027, 3, 5, 19, 0, 0, TimeSpan.Zero), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<FactClosureReason>(), Arg.Any<DateTimeOffset?>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task With_bitemporal_changes_a_connection_ends_when_the_change_took_effect()
+    {
+        EngagementStored();
+        JudgeSays(0.9);
+        var wedding = new DateTimeOffset(2027, 2, 20, 0, 0, 0, TimeSpan.Zero);
+
+        await CreateSut(bitemporal: true).PersistAsync(Married(wedding), ownerId: "lukas");
+
+        await _relRepo.Received(1).EndAsync("rel-engaged", wedding, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(0.59, "lukas", false)]   // the judge does not confirm
+    [InlineData(0.99, "bob", false)]     // another owner's connection
+    [InlineData(0.99, "lukas", true)]    // a connection that already ended
+    public async Task A_named_connection_otherwise_stays(double p, string owner, bool ended)
+    {
+        EngagementStored(Engaged with { OwnerId = owner, ValidUntil = ended ? DateTimeOffset.UnixEpoch : null });
+        JudgeSays(p);
+
+        await CreateSut().PersistAsync(Married(), ownerId: "lukas");
+
+        await _relRepo.DidNotReceiveWithAnyArgs().EndAsync(default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task A_connection_that_ends_a_named_connection_ends_it_once_it_is_stored()
+    {
+        EngagementStored();
+        JudgeSays(0.9);
+        _entityRepo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Entity>()));
+        _relRepo.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Relationship>()));
+        var turn = new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "We're married!", WrittenByWriter = true,
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Owen Hnatiuk"] = Owen, ["Simone Gagné"] = Simone },
+            FilteredRelationships =
+            [
+                new ExtractedRelationship { SourceEntity = "Owen Hnatiuk", TargetEntity = "Simone Gagné", RelationshipType = "MARRIED_TO", Confidence = 0.9, ReplacesId = "rel-engaged" },
+            ],
+        };
+
+        await CreateSut().PersistAsync(turn, ownerId: "lukas");
+
+        await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r =>
+            r.Pairs.Single().NewMemory == "Owen Hnatiuk | married to | Simone Gagné"
+            && r.Pairs.Single().StoredMemory == "Owen Hnatiuk | engaged to | Simone Gagné"), Arg.Any<CancellationToken>());
+        await _relRepo.Received(1).EndAsync("rel-engaged", Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
