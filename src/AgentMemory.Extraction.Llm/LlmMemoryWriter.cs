@@ -71,7 +71,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var now = _services.GetService<IClock>()?.UtcNow ?? DateTimeOffset.UtcNow;
         var owner = await OwnerNameAsync(scope, cancellationToken).ConfigureAwait(false);
         var text = string.Join("\n", said.Select(m => m.Content));
-        var stored = await StoredAsync(text, scope, now, cancellationToken).ConfigureAwait(false);
+        var stored = await StoredAsync(text, owner, scope, now, cancellationToken).ConfigureAwait(false);
         activity?.SetTag("memory.write.candidates", stored.Count);
 
         var system = MemoryWriterPrompt.System(owner, _options.MemoryWriterMaxOperations);
@@ -146,11 +146,15 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     /// The stored memories the writer sees, as the harness chose them (storage_round2.World.candidates): the people and
     /// things the turn names; the live memories that mention them (connections first, then facts, then preferences, oldest
     /// first: the store's order); then the most similar by meaning (<see cref="LlmExtractionOptions.MemoryWriterCandidates"/>,
-    /// taken before the ones already listed are removed); then the live connections of the people found by meaning; at most
-    /// that many plus six in all.
+    /// taken before the ones already listed are removed); then the live connections of the people found by meaning; then the
+    /// other memories of the people the two closest memories name, when few memories name them; at most that many plus six in
+    /// all.
     /// </summary>
+    /// <summary>How many memories a name from the closest memories may lead to before it counts as too common to follow.</summary>
+    private const int AroundPerName = 6;
+
     private async Task<IReadOnlyList<MemoryWriterOps.Stored>> StoredAsync(
-        string text, MemoryScope scope, DateTimeOffset now, CancellationToken cancellationToken)
+        string text, string? owner, MemoryScope scope, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var facts = _services.GetRequiredService<IFactRepository>();
         var preferences = _services.GetRequiredService<IPreferenceRepository>();
@@ -200,8 +204,26 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             theirs.AddRange((await relationships.GetLiveAroundAsync(foundByMeaning, [], 6, now, scope, cancellationToken).ConfigureAwait(false))
                 .OrderBy(r => r.Relationship.CreatedAtUtc).Select(MemoryWriterOps.Stored.Of));
 
+        // 5. The other memories of the people the two closest memories name: "We're married!" resembles the wedding plan
+        // ("Owen and Simone's wedding"), not "Owen Hnatiuk is engaged to Simone Gagné", which it ends (the suite's H3: the
+        // engagement was never shown, so never replaced). Each name is looked up alone and kept only when few memories mention
+        // it: a name most of them carry (the person themself) says nothing about this turn.
+        var nearby = new List<MemoryWriterOps.Stored>();
+        var said = MemoryWriterPrompt.Names(text);
+        var theirNames = byMeaning.Where(item => item.Letter == 'F').Take(2)
+            .SelectMany(item => MemoryWriterPrompt.Names(item.Text))
+            .Where(n => !said.Contains(n, StringComparer.OrdinalIgnoreCase) && !named.Any(e => e.Name.Contains(n, StringComparison.OrdinalIgnoreCase))
+                        && (owner is null || !owner.Contains(n, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(4).ToList();
+        foreach (var name in theirNames)
+        {
+            var mentioning = (await facts.FindMentioningAsync([name], scope, AroundPerName + 1, cancellationToken).ConfigureAwait(false)).Where(Live).ToList();
+            if (mentioning.Count <= AroundPerName) nearby.AddRange(mentioning.Select(MemoryWriterOps.Stored.Of));
+        }
+
         return MemoryWriterOps.Stored.Number(
-            [.. named.Select(MemoryWriterOps.Stored.Of).Concat(byName).Concat(byMeaning).Concat(theirs).DistinctBy(item => item.Id).Take(limit + 6)]);
+            [.. named.Select(MemoryWriterOps.Stored.Of).Concat(byName).Concat(byMeaning).Concat(theirs).Concat(nearby)
+                .DistinctBy(item => item.Id).Take(limit + 6)]);
     }
 }
 
