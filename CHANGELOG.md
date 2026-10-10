@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stores written by the extractors: precision about 54% to 60% with nothing lost (world 7); over stores the store-aware
   writer wrote it finds almost nothing to close (rounds 3-4), so it is a cleanup for 1.x stores, not a default. The CLI:
   `consolidate --close-generic-entities --close-unsaid-preferences [--owner <id>] [--approve <id,id,...>] [--apply]`.
+- **The store-aware writer reinforces what is said again** (AMWRITE001): a turn that says a stored fact or preference again
+  is answered "confirm" with its id, in the same call, and the library counts it as said again (one more mention, confidence
+  by `MemoryOptions.ConfidenceReinforcementAlpha`) instead of writing nothing. Before, the writer's rule "what is already
+  stored is not stored again" left every memory at one mention. A preference reinforced by dedup now counts the mention
+  too. World 6, three runs each: 24-26 repeats reinforced a store; three-judge precision 97.34% against 97.67%, stale 0.67
+  against 0.33, complete recall 73.4% against 76.4% (within the registered limit, at its edge).
+- **The store-aware writer ends what an event ends, and lets a one-off end with its day** (AMWRITE001): a move, a death, a
+  birth, a wedding, a breakup, a new job or a retirement replaces the stored state it ends (one replace for each, even when
+  the person is named by a role; only the person's own event counts), and something true only for a day or a short while
+  is stored with "until", the end of its validity. The update judge's named question (System One's and the host model's,
+  word for word) now also reads a death, a marriage, a move or a birth as ending the state the person was in. Scenario
+  suite (three repeats): one-offs 0/6 to 6/6 with nothing that should stay closed; a death's closing confirmed 5 of 6
+  (0 before); a wedding in a crowded store still leaves the engagement open (0/3).
 - **The store-aware writer asks a third time** before a turn fails or falls back to the extractors: an answer without JSON
   is asked again with twice the room (as before) and once more at that room. Over 3,634 turns of the Dreaming jar's store
   runs the first answer held no JSON 104 times and the second 10, each a model that reasoned through its whole room and
