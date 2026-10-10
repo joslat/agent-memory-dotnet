@@ -342,6 +342,17 @@ switch (args.FirstOrDefault())
             int.Parse(range[0], CultureInfo.InvariantCulture), int.Parse(range[^1], CultureInfo.InvariantCulture),
             Get("out") ?? Path.Combine(strategy, "performance", "runs", "halumem", $"halumem-p{person:00}.json"), dryRun);
     }
+    case "longmemeval":
+    {
+        // LongMemEval one user turn at a time (strategy arena/longmemeval_score.py answers and judges): --types a,b
+        // (question types), --limit N, --writer on|off, --parallel N; --longmemeval the oracle (or another) file.
+        return await new AgentMemory.RouterArena.Record.LongMemEvalSessions(Console.Out).RunAsync(
+            Get("longmemeval") ?? "C:/git/AgentEval/src/AgentEval.Memory/Data/longmemeval/longmemeval_oracle.json",
+            (Get("types") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            int.Parse(Get("limit") ?? "0", CultureInfo.InvariantCulture), (Get("writer") ?? "on") != "off",
+            int.Parse(Get("parallel") ?? "6", CultureInfo.InvariantCulture),
+            Get("out") ?? Path.Combine(strategy, "performance", "runs", "longmemeval", "longmemeval-turns.json"), dryRun);
+    }
     case "store-sessions":
     {
         // A world through the library (world3-design.md): one store, every turn in order at its session's date. --set w3 (default)
