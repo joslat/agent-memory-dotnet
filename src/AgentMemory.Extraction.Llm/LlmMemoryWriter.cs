@@ -247,7 +247,9 @@ internal static class MemoryWriterPrompt
         - A question stores nothing, unless it also tells something ("I'm off to Seville on the 13th, what should I pack?" stores
           the trip and its date).
         - Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.
-        - What is already stored is not stored again, in any words: when the last message says it again, confirm it.
+        - What is already stored is not stored again, in any words: when the last message says it again and adds nothing,
+          confirm it. When it says it again with anything more (a reason, a goal, a detail, a number, a name, a date),
+          replace the stored memory with the fuller one.
         - A question or a request often tells something in passing: a plan ("what should I bring when I visit my cousin in Porto
           next month?"), someone's wish or need ("my neighbour wants to borrow the ladder, is it still in the shed?"), an
           appointment, a change. Keep that part as a memory; never the question or the request itself.
@@ -261,8 +263,8 @@ internal static class MemoryWriterPrompt
         - add: something new that is not stored yet (check the STORED list); "until": "YYYY-MM-DD" when it holds only until then;
         - replace: the new value changes a stored memory that stops being true now (moved, new job, quit, changed plans): give its id;
         - correct: a stored memory was wrong all along: give its id;
-        - confirm: the last message says again what a stored memory already says, unchanged: give its id (it is not stored
-          again; it counts as said again).
+        - confirm: the last message says again what a stored memory already says, adding nothing: give its id (it is not
+          stored again; it counts as said again).
         Every operation quotes the exact words of the last message it rests on. One memory per thing told; at most {max_ops}.
         Format of "text": {fmt}. For kind person, set "kind" to "entity" or "relationship" on each operation.
         Answer with JSON only: {"ops": [{"op": "add", "kind": "{kind_default}", "text": "...", "quote": "..."},
