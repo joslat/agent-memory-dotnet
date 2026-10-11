@@ -247,6 +247,8 @@ internal static class MemoryWriterPrompt
         - A question stores nothing, unless it also tells something ("I'm off to Seville on the 13th, what should I pack?" stores
           the trip and its date).
         - Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.
+          A lasting goal, value, commitment or fact said with feeling is kept; only the feeling is not ("I'm excited to
+          start volunteering with therapy dogs" keeps the volunteering).
         - What is already stored is not stored again, in any words: when the last message says it again and adds nothing,
           confirm it. When it says it again with anything more (a reason, a goal, a detail, a number, a name, a date),
           replace the stored memory with the fuller one.
