@@ -252,6 +252,13 @@ it still runs inside persistence where the existing-fact lookup belongs. The pur
 `WithinExtractionFactDeduplication` step runs before the transaction and keeps its existing number,
 negation, validity and source-role safeguards.
 
+`JudgedMemoryClosings` keeps writer-named and similarity-based closing decisions separate; only the
+named path uses the host-model fallback. `FactClosureWriter` applies the existing temporal closure
+contract, while `PersistenceClosingJournal` retains the asynchronous operation's successful closings
+for outcome reporting. `EdgeEnding` runs after relationship writes inside persistence.
+`CorrectedNamePropagation` runs after the core transaction, before confirmation reinforcement and
+the working-memory rebuild. This decomposition preserves their existing call order and failure rules.
+
 `ExtractAndPersistAsync`/`IMemoryExtractionPipeline.ExtractAsync` extract and persist independent
 items (entities, facts, preferences, relationships) from a batch of messages. Individual items can
 fail at any stage — an extractor throws, an entity fails validation or resolution, a node fails to
