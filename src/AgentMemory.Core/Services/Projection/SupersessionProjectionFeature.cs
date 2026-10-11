@@ -55,7 +55,7 @@ internal sealed class SupersessionProjectionFeature(IFactRepository? facts) : IP
         {
             if (!predecessors.TryGetValue(fact.FactId, out var chain) || chain.Count == 0) continue;
 
-            var note = Render(chain);
+            var note = Render(chain, fact.Object);
             if (note is null) continue;
 
             state.Annotate(fact.FactId, annotation => annotation with { SupersessionNote = note });
@@ -71,12 +71,15 @@ internal sealed class SupersessionProjectionFeature(IFactRepository? facts) : IP
     /// oldest thing in the chain. Where a predecessor was never stamped, the date is simply omitted
     /// rather than guessed: a fabricated date in a temporal cue is worse than no cue.
     /// </remarks>
-    internal static string? Render(IReadOnlyList<SupersededFact> chain)
+    internal static string? Render(IReadOnlyList<SupersededFact> chain, string? current = null)
     {
+        // 2026-10-11: a replacement that only states the same thing more fully ("a job that fits his goals" -> "... his goals
+        // and his family") is no history; its note repeats the value and cost HaluMem's update task 3 points. An earlier
+        // value the current one only restates more fully is left out, and with nothing left there is no note.
         var newest = chain[0];
         var previous = chain
             .Select(entry => entry.Object)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Where(value => !string.IsNullOrWhiteSpace(value) && !NearlySame(value!, current))
             .ToList();
         if (previous.Count == 0) return null;
 
@@ -89,5 +92,17 @@ internal sealed class SupersessionProjectionFeature(IFactRepository? facts) : IP
             : previous[0] + string.Concat(previous.Skip(1).Select(value => $"; earlier {value}"));
 
         return $"({since}previously {earlier})";
+    }
+
+    /// <summary>One value holds every word of the other (the same thing said more fully, or less).</summary>
+    internal static bool NearlySame(string previous, string? current)
+    {
+        if (string.IsNullOrWhiteSpace(current)) return false;
+        static HashSet<string> Words(string s) => [.. System.Text.RegularExpressions.Regex.Matches(s.ToLowerInvariant(), @"[\p{L}\p{N}]+").Select(m => m.Value)];
+        var a = Words(previous);
+        var b = Words(current);
+        if (a.Count == 0 || b.Count == 0) return false;
+        // Only "the same, said more fully": shared words alone would hide 4 engineers becoming five.
+        return a.IsSubsetOf(b) || b.IsSubsetOf(a);
     }
 }

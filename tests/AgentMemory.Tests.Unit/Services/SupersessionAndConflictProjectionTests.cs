@@ -292,3 +292,15 @@ public sealed class SupersessionAndConflictProjectionTests
             .Should().BeFalse();
     }
 }
+
+public sealed class SupersessionNoteNearlySameTests
+{
+    [Theory]
+    [InlineData("a team of 4 engineers", "a team of five engineers", false)]
+    [InlineData("Globex", "Acme", false)]
+    [InlineData("a job that fits his life goals", "a job that fits his life goals and his family", true)]
+    [InlineData("under the bed", "under the bed", true)]
+    [InlineData("a new position that better aligns with his life goals", "a new position that aligns better with his life goals and values", true)]
+    public void A_previous_value_nearly_the_same_as_the_current_one_is_no_history(string previous, string current, bool same) =>
+        AgentMemory.Core.Services.Projection.SupersessionProjectionFeature.NearlySame(previous, current).Should().Be(same);
+}
