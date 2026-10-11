@@ -239,6 +239,13 @@ inside persistence. `MemoryUserNames` supplies the shared speaker/name vocabular
 the writer and context assembly; these callers no longer depend on the persistence orchestrator.
 `PersistenceMetadata` shares monotonic trust and repository-owned provenance rules across item types.
 
+`PreferencePersistence` and `RelationshipPersistence` own their typed writes and deterministic
+replacement handling within the same transaction. Their results retain source-key mappings and
+persisted/created IDs for the subsequent writer-named or similarity-judge closing step. Relationship
+resolution reuses the entity map and owner-scoped lookups; replacement edges end only after their
+successors were persisted. These components preserve the existing policy differences between writer
+and extractor turns.
+
 `ExtractAndPersistAsync`/`IMemoryExtractionPipeline.ExtractAsync` extract and persist independent
 items (entities, facts, preferences, relationships) from a batch of messages. Individual items can
 fail at any stage — an extractor throws, an entity fails validation or resolution, a node fails to
