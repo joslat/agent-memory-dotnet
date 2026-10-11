@@ -40,7 +40,7 @@ public sealed class HaluMemSessions(TextWriter output)
         DateTimeOffset.ParseExact(text, "MMM dd, yyyy, HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
     public async Task<int> RunAsync(string dataPath, int person, int firstSession, int lastSession, string outPath, bool dryRun,
-        CancellationToken cancellationToken = default)
+        bool history = false, CancellationToken cancellationToken = default)
     {
         var line = File.ReadLines(dataPath).Where(l => l.Trim().Length > 0).Skip(person - 1).FirstOrDefault();
         if (line is null)
@@ -100,7 +100,10 @@ public sealed class HaluMemSessions(TextWriter output)
         services.AddLogging(ArenaLogging.Console);
         services.AddSingleton<IClock>(clock);
 #pragma warning disable AMREC001, AMGATE001
-        services.AddNeo4jAgentMemory(MemoryOptions.CreateRecommended(), Neo4j, o => o.ApplyRecommended());
+        // --history on: recall shows what a kept fact replaced, "(since D; previously X)", as the prompt renders it.
+        var memory = MemoryOptions.CreateRecommended();
+        if (history) memory = memory with { Projection = memory.Projection with { ResolveSupersessions = true } };
+        services.AddNeo4jAgentMemory(memory, Neo4j, o => o.ApplyRecommended());
         var usage = new UsageCountingChatClient(chat);
         services.AddSingleton<IChatClient>(usage);
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
@@ -236,7 +239,11 @@ public sealed class HaluMemSessions(TextWriter output)
             return new
             {
                 outcome = trace.Outcome, reason = trace.FallbackReason, offered = trace.Offered, keptCount = trace.Kept,
-                items = kept.Select(x => new { id = x.ItemId, type = x.MemoryType, text = x.Text, p = x.Probability, at = created.GetValueOrDefault(x.ItemId) }),
+                items = kept.Select(x => new
+                {
+                    id = x.ItemId, type = x.MemoryType, text = x.Text, p = x.Probability, at = created.GetValueOrDefault(x.ItemId),
+                    note = context.Projection?.Annotations.GetValueOrDefault(x.ItemId)?.SupersessionNote,
+                }),
             };
 #pragma warning restore AMGATE001
         }

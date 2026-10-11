@@ -340,7 +340,8 @@ switch (args.FirstOrDefault())
         return await new AgentMemory.RouterArena.Record.HaluMemSessions(Console.Out).RunAsync(
             Get("halumem") ?? Path.Combine(strategy, "performance", "fixtures", "halumem", "HaluMem-Medium.jsonl"), person,
             int.Parse(range[0], CultureInfo.InvariantCulture), int.Parse(range[^1], CultureInfo.InvariantCulture),
-            Get("out") ?? Path.Combine(strategy, "performance", "runs", "halumem", $"halumem-p{person:00}.json"), dryRun);
+            Get("out") ?? Path.Combine(strategy, "performance", "runs", "halumem", $"halumem-p{person:00}.json"), dryRun,
+            (Get("history") ?? "off") == "on");
     }
     case "longmemeval":
     {
