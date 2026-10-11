@@ -221,6 +221,12 @@ AgentMemory.Abstractions.Options       — configuration records
 
 #### 3.2.1 Ingestion outcomes (#101)
 
+`PersistenceStage` delegates writer-confirmed repeats to the internal `ConfirmedMemoryReinforcement`
+component. It runs after core persistence and corrected-name propagation, outside the core transaction,
+and before the working-memory rebuild. Only live facts/preferences belonging to the same owner are
+reinforced, once per confirmed ID; failures remain best-effort and caller cancellation propagates.
+This separation does not change extraction prompts, closing rules or repository operations.
+
 `ExtractAndPersistAsync`/`IMemoryExtractionPipeline.ExtractAsync` extract and persist independent
 items (entities, facts, preferences, relationships) from a batch of messages. Individual items can
 fail at any stage — an extractor throws, an entity fails validation or resolution, a node fails to
