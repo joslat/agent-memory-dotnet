@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   named question (System One's and the host model's, word for word) now also reads a death, a marriage, a move or a birth
   as ending the state the person was in. Scenario suite (three repeats): one-offs 0/6 to 6/6, events said on their day kept
   6/6; a death's closing confirmed 5 of 6 (0 before), near the judge's bar.
+- **The Recommended preset shows what a recalled fact replaced** (AMREC001): `ResolveSupersessions` is on in
+  `MemoryOptions.CreateRecommended()`, so "leads a team of five (since 2023-10-24; previously a team of 4)" answers a
+  question about the earlier value; a correction is never shown as "previously", and neither is a value the current one
+  only restates more fully. LongMemEval knowledge-update, one user turn at a time: 63 of 78 without, 72 and 71 with.
+- **The store-aware writer confirms only a repeat that adds nothing**: said again with a reason, goal, detail, number,
+  name or date, the stored memory is replaced by the fuller one (HaluMem person 1: the confirm had swallowed updates;
+  storage F1 0.808 to 0.862 with this rule).
 - **The store-aware writer can end a stored connection** (AMWRITE001): a replace or correct may name a stored relationship,
   from a fact ("got married" ends "engaged to") or from a relationship (`ExtractedRelationship.ReplacesId`, new); the update
   judge is asked the same named question and, on a confirm, the relationship is ended (its valid-until set; the edge stays

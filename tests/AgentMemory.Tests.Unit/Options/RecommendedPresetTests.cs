@@ -21,7 +21,9 @@ public sealed class RecommendedPresetTests
         var conversational = MemoryOptions.CreateConversational();
 
         recommended.Extraction.BitemporalChanges.Should().BeTrue();
-        recommended.Should().BeEquivalentTo(conversational, o => o.Excluding(x => x.Extraction.BitemporalChanges),
+        recommended.Projection.ResolveSupersessions.Should().BeTrue();
+        recommended.Should().BeEquivalentTo(conversational, o => o.Excluding(x => x.Extraction.BitemporalChanges)
+                .Excluding(x => x.Projection.ResolveSupersessions),
             "everything else is the Conversational preset");
     }
 
@@ -32,6 +34,8 @@ public sealed class RecommendedPresetTests
 
         MemoryOptions.CreateConversational().Extraction.BitemporalChanges.Should().BeFalse("the Conversational preset is frozen");
         new MemoryOptions().Extraction.BitemporalChanges.Should().BeFalse();
+        new MemoryOptions().Projection.ResolveSupersessions.Should().BeFalse();
+        MemoryOptions.CreateConversational().Projection.ResolveSupersessions.Should().BeFalse("the Conversational preset is frozen");
         new MemoryOptions().Isolation.Mode.Should().Be(MemoryIsolationMode.SingleTenant);
         MemoryOptions.CreateRecommended().Extraction.Should().NotBeSameAs(MemoryOptions.CreateRecommended().Extraction);
     }

@@ -497,8 +497,11 @@ public sealed record MemoryOptions
     /// <para>
     /// <b>What it switches on.</b> Everything <see cref="CreateConversational"/> does, plus
     /// <see cref="ExtractionOptions.BitemporalChanges"/>: a change ends the old value's valid time and keeps it believed,
-    /// so a question about the past keeps the value that was true then. The store-aware writer was measured with exactly
-    /// this memory configuration.
+    /// so a question about the past keeps the value that was true then; and <see cref="MemoryProjectionOptions.ResolveSupersessions"/>:
+    /// a recalled fact shows what it replaced, "(since D; previously X)", so a question about an earlier value finds it
+    /// (LongMemEval knowledge-update one turn at a time: 63 of 78 without, 72 and 71 with; on HaluMem a note that only
+    /// restated the value cost 3 points on updates until such notes were left out). The store-aware writer was measured
+    /// with exactly this memory configuration.
     /// </para>
     /// <para>
     /// <b>The halves in other packages.</b> <c>LlmExtractionOptions.ApplyRecommended()</c> writes each turn with the
@@ -526,6 +529,6 @@ public sealed record MemoryOptions
     {
         var options = CreateConversational();
         options.Extraction.BitemporalChanges = true;
-        return options;
+        return options with { Projection = options.Projection with { ResolveSupersessions = true } };
     }
 }
