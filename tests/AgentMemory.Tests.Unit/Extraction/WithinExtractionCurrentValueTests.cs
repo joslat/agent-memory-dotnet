@@ -160,7 +160,7 @@ public sealed class WithinExtractionCurrentValueTests
     public void Two_events_on_different_days_are_not_one_statement()
     {
         var hike = F("Sintra", p: "went hiking in");
-        PersistenceStage.MayBeOneStatement(
+        WithinExtractionFactDeduplication.MayBeOneStatement(
                 hike with { OccurredOn = new DateTimeOffset(2026, 5, 3, 0, 0, 0, TimeSpan.Zero) },
                 hike with { OccurredOn = new DateTimeOffset(2026, 9, 20, 0, 0, 0, TimeSpan.Zero) })
             .Should().BeFalse();

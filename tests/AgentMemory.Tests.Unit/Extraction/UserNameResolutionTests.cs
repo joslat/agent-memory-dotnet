@@ -158,7 +158,7 @@ public sealed class UserNameResolutionTests
     [Fact]
     public void The_fact_that_names_the_user_is_never_merged_away()
     {
-        PersistenceStage.MayBeOneStatement(F("user", "is named", "Dana"), F("user", "is", "Dana")).Should().BeFalse();
+        WithinExtractionFactDeduplication.MayBeOneStatement(F("user", "is named", "Dana"), F("user", "is", "Dana")).Should().BeFalse();
     }
 
     [Fact]

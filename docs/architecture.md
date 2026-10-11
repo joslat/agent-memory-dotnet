@@ -246,6 +246,12 @@ resolution reuses the entity map and owner-scoped lookups; replacement edges end
 successors were persisted. These components preserve the existing policy differences between writer
 and extractor turns.
 
+`FactNames` supplies one naming rule for fact preparation, correction matching and batch identity.
+`FactPreparation` preserves owner-scoped trust and per-item provenance when constructing a write;
+it still runs inside persistence where the existing-fact lookup belongs. The pure
+`WithinExtractionFactDeduplication` step runs before the transaction and keeps its existing number,
+negation, validity and source-role safeguards.
+
 `ExtractAndPersistAsync`/`IMemoryExtractionPipeline.ExtractAsync` extract and persist independent
 items (entities, facts, preferences, relationships) from a batch of messages. Individual items can
 fail at any stage — an extractor throws, an entity fails validation or resolution, a node fails to
