@@ -446,6 +446,24 @@ nothing for a question, and a held question released with the next turn would go
 Unlike the Conversational preset, its contents may change before 2.0, as the measurements on the library's other
 benchmarks come in; 2.0 is planned to make them the defaults.
 
+**Optional compound-question experiment (`AMGATE001`, unmeasured).** In your existing
+`AddAgentMemoryGate` configuration, set `CompoundQuestions = true` and explicitly set `CompoundDetector`
+to a `SystemOneEndpoint`. Register the host's `IChatClient` for splitting. For example, if `judge` is
+the endpoint already added to `gate.Judges`:
+
+```csharp
+gate.CompoundQuestions = true;
+gate.CompoundDetector = judge;
+```
+
+The gate keeps its original decision and may add memories selected for up to three parts of the same
+question, using the same retrieved pool. Planning and judging share `gate.Timeout` (three seconds by
+default); a timeout preserves the completed baseline. Missing detector/chat configuration also preserves
+baseline retrieval. A custom `ICompoundQuestionPlanner` can be registered before adding the gate.
+`MemoryContext.Metadata["gate.compound"]` explains what ran, without question text. This option remains
+off in all presets; its effect on retrieval quality has not been measured. Turn it off to restore the
+original prompts and calls exactly. As-of recall always follows its existing path.
+
 ---
 
 ## 5. Microsoft Agent Framework Integration

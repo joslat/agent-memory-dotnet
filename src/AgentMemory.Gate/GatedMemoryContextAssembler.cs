@@ -37,6 +37,7 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
     private readonly RecallOptions _appRecall;
     private readonly IClock? _clock;
     private readonly ILogger<GatedMemoryContextAssembler> _logger;
+    private readonly ICompoundQuestionPlanner? _questionPlanner;
     private int _warnedNoJudge;
 
     /// <summary>The fallback reason when Judge mode has no judge configured.</summary>
@@ -53,6 +54,16 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
         _appRecall = memoryOptions?.Value.Recall ?? RecallOptions.Default;
         _clock = clock;
         _logger = logger;
+    }
+
+    /// <summary>Wraps the assembler with an optional compound-question planner.</summary>
+    public GatedMemoryContextAssembler(
+        IMemoryContextAssembler inner, IMemoryGate gate, IOptions<MemoryGateOptions> options,
+        ILogger<GatedMemoryContextAssembler> logger, IOptions<MemoryOptions>? memoryOptions, IClock? clock,
+        ICompoundQuestionPlanner? questionPlanner)
+        : this(inner, gate, options, logger, memoryOptions, clock)
+    {
+        _questionPlanner = questionPlanner;
     }
 
     /// <inheritdoc />
@@ -86,9 +97,17 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(o.Timeout);
-            var decision = await _gate.DecideAsync(new MemoryGateRequest(
+            var gateRequest = new MemoryGateRequest(
                 request.Query, Conversation(wide, request.Query), _clock?.UtcNow ?? DateTimeOffset.UtcNow,
-                [.. candidates.Select(c => c.Candidate)]), timeout.Token).ConfigureAwait(false);
+                [.. candidates.Select(c => c.Candidate)]);
+            var baseline = _gate.DecideAsync(gateRequest, timeout.Token);
+            var decision = o.CompoundQuestions
+                ? await baseline.WaitAsync(timeout.Token).ConfigureAwait(false)
+                : await baseline.ConfigureAwait(false);
+            CompoundQuestionTrace? compound = null;
+            if (o.CompoundQuestions)
+                (decision, compound) = await CompoundGateCoordinator.ExpandAsync(
+                    gateRequest, decision, _gate, _questionPlanner, timeout.Token, cancellationToken).ConfigureAwait(false);
             var unanswered = candidates.Count(c => !decision.Probabilities.ContainsKey(c.Candidate.Key));
             if (unanswered > 0)
                 _logger.LogWarning("Memory gate: the judges left {Unanswered} of {Offered} memories unanswered; they are left out.",
@@ -101,8 +120,15 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
                 decision.Probabilities.TryGetValue(c.Candidate.Key, out var p) ? p : null, kept.Contains(c.ItemId)))];
             _logger.LogInformation("Memory gate: kept {Kept} of {Offered} memories at P >= {Threshold} (judged by {Judges} in {Ms} ms).",
                 items.Count(i => i.Kept), items.Count, o.Threshold, decision.AnsweredBy, watch.ElapsedMilliseconds);
-            return Mark(GateCandidates.Keep(wide, kept), o, span, "judge", null, items, decision.AnsweredBy, watch.ElapsedMilliseconds,
+            var result = Mark(GateCandidates.Keep(wide, kept), o, span, "judge", null, items, decision.AnsweredBy, watch.ElapsedMilliseconds,
                 ("gate.judgedBy", decision.AnsweredBy), ("gate.ms", (int)watch.ElapsedMilliseconds));
+            return compound is null ? result : result with
+            {
+                Metadata = new Dictionary<string, object>(result.Metadata, StringComparer.Ordinal)
+                {
+                    [CompoundQuestionTrace.MetadataKey] = compound,
+                },
+            };
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

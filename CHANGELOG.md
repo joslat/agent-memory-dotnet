@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Experimental compound-question judging** (`MemoryGateOptions.CompoundQuestions`, `AMGATE001`,
+  off by default): an explicit System One detector and the host's chat client can split a question
+  into at most three retrieval focuses. The gate reuses its candidate pool and preserves baseline
+  admissions through optional failures and timeouts. Includes a replaceable planner and content-free
+  diagnostics. Mechanics are tested; retrieval quality and cost remain unmeasured. No preset enables it.
 - **Pending-turn context for Agent Framework** (`AgentFrameworkOptions.IncludePendingTurns`, off by
   default): the built-in extraction queue supplies outstanding user turns to the context provider,
   history provider and facade, scoped by store, owner and session. Existing admission and deduplication

@@ -446,6 +446,14 @@ and their defaults are in [`configuration/memory-options.md`](configuration/memo
 
 ## 3. What makes a memory system great
 
+**Compound-question judging: BUILT, WIRED, UNMEASURED, default off.**
+`MemoryGateOptions.CompoundQuestions` can judge up to three parts of a question over the existing
+candidate pool, preserving the complete question, its baseline admissions, scope and clock. It adds
+no searches and makes no memory-type routing decision. A System One detector and the host's chat
+model plan the parts; bounded failures keep completed admissions. Combined scores are selection
+scores, not calibrated confidence. Local regression tests cover its mechanics; no claim of improved
+recall, answers or cost is established. See [the architecture contract](architecture.md#36-this-cycles-capabilities-ship-dark-unless-stated-otherwise).
+
 Six positions, stated as claims so they can be argued with.
 
 **1. The retrieval budget *is* the memory system.** Everything upstream of it is bookkeeping in

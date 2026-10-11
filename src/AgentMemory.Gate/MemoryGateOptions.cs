@@ -72,8 +72,26 @@ public sealed class MemoryGateOptions
     /// <summary>How many memories each type is asked for in the wide search (with no similarity floor).</summary>
     public int WideLimit { get; set; } = 50;
 
-    /// <summary>How long the judges may take; past it, recall falls back to <see cref="MemoryGateMode.Floor"/>.</summary>
+    /// <summary>
+    /// How long judging may take. Without a completed baseline, timeout falls back to <see cref="MemoryGateMode.Floor"/>.
+    /// Compound planning and part judging share the remaining time and preserve the completed baseline on timeout.
+    /// </summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// Experimental compound-question judging over the existing candidate pool. Off by default:
+    /// no planner resolution, detector/splitter calls, extra gate calls or prompt/metadata changes.
+    /// On: the original gate decision is preserved, with at most three additional focuses within
+    /// the remaining <see cref="Timeout"/>. Quality is not yet measured; presets do not enable it.
+    /// </summary>
+    public bool CompoundQuestions { get; set; }
+
+    /// <summary>
+    /// Explicit System One endpoint used by the built-in compound planner to detect multiple needs.
+    /// Also requires the host's IChatClient for splitting. Missing either preserves baseline retrieval.
+    /// Unused when <see cref="CompoundQuestions"/> is false or a custom planner is registered.
+    /// </summary>
+    public SystemOneEndpoint? CompoundDetector { get; set; }
 
     /// <summary>
     /// A file of labelled turns (JSON: <c>[{ "turn", "types": [...], "memories": [...] }]</c>); the judge is shown the

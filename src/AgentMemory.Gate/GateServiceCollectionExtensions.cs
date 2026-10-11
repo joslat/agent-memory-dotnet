@@ -55,12 +55,16 @@ public static class GateServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource, RetrievalTierSource>());
         services.TryAddSingleton<IMemoryUpdateJudge>(sp => new SystemOneUpdateJudge(
             sp.GetRequiredService<SystemOneClient>(), sp.GetRequiredService<IOptions<MemoryGateOptions>>()));
+        services.TryAddSingleton<ICompoundQuestionPlanner>(sp => new SystemOneCompoundQuestionPlanner(
+            sp.GetRequiredService<SystemOneClient>(), sp.GetService<IChatClient>(), sp.GetRequiredService<IOptions<MemoryGateOptions>>()));
 
         services.Remove(original);
         services.Add(ServiceDescriptor.Describe(typeof(IMemoryContextAssembler), sp => new GatedMemoryContextAssembler(
             Inner(sp, original), sp.GetRequiredService<IMemoryGate>(), sp.GetRequiredService<IOptions<MemoryGateOptions>>(),
             sp.GetService<ILogger<GatedMemoryContextAssembler>>() ?? NullLogger<GatedMemoryContextAssembler>.Instance,
-            sp.GetService<IOptions<AgentMemory.Abstractions.Options.MemoryOptions>>(), sp.GetService<IClock>()), original.Lifetime));
+            sp.GetService<IOptions<AgentMemory.Abstractions.Options.MemoryOptions>>(), sp.GetService<IClock>(),
+            sp.GetRequiredService<IOptions<MemoryGateOptions>>().Value is { CompoundQuestions: true, Mode: MemoryGateMode.Judge }
+                ? sp.GetService<ICompoundQuestionPlanner>() : null), original.Lifetime));
         return services;
     }
 

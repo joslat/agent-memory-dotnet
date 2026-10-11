@@ -1338,6 +1338,33 @@ what that means for it — for most, the query is never issued at all rather tha
 | Working memory (§3.2.11) | `MemoryOptions.WorkingMemory.Enabled` | `true` (was `false` when this table was written) | plus `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` to render it |
 | Trace outcomes in context (§3.4.1.5) | `ContextFormatOptions.IncludeTraceOutcomes` | `false` | brings `ProcedureTrustClause` with it |
 | Schema extensions (§4.3.1) | `Neo4jOptions.Extensions` | empty set | empty is the base schema, byte-identical |
+| Compound-question judging | `MemoryGateOptions.CompoundQuestions` | `false` | Same candidate pool, at most three additional focuses; no planner resolution or extra calls/prompt/metadata changes when off; unmeasured |
+
+**Compound-question judging** (`AMGATE001`) is optional coordination inside `GatedMemoryContextAssembler`.
+The existing gate first decides on the complete question. `ICompoundQuestionPlanner` can then provide
+two or three constrained focuses. The built-in planner asks an explicit System One `CompoundDetector`
+whether splitting is useful, then uses the host's `IChatClient` to split. Its detector threshold is a
+development operating point of 0.5, not calibrated confidence or measured evidence of benefit.
+
+Each part reuses the original conversation, clock and candidate keys, and retains the complete question
+alongside its focus. Admissions are the union of the baseline and complete, valid part decisions, using
+the maximum score per candidate. These combined scores are **not calibrated probabilities**. No additional
+searches, owner/time scope changes or recursive splitting occur. Floor, Everything, empty-pool and as-of
+paths bypass the planner. Neither the default options nor the Recommended preset enable it.
+
+Baseline, detection, splitting and part judging share `MemoryGateOptions.Timeout`; optional work gets
+only the time left after baseline. Waiting is bounded even for asynchronous providers that ignore their
+cancellation token. A missing planner dependency, malformed plan, invalid decision or optional failure
+preserves the baseline and any completed valid parts; caller cancellation propagates. The existing floor
+fallback applies if baseline itself fails. Limits: three parts of 512 characters, question and conversation
+of 4,096 characters each, 300 candidates and 65,536 candidate-text characters. Exceeding an input limit
+skips optional work; limits do not truncate a question or broaden retrieval.
+
+`gate.compound` contains a `CompoundQuestionTrace` with outcome, bounded reason code, part counts,
+additional gate invocations and optional duration. Those invocations are not HTTP request counts: each
+gate call can fan out by memory type and judge, with retries. No question or provider exception text is
+included in this trace. Local tests establish mechanics; retrieval-quality, latency and cost gains remain
+unmeasured.
 
 Some defaults have since been switched on, each on evidence from simulated conversations: the
 working-memory profile block, dates in the prompt (`IncludeDates`) and a separate shared-knowledge recall
