@@ -259,6 +259,12 @@ for outcome reporting. `EdgeEnding` runs after relationship writes inside persis
 `CorrectedNamePropagation` runs after the core transaction, before confirmation reinforcement and
 the working-memory rebuild. This decomposition preserves their existing call order and failure rules.
 
+`FactPersistence` owns fact writes and their batch fallback. Its per-operation `FactWriteSet` tracks
+the current-value decision, source order and written/created IDs. `FactReplacementResolver` applies
+deterministic replacements only after the writes finish and returns edge-ending work to the stage.
+Speaker-name lookup belongs to `EntityPersistence`. The stage coordinates these components and
+transaction/replay boundaries; writer-turn selection now uses the extraction result explicitly.
+
 `ExtractAndPersistAsync`/`IMemoryExtractionPipeline.ExtractAsync` extract and persist independent
 items (entities, facts, preferences, relationships) from a batch of messages. Individual items can
 fail at any stage — an extractor throws, an entity fails validation or resolution, a node fails to

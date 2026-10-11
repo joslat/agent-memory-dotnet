@@ -13,14 +13,16 @@ namespace AgentMemory.Core.Extraction;
 internal sealed class EntityPersistence
 {
     private readonly IEntityRepository _entityRepository;
+    private readonly IFactRepository _factRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
 
-    public EntityPersistence(IEntityRepository entityRepository, IEmbeddingOrchestrator embeddingOrchestrator,
+    public EntityPersistence(IEntityRepository entityRepository, IFactRepository factRepository, IEmbeddingOrchestrator embeddingOrchestrator,
         ExtractionOptions options, ILogger logger)
     {
         _entityRepository = entityRepository;
+        _factRepository = factRepository;
         _embeddingOrchestrator = embeddingOrchestrator;
         _options = options;
         _logger = logger;
@@ -230,6 +232,33 @@ internal sealed class EntityPersistence
             Count = persistedEntityIds.Count,
         };
     }
+
+    /// <summary>
+    /// I-5: the name the user gave. This extraction's naming fact wins (the latest one in it); otherwise
+    /// the owner's latest live stored one; otherwise none, and nothing is rewritten.
+    /// </summary>
+    public async Task<string?> FindUserNameAsync(
+        IReadOnlyList<PreparedFact> facts, string ownerId, CancellationToken cancellationToken = default)
+    {
+        var stated = facts.Select(f => f.Item).LastOrDefault(MemoryUserNames.IsNamingFact)?.Object;
+        if (!string.IsNullOrWhiteSpace(stated)) return stated.Trim();
+
+        // Best-effort: a failed lookup leaves the facts under the words used, it never fails the persist.
+        try
+        {
+            var stored = await _factRepository.FindLatestObjectAsync(
+                MemoryUserNames.SelfWords, MemoryUserNames.NamingPredicates, MemoryScope.For(ownerId, includeShared: false),
+                cancellationToken).ConfigureAwait(false);
+            return string.IsNullOrWhiteSpace(stored) ? null : stored.Trim();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read the user's name for owner {Owner}; facts keep the words used.", ownerId);
+            return null;
+        }
+    }
+
 }
 
 internal sealed record EntityPersistenceResult
