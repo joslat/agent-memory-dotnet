@@ -180,6 +180,10 @@ and [docs/routing.md](docs/routing.md).
 
 ### Fixed
 
+- **Declined fact closings preserve related memories.** Deterministic supersession and correction now
+  end mirrored relationships only when the repository confirms the fact closed. Partial corrections
+  retain support from facts left live, and an event date stays live while any incoming relationship
+  remains live, including a relationship whose ending was declined.
 - **Recalled relationships answer the question.** They were ordered by confidence and age only, so every recall returned
   the same few edges; they are now ordered by how closely their ends match the recalled entities and the names the
   recalled facts give. And a relationship naming someone met in an earlier message is resolved against the owner's

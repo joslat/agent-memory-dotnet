@@ -104,18 +104,23 @@ internal sealed class FactReplacementResolver
                         cancellationToken).ConfigureAwait(false)];
                 }
 
-                foreach (var loser in losers.DistinctBy(fact => fact.FactId).Where(loser => loser.FactId != winner.FactId))
+                var proposed = losers.DistinctBy(fact => fact.FactId).Where(loser => loser.FactId != winner.FactId).ToList();
+                var closed = new List<Fact>();
+                foreach (var loser in proposed)
                 {
-                    await _factClosures.CloseAsync(
+                    if (!await _factClosures.CloseAsync(
                         loser.FactId, winner.FactId, ClosingOf(loser, winner), ChangedAt(winner, now), scope, cancellationToken)
-                        .ConfigureAwait(false);
+                        .ConfigureAwait(false)) continue;
+                    closed.Add(loser);
                     _logger.LogDebug(
                         "Superseded fact '{Loser}' with '{Winner}' ({S} {P}).",
                         loser.FactId, winner.FactId, winner.Subject, winner.Predicate);
-                    // 38.6. Its edge too ("Lena —lives in→ Lyon" stayed live beside "moved to → Copenhagen"). The relation
-                    // is single-valued, so the winner is the only value still said.
-                    withdrawn.Add(new WithdrawnFact(loser, winner, [winner], candidates, scope, Correction: false));
                 }
+                // A declined closing still supports its edge, even if another fact naming that target closed.
+                var closedIds = closed.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
+                var stillLive = proposed.Where(fact => !closedIds.Contains(fact.FactId)).Append(winner).ToList();
+                foreach (var loser in closed)
+                    withdrawn.Add(new WithdrawnFact(loser, winner, stillLive, candidates, scope, Correction: false));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
@@ -160,13 +165,15 @@ internal sealed class FactReplacementResolver
                 // B-13 (the branch review). With BitemporalChanges a change keeps the old value believed as history, so a
                 // correction of it ("I never lived in Bilbao") must reach it too. Only when the correction is new: a value said
                 // again ("I moved to Madrid, not Bilbao", Madrid already stored) is a restatement, and must not erase the past.
-                var closed = Corrections.Closed(
+                var proposed = Corrections.Closed(
                     candidates.Where(candidate => !currentFactIds.Contains(candidate.FactId)), winner, replaced, spared,
                     includeHistory: _options.BitemporalChanges && createdHere.Contains(winner.FactId));
-                foreach (var loser in closed)
+                var closed = new List<Fact>();
+                foreach (var loser in proposed)
                 {
-                    await _factClosures.CloseAsync(loser.FactId, winner.FactId, FactClosureReason.Correction, null, writeScope, cancellationToken)
-                        .ConfigureAwait(false);
+                    if (!await _factClosures.CloseAsync(loser.FactId, winner.FactId, FactClosureReason.Correction, null, writeScope, cancellationToken)
+                        .ConfigureAwait(false)) continue;
+                    closed.Add(loser);
                     _logger.LogDebug("Correction '{Winner}' closed fact '{Loser}' (replaces '{Replaced}').",
                         winner.FactId, loser.FactId, replaced);
                 }

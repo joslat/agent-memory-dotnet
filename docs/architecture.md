@@ -262,6 +262,8 @@ the working-memory rebuild. This decomposition preserves their existing call ord
 `FactPersistence` owns fact writes and their batch fallback. Its per-operation `FactWriteSet` tracks
 the current-value decision, source order and written/created IDs. `FactReplacementResolver` applies
 deterministic replacements only after the writes finish and returns edge-ending work to the stage.
+Only confirmed fact closings schedule that work. Declined corrections stay in the live support set;
+an event date is protected while any incoming relationship remains live after edge-ending attempts.
 Speaker-name lookup belongs to `EntityPersistence`. The stage coordinates these components and
 transaction/replay boundaries; writer-turn selection now uses the extraction result explicitly.
 

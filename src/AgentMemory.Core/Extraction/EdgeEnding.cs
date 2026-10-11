@@ -90,8 +90,8 @@ internal sealed class EdgeEnding
     /// stayed, and the agent answered "with the half marathon in April as a milestone along the way". A withdrawn statement
     /// takes its own date with it: a live fact about the event it named, from the same message, whose value is only a date.
     /// Corrections only, never supersession ("Lyon is in France" outlives a move, and is not a date anyway). Review: only
-    /// a schedule ("takes place in", "is on"), never history ("first held in 1998"); and not while someone else still has
-    /// a live edge to the event (the brother still runs it in April).
+    /// a schedule ("takes place in", "is on"), never history ("first held in 1998"); and not while any live edge still
+    /// refers to the event, including the same person's edge when its supporting fact or ending stayed live.
     /// </summary>
     private async Task CloseDatesOfWithdrawnAsync(
         Fact closed, Fact winner, MemoryScope readScope, MemoryScope? writeScope, CancellationToken cancellationToken)
@@ -112,11 +112,10 @@ internal sealed class EdgeEnding
             var theEvent = await _entityRepository.FindLiveByNameAsync(said, null, readScope, cancellationToken).ConfigureAwait(false);
             if (theEvent is not null)
             {
-                var subject = await SubjectEntityAsync(closed.Subject, readScope, cancellationToken).ConfigureAwait(false);
                 var now = _clock.UtcNow;
                 var goingStill = await _relationshipRepository.GetByTargetEntityAsync(theEvent.EntityId, readScope, cancellationToken)
                     .ConfigureAwait(false);
-                if (goingStill.Any(edge => (edge.ValidUntil is not { } until || until > now) && edge.SourceEntityId != subject?.EntityId))
+                if (goingStill.Any(edge => edge.ValidUntil is not { } until || until > now))
                     return;
             }
             foreach (var date in dates)

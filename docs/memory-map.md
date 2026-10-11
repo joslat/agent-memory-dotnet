@@ -820,7 +820,11 @@ the tractable case, and it is not most cases.
 > too. Within one extraction the current value is decided once (the last said that was not corrected
 > away; of dated values, the latest by date). Supersession replaces only a value that holds now: an
 > ended value is history and a not-yet-begun one is a plan, so neither replaces nor is replaced.
-> Relationship edges end (`valid_until`) when a single-valued relation is replaced. Known limits: a fact
+> Relationship edges end (`valid_until`) when a single-valued relation is replaced. Mirrored-edge cleanup
+> requires a confirmed fact closing; declined corrections continue to support their edges. A withdrawn
+> plan's source event date stays live while any incoming edge still refers to the event. These guards
+> are covered by deterministic tests, including partial success and declined repository operations.
+> Known limits: a fact
 > has one validity window, so a value said again after it was replaced keeps its earlier end; and a plan
 > that begins does not yet hand over. Detail in
 > [`architecture.md` §3.2.7](architecture.md#327-valid-time-recall-and-prospective-memory-gating).
