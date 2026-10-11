@@ -233,6 +233,12 @@ Its prepared data is passed into persistence and reused after a confirmed rollba
 `PersistenceOutcomes` shares success/failure recording between preparation and persistence, including
 the same fail-fast exception and accumulated outcomes. Neither component depends on a storage provider.
 
+`EntityPersistence` writes entities and returns their name/alias lookup and distinct persisted count.
+It retains batch fallback, explicit provenance and speaker-name embedding at their existing position
+inside persistence. `MemoryUserNames` supplies the shared speaker/name vocabulary to extraction,
+the writer and context assembly; these callers no longer depend on the persistence orchestrator.
+`PersistenceMetadata` shares monotonic trust and repository-owned provenance rules across item types.
+
 `ExtractAndPersistAsync`/`IMemoryExtractionPipeline.ExtractAsync` extract and persist independent
 items (entities, facts, preferences, relationships) from a batch of messages. Individual items can
 fail at any stage — an extractor throws, an entity fails validation or resolution, a node fails to

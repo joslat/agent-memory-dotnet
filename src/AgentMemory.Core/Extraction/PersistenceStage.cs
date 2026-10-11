@@ -1,4 +1,5 @@
-﻿using static AgentMemory.Core.Extraction.PersistenceOutcomes;
+﻿using static AgentMemory.Core.Extraction.PersistenceMetadata;
+using static AgentMemory.Core.Extraction.PersistenceOutcomes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -33,6 +34,7 @@ internal sealed class PersistenceStage : IPersistenceStage
     private readonly IMemoryUpdateJudgeFallback? _fallbackJudge;
     private readonly ConfirmedMemoryReinforcement _reinforcement;
     private readonly MemoryEmbeddingPreparation _embeddingPreparation;
+    private readonly EntityPersistence _entityPersistence;
 
     public PersistenceStage(
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -70,6 +72,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         _persistenceTransaction = persistenceTransaction ?? throw new ArgumentNullException(nameof(persistenceTransaction));
         _options = extractionOptions?.Value ?? new ExtractionOptions();
         _embeddingPreparation = new MemoryEmbeddingPreparation(embeddingOrchestrator, _options, logger);
+        _entityPersistence = new EntityPersistence(entityRepository, embeddingOrchestrator, _options, logger);
         // 40.65. The same "on and inert" signal supersession gives: the option only says how a closing is recorded.
         if (_options.BitemporalChanges && !_options.SupersedeReplacedFacts && Interlocked.Exchange(ref s_warnedInertBitemporal, 1) == 0)
             _logger.LogWarning(
@@ -624,7 +627,7 @@ internal sealed class PersistenceStage : IPersistenceStage
     {
         if (!_options.RenameOnCorrectedName || string.IsNullOrWhiteSpace(ownerId)) return;
         var naming = extraction.FilteredFacts
-            .Where(f => UserNames.IsNamingPredicate(f.Predicate) && !string.IsNullOrWhiteSpace(f.Object))
+            .Where(f => MemoryUserNames.IsNamingPredicate(f.Predicate) && !string.IsNullOrWhiteSpace(f.Object))
             .ToList();
         if (naming.Count == 0) return;
 
@@ -637,7 +640,7 @@ internal sealed class PersistenceStage : IPersistenceStage
             try
             {
                 var replaced = (await _factRepository.GetBySubjectAsync(named.Subject, scope, cancellationToken).ConfigureAwait(false))
-                    .Where(f => UserNames.IsNamingPredicate(f.Predicate) && f.InvalidatedAtUtc >= from &&
+                    .Where(f => MemoryUserNames.IsNamingPredicate(f.Predicate) && f.InvalidatedAtUtc >= from &&
                                 !string.Equals(f.Object.Trim(), name, StringComparison.OrdinalIgnoreCase))
                     .Select(f => f.Object.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -707,7 +710,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         var about = await _factRepository.GetBySubjectAsync(old, scope, cancellationToken).ConfigureAwait(false);
         var naming = await _factRepository.GetByObjectAsync(old, scope, cancellationToken).ConfigureAwait(false);
         var facts = about
-            .Concat(naming.Where(f => !UserNames.IsNamingPredicate(f.Predicate)))
+            .Concat(naming.Where(f => !MemoryUserNames.IsNamingPredicate(f.Predicate)))
             .Where(f => f.InvalidatedAtUtc is null)
             .DistinctBy(f => f.FactId, StringComparer.Ordinal);
         string Renamed(string text) => string.Equals(text, old, StringComparison.Ordinal) ? name : text;
@@ -771,210 +774,21 @@ internal sealed class PersistenceStage : IPersistenceStage
         var closings = new List<(string Winner, string Loser)>();
         s_closings.Value = closings;
 
-        // 1. Embed + upsert entities; build a name→persisted Entity map for relationship resolution.
-        var persistedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
-
-        // COUNTED SEPARATELY FROM THE MAP, because E-1 made the map's keys and its entities two
-        // different quantities: it is keyed by name AND by every captured alias, so one entity with
-        // two names occupies two slots. Reporting the map's Count as the entity count would inflate
-        // ingestion telemetry by exactly the number of aliases captured -- and the store probes the
-        // alias measurement itself reads are built on these counts, so the feature would have
-        // corrupted the census meant to judge it.
+        // 1. Resolve the speaker, then persist entities for fact and relationship resolution.
         // I-5. "user" is the owner: once the user has said their name, what they say about themselves is
         // stored under it. Read only when this extraction has something to rewrite.
         var userName = _options.ResolveUserToName && !string.IsNullOrWhiteSpace(ownerId) &&
-                       (prepared.Facts.Any(f => UserNames.MeansUser(f.Item, subject: true) || UserNames.MeansUser(f.Item, subject: false)) ||
-                        prepared.Entities.Keys.Any(UserNames.IsSelf) ||
-                        extraction.FilteredRelationships.Any(r => UserNames.MeansUserEndpoint(r.SourceEntity, source: true) ||
-                                                                  UserNames.MeansUserEndpoint(r.TargetEntity, source: false)))
+                       (prepared.Facts.Any(f => MemoryUserNames.MeansUser(f.Item, subject: true) || MemoryUserNames.MeansUser(f.Item, subject: false)) ||
+                        prepared.Entities.Keys.Any(MemoryUserNames.IsSelf) ||
+                        extraction.FilteredRelationships.Any(r => MemoryUserNames.MeansUserEndpoint(r.SourceEntity, source: true) ||
+                                                                  MemoryUserNames.MeansUserEndpoint(r.TargetEntity, source: false)))
             ? await UserNameAsync(prepared.Facts, ownerId!, cancellationToken).ConfigureAwait(false)
             : null;
 
-        var persistedEntityIds = new HashSet<string>(StringComparer.Ordinal);
-        // 36.6 (D-6). The speaker is not an entity called "user": the prompt calls the speaker "the user", and the
-        // model lists "user" among the people (found live: a "user" node beside the person's own, with relationships
-        // hanging from it). Once the user's name is known it is not stored, and a relationship from a self word lands
-        // on the person's own entity (I-7). Until then it is stored as before, so no relationship is lost.
-        // With the name known, the speaker's entity IS the named person: written under that name (so a relationship
-        // from "user" lands on it), or, when that person is already an entity here or in the store, not written at all
-        // (I-7 then finds that one). Never a node called "user".
-        var speakerIsKnown = false;
-        if (userName is not null && prepared.Entities.Keys.Any(UserNames.IsSelf))
-        {
-            speakerIsKnown = prepared.Entities.Keys.Any(key => string.Equals(key, userName, StringComparison.OrdinalIgnoreCase));
-            if (!speakerIsKnown)
-            {
-                try
-                {
-                    speakerIsKnown = await _entityRepository.FindLiveByNameAsync(
-                        userName, "PERSON", MemoryScope.For(ownerId!, includeShared: false), cancellationToken).ConfigureAwait(false) is not null;
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Could not read the user's entity for owner {Owner}; the speaker is written under their name.", ownerId);
-                }
-            }
-        }
-        // The speaker once: "user" and "I" in one extraction are one person, and a second self word maps to the first.
-        var speakerKey = userName is null ? null : prepared.Entities.Keys.FirstOrDefault(UserNames.IsSelf);
-        float[]? speakerVector = null;
-        if (speakerKey is not null && !speakerIsKnown)
-        {
-            try
-            {
-                // Embedded as the name it is written under: the vector of "user" would make every owner's speaker alike.
-                speakerVector = await _embeddingOrchestrator.EmbedAsync(userName!, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception ex)
-            {
-                // Best-effort writes the entity without a vector, so no failure is recorded against a written item.
-                if (failFast)
-                    RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Embedding,
-                        MemoryErrorCodes.EmbeddingGenerationFailed, speakerKey, null, ex,
-                        "Ingestion failed fast: embedding generation failed for the user's name.");
-                _logger.LogWarning(ex, "Could not embed the user's name; their entity is written without a vector.");
-            }
-        }
-        var entityInputs = prepared.Entities
-            .Where(pair => userName is null || !UserNames.IsSelf(pair.Key) || (!speakerIsKnown && pair.Key == speakerKey))
-            .Select(pair => userName is not null && UserNames.IsSelf(pair.Key)
-                ? new KeyValuePair<string, Entity>(pair.Key, pair.Value with
-                {
-                    Name = userName, CanonicalName = userName, Type = "PERSON",
-                    Embedding = speakerVector is { Length: > 0 } ? speakerVector : null,
-                })
-                : pair)
-            .Select(pair =>
-        {
-            var effectiveTrustLevel = MaxTrustLevel(pair.Value.Metadata.GetTrustLevel(), trustLevel);
-            return (Name: pair.Key, Item: pair.Value with
-            {
-                OwnerId = ownerId,
-                Metadata = pair.Value.Metadata.WithTrustLevel(effectiveTrustLevel)
-            });
-        }).ToList();
-
-        async Task RecordPersistedEntityAsync(string name, Entity persisted)
-        {
-            persistedEntityMap[name] = persisted;
-            // The speaker, written under the user's name, is found by that name (and so from every self word, which
-            // resolves to the user's entity): the name is the speaker's, never an alias recorded by another entity.
-            if (name == speakerKey && userName is not null)
-                persistedEntityMap[userName] = persisted;
-            persistedEntityIds.Add(persisted.EntityId);
-
-            // E-1. THE MAP IS WHAT DECIDES WHETHER A FACT FINDS ITS ENTITY, and it was keyed by the
-            // extracted NAME alone. So a store could hold an entity that knows "head office" is also
-            // "the Calderwick office" and still never link the facts phrased the second way --
-            // exactly the one-directional loss the alias census measured, where 14 of 15 answers
-            // undercounted and none ever over-counted.
-            //
-            // Unconditional on purpose: with no aliases captured this loop does nothing, so it
-            // cannot move any measurement taken before aliases existed. Whether aliases are captured
-            // at all is LlmExtractionOptions.CaptureIdentityAliases, one layer up.
-            //
-            // A NAME NEVER LOSES TO AN ALIAS. If two entities claim one string -- one as its name,
-            // one as an alias -- the name is the stronger claim and keeps the slot. TryAdd, not
-            // assignment, so the first alias to claim a free slot keeps it and ordering cannot
-            // silently decide which entity a fact attaches to.
-            foreach (var alias in persisted.Aliases)
-            {
-                if (!string.IsNullOrWhiteSpace(alias))
-                    persistedEntityMap.TryAdd(alias, persisted);
-            }
-
-            // I-2. A canonical fact names the entity by its resolved name, which may be none of the
-            // strings this extraction produced ("Tomás" resolved to "Tomás Silva"): the name must find
-            // the entity too, or the fact would lose its ABOUT edge. Gated so the default map is unchanged.
-            if (_options.CanonicalFactSubjects && !string.IsNullOrWhiteSpace(persisted.Name))
-                persistedEntityMap.TryAdd(persisted.Name, persisted);
-
-            RecordSuccess(outcomes, MemoryItemKind.Entity, name, persisted.EntityId);
-
-            foreach (var msgId in ExplicitProvenanceMessageIds(_entityRepository, sourceMessageIds))
-            {
-                try
-                {
-                    await _entityRepository.CreateExtractedFromRelationshipAsync(
-                        persisted.EntityId, msgId, cancellationToken: cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Failed to create EXTRACTED_FROM for entity '{Id}' → message '{MsgId}'.",
-                        persisted.EntityId, msgId);
-                    RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Provenance,
-                        MemoryErrorCodes.ProvenancePersistenceFailed, name, persisted.EntityId, ex,
-                        $"Ingestion failed fast: provenance failed for entity '{name}'.");
-                }
-            }
-
-            _logger.LogDebug("Persisted entity '{Name}' (id={Id}).", persisted.Name, persisted.EntityId);
-        }
-
-        async Task PersistEntityIndividuallyAsync(string name, Entity item)
-        {
-            try
-            {
-                var persisted = await _entityRepository.UpsertAsync(item, cancellationToken).ConfigureAwait(false);
-                await RecordPersistedEntityAsync(name, persisted).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (MemoryIngestionException) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error persisting entity '{Name}'.", name);
-                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Persistence,
-                    MemoryErrorCodes.EntityPersistenceFailed, name, null, ex,
-                    $"Ingestion failed fast: persistence failed for entity '{name}'.");
-            }
-        }
-
-        Dictionary<string, Entity>? batchedEntitiesById = null;
-        var fusedEntityRepository = _options.UseCoalescedPersistenceTransactions
-            ? _entityRepository as IFusedBatchMemoryRepository<Entity> : null;
-        var batchEntityRepository = _entityRepository as IBatchMemoryRepository<Entity>;
-        var canBatchEntities = _options.EnableBatchMemoryUpserts && !failFast &&
-            entityInputs.Count > 0 &&
-            entityInputs.Select(input => input.Item.EntityId).Distinct(StringComparer.Ordinal).Count() == entityInputs.Count &&
-            (fusedEntityRepository is not null || (entityInputs.Count > 1 && batchEntityRepository is not null));
-        if (canBatchEntities)
-        {
-            try
-            {
-                var items = entityInputs.Select(input => input.Item).ToList();
-                var persisted = fusedEntityRepository is not null
-                    ? await fusedEntityRepository.UpsertFusedBatchAsync(items, cancellationToken)
-                        .ConfigureAwait(false)
-                    : await batchEntityRepository!.UpsertBatchAsync(items, cancellationToken)
-                        .ConfigureAwait(false);
-                batchedEntitiesById = persisted.ToDictionary(entity => entity.EntityId, StringComparer.Ordinal);
-                if (entityInputs.Any(input => !batchedEntitiesById.ContainsKey(input.Item.EntityId)))
-                    throw new InvalidOperationException("The entity batch result omitted one or more input identifiers.");
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Atomic entity batch failed; replaying {Count} entities through the item path.",
-                    entityInputs.Count);
-                batchedEntitiesById = null;
-            }
-        }
-
-        if (batchedEntitiesById is not null)
-        {
-            foreach (var input in entityInputs)
-                await RecordPersistedEntityAsync(input.Name, batchedEntitiesById[input.Item.EntityId]).ConfigureAwait(false);
-        }
-        else
-        {
-            foreach (var input in entityInputs)
-                await PersistEntityIndividuallyAsync(input.Name, input.Item).ConfigureAwait(false);
-        }
+        var persistedEntities = await _entityPersistence.PersistAsync(
+            prepared.Entities, userName, ownerId, trustLevel, sourceMessageIds, outcomes, failFast, cancellationToken)
+            .ConfigureAwait(false);
+        var persistedEntityMap = persistedEntities.ByName;
         // 2. Embed + upsert facts.
         var persistedFactCount = 0;
         // 36.4. What each marked correction replaces, by the words it was extracted as (the source key every
@@ -995,7 +809,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         string FactSubjectKey(ExtractedFact fact)
         {
             var stored = StoredName(fact, subject: true);
-            return UserNames.IsSelf(stored) ? "\u0001self" : MemoryTripleCanonicalizer.CanonicalValue(stored);
+            return MemoryUserNames.IsSelf(stored) ? "\u0001self" : MemoryTripleCanonicalizer.CanonicalValue(stored);
         }
         // A value that has ended, or not begun, states no current value ("lived in Berlin until 2019", "moving to Oslo
         // next month") and joins no group: one rule (ReplacementShapes.HoldsNow) with the supersession query's.
@@ -1065,11 +879,11 @@ internal sealed class PersistenceStage : IPersistenceStage
         string StoredName(ExtractedFact fact, bool subject)
         {
             var surface = subject ? fact.Subject : fact.Object;
-            if (userName is not null && UserNames.MeansUser(fact, subject)) return CanonicalName(userName);
+            if (userName is not null && MemoryUserNames.MeansUser(fact, subject)) return CanonicalName(userName);
             // The words that mean the user are never renamed to an entity's name: found live, "user" resolved into
             // the person "Dana" and canonical subjects stored the naming fact as "Dana | is named | Dana", so the
             // name could never be found again (it is looked up under "user"). Only the rule above renames them.
-            if (subject && UserNames.IsSelf(surface)) return surface;
+            if (subject && MemoryUserNames.IsSelf(surface)) return surface;
             return CanonicalName(surface);
         }
 
@@ -1312,7 +1126,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 // I-5. A fact now stored under the user's name also replaces what was stored before the
                 // name was known, under the words used then ("user | lives in | Lisbon").
                 if (said.Metadata.TryGetValue("subject_surface", out var surface) && surface is string surfaceSubject &&
-                    UserNames.IsSelf(surfaceSubject))
+                    MemoryUserNames.IsSelf(surfaceSubject))
                 {
                     losers = [.. losers, .. await _factRepository.FindSupersededCandidatesAsync(
                         winner.FactId, surfaceSubject, said.Predicate, winner.Object, now, candidates,
@@ -1868,7 +1682,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         }
         async Task<Entity?> EndpointAsync(string name, bool source) =>
             persistedEntityMap.TryGetValue(name, out var entity) ? entity
-            : UserNames.MeansUserEndpoint(name, source) ? await UserEntityAsync().ConfigureAwait(false)
+            : MemoryUserNames.MeansUserEndpoint(name, source) ? await UserEntityAsync().ConfigureAwait(false)
             : await KnownEntityAsync(name).ConfigureAwait(false);
 
         // 40.91. A relationship may name someone met in an earlier message ("Marta Ruiz -[SIBLING_OF]-> Iker" said after
@@ -2176,7 +1990,7 @@ internal sealed class PersistenceStage : IPersistenceStage
 
         return new PersistenceResult
         {
-            EntityCount = persistedEntityIds.Count,
+            EntityCount = persistedEntities.Count,
             FactCount = persistedFactCount,
             PreferenceCount = persistedPrefCount,
             RelationshipCount = persistedRelCount,
@@ -2278,8 +2092,8 @@ internal sealed class PersistenceStage : IPersistenceStage
     private async Task<Entity?> SubjectEntityAsync(string subject, MemoryScope readScope, CancellationToken cancellationToken)
     {
         var named = await _entityRepository.FindLiveByNameAsync(subject, null, readScope, cancellationToken).ConfigureAwait(false);
-        if (named is not null || !UserNames.IsSelf(subject)) return named;
-        var name = await _factRepository.FindLatestObjectAsync(UserNames.SelfWords, UserNames.NamingPredicates, readScope, cancellationToken)
+        if (named is not null || !MemoryUserNames.IsSelf(subject)) return named;
+        var name = await _factRepository.FindLatestObjectAsync(MemoryUserNames.SelfWords, MemoryUserNames.NamingPredicates, readScope, cancellationToken)
             .ConfigureAwait(false);
         return string.IsNullOrWhiteSpace(name)
             ? null
@@ -2339,14 +2153,14 @@ internal sealed class PersistenceStage : IPersistenceStage
     private async Task<string?> UserNameAsync(
         IReadOnlyList<PreparedFact> facts, string ownerId, CancellationToken cancellationToken)
     {
-        var stated = facts.Select(f => f.Item).LastOrDefault(UserNames.IsNamingFact)?.Object;
+        var stated = facts.Select(f => f.Item).LastOrDefault(MemoryUserNames.IsNamingFact)?.Object;
         if (!string.IsNullOrWhiteSpace(stated)) return stated.Trim();
 
         // Best-effort: a failed lookup leaves the facts under the words used, it never fails the persist.
         try
         {
             var stored = await _factRepository.FindLatestObjectAsync(
-                UserNames.SelfWords, UserNames.NamingPredicates, MemoryScope.For(ownerId, includeShared: false),
+                MemoryUserNames.SelfWords, MemoryUserNames.NamingPredicates, MemoryScope.For(ownerId, includeShared: false),
                 cancellationToken).ConfigureAwait(false);
             return string.IsNullOrWhiteSpace(stored) ? null : stored.Trim();
         }
@@ -2355,53 +2169,6 @@ internal sealed class PersistenceStage : IPersistenceStage
         {
             _logger.LogWarning(ex, "Could not read the user's name for owner {Owner}; facts keep the words used.", ownerId);
             return null;
-        }
-    }
-
-    /// <summary>I-5: the words that mean the user, and the fact that names them.</summary>
-    internal static class UserNames
-    {
-        /// <summary>Words that can mean the speaker as a subject.</summary>
-        internal static readonly string[] SelfWords = ["user", "the user", "i", "me", "myself"];
-
-        /// <summary>
-        /// Words that mean the speaker as a fact's OBJECT. Not "I"/"me": as an object they are as often
-        /// something else ("lives in | ME", Maine), which a fact's free-text object cannot tell apart.
-        /// </summary>
-        private static readonly HashSet<string> UserAsObject = new(StringComparer.Ordinal) { "user", "the user" };
-
-        private static readonly HashSet<string> Self = new(SelfWords, StringComparer.Ordinal);
-
-        internal static readonly string[] NamingPredicates =
-            ["is named", "name is", "has name", "named", "is called", "goes by", "has the name"];
-
-        private static readonly HashSet<string> Naming = new(NamingPredicates, StringComparer.Ordinal);
-
-        internal static bool IsSelf(string? value) => Self.Contains(MemoryTripleCanonicalizer.CanonicalValue(value));
-
-        /// <summary>
-        /// I-7: whether a relationship endpoint is the user: any self word, at either end. Unlike a fact's
-        /// object, an endpoint is only ever asked about when it is not an extracted entity, so "ME" the
-        /// state would have resolved as one, and "Fabrikam EMPLOYS me" is the user.
-        /// </summary>
-        internal static bool MeansUserEndpoint(string? endpoint, bool source) => IsSelf(endpoint);
-
-        internal static bool IsNamingPredicate(string? predicate) => Naming.Contains(MemoryTripleCanonicalizer.Canonical(predicate));
-
-        internal static bool IsNamingFact(ExtractedFact fact) => IsSelf(fact.Subject) && IsNamingPredicate(fact.Predicate);
-
-        /// <summary>
-        /// Whether this slot of the fact is the user and may be stored under their name: never in the
-        /// naming fact itself, never in what the assistant said about itself ("I | recommend | …"), and
-        /// as an object only "user" / "the user", and only when the subject is not itself the user.
-        /// </summary>
-        internal static bool MeansUser(ExtractedFact fact, bool subject)
-        {
-            if (IsNamingFact(fact)) return false;
-            if (string.Equals(fact.SourceRole, "assistant", StringComparison.OrdinalIgnoreCase)) return false;
-            return subject
-                ? IsSelf(fact.Subject)
-                : UserAsObject.Contains(MemoryTripleCanonicalizer.CanonicalValue(fact.Object)) && !IsSelf(fact.Subject);
         }
     }
 
@@ -2507,7 +2274,7 @@ internal sealed class PersistenceStage : IPersistenceStage
     {
         static string Key(string value) => MemoryTripleCanonicalizer.CanonicalValue(value);
         // The fact that names the user is how the name is found in every later session: never merged away.
-        if (UserNames.IsNamingFact(left) || UserNames.IsNamingFact(right)) return false;
+        if (MemoryUserNames.IsNamingFact(left) || MemoryUserNames.IsNamingFact(right)) return false;
         if (Key(left.Subject) != Key(right.Subject)) return false;
         if (Key(left.Predicate) != Key(right.Predicate) && Key(left.Object) != Key(right.Object)) return false;
         // 38.6 (F15, show 04 run 11). Under one predicate, two objects that each say something the other does not
@@ -2546,14 +2313,5 @@ internal sealed class PersistenceStage : IPersistenceStage
     }
 
 
-    /// <summary>
-    /// Trust is monotonic (#92 Phase 3): re-touching an already-persisted entity must never silently lower
-    /// its trust level below whatever it already had.
-    /// </summary>
-    private static MemoryTrustLevel MaxTrustLevel(MemoryTrustLevel a, MemoryTrustLevel b) => a > b ? a : b;
-
-    private static IEnumerable<string> ExplicitProvenanceMessageIds(
-        object repository, IReadOnlyList<string> sourceMessageIds) =>
-        repository is IUpsertPersistsProvenance ? Array.Empty<string>() : sourceMessageIds;
 
 }

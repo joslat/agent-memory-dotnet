@@ -285,7 +285,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     internal static IReadOnlyList<string> NamesIn(IReadOnlyList<Fact> facts) =>
         [.. facts.SelectMany(fact => new[] { fact.Subject, fact.Object })
             .Where(name => !string.IsNullOrWhiteSpace(name) && name.Trim().Length > 1 &&
-                           !Extraction.PersistenceStage.UserNames.IsSelf(name))
+                           !Extraction.MemoryUserNames.IsSelf(name))
             .Select(name => name.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(40)];

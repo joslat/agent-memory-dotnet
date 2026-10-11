@@ -130,7 +130,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         try
         {
             var facts = _services.GetRequiredService<IFactRepository>();
-            var name = await facts.FindLatestObjectAsync(PersistenceStage.UserNames.SelfWords, PersistenceStage.UserNames.NamingPredicates,
+            var name = await facts.FindLatestObjectAsync(MemoryUserNames.SelfWords, MemoryUserNames.NamingPredicates,
                 scope, cancellationToken).ConfigureAwait(false);
             return MemoryWriterPrompt.PlainName(name);
         }

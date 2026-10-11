@@ -390,7 +390,7 @@ internal sealed class ExtractionStage : IExtractionStage
             // I-7: an endpoint that is the user ("user -WORKS_AT-> Fabrikam") is not an extracted entity; with
             // ResolveUserToName, persistence maps it to the user's person entity, so it is not dropped here.
             bool IsUserEndpoint(string endpoint, bool source) =>
-                _options.ResolveUserToName && PersistenceStage.UserNames.MeansUserEndpoint(endpoint, source);
+                _options.ResolveUserToName && MemoryUserNames.MeansUserEndpoint(endpoint, source);
 
             // 40.91. An endpoint this extraction did not see may be someone the owner's memory already holds (met in an
             // earlier message): with an owner, persistence resolves it against the owner's stored entities, and skips it
