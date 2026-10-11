@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using static AgentMemory.Core.Extraction.PersistenceOutcomes;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -15,7 +16,7 @@ namespace AgentMemory.Core.Extraction;
 /// Embeds and persists the resolved items from <see cref="ExtractionStage"/>.
 /// Responsibility: generate embeddings, upsert to repositories, wire EXTRACTED_FROM provenance.
 /// </summary>
-internal sealed partial class PersistenceStage : IPersistenceStage
+internal sealed class PersistenceStage : IPersistenceStage
 {
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IEntityRepository _entityRepository;
@@ -31,6 +32,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
     private readonly IMemoryUpdateJudge? _updateJudge;
     private readonly IMemoryUpdateJudgeFallback? _fallbackJudge;
     private readonly ConfirmedMemoryReinforcement _reinforcement;
+    private readonly MemoryEmbeddingPreparation _embeddingPreparation;
 
     public PersistenceStage(
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -67,6 +69,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         _logger = logger;
         _persistenceTransaction = persistenceTransaction ?? throw new ArgumentNullException(nameof(persistenceTransaction));
         _options = extractionOptions?.Value ?? new ExtractionOptions();
+        _embeddingPreparation = new MemoryEmbeddingPreparation(embeddingOrchestrator, _options, logger);
         // 40.65. The same "on and inert" signal supersession gives: the option only says how a closing is recorded.
         if (_options.BitemporalChanges && !_options.SupersedeReplacedFacts && Interlocked.Exchange(ref s_warnedInertBitemporal, 1) == 0)
             _logger.LogWarning(
@@ -545,7 +548,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     _clock.UtcNow),
             };
 
-        var prepared = await PrepareEmbeddingsAsync(extraction, cancellationToken).ConfigureAwait(false);
+        var prepared = await _embeddingPreparation.PrepareAsync(extraction, cancellationToken).ConfigureAwait(false);
         if (_options.DeduplicateWithinExtraction && prepared.Facts.Count > 1)
         {
             var (kept, merged) = WithoutNearDuplicates(prepared.Facts, _options.WithinExtractionDuplicateThreshold);
@@ -2329,88 +2332,6 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
     }
 
-    private async Task<PreparedEmbeddings> PrepareEmbeddingsIndividuallyAsync(
-        ExtractionStageResult extraction,
-        CancellationToken cancellationToken)
-    {
-        var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
-        var outcomes = new List<IngestionItemOutcome>();
-        var entities = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
-        var facts = new List<PreparedFact>(extraction.FilteredFacts.Count);
-        var preferences = new List<PreparedPreference>(extraction.FilteredPreferences.Count);
-
-        foreach (var (name, entity) in extraction.ResolvedEntityMap)
-        {
-            if (entity.Embedding is not null)
-            {
-                entities[name] = entity;
-                continue;
-            }
-
-            try
-            {
-                var embedding = await _embeddingOrchestrator.EmbedEntityAsync(
-                    entity.Name, cancellationToken).ConfigureAwait(false);
-                entities[name] = entity with { Embedding = embedding };
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating embedding for entity '{Name}'.", name);
-                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Embedding,
-                    MemoryErrorCodes.EmbeddingGenerationFailed, name, null, ex,
-                    $"Ingestion failed fast: embedding generation failed for entity '{name}'.");
-            }
-        }
-
-        foreach (var extracted in extraction.FilteredFacts)
-        {
-            var sourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
-            try
-            {
-                var embedding = await _embeddingOrchestrator.EmbedFactAsync(
-                    extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken).ConfigureAwait(false);
-                facts.Add(new PreparedFact(extracted, embedding));
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating embedding for fact '{Key}'.", sourceKey);
-                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Embedding,
-                    MemoryErrorCodes.EmbeddingGenerationFailed, sourceKey, null, ex,
-                    $"Ingestion failed fast: embedding generation failed for fact '{sourceKey}'.");
-            }
-        }
-
-        foreach (var extracted in extraction.FilteredPreferences)
-        {
-            try
-            {
-                var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(
-                    extracted.PreferenceText, cancellationToken).ConfigureAwait(false);
-                preferences.Add(new PreparedPreference(extracted, embedding));
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating embedding for preference '{Text}'.", extracted.PreferenceText);
-                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Embedding,
-                    MemoryErrorCodes.EmbeddingGenerationFailed, extracted.PreferenceText, null, ex,
-                    "Ingestion failed fast: embedding generation failed for a preference.");
-            }
-        }
-
-        return new PreparedEmbeddings(entities, facts, preferences, outcomes);
-    }
-
-    private sealed record PreparedEmbeddings(
-        IReadOnlyDictionary<string, Entity> Entities,
-        IReadOnlyList<PreparedFact> Facts,
-        IReadOnlyList<PreparedPreference> Preferences,
-        IReadOnlyList<IngestionItemOutcome> Outcomes);
-
-    private sealed record PreparedFact(ExtractedFact Item, float[] Embedding);
-
     /// <summary>
     /// I-5: the name the user gave. This extraction's naming fact wins (the latest one in it); otherwise
     /// the owner's latest live stored one; otherwise none, and nothing is rewritten.
@@ -2624,7 +2545,6 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 .Order(StringComparer.Ordinal));
     }
 
-    private sealed record PreparedPreference(ExtractedPreference Item, float[] Embedding);
 
     /// <summary>
     /// Trust is monotonic (#92 Phase 3): re-touching an already-persisted entity must never silently lower
@@ -2636,52 +2556,4 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         object repository, IReadOnlyList<string> sourceMessageIds) =>
         repository is IUpsertPersistsProvenance ? Array.Empty<string>() : sourceMessageIds;
 
-    /// <summary>Appends a <see cref="IngestionItemStatus.Succeeded"/> outcome (#101).</summary>
-    private static void RecordSuccess(
-        List<IngestionItemOutcome> outcomes, MemoryItemKind kind, string? sourceKey, string? persistedId,
-        MemoryWriteEffect effect = MemoryWriteEffect.Unreported) =>
-        outcomes.Add(new IngestionItemOutcome
-        {
-            Kind = kind,
-            Stage = IngestionStage.Persistence,
-            Status = IngestionItemStatus.Succeeded,
-            SourceKey = sourceKey,
-            PersistedId = persistedId,
-            Effect = effect,
-        });
-
-    /// <summary>
-    /// Appends a <see cref="IngestionItemStatus.Failed"/> outcome and, under
-    /// <see cref="IngestionFailureMode.FailFast"/>, throws <see cref="MemoryIngestionException"/>
-    /// carrying every outcome recorded so far (#101). Centralizing this in one helper — rather than
-    /// repeating "add outcome, then maybe throw" at each of the ~10 call sites across four item kinds —
-    /// is what guarantees every one of them gets the same fail-fast behavior; hand-copying it previously
-    /// let the relationship block silently miss the failure-mode check entirely (caught in review).
-    /// </summary>
-    private static void RecordFailureAndMaybeThrow(
-        List<IngestionItemOutcome> outcomes,
-        bool failFast,
-        MemoryItemKind kind,
-        IngestionStage stage,
-        string errorCode,
-        string? sourceKey,
-        string? persistedId,
-        Exception ex,
-        string failFastMessage)
-    {
-        outcomes.Add(new IngestionItemOutcome
-        {
-            Kind = kind,
-            Stage = stage,
-            Status = IngestionItemStatus.Failed,
-            SourceKey = sourceKey,
-            PersistedId = persistedId,
-            ErrorCode = errorCode,
-            ErrorMessage = ex.Message,
-            Retryable = true,
-        });
-
-        if (failFast)
-            throw new MemoryIngestionException(failFastMessage, outcomes, ex);
-    }
 }

@@ -227,6 +227,12 @@ and before the working-memory rebuild. Only live facts/preferences belonging to 
 reinforced, once per confirmed ID; failures remain best-effort and caller cancellation propagates.
 This separation does not change extraction prompts, closing rules or repository operations.
 
+`MemoryEmbeddingPreparation` owns both batch and individual embedding preparation before the storage
+transaction starts. Invalid or failed batch responses retain the existing item-by-item fallback.
+Its prepared data is passed into persistence and reused after a confirmed rollback.
+`PersistenceOutcomes` shares success/failure recording between preparation and persistence, including
+the same fail-fast exception and accumulated outcomes. Neither component depends on a storage provider.
+
 `ExtractAndPersistAsync`/`IMemoryExtractionPipeline.ExtractAsync` extract and persist independent
 items (entities, facts, preferences, relationships) from a batch of messages. Individual items can
 fail at any stage — an extractor throws, an entity fails validation or resolution, a node fails to

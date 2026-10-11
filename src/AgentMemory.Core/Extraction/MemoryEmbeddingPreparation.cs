@@ -1,14 +1,28 @@
+using static AgentMemory.Core.Extraction.PersistenceOutcomes;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using Microsoft.Extensions.Logging;
 
 namespace AgentMemory.Core.Extraction;
 
-internal sealed partial class PersistenceStage
+/// <summary>Prepares memory embeddings before storage transactions, including batch fallback.</summary>
+internal sealed class MemoryEmbeddingPreparation
 {
-    private async Task<PreparedEmbeddings> PrepareEmbeddingsAsync(
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
+    private readonly ExtractionOptions _options;
+    private readonly ILogger _logger;
+
+    public MemoryEmbeddingPreparation(IEmbeddingOrchestrator embeddingOrchestrator, ExtractionOptions options, ILogger logger)
+    {
+        _embeddingOrchestrator = embeddingOrchestrator;
+        _options = options;
+        _logger = logger;
+    }
+
+    public async Task<PreparedEmbeddings> PrepareAsync(
         ExtractionStageResult extraction,
         CancellationToken cancellationToken)
     {
@@ -210,4 +224,78 @@ internal sealed partial class PersistenceStage
         Entity? Entity = null,
         ExtractedFact? Fact = null,
         ExtractedPreference? Preference = null);
+    private async Task<PreparedEmbeddings> PrepareEmbeddingsIndividuallyAsync(
+        ExtractionStageResult extraction,
+        CancellationToken cancellationToken)
+    {
+        var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
+        var outcomes = new List<IngestionItemOutcome>();
+        var entities = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
+        var facts = new List<PreparedFact>(extraction.FilteredFacts.Count);
+        var preferences = new List<PreparedPreference>(extraction.FilteredPreferences.Count);
+
+        foreach (var (name, entity) in extraction.ResolvedEntityMap)
+        {
+            if (entity.Embedding is not null)
+            {
+                entities[name] = entity;
+                continue;
+            }
+
+            try
+            {
+                var embedding = await _embeddingOrchestrator.EmbedEntityAsync(
+                    entity.Name, cancellationToken).ConfigureAwait(false);
+                entities[name] = entity with { Embedding = embedding };
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for entity '{Name}'.", name);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, name, null, ex,
+                    $"Ingestion failed fast: embedding generation failed for entity '{name}'.");
+            }
+        }
+
+        foreach (var extracted in extraction.FilteredFacts)
+        {
+            var sourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
+            try
+            {
+                var embedding = await _embeddingOrchestrator.EmbedFactAsync(
+                    extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken).ConfigureAwait(false);
+                facts.Add(new PreparedFact(extracted, embedding));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for fact '{Key}'.", sourceKey);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, sourceKey, null, ex,
+                    $"Ingestion failed fast: embedding generation failed for fact '{sourceKey}'.");
+            }
+        }
+
+        foreach (var extracted in extraction.FilteredPreferences)
+        {
+            try
+            {
+                var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(
+                    extracted.PreferenceText, cancellationToken).ConfigureAwait(false);
+                preferences.Add(new PreparedPreference(extracted, embedding));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for preference '{Text}'.", extracted.PreferenceText);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, extracted.PreferenceText, null, ex,
+                    "Ingestion failed fast: embedding generation failed for a preference.");
+            }
+        }
+
+        return new PreparedEmbeddings(entities, facts, preferences, outcomes);
+    }
+
 }
