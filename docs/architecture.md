@@ -1455,7 +1455,7 @@ what that means for it — for most, the query is never issued at all rather tha
 | Working memory (§3.2.11) | `MemoryOptions.WorkingMemory.Enabled` | `true` (was `false` when this table was written) | plus `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` to render it |
 | Trace outcomes in context (§3.4.1.5) | `ContextFormatOptions.IncludeTraceOutcomes` | `false` | brings `ProcedureTrustClause` with it |
 | Schema extensions (§4.3.1) | `Neo4jOptions.Extensions` | empty set | empty is the base schema, byte-identical |
-| Compound-question judging | `MemoryGateOptions.CompoundQuestions` | `false` | Same candidate pool, at most three additional focuses; no planner resolution or extra calls/prompt/metadata changes when off; unmeasured |
+| Compound-question judging | `MemoryGateOptions.CompoundQuestions` | `false` | Same candidate pool, at most three additional focuses; no planner resolution or extra calls/prompt/metadata changes when off; development comparison did not qualify promotion |
 
 **Compound-question judging** (`AMGATE001`) is optional coordination inside `GatedMemoryContextAssembler`.
 The existing gate first decides on the complete question. `ICompoundQuestionPlanner` can then provide
@@ -1480,8 +1480,9 @@ skips optional work; limits do not truncate a question or broaden retrieval.
 `gate.compound` contains a `CompoundQuestionTrace` with outcome, bounded reason code, part counts,
 additional gate invocations and optional duration. Those invocations are not HTTP request counts: each
 gate call can fan out by memory type and judge, with retries. No question or provider exception text is
-included in this trace. Local tests establish mechanics; retrieval-quality, latency and cost gains remain
-unmeasured.
+included in this trace. Local tests establish mechanics. A bounded development comparison retained the
+baseline: no coverage gain, additional clutter and optional timeouts. Its baseline coverage ceiling
+limits quality conclusions; no held-out retrieval-quality benefit is established. Keep the option off.
 
 The operator-only `compound-evaluate` command invokes the same internal coordinator through a friend
 assembly declaration for `router-arena`; it does not copy its selection policy or add a runtime library

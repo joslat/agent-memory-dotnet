@@ -82,7 +82,7 @@ public sealed class MemoryGateOptions
     /// Experimental compound-question judging over the existing candidate pool. Off by default:
     /// no planner resolution, detector/splitter calls, extra gate calls or prompt/metadata changes.
     /// On: the original gate decision is preserved, with at most three additional focuses within
-    /// the remaining <see cref="Timeout"/>. Quality is not yet measured; presets do not enable it.
+    /// the remaining <see cref="Timeout"/>. No quality benefit is established; presets do not enable it.
     /// </summary>
     public bool CompoundQuestions { get; set; }
 
