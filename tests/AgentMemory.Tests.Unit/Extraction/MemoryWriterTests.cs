@@ -605,7 +605,12 @@ public sealed class PersistenceStageMemoryWriterTests
     [Theory]
     [InlineData(0.59)]
     [InlineData(0.1)]
-    public async Task Below_the_threshold_both_stay(double p)
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    [InlineData(1.01)]
+    [InlineData(-0.01)]
+    public async Task Invalid_or_below_threshold_scores_leave_both_memories(double p)
     {
         JudgeSays(p);
 
@@ -613,6 +618,21 @@ public sealed class PersistenceStageMemoryWriterTests
 
         result.FactCount.Should().Be(1);
         await _factRepo.DidNotReceive().SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(1.01)]
+    public async Task Invalid_fallback_scores_leave_both_memories(double p)
+    {
+        HostSays(p);
+
+        var result = await CreateSut(withJudge: false, withHost: true).PersistAsync(MovedToLeoben(), ownerId: "lukas");
+
+        result.FactCount.Should().Be(1);
+        await _host.Received(1).JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceiveWithAnyArgs().SupersedeAsync(default!, default!, default, default);
     }
 
     [Fact]
@@ -692,6 +712,9 @@ public sealed class PersistenceStageMemoryWriterTests
 
     [Theory]
     [InlineData(0.59, "lukas", false)]   // the judge does not confirm
+    [InlineData(double.NaN, "lukas", false)]
+    [InlineData(double.PositiveInfinity, "lukas", false)]
+    [InlineData(1.01, "lukas", false)]
     [InlineData(0.99, "bob", false)]     // another owner's connection
     [InlineData(0.99, "lukas", true)]    // a connection that already ended
     public async Task A_named_connection_otherwise_stays(double p, string owner, bool ended)

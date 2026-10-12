@@ -95,7 +95,12 @@ public sealed class PersistenceStageUpdateJudgeTests
     [Theory]
     [InlineData(0.64)]
     [InlineData(0.2)]
-    public async Task Below_the_threshold_nothing_is_closed(double p)
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    [InlineData(1.01)]
+    [InlineData(-0.01)]
+    public async Task Invalid_or_below_threshold_scores_close_nothing(double p)
     {
         JudgeSays(p);
 

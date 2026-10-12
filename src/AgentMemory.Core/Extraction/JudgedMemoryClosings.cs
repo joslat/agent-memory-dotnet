@@ -141,7 +141,8 @@ internal sealed class JudgedMemoryClosings
                         key, pairs.First(p => p.Key == key).NewMemory, pairs.First(p => p.Key == key).StoredMemory);
                     continue;
                 }
-                if (probability < _options.UpdateJudgeThreshold || !closedOnce.Add(loser))
+                if (!double.IsFinite(probability) || probability is < 0 or > 1
+                    || probability < _options.UpdateJudgeThreshold || !closedOnce.Add(loser))
                     continue;
                 ClosingProposal proposal = newFact is not null
                     ? ClosingProposal.Fact(loser, winner, FactClosureReason.Change, ChangedAt(newFact, _clock.UtcNow), scope, ClosingSource.SimilarityJudge)
@@ -295,7 +296,7 @@ internal sealed class JudgedMemoryClosings
                         pair.NewMemory, pair.StoredMemory);
                     continue;
                 }
-                if (probability < _options.NamedClosingThreshold)
+                if (!double.IsFinite(probability) || probability is < 0 or > 1 || probability < _options.NamedClosingThreshold)
                 {
                     _logger.LogInformation("Memory writer: the judge did not confirm that '{New}' replaces '{Stored}' (P {Probability:0.00}); both stay.",
                         pair.NewMemory, pair.StoredMemory, probability);

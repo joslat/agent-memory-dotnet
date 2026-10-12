@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject non-finite or out-of-range update-judge scores before closing stored facts, preferences or
+  relationships, including scores from the writer's host-model fallback.
+- Keep the source entity and its facts unchanged when the store declines a corrected-name merge;
+  skip retirement, restatement and target re-embedding for that name pair.
+
 ### Documentation
 
 - Separate public documentation from private development records: move implementation plans,

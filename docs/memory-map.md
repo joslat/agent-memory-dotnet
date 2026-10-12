@@ -842,6 +842,10 @@ the tractable case, and it is not most cases.
 > requires a confirmed fact closing; declined corrections continue to support their edges. A withdrawn
 > plan's source event date stays live while any incoming edge still refers to the event. These guards
 > are covered by deterministic tests, including partial success and declined repository operations.
+> Judge-based closings also reject non-finite scores and values outside `[0, 1]`, including host-model
+> fallback scores. Corrected-name propagation stops for a name pair when its entity merge is declined;
+> it does not retire the source or restate its facts. These safeguards are BUILT and tested locally;
+> they do not establish model quality or calibrated confidence.
 > Known limits: a fact
 > has one validity window, so a value said again after it was replaced keeps its earlier end; and a plan
 > that begins does not yet hand over. Detail in

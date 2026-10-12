@@ -109,7 +109,11 @@ internal sealed class CorrectedNamePropagation
             else
             {
                 // Relationships and mentions move, the old name becomes an alias; then the old entity is closed.
-                await _entityRepository.MergeEntitiesAsync(source.EntityId, target.EntityId, scope, cancellationToken).ConfigureAwait(false);
+                if (!await _entityRepository.MergeEntitiesAsync(source.EntityId, target.EntityId, scope, cancellationToken).ConfigureAwait(false))
+                {
+                    _logger.LogWarning("Renaming entity '{Old}' to '{Name}' was declined by the store; its entity and facts stay unchanged.", old, name);
+                    return;
+                }
                 await _closings.ApplyAsync(ClosingProposal.RetireEntity(source.EntityId,
                     scope, ClosingSource.CorrectedName), cancellationToken).ConfigureAwait(false);
                 // The merge clears the survivor's embedding (its aliases changed), and nothing on this path re-embeds it:

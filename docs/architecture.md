@@ -271,7 +271,9 @@ it still runs inside persistence where the existing-fact lookup belongs. The pur
 negation, validity and source-role safeguards.
 
 `JudgedMemoryClosings` keeps writer-named and similarity-based closing decisions separate; only the
-named path uses the host-model fallback. Every automatic ingestion closing now reaches one internal
+named path uses the host-model fallback. Both paths require a finite judge score in `[0, 1]` before
+applying their threshold; invalid or missing scores leave the corresponding stored memory open.
+Every automatic ingestion closing now reaches one internal
 `ClosingPipeline` as a typed `ClosingProposal`: fact supersession carries its temporal reason and
 clock, preference supersession carries its successor, and relationship ending carries its end time
 with optional successor attribution. The pipeline owns repository application and successful journal
@@ -282,6 +284,8 @@ exceptions. It adds no judge, global deduplication or new policy. `PersistenceCl
 the existing asynchronous operation lifetime. `EdgeEnding` runs after relationship writes inside persistence.
 `CorrectedNamePropagation` runs after the core transaction, before confirmation reinforcement and
 the working-memory rebuild. This decomposition preserves their existing call order and failure rules.
+When a corrected-name merge is declined by the store, propagation stops for that name pair: the source
+entity stays live, its facts are not restated, and the target embedding is not refreshed.
 
 `FactPersistence` owns fact writes and their batch fallback. Its per-operation `FactWriteSet` tracks
 the current-value decision, source order and written/created IDs. `FactReplacementResolver` applies
