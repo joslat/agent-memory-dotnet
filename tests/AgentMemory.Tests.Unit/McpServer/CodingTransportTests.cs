@@ -20,6 +20,44 @@ namespace AgentMemory.Tests.Unit.McpServer;
 public sealed class CodingTransportTests
 {
     [Fact]
+    public async Task HTTP_and_MCP_report_the_same_completed_extraction_path()
+    {
+        await using var fixture = await Fixture.Start(writer: new FallbackWriter());
+        var queued = await fixture.Rpc("tools/call", new { name = "remember", arguments = new
+        {
+            session = "session", turnId = "one", userText = "Use port 5234.",
+            commit = new string('b', 40), source = "settings.cs",
+        } });
+        var receipt = JsonSerializer.Deserialize<JsonElement>(queued.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!);
+        var id = receipt.GetProperty("jobId").GetString();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        JsonElement status;
+        do
+        {
+            using var request = fixture.Request("/projects/alpha/write_status", new { jobId = id }, true);
+            using var response = await fixture.Client.SendAsync(request, deadline.Token);
+            response.EnsureSuccessStatusCode();
+            status = await response.Content.ReadFromJsonAsync<JsonElement>(deadline.Token);
+            if (status.GetProperty("state").GetString() == "succeeded") break;
+            await Task.Delay(10, deadline.Token);
+        } while (true);
+        status.GetProperty("extractionPath").GetString().Should().Be("writerFallback");
+        var rpc = await fixture.Rpc("tools/call", new { name = "write_status", arguments = new { jobId = id } });
+        var body = JsonSerializer.Deserialize<JsonElement>(rpc.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!);
+        body.GetProperty("extractionPath").GetString().Should().Be("writerFallback");
+        body.GetProperty("state").GetString().Should().Be("succeeded");
+    }
+
+    private sealed class FallbackWriter : ICodingWriter
+    {
+        public Task<CodingWriteResult> WriteAsync(CodingIdentity identity, CodingRememberRequest request,
+            CancellationToken cancellationToken = default) => Task.FromResult(new CodingWriteResult
+            {
+                SourceMessageId = "source", Status = IngestionStatus.Succeeded, ExtractionPath = ExtractionPath.WriterFallback,
+            });
+    }
+
+    [Fact]
     public async Task Page_canonicalizes_trailing_slash_so_relative_assets_load()
     {
         await using var fixture = await Fixture.Start(true);
@@ -182,7 +220,7 @@ public sealed class CodingTransportTests
         private WebApplication _app = null!;
         private static readonly string Token = new('a', 40);
 
-        public static async Task<Fixture> Start(bool enableBrowserUi = false)
+        public static async Task<Fixture> Start(bool enableBrowserUi = false, ICodingWriter? writer = null)
         {
             var fixture = new Fixture();
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
@@ -202,6 +240,11 @@ public sealed class CodingTransportTests
             services.AddSingleton(new CodingContentPolicy([Token]));
             services.AddSingleton<CodingOperationScope>().AddSingleton<CodingMemoryOperations>().AddSingleton<CodingApi>();
             services.AddSingleton<ICodingWriter, CodingWriter>().AddSingleton<CodingWriteQueue>();
+            if (writer is not null)
+            {
+                services.AddSingleton(writer);
+                services.AddHostedService(sp => sp.GetRequiredService<CodingWriteQueue>());
+            }
             CodingTransport.AddServices(services);
             fixture._app = builder.Build();
             CodingTransport.Map(fixture._app);

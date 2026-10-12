@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tooling
 
+- Add explicit coding-service `allowExtractorFallback` (off by default) and report the actual
+  extraction path in HTTP/MCP job receipts. `ExtractionResult.Path` distinguishes writer attempts,
+  extractor fallback, imports, pre-extracted inputs, skipped turns and unknown custom results;
+  ingestion status remains independent, and interrupted/prior attempts remain unknown.
+
 - Add opt-in Copilot CLI `userPromptTransformed` recall to the coding helper and inactive template.
   Preserve the model-facing prompt, send only the user query to memory, and append bounded sourced
   context. No transcript parsing, automatic write, or client activation.

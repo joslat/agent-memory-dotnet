@@ -91,6 +91,30 @@ public sealed class CodingWriteQueueTests
         finally { await queue.StopAsync(default); }
     }
 
+    [Theory]
+    [InlineData(IngestionStatus.Succeeded, "Succeeded")]
+    [InlineData(IngestionStatus.PartiallySucceeded, "Partial")]
+    [InlineData(IngestionStatus.Failed, "Failed")]
+    public async Task Fallback_path_survives_queue_completion_and_duplicate_receipts(IngestionStatus status, string state)
+    {
+        var writer = new TestWriter((_, _, _) => Task.FromResult(new CodingWriteResult
+        {
+            SourceMessageId = "source", Status = status, ExtractionPath = ExtractionPath.WriterFallback,
+        }));
+        using var queue = new CodingWriteQueue(writer, new([]));
+        await queue.StartAsync(default);
+        try
+        {
+            var job = queue.TryEnqueue(Alpha, Request())!;
+            var final = await Finished(queue, Alpha, job.JobId);
+            final.State.ToString().Should().Be(state);
+            final.ExtractionPath.Should().Be(ExtractionPath.WriterFallback);
+            queue.TryEnqueue(Alpha, Request()).Should().Be(final);
+            writer.Calls.Should().Be(1);
+        }
+        finally { await queue.StopAsync(default); }
+    }
+
     [Fact]
     public async Task Failure_does_not_leak_payload_or_provider_exception_and_does_not_stop_the_worker()
     {
@@ -131,7 +155,9 @@ public sealed class CodingWriteQueueTests
         await queue.StopAsync(default);
         writer.Calls.Should().Be(1);
         queue.Get(Alpha, first.JobId)!.State.Should().Be(CodingJobState.Unknown);
+        queue.Get(Alpha, first.JobId)!.ExtractionPath.Should().Be(ExtractionPath.Unknown);
         queue.Get(Alpha, waiting.JobId)!.State.Should().Be(CodingJobState.Cancelled);
+        queue.Get(Alpha, waiting.JobId)!.ExtractionPath.Should().Be(ExtractionPath.Unknown);
         queue.TryEnqueue(Alpha, Request("three")).Should().BeNull();
     }
 

@@ -146,7 +146,7 @@ internal sealed class ExtractionStage : IExtractionStage
             _logger.LogDebug(
                 "Skipping extraction for {Count} turn(s) carrying no extractable content (E4).",
                 messages.Count);
-            return new ExtractionStageResult { SourceMessageIds = sourceMessageIds };
+            return new ExtractionStageResult { SourceMessageIds = sourceMessageIds, Path = ExtractionPath.Skipped };
         }
 
         var strategy = _options.MergeStrategy;
@@ -486,6 +486,10 @@ internal sealed class ExtractionStage : IExtractionStage
             PreferenceExtractorCount = _preferenceExtractors.Count,
             RelationshipExtractorCount = _relationshipExtractors.Count,
             WrittenByWriter = writer is not null,
+            Path = typesToExtract == ExtractionTypes.None ? ExtractionPath.Skipped
+                : preExtracted is not null ? ExtractionPath.PreExtracted
+                : writerFallback is not null ? ExtractionPath.WriterFallback
+                : writer is not null ? ExtractionPath.Writer : ExtractionPath.Extractors,
             ConfirmedFactIds = writer is not null && written is { } confirmed ? confirmed.Result.ConfirmedFactIds : [],
             ConfirmedPreferenceIds = writer is not null && written is { } confirmedToo ? confirmedToo.Result.ConfirmedPreferenceIds : [],
             WriterFallbackReason = writerFallback,

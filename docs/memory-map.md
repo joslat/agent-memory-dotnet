@@ -23,6 +23,11 @@ audiences, one configured owner subject and read/write scope checks. Writes need
 Synthetic HTTPS/JWT tests cover these boundaries; external issuer interoperability, deployment and
 an actual Claude connector session remain unverified. No remote service starts by default.
 
+**Actual extraction path — BUILT / WIRED, not benchmark-measured.** `ExtractionResult.Path`
+reports writer, extractors, writer failure followed by extractors, pre-extracted input, skipped or
+unknown. Coding HTTP/MCP job receipts preserve this independently of ingestion success. The host
+permits extractor fallback only through `allowExtractorFallback`; it remains off by default.
+
 **Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
 lets a caller require one conversation turn through an enabled writer, or import through configured
 extractors. Omission preserves existing behavior; adapter defaults and presets remain unchanged. This controls

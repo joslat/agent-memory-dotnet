@@ -26,8 +26,10 @@ namespace AgentMemory.Tests.Integration.Repositories;
 
 public sealed partial class StoreIsolationIntegrationTests
 {
-    [Fact]
-    public async Task Coding_worker_persists_sources_and_facts_only_in_the_bound_project_and_forgets_non_destructively()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Coding_worker_persists_sources_and_facts_only_in_the_bound_project_and_forgets_non_destructively(bool fallback)
     {
         var neo4j = new Neo4jOptions
         {
@@ -54,7 +56,7 @@ public sealed partial class StoreIsolationIntegrationTests
             ["NEO4J_URI"] = neo4j.Uri, ["NEO4J_USERNAME"] = Username, ["NEO4J_PASSWORD"] = Password,
             ["ALPHA_TOKEN"] = new string('x', 40), ["BETA_TOKEN"] = new string('y', 40),
         };
-        var config = CodingConfiguration.Parse($$"""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN","beta":"BETA_TOKEN"},"url":"http://127.0.0.1:{{port}}"}""",
+        var config = CodingConfiguration.Parse($$"""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN","beta":"BETA_TOKEN"},"url":"http://127.0.0.1:{{port}}","allowExtractorFallback":{{(fallback ? "true" : "false")}}}""",
             environment.GetValueOrDefault);
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
         CodingHost.Configure(builder, config);
@@ -65,9 +67,18 @@ public sealed partial class StoreIsolationIntegrationTests
         services.RemoveAll<IEmbeddingGenerator<string, Embedding<float>>>();
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(new StubEmbeddingGenerator(
             NullLogger<StubEmbeddingGenerator>.Instance, Dimensions));
-        var model = new CodingTestWriter();
+        var model = new CodingTestWriter(fallback);
         services.RemoveAll<IMemoryWriter>();
         services.AddSingleton<IMemoryWriter>(model);
+        var extractor = Substitute.For<IUnifiedMemoryExtractor>();
+        extractor.IsEnabled.Returns(true);
+        extractor.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(call => new UnifiedExtractionResult
+            {
+                Facts = [new ExtractedFact { Subject = "Project", Predicate = "uses", Object = call.Arg<IReadOnlyList<Message>>().Single(m => m.Role == "user").Content }],
+            });
+        services.RemoveAll<IUnifiedMemoryExtractor>();
+        services.AddSingleton(extractor);
         await using var app = builder.Build();
         await CodingHost.PrepareAsync(app, config);
         CodingTransport.Map(app);
@@ -91,6 +102,7 @@ public sealed partial class StoreIsolationIntegrationTests
             var second = await SubmitAsync("beta", request with { UserText = "beta-choice" });
             alphaJob = await AwaitCodingJobAsync(client, "alpha", environment["ALPHA_TOKEN"], first.JobId);
             alphaJob.State.Should().Be(CodingJobState.Succeeded, alphaJob.ErrorCode);
+            alphaJob.ExtractionPath.Should().Be(fallback ? ExtractionPath.WriterFallback : ExtractionPath.Writer);
             var betaJob = await AwaitCodingJobAsync(client, "beta", environment["BETA_TOKEN"], second.JobId);
             betaJob.State.Should().Be(CodingJobState.Succeeded, betaJob.ErrorCode);
             using var foreign = new HttpRequestMessage(HttpMethod.Post, "/projects/beta/write_status")
@@ -117,6 +129,7 @@ public sealed partial class StoreIsolationIntegrationTests
         // A new queue/process cannot infer completion from the source alone; no second writer call.
         (await writer.WriteAsync(alpha, request)).PriorAttemptUnknown.Should().BeTrue();
         model.Calls.Should().Be(2);
+        await extractor.Received(fallback ? 2 : 0).ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>());
         chat.ReceivedCalls().Where(c => c.GetMethodInfo().Name is "GetResponseAsync" or "GetStreamingResponseAsync").Should().BeEmpty();
         (await operations.ForgetAsync(beta, MemoryHistoryKind.Fact, alphaFact.Id)).Should().BeFalse();
         (await operations.ForgetAsync(alpha, MemoryHistoryKind.Fact, alphaFact.Id)).Should().BeTrue();
@@ -153,13 +166,14 @@ public sealed partial class StoreIsolationIntegrationTests
         }
     }
 
-    private sealed class CodingTestWriter : IMemoryWriter
+    private sealed class CodingTestWriter(bool fail = false) : IMemoryWriter
     {
         public bool IsEnabled => true;
         public int Calls { get; private set; }
         public Task<UnifiedExtractionResult> WriteAsync(MemoryWriteRequest request, CancellationToken cancellationToken = default)
         {
             Calls++;
+            if (fail) throw new InvalidOperationException("Synthetic writer outage");
             return Task.FromResult(new UnifiedExtractionResult
             {
                 Facts = [new ExtractedFact { Subject = "Project", Predicate = "uses", Object = request.Window.Targets.Single(m => m.Role == "user").Content }],

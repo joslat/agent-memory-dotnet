@@ -190,6 +190,7 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
 
         return new ExtractionResult
         {
+            Path = staged.Path,
             Entities = staged.RawEntities,
             Facts = staged.RawFacts,
             Preferences = staged.RawPreferences,

@@ -14,9 +14,10 @@ internal sealed record CodingWriteResult
     public required string SourceMessageId { get; init; }
     public bool PriorAttemptUnknown { get; init; }
     public IngestionStatus? Status { get; init; }
+    public ExtractionPath ExtractionPath { get; init; }
 }
 
-/// <summary>Writer-only ingestion, shared by the coding transports through the background worker.</summary>
+/// <summary>Writer-first ingestion with explicit fallback, shared by coding transports through the background worker.</summary>
 internal interface ICodingWriter
 {
     Task<CodingWriteResult> WriteAsync(CodingIdentity identity, CodingRememberRequest request,
@@ -43,11 +44,10 @@ internal sealed class CodingWriter(CodingOperationScope scopes, CodingContentPol
                 return new CodingWriteResult { SourceMessageId = sourceId, PriorAttemptUnknown = true };
             }
 
-            // Enforce the same writer-only policy for alternate transport/DI compositions before
-            // creating source messages. Core supports extractor fallback, but CodingWriteResult
-            // does not report that tier change; changing this guard alone would conceal it from clients.
-            if (services.GetRequiredService<IOptions<ExtractionOptions>>().Value.FallBackToExtractorsWhenWriterFails)
-                throw new InvalidOperationException("Coding ingestion requires extractor fallback to be disabled.");
+            // Alternate DI compositions must not enable fallback without the host's explicit permission.
+            if (services.GetRequiredService<IOptions<ExtractionOptions>>().Value.FallBackToExtractorsWhenWriterFails
+                && services.GetService<CodingServiceOptions>()?.AllowExtractorFallback != true)
+                throw new InvalidOperationException("Coding ingestion requires explicit permission for extractor fallback.");
             if (!services.GetServices<IMemoryWriter>().Any(w => w.IsEnabled))
                 throw new InvalidOperationException("Coding ingestion requires an enabled memory writer.");
             var shortTerm = services.GetRequiredService<IShortTermMemoryService>();
@@ -77,7 +77,7 @@ internal sealed class CodingWriter(CodingOperationScope scopes, CodingContentPol
                 UserId = identity.OwnerId, SessionId = session, Messages = targets, ContextMessages = context,
                 InputMode = ExtractionInputMode.ConversationTurn, TrustLevel = MemoryTrustLevel.Untrusted,
             }, ct).ConfigureAwait(false);
-            return new CodingWriteResult { SourceMessageId = sourceId, Status = result.Status };
+            return new CodingWriteResult { SourceMessageId = sourceId, Status = result.Status, ExtractionPath = result.Path };
         }, cancellationToken);
     }
 

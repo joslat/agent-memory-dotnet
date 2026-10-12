@@ -10,6 +10,8 @@ internal sealed record CodingServiceOptions
     public string Url { get; init; } = "http://127.0.0.1:5234";
     /// <summary>Opt-in local memory page. Off registers no page routes and rejects every browser Origin.</summary>
     public bool EnableBrowserUi { get; init; }
+    /// <summary>Allow extractors after a failed writer. Off makes no fallback calls; job receipts report the actual path.</summary>
+    public bool AllowExtractorFallback { get; init; }
     /// <summary>Explicit HTTPS/OAuth mode. Null adds no OAuth discovery, validation or rate-limit services.</summary>
     public CodingRemoteOptions? Remote { get; init; }
     public IReadOnlyList<CodingJudgeOptions> Judges { get; init; } = [];

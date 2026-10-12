@@ -9,6 +9,8 @@ namespace AgentMemory.Core.Extraction;
 /// </summary>
 internal sealed record ExtractionStageResult
 {
+    public ExtractionPath Path { get; init; }
+
     // ── Raw extracted items — returned to callers via ExtractionResult ──
 
     public IReadOnlyList<ExtractedEntity> RawEntities { get; init; } = Array.Empty<ExtractedEntity>();

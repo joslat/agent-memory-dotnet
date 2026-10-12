@@ -55,32 +55,40 @@ This initial mode supports explicitly selected Bitdeer or local Ollama inference
 Provider auto-detection is rejected in coding mode. Legacy host flags cannot be combined with
 `--coding-config`; legacy read-only, graph-query and no-bootstrap environment settings are rejected
 when enabled. Raw inference logging and chat-judge overrides are rejected too. Coding mode uses the
-Recommended memory/writer preset and disables extractor fallback. Legacy memory-tuning environment
+Recommended memory/writer preset; extractor fallback is off unless explicitly enabled. Legacy memory-tuning environment
 settings do not customize that preset. The mode clears ambient ASP.NET configuration and binds only the
 configured IPv4 loopback address, with at most 64 concurrent connections. Do not expose it through a proxy.
 
-### Why extractor fallback is disabled
+### Configurable extractor fallback
 
-This is a coding-host policy, not a limitation of the memory library. The library can fall back
-from a failed store-aware writer to extractors when `FallBackToExtractorsWhenWriterFails` is enabled.
-That changes how memories are selected and persisted: extractors do not make the writer's
-store-aware add/replace/correct/confirm decisions.
+Set `"allowExtractorFallback": true` in the coding-service JSON to permit configured extractors
+when the store-aware writer fails. The default is false. Legacy environment settings cannot enable
+it, and alternate DI compositions must also carry explicit host permission. An enabled writer is
+still required before source messages are created; this setting handles a failed writer call, not
+an absent writer registration. Extractors can need the same inference provider and may also fail.
 
-The coding job receipt currently reports ingestion status, not the extraction tier that produced
-it. Turning fallback on would therefore let an extractor-written turn look like ordinary completion
-under the host's writer-only policy. The host sets fallback off and the ingestion adapter checks it
-before creating new source records, including when the adapter is composed outside the standard host.
-Legacy environment settings cannot override it, and there is currently no coding-config switch for it.
+Every `remember`/`write_status` receipt includes `extractionPath`, independently of `state`:
 
-Keep this policy unless the host explicitly adds configurable fallback with a per-job indication
-that extractors were used and failure-path tests covering provenance, outcomes and duplicate turns.
-Enabling a core option or removing the adapter guard alone is insufficient. A failed attempt can
-leave source messages; an existing source without a retained receipt remains unknown and is not
-automatically replayed. `succeeded` reports completed ingestion, not proof that a new memory was stored.
+| Path | Meaning |
+|---|---|
+| `unknown` | No completed result, an unknown prior attempt, or a custom pipeline that did not report a path. |
+| `skipped` | The turn needed no extraction, such as a greeting skipped by the novelty gate. |
+| `writer` | The store-aware writer was attempted without extractor fallback. |
+| `writerFallback` | The writer failed and extractors were attempted. Check `state` for success, partial completion or failure. |
+| `extractors` / `preExtracted` | Library import/extractor paths; the standard coding host always requests a conversation turn. |
 
-This restriction does **not** disable the host-model **closing-judge** fallback. When the configured
-update judge is absent or fails, the Recommended writer can still ask its chat model to judge its
-named closings. A negative closing verdict is not a failure to bypass with another judge.
+The path comes from the actual extraction result, never from the preferred configuration. Provider
+error text is not copied into this receipt. Extractors do not make the writer's store-aware
+add/replace/correct/confirm decisions, so a successful fallback remains visibly different.
+
+Retained duplicates return the same job and path. After restart/eviction, a stored source without
+a retained receipt remains unknown and is not automatically replayed. Cancellation does not trigger
+fallback; interrupted jobs remain unknown. `succeeded` means ingestion completed, not that a new
+memory was stored or that the model's interpretation was correct.
+
+Host-model **closing-judge** fallback is separate and remains enabled by the Recommended preset.
+When the configured update judge is absent or fails, the writer can ask its chat model to judge
+named closings. A negative closing verdict is not an outage to bypass with another judge.
 
 ## Optional retrieval and update judges
 

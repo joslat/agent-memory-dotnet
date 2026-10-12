@@ -6,6 +6,12 @@ namespace AgentMemory.Abstractions.Domain;
 public sealed record ExtractionResult
 {
     /// <summary>
+    /// Extraction path actually attempted, not the configured preference or a guarantee of persistence.
+    /// Unknown for implementations that do not report it. Inspect <see cref="Status"/> separately.
+    /// </summary>
+    public ExtractionPath Path { get; init; }
+
+    /// <summary>
     /// Extracted entities.
     /// </summary>
     public IReadOnlyList<ExtractedEntity> Entities { get; init; } = Array.Empty<ExtractedEntity>();

@@ -90,6 +90,7 @@ internal sealed partial class MemoryExtractionPipeline
 
             persisted.Add(new ExtractionResult
             {
+                Path = staged.Path,
                 Entities = staged.RawEntities,
                 Facts = staged.RawFacts,
                 Preferences = staged.RawPreferences,

@@ -28,7 +28,7 @@ public sealed class ExtractionInputModeTests
         _extractor.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>()).Returns(new UnifiedExtractionResult());
         _extractor.ExtractWithContextAsync(Arg.Any<ExtractionWindow>(), Arg.Any<CancellationToken>()).Returns(new UnifiedExtractionResult());
         _persistence.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
-            .Returns(new PersistenceResult());
+            .Returns(call => new PersistenceResult { Outcomes = call.Arg<ExtractionStageResult>().Outcomes });
         _batch.IsEnabled.Returns(true);
         _batch.ExtractAsync(Arg.Any<IReadOnlyList<ExtractionRequest>>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(call => call.ArgAt<IReadOnlyList<ExtractionRequest>>(0).ToDictionary(r => r.SessionId, _ => new UnifiedExtractionResult()));
@@ -48,6 +48,7 @@ public sealed class ExtractionInputModeTests
         else
             await _extractor.Received(1).ExtractAsync(request.Messages, Arg.Any<CancellationToken>());
         result.SourceMessageIds.Should().Equal("target");
+        result.Path.Should().Be(ExtractionPath.Extractors);
     }
 
     [Theory]
@@ -57,7 +58,8 @@ public sealed class ExtractionInputModeTests
     {
         using var stop = new CancellationTokenSource();
         var request = Request(mode) with { ContextMessages = [Message("earlier"), Message("older")] };
-        await Pipeline().ExtractAsync(request, stop.Token);
+        var result = await Pipeline().ExtractAsync(request, stop.Token);
+        result.Path.Should().Be(ExtractionPath.Writer);
         await _writer.Received(1).WriteAsync(Arg.Is<MemoryWriteRequest>(r =>
             ReferenceEquals(r.Window.Targets, request.Messages) && ReferenceEquals(r.Window.Context, request.ContextMessages)
             && r.Scope!.OwnerId == "owner"), stop.Token);
@@ -121,7 +123,8 @@ public sealed class ExtractionInputModeTests
     {
         _batch.IsEnabled.Returns(enabled);
         var request = Request(ExtractionInputMode.Import);
-        await Pipeline().ExtractBatchAsync([request], 2, 1000);
+        var results = await Pipeline().ExtractBatchAsync([request], 2, 1000);
+        results.Single().Path.Should().Be(enabled ? ExtractionPath.PreExtracted : ExtractionPath.Extractors);
         await _writer.DidNotReceiveWithAnyArgs().WriteAsync(default!, default);
         if (enabled)
             await _batch.Received(1).ExtractAsync(Arg.Is<IReadOnlyList<ExtractionRequest>>(r => r.Single() == request), 2, 1000, Arg.Any<CancellationToken>());
@@ -146,7 +149,9 @@ public sealed class ExtractionInputModeTests
     {
         _writer.WriteAsync(Arg.Any<MemoryWriteRequest>(), Arg.Any<CancellationToken>())
             .Returns<UnifiedExtractionResult>(_ => throw new InvalidOperationException("writer unavailable"));
-        await Pipeline(fallback: fallback).ExtractAsync(Request(ExtractionInputMode.ConversationTurn));
+        var result = await Pipeline(fallback: fallback).ExtractAsync(Request(ExtractionInputMode.ConversationTurn));
+        result.Path.Should().Be(fallback ? ExtractionPath.WriterFallback : ExtractionPath.Writer);
+        result.Status.Should().Be(fallback ? IngestionStatus.Succeeded : IngestionStatus.Failed);
         await _extractor.Received(fallback ? 1 : 0).ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>());
         await _persistence.Received(1).PersistAsync(Arg.Is<ExtractionStageResult>(s => fallback
             ? !s.WrittenByWriter && s.WriterFallbackReason != null
@@ -159,9 +164,36 @@ public sealed class ExtractionInputModeTests
         _extractor.IsEnabled.Returns(false);
         _writer.WriteAsync(Arg.Any<MemoryWriteRequest>(), Arg.Any<CancellationToken>())
             .Returns<UnifiedExtractionResult>(_ => throw new InvalidOperationException("writer unavailable"));
-        await Pipeline().ExtractAsync(Request(ExtractionInputMode.ConversationTurn));
+        var result = await Pipeline().ExtractAsync(Request(ExtractionInputMode.ConversationTurn));
+        result.Path.Should().Be(ExtractionPath.Writer);
+        result.Status.Should().Be(IngestionStatus.Failed);
         await _persistence.Received(1).PersistAsync(Arg.Is<ExtractionStageResult>(s =>
             s.Outcomes.Any(o => o.Status == IngestionItemStatus.Failed)), "owner", Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Failed_fallback_is_reported_as_failed_with_its_actual_path()
+    {
+        _writer.WriteAsync(Arg.Any<MemoryWriteRequest>(), Arg.Any<CancellationToken>())
+            .Returns<UnifiedExtractionResult>(_ => throw new InvalidOperationException("writer unavailable"));
+        _extractor.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns<UnifiedExtractionResult>(_ => throw new InvalidOperationException("extractor unavailable"));
+        var result = await Pipeline().ExtractAsync(Request(ExtractionInputMode.ConversationTurn));
+        result.Path.Should().Be(ExtractionPath.WriterFallback);
+        result.Status.Should().Be(IngestionStatus.Failed);
+        result.SourceMessageIds.Should().Equal("target");
+    }
+
+    [Fact]
+    public async Task Cancellation_is_not_an_outage_to_route_around()
+    {
+        using var stop = new CancellationTokenSource();
+        _writer.WriteAsync(Arg.Any<MemoryWriteRequest>(), Arg.Any<CancellationToken>())
+            .Returns<UnifiedExtractionResult>(_ => { stop.Cancel(); throw new OperationCanceledException(stop.Token); });
+        await Pipeline().Invoking(p => p.ExtractAsync(Request(ExtractionInputMode.ConversationTurn), stop.Token))
+            .Should().ThrowAsync<OperationCanceledException>();
+        _extractor.ReceivedCalls().Should().NotContain(c => c.GetMethodInfo().Name.StartsWith("Extract"));
+        _persistence.ReceivedCalls().Should().BeEmpty();
     }
 
     [Theory]
@@ -196,7 +228,8 @@ public sealed class ExtractionInputModeTests
     {
         _writer.IsEnabled.Returns(false);
         _extractor.IsEnabled.Returns(false);
-        await Pipeline().ExtractAsync(Request(mode) with { TypesToExtract = ExtractionTypes.None });
+        var result = await Pipeline().ExtractAsync(Request(mode) with { TypesToExtract = ExtractionTypes.None });
+        result.Path.Should().Be(ExtractionPath.Skipped);
         await _writer.DidNotReceiveWithAnyArgs().WriteAsync(default!, default);
         _extractor.ReceivedCalls().Should().NotContain(c => c.GetMethodInfo().Name.StartsWith("Extract"));
     }

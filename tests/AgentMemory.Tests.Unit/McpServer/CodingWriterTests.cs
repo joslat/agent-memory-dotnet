@@ -86,6 +86,7 @@ public sealed class CodingWriterTests
         var result = await fixture.Writer.WriteAsync(Identity, Request);
         result.PriorAttemptUnknown.Should().BeTrue();
         result.Status.Should().BeNull();
+        result.ExtractionPath.Should().Be(ExtractionPath.Unknown);
         fixture.Ingestion.ReceivedCalls().Should().BeEmpty();
         fixture.ShortTerm.ReceivedCalls().Should().BeEmpty();
     }
@@ -133,6 +134,35 @@ public sealed class CodingWriterTests
         await run.Should().ThrowAsync<InvalidOperationException>();
         fixture.Ingestion.ReceivedCalls().Should().BeEmpty();
         fixture.ShortTerm.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(IngestionStatus.Succeeded)]
+    [InlineData(IngestionStatus.PartiallySucceeded)]
+    [InlineData(IngestionStatus.Failed)]
+    public async Task Explicit_fallback_permission_preserves_actual_path_and_status(IngestionStatus status)
+    {
+        await using var fixture = new Fixture(extractorFallback: true, allowFallback: true);
+        fixture.Ingestion.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult { Status = status, Path = ExtractionPath.WriterFallback });
+        var result = await fixture.Writer.WriteAsync(Identity, Request);
+        result.ExtractionPath.Should().Be(ExtractionPath.WriterFallback);
+        result.Status.Should().Be(status);
+        await fixture.Ingestion.Received(1).ExtractAndPersistAsync(Arg.Is<ExtractionRequest>(r =>
+            r.InputMode == ExtractionInputMode.ConversationTurn && r.TrustLevel == MemoryTrustLevel.Untrusted &&
+            r.Messages[0].Metadata["coding_payload_sha256"].Equals(Request.PayloadHash())), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(ExtractionPath.Unknown)]
+    [InlineData(ExtractionPath.Skipped)]
+    [InlineData(ExtractionPath.Writer)]
+    public async Task Receipt_uses_reported_path_not_configured_writer(ExtractionPath path)
+    {
+        await using var fixture = new Fixture();
+        fixture.Ingestion.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult { Path = path });
+        (await fixture.Writer.WriteAsync(Identity, Request)).ExtractionPath.Should().Be(path);
     }
 
     [Fact]
@@ -189,7 +219,7 @@ public sealed class CodingWriterTests
         public CodingWriter Writer { get; }
         private readonly ServiceProvider _services;
 
-        public Fixture(bool extractorFallback = false)
+        public Fixture(bool extractorFallback = false, bool allowFallback = false)
         {
             MemoryWriter.IsEnabled.Returns(true);
             ShortTerm.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
@@ -199,6 +229,7 @@ public sealed class CodingWriterTests
                 .Returns(MessageFrom);
             Ingestion.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>()).Returns(new ExtractionResult());
             _services = new ServiceCollection().AddSingleton(Ingestion).AddSingleton(Messages).AddSingleton(ShortTerm)
+                .AddSingleton(new CodingServiceOptions { OwnerId = "owner", Projects = new Dictionary<string, string> { ["alpha"] = "TOKEN" }, AllowExtractorFallback = allowFallback })
                 .AddSingleton(MemoryWriter).AddSingleton<IWritableMemoryOwnerContext, DefaultMemoryOwnerContext>()
                 .AddSingleton<IWritableMemoryStoreContext, DefaultMemoryStoreContext>()
                 .AddSingleton(Options.Create(new ExtractionOptions { FallBackToExtractorsWhenWriterFails = extractorFallback }))

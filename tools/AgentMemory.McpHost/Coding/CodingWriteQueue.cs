@@ -13,6 +13,7 @@ internal sealed record CodingWriteJob
     public DateTimeOffset? CompletedAtUtc { get; init; }
     public string? SourceMessageId { get; init; }
     public string? ErrorCode { get; init; }
+    public ExtractionPath ExtractionPath { get; init; }
 }
 
 /// <summary>Bounded in-process write queue; one worker preserves turn order and owns no HTTP request scope.</summary>
@@ -110,7 +111,8 @@ internal sealed class CodingWriteQueue : BackgroundService
                         CodingJobState.Unknown => "prior_attempt_unknown",
                         _ => null,
                     };
-                    Finish(entry, state, result.SourceMessageId, error);
+                    Finish(entry, state, result.SourceMessageId, error,
+                        result.PriorAttemptUnknown ? ExtractionPath.Unknown : result.ExtractionPath);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -163,11 +165,16 @@ internal sealed class CodingWriteQueue : BackgroundService
         }
     }
 
-    private void Finish(Entry entry, CodingJobState state, string? source, string? error)
+    private void Finish(Entry entry, CodingJobState state, string? source, string? error,
+        ExtractionPath path = ExtractionPath.Unknown)
     {
         lock (_gate)
         {
-            entry.Job = entry.Job with { State = state, SourceMessageId = source, ErrorCode = error, CompletedAtUtc = DateTimeOffset.UtcNow };
+            entry.Job = entry.Job with
+            {
+                State = state, SourceMessageId = source, ErrorCode = error, CompletedAtUtc = DateTimeOffset.UtcNow,
+                ExtractionPath = path,
+            };
             entry.Request = null;
             _completed.Enqueue(entry.Job.JobId);
         }

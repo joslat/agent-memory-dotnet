@@ -19,6 +19,22 @@ namespace AgentMemory.Tests.Unit.McpServer;
 
 public sealed class CodingHostTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Extractor_fallback_requires_explicit_host_configuration(bool allow)
+    {
+        var env = CodingConfigurationTests.EnvironmentValues();
+        var config = CodingConfiguration.Parse(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            ownerId = "owner", projects = new { alpha = "ALPHA_TOKEN" }, allowExtractorFallback = allow,
+        }), env.GetValueOrDefault);
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        CodingHost.Configure(builder, config);
+        await using var app = builder.Build();
+        app.Services.GetRequiredService<IOptions<ExtractionOptions>>().Value.FallBackToExtractorsWhenWriterFails.Should().Be(allow);
+    }
+
     [Fact]
     public async Task Remote_host_uses_configured_TLS_credentials_and_ignores_ambient_HTTP_listener()
     {

@@ -350,6 +350,12 @@ await memory.ExtractAndPersistAsync(new ExtractionRequest
 });
 ```
 
+`ExtractionResult.Path` reports the extraction path actually attempted: `Writer`, `Extractors`,
+`WriterFallback`, `PreExtracted`, or `Skipped`; custom implementations default to `Unknown`.
+Read `Status` alongside it: using a fallback does not imply it succeeded. The coding host exposes
+this as `extractionPath` and permits fallback through its explicit
+[`allowExtractorFallback` setting](coding-service.md#configurable-extractor-fallback).
+
 For explicit ingestion intent, set `ExtractionRequest.InputMode` when calling
 `ExtractAndPersistAsync` or `IMemoryExtractionPipeline.ExtractAsync`:
 
