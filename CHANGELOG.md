@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in `--coding-hook <private-client.json>` Claude Code client: bounded profile/recall context,
+  repository-checked turn capture and asynchronous writes on matching completion events. Includes
+  private-state limits, non-blocking failures and inactive hook/MCP configuration templates.
+  See [the coding sample](samples/CodingMemory/README.md); no client is installed automatically.
+
 - Opt-in `agent-memory-mcp --coding-config <private.json>` mode: project-bound local HTTP/MCP,
   writer-only queued ingestion with source references, scoped status/history/soft-forget, and
   heuristic input checks. Uses separate pre-provisioned project databases and explicit Bitdeer or

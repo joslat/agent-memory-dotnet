@@ -1342,7 +1342,12 @@ before admission, recall, or source persistence; selected prior conversation tex
 The checker retains supplied credential values in process memory for matching, separate from the hashed
 authentication lookup. These heuristics cannot guarantee arbitrary prose is secret-free, audit existing
 graph content, or filter model-generated output. Startup binds project/database/provider/judge credentials
-into the checks. Client hooks, a browser memory page and remote deployment remain separate work.
+into the checks. The native `--coding-hook` command shares strict configuration parsing with the host,
+validates repository identity through Git, and talks only to the configured loopback project endpoint.
+It pairs Claude events by session/prompt ID using private bounded pending state, injects whole typed
+memories within a character budget, and treats queued acceptance separately from successful ingestion.
+Its source is untrusted; it reads no transcript or source file. Real client activation, a browser memory
+page and remote deployment remain separate work. Templates are in `samples/CodingMemory`.
 See [coding service configuration and limits](coding-service.md).
 
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)

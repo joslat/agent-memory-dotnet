@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "dotnet", "args": ["C:/path/to/AgentMemory.McpHost.dll", "--coding-hook", "C:/Users/YOU/AppData/Local/AgentMemory/client.json"], "timeout": 6}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "dotnet", "args": ["C:/path/to/AgentMemory.McpHost.dll", "--coding-hook", "C:/Users/YOU/AppData/Local/AgentMemory/client.json"], "timeout": 6}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "dotnet", "args": ["C:/path/to/AgentMemory.McpHost.dll", "--coding-hook", "C:/Users/YOU/AppData/Local/AgentMemory/client.json"], "timeout": 6}]}],
+    "StopFailure": [{"hooks": [{"type": "command", "command": "dotnet", "args": ["C:/path/to/AgentMemory.McpHost.dll", "--coding-hook", "C:/Users/YOU/AppData/Local/AgentMemory/client.json"], "timeout": 6}]}]
+  }
+}

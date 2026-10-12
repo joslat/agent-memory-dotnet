@@ -4,6 +4,9 @@ Runnable samples for **AgentMemory for .NET**, a Neo4j-backed agent-memory libra
 [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/) (MAF) and
 Semantic Kernel.
 
+For native coding-agent integration, see [Claude Code hooks and project MCP](CodingMemory/README.md).
+These are inactive templates for the opt-in local coding service, with bounded capture and recall.
+
 > **Context:** Microsoft's official **Neo4j Memory Provider for Agent Framework**
 > ([`neo4j-agent-memory`](https://github.com/neo4j-labs/agent-memory),
 > [Learn docs](https://learn.microsoft.com/en-us/agent-framework/integrations/neo4j-memory)) is

@@ -6,7 +6,9 @@ A reference for what agent memory is, what a memory system has to decide that a 
 **Local coding service — BUILT / WIRED, not model-quality measured.** Explicit `--coding-config`
 startup adds project-bound HTTP/MCP, a bounded writer queue, provenance and non-destructive history/
 forgetting. Local transport and real two-database tests use deterministic inference replacements.
-Client hooks, a memory page and remote deployment remain separate work. See [limits](coding-service.md).
+The native Claude hook client is built and locally tested with fake HTTP, including real executable/Git
+handling. It injects bounded typed memory and queues matching turns; no real client session or model
+quality claim. Activation, the memory page and remote deployment remain separate work. See [limits](coding-service.md).
 
 **Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
 lets a caller require one conversation turn through an enabled writer, or import through configured

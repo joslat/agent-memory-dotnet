@@ -3,8 +3,9 @@
 The opt-in coding mode gives native coding clients one project-bound HTTP/MCP service. Run it with
 `agent-memory-mcp --coding-config <private.json>` (or the equivalent `dotnet run --project
 tools/AgentMemory.McpHost -- --coding-config <private.json>`). The ordinary MCP host is unchanged.
-This mode is built and wired; client hooks, a browser memory page and remote OAuth deployment are
-not included. Local tests cover transport and persistence, not model quality or a real client workflow.
+This mode is built and wired. A native Claude hook client and templates are available in
+[the coding sample](../samples/CodingMemory/README.md); a browser memory page and remote OAuth deployment
+remain separate work. Local tests cover transport and persistence, not model quality or a real client workflow.
 
 ## Configuration
 

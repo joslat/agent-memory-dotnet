@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text;
 using AgentMemory.Inference;
 
 namespace AgentMemory.McpHost.Coding;
@@ -7,7 +5,7 @@ namespace AgentMemory.McpHost.Coding;
 internal sealed class CodingConfiguration(CodingServiceOptions options, McpHostOptions host,
     CodingProjectAccess access, CodingContentPolicy content)
 {
-    internal const int MaximumBytes = 16 * 1024;
+    internal const int MaximumBytes = CodingJson.MaximumConfigurationBytes;
     public CodingServiceOptions Options { get; } = options;
     public McpHostOptions Host { get; } = host;
     public CodingProjectAccess Access { get; } = access;
@@ -15,15 +13,7 @@ internal sealed class CodingConfiguration(CodingServiceOptions options, McpHostO
 
     public static CodingConfiguration Parse(string json, Func<string, string?> environment)
     {
-        if (Encoding.UTF8.GetByteCount(json) > MaximumBytes) throw Invalid();
-        CodingServiceOptions options;
-        try
-        {
-            using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 8 });
-            CheckDuplicates(document.RootElement);
-            options = document.RootElement.Deserialize<CodingServiceOptions>(CodingApi.Json) ?? throw Invalid();
-        }
-        catch (JsonException) { throw Invalid(); }
+        var options = CodingJson.ParseConfiguration<CodingServiceOptions>(json);
         options.Validate();
         if (environment(InferenceProviderEnvironment.SelectorVariable)?.Trim().ToLowerInvariant() is not ("bitdeer" or "ollama"))
             throw new ArgumentException("Coding mode requires an explicit Bitdeer or local Ollama provider.");
@@ -72,15 +62,7 @@ internal sealed class CodingConfiguration(CodingServiceOptions options, McpHostO
 
     public static async Task<CodingConfiguration> ReadAsync(string path, Func<string, string?> environment,
         CancellationToken cancellationToken = default)
-    {
-        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize: 4096, useAsync: true);
-        var bytes = new byte[MaximumBytes + 1];
-        var count = await file.ReadAtLeastAsync(bytes, bytes.Length, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false);
-        if (count > MaximumBytes) throw Invalid();
-        try { return Parse(new UTF8Encoding(false, true).GetString(bytes, 0, count).TrimStart('\uFEFF'), environment); }
-        catch (DecoderFallbackException) { throw Invalid(); }
-    }
+        => Parse(await CodingJson.ReadConfigurationAsync(path, cancellationToken).ConfigureAwait(false), environment);
 
     private static void CheckEndpoint(InferenceProvider provider, string? endpoint)
     {
@@ -93,21 +75,6 @@ internal sealed class CodingConfiguration(CodingServiceOptions options, McpHostO
             _ => false,
         };
         if (!allowed) throw new ArgumentException("Coding inference endpoints must be Bitdeer HTTPS or IPv4 loopback Ollama /v1 endpoints.");
-    }
-
-    private static void CheckDuplicates(JsonElement value)
-    {
-        if (value.ValueKind == JsonValueKind.Object)
-        {
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in value.EnumerateObject())
-            {
-                if (!names.Add(property.Name)) throw Invalid();
-                CheckDuplicates(property.Value);
-            }
-        }
-        else if (value.ValueKind == JsonValueKind.Array)
-            foreach (var item in value.EnumerateArray()) CheckDuplicates(item);
     }
 
     private static ArgumentException Invalid() => new("Invalid coding configuration; use a strict JSON object of at most 16 KiB.");
