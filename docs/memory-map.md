@@ -12,7 +12,9 @@ quality claim. An optional local memory page shows a bounded history view and pr
 corrections through the writer, and closes memories without deleting history. Browser interactions are
 tested with synthetic data; corrections are not guaranteed replacements. Activation and remote
 deployment remain separate work. Copilot CLI/VS Code Local have optional session-start profile hooks
-and MCP/instruction templates, locally tested against fake services. Fully automatic per-turn capture
+and MCP/instruction templates. Copilot also has explicit transformed-prompt recall, preserving the
+existing model prompt and appending bounded memory; only the user query reaches the local service.
+These adapters are locally tested against fake services. Fully automatic per-turn capture
 and actual client sessions remain unverified. See [limits](coding-service.md).
 Codex has an explicitly selected paired-turn helper, interruption cleanup and disabled MCP templates,
 tested with synthetic inputs; no live Codex session or provider compatibility is claimed.

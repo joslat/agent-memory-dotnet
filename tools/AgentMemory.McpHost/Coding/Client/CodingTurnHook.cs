@@ -10,6 +10,8 @@ namespace AgentMemory.McpHost.Coding.Client;
 internal sealed record CodingHookReply
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ModifiedTransformedPrompt { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? AdditionalContext { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public object? HookSpecificOutput { get; init; }

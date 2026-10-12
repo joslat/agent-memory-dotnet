@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tooling
 
+- Add opt-in Copilot CLI `userPromptTransformed` recall to the coding helper and inactive template.
+  Preserve the model-facing prompt, send only the user query to memory, and append bounded sourced
+  context. No transcript parsing, automatic write, or client activation.
 - Add opt-in `store-sessions --search-cases` to capture original owner-scoped retrieval and historical
   contexts, candidate mappings and diagnostics alongside writer provenance, without relevance judging.
 - Add preparation-first `paired-gate` comparisons over recorded candidate pools, using the shipped

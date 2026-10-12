@@ -9,10 +9,13 @@ internal static class CodingHookCommand
     {
         try
         {
-            if (args.Length != 2 || args[0] != "--coding-hook") throw new ArgumentException("Invalid hook arguments.");
+            var transform = args.Length == 4 && args[2] == "--event" && args[3] == "userPromptTransformed";
+            if ((args.Length != 2 && !transform) || args[0] != "--coding-hook") throw new ArgumentException("Invalid hook arguments.");
             var json = await CodingJson.ReadConfigurationAsync(args[1], cancellationToken).ConfigureAwait(false);
             var options = CodingJson.ParseConfiguration<CodingHookOptions>(json);
             options.Validate();
+            if (transform && options.Harness != CodingHookHarness.CopilotCli)
+                throw new ArgumentException("Prompt transformation requires the Copilot CLI harness.");
             var token = environment(options.TokenVariable);
             // Reuse the service's credential requirements rather than defining a second token format.
             _ = new CodingProjectAccess(new CodingServiceOptions
@@ -31,7 +34,10 @@ internal static class CodingHookCommand
             using var client = new HttpClient(handler) { BaseAddress = new Uri(options.ServiceUrl), Timeout = Timeout.InfiniteTimeSpan };
             client.DefaultRequestHeaders.Authorization = new("Bearer", token);
             var repository = new CodingRepository(options.RepositoryRoot);
-            var reply = options.Harness is CodingHookHarness.Claude or CodingHookHarness.Codex
+            var reply = transform
+                ? await new CodingCopilotPromptHook(options, policy, client, repository.ReadCommitAsync)
+                    .HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false)
+                : options.Harness is CodingHookHarness.Claude or CodingHookHarness.Codex
                 ? await new CodingTurnHook(options, policy, new(options), client, repository.ReadCommitAsync)
                     .HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false)
                 : await new CodingSessionStartHook(options, policy, client, repository.ReadCommitAsync)

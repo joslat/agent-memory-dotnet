@@ -1356,8 +1356,12 @@ memory, and reuses history/profile/forget/remember/status operations. Correction
 proposals, not direct graph edits. Real client activation and remote deployment remain separate work.
 The hook configuration's `Harness` defaults to Claude. `VsCodeLocal` and `CopilotCli` reuse bounded
 HTTP and context projection, with their distinct session-start output envelopes. They read only the
-profile: no prompt capture, pending state or guessed completion pairing. Their per-turn recall/write
-path uses explicit MCP instructions and retains a live-client validation gate.
+profile without pending state or guessed completion pairing. Copilot CLI additionally supports explicit
+`--event userPromptTransformed`: query-only recall, a separate session namespace, and bounded memory
+appended to the unchanged model-facing prompt. Expanded files/instructions never enter the recall body.
+Omission dispatches no transform path and preserves prior behavior. The returned override is bounded
+by serialized UTF-8 bytes; empty recall leaves the original prompt. No transcript or write path is added.
+VS Code per-turn recall and both clients' writes still use MCP instructions. Actual-client validation remains.
 `Codex` uses the shared turn helper with its documented `turn_id` and `Interrupt` contract. It has a
 separate service-session namespace and pending-state key; existing Claude cache keys remain readable.
 The helper's model field is not a provider authorization check. Templates remain inactive, and actual
