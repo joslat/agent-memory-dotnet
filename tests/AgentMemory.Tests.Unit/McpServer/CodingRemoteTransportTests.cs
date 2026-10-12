@@ -12,6 +12,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -25,6 +26,49 @@ namespace AgentMemory.Tests.Unit.McpServer;
 
 public sealed class CodingRemoteTransportTests
 {
+    [Fact]
+    public async Task Network_discovery_fetches_public_keys_caches_them_and_refreshes_for_rotation()
+    {
+        await using var fixture = await Fixture.Start(networkDiscovery: "online");
+        using var first = await fixture.Send(fixture.Token());
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        fixture.Issuer!.MetadataRequests.Should().Be(1);
+        fixture.Issuer.KeyRequests.Should().Be(1);
+        fixture.Issuer.SawAuthorization.Should().BeFalse();
+        fixture.Issuer.Unavailable = true;
+        using var cached = await fixture.Send(fixture.Token());
+        cached.StatusCode.Should().Be(HttpStatusCode.OK);
+        fixture.Issuer.MetadataRequests.Should().Be(1);
+        fixture.Issuer.Unavailable = false;
+        fixture.RotateKey();
+        // Unknown-key validation requests a background refresh. Poll only until that refresh completes.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            using var rotated = await fixture.Send(fixture.Token("rotated"));
+            if (rotated.StatusCode == HttpStatusCode.OK) break;
+            rotated.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+            await Task.Delay(50, deadline.Token);
+        }
+        fixture.Issuer.MetadataRequests.Should().BeGreaterThan(1);
+        fixture.Issuer.KeyRequests.Should().BeGreaterThan(1);
+        fixture.Issuer.SawAuthorization.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("outage")]
+    [InlineData("insecure-keys")]
+    [InlineData("untrusted-certificate")]
+    public async Task Discovery_failure_never_authorizes_or_reaches_memory(string mode)
+    {
+        await using var fixture = await Fixture.Start(networkDiscovery: mode);
+        using var denied = await fixture.Send(fixture.Token());
+        denied.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        fixture.Profile.ReceivedCalls().Should().BeEmpty();
+        fixture.Issuer!.KeyRequests.Should().Be(0);
+        fixture.Issuer.SawAuthorization.Should().BeFalse();
+    }
+
     [Fact]
     public async Task Remote_writes_require_both_server_opt_in_and_token_scope()
     {
@@ -174,6 +218,8 @@ public sealed class CodingRemoteTransportTests
         private readonly X509Certificate2 _certificate;
         private readonly RsaSecurityKey _key;
         private WebApplication _app = null!;
+        private HttpClient? _backchannel;
+        public TestIssuer? Issuer { get; private set; }
         public HttpClient Client { get; }
         public IWorkingMemoryService Profile { get; } = Substitute.For<IWorkingMemoryService>();
 
@@ -192,13 +238,15 @@ public sealed class CodingRemoteTransportTests
             Client.DefaultRequestHeaders.Host = "memory.example";
         }
 
-        public static async Task<Fixture> Start(bool allowWrites = true)
+        public static async Task<Fixture> Start(bool allowWrites = true, string? networkDiscovery = null)
         {
             var fixture = new Fixture();
+            if (networkDiscovery is not null)
+                fixture.Issuer = await TestIssuer.Start(fixture._certificate, fixture._key, networkDiscovery);
             var options = new CodingServiceOptions
             {
                 OwnerId = "owner", Url = "https://memory.example", Projects = new Dictionary<string, string> { ["alpha"] = "", ["beta"] = "" },
-                Remote = new CodingRemoteOptions { Issuer = "https://identity.example", Subject = "owner-subject",
+                Remote = new CodingRemoteOptions { Issuer = fixture.Issuer?.Url ?? "https://identity.example", Subject = "owner-subject",
                     ListenAddress = "127.0.0.1", CertificatePath = Path.GetFullPath("unused-test.pfx"), CertificatePasswordVariable = "TEST_TLS_PASSWORD",
                     AllowWrites = allowWrites },
             };
@@ -219,11 +267,22 @@ public sealed class CodingRemoteTransportTests
             services.AddSingleton<ICodingWriter, CodingWriter>().AddSingleton<CodingWriteQueue>();
             CodingTransport.AddServices(services);
             CodingRemoteAuthentication.AddServices(services, options);
-            services.PostConfigure<JwtBearerOptions>(CodingRemoteAuthentication.Scheme, jwt =>
+            services.Configure<JwtBearerOptions>(CodingRemoteAuthentication.Scheme, jwt =>
             {
-                var discovery = new OpenIdConnectConfiguration { Issuer = options.Remote.Issuer };
-                discovery.SigningKeys.Add(fixture._key);
-                jwt.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(discovery);
+                if (fixture.Issuer is null)
+                {
+                    var discovery = new OpenIdConnectConfiguration { Issuer = options.Remote.Issuer };
+                    discovery.SigningKeys.Add(fixture._key);
+                    jwt.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(discovery);
+                }
+                else
+                {
+                    var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
+                    if (networkDiscovery != "untrusted-certificate")
+                        handler.ServerCertificateCustomValidationCallback = (_, supplied, _, _) => supplied?.Thumbprint == fixture._certificate.Thumbprint;
+                    fixture._backchannel = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(3) };
+                    jwt.Backchannel = fixture._backchannel;
+                }
             });
             fixture._app = builder.Build();
             CodingTransport.Map(fixture._app);
@@ -238,7 +297,7 @@ public sealed class CodingRemoteTransportTests
             var now = DateTime.UtcNow;
             var descriptor = new SecurityTokenDescriptor
             {
-                Issuer = variant == "wrong-issuer" ? "https://other.example" : "https://identity.example",
+                Issuer = variant == "wrong-issuer" ? "https://other.example" : Issuer?.Url ?? "https://identity.example",
                 Audience = "https://memory.example/projects/" + (variant == "other-project" ? "beta" : "alpha") + "/mcp" + (variant == "trailing-slash" ? "/" : ""),
                 Claims = new Dictionary<string, object>
                 {
@@ -249,7 +308,7 @@ public sealed class CodingRemoteTransportTests
                 IssuedAt = now.AddHours(-1), NotBefore = variant == "future" ? now.AddMinutes(3) : now.AddHours(-1),
                 Expires = variant == "expired" ? now.AddMinutes(-5) : now.AddMinutes(5),
                 SigningCredentials = variant == "unsigned" ? null : new SigningCredentials(
-                    variant == "wrong-key" ? new RsaSecurityKey(_other) { KeyId = "test-key" } : _key,
+                    variant is "wrong-key" or "rotated" ? new RsaSecurityKey(_other) { KeyId = variant == "rotated" ? "rotated-key" : "test-key" } : _key,
                     variant == "wrong-algorithm" ? SecurityAlgorithms.RsaSha512 : SecurityAlgorithms.RsaSha256),
             };
             if (variant == "multiple-audiences") descriptor.Audiences.Add("https://memory.example/projects/beta/mcp");
@@ -290,7 +349,63 @@ public sealed class CodingRemoteTransportTests
             Client.Dispose();
             await _app.StopAsync();
             await _app.DisposeAsync();
+            if (Issuer is not null) await Issuer.DisposeAsync();
+            _backchannel?.Dispose();
             _certificate.Dispose(); _rsa.Dispose(); _other.Dispose();
+        }
+
+        public void RotateKey() => Issuer!.Key = new RsaSecurityKey(_other) { KeyId = "rotated-key" };
+    }
+
+    private sealed class TestIssuer : IAsyncDisposable
+    {
+        private WebApplication _app = null!;
+        public string Url => _app.Urls.Single();
+        public volatile bool Unavailable;
+        public volatile RsaSecurityKey Key = null!;
+        public int MetadataRequests;
+        public int KeyRequests;
+        public bool SawAuthorization;
+
+        public static async Task<TestIssuer> Start(X509Certificate2 certificate, RsaSecurityKey key, string mode)
+        {
+            var issuer = new TestIssuer { Key = key, Unavailable = mode == "outage" };
+            var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [], EnvironmentName = "Production" });
+            builder.Logging.ClearProviders();
+            builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0, listener => listener.UseHttps(certificate)));
+            issuer._app = builder.Build();
+            issuer._app.Use(async (context, next) =>
+            {
+                if (context.Request.Headers.ContainsKey("Authorization")) issuer.SawAuthorization = true;
+                await next(context);
+            });
+            issuer._app.MapGet("/.well-known/openid-configuration", () =>
+            {
+                Interlocked.Increment(ref issuer.MetadataRequests);
+                if (issuer.Unavailable) return Results.StatusCode(503);
+                return Results.Json(new
+                {
+                    issuer = issuer.Url,
+                    jwks_uri = (mode == "insecure-keys" ? issuer.Url.Replace("https://", "http://", StringComparison.Ordinal) : issuer.Url) + "/keys",
+                });
+            });
+            issuer._app.MapGet("/keys", () =>
+            {
+                Interlocked.Increment(ref issuer.KeyRequests);
+                if (issuer.Unavailable) return Results.StatusCode(503);
+                var current = issuer.Key;
+                var parameters = current.Rsa.ExportParameters(false);
+                return Results.Json(new { keys = new[] { new { kty = "RSA", use = "sig", alg = "RS256", kid = current.KeyId,
+                    n = Base64UrlEncoder.Encode(parameters.Modulus!), e = Base64UrlEncoder.Encode(parameters.Exponent!) } } });
+            });
+            await issuer._app.StartAsync();
+            return issuer;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await _app.StopAsync();
+            await _app.DisposeAsync();
         }
     }
 }

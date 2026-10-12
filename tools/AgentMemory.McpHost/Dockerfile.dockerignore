@@ -1,0 +1,20 @@
+# Only public build inputs enter the Docker context. Private strategy, Git state,
+# datasets, artifacts and local settings are excluded by default.
+**
+!Directory.Build.props
+!global.json
+!README.md
+!resources/
+!resources/**
+!src/
+!src/**
+!tools/
+!tools/AgentMemory.McpHost/
+!tools/AgentMemory.McpHost/**
+**/bin
+**/obj
+**/.env*
+**/*.pfx
+**/*.p12
+**/*.pem
+**/*.key

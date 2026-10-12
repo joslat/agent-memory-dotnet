@@ -4,6 +4,9 @@ The coding host can act as a personal MCP resource server. It uses the same scop
 writer and pre-provisioned project databases as [local coding mode](coding-service.md). The remote
 transport is implemented and tested locally with synthetic TLS certificates, signing keys and memory
 services. It has not been validated against a live authorization provider or Claude connector.
+Local HTTPS issuer tests also exercise OIDC discovery, public-key retrieval, cached-key use during an
+outage, automatic refresh for a new signing key, and rejection of insecure key URLs/untrusted certificates.
+These fixtures do not implement sign-in, consent or client registration.
 
 This is one service per owner. An external authorization server handles sign-in, consent, OAuth
 clients and refresh tokens. The memory host validates access tokens; it does not issue them or forward
@@ -37,6 +40,53 @@ continue to target the separate local HTTP mode.
 The local guide's explicit inference provider, writer model, credentials, project database setup and
 input limits still apply. The service bootstraps existing project databases before listening. It does
 not create a public hostname, install certificates, register an OAuth client or provision a deployment.
+
+## Container preparation
+
+Build from the repository root:
+
+```sh
+docker build -f tools/AgentMemory.McpHost/Dockerfile -t agent-memory-coding:local .
+```
+
+The image uses the .NET 10 SDK pinned by `global.json` and the .NET 10 ASP.NET runtime. Its Dockerfile
+has a dedicated context allowlist: public build inputs only; strategy, Git state, datasets, generated
+output and certificate/key files are excluded. Runtime configuration and credentials are mounted later.
+
+[docker-compose.remote.yml](../samples/CodingMemory/docker-compose.remote.yml) is a preparation
+template for this image with an existing Neo4j deployment that supports multiple databases. Provision
+`coding-<project>` databases separately. The generic MCP compose stack's Community database is not
+suitable for this isolation mode.
+
+Prepare three private files and set their absolute paths in `CODING_CONFIG_FILE`, `CODING_ENV_FILE`
+and `CODING_CERTIFICATE_FILE`. The environment file contains only the intended provider, model,
+embedding dimensions, Neo4j credentials and `MEMORY_TLS_PASSWORD` variables from the local guide.
+For this template, set the JSON `url` to `https://<hostname>:8443`, `remote.listenAddress` to `0.0.0.0`,
+and the certificate path to `/run/secrets/memory.pfx`. The container listens on 8443, and the template
+publishes that port only on host loopback. This does not make it reachable from Claude's cloud.
+
+Validate without starting the stack:
+
+```sh
+docker compose -f samples/CodingMemory/docker-compose.remote.yml config --quiet
+```
+
+When the deployment and provider data permissions are ready, start that same compose file with
+`up -d --build`. Set the deployment's public routing and certificate hostname consistently with the
+configured resource URL; changing the origin also changes token audiences. Explicitly configure the
+host binding if direct remote access is intended. Keep TLS to the container; forwarded HTTP is rejected.
+
+The process runs as UID 1654, with a read-only root filesystem, all Linux capabilities dropped,
+`no-new-privileges`, a bounded temporary filesystem and read-only config/certificate mounts. Make
+the mounted files readable by that UID without exposing them to unrelated users. No Neo4j or provider
+credentials are embedded in the image. Loopback inference endpoints refer to the container itself;
+they do not reach an Ollama server running on the Docker host.
+
+A local smoke test boots this image with these restrictions, an isolated test database and synthetic
+credentials, then checks TLS resource discovery and unauthenticated MCP rejection. The test network
+has no internet egress and makes no inference calls. This validates container startup, not a production
+deployment or a complete OAuth browser flow. The template supplies no restart policy: restarting loses
+in-process jobs, and a deployment must account for that explicitly.
 
 ## Authorization-provider contract
 

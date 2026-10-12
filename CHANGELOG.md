@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Build the MCP container with the repository's .NET 10 SDK and runtime instead of incompatible
+  .NET 9 images. Restrict its build context to public inputs, excluding private/generated files.
+
 - Reject non-finite or out-of-range update-judge scores before closing stored facts, preferences or
   relationships, including scores from the writer's host-model fallback.
 - Keep the source entity and its facts unchanged when the store declines a corrected-name merge;
@@ -33,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attribution remain unchanged. No new judge policy, provider call or public option is introduced.
 
 ### Added
+
+- Inactive remote coding container template with read-only runtime/config mounts, non-root execution
+  and loopback port publication. HTTPS OIDC fixtures cover discovery, signing-key refresh and failures.
 
 - Optional HTTPS/OAuth coding MCP resource server: per-project resource discovery and token audiences,
   one configured owner subject, read/write scopes, explicit remote write opt-in and bounded request rates.

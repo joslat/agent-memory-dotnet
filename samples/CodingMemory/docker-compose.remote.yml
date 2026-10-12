@@ -1,0 +1,38 @@
+# Preparation template only. Requires private files and existing project databases.
+# Bind remains host-loopback until a deployment's exposure is deliberately configured.
+services:
+  memory:
+    build:
+      context: ../..
+      dockerfile: tools/AgentMemory.McpHost/Dockerfile
+    image: agent-memory-coding:local
+    command: ["--coding-config", "/run/secrets/coding.json"]
+    env_file:
+      - ${CODING_ENV_FILE:?Set the absolute path to your private provider/database/TLS environment file}
+    volumes:
+      - type: bind
+        source: ${CODING_CONFIG_FILE:?Set the absolute path to your private coding JSON file}
+        target: /run/secrets/coding.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CODING_CERTIFICATE_FILE:?Set the absolute path to your encrypted PFX file}
+        target: /run/secrets/memory.pfx
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:8443:8443"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
