@@ -19,9 +19,10 @@ internal sealed class RelationshipPersistence
     private readonly IIdGenerator _idGenerator;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
+    private readonly ClosingPipeline _closings;
 
     public RelationshipPersistence(IEntityRepository entityRepository, IRelationshipRepository relationshipRepository,
-        IClock clock, IIdGenerator idGenerator, ExtractionOptions options, ILogger logger)
+        IClock clock, IIdGenerator idGenerator, ExtractionOptions options, ILogger logger, ClosingPipeline closings)
     {
         _entityRepository = entityRepository;
         _relationshipRepository = relationshipRepository;
@@ -29,6 +30,7 @@ internal sealed class RelationshipPersistence
         _idGenerator = idGenerator;
         _options = options;
         _logger = logger;
+        _closings = closings;
     }
 
     public async Task<RelationshipPersistenceResult> PersistAsync(
@@ -304,7 +306,8 @@ internal sealed class RelationshipPersistence
                         // 40.65. With BitemporalChanges the edge ends when the new one began, as its fact does.
                         var endedAt = _clock.UtcNow;
                         if (_options.BitemporalChanges && item.ValidFrom is { } began && began <= endedAt) endedAt = began;
-                        await _relationshipRepository.EndAsync(previous.RelationshipId, endedAt, endScope, cancellationToken)
+                        await _closings.ApplyAsync(ClosingProposal.Relationship(previous.RelationshipId, endedAt,
+                            endScope, ClosingSource.DeterministicReplacement, item.RelationshipId), cancellationToken)
                             .ConfigureAwait(false);
                         _logger.LogDebug("Ended relationship '{Old}': replaced by '{New}'.", previous.RelationshipId, item.RelationshipId);
                     }

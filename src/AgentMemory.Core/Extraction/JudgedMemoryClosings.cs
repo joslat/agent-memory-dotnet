@@ -1,4 +1,4 @@
-using static AgentMemory.Core.Extraction.FactClosureWriter;
+using static AgentMemory.Core.Extraction.ClosingPipeline;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -20,12 +20,12 @@ internal sealed class JudgedMemoryClosings
     private readonly ILogger _logger;
     private readonly IMemoryUpdateJudge? _updateJudge;
     private readonly IMemoryUpdateJudgeFallback? _fallbackJudge;
-    private readonly FactClosureWriter _factClosures;
+    private readonly ClosingPipeline _closings;
 
     public JudgedMemoryClosings(IEmbeddingOrchestrator embeddingOrchestrator, IEntityRepository entityRepository,
         IFactRepository factRepository, IPreferenceRepository preferenceRepository,
         IRelationshipRepository relationshipRepository, IClock clock, ExtractionOptions options, ILogger logger,
-        IMemoryUpdateJudge? updateJudge, IMemoryUpdateJudgeFallback? fallbackJudge, FactClosureWriter factClosures)
+        IMemoryUpdateJudge? updateJudge, IMemoryUpdateJudgeFallback? fallbackJudge, ClosingPipeline closings)
     {
         _embeddingOrchestrator = embeddingOrchestrator;
         _entityRepository = entityRepository;
@@ -37,7 +37,7 @@ internal sealed class JudgedMemoryClosings
         _logger = logger;
         _updateJudge = updateJudge;
         _fallbackJudge = fallbackJudge;
-        _factClosures = factClosures;
+        _closings = closings;
     }
 
     public bool IsEnabled => _updateJudge is { IsEnabled: true };
@@ -143,12 +143,10 @@ internal sealed class JudgedMemoryClosings
                 }
                 if (probability < _options.UpdateJudgeThreshold || !closedOnce.Add(loser))
                     continue;
-                var closed = newFact is not null
-                    ? await _factClosures.CloseAsync(loser, winner, FactClosureReason.Change, ChangedAt(newFact, _clock.UtcNow), scope, cancellationToken)
-                        .ConfigureAwait(false)
-                    : await _preferenceRepository.SupersedeAsync(loser, winner, scope, cancellationToken).ConfigureAwait(false);
-                // A preference's closing reaches its outcome as a fact's does (FactClosureWriter records those).
-                if (closed && newFact is null) PersistenceClosingJournal.Record(winner, loser);
+                ClosingProposal proposal = newFact is not null
+                    ? ClosingProposal.Fact(loser, winner, FactClosureReason.Change, ChangedAt(newFact, _clock.UtcNow), scope, ClosingSource.SimilarityJudge)
+                    : ClosingProposal.Preference(loser, winner, scope, ClosingSource.SimilarityJudge);
+                var closed = await _closings.ApplyAsync(proposal, cancellationToken).ConfigureAwait(false);
                 if (closed)
                 {
                     closings++;
@@ -304,15 +302,13 @@ internal sealed class JudgedMemoryClosings
                     continue;
                 }
                 if (!closedOnce.Add(loser)) continue;
-                var closed = edge
-                    ? await _relationshipRepository.EndAsync(loser, EdgeEnd(newFact, correction), scope, cancellationToken).ConfigureAwait(false)
+                ClosingProposal proposal = edge
+                    ? ClosingProposal.Relationship(loser, EdgeEnd(newFact, correction), scope, ClosingSource.WriterNamed, winner)
                     : newFact is not null
-                    ? await _factClosures.CloseAsync(loser, winner, correction ? FactClosureReason.Correction : FactClosureReason.Change,
-                        correction ? null : ChangedAt(newFact, _clock.UtcNow), scope, cancellationToken).ConfigureAwait(false)
-                    : await _preferenceRepository.SupersedeAsync(loser, winner, scope, cancellationToken).ConfigureAwait(false);
-                // A preference's closing, and a relationship's ending, reach the outcome as a fact's does (FactClosureWriter
-                // records those).
-                if (closed && (newFact is null || edge)) PersistenceClosingJournal.Record(winner, loser);
+                    ? ClosingProposal.Fact(loser, winner, correction ? FactClosureReason.Correction : FactClosureReason.Change,
+                        correction ? null : ChangedAt(newFact, _clock.UtcNow), scope, ClosingSource.WriterNamed)
+                    : ClosingProposal.Preference(loser, winner, scope, ClosingSource.WriterNamed);
+                var closed = await _closings.ApplyAsync(proposal, cancellationToken).ConfigureAwait(false);
                 if (closed)
                 {
                     closings++;

@@ -21,14 +21,14 @@ internal sealed class FactPersistence
     private readonly FactReplacementResolver _replacements;
 
     public FactPersistence(IFactRepository factRepository, IClock clock, ExtractionOptions options,
-        ILogger logger, FactPreparation factPreparation, FactClosureWriter factClosures)
+        ILogger logger, FactPreparation factPreparation, ClosingPipeline closings)
     {
         _factRepository = factRepository;
         _clock = clock;
         _options = options;
         _logger = logger;
         _factPreparation = factPreparation;
-        _replacements = new FactReplacementResolver(factRepository, options, logger, factClosures);
+        _replacements = new FactReplacementResolver(factRepository, options, logger, closings);
     }
 
     public async Task<FactPersistenceResult> PersistAsync(IReadOnlyList<PreparedFact> facts,

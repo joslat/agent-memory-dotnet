@@ -61,16 +61,16 @@ internal sealed class PersistenceStage : IPersistenceStage
         _options = extractionOptions?.Value ?? new ExtractionOptions();
         _embeddingPreparation = new MemoryEmbeddingPreparation(embeddingOrchestrator, _options, logger);
         _entityPersistence = new EntityPersistence(entityRepository, factRepository, embeddingOrchestrator, _options, logger);
-        _relationshipPersistence = new RelationshipPersistence(entityRepository, relationshipRepository, clock, idGenerator, _options, logger);
-        _preferencePersistence = new PreferencePersistence(preferenceRepository, clock, idGenerator, _options, logger);
+        var closings = new ClosingPipeline(factRepository, preferenceRepository, relationshipRepository, entityRepository, _options);
+        _relationshipPersistence = new RelationshipPersistence(entityRepository, relationshipRepository, clock, idGenerator, _options, logger, closings);
+        _preferencePersistence = new PreferencePersistence(preferenceRepository, clock, idGenerator, _options, logger, closings);
         var factPreparation = new FactPreparation(factRepository, idGenerator, clock, logger);
-        var factClosures = new FactClosureWriter(factRepository, _options);
-        _factPersistence = new FactPersistence(factRepository, clock, _options, logger, factPreparation, factClosures);
+        _factPersistence = new FactPersistence(factRepository, clock, _options, logger, factPreparation, closings);
         _judgedClosings = new JudgedMemoryClosings(embeddingOrchestrator, entityRepository, factRepository,
-            preferenceRepository, relationshipRepository, clock, _options, logger, updateJudge, fallbackJudge, factClosures);
+            preferenceRepository, relationshipRepository, clock, _options, logger, updateJudge, fallbackJudge, closings);
         _namePropagation = new CorrectedNamePropagation(entityRepository, factRepository, embeddingOrchestrator,
-            clock, idGenerator, _options, logger, factClosures);
-        _edgeEnding = new EdgeEnding(entityRepository, factRepository, relationshipRepository, clock, _options, logger, factClosures);
+            clock, idGenerator, _options, logger, closings);
+        _edgeEnding = new EdgeEnding(entityRepository, factRepository, relationshipRepository, clock, _options, logger, closings);
         // 40.65. The same "on and inert" signal supersession gives: the option only says how a closing is recorded.
         if (_options.BitemporalChanges && !_options.SupersedeReplacedFacts && Interlocked.Exchange(ref s_warnedInertBitemporal, 1) == 0)
             _logger.LogWarning(

@@ -16,11 +16,11 @@ internal sealed class CorrectedNamePropagation
     private readonly IIdGenerator _idGenerator;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
-    private readonly FactClosureWriter _factClosures;
+    private readonly ClosingPipeline _closings;
 
     public CorrectedNamePropagation(IEntityRepository entityRepository, IFactRepository factRepository,
         IEmbeddingOrchestrator embeddingOrchestrator, IClock clock, IIdGenerator idGenerator,
-        ExtractionOptions options, ILogger logger, FactClosureWriter factClosures)
+        ExtractionOptions options, ILogger logger, ClosingPipeline closings)
     {
         _entityRepository = entityRepository;
         _factRepository = factRepository;
@@ -29,7 +29,7 @@ internal sealed class CorrectedNamePropagation
         _idGenerator = idGenerator;
         _options = options;
         _logger = logger;
-        _factClosures = factClosures;
+        _closings = closings;
     }
 
     /// <summary>
@@ -110,7 +110,8 @@ internal sealed class CorrectedNamePropagation
             {
                 // Relationships and mentions move, the old name becomes an alias; then the old entity is closed.
                 await _entityRepository.MergeEntitiesAsync(source.EntityId, target.EntityId, scope, cancellationToken).ConfigureAwait(false);
-                await _entityRepository.InvalidateAsync(source.EntityId, scope, cancellationToken).ConfigureAwait(false);
+                await _closings.ApplyAsync(ClosingProposal.RetireEntity(source.EntityId,
+                    scope, ClosingSource.CorrectedName), cancellationToken).ConfigureAwait(false);
                 // The merge clears the survivor's embedding (its aliases changed), and nothing on this path re-embeds it:
                 // the renamed person or pet dropped out of entity recall (found by the core.names validation pack). It is
                 // embedded again from its name, as extraction embeds an entity and as the in-place branch above does.
@@ -147,7 +148,8 @@ internal sealed class CorrectedNamePropagation
             if (restated.FactId == fact.FactId) continue;
             // Period-aware: the original is closed, never edited. The same fact under the right name corrects it, so
             // with BitemporalChanges its valid time stays as it was.
-            await _factClosures.CloseAsync(fact.FactId, restated.FactId, FactClosureReason.Correction, changedAt: null, scope, cancellationToken)
+            await _closings.ApplyAsync(ClosingProposal.Fact(fact.FactId, restated.FactId,
+                FactClosureReason.Correction, null, scope, ClosingSource.CorrectedName), cancellationToken)
                 .ConfigureAwait(false);
             if (_options.LinkFactsToEntities)
                 await LinkRestatedAsync(restated, scope, cancellationToken).ConfigureAwait(false);

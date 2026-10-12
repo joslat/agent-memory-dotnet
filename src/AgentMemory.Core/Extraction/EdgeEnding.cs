@@ -1,4 +1,4 @@
-using static AgentMemory.Core.Extraction.FactClosureWriter;
+using static AgentMemory.Core.Extraction.ClosingPipeline;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -17,11 +17,11 @@ internal sealed class EdgeEnding
     private readonly IClock _clock;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
-    private readonly FactClosureWriter _factClosures;
+    private readonly ClosingPipeline _closings;
 
     public EdgeEnding(IEntityRepository entityRepository, IFactRepository factRepository,
         IRelationshipRepository relationshipRepository, IClock clock, ExtractionOptions options,
-        ILogger logger, FactClosureWriter factClosures)
+        ILogger logger, ClosingPipeline closings)
     {
         _entityRepository = entityRepository;
         _factRepository = factRepository;
@@ -29,7 +29,7 @@ internal sealed class EdgeEnding
         _clock = clock;
         _options = options;
         _logger = logger;
-        _factClosures = factClosures;
+        _closings = closings;
     }
 
     public async Task ApplyAsync(IReadOnlyList<WithdrawnFact> withdrawn, CancellationToken cancellationToken = default)
@@ -71,7 +71,8 @@ internal sealed class EdgeEnding
                 if (target is null || !Corrections.NamesEither(closed.Object, target.Name)) continue;
                 if (stillLive.Any(fact => SameRelation(fact.Predicate, closed.Predicate) && Corrections.NamesEither(fact.Object, target.Name)))
                     continue;
-                await _relationshipRepository.EndAsync(edge.RelationshipId, endAt is { } at && at <= now ? at : now, writeScope, cancellationToken)
+                await _closings.ApplyAsync(ClosingProposal.Relationship(edge.RelationshipId,
+                    endAt is { } at && at <= now ? at : now, writeScope, ClosingSource.MirroredEdge), cancellationToken)
                     .ConfigureAwait(false);
                 _logger.LogDebug("Ended relationship '{Edge}' with the fact '{Fact}' it mirrors.", edge.RelationshipId, closed.FactId);
             }
@@ -120,7 +121,8 @@ internal sealed class EdgeEnding
             }
             foreach (var date in dates)
             {
-                await _factClosures.CloseAsync(date.FactId, winner.FactId, FactClosureReason.Correction, null, writeScope, cancellationToken)
+                await _closings.ApplyAsync(ClosingProposal.Fact(date.FactId, winner.FactId,
+                    FactClosureReason.Correction, null, writeScope, ClosingSource.WithdrawnEventDate), cancellationToken)
                     .ConfigureAwait(false);
                 _logger.LogDebug("Closed '{Date}', the date of withdrawn fact '{Fact}'.", date.FactId, closed.FactId);
             }

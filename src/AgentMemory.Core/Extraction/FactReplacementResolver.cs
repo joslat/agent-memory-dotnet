@@ -1,4 +1,4 @@
-using static AgentMemory.Core.Extraction.FactClosureWriter;
+using static AgentMemory.Core.Extraction.ClosingPipeline;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -14,15 +14,15 @@ internal sealed class FactReplacementResolver
     private readonly IFactRepository _factRepository;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
-    private readonly FactClosureWriter _factClosures;
+    private readonly ClosingPipeline _closings;
 
     public FactReplacementResolver(IFactRepository factRepository, ExtractionOptions options,
-        ILogger logger, FactClosureWriter factClosures)
+        ILogger logger, ClosingPipeline closings)
     {
         _factRepository = factRepository;
         _options = options;
         _logger = logger;
-        _factClosures = factClosures;
+        _closings = closings;
     }
 
     public async Task<FactReplacementResult> ApplyAsync(FactWriteSet state, string? ownerId,
@@ -108,8 +108,9 @@ internal sealed class FactReplacementResolver
                 var closed = new List<Fact>();
                 foreach (var loser in proposed)
                 {
-                    if (!await _factClosures.CloseAsync(
-                        loser.FactId, winner.FactId, ClosingOf(loser, winner), ChangedAt(winner, now), scope, cancellationToken)
+                    if (!await _closings.ApplyAsync(ClosingProposal.Fact(
+                        loser.FactId, winner.FactId, ClosingOf(loser, winner), ChangedAt(winner, now), scope,
+                        ClosingSource.DeterministicReplacement), cancellationToken)
                         .ConfigureAwait(false)) continue;
                     closed.Add(loser);
                     _logger.LogDebug(
@@ -171,7 +172,8 @@ internal sealed class FactReplacementResolver
                 var closed = new List<Fact>();
                 foreach (var loser in proposed)
                 {
-                    if (!await _factClosures.CloseAsync(loser.FactId, winner.FactId, FactClosureReason.Correction, null, writeScope, cancellationToken)
+                    if (!await _closings.ApplyAsync(ClosingProposal.Fact(loser.FactId, winner.FactId,
+                        FactClosureReason.Correction, null, writeScope, ClosingSource.ExtractorCorrection), cancellationToken)
                         .ConfigureAwait(false)) continue;
                     closed.Add(loser);
                     _logger.LogDebug("Correction '{Winner}' closed fact '{Loser}' (replaces '{Replaced}').",
@@ -245,7 +247,8 @@ internal sealed class FactReplacementResolver
                         {
                             try
                             {
-                                await _factRepository.InvalidateAsync(fact.FactId, writeScope, cancellationToken).ConfigureAwait(false);
+                                await _closings.ApplyAsync(ClosingProposal.WithdrawFact(fact.FactId,
+                                    writeScope, ClosingSource.WithinExtractionReplacement), cancellationToken).ConfigureAwait(false);
                             }
                             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                             catch (Exception ex)
@@ -266,9 +269,9 @@ internal sealed class FactReplacementResolver
                         if (await _factRepository.GetByIdAsync(member.FactId, cancellationToken).ConfigureAwait(false) is
                             { InvalidatedAtUtc: null })
                         {
-                            await _factClosures.CloseAsync(member.FactId, current.FactId,
+                            await _closings.ApplyAsync(ClosingProposal.Fact(member.FactId, current.FactId,
                                     factDecision.Old.Contains(memberKey) ? FactClosureReason.Correction : FactClosureReason.Change,
-                                    ChangedAt(current, now), writeScope, cancellationToken)
+                                    ChangedAt(current, now), writeScope, ClosingSource.WithinExtractionReplacement), cancellationToken)
                                 .ConfigureAwait(false);
                             _logger.LogDebug("'{Winner}' closed '{Loser}', replaced in the same extraction.", current.FactId, member.FactId);
                         }

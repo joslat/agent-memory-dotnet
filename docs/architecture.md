@@ -271,9 +271,15 @@ it still runs inside persistence where the existing-fact lookup belongs. The pur
 negation, validity and source-role safeguards.
 
 `JudgedMemoryClosings` keeps writer-named and similarity-based closing decisions separate; only the
-named path uses the host-model fallback. `FactClosureWriter` applies the existing temporal closure
-contract, while `PersistenceClosingJournal` retains the asynchronous operation's successful closings
-for outcome reporting. `EdgeEnding` runs after relationship writes inside persistence.
+named path uses the host-model fallback. Every automatic ingestion closing now reaches one internal
+`ClosingPipeline` as a typed `ClosingProposal`: fact supersession carries its temporal reason and
+clock, preference supersession carries its successor, and relationship ending carries its end time
+with optional successor attribution. The pipeline owns repository application and successful journal
+recording. Fact withdrawal and post-merge entity retirement are separate proposal types using their
+existing invalidation APIs without a successor or a new journal entry. The pipeline preserves
+source-specific outcome attribution, repository refusals, cancellation and
+exceptions. It adds no judge, global deduplication or new policy. `PersistenceClosingJournal` retains
+the existing asynchronous operation lifetime. `EdgeEnding` runs after relationship writes inside persistence.
 `CorrectedNamePropagation` runs after the core transaction, before confirmation reinforcement and
 the working-memory rebuild. This decomposition preserves their existing call order and failure rules.
 

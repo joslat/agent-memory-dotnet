@@ -19,15 +19,17 @@ internal sealed class PreferencePersistence
     private readonly IIdGenerator _idGenerator;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
+    private readonly ClosingPipeline _closings;
 
     public PreferencePersistence(IPreferenceRepository preferenceRepository, IClock clock,
-        IIdGenerator idGenerator, ExtractionOptions options, ILogger logger)
+        IIdGenerator idGenerator, ExtractionOptions options, ILogger logger, ClosingPipeline closings)
     {
         _preferenceRepository = preferenceRepository;
         _clock = clock;
         _idGenerator = idGenerator;
         _options = options;
         _logger = logger;
+        _closings = closings;
     }
 
     public async Task<PreferencePersistenceResult> PersistAsync(
@@ -147,7 +149,8 @@ internal sealed class PreferencePersistence
                              (replaced is not null && Corrections.Closes(candidate, winner, replaced)) ||
                              (sameRelation && Corrections.Replaces(winner, candidate))))
                 {
-                    await _preferenceRepository.SupersedeAsync(loser.PreferenceId, winner.PreferenceId, writeScope, cancellationToken)
+                    await _closings.ApplyAsync(ClosingProposal.Preference(loser.PreferenceId, winner.PreferenceId,
+                        writeScope, replaced is not null ? ClosingSource.ExtractorCorrection : ClosingSource.DeterministicReplacement), cancellationToken)
                         .ConfigureAwait(false);
                     _logger.LogDebug("Correction '{Winner}' closed preference '{Loser}' (replaces '{Replaced}').",
                         winner.PreferenceId, loser.PreferenceId, replaced);
@@ -268,7 +271,8 @@ internal sealed class PreferencePersistence
                         if (await _preferenceRepository.GetByIdAsync(member.PreferenceId, cancellationToken).ConfigureAwait(false) is not
                             { InvalidatedAtUtc: null })
                             continue;
-                        await _preferenceRepository.SupersedeAsync(member.PreferenceId, current.PreferenceId, writeScope, cancellationToken)
+                        await _closings.ApplyAsync(ClosingProposal.Preference(member.PreferenceId, current.PreferenceId,
+                            writeScope, ClosingSource.WithinExtractionReplacement), cancellationToken)
                             .ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }

@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Extract historical roadmap/package-merger analysis and the unpublished token-cost pilot while
   preserving public architecture and token-accounting guidance.
 
+### Changed
+
+- **Common internal closing application**: automatic fact, preference and relationship closings now
+  use typed proposals and one repository-application path, including fact withdrawal, entity retirement,
+  name correction and date/edge consequences. Existing decision rules, temporal behavior, transaction boundaries and outcome
+  attribution remain unchanged. No new judge policy, provider call or public option is introduced.
+
 ### Added
 
 - **MCP extraction input mode**: `extract_and_persist` accepts optional `inputMode` values
