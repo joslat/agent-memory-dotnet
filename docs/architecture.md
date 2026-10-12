@@ -1316,8 +1316,17 @@ to one canonical project ID. Operations require `DatabasePerApplication`, pre-pr
 `coding-<project>` databases and no automatic provisioning; ambient project tags alone do not isolate
 a shared database. Session IDs incorporate owner and project, reads exclude shared records, and
 forgetting uses scoped invalidation. Request checks reject browser origins and non-loopback hostnames.
-Writer ingestion, queueing, host wiring and end-to-end database validation are still required before
-this becomes a usable coding service.
+Internal writer ingestion stores bounded source turns with caller-supplied commit/reference metadata,
+then uses explicit `ConversationTurn` input with extractor fallback disabled and untrusted provenance.
+The writer continues to learn from the user target; the assistant reply is stored for later context.
+A single background worker preserves submission order, bounds admission and job retention, and exposes
+only owner/project-scoped job status. Retained duplicate submissions return their existing job; changed
+payloads using the same turn ID are rejected. After eviction or restart, a stored source means
+**prior attempt unknown**, not successful extraction: it is not automatically re-extracted. Queued work
+is not durable, and this does not promise exactly-once writes or safe concurrent service instances.
+Shutdown cancels waiting jobs and marks an interrupted write unknown. Unit checks and a real two-database
+test with a deterministic writer cover persistence, provenance, isolation, retries and soft forgetting.
+Host/transport wiring, content filtering and client integration remain required before activation.
 
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)
 

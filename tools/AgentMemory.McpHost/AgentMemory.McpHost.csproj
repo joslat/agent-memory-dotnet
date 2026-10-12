@@ -27,6 +27,7 @@
     <!-- Option parsing is the part most likely to be quietly wrong and least likely to be caught by
          running the server, so it is unit-tested directly rather than through reflection. -->
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
   </ItemGroup>
 
   <ItemGroup>
