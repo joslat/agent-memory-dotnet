@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Paired closing-policy evaluation tool** (`router-arena closing-evaluate`): compares current named
+  and similarity questions on fixed pairs, reuses identical requests, and records hashes, failures,
+  retries and reported usage. Dry-run requires no credentials; runtime memory behavior is unchanged.
+
 - **MCP extraction input mode**: `extract_and_persist` accepts optional `inputMode` values
   `Unspecified`, `ConversationTurn`, or `Import`. Omission preserves existing behavior; invalid values
   and non-user conversation turns fail before invoking the memory service.

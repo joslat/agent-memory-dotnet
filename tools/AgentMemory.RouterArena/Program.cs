@@ -49,6 +49,13 @@ var dryRun = args.Contains("--dry-run");
 
 switch (args.FirstOrDefault())
 {
+    case "closing-evaluate":
+        if (Get("file") is not { } closingFile || Get("config") is not { } closingConfig || Get("out") is not { } closingOutput)
+        {
+            Console.WriteLine("router-arena closing-evaluate --data <folder> --file <pairs.json> --config <judge.json> --out <prefix> [--dry-run] [--limit n]");
+            return 1;
+        }
+        return await ClosingEvaluationCommand.RunAsync(closingFile, closingConfig, closingOutput, dryRun, Limit(), Console.Out);
     case "compound-evaluate":
         if (Get("file") is not { } compoundFile || Get("config") is not { } compoundConfig || Get("out") is not { } compoundOutput)
         {
