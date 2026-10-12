@@ -28,6 +28,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <!-- The fixed-pool evaluation invokes the same internal coordinator rather than copying its policy. -->
+    <InternalsVisibleTo Include="router-arena" />
   </ItemGroup>
 
 </Project>

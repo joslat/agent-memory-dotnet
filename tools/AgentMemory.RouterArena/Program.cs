@@ -49,6 +49,13 @@ var dryRun = args.Contains("--dry-run");
 
 switch (args.FirstOrDefault())
 {
+    case "compound-evaluate":
+        if (Get("file") is not { } compoundFile || Get("config") is not { } compoundConfig || Get("out") is not { } compoundOutput)
+        {
+            Console.WriteLine("router-arena compound-evaluate --data <folder> --file <fixed-pool.json> --config <gate.json> --out <prefix> [--dry-run] [--limit n]");
+            return 1;
+        }
+        return await CompoundEvaluationCommand.RunAsync(compoundFile, compoundConfig, compoundOutput, dryRun, Limit(), Console.Out);
     case "record":
         if (Get("world") is not { } world || Get("items") is not { } items || Get("out") is not { } output)
         {
@@ -435,6 +442,6 @@ switch (args.FirstOrDefault())
         Console.WriteLine($"matrix: {matrix.Items.Count} turns, dev {matrix.InSplit("dev").Count()}, held out {matrix.InSplit("heldout").Count()}, sha256 {matrix.Sha256[..12]}");
         return 0;
     default:
-        Console.WriteLine("router-arena record | ask-model | ask-jev --mode doors|gates|items | round1 | round2 | final | leaderboard | inspect  [--set v1|v2] [--dry-run] [--limit n]");
+        Console.WriteLine("router-arena record | ask-model | ask-jev --mode doors|gates|items | compound-evaluate | round1 | round2 | final | leaderboard | inspect  [--set v1|v2] [--dry-run] [--limit n]");
         return args.Length == 0 ? 0 : 1;
 }

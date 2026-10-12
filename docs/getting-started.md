@@ -464,6 +464,31 @@ baseline retrieval. A custom `ICompoundQuestionPlanner` can be registered before
 off in all presets; its effect on retrieval quality has not been measured. Turn it off to restore the
 original prompts and calls exactly. As-of recall always follows its existing path.
 
+The repository's operator tool provides a fixed-pool, paired comparison without a Neo4j store:
+
+```bash
+dotnet run --project tools/AgentMemory.RouterArena -- compound-evaluate \
+  --data ./evaluation --file ./evaluation/development.json \
+  --config ./evaluation/gate.json --out ./artifacts/compound-pilot --dry-run
+```
+
+The dataset supplies `schemaVersion: 1`, `status`, `now`, and `cases`; each case has an `id`, `question`,
+optional `conversation` (`role`, `text`), and `candidates` (`key`, `memoryType`, `text`). Labels may be
+kept alongside these fields but are not forwarded to either model. Configuration is `MemoryGateOptions`
+JSON with judges, an explicit compound detector, threshold and timeout. Example-bank files are rejected
+so the input hash covers the complete candidate experiment.
+
+Dry-run validates and counts without resolving credentials or clients. Execution requires explicitly
+configured Bitdeer inference and produces `<prefix>.baseline.json` and `<prefix>.compound.json`, with
+dataset/configuration/assembly hashes. Both arms share one baseline decision. Each case has fresh clients;
+SDK chat retries are pinned to zero, while System One retains its retry. Physical HTTP attempts, failures,
+actual answering judges and available token reports are recorded. Missing usage remains unknown, so token
+totals may be partial. A failed judge is reported even if the remaining blend answered successfully.
+Baseline failures remain failed cases; this experiment does not simulate a second store search for the
+similarity-floor fallback. Three consecutive baseline failures stop the run, leaving incomplete output
+explicitly marked. Results are checkpointed per case; existing result files or a retained `.lock`
+reservation require a new output prefix. No dataset or result is distributed with the tool.
+
 ---
 
 ## 5. Microsoft Agent Framework Integration

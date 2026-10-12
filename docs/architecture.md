@@ -1366,6 +1366,12 @@ gate call can fan out by memory type and judge, with retries. No question or pro
 included in this trace. Local tests establish mechanics; retrieval-quality, latency and cost gains remain
 unmeasured.
 
+The operator-only `compound-evaluate` command invokes the same internal coordinator through a friend
+assembly declaration for `router-arena`; it does not copy its selection policy or add a runtime library
+dependency. Its paired fixed-pool experiment reuses one baseline, hashes its inputs and binaries, counts
+HTTP attempts below both protocols, and flags degraded judge blends. This measures gate selection, not
+store search or a complete answer pipeline.
+
 Some defaults have since been switched on, each on evidence from simulated conversations: the
 working-memory profile block, dates in the prompt (`IncludeDates`) and a separate shared-knowledge recall
 budget (`MemoryOptions.SharedRecallBudget = 3`; a store without shared memory is not searched for it). The

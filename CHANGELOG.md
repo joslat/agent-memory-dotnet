@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Paired compound-retrieval evaluation tool** (`router-arena compound-evaluate`): validates fixed-pool
+  inputs without provider calls in dry-run, then records a shared-baseline comparison with input/binary
+  hashes, physical HTTP attempts, judge failures and available token usage. Checkpoints preserve failed
+  cases and prevent reuse of existing output prefixes. Evaluation data and results remain external.
 - **Experimental compound-question judging** (`MemoryGateOptions.CompoundQuestions`, `AMGATE001`,
   off by default): an explicit System One detector and the host's chat client can split a question
   into at most three retrieval focuses. The gate reuses its candidate pool and preserves baseline
