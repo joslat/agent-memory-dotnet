@@ -222,6 +222,14 @@ unchanged. Core's no-op stubs are excluded from explicit-mode provider availabil
 failure fallback, provenance, scope, trust and persistence policies otherwise retain their contracts.
 This is an additive selection API, not a provider preset or a measured policy improvement.
 
+Core's `ExtractBatchAsync` resolves every request's read scope and write owner before extraction or
+persistence, including when no multi-session extractor is enabled. A late policy rejection fails the
+whole batch before work starts. Those exact resolutions are reused during processing, so custom
+policies run once per request. This is validation before side effects, not an all-or-nothing database
+transaction: later provider or persistence failures retain the existing outcome/transaction behavior.
+Custom pipeline implementations still own their own validation; the default interface fallback has
+no isolation-policy dependency.
+
 | Attribute | Value |
 |---|---|
 | **Purpose** | Orchestration — service implementations, extraction pipeline, context assembly, stubs |

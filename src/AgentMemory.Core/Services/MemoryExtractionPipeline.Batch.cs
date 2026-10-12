@@ -36,16 +36,17 @@ internal sealed partial class MemoryExtractionPipeline
             .ToArray();
 
         var batchExtractor = _multiSessionExtractors.FirstOrDefault(extractor => extractor.IsEnabled);
+        // Resolve every read/write decision before sending any input or writing an earlier request.
+        // Preserve the existing operation names used in policy diagnostics on each path.
+        var operation = batchExtractor is null ? nameof(ExtractAsync) : nameof(ExtractBatchAsync);
+        var targets = ordered.Select(request => ResolveTarget(request, operation)).ToArray();
         if (batchExtractor is null)
         {
             var fallback = new List<ExtractionResult>(ordered.Length);
-            foreach (var request in ordered)
-                fallback.Add(await ExtractAsync(request, cancellationToken).ConfigureAwait(false));
+            for (var index = 0; index < ordered.Length; index++)
+                fallback.Add(await ExtractRequestAsync(ordered[index], targets[index], cancellationToken).ConfigureAwait(false));
             return fallback;
         }
-
-        // Before the paid call and before anything is persisted: a contradictory request fails the batch up front.
-        foreach (var request in ordered) ValidateShared(request);
 
         var extractedBySession = await batchExtractor.ExtractAsync(
             ordered,
@@ -55,15 +56,16 @@ internal sealed partial class MemoryExtractionPipeline
 
         var persisted = new List<ExtractionResult>(ordered.Length);
         using var resolutionBatch = _extractionStage.BeginResolutionBatch();
-        foreach (var request in ordered)
+        for (var index = 0; index < ordered.Length; index++)
         {
+            var request = ordered[index];
             if (!extractedBySession.TryGetValue(request.SessionId, out var extracted))
                 throw new InvalidOperationException(
                     $"Validated batch output is missing source session '{request.SessionId}'.");
 
             var sw = Stopwatch.StartNew();
             // The same resolution as the single path (G-15: a shared request resolves against shared rows only).
-            var (scope, ownerId) = ResolveTarget(request, nameof(ExtractBatchAsync));
+            var (scope, ownerId) = targets[index];
             var staged = WithoutSharedPreferences(request, await _extractionStage.ProcessUnifiedAsync(
                 request.Messages,
                 extracted,

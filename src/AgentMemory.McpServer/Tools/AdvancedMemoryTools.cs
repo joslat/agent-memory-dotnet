@@ -179,8 +179,13 @@ internal sealed class AdvancedMemoryTools
         [Description("Conversation identifier (optional, defaults to session ID)")] string? conversationId = null,
         [Description("Role of the message sender (default: 'user')")] string role = "user",
         [Description("Owner/user identifier (optional, R1). When set, extracted memories are owner-stamped and resolution is owner-scoped; null = stored as shared/global (visible to all owners on recall).")] string? userId = null,
+        [Description("Input intent: Unspecified preserves existing selection; ConversationTurn requires a user message and an enabled writer; Import uses configured extractors and bypasses the writer.")] ExtractionInputMode inputMode = ExtractionInputMode.Unspecified,
         CancellationToken cancellationToken = default)
     {
+        if (!Enum.IsDefined(inputMode))
+            throw new McpException("Input mode must be Unspecified, ConversationTurn or Import.");
+        if (inputMode == ExtractionInputMode.ConversationTurn && !string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
+            throw new McpException("ConversationTurn requires a user message. Use Import for other input roles.");
         var sid = sessionId ?? options.Value.DefaultSessionId;
         var cid = conversationId ?? sid;
 
@@ -199,7 +204,8 @@ internal sealed class AdvancedMemoryTools
             {
                 Messages = new[] { message },
                 SessionId = sid,
-                UserId = userId
+                UserId = userId,
+                InputMode = inputMode,
             }, cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new

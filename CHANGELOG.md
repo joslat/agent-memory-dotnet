@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP extraction input mode**: `extract_and_persist` accepts optional `inputMode` values
+  `Unspecified`, `ConversationTurn`, or `Import`. Omission preserves existing behavior; invalid values
+  and non-user conversation turns fail before invoking the memory service.
 - **Explicit extraction input intent** (`ExtractionRequest.InputMode`): `ConversationTurn` requires
   one target user message and an enabled writer; `Import` bypasses the writer for configured extractors.
   Omitted intent preserves existing behavior. Invalid mode/deferral/batch combinations fail before
@@ -193,6 +196,10 @@ and [docs/routing.md](docs/routing.md).
 
 ### Fixed
 
+- **Batch isolation validation precedes extraction.** Core resolves every request's read scope and
+  write owner before any provider call or persistence, including the per-request fallback. A later
+  rejected request no longer permits earlier writes or sends rejected input to the batch extractor.
+  Resolved policy values are reused once per request; shared administrative imports remain supported.
 - **Declined fact closings preserve related memories.** Deterministic supersession and correction now
   end mirrored relationships only when the repository confirms the fact closed. Partial corrections
   retain support from facts left live, and an event date stays live while any incoming relationship

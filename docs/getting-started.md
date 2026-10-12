@@ -361,6 +361,26 @@ extractor can handle a requested type, the writer's failure remains a failure. `
 does not require or call a provider. The existing adapters and retrospective helper methods continue
 to use `Unspecified`; no default or preset has changed.
 
+The MCP `extract_and_persist` tool exposes the same choice as optional `inputMode`:
+
+```json
+{
+  "messageText": "The support policy requires a response within two working days.",
+  "sessionId": "policy-import",
+  "userId": "owner-id",
+  "inputMode": "Import"
+}
+```
+
+The schema advertises `Unspecified`, `ConversationTurn`, and `Import`; omission preserves existing
+selection. `ConversationTurn` requires `role: "user"` (the role's default) and an enabled writer in the
+host. Mode selection does not change ownership or grant shared-write permissions. Read-only MCP
+servers continue to exclude this tool entirely.
+
+Core validates every batch request's isolation policy before provider calls or writes, even without
+a multi-session extractor. A later rejected owner/shared request prevents earlier requests from being
+written. This does not make otherwise valid batches transactional across provider/persistence failures.
+
 ### 4.3 Point-in-time recall
 
 ```csharp

@@ -5,8 +5,13 @@ A reference for what agent memory is, what a memory system has to decide that a 
 
 **Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
 lets a caller require one conversation turn through an enabled writer, or import through configured
-extractors. Omission preserves existing behavior; adapters and presets have not migrated. This controls
+extractors. Omission preserves existing behavior; adapter defaults and presets remain unchanged. This controls
 selection and validates request shape, not memory quality. See [the extraction guide](getting-started.md#42-extract-long-term-memory).
+
+The existing MCP extraction tool now exposes this optional input mode. Core batch extraction also
+validates all requests' scope/owner decisions before provider or persistence work, and reuses those
+decisions on both batch and per-request paths. These guarantees are locally tested; they do not add
+authentication, change ownership permissions, or make the whole batch one transaction.
 
 **Pending-turn visibility — BUILT / WIRED, not benchmark-measured.** The Agent Framework adapter can
 include outstanding same-store, same-owner, same-session user turns while its built-in queue extracts
