@@ -1308,6 +1308,17 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 > `memory_start_trace` now accepts a `userId` and scopes the trace — previously an MCP-started trace
 > went to the shared/global bucket (CHANGELOG [Unreleased]).
 
+**Coding host preparation (internal, not registered).** `tools/AgentMemory.McpHost/Coding` contains
+project-bound bearer authentication, scoped operation execution, and recall/history/profile/soft-forget
+operations. These helpers are not connected to the host entry point or exposed as HTTP/MCP endpoints;
+the existing host's transport, tools and defaults are unchanged. Credentials bind a configured owner
+to one canonical project ID. Operations require `DatabasePerApplication`, pre-provisioned
+`coding-<project>` databases and no automatic provisioning; ambient project tags alone do not isolate
+a shared database. Session IDs incorporate owner and project, reads exclude shared records, and
+forgetting uses scoped invalidation. Request checks reject browser origins and non-loopback hostnames.
+Writer ingestion, queueing, host wiring and end-to-end database validation are still required before
+this becomes a usable coding service.
+
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)
 
 | Attribute | Value |
