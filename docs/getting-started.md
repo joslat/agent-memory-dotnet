@@ -2,6 +2,9 @@
 
 **Prerequisites covered:** .NET 8, 9, or 10, Neo4j, NuGet packages, DI configuration, first memory store.
 
+For the opt-in local coding-agent HTTP/MCP host, see [the coding service guide](coding-service.md).
+It uses .NET 10, separate project databases, project credentials and an explicit inference provider.
+
 For Agent Framework hosts using background extraction, opt into pending-turn context with
 `services.AddAgentMemoryFramework(options => options.IncludePendingTurns = true);`.
 This keeps outstanding user turns visible within the same store, owner and session while they are

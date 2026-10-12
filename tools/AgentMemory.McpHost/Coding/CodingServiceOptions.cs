@@ -8,6 +8,7 @@ internal sealed record CodingServiceOptions
     public required string OwnerId { get; init; }
     public required IReadOnlyDictionary<string, string> Projects { get; init; }
     public string Url { get; init; } = "http://127.0.0.1:5234";
+    public IReadOnlyList<CodingJudgeOptions> Judges { get; init; } = [];
 
     public void Validate()
     {
@@ -23,3 +24,12 @@ internal sealed record CodingServiceOptions
 }
 
 internal sealed record CodingIdentity(string OwnerId, string ProjectId);
+
+internal sealed record CodingJudgeOptions
+{
+    public required string Name { get; init; }
+    public required string Endpoint { get; init; }
+    public required string Model { get; init; }
+    public string? KeyVariable { get; init; }
+    public double Weight { get; init; } = 1;
+}

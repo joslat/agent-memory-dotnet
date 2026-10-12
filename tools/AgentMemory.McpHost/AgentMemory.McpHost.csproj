@@ -35,6 +35,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extraction.Llm\AgentMemory.Extraction.Llm.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Gate\AgentMemory.Gate.csproj" />
   </ItemGroup>
 
   <ItemGroup>

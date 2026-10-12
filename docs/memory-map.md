@@ -3,6 +3,11 @@
 A reference for what agent memory is, what a memory system has to decide that a store does not, and
 **exactly** which of those decisions AgentMemory makes today.
 
+**Local coding service — BUILT / WIRED, not model-quality measured.** Explicit `--coding-config`
+startup adds project-bound HTTP/MCP, a bounded writer queue, provenance and non-destructive history/
+forgetting. Local transport and real two-database tests use deterministic inference replacements.
+Client hooks, a memory page and remote deployment remain separate work. See [limits](coding-service.md).
+
 **Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
 lets a caller require one conversation turn through an enabled writer, or import through configured
 extractors. Omission preserves existing behavior; adapter defaults and presets remain unchanged. This controls

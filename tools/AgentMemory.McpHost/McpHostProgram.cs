@@ -40,6 +40,8 @@ internal static class McpHostProgram
         }
 
         McpHostOptions options;
+        if (args.Contains("--coding-config", StringComparer.Ordinal))
+            return await Coding.CodingHost.RunAsync(args).ConfigureAwait(false);
         try
         {
             options = McpHostOptions.Parse(args, Environment.GetEnvironmentVariable);

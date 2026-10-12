@@ -1308,10 +1308,10 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 > `memory_start_trace` now accepts a `userId` and scopes the trace — previously an MCP-started trace
 > went to the shared/global bucket (CHANGELOG [Unreleased]).
 
-**Coding host preparation (internal, not registered).** `tools/AgentMemory.McpHost/Coding` contains
+**Opt-in local coding host.** `tools/AgentMemory.McpHost/Coding` contains
 project-bound bearer authentication, scoped operation execution, and recall/history/profile/soft-forget
-operations. These helpers are not connected to the host entry point or exposed as HTTP/MCP endpoints;
-the existing host's transport, tools and defaults are unchanged. Credentials bind a configured owner
+operations. Explicit `--coding-config <private.json>` startup registers these HTTP/MCP endpoints;
+the existing host's transport, tools and defaults are unchanged without that option. Credentials bind a configured owner
 to one canonical project ID. Operations require `DatabasePerApplication`, pre-provisioned
 `coding-<project>` databases and no automatic provisioning; ambient project tags alone do not isolate
 a shared database. Session IDs incorporate owner and project, reads exclude shared records, and
@@ -1331,13 +1331,19 @@ The internal HTTP and stateless MCP mappings share a strict dispatcher for `reca
 project overrides. HTTP acceptance returns 202; completion requires a status query. Recall reuses the
 MCP package's embedding-free projection. Authentication precedes a 64 KiB body limit, including chunked
 requests. Loopback tests exercise the real MCP SDK, rejected credentials, project routing and size limits.
-The entry point still does not register these mappings: no new endpoint is active by default.
+No new endpoint is active by default. Coding startup clears ambient ASP.NET endpoint configuration,
+binds one IPv4 loopback listener, bootstraps each pre-provisioned project under its owner/store scope,
+then starts the hosted worker and transport. The shared inference resolver requires explicit Bitdeer
+or local Ollama; endpoints and optional TypeSafe/local System One judges are checked. The Recommended
+writer has extractor fallback disabled. Compound retrieval remains off. The actual host's HTTP/worker
+path is tested over two real databases with deterministic inference replacements.
 Input checks reject configured credential substrings, recognizable secret formats and bulk content
 before admission, recall, or source persistence; selected prior conversation text is checked too.
 The checker retains supplied credential values in process memory for matching, separate from the hashed
 authentication lookup. These heuristics cannot guarantee arbitrary prose is secret-free, audit existing
-graph content, or filter model-generated output. Startup credential binding, provider configuration,
-listener constraints and client integration remain required before activation.
+graph content, or filter model-generated output. Startup binds project/database/provider/judge credentials
+into the checks. Client hooks, a browser memory page and remote deployment remain separate work.
+See [coding service configuration and limits](coding-service.md).
 
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)
 

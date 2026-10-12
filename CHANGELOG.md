@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in `agent-memory-mcp --coding-config <private.json>` mode: project-bound local HTTP/MCP,
+  writer-only queued ingestion with source references, scoped status/history/soft-forget, and
+  heuristic input checks. Uses separate pre-provisioned project databases and explicit Bitdeer or
+  local Ollama inference; optional JEV/local judges. Existing host behavior is unchanged.
+  See [configuration and limits](docs/coding-service.md).
+
 - **Paired closing-policy evaluation tool** (`router-arena closing-evaluate`): compares current named
   and similarity questions on fixed pairs, reuses identical requests, and records hashes, failures,
   retries and reported usage. Dry-run requires no credentials; runtime memory behavior is unchanged.

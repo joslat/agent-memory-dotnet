@@ -13,6 +13,12 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using System.Net;
+using System.Net.Sockets;
+using System.Net.Http.Json;
+using NSubstitute;
 
 #pragma warning disable AMWRITE001 // Deterministic writer, no model endpoint, over the real persistence pipeline.
 
@@ -37,59 +43,63 @@ public sealed partial class StoreIsolationIntegrationTests
         await provision.EnsureStoreAsync("alpha");
         await provision.EnsureStoreAsync("beta");
 
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddNeo4jAgentMemory(o =>
+        using var reservation = new TcpListener(IPAddress.Loopback, 0);
+        reservation.Start();
+        var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
+        reservation.Stop();
+        var environment = new Dictionary<string, string>
         {
-            o.Uri = neo4j.Uri; o.Username = neo4j.Username; o.Password = neo4j.Password;
-            o.Database = neo4j.Database; o.EmbeddingDimensions = Dimensions;
-        }, store =>
-        {
-            store.Strategy = MemoryStorageStrategy.DatabasePerApplication;
-            store.DatabasePrefix = "coding-"; store.AutoProvision = false;
-        });
-        services.AddAgentMemoryCore(memory =>
-        {
-            memory.Extraction.FallBackToExtractorsWhenWriterFails = false;
-            memory.Extraction.FailureMode = IngestionFailureMode.FailFast;
-        });
+            ["AI_INFERENCE_PROVIDER"] = "ollama", ["OLLAMA_MODEL"] = "fixture",
+            ["AI_EMBEDDING_DIMENSIONS"] = Dimensions.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["NEO4J_URI"] = neo4j.Uri, ["NEO4J_USERNAME"] = Username, ["NEO4J_PASSWORD"] = Password,
+            ["ALPHA_TOKEN"] = new string('x', 40), ["BETA_TOKEN"] = new string('y', 40),
+        };
+        var config = CodingConfiguration.Parse($$"""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN","beta":"BETA_TOKEN"},"url":"http://127.0.0.1:{{port}}"}""",
+            environment.GetValueOrDefault);
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        CodingHost.Configure(builder, config);
+        var services = builder.Services;
+        services.RemoveAll<IChatClient>();
+        var chat = Substitute.For<IChatClient>();
+        services.AddSingleton(chat);
+        services.RemoveAll<IEmbeddingGenerator<string, Embedding<float>>>();
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(new StubEmbeddingGenerator(
             NullLogger<StubEmbeddingGenerator>.Instance, Dimensions));
         var model = new CodingTestWriter();
+        services.RemoveAll<IMemoryWriter>();
         services.AddSingleton<IMemoryWriter>(model);
-        await using var provider = services.BuildServiceProvider(validateScopes: true);
-        var scopes = new CodingOperationScope(provider.GetRequiredService<IServiceScopeFactory>());
-        var content = new CodingContentPolicy([Password]);
-        var operations = new CodingMemoryOperations(scopes, provider.GetRequiredService<IOptions<MemoryOptions>>(), content);
-        var writer = new CodingWriter(scopes, content);
+        await using var app = builder.Build();
+        await CodingHost.PrepareAsync(app, config);
+        CodingTransport.Map(app);
+        var scopes = app.Services.GetRequiredService<CodingOperationScope>();
+        var operations = app.Services.GetRequiredService<CodingMemoryOperations>();
+        var writer = app.Services.GetRequiredService<ICodingWriter>();
         var alpha = new CodingIdentity("owner", "alpha");
         var beta = new CodingIdentity("owner", "beta");
-        foreach (var identity in new[] { alpha, beta })
-            await scopes.RunAsync(identity, async (sp, ct) =>
-            {
-                await sp.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(ct);
-                return true;
-            });
 
         var request = new CodingRememberRequest
         {
             Session = "same-client-session", TurnId = "same-turn", UserText = "alpha-choice",
             Commit = new string('a', 40), Source = "settings.cs",
         };
-        using var queue = new CodingWriteQueue(writer, content);
-        await queue.StartAsync(default);
+        await app.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(config.Options.Url) };
         CodingWriteJob alphaJob;
         try
         {
-            var first = queue.TryEnqueue(alpha, request)!;
-            var second = queue.TryEnqueue(beta, request with { UserText = "beta-choice" })!;
-            alphaJob = await AwaitCodingJobAsync(queue, alpha, first.JobId);
+            var first = await SubmitAsync("alpha", request);
+            var second = await SubmitAsync("beta", request with { UserText = "beta-choice" });
+            alphaJob = await AwaitCodingJobAsync(client, "alpha", environment["ALPHA_TOKEN"], first.JobId);
             alphaJob.State.Should().Be(CodingJobState.Succeeded, alphaJob.ErrorCode);
-            var betaJob = await AwaitCodingJobAsync(queue, beta, second.JobId);
+            var betaJob = await AwaitCodingJobAsync(client, "beta", environment["BETA_TOKEN"], second.JobId);
             betaJob.State.Should().Be(CodingJobState.Succeeded, betaJob.ErrorCode);
-            queue.Get(beta, first.JobId).Should().BeNull();
+            using var foreign = new HttpRequestMessage(HttpMethod.Post, "/projects/beta/write_status")
+                { Content = JsonContent.Create(new { jobId = first.JobId }) };
+            foreign.Headers.Authorization = new("Bearer", environment["BETA_TOKEN"]);
+            using var denied = await client.SendAsync(foreign);
+            denied.StatusCode.Should().Be(HttpStatusCode.NotFound);
         }
-        finally { await queue.StopAsync(default); }
+        finally { await app.StopAsync(); }
 
         var alphaFact = (await operations.HistoryAsync(alpha)).Should().ContainSingle().Subject;
         var betaFact = (await operations.HistoryAsync(beta)).Should().ContainSingle().Subject;
@@ -107,6 +117,7 @@ public sealed partial class StoreIsolationIntegrationTests
         // A new queue/process cannot infer completion from the source alone; no second writer call.
         (await writer.WriteAsync(alpha, request)).PriorAttemptUnknown.Should().BeTrue();
         model.Calls.Should().Be(2);
+        chat.ReceivedCalls().Where(c => c.GetMethodInfo().Name is "GetResponseAsync" or "GetStreamingResponseAsync").Should().BeEmpty();
         (await operations.ForgetAsync(beta, MemoryHistoryKind.Fact, alphaFact.Id)).Should().BeFalse();
         (await operations.ForgetAsync(alpha, MemoryHistoryKind.Fact, alphaFact.Id)).Should().BeTrue();
         (await operations.HistoryAsync(alpha, alphaFact.Id)).Should().ContainSingle()
@@ -114,14 +125,29 @@ public sealed partial class StoreIsolationIntegrationTests
         (await operations.HistoryAsync(beta, alphaFact.Id)).Should().BeEmpty();
         (await operations.HistoryAsync(beta, betaFact.Id)).Should().ContainSingle()
             .Which.Status.Should().Be(MemoryHistoryStatus.Live);
+
+        async Task<CodingWriteJob> SubmitAsync(string project, CodingRememberRequest value)
+        {
+            using var message = new HttpRequestMessage(HttpMethod.Post, $"/projects/{project}/remember")
+                { Content = JsonContent.Create(value, options: CodingApi.Json) };
+            message.Headers.Authorization = new("Bearer", environment[project.ToUpperInvariant() + "_TOKEN"]);
+            using var response = await client.SendAsync(message);
+            response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+            return (await response.Content.ReadFromJsonAsync<CodingWriteJob>(CodingApi.Json))!;
+        }
     }
 
-    private static async Task<CodingWriteJob> AwaitCodingJobAsync(CodingWriteQueue queue, CodingIdentity identity, string id)
+    private static async Task<CodingWriteJob> AwaitCodingJobAsync(HttpClient client, string project, string token, string id)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         while (true)
         {
-            var job = queue.Get(identity, id)!;
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"/projects/{project}/write_status")
+                { Content = JsonContent.Create(new { jobId = id }) };
+            request.Headers.Authorization = new("Bearer", token);
+            using var response = await client.SendAsync(request, deadline.Token);
+            response.EnsureSuccessStatusCode();
+            var job = (await response.Content.ReadFromJsonAsync<CodingWriteJob>(CodingApi.Json, deadline.Token))!;
             if (job.State is not (CodingJobState.Queued or CodingJobState.Running)) return job;
             await Task.Delay(20, deadline.Token);
         }

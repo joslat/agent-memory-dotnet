@@ -1,0 +1,129 @@
+using System.Net;
+using System.Net.Sockets;
+using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.McpHost.Coding;
+using AgentMemory.Neo4j.Infrastructure;
+using FluentAssertions;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using NSubstitute;
+using AgentMemory.Gate;
+
+#pragma warning disable AMGATE001
+
+namespace AgentMemory.Tests.Unit.McpServer;
+
+public sealed class CodingHostTests
+{
+    [Fact]
+    public async Task Uses_only_the_configured_loopback_listener_despite_ambient_endpoints()
+    {
+        var (builder, config) = Setup();
+        builder.Configuration["urls"] = "http://0.0.0.0:0";
+        builder.Configuration["Kestrel:Endpoints:Ambient:Url"] = "http://0.0.0.0:0";
+        CodingHost.Configure(builder, config);
+        builder.Services.RemoveAll<ICodingWriter>();
+        builder.Services.AddSingleton<ICodingWriter, NoCallsWriter>();
+        await using var app = builder.Build();
+        CodingTransport.Map(app);
+        await app.StartAsync();
+        try
+        {
+            app.Urls.Should().Equal(config.Options.Url);
+            using var client = new HttpClient();
+            using var response = await client.PostAsync(config.Options.Url + "/projects/alpha/profile", new StringContent("{}"));
+            response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+            var worker = app.Services.GetRequiredService<CodingWriteQueue>();
+            app.Services.GetServices<IHostedService>().OfType<CodingWriteQueue>().Should().ContainSingle().Which.Should().BeSameAs(worker);
+        }
+        finally { await app.StopAsync(); }
+    }
+
+    [Fact]
+    public async Task Prepares_every_project_under_its_bound_scope_before_serving()
+    {
+        var (builder, config) = Setup(twoProjects: true);
+        CodingHost.Configure(builder, config);
+        var seen = new List<string>();
+        builder.Services.RemoveAll<ISchemaBootstrapper>();
+        builder.Services.AddScoped(sp =>
+        {
+            var bootstrap = Substitute.For<ISchemaBootstrapper>();
+            bootstrap.BootstrapAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+            {
+                sp.GetRequiredService<IWritableMemoryOwnerContext>().UserId.Should().Be("owner");
+                seen.Add(sp.GetRequiredService<IWritableMemoryStoreContext>().ApplicationId!);
+                return Task.CompletedTask;
+            });
+            return bootstrap;
+        });
+        await using var app = builder.Build();
+        await CodingHost.PrepareAsync(app, config);
+        seen.Should().Equal("alpha", "beta");
+        app.Services.GetRequiredService<IOptions<ExtractionOptions>>().Value.FallBackToExtractorsWhenWriterFails.Should().BeFalse();
+        app.Services.GetRequiredService<IOptions<MemoryStoreOptions>>().Value.AutoProvision.Should().BeFalse();
+        app.Services.GetRequiredService<IWritableMemoryStoreContext>().ApplicationId.Should().BeNull();
+        await using var scope = app.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetServices<IMemoryWriter>().Should().ContainSingle(w => w.IsEnabled);
+    }
+
+    [Fact]
+    public async Task A_schema_failure_prevents_readiness()
+    {
+        var (builder, config) = Setup();
+        CodingHost.Configure(builder, config);
+        var bootstrap = Substitute.For<ISchemaBootstrapper>();
+        bootstrap.BootstrapAsync(Arg.Any<CancellationToken>()).Returns(Task.FromException(new InvalidOperationException("unavailable")));
+        builder.Services.RemoveAll<ISchemaBootstrapper>();
+        builder.Services.AddSingleton(bootstrap);
+        await using var app = builder.Build();
+        var prepare = () => CodingHost.PrepareAsync(app, config);
+        await prepare.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    private static (WebApplicationBuilder Builder, CodingConfiguration Config) Setup(bool twoProjects = false)
+    {
+        using var reservation = new TcpListener(IPAddress.Loopback, 0);
+        reservation.Start();
+        var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
+        reservation.Stop();
+        var env = CodingConfigurationTests.EnvironmentValues();
+        env["BETA_TOKEN"] = new string('y', 40);
+        var projects = twoProjects ? "\"alpha\":\"ALPHA_TOKEN\",\"beta\":\"BETA_TOKEN\"" : "\"alpha\":\"ALPHA_TOKEN\"";
+        var json = $$"""{"ownerId":"owner","projects":{ {{projects}} },"url":"http://127.0.0.1:{{port}}"}""";
+        return (WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" }),
+            CodingConfiguration.Parse(json, env.GetValueOrDefault));
+    }
+
+    private sealed class NoCallsWriter : ICodingWriter
+    {
+        public Task<CodingWriteResult> WriteAsync(CodingIdentity identity, CodingRememberRequest request,
+            CancellationToken cancellationToken = default) => throw new InvalidOperationException("No writer call expected.");
+    }
+
+    [Fact]
+    public async Task Explicit_judges_register_the_gate_with_compound_retrieval_off()
+    {
+        var env = CodingConfigurationTests.EnvironmentValues();
+        var config = CodingConfiguration.Parse("""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN"},"judges":[{"name":"laya","endpoint":"http://127.0.0.1:8765/v1/systemone","model":"laya","weight":0.2}]}""", env.GetValueOrDefault);
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        CodingHost.Configure(builder, config);
+        await using var app = builder.Build();
+        var gate = app.Services.GetRequiredService<IOptions<MemoryGateOptions>>().Value;
+        gate.Judges.Should().ContainSingle().Which.Weight.Should().Be(0.2);
+        gate.Mode.Should().Be(MemoryGateMode.Judge);
+        gate.CompoundQuestions.Should().BeFalse();
+        app.Services.GetRequiredService<IMemoryGate>().Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Entry_point_rejects_missing_or_mixed_coding_arguments_without_starting()
+    {
+        (await AgentMemory.McpHost.McpHostProgram.RunAsync(["--coding-config"])).Should().Be(2);
+        (await AgentMemory.McpHost.McpHostProgram.RunAsync(["--coding-config", "unused.json", "--read-only"])).Should().Be(2);
+    }
+}
