@@ -6,6 +6,8 @@ For the opt-in local coding-agent HTTP/MCP host, see [the coding service guide](
 Its optional [memory page](coding-service.md#local-memory-page) lets you inspect history, propose
 sourced corrections and close memories; set `enableBrowserUi` explicitly to enable it.
 For Copilot CLI and VS Code Local, see the [MCP and session-start templates](../samples/CodingMemory/copilot.md).
+For Codex, see the [paired-hook and MCP templates](../samples/CodingMemory/codex.md), including the
+separate client/provider configuration boundary.
 It uses .NET 10, separate project databases, project credentials and an explicit inference provider.
 The [Claude hook sample](../samples/CodingMemory/README.md) adds opt-in automatic recall/write hooks
 and explicit MCP tools, with private client configuration and no automatic installation.

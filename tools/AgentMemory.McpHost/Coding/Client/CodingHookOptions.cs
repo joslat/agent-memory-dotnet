@@ -27,4 +27,4 @@ internal sealed record CodingHookOptions
     }
 }
 
-internal enum CodingHookHarness { Claude, VsCodeLocal, CopilotCli }
+internal enum CodingHookHarness { Claude, VsCodeLocal, CopilotCli, Codex }

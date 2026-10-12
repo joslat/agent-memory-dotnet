@@ -31,8 +31,8 @@ internal static class CodingHookCommand
             using var client = new HttpClient(handler) { BaseAddress = new Uri(options.ServiceUrl), Timeout = Timeout.InfiniteTimeSpan };
             client.DefaultRequestHeaders.Authorization = new("Bearer", token);
             var repository = new CodingRepository(options.RepositoryRoot);
-            var reply = options.Harness == CodingHookHarness.Claude
-                ? await new ClaudeCodingHook(options, policy, new(options), client, repository.ReadCommitAsync)
+            var reply = options.Harness is CodingHookHarness.Claude or CodingHookHarness.Codex
+                ? await new CodingTurnHook(options, policy, new(options), client, repository.ReadCommitAsync)
                     .HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false)
                 : await new CodingSessionStartHook(options, policy, client, repository.ReadCommitAsync)
                     .HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false);

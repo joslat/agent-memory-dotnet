@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using static AgentMemory.McpHost.Coding.Client.CodingHookInput;
 
 namespace AgentMemory.McpHost.Coding.Client;
@@ -15,7 +17,7 @@ internal sealed record CodingHookReply
     public string? SystemMessage { get; init; }
 }
 
-internal sealed class ClaudeCodingHook(CodingHookOptions options, CodingContentPolicy policy, CodingHookState state,
+internal sealed class CodingTurnHook(CodingHookOptions options, CodingContentPolicy policy, CodingHookState state,
     HttpClient client, Func<string, CancellationToken, Task<string>> commit)
 {
     private readonly CodingHookHttp _http = new(options, client);
@@ -23,12 +25,17 @@ internal sealed class ClaudeCodingHook(CodingHookOptions options, CodingContentP
     public async Task<CodingHookReply> HandleAsync(JsonElement input, CancellationToken cancellationToken = default)
     {
         var name = Text(input, "hook_event_name");
-        if (name is not ("SessionStart" or "UserPromptSubmit" or "Stop" or "StopFailure") || Text(input, "agent_id") is not null)
+        var codex = options.Harness == CodingHookHarness.Codex;
+        var discardEvent = codex ? "Interrupt" : "StopFailure";
+        var correlationField = codex ? "turn_id" : "prompt_id";
+        if ((name is not ("SessionStart" or "UserPromptSubmit" or "Stop") && name != discardEvent) || Text(input, "agent_id") is not null)
             return new();
         var session = Text(input, "session_id") ?? throw new ArgumentException("Missing hook session.");
         CodingInput.RequireText(session, 256, nameof(session));
         policy.CheckText(session);
-        var promptId = Text(input, "prompt_id");
+        // Preserve existing Claude IDs. A different client's identical external IDs must not reuse its source records.
+        if (codex) session = "codex:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(session)));
+        var promptId = Text(input, correlationField);
         if (promptId is not null)
         {
             CodingInput.RequireText(promptId, 256, nameof(promptId));
@@ -38,14 +45,14 @@ internal sealed class ClaudeCodingHook(CodingHookOptions options, CodingContentP
         if (!Path.IsPathFullyQualified(cwd) || !CodingHookOptions.IsWithin(options.RepositoryRoot, cwd))
             throw new ArgumentException("Hook is outside its configured repository.");
         var hash = await commit(cwd, cancellationToken).ConfigureAwait(false);
-        if (name == "StopFailure")
+        if (name == discardEvent)
         {
             if (promptId is not null) state.Discard(session, promptId);
             return new();
         }
         if (name == "Stop")
         {
-            if (promptId is null) return new() { SystemMessage = "Memory write skipped: missing prompt_id." };
+            if (promptId is null) return new() { SystemMessage = $"Memory write skipped: missing {correlationField}." };
             if (input.TryGetProperty("stop_hook_active", out var active) && active.ValueKind == JsonValueKind.True) return new();
             string? job = null;
             await state.ConsumeAsync(session, promptId, async (saved, ct) =>
@@ -70,12 +77,12 @@ internal sealed class ClaudeCodingHook(CodingHookOptions options, CodingContentP
                 var captured = new CodingRememberRequest
                 {
                     Session = session, TurnId = promptId, UserText = prompt, Commit = hash,
-                    Source = "claude/UserPromptSubmit; origin unverified",
+                    Source = $"{(codex ? "codex" : "claude")}/UserPromptSubmit; origin unverified",
                 };
                 policy.Check(captured);
                 await state.CaptureAsync(captured, cancellationToken).ConfigureAwait(false);
             }
-            else notice = "Memory recall only: missing prompt_id prevents safe write pairing.";
+            else notice = $"Memory recall only: missing {correlationField} prevents safe write pairing.";
             body = new { session, query = prompt };
         }
         else body = new { };

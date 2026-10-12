@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Explicit Codex hook harness: pair capture/completion by `turn_id`, discard interrupted pending turns,
+  and isolate Codex state/session IDs from Claude while preserving existing Claude pending files.
+  Includes inactive hook/instruction templates and a disabled MCP configuration; no provider activation.
+
 - Copilot CLI and VS Code Local session-start profile hooks, selected explicitly in the private hook
   configuration, with separate MCP/hook templates and per-turn tool instructions. Existing Claude behavior
   remains the default; no guessed completion writes or automatic client activation.

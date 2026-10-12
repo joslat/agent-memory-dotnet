@@ -1,0 +1,9 @@
+{
+  "description": "Optional project memory; review provider routing and hook trust before installing.",
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "dotnet \"/absolute/path/AgentMemory.McpHost.dll\" --coding-hook \"/private/path/codex-client.json\"", "commandWindows": "dotnet \"C:/path/to/AgentMemory.McpHost.dll\" --coding-hook \"C:/Users/YOU/AppData/Local/AgentMemory/codex-client.json\"", "timeout": 6}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "dotnet \"/absolute/path/AgentMemory.McpHost.dll\" --coding-hook \"/private/path/codex-client.json\"", "commandWindows": "dotnet \"C:/path/to/AgentMemory.McpHost.dll\" --coding-hook \"C:/Users/YOU/AppData/Local/AgentMemory/codex-client.json\"", "timeout": 6}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "dotnet \"/absolute/path/AgentMemory.McpHost.dll\" --coding-hook \"/private/path/codex-client.json\"", "commandWindows": "dotnet \"C:/path/to/AgentMemory.McpHost.dll\" --coding-hook \"C:/Users/YOU/AppData/Local/AgentMemory/codex-client.json\"", "timeout": 6}]}],
+    "Interrupt": [{"hooks": [{"type": "command", "command": "dotnet \"/absolute/path/AgentMemory.McpHost.dll\" --coding-hook \"/private/path/codex-client.json\"", "commandWindows": "dotnet \"C:/path/to/AgentMemory.McpHost.dll\" --coding-hook \"C:/Users/YOU/AppData/Local/AgentMemory/codex-client.json\"", "timeout": 3}]}]
+  }
+}

@@ -1,0 +1,10 @@
+# Merge into user-level Codex configuration only after reviewing the client/model data path.
+# This server remains disabled until explicitly enabled.
+[mcp_servers.agent-memory]
+url = "http://127.0.0.1:5234/projects/my-project/mcp"
+bearer_token_env_var = "MY_PROJECT_MEMORY_TOKEN"
+enabled = false
+enabled_tools = ["profile", "recall", "remember", "write_status", "history", "forget"]
+default_tools_approval_mode = "prompt"
+startup_timeout_sec = 10
+tool_timeout_sec = 30

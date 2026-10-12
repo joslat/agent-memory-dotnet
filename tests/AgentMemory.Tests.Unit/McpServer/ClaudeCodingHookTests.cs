@@ -75,7 +75,7 @@ public sealed class ClaudeCodingHookTests
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "claude-hook-test-" + Guid.NewGuid().ToString("N"));
         public string Token { get; } = new('x', 40);
         public Handler Handler { get; } = new();
-        public ClaudeCodingHook Hook { get; }
+        public CodingTurnHook Hook { get; }
         private readonly HttpClient _client;
         public Fixture()
         {

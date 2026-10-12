@@ -1,6 +1,7 @@
 # Claude Code with local project memory
 
 For Copilot CLI or VS Code Local, use the separate [client guide](copilot.md) and templates.
+For Codex, use the [paired-hook and disabled MCP templates](codex.md); review its model/provider path first.
 
 These are templates, not installed client settings. Use a build of the host that includes
 `--coding-hook`; an older released tool may not contain it. See the [service setup](../../docs/coding-service.md)

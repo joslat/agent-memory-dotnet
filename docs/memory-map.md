@@ -14,6 +14,8 @@ tested with synthetic data; corrections are not guaranteed replacements. Activat
 deployment remain separate work. Copilot CLI/VS Code Local have optional session-start profile hooks
 and MCP/instruction templates, locally tested against fake services. Fully automatic per-turn capture
 and actual client sessions remain unverified. See [limits](coding-service.md).
+Codex has an explicitly selected paired-turn helper, interruption cleanup and disabled MCP templates,
+tested with synthetic inputs; no live Codex session or provider compatibility is claimed.
 
 **Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
 lets a caller require one conversation turn through an enabled writer, or import through configured

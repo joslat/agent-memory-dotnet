@@ -101,7 +101,10 @@ internal sealed class CodingHookState(CodingHookOptions options, TimeProvider? t
     {
         CodingInput.RequireText(session, 256, nameof(session));
         CodingInput.RequireText(prompt, 256, nameof(prompt));
-        var key = JsonSerializer.SerializeToUtf8Bytes(new[] { options.ServiceUrl, options.Project, Path.GetFullPath(options.RepositoryRoot), session, prompt });
+        string[] identity = [options.ServiceUrl, options.Project, Path.GetFullPath(options.RepositoryRoot), session, prompt];
+        // Keep existing Claude cache filenames readable across upgrades; additional harnesses get distinct state.
+        if (options.Harness != CodingHookHarness.Claude) identity = [.. identity, options.Harness.ToString()];
+        var key = JsonSerializer.SerializeToUtf8Bytes(identity);
         return Path.Combine(options.StateDirectory, "turn-" + Convert.ToHexStringLower(SHA256.HashData(key)) + ".json");
     }
 

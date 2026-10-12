@@ -1358,6 +1358,10 @@ The hook configuration's `Harness` defaults to Claude. `VsCodeLocal` and `Copilo
 HTTP and context projection, with their distinct session-start output envelopes. They read only the
 profile: no prompt capture, pending state or guessed completion pairing. Their per-turn recall/write
 path uses explicit MCP instructions and retains a live-client validation gate.
+`Codex` uses the shared turn helper with its documented `turn_id` and `Interrupt` contract. It has a
+separate service-session namespace and pending-state key; existing Claude cache keys remain readable.
+The helper's model field is not a provider authorization check. Templates remain inactive, and actual
+client/provider validation is separate from helper tests.
 Templates are in `samples/CodingMemory`.
 See [coding service configuration and limits](coding-service.md).
 
