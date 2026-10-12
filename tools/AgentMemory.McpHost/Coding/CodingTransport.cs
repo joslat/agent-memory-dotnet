@@ -31,6 +31,7 @@ internal static class CodingTransport
         app.UseRouting();
         app.UseMiddleware<CodingRequestAuthorization>();
         app.UseMiddleware<CodingBodyLimit>();
+        CodingMemoryPage.Map(app);
         app.MapMcp("/projects/{project}/mcp");
         app.MapPost("/projects/{project}/{operation}", async (HttpContext context, CodingApi api, string operation) =>
         {
@@ -43,6 +44,6 @@ internal static class CodingTransport
                 return Results.Json(result.Body, CodingApi.Json, statusCode: result.StatusCode);
             }
             catch (JsonException) { return Results.Json(new { error = "invalid_input" }, statusCode: 400); }
-        });
+        }).WithMetadata(CodingBrowserEndpoint.Api);
     }
 }

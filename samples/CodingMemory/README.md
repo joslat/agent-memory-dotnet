@@ -4,6 +4,10 @@ These are templates, not installed client settings. Use a build of the host that
 `--coding-hook`; an older released tool may not contain it. See the [service setup](../../docs/coding-service.md)
 first. No provider or client is activated by building the sample.
 
+To inspect project memory locally, the service also has an optional [memory page](../../docs/coding-service.md#local-memory-page).
+Enable `enableBrowserUi` in its private configuration, open `/projects/<project>/ui` on the local service,
+and connect with that project's token. It can show history, propose corrections and close memories.
+
 1. Copy `client.example.json` into a private location outside the repository and edit its paths/project.
    Use an owner-private state directory outside all source-controlled folders. The hook stores bounded
    pending prompt text there in plaintext. On Windows it inherits that directory's access permissions;

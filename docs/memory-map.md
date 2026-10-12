@@ -8,7 +8,10 @@ startup adds project-bound HTTP/MCP, a bounded writer queue, provenance and non-
 forgetting. Local transport and real two-database tests use deterministic inference replacements.
 The native Claude hook client is built and locally tested with fake HTTP, including real executable/Git
 handling. It injects bounded typed memory and queues matching turns; no real client session or model
-quality claim. Activation, the memory page and remote deployment remain separate work. See [limits](coding-service.md).
+quality claim. An optional local memory page shows a bounded history view and profile, submits sourced
+corrections through the writer, and closes memories without deleting history. Browser interactions are
+tested with synthetic data; corrections are not guaranteed replacements. Activation and remote
+deployment remain separate work. See [limits](coding-service.md).
 
 **Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
 lets a caller require one conversation turn through an enabled writer, or import through configured

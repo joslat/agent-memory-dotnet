@@ -1315,7 +1315,8 @@ the existing host's transport, tools and defaults are unchanged without that opt
 to one canonical project ID. Operations require `DatabasePerApplication`, pre-provisioned
 `coding-<project>` databases and no automatic provisioning; ambient project tags alone do not isolate
 a shared database. Session IDs incorporate owner and project, reads exclude shared records, and
-forgetting uses scoped invalidation. Request checks reject browser origins and non-loopback hostnames.
+forgetting uses scoped invalidation. Request checks reject browser origins by default and always reject
+non-loopback hostnames; the optional page's same-origin exception is described below.
 Internal writer ingestion stores bounded source turns with caller-supplied commit/reference metadata,
 then uses explicit `ConversationTurn` input with extractor fallback disabled and untrusted provenance.
 The writer continues to learn from the user target; the assistant reply is stored for later context.
@@ -1346,8 +1347,14 @@ into the checks. The native `--coding-hook` command shares strict configuration 
 validates repository identity through Git, and talks only to the configured loopback project endpoint.
 It pairs Claude events by session/prompt ID using private bounded pending state, injects whole typed
 memories within a character budget, and treats queued acceptance separately from successful ingestion.
-Its source is untrusted; it reads no transcript or source file. Real client activation, a browser memory
-page and remote deployment remain separate work. Templates are in `samples/CodingMemory`.
+Its source is untrusted; it reads no transcript or source file. Optional `EnableBrowserUi` defaults false:
+off registers no page routes and retains rejection of every browser Origin. On maps fixed embedded
+assets and permits exact same-origin HTTP requests with the existing project bearer checks. Endpoint
+metadata limits the unauthenticated exception to those data-free assets; MCP never gets the browser
+exception. The page renders memories as text under a restrictive CSP, retains credentials only in tab
+memory, and reuses history/profile/forget/remember/status operations. Corrections are sourced writer
+proposals, not direct graph edits. Real client activation and remote deployment remain separate work.
+Templates are in `samples/CodingMemory`.
 See [coding service configuration and limits](coding-service.md).
 
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)

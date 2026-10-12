@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional local coding memory page (`enableBrowserUi`, off by default): owner/project history and
+  profile, sourced correction proposals with job status, and non-destructive closing. Same-origin HTTP
+  still requires a project token; browser MCP stays disabled. No client or service is activated automatically.
+
 - Opt-in `--coding-hook <private-client.json>` Claude Code client: bounded profile/recall context,
   repository-checked turn capture and asynchronous writes on matching completion events. Includes
   private-state limits, non-blocking failures and inactive hook/MCP configuration templates.

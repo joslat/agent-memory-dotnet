@@ -8,6 +8,8 @@ internal sealed record CodingServiceOptions
     public required string OwnerId { get; init; }
     public required IReadOnlyDictionary<string, string> Projects { get; init; }
     public string Url { get; init; } = "http://127.0.0.1:5234";
+    /// <summary>Opt-in local memory page. Off registers no page routes and rejects every browser Origin.</summary>
+    public bool EnableBrowserUi { get; init; }
     public IReadOnlyList<CodingJudgeOptions> Judges { get; init; } = [];
 
     public void Validate()

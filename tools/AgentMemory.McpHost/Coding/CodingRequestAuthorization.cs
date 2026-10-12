@@ -8,12 +8,22 @@ internal sealed class CodingRequestAuthorization(RequestDelegate next, CodingPro
     {
         context.Response.Headers.CacheControl = "no-store";
         var listener = new Uri(options.Url);
-        // Native clients only. Browser origins and DNS-rebinding hostnames are not local authorization.
-        if (context.Request.Headers.ContainsKey("Origin") ||
+        var browser = context.GetEndpoint()?.Metadata.GetMetadata<CodingBrowserEndpoint>();
+        var origins = context.Request.Headers.Origin;
+        var allowedOrigin = options.EnableBrowserUi && browser is not null && origins.Count == 1 &&
+            origins[0] == listener.GetLeftPart(UriPartial.Authority);
+        if ((context.Request.Headers.ContainsKey("Origin") && !allowedOrigin) ||
             context.Request.Host.Host != listener.Host ||
             (context.Request.Host.Port ?? 80) != listener.Port)
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+
+        // Only explicitly mapped, data-free assets bypass bearer authorization. Never an API or MCP route.
+        if (options.EnableBrowserUi && browser == CodingBrowserEndpoint.Asset)
+        {
+            await next(context).ConfigureAwait(false);
             return;
         }
 

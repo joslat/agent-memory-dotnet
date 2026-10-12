@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Project memory · AgentMemory</title>
+  <link rel="stylesheet" href="ui/style.css">
+  <script src="ui/app.js" defer></script>
+</head>
+<body>
+<main>
+  <header><p class="eyebrow">AGENT MEMORY / LOCAL WORKSPACE</p><h1>What your project remembers.</h1>
+    <p id="project" class="subtitle"></p></header>
+  <section id="access" class="panel">
+    <h2>Open project memory</h2>
+    <form id="connect-form"><label for="token">Project token</label>
+      <div class="inline"><input id="token" type="password" required maxlength="256" autocomplete="off" spellcheck="false">
+      <button type="submit">Connect</button></div>
+    </form>
+    <p class="hint">The token stays in this tab's memory. Disconnect or close the tab to clear it.</p>
+  </section>
+  <p id="notice" role="status" aria-live="polite"></p>
+  <div id="workspace" hidden>
+    <nav aria-label="Memory actions"><button id="refresh">Refresh</button><button id="disconnect" class="secondary">Disconnect</button></nav>
+    <section class="panel"><h2>Working profile</h2><pre id="profile"></pre></section>
+    <section class="panel">
+      <div class="heading"><h2>Memory history</h2><span class="badge" id="count"></span></div>
+      <p class="hint">Up to 50 records, including closed memories. This is a limited view, not a full export.</p>
+      <form id="lookup-form" class="inline"><label for="memory-id">Find by ID</label><input id="memory-id" maxlength="256" placeholder="Leave empty for recent history"><button type="submit" class="secondary">Find</button></form>
+      <div id="memories"></div>
+    </section>
+    <section id="correction-panel" class="panel" hidden>
+      <h2>Propose a correction</h2><p id="selected"></p>
+      <p class="hint">The writer reviews your correction and may keep the existing memory. The original and its history stay available. Submitting sends the correction and relevant stored context to your configured model providers.</p>
+      <form id="correction-form">
+        <label for="correction">What should it remember instead?</label><textarea id="correction" required maxlength="6500" rows="4"></textarea>
+        <label for="commit">Full Git commit ID</label><input id="commit" required pattern="[a-fA-F0-9]{40}|[a-fA-F0-9]{64}" maxlength="64" autocomplete="off" spellcheck="false">
+        <p class="hint">The commit identifies your project revision; it is recorded as supplied.</p>
+        <button id="submit-correction" type="submit">Submit correction</button>
+      </form>
+    </section>
+    <section class="panel" id="job-panel" hidden><h2>Correction status</h2><p id="job-status" role="status"></p>
+      <button id="check-job" class="secondary">Check status</button>
+      <p class="hint">Jobs are kept in memory for a limited time. A missing status does not mean the write succeeded. Refresh history to see what changed.</p>
+    </section>
+  </div>
+  <footer>Project-scoped memory · Closing retains history · No automatic submissions</footer>
+</main>
+</body>
+</html>

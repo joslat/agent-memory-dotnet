@@ -4,8 +4,9 @@ The opt-in coding mode gives native coding clients one project-bound HTTP/MCP se
 `agent-memory-mcp --coding-config <private.json>` (or the equivalent `dotnet run --project
 tools/AgentMemory.McpHost -- --coding-config <private.json>`). The ordinary MCP host is unchanged.
 This mode is built and wired. A native Claude hook client and templates are available in
-[the coding sample](../samples/CodingMemory/README.md); a browser memory page and remote OAuth deployment
-remain separate work. Local tests cover transport and persistence, not model quality or a real client workflow.
+[the coding sample](../samples/CodingMemory/README.md), with an optional [local memory page](#local-memory-page).
+Remote OAuth deployment remains separate work. Local tests cover transport, page interactions and
+persistence, not model quality or a real client workflow.
 
 ## Configuration
 
@@ -103,8 +104,9 @@ learns from the user target; an optional assistant reply is stored for later con
 ## Limits and failure behavior
 
 Bodies are capped at 64 KiB, including chunked requests. Text fields are bounded to at most 8,000
-characters; multiline/bulk and transcript-shaped inputs can be rejected. Browser origins are refused.
-This is for native clients, not a browser API or remote MCP connector.
+characters; multiline/bulk and transcript-shaped inputs can be rejected. Browser origins are refused
+by default. The optional local page below permits same-origin HTTP requests; MCP stays native-only.
+This mode is not a remote MCP connector.
 
 Input checks reject recognizable secret formats and configured credential substrings before admission,
 recall or source persistence, including selected prior conversation text. Authentication stores token
@@ -124,3 +126,32 @@ Failures return stable codes, without exception payloads. Coding mode suppresses
 log providers and emits only generic startup diagnostics to stderr; request text is not an operational
 debug log. The service is one local process; monitoring, client activation and remote deployment need
 their own integration work.
+
+## Local memory page
+
+Set `"enableBrowserUi": true` in the private coding-service configuration and restart the service.
+Open `http://127.0.0.1:5234/projects/<project>/ui` (use your configured port). Paste that project's
+token to connect. The static page contains no memories or credentials; every data operation requires
+the bearer token. The page keeps it in JavaScript memory, without cookies or browser storage, and
+clears it and displayed data on disconnect or navigation away.
+
+The page shows the owner's working profile and up to 50 history records, including closed records,
+sources and supersession links. Look up a known memory ID to narrow the view. It is not a full export.
+**Close memory** uses the scoped non-destructive forget operation. **Correct** submits a sourced user
+turn through the existing writer, with a full Git commit ID you supply; it does not directly overwrite
+the selected record or guarantee that the writer accepts the correction. Submitting a correction
+uses the configured model providers; viewing history/profile and closing do not invoke inference.
+
+Check the correction's retained job status, then refresh history. The page distinguishes acceptance,
+success, partial completion, failure, unknown completion and cancellation. A missing status is not
+success. Repeating the last identical correction text/commit/target in the same connected tab reuses its turn
+ID, including after an ambiguous network failure; this is not durable retry protection across tabs or
+restarts. The page has a 15-second request timeout and never submits automatically.
+
+This option defaults to false: no page routes are registered, and all browser origins remain rejected.
+When enabled, only exact same-origin HTTP requests are allowed, still subject to project bearer
+authorization and loopback Host checks. Cross-origin requests and browser MCP calls remain rejected.
+Assets are embedded in the tool, with no CDN or repository file serving. A restrictive content security
+policy blocks framing and inline scripts; stored content is rendered as text. Local tests cover routing
+and authorization, and a synthetic Chrome check covers page interactions; this is not live model-quality
+validation or remote deployment support.

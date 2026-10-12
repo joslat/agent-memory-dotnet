@@ -19,6 +19,73 @@ namespace AgentMemory.Tests.Unit.McpServer;
 
 public sealed class CodingTransportTests
 {
+    [Fact]
+    public async Task Page_canonicalizes_trailing_slash_so_relative_assets_load()
+    {
+        await using var fixture = await Fixture.Start(true);
+        using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = fixture.Client.BaseAddress };
+        client.DefaultRequestHeaders.Host = "127.0.0.1:5234";
+        using var response = await client.GetAsync("/projects/alpha/ui/");
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        response.Headers.Location!.OriginalString.Should().Be("/projects/alpha/ui");
+    }
+
+    [Theory]
+    [InlineData(false, "ui", 401)]
+    [InlineData(false, "ui/app.js", 401)]
+    [InlineData(true, "ui", 200)]
+    [InlineData(true, "ui/app.js", 200)]
+    [InlineData(true, "ui/style.css", 200)]
+    [InlineData(true, "profile", 401)]
+    [InlineData(true, "ui/missing.js", 401)]
+    public async Task Only_enabled_static_page_assets_are_public(bool enabled, string path, int status)
+    {
+        await using var fixture = await Fixture.Start(enabled);
+        using var response = await fixture.Client.GetAsync($"/projects/alpha/{path}");
+        ((int)response.StatusCode).Should().Be(status);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        if (status == 200)
+        {
+            response.Headers.GetValues("Content-Security-Policy").Single().Should().Contain("frame-ancestors 'none'");
+            response.Headers.GetValues("X-Content-Type-Options").Single().Should().Be("nosniff");
+            (await response.Content.ReadAsStringAsync()).Should().NotContain(new string('a', 40));
+        }
+        fixture.Profile.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false, true, "http://127.0.0.1:5234", "profile", 403)]
+    [InlineData(true, true, "http://127.0.0.1:5234", "profile", 200)]
+    [InlineData(true, false, "http://127.0.0.1:5234", "profile", 401)]
+    [InlineData(true, true, "http://127.0.0.1:5235", "profile", 403)]
+    [InlineData(true, true, "https://attacker.example", "profile", 403)]
+    [InlineData(true, true, "null", "profile", 403)]
+    [InlineData(true, true, "http://127.0.0.1:5234/", "profile", 403)]
+    [InlineData(true, true, "http://127.0.0.1:5234", "mcp", 403)]
+    public async Task Browser_API_requires_opt_in_exact_origin_and_project_credential(bool enabled, bool auth,
+        string origin, string operation, int status)
+    {
+        await using var fixture = await Fixture.Start(enabled);
+        using var request = fixture.Request($"/projects/alpha/{operation}", new { }, auth);
+        request.Headers.Add("Origin", origin);
+        using var response = await fixture.Client.SendAsync(request);
+        ((int)response.StatusCode).Should().Be(status);
+        if (status != 200) fixture.Profile.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("attacker.example:5234", null)]
+    [InlineData("127.0.0.1:5234", "https://attacker.example")]
+    public async Task Page_assets_keep_host_and_origin_checks(string host, string? origin)
+    {
+        await using var fixture = await Fixture.Start(true);
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/projects/alpha/ui");
+        request.Headers.Host = host;
+        if (origin is not null) request.Headers.Add("Origin", origin);
+        using var response = await fixture.Client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     [Theory]
     [InlineData("alpha", false, null, 401)]
     [InlineData("beta", true, null, 401)]
@@ -115,14 +182,14 @@ public sealed class CodingTransportTests
         private WebApplication _app = null!;
         private static readonly string Token = new('a', 40);
 
-        public static async Task<Fixture> Start()
+        public static async Task<Fixture> Start(bool enableBrowserUi = false)
         {
             var fixture = new Fixture();
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
             builder.Logging.ClearProviders();
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             var services = builder.Services;
-            var options = new CodingServiceOptions { OwnerId = "owner", Projects = new Dictionary<string, string> { ["alpha"] = "ALPHA_KEY", ["beta"] = "BETA_KEY" } };
+            var options = new CodingServiceOptions { OwnerId = "owner", EnableBrowserUi = enableBrowserUi, Projects = new Dictionary<string, string> { ["alpha"] = "ALPHA_KEY", ["beta"] = "BETA_KEY" } };
             services.AddSingleton(options).AddSingleton(new CodingProjectAccess(options, name => name == "ALPHA_KEY" ? Token : new string('b', 40)));
             services.AddSingleton(fixture.Profile);
             services.AddSingleton<IWritableMemoryOwnerContext, DefaultMemoryOwnerContext>();
