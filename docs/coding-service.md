@@ -59,6 +59,29 @@ Recommended memory/writer preset and disables extractor fallback. Legacy memory-
 settings do not customize that preset. The mode clears ambient ASP.NET configuration and binds only the
 configured IPv4 loopback address, with at most 64 concurrent connections. Do not expose it through a proxy.
 
+### Why extractor fallback is disabled
+
+This is a coding-host policy, not a limitation of the memory library. The library can fall back
+from a failed store-aware writer to extractors when `FallBackToExtractorsWhenWriterFails` is enabled.
+That changes how memories are selected and persisted: extractors do not make the writer's
+store-aware add/replace/correct/confirm decisions.
+
+The coding job receipt currently reports ingestion status, not the extraction tier that produced
+it. Turning fallback on would therefore let an extractor-written turn look like ordinary completion
+under the host's writer-only policy. The host sets fallback off and the ingestion adapter checks it
+before creating new source records, including when the adapter is composed outside the standard host.
+Legacy environment settings cannot override it, and there is currently no coding-config switch for it.
+
+Keep this policy unless the host explicitly adds configurable fallback with a per-job indication
+that extractors were used and failure-path tests covering provenance, outcomes and duplicate turns.
+Enabling a core option or removing the adapter guard alone is insufficient. A failed attempt can
+leave source messages; an existing source without a retained receipt remains unknown and is not
+automatically replayed. `succeeded` reports completed ingestion, not proof that a new memory was stored.
+
+This restriction does **not** disable the host-model **closing-judge** fallback. When the configured
+update judge is absent or fails, the Recommended writer can still ask its chat model to judge its
+named closings. A negative closing verdict is not a failure to bypass with another judge.
+
 ## Optional retrieval and update judges
 
 Add a `judges` array to the configuration to enable the existing gate. Without it, recall uses the

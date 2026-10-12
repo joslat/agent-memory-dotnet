@@ -45,6 +45,9 @@ internal static class CodingHost
             store.DatabasePrefix = "coding-"; store.AutoProvision = false;
         });
         var memory = MemoryOptions.CreateRecommended();
+        // Coding jobs report ingestion status, not which extraction tier ran. Keep the writer-only
+        // contract until a configured extractor fallback can be identified in each job's receipt.
+        // This does not disable the host-model fallback for judging the writer's named closings.
         memory.Extraction.FallBackToExtractorsWhenWriterFails = false;
         services.AddAgentMemoryCore(memory);
         services.AddSingleton<IClock, SystemClock>();

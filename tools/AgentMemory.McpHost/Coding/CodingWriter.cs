@@ -43,6 +43,9 @@ internal sealed class CodingWriter(CodingOperationScope scopes, CodingContentPol
                 return new CodingWriteResult { SourceMessageId = sourceId, PriorAttemptUnknown = true };
             }
 
+            // Enforce the same writer-only policy for alternate transport/DI compositions before
+            // creating source messages. Core supports extractor fallback, but CodingWriteResult
+            // does not report that tier change; changing this guard alone would conceal it from clients.
             if (services.GetRequiredService<IOptions<ExtractionOptions>>().Value.FallBackToExtractorsWhenWriterFails)
                 throw new InvalidOperationException("Coding ingestion requires extractor fallback to be disabled.");
             if (!services.GetServices<IMemoryWriter>().Any(w => w.IsEnabled))

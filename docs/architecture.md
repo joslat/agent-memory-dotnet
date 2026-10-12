@@ -1319,6 +1319,11 @@ forgetting uses scoped invalidation. Request checks reject browser origins by de
 non-loopback hostnames; the optional page's same-origin exception is described below.
 Internal writer ingestion stores bounded source turns with caller-supplied commit/reference metadata,
 then uses explicit `ConversationTurn` input with extractor fallback disabled and untrusted provenance.
+This is a host policy rather than a core restriction: coding job receipts carry ingestion status,
+not the extraction tier used. Both host wiring and adapter preflight enforce writer-only ingestion;
+enabling fallback requires an explicit host option and a per-job tier indication with failure-path
+coverage. Host-model fallback for the writer's named closing judgments remains enabled. See
+[the coding-service rationale](coding-service.md#why-extractor-fallback-is-disabled).
 The writer continues to learn from the user target; the assistant reply is stored for later context.
 A single background worker preserves submission order, bounds admission and job retention, and exposes
 only owner/project-scoped job status. Retained duplicate submissions return their existing job; changed
