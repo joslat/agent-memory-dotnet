@@ -92,10 +92,17 @@ named closings. A negative closing verdict is not an outage to bypass with anoth
 
 ## Optional retrieval and update judges
 
-Add a `judges` array to the configuration to enable the existing gate. Without it, recall uses the
-normal retrieval path and the writer's closing fallback uses the configured chat model. For example:
+Add a `judges` array to enable the retrieval gate. Set `"closingJudgeName": "jev"` alongside it to
+permit that specific endpoint to judge storage closings, regardless of array order. Omitting or setting
+the name to null uses the host-model closing judge only; it does not disable retrieval. Empty or unknown
+names are rejected. Retrieval training alone does not qualify a model to judge storage updates.
+
+**Migration:** earlier coding-host versions used the first retrieval endpoint for closing decisions.
+Add its exact name as `closingJudgeName` to retain that external judge. The general library preserves
+legacy selection unless `MemoryGateOptions.UpdateJudgeName` is explicitly set. For example:
 
 ```json
+"closingJudgeName": "jev",
 "judges": [
   {
     "name": "jev",

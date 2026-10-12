@@ -20,6 +20,30 @@ namespace AgentMemory.Tests.Unit.McpServer;
 public sealed class CodingHostTests
 {
     [Theory]
+    [InlineData(null)]
+    [InlineData("closing")]
+    public async Task Retrieval_list_order_does_not_grant_storage_closing_permission(string? closing)
+    {
+        var config = CodingConfiguration.Parse(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            ownerId = "owner", projects = new { alpha = "ALPHA_TOKEN" }, closingJudgeName = closing,
+            judges = new[]
+            {
+                new { name = "retrieval-only", endpoint = "http://127.0.0.1:8765/v1/systemone", model = "retrieval" },
+                new { name = "closing", endpoint = "http://127.0.0.1:8766/v1/systemone", model = "closing" },
+            },
+        }), CodingConfigurationTests.EnvironmentValues().GetValueOrDefault);
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        CodingHost.Configure(builder, config);
+        await using var app = builder.Build();
+        var options = app.Services.GetRequiredService<IOptions<MemoryGateOptions>>().Value;
+        options.UpdateJudge.Should().Be(closing is not null);
+        options.UpdateJudgeName.Should().Be(closing);
+        app.Services.GetRequiredService<IMemoryUpdateJudge>().IsEnabled.Should().Be(closing is not null);
+        options.Judges.Should().HaveCount(2);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Extractor_fallback_requires_explicit_host_configuration(bool allow)

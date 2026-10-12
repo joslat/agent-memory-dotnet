@@ -327,6 +327,67 @@ public sealed class GateTests
     private static readonly SystemOneEndpoint Jev = new() { Name = "jev", Endpoint = new("https://jev.test/v1/systemone"), Weight = 0.8 };
     private static readonly SystemOneEndpoint Laya = new() { Name = "laya", Endpoint = new("http://laya.test/v1/systemone"), Weight = 0.2 };
 
+    [Theory]
+    [InlineData("jev", true)]
+    [InlineData(null, true)]
+    [InlineData("jev", false)]
+    [InlineData("missing", true)]
+    public async Task Storage_selection_is_explicit_and_never_routes_around_a_negative_verdict(string? selected, bool enabled)
+    {
+        var server = new Server(call => Answer(call, 0.1));
+        var judge = new SystemOneUpdateJudge(new SystemOneClient(new HttpClient(server)), Options.Create(new MemoryGateOptions
+        {
+            Judges = [Laya, Jev], UpdateJudge = enabled, UpdateJudgeName = selected,
+        }));
+        var request = new MemoryUpdateRequest("the plan changed", DateTimeOffset.UnixEpoch,
+            [new MemoryUpdatePair("p1", "new plan", "old plan")]);
+        if (!enabled || selected == "missing")
+        {
+            judge.IsEnabled.Should().BeFalse();
+            await judge.Invoking(j => j.JudgeAsync(request)).Should().ThrowAsync<InvalidOperationException>();
+            server.Calls.Should().BeEmpty();
+        }
+        else
+        {
+            judge.IsEnabled.Should().BeTrue();
+            (await judge.JudgeAsync(request))["p1"].Should().Be(0.1);
+            server.Calls.Should().ContainSingle().Which.Url.Should().Be((selected is null ? Laya : Jev).Endpoint!.ToString());
+        }
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("")]
+    [InlineData("duplicate")]
+    public void Invalid_storage_selection_is_rejected_by_options_validation(string selected)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IMemoryContextAssembler>(new Inner(Wide, Today));
+        services.AddAgentMemoryGate(o =>
+        {
+            o.UpdateJudgeName = selected;
+            o.Judges = [Jev, Laya, new() { Name = "duplicate", Endpoint = Jev.Endpoint }, new() { Name = "duplicate", Endpoint = Laya.Endpoint }];
+        });
+        using var provider = services.BuildServiceProvider();
+        FluentActions.Invoking(() => provider.GetRequiredService<IOptions<MemoryGateOptions>>().Value)
+            .Should().Throw<OptionsValidationException>().WithMessage("*UpdateJudgeName*");
+    }
+
+    [Fact]
+    public async Task A_selected_storage_judge_outage_never_calls_the_other_retrieval_model()
+    {
+        var server = new Server(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var judge = new SystemOneUpdateJudge(new SystemOneClient(new HttpClient(server)), Options.Create(new MemoryGateOptions
+        {
+            Judges = [Laya, Jev], UpdateJudge = true, UpdateJudgeName = "jev", JudgeFailuresBeforeCooldown = 1,
+        }));
+        var request = new MemoryUpdateRequest("the plan changed", DateTimeOffset.UnixEpoch,
+            [new MemoryUpdatePair("p1", "new plan", "old plan")]);
+        await judge.Invoking(j => j.JudgeAsync(request)).Should().ThrowAsync<HttpRequestException>();
+        await judge.Invoking(j => j.JudgeAsync(request)).Should().ThrowAsync<JudgeCoolingDownException>();
+        server.Calls.Should().ContainSingle().Which.Url.Should().Be(Jev.Endpoint!.ToString());
+    }
+
     [Fact]
     public async Task Each_type_is_asked_once_per_judge_in_the_measured_words_and_the_judges_are_blended()
     {

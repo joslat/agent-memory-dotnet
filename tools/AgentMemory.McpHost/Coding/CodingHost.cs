@@ -61,6 +61,9 @@ internal static class CodingHost
             services.AddAgentMemoryGate(o =>
             {
                 o.ApplyRecommended();
+                // Retrieval training/list order does not qualify a model to approve storage closings.
+                o.UpdateJudge = configuration.Options.ClosingJudgeName is not null;
+                o.UpdateJudgeName = configuration.Options.ClosingJudgeName;
                 o.CompoundQuestions = false;
                 o.Judges = configuration.Options.Judges.Select(j => new SystemOneEndpoint
                 {

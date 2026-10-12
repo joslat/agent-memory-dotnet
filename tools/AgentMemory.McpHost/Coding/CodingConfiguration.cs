@@ -66,6 +66,9 @@ internal sealed class CodingConfiguration(CodingServiceOptions options, McpHostO
                 secrets.Add(key);
             }
         }
+        if (options.ClosingJudgeName is { } closing && (string.IsNullOrWhiteSpace(closing)
+            || !options.Judges.Any(j => j.Name == closing)))
+            throw new ArgumentException("ClosingJudgeName must identify a configured coding judge.");
         return new(options, host, access, new(secrets), tlsPassword);
     }
 

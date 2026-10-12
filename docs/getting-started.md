@@ -356,6 +356,12 @@ Read `Status` alongside it: using a fallback does not imply it succeeded. The co
 this as `extractionPath` and permits fallback through its explicit
 [`allowExtractorFallback` setting](coding-service.md#configurable-extractor-fallback).
 
+When configuring a retrieval blend, set `MemoryGateOptions.UpdateJudgeName` to the exact configured
+endpoint name permitted to judge storage closings, and enable `UpdateJudge`. Null retains the library's
+legacy first-endpoint choice. Selection does not change retrieval weights; `UpdateJudge = false`
+still disables external closing calls. The coding host uses explicit `closingJudgeName` instead,
+defaulting to its host-model closing judge when omitted.
+
 For explicit ingestion intent, set `ExtractionRequest.InputMode` when calling
 `ExtractAndPersistAsync` or `IMemoryExtractionPipeline.ExtractAsync`:
 

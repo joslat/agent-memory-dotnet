@@ -5,6 +5,19 @@ namespace AgentMemory.Tests.Unit.McpServer;
 
 public sealed class CodingConfigurationTests
 {
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("")]
+    public void Closing_judge_must_name_a_configured_endpoint(string name)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            ownerId = "owner", projects = new { alpha = "ALPHA_TOKEN" }, closingJudgeName = name,
+        });
+        FluentActions.Invoking(() => CodingConfiguration.Parse(json, EnvironmentValues().GetValueOrDefault))
+            .Should().Throw<ArgumentException>();
+    }
+
     internal const string Json = """{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN"}}""";
 
     [Fact]

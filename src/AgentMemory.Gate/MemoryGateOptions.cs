@@ -103,13 +103,20 @@ public sealed class MemoryGateOptions
     public int Examples { get; set; } = 3;
 
     /// <summary>
-    /// Whether the write path asks the first judge whether each new fact or preference replaces a stored one
+    /// Whether the write path asks the selected judge (<see cref="UpdateJudgeName"/>) whether each new fact or preference replaces a stored one
     /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.65), and, with the store-aware writer (AMWRITE001), whether each
     /// closing it names is one (<c>ExtractionOptions.NamedClosingThreshold</c>, 0.60). Off: the write path without a judge,
     /// and the writer's closings are not applied unless the host's chat model judges them
     /// (<c>LlmExtractionOptions.ChatModelUpdateJudge</c>, which also steps in when this judge fails).
     /// </summary>
     public bool UpdateJudge { get; set; }
+
+    /// <summary>
+    /// Exact name in <see cref="Judges"/> permitted to judge storage closings. Null preserves the legacy
+    /// first-configured endpoint. Does not affect retrieval weights or override <see cref="UpdateJudge"/>.
+    /// A selected judge's failure goes to the host closing fallback, never another retrieval judge.
+    /// </summary>
+    public string? UpdateJudgeName { get; set; }
 
     /// <summary>
     /// A judge that failed this many calls in a row (an error, no connection, or the HTTP client's own timeout) is left out

@@ -25,6 +25,7 @@ public static class GateServiceCollectionExtensions
     ///     gate.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY", Weight = 0.8 });
     ///     gate.Judges.Add(new SystemOneEndpoint { Name = "laya", Endpoint = new("http://127.0.0.1:8765/v1/systemone"), Weight = 0.2 });
     ///     gate.UpdateJudge = true;
+    ///     gate.UpdateJudgeName = "jev";
     /// });
     /// </code>
     /// </example>
@@ -42,6 +43,9 @@ public static class GateServiceCollectionExtensions
             .Validate(o => o.Threshold is >= 0 and <= 1, "MemoryGateOptions.Threshold must be between 0 and 1.")
             .Validate(o => o.Timeout > TimeSpan.Zero, "MemoryGateOptions.Timeout must be positive.")
             .Validate(o => o.WideLimit > 0, "MemoryGateOptions.WideLimit must be positive.")
+            .Validate(o => o.UpdateJudgeName is null || (!string.IsNullOrWhiteSpace(o.UpdateJudgeName)
+                && o.Judges.Count(j => j.Name == o.UpdateJudgeName && j.Endpoint is not null) == 1),
+                "MemoryGateOptions.UpdateJudgeName must identify exactly one configured endpoint.")
             .Validate(o => o.JudgeFailuresBeforeCooldown >= 0, "MemoryGateOptions.JudgeFailuresBeforeCooldown must be 0 or more.")
             .Validate(o => o.JudgeCooldown > TimeSpan.Zero, "MemoryGateOptions.JudgeCooldown must be positive.");
         services.TryAddSingleton(sp => new SystemOneClient(new HttpClient(new SocketsHttpHandler

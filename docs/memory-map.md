@@ -28,6 +28,11 @@ reports writer, extractors, writer failure followed by extractors, pre-extracted
 unknown. Coding HTTP/MCP job receipts preserve this independently of ingestion success. The host
 permits extractor fallback only through `allowExtractorFallback`; it remains off by default.
 
+**Storage judge selection — BUILT / WIRED, not newly benchmark-measured.** A configured endpoint can
+be selected by exact name independently of retrieval blend order. The coding host requires
+`closingJudgeName` for external closings; omission uses its host-model judge. No new threshold,
+prompt, or model is promoted by this configuration change.
+
 **Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
 lets a caller require one conversation turn through an enabled writer, or import through configured
 extractors. Omission preserves existing behavior; adapter defaults and presets remain unchanged. This controls

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tooling
 
+- Separate storage judge selection from retrieval ordering with `MemoryGateOptions.UpdateJudgeName`.
+  Coding hosts now require `closingJudgeName` for external closing judgments; omission uses the host
+  model. Set the former first endpoint's name to preserve its use. General-library null selection
+  retains legacy ordering; explicit invalid names fail validation and opt-outs remain effective.
+
 - Add explicit coding-service `allowExtractorFallback` (off by default) and report the actual
   extraction path in HTTP/MCP job receipts. `ExtractionResult.Path` distinguishes writer attempts,
   extractor fallback, imports, pre-extracted inputs, skipped turns and unknown custom results;

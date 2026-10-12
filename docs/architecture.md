@@ -1326,6 +1326,12 @@ It is separate from ingestion success: a failed fallback is still `writerFallbac
 pipeline or interrupted job reports unknown rather than inferring success from configuration.
 Host-model fallback for named closing judgments remains separate. See
 [the coding-service configuration](coding-service.md#configurable-extractor-fallback).
+Coding `closingJudgeName` explicitly names the external endpoint permitted to judge storage closings;
+without it the host-model judge handles named closings. Retrieval list order grants no such permission.
+General-library callers can use `MemoryGateOptions.UpdateJudgeName`; null preserves first-endpoint
+compatibility there. Missing/ambiguous explicit selections fail validation. A selected endpoint's
+outage uses the existing host-model fallback, never an arbitrary retrieval model; a negative verdict
+does not trigger another judge.
 The writer continues to learn from the user target; the assistant reply is stored for later context.
 A single background worker preserves submission order, bounds admission and job retention, and exposes
 only owner/project-scoped job status. Retained duplicate submissions return their existing job; changed
