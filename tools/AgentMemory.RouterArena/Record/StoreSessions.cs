@@ -52,8 +52,13 @@ public sealed class StoreSessions(TextWriter output)
 
     public async Task<int> RunAsync(string packPath, string setsDirectory, string form, string outPath, bool dryRun, int? limit,
         CancellationToken cancellationToken = default, string set = "w3", string? ownerName = null, bool recall = false,
-        bool consolidate = false, bool recordProvenance = false)
+        bool consolidate = false, bool recordProvenance = false, string? searchCasesPath = null)
     {
+        if (searchCasesPath is not null && !recordProvenance)
+        {
+            output.WriteLine("error: --search-cases requires --record-provenance.");
+            return 1;
+        }
         // writer: the library with the store-aware writer (AMWRITE001, storage round 3's F ported) and the update judge
         // confirming its closings; the turn's earlier messages are its context, as the harness gave them.
         // writer-nojudge: the writer with no update judge (its closings are not applied); writer-hostjudge: the writer with the
@@ -72,6 +77,8 @@ public sealed class StoreSessions(TextWriter output)
             return 1;
         }
         var turns = ReadTurns(setsDirectory, set).Take(limit ?? int.MaxValue).ToList();
+        var searchPlan = searchCasesPath is null ? null : await SearchCapturePlan.ReadAsync(searchCasesPath, turns, cancellationToken).ConfigureAwait(false);
+        var searchResults = new List<SearchCaptureResult>();
         evidence?.VerifyInputs();
         var resolution = InferenceProviderEnvironment.Resolve();
         if (resolution.Settings is not { } settings)
@@ -91,6 +98,8 @@ public sealed class StoreSessions(TextWriter output)
         var dream = form == "update-judge-dream";
         if (dryRun)
         {
+            if (searchPlan is not null)
+                output.WriteLine($"store-sessions: {searchPlan.Cases.Count} planned search captures; wide limit {searchPlan.WideLimit}; no relevance-judge calls for capture.");
             output.WriteLine($"store-sessions: dry run: one pack load, about {turns.Count} extraction calls"
                 + (form != "today" ? " and an update-judge call for each write that has a similar stored memory" : "")
                 + (dream ? "; after each session, a dream pass over live pairs at cosine >= 0.85" : "")
@@ -133,6 +142,7 @@ public sealed class StoreSessions(TextWriter output)
 #pragma warning restore AMWRITE001
         var writerForm = form.StartsWith("writer", StringComparison.Ordinal);
         services.AddNeo4jAgentMemory(store.Options, Neo4j, writerForm ? o => o.UseMemoryWriter = true : _ => { });
+        if (searchPlan is not null) StoreSearchCapture.Register(services, store.Options);
         var usage = new UsageCountingChatClient(chat);
         services.AddSingleton<IChatClient>(usage);
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
@@ -286,6 +296,16 @@ public sealed class StoreSessions(TextWriter output)
                 sessions.Add(recordProvenance
                     ? (object)new { session = turn.Session, date = turn.Date, live, dreamt, dreamErrors, capturedAt = clock.Now }
                     : new { session = turn.Session, date = turn.Date, live, dreamt, dreamErrors });
+                if (searchPlan is not null)
+                {
+                    searchPlan.VerifyInput();
+                    foreach (var query in searchPlan.Cases.Where(c => c.Session == turn.Session))
+                    {
+                        using var scope = provider.CreateScope();
+                        searchResults.Add(await scope.ServiceProvider.GetRequiredService<StoreSearchCapture>()
+                            .CaptureAsync(query, sessionId, ownerId, searchPlan.WideLimit, cancellationToken).ConfigureAwait(false));
+                    }
+                }
                 output.WriteLine($"  session {turn.Session} ({turn.Date}): {live.Count} live memories");
             }
             await SaveAsync(i == turns.Count - 1 && !consolidate).ConfigureAwait(false);
@@ -322,17 +342,28 @@ public sealed class StoreSessions(TextWriter output)
             await SaveAsync(true, consolidation).ConfigureAwait(false);
         }
         output.WriteLine($"store-sessions: {results.Count} turns, {sessions.Count} sessions to {outPath}");
-        return 0;
+        return searchResults.Any(r => r.Error is not null) ? 2 : 0;
 
         Task SaveAsync(bool complete, object? consolidation = null)
         {
             evidence?.VerifyInputs();
+            searchPlan?.VerifyInput();
             var run = new Dictionary<string, object?>
             {
                 ["format"] = evidence is null ? "store-sessions/1" : "store-sessions/2", ["form"] = form,
                 ["model"] = settings.Model, ["pack"] = pack.Id, ["owner"] = owner, ["results"] = results, ["sessions"] = sessions,
             };
             if (consolidation is not null) run["consolidation"] = consolidation;
+            if (searchPlan is not null)
+                run["searchCapture"] = new
+                {
+                    schemaVersion = 1, role = searchPlan.Role, planFileSha256 = searchPlan.FileSha256,
+                    wideLimit = searchPlan.WideLimit, expectedCases = searchPlan.Cases.Count,
+                    complete = complete && searchResults.Count == searchPlan.Cases.Count && searchResults.All(r => r.Error is null),
+                    contextBudget = store.Options.ContextBudget,
+                    scope = "Owner-only library search/assembly before judge; historical captures bypass the gate; no overlay or answer measurement.",
+                    results = JsonSerializer.SerializeToElement(searchResults, SearchCapturePlan.Json),
+                };
             if (evidence is not null)
                 run["provenance"] = evidence.Export(ownerId, new
                 {

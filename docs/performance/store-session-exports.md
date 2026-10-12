@@ -34,3 +34,49 @@ establish when a subsequently overwritten version became available; some update 
 database's wall clock while the recorder uses logical time.
 
 Exports include message text. Retain them with the same access controls as their source inputs.
+
+## Search captures
+
+Add `--search-cases <queries.json>` alongside `--record-provenance` to search the actual isolated
+store after selected sessions. Without `--search-cases`, no capture queries run and the export stays
+unchanged. The input contains questions, not answer labels:
+
+```json
+{
+  "schemaVersion": 1,
+  "role": "development",
+  "wideLimit": 50,
+  "cases": [
+    { "id": "current-plan", "session": 1, "question": "What is the plan?" },
+    { "id": "plan-at-session-one", "session": 1, "question": "What was the plan then?", "historical": true }
+  ]
+}
+```
+
+Only `development` and `synthetic-development` roles are accepted. Plans are bounded to 2 MiB and
+128 cases; IDs must be unique, sessions must occur in the selected turns, and unknown or duplicate
+fields are rejected. The wide limit is 1–512; existing larger section limits remain in force. The
+plan's raw-byte SHA-256 is retained and checked before capture and export.
+
+Current captures use the library's wide retrieval path with owner-only scope and diagnostics, without
+calling a relevance judge. Historical captures use the library's as-of assembler, with both valid and
+knowledge time set to that session's capture instant and the configured ordinary recall limits.
+They do not reconstruct an earlier session from a later store. Questions are queried, not ingested;
+embedding requests still use the recorder's configured embedding service.
+
+The optional `searchCapture` block retains each full assembled context, recall options, capture time,
+elapsed time, candidate-key-to-item-ID mapping, and current gate request. Historical captures have no
+gate request. Full context includes ungated material such as recent messages and the working-memory
+block when present. Candidate IDs may refer to messages or reasoning traces as well as live semantic
+records; they must not all be treated as IDs in the session's semantic snapshot.
+
+Library context budgeting happens **before** capture. Preserve `truncated`, section diagnostics and
+ranked items when analysing missing evidence: section returned counts can precede budget trimming.
+A missing candidate alone does not prove a search miss. Timeouts retain partial context for diagnosis,
+set an error, and omit the gate request; failed captures cannot become successful empty pools.
+
+`searchCapture.complete` requires all planned captures to finish without errors. It is separate from
+writer `provenance.complete`; consumers must check both and the writer's per-turn errors. Capture
+errors produce exit code 2. This records original retrieval evidence, not overlay ranking, answer
+generation or answer quality. The separate [paired gate tool](paired-gate-evaluation.md) can compare
+recorded pools under its explicitly different, post-gate rendered-context budget.

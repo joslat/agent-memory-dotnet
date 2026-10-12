@@ -1478,6 +1478,12 @@ context-budget losses and displaced originals under one explicit rendered-contex
 experiment is separate from the library assembler's pre-gate budgeting; it changes no runtime defaults,
 store records or recall path. Search capture and answer scoring remain the experiment caller's responsibility.
 
+[`store-sessions --search-cases`](performance/store-session-exports.md#search-captures) optionally
+captures the original assembler in the recorder's isolated store, before gate decoration. It uses the
+existing wide-retrieval and conversation construction code, retains full contexts and diagnostics,
+and performs no relevance judging or question ingestion. Historical cases use actual as-of assembly.
+This tool-only path records post-library-budget evidence; it does not change runtime recall defaults.
+
 Some defaults have since been switched on, each on evidence from simulated conversations: the
 working-memory profile block, dates in the prompt (`IncludeDates`) and a separate shared-knowledge recall
 budget (`MemoryOptions.SharedRecallBudget = 3`; a store without shared memory is not searched for it). The

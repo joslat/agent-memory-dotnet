@@ -39,6 +39,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Nams\AgentMemory.Nams.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Validation\AgentMemory.Validation.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge\AgentMemory.TckBridge.csproj" />
+    <ProjectReference Include="..\..\tools\AgentMemory.RouterArena\AgentMemory.RouterArena.csproj" Aliases="RouterArena" />
     <ProjectReference Include="..\..\tools\AgentMemory.McpHost\AgentMemory.McpHost.csproj" Aliases="McpHost" />
   </ItemGroup>
 

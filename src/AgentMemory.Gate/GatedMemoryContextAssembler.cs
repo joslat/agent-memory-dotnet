@@ -180,7 +180,7 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
     }
 
     /// <summary>The turns before this one, oldest first, as the judge reads them (the last four).</summary>
-    private static IReadOnlyList<MemoryGateTurn> Conversation(MemoryContext context, string turn) =>
+    internal static IReadOnlyList<MemoryGateTurn> Conversation(MemoryContext context, string turn) =>
         [.. context.RecentMessages.Items
             .Where(m => !string.Equals(m.Content, turn, StringComparison.Ordinal))
             .OrderBy(m => m.TimestampUtc)

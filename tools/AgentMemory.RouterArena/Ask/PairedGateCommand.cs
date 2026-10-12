@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Gate;
+using AgentMemory.RouterArena.Data;
 using Microsoft.Extensions.Options;
 
 namespace AgentMemory.RouterArena.Ask;
@@ -33,8 +34,8 @@ internal static class PairedGateCommand
         MemoryGateOptions options;
         try
         {
-            inputBytes = await ReadAsync(inputPath, cancellationToken).ConfigureAwait(false);
-            configurationBytes = await ReadAsync(configurationPath, cancellationToken).ConfigureAwait(false);
+            inputBytes = await BoundedJson.ReadAsync(inputPath, cancellationToken).ConfigureAwait(false);
+            configurationBytes = await BoundedJson.ReadAsync(configurationPath, cancellationToken).ConfigureAwait(false);
             input = JsonSerializer.Deserialize<Input>(inputBytes, Json) ?? throw new FormatException();
             options = JsonSerializer.Deserialize<MemoryGateOptions>(configurationBytes, Json) ?? throw new FormatException();
             if (input.SchemaVersion != 1 || input.Role is not ("development" or "synthetic-development") ||
@@ -143,32 +144,6 @@ internal static class PairedGateCommand
         var local = endpoint.Scheme == "http" && endpoint.Host == "127.0.0.1" && endpoint.AbsolutePath == "/v1/systemone" &&
                     endpoint.Query.Length == 0 && endpoint.Fragment.Length == 0 && endpoint.UserInfo.Length == 0 && judge.KeyVariable is null;
         return local || role == "development" && endpoint.AbsoluteUri == "https://api.typesafe.ai/v1/systemone" && judge.KeyVariable == "TYPESAFE_API_KEY";
-    }
-
-    private static async Task<byte[]> ReadAsync(string path, CancellationToken cancellationToken)
-    {
-        await using var file = File.OpenRead(path);
-        var bytes = new byte[2 * 1024 * 1024 + 1];
-        var size = await file.ReadAtLeastAsync(bytes, bytes.Length, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false);
-        if (size == bytes.Length) throw new FormatException("Input exceeds 2 MiB.");
-        using var json = JsonDocument.Parse(bytes.AsMemory(0, size));
-        CheckDuplicates(json.RootElement);
-        return bytes[..size];
-    }
-
-    private static void CheckDuplicates(JsonElement element)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var property in element.EnumerateObject())
-            {
-                if (!names.Add(property.Name)) throw new FormatException("Duplicate field.");
-                CheckDuplicates(property.Value);
-            }
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-            foreach (var child in element.EnumerateArray()) CheckDuplicates(child);
     }
 
     private static void WriteNew(string path, byte[] value)

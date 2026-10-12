@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
   </ItemGroup>
 
 </Project>

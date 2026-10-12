@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tooling
 
+- Add opt-in `store-sessions --search-cases` to capture original owner-scoped retrieval and historical
+  contexts, candidate mappings and diagnostics alongside writer provenance, without relevance judging.
 - Add preparation-first `paired-gate` comparisons over recorded candidate pools, using the shipped
   gate with equal context budgets, displacement reporting and explicit failure/request evidence.
 - Add opt-in `store-sessions --record-provenance` exports with typed source arrays, persisted message
