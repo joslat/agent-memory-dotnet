@@ -9,6 +9,7 @@ What AgentMemory costs you per agent turn, how that cost is measured, and how to
 | [baseline-1.3.0.md](baseline-1.3.0.md) | The measured cost model for release 1.3.0 |
 | [bulk-ingestion.md](bulk-ingestion.md) | Loading a backlog without degrading p99 for everyone else in the process |
 | [closing-evaluation.md](closing-evaluation.md) | Running paired fixed-pair closing-policy comparisons and interpreting their request evidence |
+| [paired-gate-evaluation.md](paired-gate-evaluation.md) | Comparing recorded pools with the shipped gate, equal context budgets and explicit displacement/failure evidence |
 | [token-breakdown.md](token-breakdown.md) | What answering from memory costs against sending the whole transcript |
 | [longmemeval-results.md](longmemeval-results.md) | Historical LongMemEval-S results, variance, and limits on interpretation |
 | [procedural-benefit-result.md](procedural-benefit-result.md) | Procedural-memory benefit measurement and validity rules |

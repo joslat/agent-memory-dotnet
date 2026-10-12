@@ -3,7 +3,6 @@ using System.ClientModel.Primitives;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Gate;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
 
@@ -53,17 +52,4 @@ internal sealed class CompoundEvaluationSession : IDisposable
         _gateHttp.Dispose();
     }
 
-    private sealed class JudgeFailureCounter : ILogger<SystemOneMemoryGate>
-    {
-        private long _count;
-        public long Count => Interlocked.Read(ref _count);
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-            Func<TState, Exception?, string> formatter)
-        {
-            // Do not invoke the formatter: only count failures, never persist private provider messages.
-            if (IsEnabled(logLevel)) Interlocked.Increment(ref _count);
-        }
-    }
 }

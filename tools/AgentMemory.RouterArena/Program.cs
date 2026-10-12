@@ -49,6 +49,13 @@ var dryRun = args.Contains("--dry-run");
 
 switch (args.FirstOrDefault())
 {
+    case "paired-gate":
+        if (Get("file") is not { } pairFile || Get("config") is not { } pairConfig || Get("out") is not { } pairOutput)
+        {
+            Console.WriteLine("router-arena paired-gate --data <folder> --file <pair.json> --config <gate.json> --out <new-directory> [--execute]");
+            return 1;
+        }
+        return await PairedGateCommand.RunAsync(pairFile, pairConfig, pairOutput, args.Contains("--execute"), Console.Out);
     case "closing-evaluate":
         if (Get("file") is not { } closingFile || Get("config") is not { } closingConfig || Get("out") is not { } closingOutput)
         {

@@ -1472,6 +1472,12 @@ dependency. Its paired fixed-pool experiment reuses one baseline, hashes its inp
 HTTP attempts below both protocols, and flags degraded judge blends. This measures gate selection, not
 store search or a complete answer pipeline.
 
+The operator-only [`paired-gate` tool](performance/paired-gate-evaluation.md) invokes the shipped
+`SystemOneMemoryGate` on two recorded pools with identical originals. It reports scores, gate rejections,
+context-budget losses and displaced originals under one explicit rendered-context rule. This controlled
+experiment is separate from the library assembler's pre-gate budgeting; it changes no runtime defaults,
+store records or recall path. Search capture and answer scoring remain the experiment caller's responsibility.
+
 Some defaults have since been switched on, each on evidence from simulated conversations: the
 working-memory profile block, dates in the prompt (`IncludeDates`) and a separate shared-knowledge recall
 budget (`MemoryOptions.SharedRecallBudget = 3`; a store without shared memory is not searched for it). The
