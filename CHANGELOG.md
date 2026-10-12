@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tooling
+
+- Add opt-in `store-sessions --record-provenance` exports with typed source arrays, persisted message
+  evidence, capture times and input/binary fingerprints. The default legacy export remains unchanged.
+
 ### Fixed
 
 - Build the MCP container with the repository's .NET 10 SDK and runtime instead of incompatible

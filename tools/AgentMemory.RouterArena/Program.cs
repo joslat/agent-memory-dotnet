@@ -380,7 +380,7 @@ switch (args.FirstOrDefault())
         return await new AgentMemory.RouterArena.Record.StoreSessions(Console.Out).RunAsync(Path.Combine(worldDir, $"{worldName}.pack.json"),
             Path.Combine(worldDir, "sets"), form, Get("out") ?? Path.Combine(strategy, "performance", "runs", "2026-10-04_eye", "storage",
                 worldName, $"store-sessions-{form}.json"), dryRun, Limit(), set: worldSet, ownerName: Get("owner-name"),
-                recall: args.Contains("--recall"), consolidate: args.Contains("--consolidate"));
+                recall: args.Contains("--recall"), consolidate: args.Contains("--consolidate"), recordProvenance: args.Contains("--record-provenance"));
     }
     case "probe-relationships":
     {
