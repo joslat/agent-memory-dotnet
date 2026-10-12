@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AgentMemory.Core.Extraction;
 
-/// <summary>Runs the existing named and similarity closing decisions with their distinct fallback rules.</summary>
+/// <summary>Discovers named and similarity candidates, asks the closing policy, and applies approved proposals.</summary>
 internal sealed class JudgedMemoryClosings
 {
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
@@ -18,14 +18,13 @@ internal sealed class JudgedMemoryClosings
     private readonly IClock _clock;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
-    private readonly IMemoryUpdateJudge? _updateJudge;
-    private readonly IMemoryUpdateJudgeFallback? _fallbackJudge;
+    private readonly ClosingPolicy _policy;
     private readonly ClosingPipeline _closings;
 
     public JudgedMemoryClosings(IEmbeddingOrchestrator embeddingOrchestrator, IEntityRepository entityRepository,
         IFactRepository factRepository, IPreferenceRepository preferenceRepository,
         IRelationshipRepository relationshipRepository, IClock clock, ExtractionOptions options, ILogger logger,
-        IMemoryUpdateJudge? updateJudge, IMemoryUpdateJudgeFallback? fallbackJudge, ClosingPipeline closings)
+        ClosingPolicy policy, ClosingPipeline closings)
     {
         _embeddingOrchestrator = embeddingOrchestrator;
         _entityRepository = entityRepository;
@@ -35,12 +34,11 @@ internal sealed class JudgedMemoryClosings
         _clock = clock;
         _options = options;
         _logger = logger;
-        _updateJudge = updateJudge;
-        _fallbackJudge = fallbackJudge;
+        _policy = policy;
         _closings = closings;
     }
 
-    public bool IsEnabled => _updateJudge is { IsEnabled: true };
+    public bool IsEnabled => _policy.CanJudgeSimilarity;
 
     /// <summary>
     /// 41.06. The update judge: each fact and preference this extraction created is set against the owner's most similar
@@ -48,33 +46,6 @@ internal sealed class JudgedMemoryClosings
     /// whether the new one replaces the stored one, and a stored memory is closed, as a change, at
     /// <see cref="ExtractionOptions.UpdateJudgeThreshold"/>. A failing judge closes nothing.
     /// </summary>
-    /// <summary>
-    /// The writer's named closings asked of the update judge, and of its second tier (<see cref="IMemoryUpdateJudgeFallback"/>)
-    /// when that judge is missing, off or fails (an outside judge down or left out after failures): the step down is logged.
-    /// </summary>
-    private async Task<IReadOnlyDictionary<string, double>> JudgeNamedAsync(MemoryUpdateRequest request, CancellationToken cancellationToken = default)
-    {
-        if (_updateJudge is { IsEnabled: true } judge)
-        {
-            if (_fallbackJudge is not { IsEnabled: true })
-                return await judge.JudgeAsync(request, cancellationToken).ConfigureAwait(false);
-            try
-            {
-                return await judge.JudgeAsync(request, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Memory writer: the update judge failed ({Error}); the host's chat model judges these closings instead.",
-                    ex.Message);
-            }
-        }
-        return await _fallbackJudge!.JudgeAsync(request, cancellationToken).ConfigureAwait(false);
-    }
-
     public async Task JudgeUpdatesAsync(
         ExtractionStageResult extraction, string? ownerId, IReadOnlyList<Fact> newFacts, IReadOnlyList<Preference> newPreferences,
         CancellationToken cancellationToken = default)
@@ -128,7 +99,7 @@ internal sealed class JudgedMemoryClosings
                     newFacts.Count, newPreferences.Count);
                 return;
             }
-            var verdicts = await _updateJudge!.JudgeAsync(
+            var verdicts = await _policy.EvaluateAsync(
                 new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.UtcNow, pairs),
                 cancellationToken).ConfigureAwait(false);
             var closedOnce = new HashSet<string>(StringComparer.Ordinal);
@@ -141,8 +112,7 @@ internal sealed class JudgedMemoryClosings
                         key, pairs.First(p => p.Key == key).NewMemory, pairs.First(p => p.Key == key).StoredMemory);
                     continue;
                 }
-                if (!double.IsFinite(probability) || probability is < 0 or > 1
-                    || probability < _options.UpdateJudgeThreshold || !closedOnce.Add(loser))
+                if (!_policy.Approves(probability, named: false) || !closedOnce.Add(loser))
                     continue;
                 ClosingProposal proposal = newFact is not null
                     ? ClosingProposal.Fact(loser, winner, FactClosureReason.Change, ChangedAt(newFact, _clock.UtcNow), scope, ClosingSource.SimilarityJudge)
@@ -162,7 +132,7 @@ internal sealed class JudgedMemoryClosings
             }
             _logger.LogInformation(
                 "Update judge: {Pairs} pair(s) asked for {Facts} new fact(s) and {Preferences} new preference(s); {Closed} closed at P >= {Threshold}; highest P {Highest:0.00}.",
-                pairs.Count, newFacts.Count, newPreferences.Count, closings, _options.UpdateJudgeThreshold,
+                pairs.Count, newFacts.Count, newPreferences.Count, closings, _policy.Threshold(named: false),
                 verdicts.Count == 0 ? 0 : verdicts.Values.Max());
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -198,7 +168,7 @@ internal sealed class JudgedMemoryClosings
         var namedRelationships = extraction.FilteredRelationships
             .Where(r => !string.IsNullOrWhiteSpace(r.ReplacesId) && asked.Add(r.ReplacesId!)).ToList();
         if (namedFacts.Count == 0 && namedPreferences.Count == 0 && namedRelationships.Count == 0) return;
-        if (_updateJudge is not { IsEnabled: true } && _fallbackJudge is not { IsEnabled: true })
+        if (!_policy.CanJudgeNamed)
         {
             if (Interlocked.Exchange(ref s_warnedNamedWithoutJudge, 1) == 0)
                 _logger.LogWarning(
@@ -282,7 +252,7 @@ internal sealed class JudgedMemoryClosings
                 targets[key] = (null, writtenId, edge.Id, false, true);
             }
             if (pairs.Count == 0) return;
-            var verdicts = await JudgeNamedAsync(
+            var verdicts = await _policy.EvaluateAsync(
                 new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.UtcNow, pairs) { Named = true },
                 cancellationToken).ConfigureAwait(false);
             var closings = 0;
@@ -296,7 +266,7 @@ internal sealed class JudgedMemoryClosings
                         pair.NewMemory, pair.StoredMemory);
                     continue;
                 }
-                if (!double.IsFinite(probability) || probability is < 0 or > 1 || probability < _options.NamedClosingThreshold)
+                if (!_policy.Approves(probability, named: true))
                 {
                     _logger.LogInformation("Memory writer: the judge did not confirm that '{New}' replaces '{Stored}' (P {Probability:0.00}); both stay.",
                         pair.NewMemory, pair.StoredMemory, probability);
@@ -323,7 +293,7 @@ internal sealed class JudgedMemoryClosings
                 }
             }
             _logger.LogInformation("Memory writer: {Pairs} named closing(s) asked; {Closed} closed at P >= {Threshold}.",
-                pairs.Count, closings, _options.NamedClosingThreshold);
+                pairs.Count, closings, _policy.Threshold(named: true));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)

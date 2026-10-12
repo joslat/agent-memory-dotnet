@@ -270,9 +270,12 @@ it still runs inside persistence where the existing-fact lookup belongs. The pur
 `WithinExtractionFactDeduplication` step runs before the transaction and keeps its existing number,
 negation, validity and source-role safeguards.
 
-`JudgedMemoryClosings` keeps writer-named and similarity-based closing decisions separate; only the
-named path uses the host-model fallback. Both paths require a finite judge score in `[0, 1]` before
-applying their threshold; invalid or missing scores leave the corresponding stored memory open.
+`JudgedMemoryClosings` discovers writer-named and similarity candidates. One internal `ClosingPolicy`
+owns judge availability, batch evaluation, named-only host-model fallback and score approval. It keeps
+the two paths' existing request text, thresholds and fallback rules. Both require a finite score in
+`[0, 1]` before applying their threshold; invalid or missing scores leave the corresponding stored
+memory open. The original judge dictionary is retained, including custom key lookup semantics.
+Candidate filtering, source-local duplicate precedence and application order remain in the source.
 Every automatic ingestion closing now reaches one internal
 `ClosingPipeline` as a typed `ClosingProposal`: fact supersession carries its temporal reason and
 clock, preference supersession carries its successor, and relationship ending carries its end time
@@ -280,7 +283,7 @@ with optional successor attribution. The pipeline owns repository application an
 recording. Fact withdrawal and post-merge entity retirement are separate proposal types using their
 existing invalidation APIs without a successor or a new journal entry. The pipeline preserves
 source-specific outcome attribution, repository refusals, cancellation and
-exceptions. It adds no judge, global deduplication or new policy. `PersistenceClosingJournal` retains
+exceptions. It adds no judge call, global deduplication or new decision rule. `PersistenceClosingJournal` retains
 the existing asynchronous operation lifetime. `EdgeEnding` runs after relationship writes inside persistence.
 `CorrectedNamePropagation` runs after the core transaction, before confirmation reinforcement and
 the working-memory rebuild. This decomposition preserves their existing call order and failure rules.

@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Internal closing approval policy**: named and similarity closing sources now share judge selection,
+  fallback and score approval in one policy. Existing requests, thresholds, batching, cancellation,
+  named-only fallback and score-key lookup behavior are preserved; no public configuration changes.
+
 - **Common internal closing application**: automatic fact, preference and relationship closings now
   use typed proposals and one repository-application path, including fact withdrawal, entity retirement,
   name correction and date/edge consequences. Existing decision rules, temporal behavior, transaction boundaries and outcome

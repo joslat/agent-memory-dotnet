@@ -67,7 +67,8 @@ internal sealed class PersistenceStage : IPersistenceStage
         var factPreparation = new FactPreparation(factRepository, idGenerator, clock, logger);
         _factPersistence = new FactPersistence(factRepository, clock, _options, logger, factPreparation, closings);
         _judgedClosings = new JudgedMemoryClosings(embeddingOrchestrator, entityRepository, factRepository,
-            preferenceRepository, relationshipRepository, clock, _options, logger, updateJudge, fallbackJudge, closings);
+            preferenceRepository, relationshipRepository, clock, _options, logger,
+            new ClosingPolicy(_options, updateJudge, fallbackJudge, logger), closings);
         _namePropagation = new CorrectedNamePropagation(entityRepository, factRepository, embeddingOrchestrator,
             clock, idGenerator, _options, logger, closings);
         _edgeEnding = new EdgeEnding(entityRepository, factRepository, relationshipRepository, clock, _options, logger, closings);

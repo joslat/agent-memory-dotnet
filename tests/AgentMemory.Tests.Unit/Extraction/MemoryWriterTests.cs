@@ -506,14 +506,81 @@ public sealed class PersistenceStageMemoryWriterTests
     [Fact]
     public async Task When_the_update_judge_fails_the_host_model_judges_the_named_closing()
     {
+        MemoryUpdateRequest? outsideRequest = null;
         _judge.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>())
-            .Returns<IReadOnlyDictionary<string, double>>(_ => throw new HttpRequestException("the judge is down"));
+            .Returns<IReadOnlyDictionary<string, double>>(ci =>
+            {
+                outsideRequest = ci.Arg<MemoryUpdateRequest>();
+                throw new HttpRequestException("the judge is down");
+            });
         HostSays(1.0);
 
         await CreateSut(withHost: true).PersistAsync(MovedToLeoben(), ownerId: "lukas");
 
         await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
-        await _host.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Named), Arg.Any<CancellationToken>());
+        await _host.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Named && ReferenceEquals(r, outsideRequest)), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(0.60)]
+    [InlineData(1.0)]
+    public async Task Named_threshold_is_inclusive(double score)
+    {
+        JudgeSays(score);
+
+        await CreateSut().PersistAsync(MovedToLeoben(), ownerId: "lukas");
+
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Named_batch_preserves_score_key_semantics_and_does_not_fallback_for_partial_answers(bool missing)
+    {
+        _idGen.GenerateId().Returns("fact-new", "fact-other");
+        _factRepo.GetByIdAsync("fact-other-old", Arg.Any<CancellationToken>())
+            .Returns(Graz with { FactId = "fact-other-old", Subject = "Iris" });
+        var scores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["P1"] = 0.60, ["unasked"] = 1.0,
+        };
+        if (!missing) scores["P2"] = double.NaN;
+        _judge.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>()).Returns(scores);
+        var turn = new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "We moved.", WrittenByWriter = true,
+            FilteredFacts = [MovedToLeoben().FilteredFacts[0],
+                new ExtractedFact { Subject = "Iris", Predicate = "lives in", Object = "Vienna", ReplacesId = "fact-other-old" }],
+        };
+
+        await CreateSut(withHost: true).PersistAsync(turn, ownerId: "lukas");
+
+        await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Named && r.Said == "We moved."
+            && r.Now == _clock.UtcNow && r.Pairs.Count == 2 && r.Pairs[0].Key == "p1" && r.Pairs[1].Key == "p2"
+            && r.Pairs[0].NewMemory == "Lukas | lives in | Leoben" && r.Pairs[1].NewMemory == "Iris | lives in | Vienna"),
+            Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().SupersedeAsync("fact-other-old", Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _host.DidNotReceiveWithAnyArgs().JudgeAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Cancellation_during_named_judging_never_invokes_the_host_fallback()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _judge.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), cancellation.Token)
+            .Returns<IReadOnlyDictionary<string, double>>(_ =>
+            {
+                cancellation.Cancel();
+                throw new OperationCanceledException(cancellation.Token);
+            });
+
+        var act = () => CreateSut(withHost: true).PersistAsync(MovedToLeoben(), ownerId: "lukas", cancellationToken: cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        await _host.DidNotReceiveWithAnyArgs().JudgeAsync(default!, default);
+        await _factRepo.DidNotReceiveWithAnyArgs().SupersedeAsync(default!, default!, default, default);
     }
 
     [Fact]
