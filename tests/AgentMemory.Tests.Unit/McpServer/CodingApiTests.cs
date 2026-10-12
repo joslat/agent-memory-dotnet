@@ -17,6 +17,32 @@ public sealed class CodingApiTests
     private static readonly CodingIdentity Identity = new("owner", "alpha");
 
     [Theory]
+    [InlineData("remember")]
+    [InlineData("forget")]
+    public async Task Read_permission_rejects_mutation_before_parsing_or_memory_access(string operation)
+    {
+        await using var fixture = new Fixture();
+        var result = await fixture.Api.ExecuteAsync(Identity with { CanWrite = false }, operation,
+            JsonSerializer.SerializeToElement(new { }));
+        result.StatusCode.Should().Be(403);
+    }
+
+    [Fact]
+    public async Task Read_permission_can_check_a_job_created_with_write_permission()
+    {
+        await using var fixture = new Fixture();
+        var accepted = await fixture.Api.ExecuteAsync(Identity, "remember", JsonSerializer.SerializeToElement(new
+        {
+            session = "s", turnId = "permission-change", userText = "Use port 5234.",
+            commit = new string('a', 40), source = "settings.cs",
+        }));
+        var job = accepted.Body.Should().BeOfType<CodingWriteJob>().Subject;
+        var result = await fixture.Api.ExecuteAsync(Identity with { CanWrite = false }, "write_status",
+            JsonSerializer.SerializeToElement(new { jobId = job.JobId }));
+        result.StatusCode.Should().Be(200);
+    }
+
+    [Theory]
     [InlineData("recall", "{\"session\":\"s\",\"query\":\"q\",\"ownerId\":\"other\"}")]
     [InlineData("recall", "{\"query\":\"q\"}")]
     [InlineData("forget", "{\"kind\":0,\"id\":\"id\"}")]

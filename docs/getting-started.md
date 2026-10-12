@@ -3,6 +3,8 @@
 **Prerequisites covered:** .NET 8, 9, or 10, Neo4j, NuGet packages, DI configuration, first memory store.
 
 For the opt-in local coding-agent HTTP/MCP host, see [the coding service guide](coding-service.md).
+For a remote MCP resource server, see [HTTPS/OAuth configuration](coding-remote.md); deployment and
+external authorization-server setup are explicit steps, and remote writes default off.
 Its optional [memory page](coding-service.md#local-memory-page) lets you inspect history, propose
 sourced corrections and close memories; set `enableBrowserUi` explicitly to enable it.
 For Copilot CLI and VS Code Local, see the [MCP and session-start templates](../samples/CodingMemory/copilot.md).

@@ -77,7 +77,8 @@ internal sealed class CodingWriteQueue : BackgroundService
 
     public CodingWriteJob? Get(CodingIdentity identity, string jobId)
     {
-        lock (_gate) return _jobs.TryGetValue(jobId, out var entry) && entry.Identity == identity ? entry.Job : null;
+        lock (_gate) return _jobs.TryGetValue(jobId, out var entry) &&
+            entry.Identity.OwnerId == identity.OwnerId && entry.Identity.ProjectId == identity.ProjectId ? entry.Job : null;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

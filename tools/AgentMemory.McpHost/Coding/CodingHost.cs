@@ -24,7 +24,11 @@ internal static class CodingHost
         builder.Logging.ClearProviders();
         builder.WebHost.ConfigureKestrel(server =>
         {
-            server.Listen(IPAddress.Loopback, new Uri(configuration.Options.Url).Port);
+            if (configuration.Options.Remote is { } remote)
+                server.Listen(IPAddress.Parse(remote.ListenAddress), new Uri(configuration.Options.Url).Port,
+                    listener => listener.UseHttps(remote.CertificatePath,
+                        configuration.CertificatePassword ?? throw new ArgumentException("Missing configured TLS credential.")));
+            else server.Listen(IPAddress.Loopback, new Uri(configuration.Options.Url).Port);
             server.Limits.MaxConcurrentConnections = 64;
             server.Limits.MaxRequestBodySize = CodingBodyLimit.MaximumBytes;
         });
@@ -68,6 +72,7 @@ internal static class CodingHost
         services.AddSingleton<ICodingWriter, CodingWriter>().AddSingleton<CodingWriteQueue>();
         services.AddHostedService(sp => sp.GetRequiredService<CodingWriteQueue>());
         CodingTransport.AddServices(services);
+        if (configuration.Options.Remote is not null) CodingRemoteAuthentication.AddServices(services, configuration.Options);
     }
 
     public static async Task PrepareAsync(WebApplication app, CodingConfiguration configuration,
@@ -104,7 +109,9 @@ internal static class CodingHost
             using var startup = new CancellationTokenSource(TimeSpan.FromMinutes(2));
             await PrepareAsync(app, configuration, startup.Token).ConfigureAwait(false);
             CodingTransport.Map(app);
-            Console.Error.WriteLine("agent-memory-mcp: coding mode, loopback only; input filtering is heuristic; jobs are not durable.");
+            Console.Error.WriteLine(configuration.Options.Remote is null
+                ? "agent-memory-mcp: coding mode, loopback only; input filtering is heuristic; jobs are not durable."
+                : "agent-memory-mcp: coding mode, HTTPS/OAuth; input filtering is heuristic; jobs are not durable.");
             await app.RunAsync().ConfigureAwait(false);
             return 0;
         }

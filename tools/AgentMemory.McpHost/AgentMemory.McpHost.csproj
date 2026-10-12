@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
     <EmbeddedResource Include="Coding/Page/*" />
   </ItemGroup>
 

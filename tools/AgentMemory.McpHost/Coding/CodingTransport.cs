@@ -9,7 +9,16 @@ internal static class CodingTransport
     {
         services.AddHttpContextAccessor();
         services.AddMcpServer().WithHttpTransport(o => o.Stateless = true)
-            .WithListToolsHandler((_, _) => ValueTask.FromResult(new ListToolsResult { Tools = CodingToolDefinitions.All }))
+            .WithListToolsHandler((request, _) =>
+            {
+                var identity = request.Services!.GetRequiredService<IHttpContextAccessor>().HttpContext!.Features.Get<CodingIdentity>()
+                    ?? throw new UnauthorizedAccessException();
+                return ValueTask.FromResult(new ListToolsResult
+                {
+                    Tools = identity.CanWrite ? CodingToolDefinitions.All :
+                        CodingToolDefinitions.All.Where(t => t.Name is not ("remember" or "forget")).ToArray(),
+                });
+            })
             .WithCallToolHandler(async (request, ct) =>
             {
                 var provider = request.Services!;
@@ -29,10 +38,13 @@ internal static class CodingTransport
     public static void Map(WebApplication app)
     {
         app.UseRouting();
-        app.UseMiddleware<CodingRequestAuthorization>();
+        var options = app.Services.GetRequiredService<CodingServiceOptions>();
+        if (options.Remote is not null) CodingRemoteAuthentication.Map(app, options);
+        else app.UseMiddleware<CodingRequestAuthorization>();
         app.UseMiddleware<CodingBodyLimit>();
-        CodingMemoryPage.Map(app);
+        if (options.Remote is null) CodingMemoryPage.Map(app);
         app.MapMcp("/projects/{project}/mcp");
+        if (options.Remote is not null) return; // Remote clients use the scoped MCP contract only.
         app.MapPost("/projects/{project}/{operation}", async (HttpContext context, CodingApi api, string operation) =>
         {
             try

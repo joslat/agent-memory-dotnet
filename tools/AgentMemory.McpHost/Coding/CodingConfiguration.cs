@@ -3,13 +3,14 @@ using AgentMemory.Inference;
 namespace AgentMemory.McpHost.Coding;
 
 internal sealed class CodingConfiguration(CodingServiceOptions options, McpHostOptions host,
-    CodingProjectAccess access, CodingContentPolicy content)
+    CodingProjectAccess access, CodingContentPolicy content, string? certificatePassword = null)
 {
     internal const int MaximumBytes = CodingJson.MaximumConfigurationBytes;
     public CodingServiceOptions Options { get; } = options;
     public McpHostOptions Host { get; } = host;
     public CodingProjectAccess Access { get; } = access;
     public CodingContentPolicy Content { get; } = content;
+    internal string? CertificatePassword { get; } = certificatePassword;
 
     public static CodingConfiguration Parse(string json, Func<string, string?> environment)
     {
@@ -30,7 +31,15 @@ internal sealed class CodingConfiguration(CodingServiceOptions options, McpHostO
         CheckEndpoint(host.Inference.Provider, host.Inference.Endpoint);
         CheckEndpoint(host.Inference.EmbeddingProvider, host.Inference.EmbeddingEndpoint);
         var access = new CodingProjectAccess(options, environment);
-        var secrets = options.Projects.Values.Select(v => environment(v)!).ToList();
+        var secrets = options.Remote is null ? options.Projects.Values.Select(v => environment(v)!).ToList() : new List<string>();
+        string? tlsPassword = null;
+        if (options.Remote is { } remoteOptions)
+        {
+            if (environment(remoteOptions.CertificatePasswordVariable) is not { Length: > 0 } password)
+                throw new ArgumentException("Remote coding mode requires a certificate password environment variable.");
+            secrets.Add(password);
+            tlsPassword = password;
+        }
         secrets.Add(host.Neo4jPassword);
         if (host.Inference.Provider != InferenceProvider.Ollama || environment("OLLAMA_API_KEY") is not null)
             secrets.Add(host.Inference.ApiKey);
@@ -57,7 +66,7 @@ internal sealed class CodingConfiguration(CodingServiceOptions options, McpHostO
                 secrets.Add(key);
             }
         }
-        return new(options, host, access, new(secrets));
+        return new(options, host, access, new(secrets), tlsPassword);
     }
 
     public static async Task<CodingConfiguration> ReadAsync(string path, Func<string, string?> environment,

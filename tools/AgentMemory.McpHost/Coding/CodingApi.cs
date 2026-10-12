@@ -23,6 +23,7 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!identity.CanWrite && operation is "remember" or "forget") return Error(403, "insufficient_scope");
             if (arguments.ValueKind != JsonValueKind.Object) return Error(400, "invalid_input");
             switch (operation)
             {

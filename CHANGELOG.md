@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional HTTPS/OAuth coding MCP resource server: per-project resource discovery and token audiences,
+  one configured owner subject, read/write scopes, explicit remote write opt-in and bounded request rates.
+  Uses an external OIDC authorization server; local bearer mode remains unchanged. No deployment or
+  connector activation is automatic. See [remote configuration](docs/coding-remote.md).
+
 - Explicit Codex hook harness: pair capture/completion by `turn_id`, discard interrupted pending turns,
   and isolate Codex state/session IDs from Claude while preserving existing Claude pending files.
   Includes inactive hook/instruction templates and a disabled MCP configuration; no provider activation.

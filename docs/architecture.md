@@ -1363,6 +1363,18 @@ separate service-session namespace and pending-state key; existing Claude cache 
 The helper's model field is not a provider authorization check. Templates remain inactive, and actual
 client/provider validation is separate from helper tests.
 Templates are in `samples/CodingMemory`.
+Optional `Remote` configuration selects direct HTTPS and a separate MCP-only resource-server boundary.
+Omission registers no OAuth services or metadata routes and preserves local bearer behavior. Remote
+mode uses standard ASP.NET JWT validation with an external OIDC issuer: exact issuer/subject, one exact
+project audience, signed unexpired RS256 `at+jwt` tokens, and `memory:read`. Mutations also require
+`Remote.AllowWrites` (default false) and `memory:write`; the shared dispatcher enforces this even for
+unadvertised tool calls. Job ownership remains owner/project based when token permissions change.
+Static project tokens, browser UI, plain HTTP and forwarded-header TLS are not supported in this mode.
+Discovery advertises the project's resource and authorization server. A fixed-window limit allows 120
+requests per minute per configured project, with no queue or attacker-selected partition keys, before
+JWT validation. The existing listener/body/worker bounds still apply. Certificate credentials join the
+input filter and are snapshotted during configuration. TLS/JWT tests use synthetic credentials;
+deployment and external authorization-server compatibility are separate gates. See [remote setup](coding-remote.md).
 See [coding service configuration and limits](coding-service.md).
 
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)

@@ -16,6 +16,10 @@ and MCP/instruction templates, locally tested against fake services. Fully autom
 and actual client sessions remain unverified. See [limits](coding-service.md).
 Codex has an explicitly selected paired-turn helper, interruption cleanup and disabled MCP templates,
 tested with synthetic inputs; no live Codex session or provider compatibility is claimed.
+The optional [remote MCP resource server](coding-remote.md) adds direct TLS, project-specific OAuth
+audiences, one configured owner subject and read/write scope checks. Writes need explicit server opt-in.
+Synthetic HTTPS/JWT tests cover these boundaries; external issuer interoperability, deployment and
+an actual Claude connector session remain unverified. No remote service starts by default.
 
 **Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
 lets a caller require one conversation turn through an enabled writer, or import through configured

@@ -5,7 +5,8 @@ The opt-in coding mode gives native coding clients one project-bound HTTP/MCP se
 tools/AgentMemory.McpHost -- --coding-config <private.json>`). The ordinary MCP host is unchanged.
 This mode is built and wired. A native Claude hook client and templates are available in
 [the coding sample](../samples/CodingMemory/README.md), with an optional [local memory page](#local-memory-page).
-Remote OAuth deployment remains separate work. Local tests cover transport, page interactions and
+[Optional remote HTTPS/OAuth](coding-remote.md) is implemented with a separate token contract;
+external identity-provider setup and deployment remain separate work. Local tests cover transport, page interactions and
 persistence, not model quality or a real client workflow.
 Copilot CLI and VS Code Local have separate [MCP and session-start templates](../samples/CodingMemory/copilot.md).
 Codex has [paired hooks and a disabled MCP template](../samples/CodingMemory/codex.md); the memory

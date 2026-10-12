@@ -20,6 +20,56 @@ namespace AgentMemory.Tests.Unit.McpServer;
 public sealed class CodingHostTests
 {
     [Fact]
+    public async Task Remote_host_uses_configured_TLS_credentials_and_ignores_ambient_HTTP_listener()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=localhost", rsa,
+            System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddHours(1));
+        var path = Path.Combine(Path.GetTempPath(), "coding-tls-" + Guid.NewGuid().ToString("N") + ".pfx");
+        const string password = "synthetic-test-certificate-password";
+        await File.WriteAllBytesAsync(path, certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx, password));
+        try
+        {
+            using var reservation = new TcpListener(IPAddress.Loopback, 0);
+            reservation.Start();
+            var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
+            reservation.Stop();
+            var env = CodingConfigurationTests.EnvironmentValues();
+            env["TEST_CODING_TLS_PASSWORD"] = password;
+            var config = CodingConfiguration.Parse(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                ownerId = "owner", projects = new { alpha = "" }, url = $"https://127.0.0.1:{port}",
+                remote = new { issuer = "https://identity.example", subject = "owner-subject", listenAddress = "127.0.0.1",
+                    certificatePath = path, certificatePasswordVariable = "TEST_CODING_TLS_PASSWORD" },
+            }), env.GetValueOrDefault);
+            var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [], EnvironmentName = "Production" });
+            builder.Configuration["Kestrel:Endpoints:Ambient:Url"] = "http://0.0.0.0:0";
+            CodingHost.Configure(builder, config);
+            builder.Services.RemoveAll<ICodingWriter>();
+            builder.Services.AddSingleton<ICodingWriter, NoCallsWriter>();
+            await using var app = builder.Build();
+            CodingTransport.Map(app);
+            await app.StartAsync();
+            try
+            {
+                app.Urls.Should().Equal(config.Options.Url);
+                using var client = new HttpClient(new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback = (_, supplied, _, _) => supplied?.Thumbprint == certificate.Thumbprint,
+                    UseProxy = false,
+                });
+                using var metadata = await client.GetAsync(config.Options.Url + "/.well-known/oauth-protected-resource/projects/alpha/mcp");
+                metadata.StatusCode.Should().Be(HttpStatusCode.OK);
+                using var response = await client.PostAsync(config.Options.Url + "/projects/alpha/mcp", System.Net.Http.Json.JsonContent.Create(new { }));
+                response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+            }
+            finally { await app.StopAsync(); }
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public async Task Uses_only_the_configured_loopback_listener_despite_ambient_endpoints()
     {
         var (builder, config) = Setup();

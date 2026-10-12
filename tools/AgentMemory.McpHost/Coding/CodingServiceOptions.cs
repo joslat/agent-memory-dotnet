@@ -10,14 +10,22 @@ internal sealed record CodingServiceOptions
     public string Url { get; init; } = "http://127.0.0.1:5234";
     /// <summary>Opt-in local memory page. Off registers no page routes and rejects every browser Origin.</summary>
     public bool EnableBrowserUi { get; init; }
+    /// <summary>Explicit HTTPS/OAuth mode. Null adds no OAuth discovery, validation or rate-limit services.</summary>
+    public CodingRemoteOptions? Remote { get; init; }
     public IReadOnlyList<CodingJudgeOptions> Judges { get; init; } = [];
 
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(OwnerId) || OwnerId.Length > 256 ||
             Projects is not { Count: > 0 and <= 32 } ||
-            Projects.Any(p => p.Key.Length > 32 || !Regex.IsMatch(p.Key, "\\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\z") || string.IsNullOrWhiteSpace(p.Value)))
+            Projects.Any(p => p.Key.Length > 32 || !Regex.IsMatch(p.Key, "\\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\z") ||
+                (Remote is null ? string.IsNullOrWhiteSpace(p.Value) : p.Value != "")))
             throw new ArgumentException("Coding service requires an owner and canonical project IDs with token-variable names.");
+        if (Remote is not null)
+        {
+            Remote.Validate(Url, EnableBrowserUi);
+            return;
+        }
         if (!Uri.TryCreate(Url, UriKind.Absolute, out var uri) || uri.Scheme != "http" ||
             uri.Host != "127.0.0.1" || uri.Port is < 1 or > 65535 || uri.AbsolutePath != "/" ||
             uri.Query.Length != 0 || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0)
@@ -25,7 +33,10 @@ internal sealed record CodingServiceOptions
     }
 }
 
-internal sealed record CodingIdentity(string OwnerId, string ProjectId);
+internal sealed record CodingIdentity(string OwnerId, string ProjectId)
+{
+    public bool CanWrite { get; init; } = true;
+}
 
 internal sealed record CodingJudgeOptions
 {

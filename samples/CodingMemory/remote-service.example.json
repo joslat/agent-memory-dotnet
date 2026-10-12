@@ -1,0 +1,13 @@
+{
+  "ownerId": "your-owner-id",
+  "url": "https://memory.example",
+  "projects": { "my-project": "" },
+  "remote": {
+    "issuer": "https://identity.example",
+    "subject": "your-exact-issuer-subject",
+    "listenAddress": "127.0.0.1",
+    "certificatePath": "/run/secrets/memory.pfx",
+    "certificatePasswordVariable": "MEMORY_TLS_PASSWORD",
+    "allowWrites": false
+  }
+}

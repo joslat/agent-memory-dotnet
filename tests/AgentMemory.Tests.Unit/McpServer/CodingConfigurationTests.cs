@@ -7,6 +7,25 @@ public sealed class CodingConfigurationTests
 {
     internal const string Json = """{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN"}}""";
 
+    [Fact]
+    public void Explicit_remote_configuration_needs_no_local_project_token()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            ownerId = "owner", projects = new { alpha = "" }, url = "https://memory.example",
+            remote = new { issuer = "https://identity.example", subject = "owner-subject",
+                listenAddress = "127.0.0.1", certificatePath = Path.GetFullPath("test-only.pfx"),
+                certificatePasswordVariable = "TLS_PASSWORD" },
+        });
+        var env = EnvironmentValues();
+        env.Remove("ALPHA_TOKEN");
+        env["TLS_PASSWORD"] = "certificate-password";
+        var config = CodingConfiguration.Parse(json, env.GetValueOrDefault);
+        config.Options.Url.Should().Be("https://memory.example");
+        config.Access.Authorize("alpha", "Bearer " + new string('x', 40)).Should().BeNull();
+        config.Content.Invoking(c => c.CheckText("value certificate-password")).Should().Throw<ArgumentException>();
+    }
+
     [Theory]
     [InlineData("AI_INFERENCE_PROVIDER", null)]
     [InlineData("BITDEER_ENDPOINT", "https://api.openai.com/v1")]

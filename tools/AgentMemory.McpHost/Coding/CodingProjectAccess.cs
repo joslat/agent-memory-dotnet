@@ -13,6 +13,7 @@ internal sealed class CodingProjectAccess
     {
         options.Validate();
         _owner = options.OwnerId;
+        if (options.Remote is not null) return; // Remote mode never accepts static project tokens.
         foreach (var (project, variable) in options.Projects)
         {
             var token = environment(variable);
