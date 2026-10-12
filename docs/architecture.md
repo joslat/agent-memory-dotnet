@@ -1354,6 +1354,10 @@ metadata limits the unauthenticated exception to those data-free assets; MCP nev
 exception. The page renders memories as text under a restrictive CSP, retains credentials only in tab
 memory, and reuses history/profile/forget/remember/status operations. Corrections are sourced writer
 proposals, not direct graph edits. Real client activation and remote deployment remain separate work.
+The hook configuration's `Harness` defaults to Claude. `VsCodeLocal` and `CopilotCli` reuse bounded
+HTTP and context projection, with their distinct session-start output envelopes. They read only the
+profile: no prompt capture, pending state or guessed completion pairing. Their per-turn recall/write
+path uses explicit MCP instructions and retains a live-client validation gate.
 Templates are in `samples/CodingMemory`.
 See [coding service configuration and limits](coding-service.md).
 

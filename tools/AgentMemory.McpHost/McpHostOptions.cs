@@ -252,7 +252,7 @@ internal sealed record McpHostOptions
                            [--read-only] [--enable-graph-query] [--no-bootstrap]
                            [--server-name agent-memory] [--log-level information]
           agent-memory-mcp --coding-config <private.json>
-          agent-memory-mcp --coding-hook <private-client.json>  (Claude hook JSON on stdin)
+          agent-memory-mcp --coding-hook <private-client.json>  (configured client hook JSON on stdin)
 
         Coding mode: opt-in project-bound HTTP/MCP on IPv4 loopback. Requires separate,
           pre-provisioned coding-<project> databases and explicit Bitdeer or local Ollama

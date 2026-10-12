@@ -1,12 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Net;
-using System.Net.Http.Json;
+using static AgentMemory.McpHost.Coding.Client.CodingHookInput;
 
 namespace AgentMemory.McpHost.Coding.Client;
 
 internal sealed record CodingHookReply
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AdditionalContext { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public object? HookSpecificOutput { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -16,6 +18,8 @@ internal sealed record CodingHookReply
 internal sealed class ClaudeCodingHook(CodingHookOptions options, CodingContentPolicy policy, CodingHookState state,
     HttpClient client, Func<string, CancellationToken, Task<string>> commit)
 {
+    private readonly CodingHookHttp _http = new(options, client);
+
     public async Task<CodingHookReply> HandleAsync(JsonElement input, CancellationToken cancellationToken = default)
     {
         var name = Text(input, "hook_event_name");
@@ -48,7 +52,7 @@ internal sealed class ClaudeCodingHook(CodingHookOptions options, CodingContentP
             {
                 var finished = saved with { AssistantText = Text(input, "last_assistant_message") };
                 policy.Check(finished);
-                var result = await PostAsync("remember", finished, HttpStatusCode.Accepted, ct).ConfigureAwait(false);
+                var result = await _http.PostAsync("remember", finished, HttpStatusCode.Accepted, ct).ConfigureAwait(false);
                 job = Text(result, "jobId");
                 if (!Guid.TryParseExact(job, "N", out _)) throw new JsonException("Invalid job receipt.");
             }, cancellationToken).ConfigureAwait(false);
@@ -76,7 +80,7 @@ internal sealed class ClaudeCodingHook(CodingHookOptions options, CodingContentP
         }
         else body = new { };
         var profile = name == "SessionStart";
-        var response = await PostAsync(profile ? "profile" : "recall", body, HttpStatusCode.OK, cancellationToken).ConfigureAwait(false);
+        var response = await _http.PostAsync(profile ? "profile" : "recall", body, HttpStatusCode.OK, cancellationToken).ConfigureAwait(false);
         var context = CodingHookContext.Render(response, profile, policy);
         return new()
         {
@@ -85,21 +89,4 @@ internal sealed class ClaudeCodingHook(CodingHookOptions options, CodingContentP
         };
     }
 
-    private async Task<JsonElement> PostAsync(string operation, object body, HttpStatusCode expected, CancellationToken ct)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"/projects/{options.Project}/{operation}")
-            { Content = JsonContent.Create(body, options: CodingApi.Json) };
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        if (response.StatusCode != expected) throw new HttpRequestException("Memory request was not accepted.");
-        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        var bytes = new byte[CodingBodyLimit.MaximumBytes + 1];
-        var count = await stream.ReadAtLeastAsync(bytes, bytes.Length, throwOnEndOfStream: false, ct).ConfigureAwait(false);
-        if (count > CodingBodyLimit.MaximumBytes) throw new JsonException("Memory response exceeds the hook limit.");
-        using var document = JsonDocument.Parse(bytes.AsMemory(0, count), new JsonDocumentOptions { MaxDepth = 16 });
-        return document.RootElement.Clone();
-    }
-
-    private static string? Text(JsonElement input, string name) => input.ValueKind == JsonValueKind.Object &&
-        input.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString())
-            ? value.GetString() : null;
 }

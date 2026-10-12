@@ -11,7 +11,9 @@ handling. It injects bounded typed memory and queues matching turns; no real cli
 quality claim. An optional local memory page shows a bounded history view and profile, submits sourced
 corrections through the writer, and closes memories without deleting history. Browser interactions are
 tested with synthetic data; corrections are not guaranteed replacements. Activation and remote
-deployment remain separate work. See [limits](coding-service.md).
+deployment remain separate work. Copilot CLI/VS Code Local have optional session-start profile hooks
+and MCP/instruction templates, locally tested against fake services. Fully automatic per-turn capture
+and actual client sessions remain unverified. See [limits](coding-service.md).
 
 **Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
 lets a caller require one conversation turn through an enabled writer, or import through configured

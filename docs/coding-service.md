@@ -7,6 +7,7 @@ This mode is built and wired. A native Claude hook client and templates are avai
 [the coding sample](../samples/CodingMemory/README.md), with an optional [local memory page](#local-memory-page).
 Remote OAuth deployment remains separate work. Local tests cover transport, page interactions and
 persistence, not model quality or a real client workflow.
+Copilot CLI and VS Code Local have separate [MCP and session-start templates](../samples/CodingMemory/copilot.md).
 
 ## Configuration
 

@@ -30,8 +30,12 @@ internal static class CodingHookCommand
             using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
             using var client = new HttpClient(handler) { BaseAddress = new Uri(options.ServiceUrl), Timeout = Timeout.InfiniteTimeSpan };
             client.DefaultRequestHeaders.Authorization = new("Bearer", token);
-            var hook = new ClaudeCodingHook(options, policy, new(options), client, new CodingRepository(options.RepositoryRoot).ReadCommitAsync);
-            var reply = await hook.HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false);
+            var repository = new CodingRepository(options.RepositoryRoot);
+            var reply = options.Harness == CodingHookHarness.Claude
+                ? await new ClaudeCodingHook(options, policy, new(options), client, repository.ReadCommitAsync)
+                    .HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false)
+                : await new CodingSessionStartHook(options, policy, client, repository.ReadCommitAsync)
+                    .HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false);
             await output.WriteAsync(JsonSerializer.Serialize(reply, CodingApi.Json)).ConfigureAwait(false);
         }
         catch (Exception)

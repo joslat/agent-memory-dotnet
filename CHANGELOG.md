@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Copilot CLI and VS Code Local session-start profile hooks, selected explicitly in the private hook
+  configuration, with separate MCP/hook templates and per-turn tool instructions. Existing Claude behavior
+  remains the default; no guessed completion writes or automatic client activation.
+
 - Optional local coding memory page (`enableBrowserUi`, off by default): owner/project history and
   profile, sourced correction proposals with job status, and non-destructive closing. Same-origin HTTP
   still requires a project token; browser MCP stays disabled. No client or service is activated automatically.

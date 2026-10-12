@@ -1,5 +1,7 @@
 # Claude Code with local project memory
 
+For Copilot CLI or VS Code Local, use the separate [client guide](copilot.md) and templates.
+
 These are templates, not installed client settings. Use a build of the host that includes
 `--coding-hook`; an older released tool may not contain it. See the [service setup](../../docs/coding-service.md)
 first. No provider or client is activated by building the sample.

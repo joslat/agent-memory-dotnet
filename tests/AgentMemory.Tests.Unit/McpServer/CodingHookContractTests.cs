@@ -8,6 +8,20 @@ namespace AgentMemory.Tests.Unit.McpServer;
 public sealed class CodingHookContractTests
 {
     [Theory]
+    [InlineData("\"typo\"")]
+    [InlineData("1")]
+    [InlineData("null")]
+    public void Invalid_harness_configuration_never_falls_back_to_Claude(string value)
+    {
+        var json = JsonSerializer.Serialize(Options, CodingApi.Json);
+        using var document = JsonDocument.Parse(json);
+        var fields = document.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
+        fields["harness"] = JsonSerializer.Deserialize<JsonElement>(value);
+        var read = () => CodingJson.ParseConfiguration<CodingHookOptions>(JsonSerializer.Serialize(fields));
+        read.Should().Throw<ArgumentException>();
+    }
+
+    [Theory]
     [InlineData("https://example.com")]
     [InlineData("http://localhost:5234")]
     [InlineData("http://127.0.0.1:5234/other")]
