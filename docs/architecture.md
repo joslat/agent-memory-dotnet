@@ -1326,7 +1326,18 @@ payloads using the same turn ID are rejected. After eviction or restart, a store
 is not durable, and this does not promise exactly-once writes or safe concurrent service instances.
 Shutdown cancels waiting jobs and marks an interrupted write unknown. Unit checks and a real two-database
 test with a deterministic writer cover persistence, provenance, isolation, retries and soft forgetting.
-Host/transport wiring, content filtering and client integration remain required before activation.
+The internal HTTP and stateless MCP mappings share a strict dispatcher for `recall`, `remember`,
+`forget`, `history`, `profile` and `write_status`. Unknown arguments are rejected, including owner or
+project overrides. HTTP acceptance returns 202; completion requires a status query. Recall reuses the
+MCP package's embedding-free projection. Authentication precedes a 64 KiB body limit, including chunked
+requests. Loopback tests exercise the real MCP SDK, rejected credentials, project routing and size limits.
+The entry point still does not register these mappings: no new endpoint is active by default.
+Input checks reject configured credential substrings, recognizable secret formats and bulk content
+before admission, recall, or source persistence; selected prior conversation text is checked too.
+The checker retains supplied credential values in process memory for matching, separate from the hashed
+authentication lookup. These heuristics cannot guarantee arbitrary prose is secret-free, audit existing
+graph content, or filter model-generated output. Startup credential binding, provider configuration,
+listener constraints and client integration remain required before activation.
 
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)
 

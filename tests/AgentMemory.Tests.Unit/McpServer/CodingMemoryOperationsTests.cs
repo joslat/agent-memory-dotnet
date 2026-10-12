@@ -16,6 +16,16 @@ public sealed class CodingMemoryOperationsTests
     private static readonly CodingIdentity Identity = new("owner", "alpha");
 
     [Fact]
+    public async Task Secret_query_is_rejected_before_recall_or_embedding()
+    {
+        var recall = Substitute.For<IMemoryRecall>();
+        await using var provider = Services().AddSingleton(recall).BuildServiceProvider();
+        var run = () => Operations(provider).RecallAsync(Identity, "session", "canary-credential-value");
+        await run.Should().ThrowAsync<ArgumentException>();
+        recall.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Recall_binds_owner_and_excludes_shared_records_with_a_scoped_session()
     {
         var recall = Substitute.For<IMemoryRecall>();
@@ -118,5 +128,5 @@ public sealed class CodingMemoryOperationsTests
     }
 
     private static CodingMemoryOperations Operations(ServiceProvider provider, MemoryOptions? options = null) =>
-        new(new CodingOperationScope(provider.GetRequiredService<IServiceScopeFactory>()), Options.Create(options ?? new()));
+        new(new CodingOperationScope(provider.GetRequiredService<IServiceScopeFactory>()), Options.Create(options ?? new()), new(["canary-credential-value"]));
 }

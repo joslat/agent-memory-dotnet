@@ -23,6 +23,27 @@ public sealed class CodingWriterTests
     };
 
     [Fact]
+    public async Task Secret_content_is_rejected_before_source_lookup_or_embeddings()
+    {
+        await using var fixture = new Fixture();
+        var run = () => fixture.Writer.WriteAsync(Identity, Request with { AssistantText = "canary-credential-value" });
+        await run.Should().ThrowAsync<ArgumentException>();
+        fixture.Messages.ReceivedCalls().Should().BeEmpty();
+        fixture.Ingestion.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Recognizable_secret_in_prior_context_stops_ingestion_before_new_sources()
+    {
+        await using var fixture = new Fixture();
+        var prior = Fixture.Existing("prior", Request) with { Content = "canary-credential-value" };
+        fixture.ShortTerm.GetRecentMessagesAsync(Arg.Any<string>(), 6, Arg.Any<CancellationToken>()).Returns(new[] { prior });
+        var run = () => fixture.Writer.WriteAsync(Identity, Request);
+        await run.Should().ThrowAsync<ArgumentException>();
+        fixture.Ingestion.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Persists_owned_sources_before_calling_the_writer_with_one_user_target()
     {
         await using var fixture = new Fixture();
@@ -185,7 +206,7 @@ public sealed class CodingWriterTests
                 {
                     Strategy = MemoryStorageStrategy.DatabasePerApplication, DatabasePrefix = "coding-", AutoProvision = false,
                 })).BuildServiceProvider();
-            Writer = new CodingWriter(new CodingOperationScope(_services.GetRequiredService<IServiceScopeFactory>()));
+            Writer = new CodingWriter(new CodingOperationScope(_services.GetRequiredService<IServiceScopeFactory>()), new(["canary-credential-value"]));
         }
 
         public static Message MessageFrom(NSubstitute.Core.CallInfo ci) => new()

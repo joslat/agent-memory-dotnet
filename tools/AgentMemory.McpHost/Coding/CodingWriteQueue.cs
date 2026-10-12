@@ -19,6 +19,7 @@ internal sealed record CodingWriteJob
 internal sealed class CodingWriteQueue : BackgroundService
 {
     private readonly ICodingWriter _writer;
+    private readonly CodingContentPolicy _content;
     private readonly Channel<Entry> _channel;
     private readonly int _retainedJobs;
     private readonly object _gate = new();
@@ -27,11 +28,12 @@ internal sealed class CodingWriteQueue : BackgroundService
     private readonly Queue<string> _completed = new();
     private bool _accepting = true;
 
-    public CodingWriteQueue(ICodingWriter writer, int capacity = 64, int retainedJobs = 512)
+    public CodingWriteQueue(ICodingWriter writer, CodingContentPolicy content, int capacity = 64, int retainedJobs = 512)
     {
         if (capacity is < 1 or > 256 || retainedJobs < capacity || retainedJobs > 4096)
             throw new ArgumentOutOfRangeException(nameof(capacity), "Queue capacity must be 1..256; retention must be capacity..4096.");
         _writer = writer;
+        _content = content;
         _retainedJobs = retainedJobs;
         _channel = Channel.CreateBounded<Entry>(new BoundedChannelOptions(capacity)
         {
@@ -42,7 +44,7 @@ internal sealed class CodingWriteQueue : BackgroundService
 
     public CodingWriteJob? TryEnqueue(CodingIdentity identity, CodingRememberRequest request)
     {
-        request.Validate();
+        _content.Check(request);
         var key = CodingInput.MessageId(CodingInput.SessionId(identity, request.Session), request.TurnId, "user");
         var hash = request.PayloadHash();
         lock (_gate)
@@ -50,7 +52,7 @@ internal sealed class CodingWriteQueue : BackgroundService
             if (_turns.TryGetValue(key, out var previous))
             {
                 var existing = _jobs[previous];
-                if (existing.Hash != hash) throw new InvalidOperationException("Turn ID already belongs to a different payload.");
+                if (existing.Hash != hash) throw new CodingTurnConflictException();
                 return existing.Job;
             }
             if (!_accepting) return null;

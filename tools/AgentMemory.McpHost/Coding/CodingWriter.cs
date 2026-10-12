@@ -23,12 +23,12 @@ internal interface ICodingWriter
         CancellationToken cancellationToken = default);
 }
 
-internal sealed class CodingWriter(CodingOperationScope scopes) : ICodingWriter
+internal sealed class CodingWriter(CodingOperationScope scopes, CodingContentPolicy content) : ICodingWriter
 {
     public Task<CodingWriteResult> WriteAsync(CodingIdentity identity, CodingRememberRequest request,
         CancellationToken cancellationToken = default)
     {
-        request.Validate();
+        content.Check(request);
         return scopes.RunAsync(identity, async (services, ct) =>
         {
             var session = CodingInput.SessionId(identity, request.Session);
@@ -49,6 +49,7 @@ internal sealed class CodingWriter(CodingOperationScope scopes) : ICodingWriter
                 throw new InvalidOperationException("Coding ingestion requires an enabled memory writer.");
             var shortTerm = services.GetRequiredService<IShortTermMemoryService>();
             var context = BoundedContext(await shortTerm.GetRecentMessagesAsync(session, 6, ct).ConfigureAwait(false));
+            foreach (var message in context) content.CheckText(message.Content);
             var metadata = new Dictionary<string, object>
             {
                 ["coding_commit"] = request.Commit, ["coding_source"] = request.Source,

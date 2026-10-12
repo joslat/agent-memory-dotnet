@@ -16,4 +16,9 @@
     <ProjectReference Include="..\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The companion host reuses the embedding-free wire projection. -->
+    <InternalsVisibleTo Include="AgentMemory.McpHost" />
+  </ItemGroup>
+
 </Project>

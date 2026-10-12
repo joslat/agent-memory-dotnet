@@ -13,10 +13,18 @@ public sealed class CodingWriteQueueTests
     };
 
     [Fact]
+    public void Secret_content_is_rejected_before_queue_admission()
+    {
+        using var queue = new CodingWriteQueue(new TestWriter(), new(["canary-credential-value"]));
+        var run = () => queue.TryEnqueue(Alpha, Request() with { UserText = "canary-credential-value" });
+        run.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public void Capacity_duplicate_submissions_and_changed_payloads_are_checked_before_execution()
     {
         var writer = new TestWriter();
-        using var queue = new CodingWriteQueue(writer, capacity: 1, retainedJobs: 2);
+        using var queue = new CodingWriteQueue(writer, new([]), capacity: 1, retainedJobs: 2);
         var first = queue.TryEnqueue(Alpha, Request());
         first.Should().NotBeNull();
         first!.State.Should().Be(CodingJobState.Queued);
@@ -40,7 +48,7 @@ public sealed class CodingWriteQueueTests
                 await release.Task.WaitAsync(ct);
                 return new CodingWriteResult { SourceMessageId = "source", Status = IngestionStatus.Succeeded };
             });
-        using var queue = new CodingWriteQueue(writer, 2, 4);
+        using var queue = new CodingWriteQueue(writer, new([]), 2, 4);
         await queue.StartAsync(default);
         try
         {
@@ -70,7 +78,7 @@ public sealed class CodingWriteQueueTests
     {
         var writer = new TestWriter((_, _, _) => Task.FromResult(
             new CodingWriteResult { SourceMessageId = "source", Status = status, PriorAttemptUnknown = unknown }));
-        using var queue = new CodingWriteQueue(writer);
+        using var queue = new CodingWriteQueue(writer, new([]));
         await queue.StartAsync(default);
         try
         {
@@ -89,7 +97,7 @@ public sealed class CodingWriteQueueTests
         var writer = new TestWriter((_, request, _) => request.TurnId == "one"
                 ? Task.FromException<CodingWriteResult>(new InvalidOperationException("private body and credential"))
                 : Task.FromResult(new CodingWriteResult { SourceMessageId = "source", Status = IngestionStatus.Succeeded }));
-        using var queue = new CodingWriteQueue(writer);
+        using var queue = new CodingWriteQueue(writer, new([]));
         await queue.StartAsync(default);
         try
         {
@@ -115,7 +123,7 @@ public sealed class CodingWriteQueueTests
             await Task.Delay(Timeout.Infinite, ct);
             return new CodingWriteResult { SourceMessageId = "source", Status = IngestionStatus.Succeeded };
         });
-        using var queue = new CodingWriteQueue(writer, 2, 4);
+        using var queue = new CodingWriteQueue(writer, new([]), 2, 4);
         await queue.StartAsync(default);
         var first = queue.TryEnqueue(Alpha, Request())!;
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -130,7 +138,7 @@ public sealed class CodingWriteQueueTests
     [Fact]
     public void Disposal_before_start_closes_admission_and_releases_waiting_jobs()
     {
-        var queue = new CodingWriteQueue(new TestWriter());
+        var queue = new CodingWriteQueue(new TestWriter(), new([]));
         var waiting = queue.TryEnqueue(Alpha, Request())!;
         queue.Dispose();
         queue.Get(Alpha, waiting.JobId)!.State.Should().Be(CodingJobState.Cancelled);
@@ -140,7 +148,7 @@ public sealed class CodingWriteQueueTests
     [Fact]
     public async Task Completed_job_retention_is_bounded_without_evicting_active_work()
     {
-        using var queue = new CodingWriteQueue(new TestWriter(), 1, 2);
+        using var queue = new CodingWriteQueue(new TestWriter(), new([]), 1, 2);
         await queue.StartAsync(default);
         try
         {

@@ -6,13 +6,15 @@ using Microsoft.Extensions.Options;
 namespace AgentMemory.McpHost.Coding;
 
 /// <summary>Operations shared by local HTTP hooks and coding MCP tools.</summary>
-internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptions<MemoryOptions> options)
+internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptions<MemoryOptions> options, CodingContentPolicy content)
 {
     public Task<RecallResult> RecallAsync(CodingIdentity identity, string session, string query,
         CancellationToken cancellationToken = default)
     {
         CodingInput.RequireText(session, 256, nameof(session));
         CodingInput.RequireText(query, 8000, nameof(query));
+        content.CheckText(session);
+        content.CheckText(query);
         return scopes.RunAsync(identity, (services, ct) => services.GetRequiredService<IMemoryRecall>()
             .RecallAsync(new RecallRequest
             {
@@ -25,6 +27,7 @@ internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptio
         CancellationToken cancellationToken = default)
     {
         CodingInput.RequireText(id, 256, nameof(id));
+        content.CheckText(id);
         if (!Enum.IsDefined(kind)) throw new ArgumentException("Unknown memory kind.", nameof(kind));
         return scopes.RunAsync(identity, (services, ct) =>
         {
@@ -43,7 +46,11 @@ internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptio
     public Task<IReadOnlyList<MemoryHistoryRecord>> HistoryAsync(CodingIdentity identity, string? id = null,
         CancellationToken cancellationToken = default)
     {
-        if (id is not null) CodingInput.RequireText(id, 256, nameof(id));
+        if (id is not null)
+        {
+            CodingInput.RequireText(id, 256, nameof(id));
+            content.CheckText(id);
+        }
         return scopes.RunAsync(identity, (services, ct) => services.GetRequiredService<IMemoryHistoryService>()
             .GetHistoryAsync(new MemoryHistoryQuery
             {

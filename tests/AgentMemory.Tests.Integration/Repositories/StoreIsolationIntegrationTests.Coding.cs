@@ -59,8 +59,9 @@ public sealed partial class StoreIsolationIntegrationTests
         services.AddSingleton<IMemoryWriter>(model);
         await using var provider = services.BuildServiceProvider(validateScopes: true);
         var scopes = new CodingOperationScope(provider.GetRequiredService<IServiceScopeFactory>());
-        var operations = new CodingMemoryOperations(scopes, provider.GetRequiredService<IOptions<MemoryOptions>>());
-        var writer = new CodingWriter(scopes);
+        var content = new CodingContentPolicy([Password]);
+        var operations = new CodingMemoryOperations(scopes, provider.GetRequiredService<IOptions<MemoryOptions>>(), content);
+        var writer = new CodingWriter(scopes, content);
         var alpha = new CodingIdentity("owner", "alpha");
         var beta = new CodingIdentity("owner", "beta");
         foreach (var identity in new[] { alpha, beta })
@@ -75,7 +76,7 @@ public sealed partial class StoreIsolationIntegrationTests
             Session = "same-client-session", TurnId = "same-turn", UserText = "alpha-choice",
             Commit = new string('a', 40), Source = "settings.cs",
         };
-        using var queue = new CodingWriteQueue(writer);
+        using var queue = new CodingWriteQueue(writer, content);
         await queue.StartAsync(default);
         CodingWriteJob alphaJob;
         try
