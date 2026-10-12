@@ -334,8 +334,32 @@ After adding messages, run the extraction pipeline to surface entities, facts, a
 await memory.ExtractAndPersistAsync(new ExtractionRequest
 {
     SessionId = sessionId,
+    Messages = messages,
 });
 ```
+
+For explicit ingestion intent, set `ExtractionRequest.InputMode` when calling
+`ExtractAndPersistAsync` or `IMemoryExtractionPipeline.ExtractAsync`:
+
+| Mode | Behavior |
+|---|---|
+| `Unspecified` (default) | Existing entry-point behavior and configured writer/extractor selection. |
+| `ConversationTurn` | Exactly one target user message, with optional other-role targets. Requires a registered, enabled `IMemoryWriter`; does not enable it for you. |
+| `Import` | Uses configured unified or per-kind extractors, even when the input is one user message. Never selects the store-aware writer. |
+
+Earlier turns belong in `ContextMessages`, not `Messages`. Explicit modes cannot combine with
+`DeferIfOnlyAsking`; keep `Unspecified` for existing deferred-turn processing. `ConversationTurn`
+cannot use `ExtractBatchAsync`: replay live turns individually in chronological order. Import batching
+still uses the existing session/token limits and registered multi-session extractor, with the existing
+per-request fallback when none is enabled. `IngestBulkAsync` preserves each request's mode but is a
+concurrency scheduler, not an ordered conversation replay API.
+
+Provider options, prompts, trust, ownership, transaction settings and failure mode remain separate.
+Imports need an enabled unified extractor or a real per-kind extractor for a requested type; Core's
+no-op stubs alone do not qualify. Live turns retain `FallBackToExtractorsWhenWriterFails`; if no real
+extractor can handle a requested type, the writer's failure remains a failure. `TypesToExtract.None`
+does not require or call a provider. The existing adapters and retrospective helper methods continue
+to use `Unspecified`; no default or preset has changed.
 
 ### 4.3 Point-in-time recall
 

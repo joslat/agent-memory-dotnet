@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Explicit extraction input intent** (`ExtractionRequest.InputMode`): `ConversationTurn` requires
+  one target user message and an enabled writer; `Import` bypasses the writer for configured extractors.
+  Omitted intent preserves existing behavior. Invalid mode/deferral/batch combinations fail before
+  provider work. No preset, prompt, public service interface or extraction default changes.
 - **Paired compound-retrieval evaluation tool** (`router-arena compound-evaluate`): validates fixed-pool
   inputs without provider calls in dry-run, then records a shared-baseline comparison with input/binary
   hashes, physical HTTP attempts, judge failures and available token usage. Checkpoints preserve failed

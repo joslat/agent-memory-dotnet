@@ -6,6 +6,12 @@ namespace AgentMemory.Abstractions.Domain;
 public sealed record ExtractionRequest
 {
     /// <summary>
+    /// Explicit input intent. Unspecified preserves existing call paths, prompts and provider selection
+    /// without additional provider or store calls. This does not enable disabled providers or change presets.
+    /// </summary>
+    public ExtractionInputMode InputMode { get; init; }
+
+    /// <summary>
     /// Messages to extract from.
     /// </summary>
     public required IReadOnlyList<Message> Messages { get; init; }

@@ -129,6 +129,7 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         ExtractionRequest request,
         CancellationToken cancellationToken = default)
     {
+        ExtractionInputValidation.Validate(request);
         var sw = Stopwatch.StartNew();
         _logger.LogDebug(
             "Starting extraction for session {SessionId}, {MessageCount} messages.",
@@ -150,7 +151,11 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         // mention counts on facts that merely stayed inside the window.
         // Without context, the original call — the off state stays identical at the call itself, not
         // merely in what the extractors end up seeing.
-        var staged = request.ContextMessages.Count == 0
+        var staged = request.InputMode != ExtractionInputMode.Unspecified
+            ? await _extractionStage.ExtractForInputAsync(
+                new ExtractionWindow { Targets = request.Messages, Context = request.ContextMessages },
+                request.InputMode, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false)
+            : request.ContextMessages.Count == 0
             ? await _extractionStage.ExtractAsync(
                 request.Messages, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false)
             : await _extractionStage.ExtractWithContextAsync(

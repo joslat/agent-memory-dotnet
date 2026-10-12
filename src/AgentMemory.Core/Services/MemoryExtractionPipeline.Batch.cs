@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Core.Extraction;
 
 namespace AgentMemory.Core.Services;
 
@@ -16,6 +17,8 @@ internal sealed partial class MemoryExtractionPipeline
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInputTokens);
         if (requests.Count == 0)
             return [];
+
+        foreach (var request in requests) ExtractionInputValidation.Validate(request, multiSession: true);
 
         var ordered = requests
             .Select((request, index) => new

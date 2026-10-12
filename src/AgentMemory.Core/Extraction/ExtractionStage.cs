@@ -65,6 +65,32 @@ internal sealed class ExtractionStage : IExtractionStage
     public void InvalidateResolutionBatch() =>
         (_entityResolver as IExtractionEntityResolver)?.InvalidateBatch();
 
+    public Task<ExtractionStageResult> ExtractForInputAsync(
+        ExtractionWindow window,
+        ExtractionInputMode inputMode,
+        ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (typesToExtract != ExtractionTypes.None)
+        {
+            if (inputMode == ExtractionInputMode.ConversationTurn && !_writers.Any(w => w.IsEnabled))
+                throw new InvalidOperationException("ConversationTurn requires an enabled IMemoryWriter. Register and enable a writer, or use Unspecified for legacy selection.");
+            if (inputMode == ExtractionInputMode.Import && !HasExtractor(typesToExtract))
+                throw new InvalidOperationException("Import requires an enabled unified extractor or a registered per-kind extractor for a requested memory type. A store-aware writer alone cannot extract imports.");
+        }
+        return ExtractCoreAsync(window, typesToExtract, scope, preExtracted: null, cancellationToken, inputMode);
+    }
+
+    // Core's graph-only registrations include empty stubs. They are not a provider for an explicit
+    // import or a successful fallback after a failed writer. Custom per-kind extractors remain valid.
+    private bool HasExtractor(ExtractionTypes types) =>
+        _unifiedExtractors.Any(e => e.IsEnabled)
+        || (types.HasFlag(ExtractionTypes.Entities) && _entityExtractors.Any(e => e is not Stubs.StubEntityExtractor))
+        || (types.HasFlag(ExtractionTypes.Facts) && _factExtractors.Any(e => e is not Stubs.StubFactExtractor))
+        || (types.HasFlag(ExtractionTypes.Preferences) && _preferenceExtractors.Any(e => e is not Stubs.StubPreferenceExtractor))
+        || (types.HasFlag(ExtractionTypes.Relationships) && _relationshipExtractors.Any(e => e is not Stubs.StubRelationshipExtractor));
+
     public Task<ExtractionStageResult> ExtractAsync(
         IReadOnlyList<Message> messages,
         ExtractionTypes typesToExtract,
@@ -97,7 +123,8 @@ internal sealed class ExtractionStage : IExtractionStage
         ExtractionTypes typesToExtract,
         MemoryScope? scope,
         UnifiedExtractionResult? preExtracted,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ExtractionInputMode inputMode = ExtractionInputMode.Unspecified)
     {
         _tiers?.LogOnce(_logger);
         var messages = window.Targets;
@@ -142,7 +169,7 @@ internal sealed class ExtractionStage : IExtractionStage
         // one user message: the turn it was measured on. A window of several (a whole session, held question turns released
         // together) or of none (a document, assistant content) goes to the extractors as configured. Not on a pre-extracted
         // result: that call is already paid for, and its items were extracted without the store.
-        var writer = typesToExtract != ExtractionTypes.None && preExtracted is null
+        var writer = inputMode != ExtractionInputMode.Import && typesToExtract != ExtractionTypes.None && preExtracted is null
             ? _writers.FirstOrDefault(candidate => candidate.IsEnabled)
             : null;
         if (writer is not null && messages.Count(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase)) != 1)
@@ -159,7 +186,8 @@ internal sealed class ExtractionStage : IExtractionStage
         if (preExtracted is null && writer is not null)
         {
             var attempt = await WriteSafeAsync(writer, window, scope, typesToExtract, cancellationToken).ConfigureAwait(false);
-            if (attempt.Outcomes.Count > 0 && _options.FallBackToExtractorsWhenWriterFails)
+            if (attempt.Outcomes.Count > 0 && _options.FallBackToExtractorsWhenWriterFails
+                && (inputMode == ExtractionInputMode.Unspecified || HasExtractor(typesToExtract)))
             {
                 writerFallback = attempt.Outcomes[0].ErrorMessage ?? "the memory writer failed";
                 _logger.LogWarning(

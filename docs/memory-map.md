@@ -3,6 +3,11 @@
 A reference for what agent memory is, what a memory system has to decide that a store does not, and
 **exactly** which of those decisions AgentMemory makes today.
 
+**Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
+lets a caller require one conversation turn through an enabled writer, or import through configured
+extractors. Omission preserves existing behavior; adapters and presets have not migrated. This controls
+selection and validates request shape, not memory quality. See [the extraction guide](getting-started.md#42-extract-long-term-memory).
+
 **Pending-turn visibility — BUILT / WIRED, not benchmark-measured.** The Agent Framework adapter can
 include outstanding same-store, same-owner, same-session user turns while its built-in queue extracts
 long-term memory. `IncludePendingTurns` is off by default and uses history admission and deduplication.

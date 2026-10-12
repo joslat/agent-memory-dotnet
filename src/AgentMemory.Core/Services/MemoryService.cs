@@ -490,6 +490,7 @@ internal sealed class MemoryService : IMemoryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        Extraction.ExtractionInputValidation.Validate(request);
         _logger.LogDebug("Extracting and persisting memory for session {SessionId}", request.SessionId);
 
         // 37.4. A turn that only asks waits, stored, for the owner's next turn that tells something (in any session: a
