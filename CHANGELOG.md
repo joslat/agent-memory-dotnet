@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   proposals through within-extraction deduplication, including when their replacement text matches.
 
 ### Tooling
+- Make release verification work with Windows checkouts: ignore CRLF-only manifest lines and
+  isolate local/HTTPS NuGet feeds in a temporary configuration with native local paths.
+
 - Add opt-in coding `recall_preview` / `recall_expand` tools with expiring scoped selected-ID
   handles, current owner/liveness/source checks, and item/JSON-body byte/deadline limits.
   Source assertions stay unverified; default recall responses and native injection are unchanged.
