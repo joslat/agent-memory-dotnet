@@ -134,4 +134,46 @@ public sealed class ExtractFromUserOnlyTests
 
         seen!.DeferIfOnlyAsking.Should().Be(defer);
     }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Recommended_migration_dispatches_separate_user_turns_and_honours_a_later_deferral_override(
+        bool queued, bool overrideDeferral)
+    {
+        var memory = Substitute.For<IMemoryService>();
+        var seen = new List<ExtractionRequest>();
+        memory.ExtractAndPersistAsync(Arg.Do<ExtractionRequest>(seen.Add), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ExtractionResult { SourceMessageIds = [] }));
+        var work = new List<Func<CancellationToken, Task>>();
+        var background = Substitute.For<IBackgroundExtraction>();
+        background.TryEnqueue(Arg.Any<string>(), Arg.Do<Func<CancellationToken, Task>>(work.Add)).Returns(true);
+        var options = new AgentFrameworkOptions().ApplyConversational().ApplyRecommended();
+        options.ExtractInBackground = queued;
+        if (overrideDeferral) options.DeferQuestionTurns = true;
+
+        foreach (var text in new[] { "What's a good hike?", "I moved to Porto." })
+        {
+            await TurnExtraction.ExtractAsync(memory,
+                new ExtractionRequest
+                {
+                    Messages = [M("user", text), M("assistant", "Try the coast.")],
+                    SessionId = "s1", UserId = "alice",
+                }, options, background, NullLogger.Instance, CancellationToken.None);
+        }
+
+        if (queued)
+        {
+            seen.Should().BeEmpty("queued work must not run inline");
+            work.Should().HaveCount(2);
+            foreach (var run in work) await run(CancellationToken.None);
+        }
+        else work.Should().BeEmpty();
+
+        seen.Should().HaveCount(2);
+        seen.Select(r => r.Messages.Single().Content).Should().Equal("What's a good hike?", "I moved to Porto.");
+        seen.Should().OnlyContain(r => r.DeferIfOnlyAsking == overrideDeferral && r.UserId == "alice" && r.SessionId == "s1");
+    }
 }

@@ -401,6 +401,14 @@ mechanism is the one its scoped services require, and it does strictly more (mul
 
 ## Configuration
 
+For the store-aware writer, use `options.ApplyRecommended()` (`AMREC001`) in
+`AddAgentMemoryFramework`. It disables question-turn deferral, even on options previously configured
+with `ApplyConversational()`, so the adapter does not request that a question be held and combined
+with the next user turn. The writer takes one user turn at a time. All other host settings survive;
+set explicit overrides after the preset. Conversational behavior and registrations without this call
+are unchanged. This adapter method does not install a writer or a judge: use the
+[complete Recommended composition](getting-started.md#46-the-recommended-preset-experimental-amrec001).
+
 `AgentFrameworkOptions` (via `AddAgentMemoryFramework`):
 
 - `AutoExtractOnPersist` — run entity/fact/preference extraction after each persisted turn.

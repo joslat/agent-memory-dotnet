@@ -8,6 +8,12 @@
 
 ## 1. Vision & Goals
 
+**Recommended adapter composition:** `AgentFrameworkOptions.ApplyRecommended()` (`AMREC001`)
+disables question-turn deferral without resetting other host settings. This keeps the adapter's
+ordinary extraction requests compatible with the single-user-turn writer when migrating from
+Conversational. It introduces no provider dependencies or automatic registrations. Conversational
+and unconfigured adapter behavior remain unchanged; explicit overrides apply after the preset.
+
 **Agent Framework pending-turn visibility:** `AgentFrameworkOptions.IncludePendingTurns` is an opt-in
 projection from the existing `BackgroundExtractionQueue`. `TurnExtraction` registers user turns with
 their application, owner and session; completion removes them even on failure or shutdown cancellation.

@@ -473,6 +473,7 @@ builder.Services.AddNeo4jAgentMemory(
     MemoryOptions.CreateRecommended(),
     neo4j => { /* ... */ },
     llm => llm.ApplyRecommended());
+builder.Services.AddAgentMemoryFramework(options => options.ApplyRecommended());
 builder.Services.AddAgentMemoryGate(gate =>
 {
     gate.ApplyRecommended();
@@ -508,8 +509,12 @@ and a host can ask for it at any time (`IMemoryTiers`, `AMREC001`): without a ju
 `retrieval: similarity floor (Judge mode has no judge configured)`, and while every judge is left out after repeated
 failures it says so.
 
-Leave `AgentFrameworkOptions.DeferQuestionTurns` off with it: the writer takes one user message at a time and writes
-nothing for a question, and a held question released with the next turn would go to the extractors instead.
+For Agent Framework hosts, `AgentFrameworkOptions.ApplyRecommended()` disables `DeferQuestionTurns`,
+including on an instance previously configured with `ApplyConversational()`. The writer takes one user
+message at a time; releasing a held question with the next turn would select the extractors instead.
+The adapter preset preserves all other host settings and registers no inference providers. Apply explicit
+overrides after the preset. `ApplyConversational()` still holds question turns; existing registrations
+without the new call are unchanged. Other adapters do not need the Agent Framework registration above.
 
 Unlike the Conversational preset, its contents may change before 2.0, as the measurements on the library's other
 benchmarks come in; 2.0 is planned to make them the defaults.

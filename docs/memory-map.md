@@ -3,6 +3,12 @@
 A reference for what agent memory is, what a memory system has to decide that a store does not, and
 **exactly** which of those decisions AgentMemory makes today.
 
+**Recommended Agent Framework migration — BUILT / WIRED, not a new quality measurement.**
+The adapter's explicit `ApplyRecommended()` preset stops requesting deferred question turns, keeping
+ordinary turns separate for the single-turn writer. Inline and queued dispatch are tested, including
+explicit overrides. Writer/judge registration remains the host's responsibility; existing
+Conversational configurations are unchanged. See [composition](getting-started.md#46-the-recommended-preset-experimental-amrec001).
+
 **Local coding service — BUILT / WIRED, not model-quality measured.** Explicit `--coding-config`
 startup adds project-bound HTTP/MCP, a bounded writer queue, provenance and non-destructive history/
 forgetting. Local transport and real two-database tests use deterministic inference replacements.

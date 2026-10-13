@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `AgentFrameworkOptions.ApplyRecommended()` to disable question-turn deferral when composing
+  the single-turn writer, including migration from Conversational. Preserve unrelated host settings,
+  explicit subsequent overrides and existing registrations; inference providers remain host-configured.
+
 - Inactive remote coding container template with read-only runtime/config mounts, non-root execution
   and loopback port publication. HTTPS OIDC fixtures cover discovery, signing-key refresh and failures.
 

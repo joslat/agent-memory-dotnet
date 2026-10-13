@@ -76,4 +76,28 @@ public sealed class RecommendedPresetTests
     {
         new AgentFrameworkOptions().DeferQuestionTurns.Should().BeFalse();
     }
+
+    [Fact]
+    public void The_framework_half_migrates_conversational_deferral_without_resetting_host_options()
+    {
+        var options = new AgentFrameworkOptions
+        {
+            ExtractInBackground = false,
+            AutoExtractOnPersist = false,
+            IncludePendingTurns = true,
+            DefaultSessionIdKey = "custom_session",
+        }.ApplyConversational();
+        var expected = new AgentFrameworkOptions
+        {
+            ExtractInBackground = false,
+            AutoExtractOnPersist = false,
+            IncludePendingTurns = true,
+            DefaultSessionIdKey = "custom_session",
+        };
+
+        options.ApplyRecommended().Should().BeSameAs(options);
+
+        options.Should().BeEquivalentTo(expected);
+        new AgentFrameworkOptions().ApplyConversational().DeferQuestionTurns.Should().BeTrue();
+    }
 }

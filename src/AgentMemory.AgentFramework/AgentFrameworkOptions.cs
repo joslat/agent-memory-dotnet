@@ -217,4 +217,22 @@ public sealed class AgentFrameworkOptions
         DeferQuestionTurns = true;
         return this;
     }
+
+    /// <summary>
+    /// Applies the Agent Framework half of the Recommended preset. Returns this instance.
+    /// </summary>
+    /// <remarks>
+    /// Disables question-turn deferral, including when migrating an options instance previously configured
+    /// with <see cref="ApplyConversational"/>. The store-aware writer takes one user turn at a time;
+    /// releasing a held question with the next turn would select the multi-message extractor path instead.
+    /// Other host settings are preserved. Apply explicit overrides after this method.
+    /// This configures only the adapter: register the writer and any retrieval judges separately.
+    /// Without this call, existing adapter behavior is unchanged. Contents may change before 2.0.
+    /// </remarks>
+    [System.Diagnostics.CodeAnalysis.Experimental("AMREC001")]
+    public AgentFrameworkOptions ApplyRecommended()
+    {
+        DeferQuestionTurns = false;
+        return this;
+    }
 }

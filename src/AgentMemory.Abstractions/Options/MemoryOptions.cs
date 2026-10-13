@@ -509,14 +509,16 @@ public sealed record MemoryOptions
     /// against the extractors' 42.3% and 39.1%. Its closings apply only when the update judge confirms them, which
     /// <c>MemoryGateOptions.ApplyRecommended()</c> turns on together with the retrieval memory router (AMGATE001: every
     /// needed memory reached the prompt on 96.1% and 96.5% of turns, against 67.6% and 76.8% for the similarity floor).
-    /// Both need a System One judge endpoint; without one, recall uses the similarity floor and the writer's closings are
-    /// not applied (it still writes only what is new).
+    /// Retrieval judging needs a configured endpoint; without one, recall uses the similarity floor.
+    /// The Recommended extraction preset enables the host chat model to judge writer-named closings when no
+    /// external judge answers. A negative external verdict is not retried through that fallback.
     /// </para>
     /// <para>
     /// <b>Not with held question turns.</b> The writer takes a window with exactly one user message, the turn it was
     /// measured on, and answers a question turn by writing nothing. <c>AgentFrameworkOptions.DeferQuestionTurns</c> (in the
     /// Conversational preset's Agent Framework half) releases a held question together with the next turn, a window the
-    /// extractors then write instead; leave it off with this preset.
+    /// extractors then write instead. Use <c>AgentFrameworkOptions.ApplyRecommended()</c> to disable that deferral,
+    /// including when migrating an existing Conversational configuration.
     /// </para>
     /// <para>
     /// <b>Not frozen yet.</b> Unlike the Conversational preset, its contents may change before 2.0, as the measurements
