@@ -2,11 +2,18 @@
 
 The coding host can act as a personal MCP resource server. It uses the same scoped memory operations,
 writer and pre-provisioned project databases as [local coding mode](coding-service.md). The remote
-transport is implemented and tested locally with synthetic TLS certificates, signing keys and memory
-services. It has not been validated against a live authorization provider or Claude connector.
-Local HTTPS issuer tests also exercise OIDC discovery, public-key retrieval, cached-key use during an
-outage, automatic refresh for a new signing key, and rejection of insecure key URLs/untrusted certificates.
-These fixtures do not implement sign-in, consent or client registration.
+transport has been validated in an isolated local Docker deployment against a real Keycloak 26.8.0
+issuer, Chrome authorization-code/PKCE login and consent, and real Neo4j storage. A dedicated test
+client exercised HTTPS MCP discovery, read/write scopes, wrong-owner/project rejection, token expiry
+and refresh, and a synthetic Bitdeer-backed write followed by new-session recall. Stop/start persistence,
+non-destructive forgetting and server-side write opt-out were also exercised. This is local issuer/host
+interoperability evidence; the actual Claude cloud connector remains unvalidated.
+
+Separate synthetic HTTPS issuer tests exercise cached-key use during an outage, automatic refresh for
+a new signing key, and rejection of insecure key URLs/untrusted certificates. Those rotation/outage
+cases have not been repeated against the real issuer. The local deployment uses pre-registered clients,
+a lab CA trusted only by the test processes, and browser exceptions pinned to the two lab certificate
+keys. It does not establish public certificate trust, dynamic registration or internet deployment readiness.
 
 This is one service per owner. An external authorization server handles sign-in, consent, OAuth
 clients and refresh tokens. The memory host validates access tokens; it does not issue them or forward
@@ -110,6 +117,16 @@ An ID token, generic `JWT` type, unsigned token, another algorithm, another proj
 audience or multiple audiences is rejected. This deliberately narrow token profile needs issuer
 configuration; support for OAuth alone does not establish compatibility. Validation uses
 [ASP.NET JWT bearer authentication](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/configure-jwt-bearer-authentication?view=aspnetcore-10.0).
+
+For Keycloak 26.8.0, the validated setup uses the client attribute
+`access.token.header.type.rfc9068=true`, RS256, an explicit project audience mapper, and a
+`basic` client scope containing the `oidc-sub-mapper`. Omitting the subject mapper produces a token
+that this host correctly rejects. Give read clients `memory:read`; give write clients both memory
+scopes and require consent. The `basic` scope need not appear in the token's scope string.
+See Keycloak's [access-token header setting](https://www.keycloak.org/docs/latest/release_notes/index.html#new-client-configuration-for-access-token-header-type)
+and [subject mapper documentation](https://www.keycloak.org/docs/26.7.5/server_admin/index.html).
+Use separate registered clients per project unless the issuer can enforce the requested resource;
+the tested static audience mapper does not implement arbitrary resource selection.
 
 Resource metadata is public at `/.well-known/oauth-protected-resource/projects/my-project/mcp`.
 Unauthenticated MCP requests return a 401 Bearer challenge linking to that metadata. The metadata and
