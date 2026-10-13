@@ -17,7 +17,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <NoWarn>$(NoWarn);AMDREAM001</NoWarn>
-    <Description>Neo4j persistence and retrieval for AgentMemory for .NET — repositories, schema bootstrapper, and GraphRAG retrievers (vector, fulltext, hybrid, graph).</Description>
+    <Description>Neo4j persistence and retrieval for AgentMemory for .NET â€” repositories, schema bootstrapper, and GraphRAG retrievers (vector, fulltext, hybrid, graph).</Description>
     <PackageTags>agent-memory;neo4j;graphrag;memory;ai</PackageTags>
   </PropertyGroup>
 
@@ -49,7 +49,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\Shared\DependencyOrder.cs" Link="Shared\DependencyOrder.cs" />
+    <Compile Include="..\..\shared\DependencyOrder.cs" Link="Shared\DependencyOrder.cs" />
   </ItemGroup>
 
 </Project>

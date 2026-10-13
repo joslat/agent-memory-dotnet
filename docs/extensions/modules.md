@@ -38,3 +38,22 @@ dependency on Neo4j is introduced into the SDK, and no public registry API is ad
 
 Built-in activation and its error messages remain unchanged. The shared primitive does not discover
 packages, activate module code, execute DDL, or make a complete module set available by itself.
+
+## Manifest wire reader
+
+`ModuleManifest.Parse(json)` reads `agentmemory.module/v1alpha1` without loading an assembly,
+executing a contributor, or accessing storage. Input is capped at 128 KiB of UTF-8 and JSON depth 32.
+It rejects duplicate/unknown fields, comments, trailing commas, explicit nulls where a value is
+expected, malformed scalar declarations and retired `routing` fields. Errors include the JSON path.
+
+The typed result carries dependency intervals, explicit History/Reminders requirements, ontology
+properties/relations and declarative views. Parsed collections are read-only; numeric bounds and
+filter literals are cloned from the parser document, retaining their JSON numeric precision.
+Views support the short ascending sort or the explicit property/descending form. Optional property
+and relation descriptions follow the 200-character bound. Shared scope is declaration data; parsing
+it does not authorize a shared write.
+
+This reader validates wire shape, not complete semantic compatibility. Ontology cross-reference and
+reserved-name lint, property/filter type compatibility, SDK/dependency/host resolution, metadata-only
+assembly discovery and trust/activation remain unfinished. Do not treat a successful parse as
+permission to execute code or apply schema. No existing host activates manifests automatically.

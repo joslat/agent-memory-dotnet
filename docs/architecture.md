@@ -192,10 +192,11 @@ only maps an existing provider ID; it neither persists a message nor proves a so
 an assistant/tool message follows. Empty modules still delegate the unchanged core output.
 
 Built-in schema extensions and the experimental SDK share internal dependency closure/order through
-`src/Shared/DependencyOrder.cs`, linked into both projects. This preserves built-in ready-batch order
+`shared/DependencyOrder.cs`, linked into both projects. This preserves built-in ready-batch order
 and diagnostics without giving the SDK a Neo4j dependency or exposing a public registry.
 The SDK's version/range and owned-ID validators are documented under [modules](extensions/modules.md);
-these primitives do not constitute the pending manifest resolver or runtime host.
+the bounded data-only manifest reader rejects ambiguous/unsupported wire fields. Complete semantic
+resolution and the runtime host remain unfinished; parsing does not grant activation permission.
 
 The rule the exception does **not** relax: a layered adapter still never depends on `Neo4j`, and
 `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
