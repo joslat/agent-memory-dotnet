@@ -115,6 +115,25 @@ public sealed class CodingHookContractTests
         CodingHookContext.Render(response, true, new([])).Should().Contain("cobalt").And.Contain("untrusted");
     }
 
+    [Fact]
+    public void V1_pending_payload_hash_remains_compatible_with_existing_source_records()
+    {
+        var request = new CodingRememberRequest
+        {
+            Session = "session", TurnId = "turn", UserText = "Use Neo4j.",
+            Commit = new string('a', 40), Source = "synthetic",
+        };
+        request.PayloadHash().Should().Be("72fb1d55b4d5f89a7f700f26452d413e69c282a24b9d829524ad87c599ca57b2");
+    }
+
+    [Fact]
+    public void V1_scoped_source_identity_remains_compatible_with_existing_messages()
+    {
+        var session = CodingInput.SessionId(new("owner", "alpha"), "session");
+        session.Should().Be("coding-69e62735ec8e4fcdcab97d79023e11ad7ece953148b69d3d0eddbac16250375e");
+        CodingInput.MessageId(session, "turn", "user").Should().Be("coding-b729016f50bca9a7ef45b7a4b23c2b40a2eae575693db63ae20abf8843df0d94");
+    }
+
     private static JsonElement ProjectRecall(string? block)
     {
         var type = typeof(AgentMemory.McpServer.ServiceCollectionExtensions).Assembly

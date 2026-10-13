@@ -33,25 +33,29 @@ ordinary turns separate for the single-turn writer. Inline and queued dispatch a
 explicit overrides. Writer/judge registration remains the host's responsibility; existing
 Conversational configurations are unchanged. See [composition](getting-started.md#46-the-recommended-preset-experimental-amrec001).
 
-**Local coding service — BUILT / WIRED, not model-quality measured.** Explicit `--coding-config`
-startup adds project-bound HTTP/MCP, a bounded writer queue, provenance and non-destructive history/
-forgetting. Local transport and real two-database tests use deterministic inference replacements.
-The native Claude hook client is built and locally tested with fake HTTP, including real executable/Git
-handling. It injects bounded typed memory and queues matching turns; no real client session or model
-quality claim. An optional local memory page shows a bounded history view and profile, submits sourced
-corrections through the writer, and closes memories without deleting history. Browser interactions are
-tested with synthetic data; corrections are not guaranteed replacements. Activation and remote
-deployment remain separate work. Copilot CLI/VS Code Local have optional session-start profile hooks
-and MCP/instruction templates. Copilot also has explicit transformed-prompt recall, preserving the
-existing model prompt and appending bounded memory; only the user query reaches the local service.
-These adapters are locally tested against fake services. Fully automatic per-turn capture
-and actual client sessions remain unverified. See [limits](coding-service.md).
-Codex has an explicitly selected paired-turn helper, interruption cleanup and disabled MCP templates,
-tested with synthetic inputs; no live Codex session or provider compatibility is claimed.
-The optional [remote MCP resource server](coding-remote.md) adds direct TLS, project-specific OAuth
-audiences, one configured owner subject and read/write scope checks. Writes need explicit server opt-in.
-Synthetic HTTPS/JWT tests cover these boundaries; external issuer interoperability, deployment and
-an actual Claude connector session remain unverified. No remote service starts by default.
+**Coding service - BUILT / WIRED, with bounded real-client acceptance.** Explicit
+`--coding-config` adds project-bound HTTP/MCP, a bounded writer queue, caller-asserted provenance
+and non-destructive history/forgetting. Actual Claude/Codex paired hooks and Copilot explicit MCP
+writes ran through Bitdeer and disposable Neo4j; VS Code Local write/new-chat profile/recall also
+ran in the editor. These synthetic examples establish interoperability, not a coding-quality
+benchmark. The [versioned capability matrix](coding-clients.md) preserves counts, tested versions,
+failed assertions and attribution limits. Copilot/VS Code automatic completion capture remains
+unsupported; an instruction to invoke MCP is not automatic capture.
+
+The shared [host contract v1](coding-contract.md) retains scoped IDs and legacy payload hashes.
+Hooks inject bounded untrusted memory, including the actual working-memory string projection.
+Missing/blank final assistant text discards an incomplete paired capture. Deliberate user-only
+MCP writes remain valid. A final reply does not verify tests passed or code is correct.
+
+The optional local memory page exposes profile/history/corrections/forgetting and passed bounded
+real browser/writer/graph checks. The optional [remote server](coding-remote.md) uses direct TLS,
+project OAuth audiences, one configured owner subject and explicit read/write scopes. A real local
+Keycloak/PKCE/consent/HTTPS/MCP lab passed 41/41 checks and a separate lifecycle run passed 27/27.
+Actual Claude **cloud** connector acceptance remains unverified. No service starts by default.
+
+Queued acknowledgements remain **non-durable**: a host restart can lose accepted waiting work
+and job status. Persisted sources do not prove extraction completed. Durable receipts, scoped
+recall diagnostics and preview/evidence expansion are not capabilities of this baseline.
 
 **Actual extraction path — BUILT / WIRED, not benchmark-measured.** `ExtractionResult.Path`
 reports writer, extractors, writer failure followed by extractors, pre-extracted input, skipped or

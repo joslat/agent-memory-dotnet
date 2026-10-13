@@ -56,10 +56,16 @@ internal sealed class CodingTurnHook(CodingHookOptions options, CodingContentPol
         {
             if (promptId is null) return new() { SystemMessage = $"Memory write skipped: missing {correlationField}." };
             if (input.TryGetProperty("stop_hook_active", out var active) && active.ValueKind == JsonValueKind.True) return new();
+            var reply = Text(input, "last_assistant_message");
+            if (reply is null)
+            {
+                state.Discard(session, promptId);
+                return new() { SystemMessage = "Memory write skipped: incomplete completion event; pending capture discarded." };
+            }
             string? job = null;
             await state.ConsumeAsync(session, promptId, async (saved, ct) =>
             {
-                var finished = saved with { AssistantText = Text(input, "last_assistant_message") };
+                var finished = saved with { AssistantText = reply };
                 policy.Check(finished);
                 var result = await _http.PostAsync("remember", finished, HttpStatusCode.Accepted, ct).ConfigureAwait(false);
                 job = Text(result, "jobId");

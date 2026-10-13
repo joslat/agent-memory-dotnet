@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Discard incomplete Claude/Codex completion captures when final assistant text is missing or blank.
+  Do not silently submit them as deliberate user-only writes; explicit MCP writes remain supported.
+
 - Preserve working-memory text in coding hook recall. Apply the existing context budget and
   decoded-secret checks to the MCP string projection, while retaining SessionStart profile behavior.
 

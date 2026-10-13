@@ -29,6 +29,26 @@ public sealed class CodexCodingHookTests
         fixture.Calls.Should().HaveCount(2);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Incomplete_stop_discards_capture_without_turning_it_into_a_deliberate_write(string? reply)
+    {
+        using var fixture = new Fixture();
+        await fixture.Hook.HandleAsync(fixture.Event("UserPromptSubmit"));
+
+        var incomplete = await fixture.Hook.HandleAsync(fixture.Event("Stop", reply: reply));
+
+        fixture.Calls.Should().ContainSingle().Which.Path.Should().EndWith("/recall");
+        incomplete.SystemMessage.Should().Contain("incomplete");
+        incomplete.HookSpecificOutput.Should().BeNull();
+        string.Join("", Directory.GetFiles(fixture.Root, "turn-*.json").Select(File.ReadAllText))
+            .Should().NotContain("Use Neo4j.");
+        await fixture.Hook.HandleAsync(fixture.Event("Stop"));
+        fixture.Calls.Should().ContainSingle();
+    }
+
     [Fact]
     public async Task Interrupt_discards_capture_and_never_learns_an_error()
     {
@@ -123,10 +143,10 @@ public sealed class CodexCodingHookTests
             _client = new(this, disposeHandler: false) { BaseAddress = new Uri(Options.ServiceUrl) };
             Hook = new(Options, new([]), new(Options), _client, (_, _) => Task.FromResult(new string('a', 40)));
         }
-        public JsonElement Event(string name, string? turn = "turn") => JsonSerializer.SerializeToElement(new
+        public JsonElement Event(string name, string? turn = "turn", string? reply = "Done.") => JsonSerializer.SerializeToElement(new
         {
             hook_event_name = name, session_id = "session", turn_id = turn, prompt_id = "never-use-this-alias",
-            cwd = Path.GetFullPath("."), prompt = "Use Neo4j.", last_assistant_message = "Done.",
+            cwd = Path.GetFullPath("."), prompt = "Use Neo4j.", last_assistant_message = reply,
             transcript_path = "never-open.jsonl", model = "synthetic-model", stop_hook_active = false,
         });
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

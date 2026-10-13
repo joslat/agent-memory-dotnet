@@ -1403,11 +1403,17 @@ profile without pending state or guessed completion pairing. Copilot CLI additio
 appended to the unchanged model-facing prompt. Expanded files/instructions never enter the recall body.
 Omission dispatches no transform path and preserves prior behavior. The returned override is bounded
 by serialized UTF-8 bytes; empty recall leaves the original prompt. No transcript or write path is added.
-VS Code per-turn recall and both clients' writes still use MCP instructions. Actual-client validation remains.
+VS Code per-turn recall and both clients' writes still use MCP instructions. Actual-client evidence is linked below.
 `Codex` uses the shared turn helper with its documented `turn_id` and `Interrupt` contract. It has a
 separate service-session namespace and pending-state key; existing Claude cache keys remain readable.
 The helper's model field is not a provider authorization check. Templates remain inactive, and actual
 client/provider validation is separate from helper tests.
+The [coding host contract v1](coding-contract.md) specifies these shared adapter semantics and
+legacy source/hash compatibility without adding wire fields or negotiation. A paired Stop requires
+nonblank final assistant text; otherwise the helper discards its pending capture and reports an
+incomplete event. Explicit user-only tool writes remain distinct. No assistant reply is treated as
+verified code/test evidence. The [capability matrix](coding-clients.md) separates tools, automatic
+recall, completion capture, durable acknowledgement and governed storage by tested client version.
 Templates are in `samples/CodingMemory`.
 Optional `Remote` configuration selects direct HTTPS and a separate MCP-only resource-server boundary.
 Omission registers no OAuth services or metadata routes and preserves local bearer behavior. Remote

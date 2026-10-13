@@ -11,6 +11,23 @@ project memory. These observations were checked on 13 October 2026.
 | Copilot CLI 1.0.96 | Session profile and native transformed-prompt recall | Explicit MCP | 7/7 protocol checks, plus a real Bitdeer/MCP/Neo4j run with 18/18 bounded checks. |
 | VS Code Local 1.142.0-insider | Session profile | Explicit MCP | Actual editor: 6/6 protocol checks; real Bitdeer/Neo4j write, new-chat profile and explicit recall verified. See scope and limits below. |
 
+The shared [host contract v1](coding-contract.md) separates independent capabilities:
+
+| Tested client | MCP tools | Automatic recall | Automatic completed-turn capture | Durable queue acknowledgement | Governed storage |
+|---|---|---|---|---|---|
+| Claude Code 2.1.296 | Yes | Session profile + prompt | Paired hooks; terminal-error caveat below | No | Host writer, scope and history |
+| Codex CLI 0.160.1 | Yes | Session profile + prompt | Paired hooks; interruption checked separately on app-server 0.162.1 | No | Host writer, scope and history |
+| Copilot CLI 1.0.96 | Yes | Session profile + opt-in transformed prompt | No; explicit writes | No | Host writer, scope and history |
+| VS Code Local 1.142.0-insider | Yes | Session profile only | No; explicit writes | No | Host writer, scope and history |
+| Claude web connector | Not validated | Not validated | Not validated | Not validated | Requires separate cloud acceptance |
+
+These columns describe this integration at the tested versions. Durable graph records do not
+make an in-memory queue acknowledgement durable. Governed storage does not verify the truth of
+assistant claims. No single maturity badge substitutes for these distinctions. Runtime/live host
+checks were performed on Windows; Linux container service checks do not prove Linux/macOS client
+hook compatibility. The existing packaged .NET host contains the helper; no separate npm service
+is required.
+
 The protocol checks use canned model replies and synthetic HTTP memory responses. They establish
 hook invocation, context delivery and the applicable write/recall envelope, **not** model quality,
 durable ingestion, interruption behavior in every client, or a complete database-backed workflow.
@@ -136,7 +153,8 @@ budget. Recent/retrieved verbatim message windows are not injected by this helpe
 
 Claude exposes `prompt_id` and final assistant text; Codex exposes `turn_id` and final assistant text.
 The helper uses each client's own correlation field. Missing IDs allow recall but prevent automatic
-write pairing. [Claude hooks](https://code.claude.com/docs/en/hooks),
+write pairing. A Stop without nonblank final assistant text discards the pending capture and reports
+incomplete completion; it is not submitted as a user-only write. [Claude hooks](https://code.claude.com/docs/en/hooks),
 [Codex hooks](https://learn.chatgpt.com/docs/hooks).
 
 The documented Copilot `agentStop` and VS Code Local `Stop` contracts do not provide the paired

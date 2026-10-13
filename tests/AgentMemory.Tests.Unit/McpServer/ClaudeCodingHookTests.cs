@@ -30,6 +30,26 @@ public sealed class ClaudeCodingHookTests
         fixture.Handler.Calls.Should().HaveCount(2);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Incomplete_stop_discards_capture_without_turning_it_into_a_deliberate_write(string? reply)
+    {
+        using var fixture = new Fixture();
+        await fixture.Hook.HandleAsync(fixture.Event("UserPromptSubmit", prompt: "Use Neo4j."));
+
+        var incomplete = await fixture.Hook.HandleAsync(fixture.Event("Stop", reply: reply));
+
+        fixture.Handler.Calls.Should().ContainSingle().Which.Path.Should().EndWith("/recall");
+        incomplete.SystemMessage.Should().Contain("incomplete");
+        incomplete.HookSpecificOutput.Should().BeNull();
+        string.Join("", Directory.GetFiles(fixture.Root, "turn-*.json").Select(File.ReadAllText))
+            .Should().NotContain("Use Neo4j.");
+        await fixture.Hook.HandleAsync(fixture.Event("Stop", reply: "late reply"));
+        fixture.Handler.Calls.Should().ContainSingle();
+    }
+
     [Fact]
     public async Task Known_secret_never_reaches_cache_or_HTTP()
     {

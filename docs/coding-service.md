@@ -22,6 +22,9 @@ GET stream probes and DELETE session requests return **405 Method Not Allowed** 
 authentication, and origin/host checks still apply. The same method behavior applies to
 the optional remote transport after its OAuth authorization succeeds.
 
+The [versioned host contract](coding-contract.md) specifies shared wire shapes, identities,
+native completion rules, bounded receipts and recovery limitations.
+
 ## Configuration
 
 Keep the configuration outside source control. It is a strict UTF-8 JSON object, at most 16 KiB;
