@@ -135,8 +135,8 @@ public class Neo4jMemoryContextProvider : AIContextProvider
 
     /// <summary>
     /// The turn being answered: the last user message with text, or null when there is none. The one derivation of the
-    /// question the memory router reads (<c>RecallRequest.Question</c>), for a subclass that routes its own sections
-    /// (Extensibility 0.10) to read the same question core recall was routed on.
+    /// question core recall reads (<c>RecallRequest.Question</c>), so subclasses use the same user question
+    /// when retrieving their own sections.
     /// </summary>
     protected static string? QuestionOf(IEnumerable<ChatMessage> messages)
     {
@@ -155,6 +155,41 @@ public class Neo4jMemoryContextProvider : AIContextProvider
     /// content without them would ignore a host's Strict setting while this class honoured it.
     /// </remarks>
     protected ContextFormatOptions FormatOptions => _formatOptions;
+
+    /// <summary>
+    /// Admits untrusted extension items using this provider's effective policy and security options,
+    /// then delimits and escapes them as one recalled-memory block. Returns empty if all items are refused.
+    /// </summary>
+    /// <remarks>Evaluates each item once. This method performs no retrieval or persistence.</remarks>
+    protected string RenderAdmittedBlock(string category, IEnumerable<string> texts)
+    {
+        ArgumentNullException.ThrowIfNull(category);
+        ArgumentNullException.ThrowIfNull(texts);
+        var admitted = new List<string>();
+        foreach (var text in texts)
+        {
+            ArgumentNullException.ThrowIfNull(text);
+            if (MafTypeMapper.AdmitItem(category, text, MemoryTrustLevel.Untrusted,
+                    _formatOptions, _admissionPolicy, _logger))
+                admitted.Add(text);
+        }
+
+        return admitted.Count == 0 ? string.Empty
+            : MafTypeMapper.WrapUntrustedContent(category, string.Join(Environment.NewLine, admitted));
+    }
+
+    /// <summary>
+    /// Maps an existing provider message ID to the memory ID convention, or returns null if absent.
+    /// </summary>
+    /// <remarks>
+    /// Does not create an ID, mutate the message, or verify persistence. Callers establishing
+    /// provenance must separately verify that the source record exists in the resolved owner/session.
+    /// </remarks>
+    protected static string? StoredMessageId(ChatMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        return MafTypeMapper.TryGetProviderMessageId(message);
+    }
 
     // The whole request as the agent will send it (history, other providers' messages and the caller's
     // new messages). MAF hands ProvideAIContextAsync only the caller's new messages, so without this the

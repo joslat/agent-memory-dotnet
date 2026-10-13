@@ -47,4 +47,7 @@ Console.WriteLine(typeof(IMemoryService).FullName);
 // The router wraps the assembler the package registered (resolved in a scope; nothing connects). The Neo4j driver
 // it creates is disposed asynchronously, so the scope and the provider are too.
 await using (var scope = provider.CreateAsyncScope())
+{
     Console.WriteLine(scope.ServiceProvider.GetRequiredService<IMemoryContextAssembler>().GetType().Name);
+    new ExtensionProbe(scope.ServiceProvider).Verify();
+}

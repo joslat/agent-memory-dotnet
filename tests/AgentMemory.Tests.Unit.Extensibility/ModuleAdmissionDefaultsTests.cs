@@ -98,6 +98,25 @@ public sealed class ModuleAdmissionDefaultsTests
         produced.Instructions.Should().Contain("plain.section");
     }
 
+    [Theory]
+    [InlineData("assistant")]
+    [InlineData("tool")]
+    public async Task ModuleQueryUsesLastUserQuestionWhenAnotherRoleTrails(string role)
+    {
+        var contributor = Substitute.For<IContextContributor>();
+        contributor.Descriptor.Returns(new ContextContributorDescriptor("capture", new HashSet<string> { "capture.section" }));
+        contributor.AppliesAsync(Arg.Any<ContextRequest>(), Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
+        var harness = new DefaultsHarness(MemoryContextSecurityMode.Permissive, contributor);
+        var context = new AIContextProvider.InvokingContext(
+            harness.Context.Agent, harness.Context.Session,
+            new AIContext { Messages = [new ChatMessage(ChatRole.User, "Which tests failed?"), new ChatMessage(new ChatRole(role), "trailing non-question")] });
+
+        await harness.Provider.InvokingAsync(context, CancellationToken.None);
+
+        await contributor.Received(1).ContributeAsync(
+            Arg.Is<ContextRequest>(r => r.Query == "Which tests failed?"), Arg.Any<CancellationToken>());
+    }
+
     private sealed class InjectingModuleContributor : IContextContributor
     {
         public ContextContributorDescriptor Descriptor { get; } =

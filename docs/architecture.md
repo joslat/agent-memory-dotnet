@@ -184,6 +184,13 @@ what makes an empty module set byte-identical rather than merely equivalent. The
 parallel provider that re-renders core memory — is the second rendering path this codebase has
 already recorded as the place the #92 admission gate drifts.
 
+The module adapter uses supported protected methods on `Neo4jMemoryContextProvider`, with no
+friend-assembly grant: `RenderAdmittedBlock` admits each untrusted item using the effective policy
+and security options, then shares the existing delimiter/escaping implementation. `StoredMessageId`
+only maps an existing provider ID; it neither persists a message nor proves a source exists.
+`QuestionOf` gives core and module retrieval the same last non-empty user question, even when
+an assistant/tool message follows. Empty modules still delegate the unchanged core output.
+
 The rule the exception does **not** relax: a layered adapter still never depends on `Neo4j`, and
 `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
 references rather than left to intention.

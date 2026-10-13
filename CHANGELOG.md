@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Protected `Neo4jMemoryContextProvider.RenderAdmittedBlock` and `StoredMessageId` extension methods.
+  The module adapter now uses supported admission/rendering access without a friend-assembly grant,
+  and shares core retrieval's last-user-question derivation when assistant/tool messages follow.
+  Message-ID lookup is non-mutating and does not verify persistence.
+
 - Add `AgentFrameworkOptions.ApplyRecommended()` to disable question-turn deferral when composing
   the single-turn writer, including migration from Conversational. Preserve unrelated host settings,
   explicit subsequent overrides and existing registrations; inference providers remain host-configured.

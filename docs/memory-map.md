@@ -7,6 +7,11 @@ A reference for what agent memory is, what a memory system has to decide that a 
 stable contracts. This adds no new memory capability or measured accuracy result. Compound planning
 remains experimental and off. See [migration](migration-2.0.md) for host defaults and compatibility.
 
+**Module adapter seams - BUILT / WIRED.** Protected admission/rendering and provider-ID lookup
+support derived adapters without friend access. Module retrieval uses the last user question;
+trailing assistant/tool messages cannot replace it. ID lookup does not establish persisted provenance.
+These methods do not implement the planned manifest, module store or runtime loading platform.
+
 **Retrieval composition — BUILT / WIRED.** Recommended disables automatic query splitting;
 Conversational is unchanged and explicit subqueries remain supported. General MCP can configure
 the gate through `AgentMemory:RetrievalRouter`; coding mode can select the similarity floor
