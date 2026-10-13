@@ -218,5 +218,9 @@ When enabled, only exact same-origin HTTP requests are allowed, still subject to
 authorization and loopback Host checks. Cross-origin requests and browser MCP calls remain rejected.
 Assets are embedded in the tool, with no CDN or repository file serving. A restrictive content security
 policy blocks framing and inline scripts; stored content is rendered as text. Local tests cover routing
-and authorization, and a synthetic Chrome check covers page interactions; this is not live model-quality
-validation or remote deployment support.
+and authorization; synthetic browser checks cover page interactions. A separate actual headless
+Chrome 155.0.8059.40 run passed 13/13 bounded checks with the real host, Bitdeer writer, local
+embeddings and disposable Neo4j: profile/history, correction and completed job status, retained
+closed history, wrong-project rejection, isolation and disconnect. The initial synthetic fact was
+seeded through HTTP; correction and closing came from the page controls. This is wiring acceptance,
+not a model-quality benchmark or remote deployment support.
