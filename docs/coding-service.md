@@ -7,10 +7,12 @@ This mode is built and wired. A native Claude hook client and templates are avai
 [the coding sample](../samples/CodingMemory/README.md), with an optional [local memory page](#local-memory-page).
 [Optional remote HTTPS/OAuth](coding-remote.md) is implemented with a separate token contract;
 external identity-provider setup and deployment remain separate work. Local tests cover transport, page interactions and
-persistence, not model quality or a real client workflow.
+persistence. The [client compatibility matrix](coding-clients.md) separates actual CLI protocol checks
+from model quality and database-backed client acceptance.
 Copilot CLI and VS Code Local have separate [MCP and hook templates](../samples/CodingMemory/copilot.md).
 Both support session-start profile reads; Copilot additionally supports explicit transformed-prompt
-recall. Automatic completion writes and actual-client validation remain unfinished.
+recall. Their automatic completion writes remain unsupported by the required paired-event contract;
+use explicit MCP writes. Actual editor and remote-connector acceptance remain separate.
 Codex has [paired hooks and a disabled MCP template](../samples/CodingMemory/codex.md); the memory
 service's provider setting does not configure Codex's model connection.
 

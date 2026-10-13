@@ -51,6 +51,8 @@ already queued job. Failed/missed cleanup falls back to the existing state expir
 ## What has been checked
 
 Synthetic contract tests and the actual helper executable with fake local HTTP cover capture, matching
-completion, interruption, duplicates, isolation and credential checks. These tests do not run a Codex
-model session, establish provider compatibility, or measure memory quality. Validate the actual client
-and authorized provider with synthetic data before real use. No settings are installed automatically.
+completion, interruption, duplicates, isolation and credential checks. Codex CLI 0.160.1 additionally
+passed 7/7 actual-process protocol checks using local memory and model fixtures: context reached the
+model request and a matching completion queued the captured turn. This does not establish real-model
+provider compatibility or durable ingestion. See the [compatibility matrix](../../docs/coding-clients.md).
+Validate the authorized provider with synthetic data before real use. No settings are installed automatically.

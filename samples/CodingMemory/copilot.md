@@ -64,9 +64,11 @@ open. Do not add completion hooks that guess a turn or upload a transcript.
 
 ## Validation boundary
 
-The helper is tested with documented synthetic events and a fake local service. This is not evidence
-that your installed client supports the current hook schema or that the selected model follows the
-instructions. Verify the client version, hook diagnostics, tools and a synthetic session before enabling
+Copilot CLI 1.0.96 and the actual helper passed 7/7 protocol checks with local fixtures and a trusted
+synthetic repository. An untrusted-repository control completed its model reply without running the hooks.
+These checks use canned replies; they do not establish that a real model follows the MCP instructions.
+VS Code Local still needs actual-editor acceptance. See the [compatibility matrix](../../docs/coding-clients.md).
+Verify the client version, hook diagnostics, tools and a synthetic session before enabling
 real project memory. Hook execution requires the client's workspace trust and hook settings. A local
 service must run in the same network environment as the client; these templates do not connect a cloud
 agent or remote development container to your desktop's loopback service.

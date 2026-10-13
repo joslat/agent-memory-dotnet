@@ -9,6 +9,9 @@ These are templates, not installed client settings. Use a build of the host that
 `--coding-hook`; an older released tool may not contain it. See the [service setup](../../docs/coding-service.md)
 first. No provider or client is activated by building the sample.
 
+See the [client compatibility matrix](../../docs/coding-clients.md) for exact tested versions and
+the distinction between actual CLI protocol checks and real model/database acceptance.
+
 To inspect project memory locally, the service also has an optional [memory page](../../docs/coding-service.md#local-memory-page).
 Enable `enableBrowserUi` in its private configuration, open `/projects/<project>/ui` on the local service,
 and connect with that project's token. It can show history, propose corrections and close memories.
