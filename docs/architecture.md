@@ -1,12 +1,18 @@
 ﻿# Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-08-16 (schema-extension system, projection layer, and eight off-by-default memory capabilities — working memory, delta recall, derived/arithmetic memory, prospective firing, legible forgetting, access-tracking queue)
+**Last Updated:** 2026-10-13 (2.0 API stability, explicit migration and host composition)
 **Author:** Jose Luis Latorre Millas
 **Canonical Specification:** [specification.md](specification.md)
 
 ---
 
 ## 1. Vision & Goals
+
+**2.0 API stability:** the selected writer, Recommended composition and ordinary gate/update-judge
+contracts are stable. Compound planner types, its options and the planner-taking assembler
+constructor retain `AMGATE001`; the option stays off with no planner or extra call when disabled.
+This boundary changes diagnostics, not storage/recall behavior, provider discovery or low-level
+compatibility defaults. [Migration and host choices](migration-2.0.md).
 
 **Retrieval composition:** Recommended disables automatic core query splitting; the frozen
 Conversational preset and explicit request subqueries retain their behavior. The general MCP host
@@ -21,7 +27,7 @@ response fails that call rather than becoming a score. Existing per-type retriev
 fallback and named-closing host-model fallback apply; valid negative verdicts are preserved.
 Missing credentials participate in the existing cooldown and can recover on a later attempt.
 
-**Recommended adapter composition:** `AgentFrameworkOptions.ApplyRecommended()` (`AMREC001`)
+**Recommended adapter composition:** `AgentFrameworkOptions.ApplyRecommended()`
 disables question-turn deferral without resetting other host settings. This keeps the adapter's
 ordinary extraction requests compatible with the single-user-turn writer when migrating from
 Conversational. It introduces no provider dependencies or automatic registrations. Conversational

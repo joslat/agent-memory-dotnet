@@ -164,7 +164,7 @@ public sealed class LlmExtractionOptions
     public bool UseUnifiedExtraction { get; set; }
 
     /// <summary>
-    /// AMWRITE001. Writes each turn with the store-aware writer instead of the extractors: one call that sees the owner's
+    /// Writes each turn with the store-aware writer instead of the extractors: one call that sees the owner's
     /// most relevant stored memories and proposes only what is new, what replaces or corrects a stored memory (naming it),
     /// or nothing. Its closings apply only when the update judge (AMGATE001) is registered and confirms them. Off by
     /// default: measured in the research harness on two fresh 12-session worlds (storage accuracy 90.8% against the library
@@ -174,7 +174,6 @@ public sealed class LlmExtractionOptions
     /// goes to the writer; any other window to the extractors as configured (unified or per kind). The writer reads the
     /// user's message only (assistant content is not written), and the multi-session batch path does not use it.
     /// </summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
     public bool UseMemoryWriter { get; set; }
 
     /// <summary>
@@ -184,20 +183,19 @@ public sealed class LlmExtractionOptions
     /// 0.33, precision 97.7% against 97.9%) for about 0.2 chat calls a turn more; with no judge, 16 replaced values a store
     /// stay live. Asked only for the closings the writer names, as measured; the extractors' path keeps its own judge.
     /// </summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
     public bool ChatModelUpdateJudge { get; set; }
 
     /// <summary>How many stored memories the writer is shown by meaning (the people the turn names and what mentions them
     /// come first, up to six more). 14, as measured.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
+
     public int MemoryWriterCandidates { get; set; } = 14;
 
     /// <summary>The most operations the writer may propose for one turn. 6, as measured.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
+
     public int MemoryWriterMaxOperations { get; set; } = 6;
 
     /// <summary>The writer's room to answer, doubled when a reply holds no JSON and kept for a third try. 4,000, as measured.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("AMWRITE001")]
+
     public int MemoryWriterMaxOutputTokens { get; set; } = 4000;
 
     /// <summary>
@@ -285,22 +283,19 @@ public sealed class LlmExtractionOptions
     }
 
     /// <summary>
-    /// AMREC001. The extraction half of the Recommended preset (<c>MemoryOptions.CreateRecommended()</c>): the Conversational
+    /// The extraction half of the Recommended preset (<c>MemoryOptions.CreateRecommended()</c>): the Conversational
     /// half (<see cref="ApplyConversational"/>, for the windows the writer does not take) and the store-aware writer
-    /// (<see cref="UseMemoryWriter"/>, AMWRITE001) for each turn of one user message. Returns this instance.
+    /// (<see cref="UseMemoryWriter"/>) for each turn of one user message. Returns this instance.
     /// </summary>
     /// <remarks>
     /// The writer's closings are confirmed by the update judge when one is registered (<c>MemoryGateOptions.ApplyRecommended()</c>),
-    /// and by this chat model when none answers (<see cref="ChatModelUpdateJudge"/>, on here). Its contents may change before 2.0.
+    /// and by this chat model when none answers (<see cref="ChatModelUpdateJudge"/>, on here). Apply explicit host overrides after this method.
     /// </remarks>
-    [System.Diagnostics.CodeAnalysis.Experimental("AMREC001")]
     public LlmExtractionOptions ApplyRecommended()
     {
         ApplyConversational();
-#pragma warning disable AMWRITE001 // The preset is how the writer is meant to be turned on; it is experimental itself.
         UseMemoryWriter = true;
         ChatModelUpdateJudge = true;
-#pragma warning restore AMWRITE001
         return this;
     }
 }

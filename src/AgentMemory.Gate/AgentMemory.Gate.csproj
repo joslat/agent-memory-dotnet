@@ -5,10 +5,10 @@
     <Nullable>enable</Nullable>
     <RootNamespace>AgentMemory.Gate</RootNamespace>
     <AssemblyName>AgentMemory.Gate</AssemblyName>
-    <Description>Experimental gate for AgentMemory for .NET: a judge at the fan-in that decides, memory by memory, what a recall puts in front of the assistant, and a judge on the write path that decides what a new memory replaces. Speaks the System One decision protocol (online or local). Opt-in; every public type is marked [Experimental("AMGATE001")] while the contracts settle.</Description>
+    <Description>Configured retrieval and storage judging for AgentMemory for .NET. Judges each recalled memory and proposed replacement through System One endpoints (online or local), with explicit fallback and diagnostic traces. Ordinary gate contracts are stable; optional compound-question planning remains experimental.</Description>
     <PackageTags>agent-memory;ai;llm;memory;retrieval;gate;router</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <!-- The module's own code uses its own experimental types. -->
+    <!-- Compound-question planning remains experimental inside the module. -->
     <NoWarn>$(NoWarn);AMGATE001;AMREC001</NoWarn>
   </PropertyGroup>
 

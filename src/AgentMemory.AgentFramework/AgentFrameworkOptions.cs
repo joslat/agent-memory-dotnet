@@ -227,9 +227,8 @@ public sealed class AgentFrameworkOptions
     /// releasing a held question with the next turn would select the multi-message extractor path instead.
     /// Other host settings are preserved. Apply explicit overrides after this method.
     /// This configures only the adapter: register the writer and any retrieval judges separately.
-    /// Without this call, existing adapter behavior is unchanged. Contents may change before 2.0.
+    /// Without this call, existing adapter behavior is unchanged. This is a supported 2.0 composition API.
     /// </remarks>
-    [System.Diagnostics.CodeAnalysis.Experimental("AMREC001")]
     public AgentFrameworkOptions ApplyRecommended()
     {
         DeferQuestionTurns = false;

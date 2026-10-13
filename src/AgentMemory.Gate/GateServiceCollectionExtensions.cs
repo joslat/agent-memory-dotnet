@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 namespace AgentMemory.Gate;
 
 /// <summary>Adds the gate to an AgentMemory registration.</summary>
-[Experimental("AMGATE001")]
+
 public static class GateServiceCollectionExtensions
 {
     /// <summary>

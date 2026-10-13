@@ -28,7 +28,6 @@ namespace AgentMemory.Gate;
 /// untouched: they are always in. Live recall only; an as-of recall is not gated.
 /// </para>
 /// </remarks>
-[Experimental("AMGATE001")]
 public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
 {
     private readonly IMemoryContextAssembler _inner;
@@ -57,6 +56,7 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
     }
 
     /// <summary>Wraps the assembler with an optional compound-question planner.</summary>
+    [Experimental("AMGATE001")]
     public GatedMemoryContextAssembler(
         IMemoryContextAssembler inner, IMemoryGate gate, IOptions<MemoryGateOptions> options,
         ILogger<GatedMemoryContextAssembler> logger, IOptions<MemoryOptions>? memoryOptions, IClock? clock,

@@ -9,7 +9,6 @@ namespace AgentMemory.Gate;
 /// asked of the explicitly selected judge (or the first configured endpoint for legacy callers).
 /// The write path closes at its own threshold; retrieval blends never select storage policy.
 /// </summary>
-[Experimental("AMGATE001")]
 public sealed class SystemOneUpdateJudge : IMemoryUpdateJudge
 {
     private readonly SystemOneClient _client;

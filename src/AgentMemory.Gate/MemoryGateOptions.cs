@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 namespace AgentMemory.Gate;
 
 /// <summary>How a recall fills the prompt once the gate is added.</summary>
-[Experimental("AMGATE001")]
+
 public enum MemoryGateMode
 {
     /// <summary>
@@ -28,7 +28,7 @@ public enum MemoryGateMode
 }
 
 /// <summary>One decision-model endpoint speaking the System One protocol (TypeSafe's JEV online, or a local server).</summary>
-[Experimental("AMGATE001")]
+
 public sealed class SystemOneEndpoint
 {
     /// <summary>A name for diagnostics ("jev", "laya").</summary>
@@ -58,7 +58,6 @@ public sealed class SystemOneEndpoint
 /// The gate's settings (<see cref="GateServiceCollectionExtensions.AddAgentMemoryGate(Microsoft.Extensions.DependencyInjection.IServiceCollection, Action{MemoryGateOptions})"/>,
 /// or from the configuration section <see cref="GateServiceCollectionExtensions.SectionName"/>).
 /// </summary>
-[Experimental("AMGATE001")]
 public sealed class MemoryGateOptions
 {
     /// <summary>How recall fills the prompt. <see cref="MemoryGateMode.Judge"/> once the gate is added.</summary>
@@ -88,6 +87,7 @@ public sealed class MemoryGateOptions
     /// On: the original gate decision is preserved, with at most three additional focuses within
     /// the remaining <see cref="Timeout"/>. No quality benefit is established; presets do not enable it.
     /// </summary>
+    [Experimental("AMGATE001")]
     public bool CompoundQuestions { get; set; }
 
     /// <summary>
@@ -95,6 +95,7 @@ public sealed class MemoryGateOptions
     /// Also requires the host's IChatClient for splitting. Missing either preserves baseline retrieval.
     /// Unused when <see cref="CompoundQuestions"/> is false or a custom planner is registered.
     /// </summary>
+    [Experimental("AMGATE001")]
     public SystemOneEndpoint? CompoundDetector { get; set; }
 
     /// <summary>
@@ -108,7 +109,7 @@ public sealed class MemoryGateOptions
 
     /// <summary>
     /// Whether the write path asks the selected judge (<see cref="UpdateJudgeName"/>) whether each new fact or preference replaces a stored one
-    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.65), and, with the store-aware writer (AMWRITE001), whether each
+    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.65), and, with the store-aware writer, whether each
     /// closing it names is one (<c>ExtractionOptions.NamedClosingThreshold</c>, 0.60). Off: the write path without a judge,
     /// and the writer's closings are not applied unless the host's chat model judges them
     /// (<c>LlmExtractionOptions.ChatModelUpdateJudge</c>, which also steps in when this judge fails).

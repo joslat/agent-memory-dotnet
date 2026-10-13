@@ -3,6 +3,10 @@
 A reference for what agent memory is, what a memory system has to decide that a store does not, and
 **exactly** which of those decisions AgentMemory makes today.
 
+**2.0 API graduation:** the selected writer, ordinary gate and Recommended composition now have
+stable contracts. This adds no new memory capability or measured accuracy result. Compound planning
+remains experimental and off. See [migration](migration-2.0.md) for host defaults and compatibility.
+
 **Retrieval composition — BUILT / WIRED.** Recommended disables automatic query splitting;
 Conversational is unchanged and explicit subqueries remain supported. General MCP can configure
 the gate through `AgentMemory:RetrievalRouter`; coding mode can select the similarity floor

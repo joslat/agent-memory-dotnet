@@ -1,4 +1,6 @@
 using AgentMemory;
+using AgentMemory.Abstractions.Options;
+using AgentMemory.Extraction.Llm;
 using AgentMemory.AgentFramework;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Stubs;
@@ -9,25 +11,30 @@ using Microsoft.Extensions.Logging;
 
 var services = new ServiceCollection();
 services.AddLogging();
+// The package check validates DI and must never send inference requests.
+services.AddSingleton<IChatClient, NoInferenceChatClient>();
 
 services.AddNeo4jAgentMemory(
-    configureMemory: _ => { },
+    MemoryOptions.CreateRecommended(),
     configureNeo4j: neo4j =>
     {
         neo4j.Uri = "bolt://localhost:7687";
         neo4j.Username = "neo4j";
         neo4j.Password = "password";
         neo4j.Database = "neo4j";
-    });
+    },
+    configureLlm: llm => llm.ApplyRecommended());
 
 services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
 
-services.AddAgentMemoryFramework();
+services.AddAgentMemoryFramework(adapter => adapter.ApplyRecommended());
 
-// The retrieval memory router: experimental, so a host opts in by name.
-#pragma warning disable AMGATE001
-services.AddAgentMemoryGate(gate => gate.Mode = MemoryGateMode.Floor);
-#pragma warning restore AMGATE001
+// Supported winner APIs compile without diagnostic suppression; no endpoint is contacted.
+services.AddAgentMemoryGate(gate =>
+{
+    gate.ApplyRecommended();
+    gate.Mode = MemoryGateMode.Floor;
+});
 
 await using var provider = services.BuildServiceProvider(new ServiceProviderOptions
 {

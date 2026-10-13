@@ -463,13 +463,12 @@ What it switches on:
 Every option stays individually settable afterwards: the preset returns ordinary options objects. Its contents are
 frozen for a major version.
 
-### 4.6 The Recommended preset (experimental, `AMREC001`)
+### 4.6 The Recommended preset
 
 The Recommended preset combines the selected storage and retrieval behavior. It starts from
 Conversational, disables automatic query splitting, and applies the changes below:
 
 ```csharp
-#pragma warning disable AMREC001, AMGATE001
 builder.Services.AddNeo4jAgentMemory(
     MemoryOptions.CreateRecommended(),
     neo4j => { /* ... */ },
@@ -482,7 +481,6 @@ builder.Services.AddAgentMemoryGate(gate =>
     gate.Judges.Add(new SystemOneEndpoint { Name = "laya", Endpoint = new Uri("http://127.0.0.1:8765/v1/systemone"), Weight = 0.2 });
     gate.UpdateJudgeName = "jev";
 });
-#pragma warning restore AMREC001, AMGATE001
 ```
 
 What it adds to the Conversational preset:
@@ -490,16 +488,16 @@ What it adds to the Conversational preset:
 - **Automatic query splitting is off** (`FanOut.Enabled = false`). The gate judges candidates for
   the original query. Explicit `RecallRequest.SubQueries` still work; hosts can re-enable automatic
   splitting after creating the preset. The frozen Conversational preset retains its existing setting.
-- **The store-aware writer** (`LlmExtractionOptions.UseMemoryWriter`, `AMWRITE001`): each turn is written by one call
+- **The store-aware writer** (`LlmExtractionOptions.UseMemoryWriter`): each turn is written by one call
   that sees the owner's most relevant stored memories and proposes only what is new, what replaces or corrects a stored
   memory, or nothing. On two fresh twelve-session worlds, 90.8% and 87.8% of what it stored was right, against 42.3% and
   39.1% for the extractors on the same turns. When its call fails (the model is down, times out, or answers without
-  JSON twice), the extractors write that turn instead, and the warning, the extraction span (`memory.write.fallback`)
+  JSON after the bounded attempts), the extractors write that turn instead, and the warning, the extraction span (`memory.write.fallback`)
   and `ExtractionStageResult.WriterFallbackReason` say so; `Extraction.FallBackToExtractorsWhenWriterFails = false`
   stores nothing for such a turn and records the error instead.
 - **Bitemporal changes** (`Extraction.BitemporalChanges`): a question about the past keeps the value that was true then.
   The writer was measured with it on.
-- **The host's chat model as the update judge's second tier** (`LlmExtractionOptions.ChatModelUpdateJudge`, `AMWRITE001`):
+- **The host's chat model as the update judge's second tier** (`LlmExtractionOptions.ChatModelUpdateJudge`):
   when no outside judge answers (no endpoint, or the endpoint down or left out after failures), the writer's closings are
   confirmed by the same chat model, asked the gate's question. Measured on world 6: as good as JEV (0.33 stale values a
   store against 0.33, precision 97.7% against 97.9%) for about 0.2 chat calls a turn more; with no judge at all, 16
@@ -511,7 +509,7 @@ What it adds to the Conversational preset:
 
 **What runs, said once.** The library logs each leg's tier on its first write, for example
 `Memory tiers: storage: writer + update judge (a failed writer call falls back to the extractors); retrieval: judge (jev); dreaming: off`,
-and a host can ask for it at any time (`IMemoryTiers`, `AMREC001`): without a judge endpoint it says
+and a host can ask for it at any time (`IMemoryTiers`): without a judge endpoint it says
 `retrieval: similarity floor (Judge mode has no judge configured)`, and while every judge is left out after repeated
 failures it says so.
 
@@ -530,8 +528,10 @@ The adapter preset preserves all other host settings and registers no inference 
 overrides after the preset. `ApplyConversational()` still holds question turns; existing registrations
 without the new call are unchanged. Other adapters do not need the Agent Framework registration above.
 
-Unlike the Conversational preset, its contents may change before 2.0, as the measurements on the library's other
-benchmarks come in; 2.0 is planned to make them the defaults.
+The selected writer, ordinary gate and Recommended APIs are stable in the 2.0 candidate.
+Existing low-level registrations and Conversational defaults remain compatible; new recommended
+host configurations select the winners explicitly. See [the 2.0 migration guide](migration-2.0.md)
+for the package/API boundary, imports and legacy choices. Compound planning remains experimental.
 
 **Host configuration and migration.** Apply presets first, then explicit overrides. A Core-only
 registration cannot install a judge from another package: add `AgentMemory.Gate` and configure only

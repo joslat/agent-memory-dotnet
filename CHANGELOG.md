@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Graduate the selected writer, Recommended composition and ordinary retrieval/update-judge APIs
+  for the 2.0 candidate. `AMWRITE001` and `AMREC001` suppression is no longer required.
+  `AMGATE001` remains on compound-question planning and its opt-in configuration/constructor.
+  Runtime defaults and graph data are unchanged by graduation. See [migration](docs/migration-2.0.md).
+
 ### Fixed
 
 - Honor `--history off` in the HaluMem and LongMemEval measurement harnesses even when

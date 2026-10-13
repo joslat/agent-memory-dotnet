@@ -51,14 +51,15 @@ A module's own memory is routed by the same engine: `IMemoryRouter.Route(questio
 module's rules beside the configured ones, compiled without backtracking (`IMemoryRouter.Check` refuses patterns that
 need it). See the Extensibility preview for how a module declares them.
 
-## The retrieval memory router: a judge per memory (`AgentMemory.Gate`, experimental)
+## The retrieval gate: a judge per memory (`AgentMemory.Gate`)
 
 The router above chooses which **kinds** a question reads, by rules. The retrieval memory router chooses which
 **memories** reach the prompt, by a judge: every kind is searched wide (no similarity floor), and the judges score each
 memory found against the turn and the conversation; what reaches `Threshold` (0.23) goes in. Measured on two unseen test
 sets, every needed memory reached the prompt on 96.1% and 96.5% of turns, against 67.6% and 76.8% for the similarity
-floor, with less than half the memory tokens. It is a separate package, opt-in, and every public type is
-`[Experimental("AMGATE001")]` while its contracts settle.
+floor, with less than half the memory tokens. It is a separate package with explicit host registration. Ordinary gate contracts are stable
+in the 2.0 candidate. Compound-question planning alone retains `AMGATE001`; see
+[the migration guide](migration-2.0.md).
 
 | `Mode` | What fills the prompt |
 |---|---|
@@ -67,9 +68,7 @@ floor, with less than half the memory tokens. It is a separate package, opt-in, 
 | `Everything` | Everything found, no cut: 10–17× the memory tokens of `Judge`. |
 
 ```csharp
-#pragma warning disable AMGATE001
 services.AddAgentMemoryGate(configuration.GetSection(GateServiceCollectionExtensions.SectionName));
-#pragma warning restore AMGATE001
 ```
 
 ```json
@@ -79,7 +78,7 @@ services.AddAgentMemoryGate(configuration.GetSection(GateServiceCollectionExtens
                 { "Name": "laya", "Endpoint": "http://127.0.0.1:8765/v1/systemone", "Weight": 0.2 } ] } } }
 ```
 
-- **Never worse than the floor.** A judge that times out (`Timeout`) or fails, a kind no judge answered, or `Judge` with
+- **Falls back to the floor on failure.** A judge that times out (`Timeout`) or fails, a kind no judge answered, or `Judge` with
   no judge configured: recall uses the floor and logs why. A judge that is down is left out of the blend (the weights
   renormalise over those that answered). One that failed `JudgeFailuresBeforeCooldown` calls in a row (3) is not called
   for `JudgeCooldown` (a minute), then asked once: an answer brings it back. So a local judge that is not running costs

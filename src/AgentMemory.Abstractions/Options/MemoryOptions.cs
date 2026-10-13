@@ -488,7 +488,7 @@ public sealed record MemoryOptions
     }
 
     /// <summary>
-    /// AMREC001. The Recommended preset: the Conversational preset with what the storage and retrieval research measured
+    /// The Recommended preset: the Conversational preset with what the storage and retrieval research measured
     /// as better, switched on together. Register it with <c>services.AddAgentMemoryCore(MemoryOptions.CreateRecommended())</c>,
     /// and pair it with <c>LlmExtractionOptions.ApplyRecommended()</c> (the store-aware writer) and, with a judge endpoint
     /// configured, <c>MemoryGateOptions.ApplyRecommended()</c> (the update judge and the retrieval memory router).
@@ -506,9 +506,9 @@ public sealed record MemoryOptions
     /// </para>
     /// <para>
     /// <b>The halves in other packages.</b> <c>LlmExtractionOptions.ApplyRecommended()</c> writes each turn with the
-    /// store-aware writer (AMWRITE001): on two fresh twelve-session worlds, 90.8% and 87.8% of what it stored was right
+    /// store-aware writer: on two fresh twelve-session worlds, 90.8% and 87.8% of what it stored was right
     /// against the extractors' 42.3% and 39.1%. Its closings apply only when the update judge confirms them, which
-    /// <c>MemoryGateOptions.ApplyRecommended()</c> turns on together with the retrieval memory router (AMGATE001: every
+    /// <c>MemoryGateOptions.ApplyRecommended()</c> turns on together with the retrieval memory router ( every
     /// needed memory reached the prompt on 96.1% and 96.5% of turns, against 67.6% and 76.8% for the similarity floor).
     /// Retrieval judging needs a configured endpoint; without one, recall uses the similarity floor.
     /// The Recommended extraction preset enables the host chat model to judge writer-named closings when no
@@ -522,12 +522,11 @@ public sealed record MemoryOptions
     /// including when migrating an existing Conversational configuration.
     /// </para>
     /// <para>
-    /// <b>Not frozen yet.</b> Unlike the Conversational preset, its contents may change before 2.0, as the measurements
-    /// on the library's other benchmarks come in; 2.0 is planned to make them the defaults. Everything stays individually
+    /// <b>Host composition.</b> This is a supported 2.0 configuration. Existing low-level and Conversational
+    /// defaults remain compatible; hosts choose Recommended explicitly. Every option remains individually
     /// settable afterwards: this returns an ordinary <see cref="MemoryOptions"/>.
     /// </para>
     /// </remarks>
-    [System.Diagnostics.CodeAnalysis.Experimental("AMREC001")]
     public static MemoryOptions CreateRecommended()
     {
         var options = CreateConversational();
