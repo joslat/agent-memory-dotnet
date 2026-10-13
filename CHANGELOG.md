@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experimental module assembly discovery reads bounded PE resources and informational-version
+  metadata without loading implementation code. It rejects ambiguous/external manifests and version
+  mismatches; signature verification and activation remain separate unfinished work.
+
 - Experimental bounded, data-only module manifest reader with typed ontology/view declarations,
   strict field handling and read-only parsed collections. Semantic resolution and activation remain
   unfinished; successful parsing alone does not authorize a module.

@@ -197,6 +197,9 @@ and diagnostics without giving the SDK a Neo4j dependency or exposing a public r
 The SDK's version/range and owned-ID validators are documented under [modules](extensions/modules.md);
 the bounded data-only manifest reader rejects ambiguous/unsupported wire fields. Complete semantic
 resolution and the runtime host remain unfinished; parsing does not grant activation permission.
+Assembly-file/image discovery inspects PE metadata and bounded embedded resources without loading
+implementation code. It checks manifest/informational-version agreement but does not authenticate
+publishers or grant trust. The already-loaded assembly overload reads attribute metadata only.
 
 The rule the exception does **not** relax: a layered adapter still never depends on `Neo4j`, and
 `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly

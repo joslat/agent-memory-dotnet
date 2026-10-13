@@ -54,6 +54,25 @@ and relation descriptions follow the 200-character bound. Shared scope is declar
 it does not authorize a shared write.
 
 This reader validates wire shape, not complete semantic compatibility. Ontology cross-reference and
-reserved-name lint, property/filter type compatibility, SDK/dependency/host resolution, metadata-only
-assembly discovery and trust/activation remain unfinished. Do not treat a successful parse as
+reserved-name lint, property/filter type compatibility, SDK/dependency/host resolution and trust/activation remain unfinished. Do not treat a successful parse as
 permission to execute code or apply schema. No existing host activates manifests automatically.
+
+## Assembly discovery without implementation execution
+
+Use `ModuleManifest.LoadFromAssemblyFile(path)` or `LoadFromAssemblyImage(bytes)` before loading an
+implementation assembly. Both inspect managed PE metadata, require exactly one embedded
+`*.agentmemory-module.json`, and compare its version to the single assembly informational-version
+attribute. SemVer build metadata is ignored for this comparison; prerelease identity is not.
+Discovery does not load implementation dependencies, instantiate attributes or run initializers.
+It rejects linked external manifests, malformed resource bounds and invalid UTF-8. Assembly images
+are capped at 64 MiB and the embedded manifest retains the 128 KiB limit.
+
+`ModuleManifest.Load(assembly)` supports an assembly the caller already loaded; it reads attribute
+metadata without constructing attributes. It cannot undo code the caller has already executed.
+For untrusted implementation files, use the file/image overloads before any runtime loading.
+
+Discovery is not publisher verification or a sandbox. A later activation path must verify and load
+the authorized bytes; parsing a path once does not authorize whatever later occupies that path.
+Ontology/set validation, signature checks and runtime activation are still separate unfinished work.
+The implementation uses the framework's [PE metadata reader](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.metadata.metadatareader)
+and [PEReader](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.portableexecutable.pereader).

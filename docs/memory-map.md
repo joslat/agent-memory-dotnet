@@ -9,7 +9,9 @@ remains experimental and off. See [migration](migration-2.0.md) for host default
 
 **Module resolution primitives - BUILT.** The experimental SDK validates version/range syntax and
 owned identifiers and shares internal dependency ordering with built-in schema extensions. Strict bounded manifest wire parsing and typed declarations are also built. Complete ontology
-validation, manifest/profile resolution, module persistence and loading are still unimplemented. These primitives
+validation, manifest/profile resolution, module persistence and runtime activation are still unimplemented.
+Metadata-only assembly discovery is built: it checks the single bounded manifest and informational
+version without loading implementation code. It does not establish publisher trust. These primitives
 add no retrieval, extraction or module activation to existing hosts.
 
 **Module adapter seams - BUILT / WIRED.** Protected admission/rendering and provider-ID lookup

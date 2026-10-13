@@ -28,4 +28,13 @@
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility.AgentFramework\AgentMemory.Extensibility.AgentFramework.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Build a real implementation assembly, but never reference or load it into the test host. -->
+    <ProjectReference Include="..\Fixtures\ModuleDiscoveryFixture\ModuleDiscoveryFixture.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyModuleDiscoveryFixture" AfterTargets="Build">
+    <MakeDir Directories="$(OutDir)ModuleFixtures" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\Fixtures\ModuleDiscoveryFixture\bin\$(Configuration)\net10.0\ModuleDiscoveryFixture.dll"
+          DestinationFolder="$(OutDir)ModuleFixtures" />
+  </Target>
 </Project>
