@@ -121,3 +121,16 @@ Existing memories are not automatically re-extracted or deleted. Supersession/in
 history. Use the normal schema-check/migration workflow for your installed version and extensions;
 API graduation itself introduces no graph schema migration. Back up existing data before deploying
 an upgrade, and validate your actual providers and host configuration in an isolated environment.
+
+## Experimental module adapters
+
+The Extensibility SDK remains on its independent experimental release line and is held out of the
+core release inventory. Its framework adapter now calls protected `RenderAdmittedBlock` and
+`StoredMessageId` methods instead of relying on `InternalsVisibleTo` access to framework internals.
+An older adapter binary compiled against those internals is not compatible with the removed friend
+grant. Use a matching rebuilt SDK adapter; do not assume an old preview supports the 2.0 framework
+package. This does not affect ordinary hosts that use only `Neo4jMemoryContextProvider`.
+
+`StoredMessageId` maps an existing provider ID without modifying the message. Before using that ID
+as provenance, verify the source exists in the resolved owner's session; lookup is not a storage
+receipt. The new methods add no module activation, persistence or inference calls by themselves.
