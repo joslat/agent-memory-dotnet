@@ -298,3 +298,9 @@ Two shapes that look like mistakes and are not: an extension with **no migration
 its DDL is base-resident), and an extension with **no declarations at all** (delta-recall — it declares
 seven indexes through its migration and nothing else, because an index is invisible to the parity
 verifier by construction).
+
+## Experimental module SDK
+
+The separate [module SDK](modules.md) documents its current source capabilities and limits.
+It is held out of the core release inventory; it does not change the built-in extension registration
+contract described above.

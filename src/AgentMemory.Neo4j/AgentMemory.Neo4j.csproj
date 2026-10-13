@@ -48,4 +48,8 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\DependencyOrder.cs" Link="Shared\DependencyOrder.cs" />
+  </ItemGroup>
+
 </Project>

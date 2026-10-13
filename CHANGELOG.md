@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experimental module version/range and owned-identity validation. Built-in schema extensions and
+  the SDK share internal dependency ordering, preserving existing activation order and diagnostics.
+  The SDK remains held out of the core release; complete module activation is not implemented yet.
+
 - Protected `Neo4jMemoryContextProvider.RenderAdmittedBlock` and `StoredMessageId` extension methods.
   The module adapter now uses supported admission/rendering access without a friend-assembly grant,
   and shares core retrieval's last-user-question derivation when assistant/tool messages follow.

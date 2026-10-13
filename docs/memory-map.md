@@ -7,6 +7,11 @@ A reference for what agent memory is, what a memory system has to decide that a 
 stable contracts. This adds no new memory capability or measured accuracy result. Compound planning
 remains experimental and off. See [migration](migration-2.0.md) for host defaults and compatibility.
 
+**Module resolution primitives - BUILT.** The experimental SDK validates version/range syntax and
+owned identifiers and shares internal dependency ordering with built-in schema extensions. Complete
+manifest/profile resolution, module persistence and loading are still unimplemented. These primitives
+add no retrieval, extraction or module activation to existing hosts.
+
 **Module adapter seams - BUILT / WIRED.** Protected admission/rendering and provider-ID lookup
 support derived adapters without friend access. Module retrieval uses the last user question;
 trailing assistant/tool messages cannot replace it. ID lookup does not establish persisted provenance.

@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Shared;
 
 namespace AgentMemory.Neo4j.Schema.Extensions;
 
@@ -118,68 +119,14 @@ internal sealed class SchemaExtensionRegistry
         // logging: with no extensions requested this method must be indistinguishable from not existing.
         if (requested.Count == 0) return [];
 
-        var closure = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var id in requested)
-            AddClosure(id, closure, []);
-
-        return TopologicalOrder(closure);
-    }
-
-    private void AddClosure(string id, HashSet<string> closure, List<string> path)
-    {
-        if (!closure.Add(id)) return;
-
-        var extension = _byId[id];
-        foreach (var dependency in extension.DependsOn.OrderBy(d => d, StringComparer.Ordinal))
-        {
-            if (!_byId.ContainsKey(dependency))
-            {
-                throw new SchemaInitializationException(
-                    $"Schema extension '{id}' depends on '{dependency}', which is not registered. "
-                    + $"Known: {string.Join(", ", KnownIds)}.",
-                    "schema-extension-activation");
-            }
-
-            // Implicit activation, by design: asking for an extension gets you what it needs to work.
-            // The alternative -- refusing until the dependency is named explicitly -- turns a solvable
-            // configuration into a startup failure for no safety gained, since the dependency is
-            // additive schema either way.
-            AddClosure(dependency, closure, [.. path, id]);
-        }
-    }
-
-    /// <summary>
-    /// Kahn's algorithm over the dependency edges, ties broken by ordinal id so the result is a total
-    /// order rather than merely a valid one.
-    /// </summary>
-    private IReadOnlyList<ISchemaExtension> TopologicalOrder(HashSet<string> ids)
-    {
-        var remaining = new HashSet<string>(ids, StringComparer.Ordinal);
-        var ordered = new List<ISchemaExtension>(ids.Count);
-
-        while (remaining.Count > 0)
-        {
-            var ready = remaining
-                .Where(id => _byId[id].DependsOn.All(dependency => !remaining.Contains(dependency)))
-                .OrderBy(id => id, StringComparer.Ordinal)
-                .ToList();
-
-            if (ready.Count == 0)
-            {
-                throw new SchemaInitializationException(
-                    "Schema-extension dependency cycle among: "
-                    + string.Join(", ", remaining.OrderBy(id => id, StringComparer.Ordinal))
-                    + ". Migration order cannot be decided, so nothing is applied.",
-                    "schema-extension-activation");
-            }
-
-            foreach (var id in ready)
-            {
-                ordered.Add(_byId[id]);
-                remaining.Remove(id);
-            }
-        }
-
-        return ordered;
+        return DependencyOrder.Resolve(_byId, requested, extension => extension.DependsOn,
+            (id, dependency) => new SchemaInitializationException(
+                $"Schema extension '{id}' depends on '{dependency}', which is not registered. "
+                + $"Known: {string.Join(", ", KnownIds)}.",
+                "schema-extension-activation"),
+            remaining => new SchemaInitializationException(
+                "Schema-extension dependency cycle among: " + string.Join(", ", remaining)
+                + ". Migration order cannot be decided, so nothing is applied.",
+                "schema-extension-activation"));
     }
 }
