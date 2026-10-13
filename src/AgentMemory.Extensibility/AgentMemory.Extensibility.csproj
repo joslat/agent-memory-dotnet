@@ -51,4 +51,8 @@
     <Compile Include="..\..\shared\DependencyOrder.cs" Link="Shared\DependencyOrder.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Remove="Schemas/*.json" />
+    <None Include="Schemas/*.json" Pack="true" PackagePath="contentFiles/any/any/Schemas/" />
+  </ItemGroup>
 </Project>

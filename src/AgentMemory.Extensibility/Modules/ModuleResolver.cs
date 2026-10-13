@@ -63,6 +63,8 @@ public static class ModuleResolver
             {
                 Claim("label", type.Name, module.Id, claims, errors);
                 Claim("schema name", ModuleManifestValidator.SchemaName(type.Name), module.Id, claims, errors);
+                foreach (var shape in ModuleSchemaObjects.ForType(type))
+                    Claim("schema object", shape.Name, module.Id, claims, errors);
             }
             foreach (var relation in ontology.Relations)
             {

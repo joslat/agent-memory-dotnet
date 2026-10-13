@@ -41,6 +41,7 @@ internal sealed class ModuleManifestValidator
             var prefix = ontology.LabelPrefix ?? "";
             if (!Label.IsMatch(prefix)) Error("$.ontology.labelPrefix", "expected PascalCase label prefix");
             var names = new HashSet<string>(StringComparer.Ordinal);
+            var schemaNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (var type in List(ontology.Types, "$.ontology.types"))
             {
                 if (type is null) { Error("$.ontology.types", "null type declaration"); continue; }
@@ -67,6 +68,11 @@ internal sealed class ModuleManifestValidator
                     else ValidateProperty(pair.Value, at);
                 }
                 if (type.Render is { } render) ValidateRender(render, props, path + ".render");
+                foreach (var shape in ModuleSchemaObjects.ForType(type))
+                {
+                    if (!schemaNames.Add(shape.Name)) Error(path, $"generated schema object '{shape.Name}' collides");
+                    if (ModuleReservedNames.SchemaObjects.Contains(shape.Name)) Error(path, $"reserved schema object '{shape.Name}'");
+                }
             }
             var relations = new HashSet<string>(StringComparer.Ordinal);
             foreach (var relation in List(ontology.Relations, "$.ontology.relations"))

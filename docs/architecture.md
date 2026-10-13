@@ -208,7 +208,10 @@ excludes future profile/configuration/trust identities. Feature inputs do not pr
 Pure profile composition now reconciles explicit entries, version intervals and store/provider
 bindings against planning inputs, refusing graph links across distinct stores. Its hash includes exact
 profile bytes; options values, trust and source identity remain activation obligations. Actual DI/CLI
-wiring, host probes, generated schema-name checks and activation remain unfinished.
+wiring, host probes and activation remain unfinished. Derived schema descriptors now carry stable
+constraint/index names and exact label/property identities. Local and complete-set guards reject
+collisions with each other or reserved actual base/built-in/upstream objects. Packaged standalone
+editor schemas complement runtime validation; they add no production dependency or schema writes.
 
 The rule the exception does **not** relax: a layered adapter still never depends on `Neo4j`, and
 `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly

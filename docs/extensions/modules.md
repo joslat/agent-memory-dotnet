@@ -102,8 +102,8 @@ It performs no database work, code execution or provider calls. It checks:
 Local validation does not establish that a dependency's referenced type exists, that its version
 matches, that two modules have disjoint namespaces, or that the host supports required capabilities.
 Those require complete-set resolution. Signature verification and activation remain separate.
-The editor JSON Schema and generated index/constraint-name collision checks are still unfinished;
-this API alone does not close the module-resolution capability.
+The editor schemas and generated schema-object guards below complement this validation;
+actual host composition and activation remain separate obligations.
 
 
 ## Complete metadata sets
@@ -124,7 +124,7 @@ needs profile, configuration, migration and trust identities.
 Available features are explicit planning inputs, not proof of a running host. A host must derive them
 from actual effective registrations/options. This API performs no DI, provider calls, module code
 execution or schema work, and does not authorize activation. Profile registration reconciliation,
-actual host probes, generated index/constraint collisions and runtime activation remain unfinished.
+actual host probes and runtime activation remain unfinished.
 
 
 ## Composition profiles
@@ -147,3 +147,27 @@ derive actual host capabilities, bind and validate options, and include those id
 active-set fingerprint. A parsed path or digest never authorizes loading it. This checkpoint provides
 no profile DI extension, loader, CLI execution or permanent ModulePlan singleton. DI-only metadata
 composition remains available through `ModuleResolver`; running-module composition remains unfinished.
+
+
+## Editor schemas and generated object names
+
+Standalone draft 2020-12 schemas are included in the SDK package under `contentFiles/any/any/Schemas/`:
+[manifest schema](../../src/AgentMemory.Extensibility/Schemas/agentmemory.module.v1alpha1.schema.json)
+and [profile schema](../../src/AgentMemory.Extensibility/Schemas/agentmemory.modules.v1alpha1.schema.json).
+Associate them through editor settings; the strict runtime readers do not accept an added `$schema`
+field in module/profile documents. Schema validation is guidance, not a substitute for C# validation.
+Duplicate JSON fields, byte/depth limits, cross-field bounds/order, namespace ownership, references,
+render placeholders and actual host/trust conditions remain runtime checks. The schemas have no
+external schema references and need no application network access. Runtime validation has no new
+library dependency; schema conformance uses a test-only validator.
+
+`ModuleSchemaObjects.Describe(manifest)` produces immutable sorted data descriptors, without Cypher
+or database access. A type has `<snake_label>_id` uniqueness, `<snake_label>_owner_id_idx` and
+`<snake_label>_key_id_idx` range indexes, plus `<snake_label>_<snake_property>_idx` for each indexed
+property. Descriptors retain exact label/property spellings; normalization applies to names only.
+
+Local validation rejects collisions within a module and with reserved base, built-in, upstream and
+SDK bookkeeping objects. Complete-set resolution also rejects collisions across modules, even when
+labels and prefixes differ. Repository tests pin reservations to actual bootstrap builders, shipped
+migrations and the upstream snapshot. These are planned shapes: migration ownership, existing-object
+checks, DDL generation/application and the migration ledger remain unimplemented.

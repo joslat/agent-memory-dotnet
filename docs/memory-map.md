@@ -14,7 +14,8 @@ module persistence and runtime activation are still unimplemented.
 Local semantic validation now checks ontology ownership, constraints, references and typed views;
 The pure complete-set resolver now freezes declarations and checks dependency targets, ranges,
 cycles, schema namespaces and explicit feature inputs. It does not prove actual host registrations
-or grant activation permission; generated index/constraint checks remain unfinished.
+or grant activation permission. Generated index/constraint collision checks and editor schemas are
+built; typed shape descriptors do not generate/apply DDL or implement module persistence.
 Metadata-only assembly discovery is built: it checks the single bounded manifest and informational
 version without loading implementation code. It does not establish publisher trust. These primitives
 add no retrieval, extraction or module activation to existing hosts.
