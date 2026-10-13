@@ -25,6 +25,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
+    <!-- Test-only: pin reserved names to actual storage declarations. The SDK remains Abstractions-only. -->
+    <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility.AgentFramework\AgentMemory.Extensibility.AgentFramework.csproj" />
   </ItemGroup>
 

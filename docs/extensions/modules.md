@@ -53,8 +53,8 @@ Views support the short ascending sort or the explicit property/descending form.
 and relation descriptions follow the 200-character bound. Shared scope is declaration data; parsing
 it does not authorize a shared write.
 
-This reader validates wire shape, not complete semantic compatibility. Ontology cross-reference and
-reserved-name lint, property/filter type compatibility, SDK/dependency/host resolution and trust/activation remain unfinished. Do not treat a successful parse as
+This reader validates wire shape, not complete semantic compatibility. Call `Validate()` for the local
+ontology and view checks below. Whole-set SDK/dependency/host resolution and trust/activation remain unfinished. Do not treat a successful parse as
 permission to execute code or apply schema. No existing host activates manifests automatically.
 
 ## Assembly discovery without implementation execution
@@ -73,6 +73,34 @@ For untrusted implementation files, use the file/image overloads before any runt
 
 Discovery is not publisher verification or a sandbox. A later activation path must verify and load
 the authorized bytes; parsing a path once does not authorize whatever later occupies that path.
-Ontology/set validation, signature checks and runtime activation are still separate unfinished work.
+Whole-set validation, signature checks and runtime activation are still separate unfinished work.
 The implementation uses the framework's [PE metadata reader](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.metadata.metadatareader)
 and [PEReader](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.portableexecutable.pereader).
+
+## Local semantic validation
+
+`manifest.Validate()` returns a read-only list of all local problems in ordinal order. It also checks
+manifests constructed in C#, including malformed collections; a successful JSON parse is not required.
+It performs no database work, code execution or provider calls. It checks:
+
+- Dotted module/dependency identities, required version/range objects, supported explicit host
+  features, owner/shared scope and duplicate type, relationship and view names.
+- PascalCase label prefixes and owned type names; relationship names use the prefix's UPPER_SNAKE
+  form followed by an underscore and suffix. Schema-name normalization cannot collapse two labels.
+- Reserved core/upstream/built-in labels and relationships, SDK provenance properties, and migration/
+  key bookkeeping labels. Repository tests pin the vocabulary to actual core and built-in declarations.
+- Property kinds, nonempty unique string enumerations, string-length and numeric constraints.
+  Integer bounds must fit Int64 and are compared as integers, preserving large-value distinctions;
+  float bounds must be finite. Property/relation descriptions have 1-200 characters when supplied.
+- Render placeholders name declared properties; doubled braces escape literal braces. Relationship
+  sources are own types; targets are own types, `core:Entity`, or a qualified declared dependency.
+- Views name own types and declared filter/sort properties. Limits are positive; predicates have
+  compatible literals or `$now` (datetime) / `$session` (string). Membership takes a typed array.
+  Boolean ordering is refused; null is permitted only with equality/inequality. Dates use yyyy-MM-dd;
+  datetime literals must carry an explicit ISO 8601 offset. No query text is accepted as a predicate.
+
+Local validation does not establish that a dependency's referenced type exists, that its version
+matches, that two modules have disjoint namespaces, or that the host supports required capabilities.
+Those require complete-set resolution. Signature verification and activation remain separate.
+The editor JSON Schema and generated index/constraint-name collision checks are still unfinished;
+this API alone does not close the module-resolution capability.

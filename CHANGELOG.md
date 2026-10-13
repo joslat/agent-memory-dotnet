@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experimental local manifest validation reports ontology ownership, reserved-name, numeric-bound,
+  render-reference and typed-view errors without code execution or database work. Complete module-set
+  resolution and activation remain unfinished.
+
 - Experimental module assembly discovery reads bounded PE resources and informational-version
   metadata without loading implementation code. It rejects ambiguous/external manifests and version
   mismatches; signature verification and activation remain separate unfinished work.

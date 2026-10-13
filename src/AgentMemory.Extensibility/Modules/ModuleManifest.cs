@@ -34,6 +34,11 @@ public sealed record ModuleManifest
     /// resolution requirement; parsing alone is not evidence that declarations can be activated.</remarks>
     public static ModuleManifest Parse(string json) => ModuleManifestReader.Parse(json);
 
+    /// <summary>Returns all local semantic problems in ordinal order, without executing code or DDL.</summary>
+    /// <remarks>Also checks caller-constructed records. Dependency target existence, composed schema
+    /// collisions, SDK/host compatibility and publisher authorization require whole-set resolution.</remarks>
+    public IReadOnlyList<string> Validate() => new ModuleManifestValidator().Validate(this);
+
     /// <summary>Reads metadata and the embedded manifest without loading the implementation assembly.</summary>
     /// <remarks>Validates informational-version agreement, ignoring build metadata. This is discovery,
     /// not signature verification or permission to activate. No implementation dependencies are loaded.</remarks>
