@@ -501,7 +501,7 @@ internal static class MemoryWriterOps
                 case "relationship":
                     break;   // a connection the text did not state as "A -[RELATION]-> B" cannot be stored as one
                 default:
-                    var parts = op.Text.Split('|', 3, StringSplitOptions.TrimEntries);
+                    var parts = FactText(op.Text).Split('|', 3, StringSplitOptions.TrimEntries);
                     var (subject, predicate, @object) = parts.Length switch
                     {
                         3 => (parts[0], parts[1], parts[2]),
@@ -526,6 +526,17 @@ internal static class MemoryWriterOps
             ConfirmedFactIds = [.. confirmedFacts.Distinct(StringComparer.Ordinal)],
             ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
         };
+    }
+
+    // Models can copy the prompt's format label and outer quotes into the JSON text value.
+    // Remove only that complete triple wrapper; quotes within a field remain meaningful content.
+    private static string FactText(string text)
+    {
+        const string Prefix = "fact: \"";
+        if (text.Length <= Prefix.Length || !text.StartsWith(Prefix, StringComparison.Ordinal) || !text.EndsWith('"')) return text;
+        var inner = text[Prefix.Length..^1];
+        var parts = inner.Split('|', 3, StringSplitOptions.TrimEntries);
+        return parts.Length == 3 && parts.All(p => p.Length > 0) ? inner : text;
     }
 
     /// <summary>

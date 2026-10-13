@@ -233,6 +233,53 @@ public sealed class MemoryWriterTests
         result.Relationships.Should().ContainSingle().Which.Should().BeEquivalentTo(new { SourceEntity = "Mia", TargetEntity = "Lukas", RelationshipType = "SISTER_OF" });
     }
 
+    [Theory]
+    [InlineData("add")]
+    [InlineData("replace")]
+    [InlineData("correct")]
+    public void A_fact_with_the_prompt_format_wrapper_does_not_store_the_wrapper(string action)
+    {
+        // Observed in the real smoke: subject 'fact: "Alice', object 'Lisbon"'.
+        var stored = MemoryWriterOps.Stored.Number([new MemoryWriterOps.Stored("old-city", 'F', "Alice | lives in | Porto")]);
+        var reply = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            ops = new[] { new { op = action, kind = "fact", text = "fact: \"Alice | lives in | Lisbon\"", id = "F1" } },
+        });
+
+        MemoryWriterOps.TryParse(reply, 6, out var ops).Should().BeTrue();
+        var fact = MemoryWriterOps.ToResult(ops, stored, "Alice").Facts.Should().ContainSingle().Subject;
+
+        fact.Should().BeEquivalentTo(new
+        {
+            Subject = "Alice", Predicate = "lives in", Object = "Lisbon",
+            ReplacesId = action == "add" ? null : "old-city",
+            ReplacementIsCorrection = action == "correct",
+        });
+    }
+
+    [Theory]
+    [InlineData("Alice | calls home | \"Lisbon\"", "Alice", "calls home", "\"Lisbon\"")]
+    [InlineData("\"Alice\" | lives in | Lisbon", "\"Alice\"", "lives in", "Lisbon")]
+    [InlineData("fact: fiction | is | a book title", "fact: fiction", "is", "a book title")]
+    [InlineData("fact: \"Alice | lives in | Lisbon", "fact: \"Alice", "lives in", "Lisbon")]
+    [InlineData("fact: \"Alice | Lisbon\"", "fact: \"Alice", "is", "Lisbon\"")]
+    [InlineData("fact: \"Alice mentioned Lisbon\"", "Alice", "noted", "fact: \"Alice mentioned Lisbon\"")]
+    [InlineData("fact: \"", "Alice", "noted", "fact: \"")]
+    public void Fact_format_cleanup_preserves_content_without_a_complete_triple_wrapper(string text, string subject, string predicate, string value)
+    {
+        var fact = MemoryWriterOps.ToResult([new("add", "fact", text, null)], [], "Alice").Facts.Single();
+
+        fact.Should().BeEquivalentTo(new { Subject = subject, Predicate = predicate, Object = value });
+    }
+
+    [Fact]
+    public void A_wrapped_fact_preserves_quotes_and_pipes_within_its_object()
+    {
+        var fact = MemoryWriterOps.ToResult([new("add", "fact", "fact: \"Alice | reads | \"Porto | Lisbon\"\"", null)], [], "Alice").Facts.Single();
+
+        fact.Should().BeEquivalentTo(new { Subject = "Alice", Predicate = "reads", Object = "\"Porto | Lisbon\"" });
+    }
+
     [Fact]
     public void A_replace_may_end_a_stored_connection_from_a_fact_or_from_a_connection()
     {

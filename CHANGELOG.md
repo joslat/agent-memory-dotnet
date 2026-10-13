@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Strip the store-aware writer's copied `fact: "subject | predicate | object"` format wrapper
+  before mapping a complete fact. Preserve field quotes and replacement/correction targets;
+  existing stored facts are not rewritten.
+
 ### Tooling
 
 - Separate storage judge selection from retrieval ordering with `MemoryGateOptions.UpdateJudgeName`.
