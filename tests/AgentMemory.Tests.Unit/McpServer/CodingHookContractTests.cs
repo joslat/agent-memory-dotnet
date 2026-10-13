@@ -71,6 +71,62 @@ public sealed class CodingHookContractTests
         render.Should().Throw<ArgumentException>();
     }
 
+    [Fact]
+    public void Recall_keeps_the_working_memory_emitted_by_the_actual_MCP_projection()
+    {
+        var response = ProjectRecall("Always use the cobalt badge for Orchid releases.");
+
+        var text = CodingHookContext.Render(response, false, new([]));
+
+        text.Should().Contain("cobalt").And.Contain("untrusted");
+        text.Length.Should().BeLessThanOrEqualTo(CodingHookContext.MaximumCharacters);
+    }
+
+    [Fact]
+    public void Recall_checks_the_decoded_working_memory_for_secrets_before_injection()
+    {
+        const string secret = "credential+with<encoding>";
+        var response = ProjectRecall(secret);
+
+        var render = () => CodingHookContext.Render(response, false, new([secret]));
+
+        render.Should().Throw<ArgumentException>();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Recall_does_not_inject_an_empty_working_memory(string? block)
+    {
+        CodingHookContext.Render(ProjectRecall(block), false, new([])).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Recall_does_not_split_an_oversized_working_memory()
+    {
+        CodingHookContext.Render(ProjectRecall(new string('x', 7000)), false, new([])).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Session_profile_keeps_its_existing_object_wire_shape()
+    {
+        var response = JsonSerializer.SerializeToElement(new { profile = new { text = "Use the cobalt badge." } });
+        CodingHookContext.Render(response, true, new([])).Should().Contain("cobalt").And.Contain("untrusted");
+    }
+
+    private static JsonElement ProjectRecall(string? block)
+    {
+        var type = typeof(AgentMemory.McpServer.ServiceCollectionExtensions).Assembly
+            .GetType("AgentMemory.McpServer.Tools.McpMemoryProjection")!;
+        var projection = type.GetMethod("Context", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, [new AgentMemory.Abstractions.Domain.MemoryContext
+            {
+                SessionId = "new-session", AssembledAtUtc = DateTimeOffset.UnixEpoch, WorkingMemoryBlock = block,
+            }])!;
+        return JsonSerializer.SerializeToElement(new { context = projection }, CodingApi.Json);
+    }
+
     private static CodingHookOptions Options => new()
     {
         Project = "alpha", TokenVariable = "ALPHA_KEY", RepositoryRoot = Path.GetFullPath("repo"),

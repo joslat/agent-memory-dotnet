@@ -124,6 +124,14 @@ Codex also requires hook trust, independently of MCP enablement. Our isolated au
 documented one-invocation hook-trust option after reviewing the fixture definitions. Normal users
 should review hooks through `/hooks`. [Codex hook configuration](https://learn.chatgpt.com/docs/hooks).
 
+## Memory delivered by hooks
+
+All supported recall hooks use the same bounded renderer. It preserves selected facts,
+preferences, entities, traces and the working-memory string returned by MCP. SessionStart
+continues to read the profile object. Both paths label memory as untrusted, check decoded
+strings for configured secrets and keep complete items within a 6,000-character context
+budget. Recent/retrieved verbatim message windows are not injected by this helper.
+
 ## Supported completion capture
 
 Claude exposes `prompt_id` and final assistant text; Codex exposes `turn_id` and final assistant text.

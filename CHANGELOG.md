@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve working-memory text in coding hook recall. Apply the existing context budget and
+  decoded-secret checks to the MCP string projection, while retaining SessionStart profile behavior.
+
 - Return authenticated 405 responses for stateless coding MCP GET/DELETE probes. Preserve
   project authentication and origin checks; valid local tokens no longer trigger a false
   OAuth challenge, and the optional remote endpoint no longer reports these methods as 404.

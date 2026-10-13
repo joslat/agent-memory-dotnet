@@ -29,7 +29,13 @@ internal static class CodingHookContext
             foreach (var field in new[] { "relevantFacts", "relevantPreferences", "relevantEntities", "similarTraces" })
                 if (context.TryGetProperty(field, out var array) && array.ValueKind == JsonValueKind.Array)
                     foreach (var item in array.EnumerateArray()) Add(field, item);
-            if (context.TryGetProperty("workingMemory", out var block) && HasText(block)) Add("profile", block);
+            if (context.TryGetProperty("workingMemory", out var block))
+            {
+                var profileBlock = block.ValueKind == JsonValueKind.String
+                    ? JsonSerializer.SerializeToElement(new { text = block.GetString() })
+                    : block;
+                if (HasText(profileBlock)) Add("profile", profileBlock);
+            }
         }
         return lines.Count == 0 ? string.Empty : Prefix + string.Join('\n', lines);
     }
