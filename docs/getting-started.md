@@ -559,6 +559,13 @@ it does not install a conversation writer in the general MCP host. Coding mode u
 JSON configuration, including `useRetrievalGate` and `automaticQuerySplitting`, documented in
 [coding service](coding-service.md).
 
+The [ConversationalAgent sample](../samples/AgentMemory.Sample.ConversationalAgent/Program.cs)
+uses Recommended by default, including the one-turn writer and host-model closing fallback.
+Pass `--conversational` to retain the frozen preset. Optional `AgentMemory:Extraction` settings
+apply after the preset; for example `AgentMemory__Extraction__UseMemoryWriter=false` selects
+extractors explicitly. Its optional gate uses the same `AgentMemory:RetrievalRouter` section.
+The printed tier line describes configuration/known health, not proof that a provider answered.
+
 **Optional compound-question experiment (`AMGATE001`, no established benefit).** In your existing
 `AddAgentMemoryGate` configuration, set `CompoundQuestions = true` and explicitly set `CompoundDetector`
 to a `SystemOneEndpoint`. Register the host's `IChatClient` for splitting. For example, if `judge` is

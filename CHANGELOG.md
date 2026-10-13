@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tooling
 
+- Use Recommended by default in ConversationalAgent, with an explicit `--conversational` legacy
+  choice, post-preset extraction overrides, optional configured retrieval judges and a tier summary.
 - Disable automatic query splitting in the experimental Recommended preset, preserving the frozen
   Conversational preset and explicit subqueries. Add general MCP retrieval-gate configuration and
   coding-host `useRetrievalGate` / `automaticQuerySplitting` overrides; retrieval opt-out leaves

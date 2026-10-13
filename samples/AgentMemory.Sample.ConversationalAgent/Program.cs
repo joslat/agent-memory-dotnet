@@ -1,9 +1,8 @@
 ﻿// =============================================================================
-// AgentMemory for .NET — Conversational Agent Sample (the Conversational preset)
+// AgentMemory for .NET — Conversational Agent Sample (Recommended; --conversational for the legacy preset)
 //
 // An agent that learns from what the person says and keeps it current:
-//   • MemoryOptions.CreateConversational(), LlmExtractionOptions.ApplyConversational() and
-//     AgentFrameworkOptions.ApplyConversational(): one call per package
+//   • Recommended memory, extraction and Agent Framework options; explicit legacy selection
 //   • memory LEARNED from the conversation by a model (no memory tools; nothing stored by hand)
 //   • three sessions: the person tells, then changes their mind, then asks
 //   • what memory holds at the end: what is current, and what it replaced
@@ -19,6 +18,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Configuration;
 using AgentMemory;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -27,6 +27,9 @@ using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Samples.Shared;
+using AgentMemory.Gate;
+
+#pragma warning disable AMREC001, AMGATE001 // This sample explicitly demonstrates the Recommended composition.
 
 if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var modelSettings))
 {
@@ -36,15 +39,16 @@ if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var
 
 RealModel.PrintModelBanner(modelSettings);
 
-var builder = Host.CreateApplicationBuilder(args);
+var conversational = args.Contains("--conversational", StringComparer.Ordinal);
+var builder = Host.CreateApplicationBuilder(args.Where(a => a != "--conversational").ToArray());
 builder.Services.AddSingleton(chatClient);              // the agent's model, and the one extraction asks
 builder.Services.AddSingleton(embeddingGenerator);
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
-// ── The Conversational preset: one call per package ─────────────────────────
+// Apply the selected preset first; explicit host settings follow it.
 builder.Services.AddNeo4jAgentMemory(
-    MemoryOptions.CreateConversational(),
+    conversational ? MemoryOptions.CreateConversational() : MemoryOptions.CreateRecommended(),
     neo4j =>
     {
         neo4j.Uri = builder.Configuration["Neo4j:Uri"] ?? "bolt://localhost:7687";
@@ -53,14 +57,25 @@ builder.Services.AddNeo4jAgentMemory(
         // The store's vector width comes from the resolved embedding model (1024 on Bitdeer, 1536 on ada-002).
         neo4j.EmbeddingDimensions = modelSettings.EmbeddingDimensions!.Value;
     },
-    llm => llm.ApplyConversational());
-builder.Services.AddAgentMemoryFramework(options => options.ApplyConversational());
+    llm =>
+    {
+        if (conversational) llm.ApplyConversational(); else llm.ApplyRecommended();
+        builder.Configuration.GetSection("AgentMemory:Extraction").Bind(llm);
+    });
+builder.Services.AddAgentMemoryFramework(options =>
+{
+    if (conversational) options.ApplyConversational(); else options.ApplyRecommended();
+});
+var gateConfiguration = builder.Configuration.GetSection(GateServiceCollectionExtensions.SectionName);
+if (gateConfiguration.Exists()) builder.Services.AddAgentMemoryGate(gateConfiguration);
 
 var host = builder.Build();
 await using var hostDisposal = (IAsyncDisposable)host;
 
 await using var scope = host.Services.CreateAsyncScope();
 var sp = scope.ServiceProvider;
+Console.WriteLine($"Preset: {(conversational ? "Conversational" : "Recommended")}");
+Console.WriteLine($"Configured memory tiers: {sp.GetRequiredService<IMemoryTiers>().Line()}");
 await sp.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync();
 
 // The preset isolates owners strictly, so every call runs as one person. WithMemoryOwnerScoping keeps that

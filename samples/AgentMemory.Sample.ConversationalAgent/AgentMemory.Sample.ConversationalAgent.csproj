@@ -17,6 +17,7 @@
     <!-- The meta-package: Core, Neo4j and model-based extraction in one registration. -->
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Gate\AgentMemory.Gate.csproj" />
     <ProjectReference Include="..\AgentMemory.Samples.Shared\AgentMemory.Samples.Shared.csproj" />
   </ItemGroup>
 
