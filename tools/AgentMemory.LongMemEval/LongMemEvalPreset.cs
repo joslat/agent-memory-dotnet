@@ -15,8 +15,8 @@
 /// Comparing those two is the question a default flip asks.
 /// </para>
 /// <para>
-/// <see cref="Recommended"/> is <c>MemoryOptions.CreateRecommended()</c> and <c>LlmExtractionOptions.ApplyRecommended()</c>
-/// (AMREC001). Preparation extracts in batches, so its store-aware writer, which takes one user message at a time, is
+/// <see cref="Recommended"/> is <c>MemoryOptions.CreateRecommended()</c> and <c>LlmExtractionOptions.ApplyRecommended()</c>.
+/// Preparation extracts in batches, so its store-aware writer, which takes one user message at a time, is
 /// not exercised here: this arm measures the rest of the preset (<see cref="Coverage"/>).
 /// </para>
 /// </remarks>

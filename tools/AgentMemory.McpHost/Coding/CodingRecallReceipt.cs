@@ -1,7 +1,6 @@
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Gate;
 
-#pragma warning disable AMGATE001 // Project only measured, content-free fields from the existing gate trace.
 namespace AgentMemory.McpHost.Coding;
 
 internal enum CodingRecallFeedback { Useful, Irrelevant, Stale, Incorrect }

@@ -459,7 +459,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IMemoryPersistenceTransaction, PassThroughMemoryPersistenceTransaction>();
         services.TryAddScoped<IExtractionStage, ExtractionStage>();
 
-        // AMREC001: each leg's tier, said once on the first write (and to a host that asks, IMemoryTiers). The gate adds
+        // each leg's tier, said once on the first write (and to a host that asks, IMemoryTiers). The gate adds
         // retrieval's; dreaming is off until the library has it.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource, Tiers.StorageTierSource>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource, Tiers.DreamingTierSource>());

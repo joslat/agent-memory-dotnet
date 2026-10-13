@@ -17,7 +17,7 @@ using Microsoft.Extensions.Options;
 namespace AgentMemory.Extraction.Llm;
 
 /// <summary>
-/// The store-aware writer (AMWRITE001): one model call per turn that sees the owner's most relevant stored memories and
+/// The store-aware writer : one model call per turn that sees the owner's most relevant stored memories and
 /// proposes only what is new (add), what changes a stored memory (replace, naming it) or what was wrong (correct, naming
 /// it), or nothing. Storage round 3's selected form "F", ported from the research harness (round3.py, storage_round2.py):
 /// with later confirmation, temporal and aspiration rules. Historical form-F measurements on a fresh 12-session world: storage accuracy

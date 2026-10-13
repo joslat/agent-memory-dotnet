@@ -23,7 +23,7 @@ internal sealed class ConfirmedMemoryReinforcement
     }
 
     /// <summary>
-    /// AMWRITE001. The stored facts and preferences a store-aware writer said the turn says again (its "confirm"): each live
+    /// The stored facts and preferences a store-aware writer said the turn says again (its "confirm"): each live
     /// one of this owner is reinforced as a repeated write reinforces it (one more <c>mention_count</c>, confidence raised by
     /// <see cref="MemoryOptions.ConfidenceReinforcementAlpha"/>), through the dedup path (<c>MarkDeduplicatedAsync</c>). The
     /// writer stores nothing twice, so without this a memory said again and again stayed at one mention. A failure is logged

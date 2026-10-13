@@ -15,7 +15,6 @@ using Microsoft.Extensions.Logging;
 
 namespace AgentMemory.McpHost;
 
-#pragma warning disable AMGATE001 // Explicit host configuration enables the optional retrieval gate.
 
 /// <summary>
 /// The turnkey MCP server: 27 memory tools over stdio or HTTP, configured entirely by environment.

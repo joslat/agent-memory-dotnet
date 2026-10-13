@@ -5,7 +5,6 @@ using AgentMemory.Abstractions.Options;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 
-#pragma warning disable AMWRITE001 // Coding mode explicitly requires the store-aware writer.
 
 namespace AgentMemory.McpHost.Coding;
 

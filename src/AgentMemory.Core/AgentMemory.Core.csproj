@@ -20,8 +20,6 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <!-- The update-judge seam (IMemoryUpdateJudge) is experimental (AMGATE001) until the storage work settles; the write path uses it internally. -->
-    <NoWarn>$(NoWarn);AMGATE001;AMWRITE001;AMREC001</NoWarn>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

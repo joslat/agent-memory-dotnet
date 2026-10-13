@@ -99,7 +99,7 @@ public sealed class HaluMemSessions(TextWriter output)
         var services = new ServiceCollection();
         services.AddLogging(ArenaLogging.Console);
         services.AddSingleton<IClock>(clock);
-#pragma warning disable AMREC001, AMGATE001
+#pragma warning disable AMGATE001
         // --history on: recall shows what a kept fact replaced, "(since D; previously X)", as the prompt renders it.
         var memory = BenchmarkMemoryOptions.CreateRecommended(history);
         services.AddNeo4jAgentMemory(memory, Neo4j, o => o.ApplyRecommended());
@@ -111,7 +111,7 @@ public sealed class HaluMemSessions(TextWriter output)
             g.ApplyRecommended();
             g.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY" });
         });
-#pragma warning restore AMREC001, AMGATE001
+#pragma warning restore AMGATE001
         await using var provider = services.BuildServiceProvider();
         await provider.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(cancellationToken).ConfigureAwait(false);
         var tx = provider.GetRequiredService<INeo4jTransactionRunner>();

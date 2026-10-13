@@ -149,6 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for the 2.0 candidate. `AMWRITE001` and `AMREC001` suppression is no longer required.
   `AMGATE001` remains on compound-question planning and its opt-in configuration/constructor.
   Runtime defaults and graph data are unchanged by graduation. See [migration](docs/migration-2.0.md).
+  Remove obsolete writer/Recommended warning suppressions and API labels from first-party code and samples.
 
 - **Internal closing approval policy**: named and similarity closing sources now share judge selection,
   fallback and score approval in one policy. Existing requests, thresholds, batching, cancellation,

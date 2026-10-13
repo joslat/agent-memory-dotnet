@@ -64,7 +64,7 @@ internal static class PreferenceQueries
 
     /// <summary>Get all Preferences by category, with an optional owner/shared filter (R1).</summary>
     /// <summary>
-    /// AMWRITE001. The live preferences whose text contains one of <c>$names</c> (lower-cased by the caller), oldest first:
+    /// The live preferences whose text contains one of <c>$names</c> (lower-cased by the caller), oldest first:
     /// what the store-aware writer is shown about the people and things a turn names.
     /// </summary>
     public static string FindMentioning(bool hasOwnerFilter, bool includeShared)
@@ -124,7 +124,7 @@ internal static class PreferenceQueries
     }
 
     /// <summary>
-    /// Reinforce an existing preference reached by dedup (or said again, AMWRITE001's confirm): bump its confidence and count
+    /// Reinforce an existing preference reached by dedup (or said again, the writer's confirm): bump its confidence and count
     /// the mention, as the fact's MarkDeduplicated does.
     /// </summary>
     public const string MarkDeduplicated =

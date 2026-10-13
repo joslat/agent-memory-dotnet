@@ -11,8 +11,6 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
 
-#pragma warning disable AMREC001 // Explicit coding mode selects the recommended preset.
-#pragma warning disable AMWRITE001
 #pragma warning disable AMGATE001
 
 namespace AgentMemory.McpHost.Coding;

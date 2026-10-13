@@ -59,7 +59,7 @@ public sealed class StoreSessions(TextWriter output)
             output.WriteLine("error: --search-cases requires --record-provenance.");
             return 1;
         }
-        // writer: the library with the store-aware writer (AMWRITE001, storage round 3's F ported) and the update judge
+        // writer: the library with the store-aware writer (storage round 3's F ported) and the update judge
         // confirming its closings; the turn's earlier messages are its context, as the harness gave them.
         // writer-nojudge: the writer with no update judge (its closings are not applied); writer-hostjudge: the writer with the
         // update judge's question asked of the host's chat model instead of JEV (HostModelUpdateJudge). PLAN 41.26 (c).
@@ -137,9 +137,7 @@ public sealed class StoreSessions(TextWriter output)
         services.AddSingleton<IClock>(clock);
         // A measurement sees every writer failure: the turn stores nothing and its error is recorded, never handed to the
         // extractors (the library's default since 2026-10-08), so a run with a failed turn is visible and is run again.
-#pragma warning disable AMWRITE001
         store.Options.Extraction.FallBackToExtractorsWhenWriterFails = false;
-#pragma warning restore AMWRITE001
         var writerForm = form.StartsWith("writer", StringComparison.Ordinal);
         services.AddNeo4jAgentMemory(store.Options, Neo4j, writerForm ? o => o.UseMemoryWriter = true : _ => { });
         if (searchPlan is not null) StoreSearchCapture.Register(services, store.Options);

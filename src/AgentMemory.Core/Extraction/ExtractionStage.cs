@@ -41,7 +41,7 @@ internal sealed class ExtractionStage : IExtractionStage
         ILogger<ExtractionStage> logger,
         // Optional and last: without an enabled writer the stage is exactly what it was.
         IEnumerable<IMemoryWriter>? writers = null,
-        // Optional: each leg's tier, logged once on the first write (AMREC001).
+        // Optional: each leg's tier, logged once on the first write.
         IMemoryTiers? tiers = null)
     {
         _writers = (writers ?? []).ToList().AsReadOnly();
@@ -165,7 +165,7 @@ internal sealed class ExtractionStage : IExtractionStage
         var unifiedExtractor = typesToExtract != ExtractionTypes.None
             ? _unifiedExtractors.FirstOrDefault(extractor => extractor.IsEnabled)
             : null;
-        // A store-aware writer, when one is enabled, decides instead of the extractors (AMWRITE001), for a window with exactly
+        // A store-aware writer, when one is enabled, decides instead of the extractors, for a window with exactly
         // one user message: the turn it was measured on. A window of several (a whole session, held question turns released
         // together) or of none (a document, assistant content) goes to the extractors as configured. Not on a pre-extracted
         // result: that call is already paid for, and its items were extracted without the store.

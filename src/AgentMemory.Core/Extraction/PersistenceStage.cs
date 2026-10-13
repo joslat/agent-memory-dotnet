@@ -49,7 +49,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         IOptions<MemoryOptions>? memoryOptions = null,
         // 41.06. Optional and last for the same reason: without a judge the write path is exactly what it was.
         IMemoryUpdateJudge? updateJudge = null,
-        // AMWRITE001, 41.26 (c). Optional and last: asked for the writer's named closings only when the judge above is
+        // Optional and last: asked for the writer's named closings only when the judge above is
         // missing, off or fails.
         IMemoryUpdateJudgeFallback? fallbackJudge = null)
     {
@@ -99,7 +99,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         // renames what it named. Before the rebuild below, so the working-memory block is compiled from the result.
         await _namePropagation.ApplyAsync(extraction, ownerId, started, cancellationToken).ConfigureAwait(false);
 
-        // AMWRITE001. What the writer said the turn says again is counted again, as a repeated write is; nothing is rewritten.
+        // What the writer said the turn says again is counted again, as a repeated write is; nothing is rewritten.
         await _reinforcement.ApplyAsync(extraction, ownerId, cancellationToken).ConfigureAwait(false);
 
         // Once per persist, and here rather than inside the core so it happens exactly once whichever
@@ -283,7 +283,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 string.Join(", ", MemoryRelationCardinality.SingleValuedPredicates));
         }
 
-        // AMWRITE001. A store-aware writer named what each new memory replaces: only those pairs go to the judge.
+        // A store-aware writer named what each new memory replaces: only those pairs go to the judge.
         if (extraction.WrittenByWriter)
             await _judgedClosings.CloseNamedAsync(extraction, ownerId, [.. prepared.Facts.SelectMany(f => f.WithClosingProposals())], [.. prepared.Preferences.Select(p => p.Item)],
                 factsByKey, preferencesByKey,

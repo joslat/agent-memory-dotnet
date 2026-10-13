@@ -304,10 +304,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.CaptureIdentityAliases = false;
                 if (preset == LongMemEvalPreset.Conversational)
                     options.ApplyConversational();
-#pragma warning disable AMREC001 // the Recommended arm (LongMemEvalPreset.Recommended)
                 if (preset == LongMemEvalPreset.Recommended)
                     options.ApplyRecommended();
-#pragma warning restore AMREC001
                 options.UseUnifiedExtraction = enableBatchedPreparation;
                 options.UseMultiSessionBatchExtraction = enableBatchedPreparation && multiSessionBatch;
             }
@@ -461,14 +459,12 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
     internal static MemoryOptions ProductOptions(
         LongMemEvalPreset preset, bool graphRag, bool annotateMatchQuality, bool bitemporalChanges = false)
     {
-#pragma warning disable AMREC001 // the Recommended arm (LongMemEvalPreset.Recommended)
         var options = preset switch
         {
             LongMemEvalPreset.Conversational => MemoryOptions.CreateConversational(),
             LongMemEvalPreset.Recommended => MemoryOptions.CreateRecommended(),
             _ => new MemoryOptions(),
         };
-#pragma warning restore AMREC001
         options.EnableGraphRag = graphRag;
         // 40.65: the one product option an arm may add on top of the preset; off keeps the preset as shipped (the
         // Recommended preset ships with it on).

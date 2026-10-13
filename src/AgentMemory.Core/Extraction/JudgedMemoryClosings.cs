@@ -147,7 +147,7 @@ internal sealed class JudgedMemoryClosings
     private static int s_warnedNamedWithoutJudge;
 
     /// <summary>
-    /// AMWRITE001. The stored memories a store-aware writer said the new ones replace (<see cref="ExtractedFact.ReplacesId"/>,
+    /// The stored memories a store-aware writer said the new ones replace (<see cref="ExtractedFact.ReplacesId"/>,
     /// <see cref="ExtractedPreference.ReplacesId"/>, <see cref="ExtractedRelationship.ReplacesId"/>): each pair goes to the
     /// update judge, and the stored memory is closed, as a change or as a correction (a stored relationship is ended, and
     /// stays as history), at <see cref="ExtractionOptions.NamedClosingThreshold"/>, the judge asked the named question

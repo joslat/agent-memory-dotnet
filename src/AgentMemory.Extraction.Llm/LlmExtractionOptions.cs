@@ -166,7 +166,7 @@ public sealed class LlmExtractionOptions
     /// <summary>
     /// Writes each turn with the store-aware writer instead of the extractors: one call that sees the owner's
     /// most relevant stored memories and proposes only what is new, what replaces or corrects a stored memory (naming it),
-    /// or nothing. Its closings apply only when the update judge (AMGATE001) is registered and confirms them. Off by
+    /// or nothing. Its closings apply only when the update judge is registered and confirms them. Off by
     /// default: measured in the research harness on two fresh 12-session worlds (storage accuracy 90.8% against the library
     /// extractors' 42.3% on the same setup; on the second, with the judge's named question, 87.8% against 39.1%), and
     /// through the library on the first world's first three sessions (92.9%, the harness's three runs 91.6-97.2%) and the

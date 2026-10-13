@@ -29,9 +29,8 @@ AgentMemory.McpServer.Nams|src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.
 AgentMemory.Nams|src/AgentMemory.Nams/AgentMemory.Nams.csproj
 AgentMemory.Neo4j|src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj
 AgentMemory.Observability|src/AgentMemory.Observability/AgentMemory.Observability.csproj
-# The retrieval memory router (41.06, 41.19): a judge at the fan-in and on the write path. Rides the core version, opt-in,
-# with every public type [Experimental("AMGATE001")] (a compile error until a host opts in), so the contracts can still
-# change on a minor release: the attribute, not a 0.x line, is what keeps them changeable.
+# Retrieval and update judging ride the core version with stable ordinary APIs in the 2.0 candidate.
+# Compound-question planning alone retains [Experimental("AMGATE001")] and stays opt-in.
 AgentMemory.Gate|src/AgentMemory.Gate/AgentMemory.Gate.csproj
 AgentMemory.SemanticKernel|src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj
 

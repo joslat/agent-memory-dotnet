@@ -29,7 +29,6 @@ using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Samples.Shared;
 using AgentMemory.Gate;
 
-#pragma warning disable AMREC001, AMGATE001 // This sample explicitly demonstrates the Recommended composition.
 
 if (!RealModel.TryCreate(out var chatClient, out var embeddingGenerator, out var modelSettings))
 {
