@@ -127,11 +127,20 @@ Receipts are owner/project/session-scoped, bounded and expiring process memory; 
 Feedback is an explicit observation, not a graph write or automatic learning. See
 [configuration, wire fields and limits](coding-service.md#optional-recall-diagnostics-and-feedback).
 
+## Optional evidence delivery
+
+The off-by-default `evidence` capability adds read-scoped `recall_preview` and `recall_expand`.
+It preserves ordinary recall, native injection and the existing retrieval/gate policy. Expiring
+owner/project/session handles retain selected IDs only; expansion rereads current ownership,
+liveness and parent/source association. Unselected IDs cannot authorize reads. Evidence is untrusted;
+source/commit assertions remain caller-provided, never verified code. Count, serialized JSON-body
+byte and deadline limits are explicit. See [wire details and limits](coding-service.md#optional-evidence-preview-and-expansion).
+
 ## Errors and readiness
 
 The shared dispatcher reports `invalid_input` (400), `insufficient_scope` (403),
-`unknown_operation` / `job_not_found` / optional `recall_not_found` (404), `turn_conflict` (409), `queue_unavailable` or
-`memory_unavailable` (503). Transport authorization, size and method errors are separate. Hook
+`unknown_operation` / `job_not_found` / optional `recall_not_found` / `preview_not_found` (404), `turn_conflict` (409), `queue_unavailable` or
+`memory_unavailable` (503), and optional `evidence_timeout` (504). Transport authorization, size and method errors are separate. Hook
 failure messages omit configuration, raw provider exceptions and content. Do not log tokens or
 full captured text to diagnose availability.
 
@@ -152,5 +161,5 @@ fixtures do not replace those acceptance runs.
 
 Compatible fixes enforce the documented intent without changing source IDs or existing hash bytes.
 An incompatible identity, field or persistence interpretation needs a new application-contract
-version and migration. Durable receipts, diagnostics and future evidence expansion must be explicit
+version and migration. Durable receipts, diagnostics and evidence expansion must be explicit
 capabilities, tested both on and off, and must not imply that every client supports every feature.

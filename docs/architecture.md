@@ -2076,3 +2076,12 @@ All timestamps are stored as **native Neo4j `datetime()`** values via the `Neo4j
 | **Temporal query support** | ✅ Enables Cypher temporal functions: `duration.between()`, `date.truncate()`, etc. |
 | **Schema consistency** | ✅ All repositories use the same approach — no more mixed ISO string / native datetime |
 | **Neo4j Browser UX** | ✅ Native datetime renders properly in Neo4j tools |
+
+### Bounded coding evidence delivery
+
+The optional coding-host `evidence` configuration adds preview/expansion over existing retrieval
+and scoped repository/history services. Its private receipt cache stores selected IDs only; it does
+not reuse diagnostics as authorization. Expansion validates owner/project/session, current validity
+and parent/source links, with item, JSON-body byte and deadline limits. No schema, core dependency,
+new router or native injection change. Off adds no services/cache/tools/reads and preserves existing
+wire bytes. See [contracts and limitations](coding-service.md#optional-evidence-preview-and-expansion).

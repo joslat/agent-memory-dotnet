@@ -19,11 +19,19 @@ internal sealed class CodingRecallReceipts
         _options = options; _content = content; _clock = clock ?? TimeProvider.System;
     }
 
-    public CodingRecallReceipt Record(CodingIdentity identity, string session, RecallResult result, TimeSpan elapsed)
+    public CodingRecallReceipt Record(CodingIdentity identity, string session, RecallResult result, TimeSpan elapsed,
+        Func<CodingRecallReceipt, IReadOnlyList<CodingRecallItem>>? selectItems = null)
     {
         var scope = Scope(identity, session);
         var now = _clock.GetUtcNow();
         var receipt = CodingRecallReceipt.Create(result, now, TimeSpan.FromSeconds(_options.LifetimeSeconds), elapsed);
+        if (selectItems is not null)
+        {
+            var selected = selectItems(receipt).ToArray();
+            if (selected.Length > receipt.Items.Count || selected.Any(item => !receipt.Items.Contains(item)))
+                throw new ArgumentException("Receipt selection must come from the returned items.");
+            receipt = receipt with { Items = Array.AsReadOnly(selected), IdsTruncated = receipt.IdsTruncated || selected.Length < receipt.Items.Count };
+        }
         lock (_gate)
         {
             Expire(now);

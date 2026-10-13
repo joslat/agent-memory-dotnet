@@ -734,3 +734,8 @@ it does not change the library persistence or retrieval defaults. See
 Coding hosts can also opt into `recallDiagnostics` for bounded, expiring recall receipts and explicit
 feedback. This leaves selected context unchanged and adds no model training or durable recall log.
 See [receipt configuration](coding-service.md#optional-recall-diagnostics-and-feedback).
+
+For explicit bounded evidence tools, configure the optional coding-host `evidence` object;
+[preview/expansion configuration](coding-service.md#optional-evidence-preview-and-expansion) lists
+all defaults and limits. It is independent of diagnostics and durable capture, and remains disabled
+by default. Native coding hooks continue ordinary recall.

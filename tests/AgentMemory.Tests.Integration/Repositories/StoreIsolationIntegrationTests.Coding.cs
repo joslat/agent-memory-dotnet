@@ -61,7 +61,7 @@ public sealed partial class StoreIsolationIntegrationTests
             ["NEO4J_URI"] = neo4j.Uri, ["NEO4J_USERNAME"] = Username, ["NEO4J_PASSWORD"] = Password,
             ["ALPHA_TOKEN"] = new string('x', 40), ["BETA_TOKEN"] = new string('y', 40),
         };
-        var config = CodingConfiguration.Parse($$"""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN","beta":"BETA_TOKEN"},"url":"http://127.0.0.1:{{port}}","allowExtractorFallback":{{(fallback ? "true" : "false")}},"writeJournal":{{journalJson}},"recallDiagnostics":{{(durable ? "{}" : "null")}}}""",
+        var config = CodingConfiguration.Parse($$"""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN","beta":"BETA_TOKEN"},"url":"http://127.0.0.1:{{port}}","allowExtractorFallback":{{(fallback ? "true" : "false")}},"writeJournal":{{journalJson}},"recallDiagnostics":{{(durable ? "{}" : "null")}},"evidence":{{(durable ? "{}" : "null")}}}""",
             environment.GetValueOrDefault);
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
         CodingHost.Configure(builder, config);
@@ -101,6 +101,8 @@ public sealed partial class StoreIsolationIntegrationTests
         await app.StartAsync();
         using var client = new HttpClient { BaseAddress = new Uri(config.Options.Url) };
         CodingWriteJob alphaJob;
+        CodingEvidencePreview? evidencePreview = null;
+        CodingEvidenceSelection? evidenceSelection = null;
         try
         {
             var first = await SubmitAsync("alpha", request);
@@ -135,6 +137,28 @@ public sealed partial class StoreIsolationIntegrationTests
                 receipts.Feedback(alpha, "fresh-diagnostics", receipt.RecallId, CodingRecallFeedback.Useful)!
                     .Feedback.Should().Be(CodingRecallFeedback.Useful);
             }
+            using var previewRequest = new HttpRequestMessage(HttpMethod.Post, "/projects/alpha/recall_preview")
+                { Content = JsonContent.Create(new { session = "fresh-evidence", query = "Project uses alpha-choice" }) };
+            previewRequest.Headers.Authorization = new("Bearer", environment["ALPHA_TOKEN"]);
+            using var previewResponse = await client.SendAsync(previewRequest);
+            previewResponse.StatusCode.Should().Be(durable ? HttpStatusCode.OK : HttpStatusCode.NotFound);
+            if (durable)
+            {
+                evidencePreview = (await previewResponse.Content.ReadFromJsonAsync<CodingEvidencePreview>(CodingApi.Json))!;
+                var item = evidencePreview.Items.Single(i => i.Section == "relevantFacts");
+                evidenceSelection = new() { Section = item.Section, ItemId = item.ItemId, SourceMessageId = alphaJob.SourceMessageId };
+                using var expandRequest = new HttpRequestMessage(HttpMethod.Post, "/projects/alpha/recall_expand")
+                    { Content = JsonContent.Create(new { session = "fresh-evidence", previewId = evidencePreview.PreviewId, items = new[] { evidenceSelection } }, options: CodingApi.Json) };
+                expandRequest.Headers.Authorization = new("Bearer", environment["ALPHA_TOKEN"]);
+                using var expanded = await client.SendAsync(expandRequest);
+                expanded.EnsureSuccessStatusCode();
+                var body = (await expanded.Content.ReadFromJsonAsync<CodingEvidenceExpansion>(CodingApi.Json))!;
+                body.Items.Should().ContainSingle().Which.Text.Should().Be("alpha-choice");
+                body.Items[0].Assertion!.Verification.Should().Be("caller_asserted");
+                body.Items[0].Assertion!.Commit.Should().Be(request.Commit);
+                var evidence = app.Services.GetRequiredService<CodingEvidence>();
+                (await evidence.ExpandAsync(beta, "fresh-evidence", evidencePreview.PreviewId, [evidenceSelection])).Should().BeNull();
+            }
 
         }
         finally { await app.StopAsync(); }
@@ -159,6 +183,13 @@ public sealed partial class StoreIsolationIntegrationTests
         chat.ReceivedCalls().Where(c => c.GetMethodInfo().Name is "GetResponseAsync" or "GetStreamingResponseAsync").Should().BeEmpty();
         (await operations.ForgetAsync(beta, MemoryHistoryKind.Fact, alphaFact.Id)).Should().BeFalse();
         (await operations.ForgetAsync(alpha, MemoryHistoryKind.Fact, alphaFact.Id)).Should().BeTrue();
+        if (durable)
+        {
+            var evidence = app.Services.GetRequiredService<CodingEvidence>();
+            var closed = await evidence.ExpandAsync(alpha, "fresh-evidence", evidencePreview!.PreviewId,
+                [evidenceSelection!, evidenceSelection! with { SourceMessageId = null }]);
+            closed!.Items.Should().HaveCount(2).And.OnlyContain(i => i.Status == "unavailable" && i.Text == null);
+        }
         (await operations.HistoryAsync(alpha, alphaFact.Id)).Should().ContainSingle()
             .Which.Status.Should().Be(MemoryHistoryStatus.Invalidated);
         (await operations.HistoryAsync(beta, alphaFact.Id)).Should().BeEmpty();

@@ -14,7 +14,7 @@ internal static class CodingTransport
                 var identity = request.Services!.GetRequiredService<IHttpContextAccessor>().HttpContext!.Features.Get<CodingIdentity>()
                     ?? throw new UnauthorizedAccessException();
                 var options = request.Services!.GetRequiredService<CodingServiceOptions>();
-                var definitions = CodingToolDefinitions.For(options.WriteJournal is not null, options.RecallDiagnostics is not null);
+                var definitions = CodingToolDefinitions.For(options.WriteJournal is not null, options.RecallDiagnostics is not null, options.Evidence is not null);
                 return ValueTask.FromResult(new ListToolsResult
                 {
                     Tools = identity.CanWrite ? definitions.ToArray() :

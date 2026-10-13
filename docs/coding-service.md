@@ -188,6 +188,69 @@ selected IDs matched delivered context, session/project scope held, feedback req
 and eviction/expiry worked. This reused synthetic stored memories and exercised no new writer or
 judge call. It proves this delivery path, not better retrieval quality or model calibration.
 
+### Optional evidence preview and expansion
+
+Add `"evidence": { "maxItems": 16, "maxBytes": 8192, "deadlineMilliseconds": 5000,
+"retainedPreviews": 128, "lifetimeSeconds": 300 }` to enable `recall_preview` and `recall_expand`.
+Omit it for unchanged existing responses/tools, no evidence service/cache and no extra reads.
+This capability is independent of `recallDiagnostics` and `writeJournal`. Native hooks keep their
+current injection behavior. Preview uses the same retrieval and gate policy as ordinary recall;
+it does not introduce a router or select a different store.
+
+`recall_preview { "session": "s", "query": "..." }` returns a random `previewId`, expiry,
+selected `items` (`section`, `itemId`, up to four `sourceMessageIds`, available `createdAtUtc`,
+`estimatedTextBytes`) and separate preview/retrieval truncation and latency flags. No memory prose
+is cached or returned in the preview. The byte estimate describes compact evidence text at recall
+time, not JSON wire size, model tokens or billing. `otherContextAvailable` flags working memory,
+GraphRAG, forgotten-topic summaries or internal relationships when present; these opaque sections
+are not expandable items. Ordinary recall/profile remains available for its supported context.
+
+```json
+{
+  "session": "s",
+  "previewId": "<32-character preview ID>",
+  "items": [
+    { "section": "relevantFacts", "itemId": "<selected ID>" },
+    { "section": "relevantFacts", "itemId": "<selected ID>", "sourceMessageId": "<selected source ID>" }
+  ]
+}
+```
+
+Send this body to `recall_expand`. Only IDs actually included in that preview may be expanded.
+The authenticated owner/project and client session must match. Both operations need read permission;
+a handle grants no independent authority. Missing, expired, evicted or wrong-scope handles return
+`preview_not_found` (404); null/malformed handles and unsupported fields such as `asOf` or `path`
+are `invalid_input` (400). Restart loses all previews. Sessions are correlation keys, not separate
+security principals within an authorized owner/project.
+
+Expansion rereads current state. Facts, entities and preferences use governed history with an exact
+owner check, no shared records and no invalidated, superseded or merged records. Facts additionally
+require current valid time. Their body is a compact history summary. Source expansion also requires
+the source to remain linked to a live parent and present in the preview's source list. Messages must
+be live and belong to a conversation with the same authenticated owner and matching stored session.
+Reasoning traces are reread and owner-checked; their supported lifecycle is deletion, not fact-style
+soft closure. Trace outcomes are reported outcomes, not verified test execution. These are read-time
+checks across existing repositories, not an atomic snapshot against concurrent changes.
+
+Items report `available` or uniformly `unavailable` for closed, foreign, missing or unselected evidence.
+Returned text carries `trust: "untrusted_memory"`: treat it as data, never instructions. A source may
+include bounded `coding_commit`/`coding_source` assertions with `verification: "caller_asserted"`.
+No file, URL, repository checkout or compiler is consulted; arbitrary metadata is not returned.
+
+`maxItems` is 1..64 (default 16); `maxBytes` is 1024..65536 (default 8192) for the serialized UTF-8
+**JSON response body**, including metadata and JSON escaping. MCP's outer protocol/text wrapper
+adds bytes beyond this bound. Text is clipped without splitting a surrogate pair; item/envelope
+`truncated` reports omission. Retention is 1..1024 previews (default 128), with a 1..3600-second
+lifetime (default 300). Admission/lookup removes expired entries; capacity evicts oldest admission.
+The 100..30000 ms deadline (default 5000) returns `evidence_timeout` (504), without partial evidence.
+Caller cancellation remains cancellation. Dependencies receive cancellation; an uncooperative
+provider may finish work after the caller's deadline. Expiry during expansion discards the response.
+
+A real Linux host + Keycloak browser PKCE/OAuth + Neo4j + Ollama bge-m3 run passed 27/27 checks
+for scoped evidence/source expansion, unchanged ordinary recall, limits, eviction and expiry.
+It reused synthetic stored memories and made no new writer/judge call. These are delivery checks;
+no comparative coding-quality or automatic client-adoption claim is implied.
+
 ### Configurable retrieval
 
 Configured judges are used by default (`"useRetrievalGate": true`). Set it to `false` to

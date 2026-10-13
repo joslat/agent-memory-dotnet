@@ -44,6 +44,30 @@ public sealed class CodingTransportTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Evidence_discovery_and_handles_are_shared_by_HTTP_and_MCP(bool evidence)
+    {
+        await using var f = await Fixture.Start(evidence: evidence);
+        var tools = await f.Rpc("tools/list", new { });
+        tools.GetProperty("result").GetProperty("tools").EnumerateArray().Select(x => x.GetProperty("name").GetString())
+            .Contains("recall_preview").Should().Be(evidence);
+        using var request = f.Request("/projects/alpha/recall_preview", new { session = "s", query = "q" }, true);
+        using var response = await f.Client.SendAsync(request);
+        response.StatusCode.Should().Be(evidence ? HttpStatusCode.OK : HttpStatusCode.NotFound);
+        if (!evidence) return;
+        var preview = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var expanded = await f.Rpc("tools/call", new { name = "recall_expand", arguments = new
+        {
+            session = "s", previewId = preview.GetProperty("previewId").GetString(),
+            items = new[] { new { section = "relevantFacts", itemId = "not-selected" } },
+        } });
+        expanded.GetProperty("result").GetProperty("isError").GetBoolean().Should().BeFalse();
+        var body = JsonSerializer.Deserialize<JsonElement>(expanded.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!);
+        body.GetProperty("items")[0].GetProperty("status").GetString().Should().Be("unavailable");
+    }
+
+    [Theory]
     [InlineData("GET")]
     [InlineData("DELETE")]
     public async Task Authenticated_stateless_MCP_methods_do_not_trigger_OAuth(string method)
@@ -281,14 +305,14 @@ public sealed class CodingTransportTests
         private WebApplication _app = null!;
         private static readonly string Token = new('a', 40);
 
-        public static async Task<Fixture> Start(bool enableBrowserUi = false, ICodingWriter? writer = null, bool diagnostics = false)
+        public static async Task<Fixture> Start(bool enableBrowserUi = false, ICodingWriter? writer = null, bool diagnostics = false, bool evidence = false)
         {
             var fixture = new Fixture();
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
             builder.Logging.ClearProviders();
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             var services = builder.Services;
-            var options = new CodingServiceOptions { OwnerId = "owner", EnableBrowserUi = enableBrowserUi, RecallDiagnostics = diagnostics ? new() : null, Projects = new Dictionary<string, string> { ["alpha"] = "ALPHA_KEY", ["beta"] = "BETA_KEY" } };
+            var options = new CodingServiceOptions { OwnerId = "owner", Evidence = evidence ? new() : null, EnableBrowserUi = enableBrowserUi, RecallDiagnostics = diagnostics ? new() : null, Projects = new Dictionary<string, string> { ["alpha"] = "ALPHA_KEY", ["beta"] = "BETA_KEY" } };
             services.AddSingleton(options).AddSingleton(new CodingProjectAccess(options, name => name == "ALPHA_KEY" ? Token : new string('b', 40)));
             services.AddSingleton(fixture.Profile);
             services.AddSingleton<IWritableMemoryOwnerContext, DefaultMemoryOwnerContext>();
@@ -301,6 +325,8 @@ public sealed class CodingTransportTests
             services.AddSingleton(new CodingContentPolicy([Token]));
             if (options.RecallDiagnostics is { } receiptOptions)
                 services.AddSingleton(sp => new CodingRecallReceipts(receiptOptions, sp.GetRequiredService<CodingContentPolicy>()));
+            if (options.Evidence is { } evidenceOptions)
+                services.AddSingleton(evidenceOptions).AddSingleton<CodingEvidenceReader>().AddSingleton<CodingEvidence>();
             var recall = Substitute.For<IMemoryRecall>();
             recall.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(new RecallResult
             {

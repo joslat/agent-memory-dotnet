@@ -9,7 +9,8 @@ namespace AgentMemory.McpHost.Coding;
 internal sealed record CodingApiResult(int StatusCode, object Body);
 
 /// <summary>One strict request contract and operation dispatcher for HTTP and MCP.</summary>
-internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue queue, CodingRecallReceipts? receipts = null)
+internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue queue, CodingRecallReceipts? receipts = null,
+    CodingEvidence? evidence = null)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -29,6 +30,13 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
             if (arguments.ValueKind != JsonValueKind.Object) return Error(400, "invalid_input");
             switch (operation)
             {
+                case "recall_preview" when evidence is not null:
+                    var preview = Read<RecallInput>(arguments);
+                    return new(200, await evidence.PreviewAsync(identity, preview.Session, preview.Query, cancellationToken).ConfigureAwait(false));
+                case "recall_expand" when evidence is not null:
+                    var expand = Read<EvidenceInput>(arguments);
+                    var expanded = await evidence.ExpandAsync(identity, expand.Session, expand.PreviewId, expand.Items, cancellationToken).ConfigureAwait(false);
+                    return expanded is null ? Error(404, "preview_not_found") : new(200, expanded);
                 case "recall":
                     var recall = Read<RecallInput>(arguments);
                     var started = receipts is null ? 0L : Stopwatch.GetTimestamp();
@@ -73,6 +81,7 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (CodingEvidenceDeadlineException) { return Error(504, "evidence_timeout"); }
         catch (CodingTurnConflictException) { return Error(409, "turn_conflict"); }
         catch (JsonException) { return Error(400, "invalid_input"); }
         catch (ArgumentException) { return Error(400, "invalid_input"); }
@@ -92,6 +101,12 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
         public required string Session { get; init; }
         public required string RecallId { get; init; }
         public required CodingRecallFeedback Label { get; init; }
+    }
+    private sealed record EvidenceInput
+    {
+        public required string Session { get; init; }
+        public required string PreviewId { get; init; }
+        public required IReadOnlyList<CodingEvidenceSelection> Items { get; init; }
     }
     private sealed record EmptyInput;
 }

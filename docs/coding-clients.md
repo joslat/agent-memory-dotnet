@@ -189,3 +189,8 @@ OAuth issuer/client validation. Local token or synthetic issuer checks do not es
 Start with the [service guide](coding-service.md) and the client-specific templates for
 [Claude](../samples/CodingMemory/README.md), [Codex](../samples/CodingMemory/codex.md), or
 [Copilot/VS Code](../samples/CodingMemory/copilot.md). Templates remain inactive until configured.
+
+The optional host `evidence` capability exposes read-scoped `recall_preview` and `recall_expand`
+through the existing HTTP/MCP contract. Native hooks still use ordinary recall; discovery alone
+does not establish that a particular client autonomously chooses or benefits from preview tools.
+See [scope, current-state checks and output bounds](coding-service.md#optional-evidence-preview-and-expansion).

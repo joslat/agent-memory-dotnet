@@ -1915,3 +1915,15 @@ A bounded actual Linux host + OAuth/Neo4j/Ollama run passed 24/24 checks on synt
 including delivered-ID matching, wrong-session/project refusal, write permission, eviction and expiry.
 It reused the prior synthetic world; no retrieval-quality improvement or new inference-model claim.
 See [configuration and limits](coding-service.md#optional-recall-diagnostics-and-feedback).
+
+### Coding evidence delivery (opt-in)
+
+**BUILT / WIRED / MEASURED:** `recall_preview` delivers bounded metadata and scoped expiring selected-ID
+handles; `recall_expand` rereads current owner/liveness and parent/source links before returning
+untrusted text. Serialized JSON-body byte, item and deadline bounds apply. Off adds no service,
+cache, tools or reads; existing recall and native injection are unchanged. Real Neo4j tests exercise
+source provenance and refusal after forgetting. A real Linux-host + Keycloak OAuth + Neo4j + Ollama
+run passed 27/27 checks for expansion, scope, bounds, eviction and expiry using existing synthetic memories.
+This measures delivery mechanics, not improved coding answers, compiler verification or prompt-injection
+immunity. Preview remains opt-in; comparative quality/cost evaluation is separate. See
+[contract and limits](coding-service.md#optional-evidence-preview-and-expansion).
