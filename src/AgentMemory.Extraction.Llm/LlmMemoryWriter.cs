@@ -20,7 +20,7 @@ namespace AgentMemory.Extraction.Llm;
 /// The store-aware writer (AMWRITE001): one model call per turn that sees the owner's most relevant stored memories and
 /// proposes only what is new (add), what changes a stored memory (replace, naming it) or what was wrong (correct, naming
 /// it), or nothing. Storage round 3's selected form "F", ported from the research harness (round3.py, storage_round2.py):
-/// its system prompt is the harness's, word for word. Measured in the harness on a fresh 12-session world: storage accuracy
+/// with later confirmation, temporal and aspiration rules. Historical form-F measurements on a fresh 12-session world: storage accuracy
 /// 90.8%, precision 96.8%, recall 87.1%, no wrong closure in nine runs (the library's extractors 42.3% on the same setup);
 /// through the library, on that world's first three sessions, 93.2% against the harness's 91.6-97.2% on the same turns.
 /// </summary>
@@ -227,7 +227,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     }
 }
 
-/// <summary>The writer's prompt: storage round 3's form F (round3.py, storage_round2.py prompt p2), word for word.</summary>
+/// <summary>The writer's prompt: storage round 3's form F plus the documented retention and transition rules.</summary>
 internal static class MemoryWriterPrompt
 {
     private const string Rules =
@@ -246,9 +246,12 @@ internal static class MemoryWriterPrompt
           morning, she asked me to braid her hair today) stays true: store it with its date, never with "until".
         - A question stores nothing, unless it also tells something ("I'm off to Seville on the 13th, what should I pack?" stores
           the trip and its date).
+        - Separate a personal aspiration from its emotional wording. Wanting to contribute or make an impact in a named
+          activity is a goal even without a date, concrete steps or a promise. Keep it as a wish, aim or value, not as
+          an activity already started or a firm commitment. A stored taste does not already cover a new goal.
         - Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.
-          A lasting goal, value, commitment or fact said with feeling is kept; only the feeling is not ("I'm excited to
-          start volunteering with therapy dogs" keeps the volunteering).
+          Praise or excitement alone is not a personal goal. Earlier assistant suggestions alone are not the person's
+          intentions; keep only what the last user message actually says about their wishes, plans, values or facts.
         - What is already stored is not stored again, in any words: when the last message says it again and adds nothing,
           confirm it. When it says it again with anything more (a reason, a goal, a detail, a number, a name, a date),
           replace the stored memory with the fuller one.

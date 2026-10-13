@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Strip the store-aware writer's copied `fact: "subject | predicate | object"` format wrapper
   before mapping a complete fact. Preserve field quotes and replacement/correction targets;
   existing stored facts are not rewritten.
+- Clarify the store-aware writer's retention rules for personal aspirations expressed with
+  emotion: preserve the wish without inventing an action or commitment, and exclude praise
+  alone and unendorsed assistant suggestions. Semantic retention remains model-dependent.
 
 ### Tooling
 

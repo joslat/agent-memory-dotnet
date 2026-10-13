@@ -15,7 +15,7 @@ namespace AgentMemory.Tests.Unit.Extraction;
 
 /// <summary>
 /// AMWRITE001: the store-aware writer, storage round 3's selected form F ported from the research harness. Its prompt is the
-/// harness's word for word; its reply is read as the harness read it; the extraction stage asks it instead of the extractors
+/// harness-derived, with explicit retention rules; the extraction stage asks it instead of the extractors
 /// only when it is enabled; and persistence closes only the stored memories it named, each confirmed by the update judge.
 /// </summary>
 public sealed class MemoryWriterTests
@@ -24,6 +24,7 @@ public sealed class MemoryWriterTests
     /// The harness's system prompt for form F and the person Lukas (round3.py run_turn, storage_round2.py p2), with one rule
     /// line and one operation added on 2026-10-10 (what the turn says again is confirmed, so it is reinforced), and two rules
     /// the same day: an event ends what it changes, and a one-off is stored with the date it ends ("until").
+    /// The 13 October aspiration rule distinguishes desired contributions from reactions and invented commitments.
     /// </summary>
     private const string HarnessSystemLukas =
         "You write Lukas's long-term memory of one kind: every kind = \n" +
@@ -44,9 +45,12 @@ public sealed class MemoryWriterTests
         "  morning, she asked me to braid her hair today) stays true: store it with its date, never with \"until\".\n" +
         "- A question stores nothing, unless it also tells something (\"I'm off to Seville on the 13th, what should I pack?\" stores\n" +
         "  the trip and its date).\n" +
+        "- Separate a personal aspiration from its emotional wording. Wanting to contribute or make an impact in a named\n" +
+        "  activity is a goal even without a date, concrete steps or a promise. Keep it as a wish, aim or value, not as\n" +
+        "  an activity already started or a firm commitment. A stored taste does not already cover a new goal.\n" +
         "- Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.\n" +
-        "  A lasting goal, value, commitment or fact said with feeling is kept; only the feeling is not (\"I'm excited to\n" +
-        "  start volunteering with therapy dogs\" keeps the volunteering).\n" +
+        "  Praise or excitement alone is not a personal goal. Earlier assistant suggestions alone are not the person's\n" +
+        "  intentions; keep only what the last user message actually says about their wishes, plans, values or facts.\n" +
         "- What is already stored is not stored again, in any words: when the last message says it again and adds nothing,\n" +
         "  confirm it. When it says it again with anything more (a reason, a goal, a detail, a number, a name, a date),\n" +
         "  replace the stored memory with the fuller one.\n" +
@@ -67,7 +71,7 @@ public sealed class MemoryWriterTests
         "Set \"kind\" on every operation to fact, preference, entity or relationship.";
 
     [Fact]
-    public void The_system_prompt_is_the_measured_one_with_the_confirm()
+    public void The_system_prompt_matches_the_versioned_retention_rules()
     {
         MemoryWriterPrompt.System("Lukas", maxOperations: 6).Should().Be(HarnessSystemLukas);
     }

@@ -6,6 +6,9 @@ A reference for what agent memory is, what a memory system has to decide that a 
 The store-aware writer removes the prompt's `fact: "subject | predicate | object"` wrapper
 when a model copies it into a complete fact. This is a format repair, not a semantic quality
 improvement or a migration of existing data; legitimate field quotes remain intact.
+Its retention prompt distinguishes a personal aspiration from excitement or praise alone,
+and asks for wishes to remain wishes rather than invented actions or firm commitments.
+This instruction does not guarantee every goal will be retained by the model.
 
 **Judge failure handling — BUILT / WIRED.** Missing configured credentials skip transport; invalid
 probabilities fail the call. Deterministic tests cover the surviving retrieval judge, credential
