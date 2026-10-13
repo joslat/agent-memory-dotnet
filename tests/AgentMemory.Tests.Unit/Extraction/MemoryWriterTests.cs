@@ -317,6 +317,23 @@ public sealed class MemoryWriterTests
         ops.Should().ContainSingle().Which.Should().Be(new MemoryWriterOps.Op("confirm", "fact", "", "P1"));
     }
 
+    [Theory]
+    [InlineData("replace", false)]
+    [InlineData("correct", true)]
+    public void A_relationship_shaped_fact_replacement_keeps_the_fact_and_its_target(string action, bool correction)
+    {
+        var stored = MemoryWriterOps.Stored.Number([new MemoryWriterOps.Stored("engagement-fact", 'F', "Alice | is engaged to | Bob")]);
+
+        var result = MemoryWriterOps.ToResult([new(action, "relationship", "Alice -[MARRIED_TO]-> Bob", "F1")], stored, "Alice");
+
+        result.Facts.Should().ContainSingle().Which.Should().BeEquivalentTo(new
+        {
+            Subject = "Alice", Predicate = "married to", Object = "Bob",
+            ReplacesId = "engagement-fact", ReplacementIsCorrection = correction,
+        });
+        result.Relationships.Should().BeEmpty("a fact replacement must not depend on separately persisted entity endpoints");
+    }
+
     [Fact]
     public void A_confirm_names_a_stored_fact_or_preference_and_writes_nothing()
     {
@@ -946,6 +963,37 @@ public sealed class PersistenceStageMemoryWriterTests
 
         await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Pairs.Count == 1), Arg.Any<CancellationToken>());
         await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Identical_new_facts_keep_each_distinct_named_closing_after_deduplication()
+    {
+        JudgeSays(0.95);
+        _factRepo.GetByIdAsync("fact-plan", Arg.Any<CancellationToken>()).Returns(Graz with
+        {
+            FactId = "fact-plan", Predicate = "plans to move to", Object = "Leoben",
+        });
+        _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns([1f, 0f, 0f, 0f]);
+        _orchestrator.EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => (IReadOnlyList<float[]>)ci.Arg<IReadOnlyList<string>>().Select(_ => new[] { 1f, 0f, 0f, 0f }).ToList());
+        var sut = new PersistenceStage(_orchestrator, _entityRepo, _factRepo, _prefRepo, _relRepo, _clock, _idGen,
+            NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
+            Options.Create(new ExtractionOptions { DeduplicateWithinExtraction = true }), updateJudge: _judge);
+
+        await sut.PersistAsync(new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "We moved to Leoben.", WrittenByWriter = true,
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "Lukas", Predicate = "lives in", Object = "Leoben", ReplacesId = "fact-graz" },
+                new ExtractedFact { Subject = "Lukas", Predicate = "lives in", Object = "Leoben", ReplacesId = "fact-plan" },
+            ],
+        }, ownerId: "lukas");
+
+        await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Pairs.Count == 2), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).SupersedeAsync("fact-plan", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]

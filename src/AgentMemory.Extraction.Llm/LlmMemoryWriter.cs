@@ -451,7 +451,8 @@ internal static class MemoryWriterOps
     /// "Name (TYPE)", a connection from "A -[RELATION]-> B". A replace or correct names the stored memory it closes: a stored
     /// fact or connection for a fact (a wedding ends the engagement, 2026-10-10: world 9 kept "Owen -[ENGAGED_TO]-> Simone"
     /// live after the wedding in all three stores, the writer having no way to end it), a stored preference for a
-    /// preference, a stored connection for a connection; anything else is simply added.
+    /// preference, a stored connection for a connection; a connection-shaped replacement of a fact remains a fact so its
+    /// target is preserved without requiring separately persisted entity endpoints. Anything else is simply added.
     /// </summary>
     internal static UnifiedExtractionResult ToResult(IReadOnlyList<Op> ops, IReadOnlyList<Stored> stored, string? owner)
     {
@@ -475,6 +476,12 @@ internal static class MemoryWriterOps
             }
             if (Connection.Match(op.Text) is { Success: true } link)
             {
+                if (target?.Letter == 'F')
+                {
+                    facts.Add(CreateFact(op, target, link.Groups["s"].Value,
+                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), link.Groups["t"].Value));
+                    continue;
+                }
                 relationships.Add(new ExtractedRelationship
                 {
                     SourceEntity = link.Groups["s"].Value,
@@ -512,14 +519,7 @@ internal static class MemoryWriterOps
                         _ => (owner ?? "user", "noted", op.Text.Trim()),
                     };
                     if (subject.Length == 0 || predicate.Length == 0 || @object.Length == 0) break;
-                    facts.Add(new ExtractedFact
-                    {
-                        Subject = subject, Predicate = predicate, Object = @object, SourceRole = "user",
-                        ReplacesId = target?.Letter is 'F' or 'R' ? target.Id : null,
-                        ReplacementIsCorrection = (target?.Letter is 'F' or 'R') && op.Action == "correct",
-                        ValidUntil = EndOfDay(op.Until),
-                        ValidUntilPrecision = EndOfDay(op.Until) is null ? DatePrecision.Unspecified : DatePrecision.Day,
-                    });
+                    facts.Add(CreateFact(op, target, subject, predicate, @object));
                     break;
             }
         }
@@ -530,6 +530,15 @@ internal static class MemoryWriterOps
             ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
         };
     }
+
+    private static ExtractedFact CreateFact(Op op, Stored? target, string subject, string predicate, string value) => new()
+    {
+        Subject = subject, Predicate = predicate, Object = value, SourceRole = "user",
+        ReplacesId = target?.Letter is 'F' or 'R' ? target.Id : null,
+        ReplacementIsCorrection = (target?.Letter is 'F' or 'R') && op.Action == "correct",
+        ValidUntil = EndOfDay(op.Until),
+        ValidUntilPrecision = EndOfDay(op.Until) is null ? DatePrecision.Unspecified : DatePrecision.Day,
+    };
 
     // Models can copy the prompt's format label and outer quotes into the JSON text value.
     // Remove only that complete triple wrapper; quotes within a field remain meaningful content.

@@ -41,6 +41,13 @@ internal static class WithinExtractionFactDeduplication
             kept.RemoveAt(twin);
             kept.Add(winner with
             {
+                AdditionalClosings =
+                [
+                    .. winner.AdditionalClosings,
+                    .. carry ? loser.AdditionalClosings : [],
+                    .. carry && !string.IsNullOrWhiteSpace(loser.Item.ReplacesId)
+                        ? new[] { (loser.Item.ReplacesId!, loser.Item.ReplacementIsCorrection) } : [],
+                ],
                 Item = winner.Item with
                 {
                     ValidFrom = winner.Item.ValidFrom ?? (carry ? loser.Item.ValidFrom : null),

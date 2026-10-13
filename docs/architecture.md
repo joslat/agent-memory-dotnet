@@ -288,6 +288,12 @@ the two paths' existing request text, thresholds and fallback rules. Both requir
 `[0, 1]` before applying their threshold; invalid or missing scores leave the corresponding stored
 memory open. The original judge dictionary is retained, including custom key lookup semantics.
 Candidate filtering, source-local duplicate precedence and application order remain in the source.
+Within-extraction fact merging retains additional named closing targets on the prepared fact.
+Persistence writes the merged statement once, then presents each retained target to the closing
+judge using that persisted statement. This preserves all proposals without inflating mention counts.
+The writer maps a relationship-shaped replacement of a stored fact back to a fact, retaining its
+target and correction flag without requiring new entity endpoints. Actual relationship replacements
+continue through the relationship path.
 Every automatic ingestion closing now reaches one internal
 `ClosingPipeline` as a typed `ClosingProposal`: fact supersession carries its temporal reason and
 clock, preference supersession carries its successor, and relationship ending carries its end time

@@ -285,7 +285,7 @@ internal sealed class PersistenceStage : IPersistenceStage
 
         // AMWRITE001. A store-aware writer named what each new memory replaces: only those pairs go to the judge.
         if (extraction.WrittenByWriter)
-            await _judgedClosings.CloseNamedAsync(extraction, ownerId, [.. prepared.Facts.Select(f => f.Item)], [.. prepared.Preferences.Select(p => p.Item)],
+            await _judgedClosings.CloseNamedAsync(extraction, ownerId, [.. prepared.Facts.SelectMany(f => f.WithClosingProposals())], [.. prepared.Preferences.Select(p => p.Item)],
                 factsByKey, preferencesByKey,
                 persistedRelationships.Inputs.Where(input => persistedRelationships.PersistedIds.Contains(input.Item.RelationshipId))
                     .GroupBy(input => input.SourceKey, StringComparer.Ordinal)

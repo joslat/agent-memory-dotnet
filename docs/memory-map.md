@@ -9,6 +9,12 @@ improvement or a migration of existing data; legitimate field quotes remain inta
 Its retention prompt distinguishes a personal aspiration from excitement or praise alone,
 and asks for wishes to remain wishes rather than invented actions or firm commitments.
 This instruction does not guarantee every goal will be retained by the model.
+Relationship-shaped replacements of facts remain facts, retaining their closing targets without
+requiring separate entity endpoints. Distinct named closing proposals survive deduplication even
+when they share replacement text; each still requires the update judge's approval.
+Model omissions remain possible, including personal context implied by a reaction or abstract
+value statement. A valid negative closing verdict can leave an obsolete memory live alongside
+its replacement; it is not retried as a provider failure or silently overridden.
 
 **Judge failure handling — BUILT / WIRED.** Missing configured credentials skip transport; invalid
 probabilities fail the call. Deterministic tests cover the surviving retrieval judge, credential

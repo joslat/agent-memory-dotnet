@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clarify the store-aware writer's retention rules for personal aspirations expressed with
   emotion: preserve the wish without inventing an action or commitment, and exclude praise
   alone and unendorsed assistant suggestions. Semantic retention remains model-dependent.
+- Preserve a fact's replacement target when the writer expresses its replacement as a relationship;
+  store it as a fact without requiring separate entity endpoints. Keep distinct named closing
+  proposals through within-extraction deduplication, including when their replacement text matches.
 
 ### Tooling
 
