@@ -19,6 +19,43 @@ namespace AgentMemory.Tests.Unit.McpServer;
 
 public sealed class CodingTransportTests
 {
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("DELETE")]
+    public async Task Authenticated_stateless_MCP_methods_do_not_trigger_OAuth(string method)
+    {
+        await using var fixture = await Fixture.Start();
+        using var request = fixture.Request("/projects/alpha/mcp", new { }, true);
+        request.Method = new HttpMethod(method);
+        request.Content = null;
+        request.Headers.Accept.ParseAdd("text/event-stream");
+        using var response = await fixture.Client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+        response.Content.Headers.Allow.Should().Equal("POST");
+        response.Headers.WwwAuthenticate.Should().BeEmpty();
+        fixture.Profile.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("GET", "alpha", false, null, 401)]
+    [InlineData("DELETE", "alpha", false, null, 401)]
+    [InlineData("GET", "beta", true, null, 401)]
+    [InlineData("DELETE", "beta", true, null, 401)]
+    [InlineData("GET", "alpha", true, "https://attacker.example", 403)]
+    [InlineData("DELETE", "alpha", true, "https://attacker.example", 403)]
+    public async Task Unsupported_MCP_methods_still_enforce_local_credentials_and_origin(
+        string method, string project, bool authenticate, string? origin, int status)
+    {
+        await using var fixture = await Fixture.Start();
+        using var request = fixture.Request($"/projects/{project}/mcp", new { }, authenticate);
+        request.Method = new HttpMethod(method);
+        request.Content = null;
+        if (origin is not null) request.Headers.Add("Origin", origin);
+        using var response = await fixture.Client.SendAsync(request);
+        ((int)response.StatusCode).Should().Be(status);
+        fixture.Profile.ReceivedCalls().Should().BeEmpty();
+    }
+
     [Fact]
     public async Task HTTP_and_MCP_report_the_same_completed_extraction_path()
     {

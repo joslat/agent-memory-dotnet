@@ -9,7 +9,7 @@ project memory. These observations were checked on 13 October 2026.
 | Claude Code 2.1.296 | Session profile; prompt capture and recall; matching completion; cleanup when failure event arrives | Paired `prompt_id` hooks, or explicit MCP | 7/7 protocol checks; 17/17 real Bitdeer/Neo4j paired-hook checks. Terminal-error cleanup has the limitation below. |
 | Codex CLI 0.160.1 | Session profile; prompt capture and recall; matching completion; interruption cleanup | Paired `turn_id` hooks, or explicit MCP | 7/7 protocol checks; 17/17 real Bitdeer/Neo4j paired-hook checks. Actual interruption acceptance remains open. |
 | Copilot CLI 1.0.96 | Session profile and native transformed-prompt recall | Explicit MCP | 7/7 protocol checks, plus a real Bitdeer/MCP/Neo4j run with 18/18 bounded checks. |
-| VS Code Local | Session profile | Explicit MCP | Synthetic contract coverage; actual editor workflow remains unverified. Select the Local harness: provider-hosted sessions have different contracts. |
+| VS Code Local 1.142.0-insider | Session profile | Explicit MCP | Actual editor: 6/6 protocol checks; real Bitdeer/Neo4j write, new-chat profile and explicit recall verified. See scope and limits below. |
 
 The protocol checks use canned model replies and synthetic HTTP memory responses. They establish
 hook invocation, context delivery and the applicable write/recall envelope, **not** model quality,
@@ -66,6 +66,33 @@ The helper discards captures when a matching failure event arrives. Otherwise it
 prevents expired captures from being submitted, and later capture activity prunes expired entries;
 there is no background timer that guarantees deletion at 24 hours. Do not treat pending captures
 as completed writes or describe cleanup as unconditional.
+
+## Real VS Code Local acceptance
+
+An isolated official VS Code Insiders archive (1.142.0-insider, commit
+`e9eaf94e8bb01badde47d2518e16d3e1cdab1dd9`) ran the actual Local chat UI and memory helper.
+Six protocol-fixture checks passed, establishing SessionStart, authenticated profile delivery
+and absence of automatic capture. Provider-hosted chat modes were not tested.
+
+A separate live run used Bitdeer GLM-5.3-Flash, the actual coding host, local bge-m3 and
+disposable Neo4j. The model called MCP `remember` once; its queued job completed through
+the writer and the amber release-channel fact persisted. A new chat called MCP `recall`
+once and answered amber. The other project's database had no facts. No HTTP rescue write
+was used; the harness only read status/graph evidence. Five service/storage checks passed.
+
+Read-only editor adjudication passed seven of eight original assertions. The remaining
+assertion incorrectly equated one user turn with one user-role message: VS Code sends separate
+environment and current-prompt messages. The new request contained no previous assistant/tool
+history or write receipt. However, SessionStart already supplied the fact in the profile;
+this establishes profile/recall interoperability, not recall-only answer attribution or retrieval quality.
+
+The test exposed an authenticated stateless MCP GET/DELETE routing defect: the missing project
+route produced a false OAuth challenge locally (or 404 remotely). The host now explicitly returns
+405 with `Allow: POST` after normal authorization. Regression checks cover valid credentials,
+missing/wrong-project credentials and untrusted origins in both transports. The real editor
+then discovered all six tools and completed the bounded workflow without that OAuth detour.
+This follows the [MCP transport contract](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
+External HTTPS/OAuth connector acceptance remains separate.
 
 ## Trust and versions
 

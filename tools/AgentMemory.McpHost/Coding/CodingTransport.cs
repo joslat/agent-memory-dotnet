@@ -43,7 +43,15 @@ internal static class CodingTransport
         else app.UseMiddleware<CodingRequestAuthorization>();
         app.UseMiddleware<CodingBodyLimit>();
         if (options.Remote is null) CodingMemoryPage.Map(app);
-        app.MapMcp("/projects/{project}/mcp");
+        const string mcpPath = "/projects/{project}/mcp";
+        // Stateless transport has no GET stream or DELETE session. Keep the project route
+        // available to authorization so valid credentials do not become an OAuth challenge.
+        app.MapMethods(mcpPath, [HttpMethods.Get, HttpMethods.Delete], (HttpContext context) =>
+        {
+            context.Response.Headers.Allow = HttpMethods.Post;
+            return Results.StatusCode(StatusCodes.Status405MethodNotAllowed);
+        });
+        app.MapMcp(mcpPath);
         if (options.Remote is not null) return; // Remote clients use the scoped MCP contract only.
         app.MapPost("/projects/{project}/{operation}", async (HttpContext context, CodingApi api, string operation) =>
         {

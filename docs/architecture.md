@@ -1342,6 +1342,10 @@ to one canonical project ID. Operations require `DatabasePerApplication`, pre-pr
 a shared database. Session IDs incorporate owner and project, reads exclude shared records, and
 forgetting uses scoped invalidation. Request checks reject browser origins by default and always reject
 non-loopback hostnames; the optional page's same-origin exception is described below.
+The stateless coding MCP endpoint explicitly routes unsupported GET/DELETE methods through
+its normal project authorization, then returns 405 with `Allow: POST`. This preserves route
+identity for local bearer and remote OAuth checks instead of misreporting method probes as
+authentication failures or missing resources.
 Internal writer ingestion stores bounded source turns with caller-supplied commit/reference metadata,
 then uses explicit `ConversationTurn` input and untrusted provenance. Extractor fallback is off by
 default; `allowExtractorFallback` explicitly permits it after a failed writer call. Host wiring and

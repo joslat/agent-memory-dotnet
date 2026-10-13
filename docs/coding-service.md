@@ -16,6 +16,12 @@ use explicit MCP writes. Actual editor and remote-connector acceptance remain se
 Codex has [paired hooks and a disabled MCP template](../samples/CodingMemory/codex.md); the memory
 service's provider setting does not configure Codex's model connection.
 
+The coding MCP transport is stateless: clients send operations with POST. Authenticated
+GET stream probes and DELETE session requests return **405 Method Not Allowed** with
+`Allow: POST`; they do not start an OAuth flow. Invalid project credentials still fail
+authentication, and origin/host checks still apply. The same method behavior applies to
+the optional remote transport after its OAuth authorization succeeds.
+
 ## Configuration
 
 Keep the configuration outside source control. It is a strict UTF-8 JSON object, at most 16 KiB;

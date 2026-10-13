@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Return authenticated 405 responses for stateless coding MCP GET/DELETE probes. Preserve
+  project authentication and origin checks; valid local tokens no longer trigger a false
+  OAuth challenge, and the optional remote endpoint no longer reports these methods as 404.
+
 - Strip the store-aware writer's copied `fact: "subject | predicate | object"` format wrapper
   before mapping a complete fact. Preserve field quotes and replacement/correction targets;
   existing stored facts are not rewritten.

@@ -26,6 +26,42 @@ namespace AgentMemory.Tests.Unit.McpServer;
 
 public sealed class CodingRemoteTransportTests
 {
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("DELETE")]
+    public async Task Authenticated_stateless_MCP_methods_preserve_remote_authorization(string method)
+    {
+        await using var fixture = await Fixture.Start();
+        using var request = fixture.Request(fixture.Token());
+        request.Method = new HttpMethod(method);
+        request.Content = null;
+        using var response = await fixture.Client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+        response.Content.Headers.Allow.Should().Equal("POST");
+        response.Headers.WwwAuthenticate.Should().BeEmpty();
+        fixture.Profile.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("GET", null, null, 401)]
+    [InlineData("DELETE", null, null, 401)]
+    [InlineData("GET", "other-project", null, 401)]
+    [InlineData("DELETE", "other-project", null, 401)]
+    [InlineData("GET", "read", "https://attacker.example", 403)]
+    [InlineData("DELETE", "read", "https://attacker.example", 403)]
+    public async Task Unsupported_MCP_methods_still_enforce_remote_credentials_and_origin(
+        string method, string? variant, string? origin, int status)
+    {
+        await using var fixture = await Fixture.Start();
+        using var request = fixture.Request(variant is null ? null : fixture.Token(variant));
+        request.Method = new HttpMethod(method);
+        request.Content = null;
+        if (origin is not null) request.Headers.Add("Origin", origin);
+        using var response = await fixture.Client.SendAsync(request);
+        ((int)response.StatusCode).Should().Be(status);
+        fixture.Profile.ReceivedCalls().Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Network_discovery_fetches_public_keys_caches_them_and_refreshes_for_rotation()
     {

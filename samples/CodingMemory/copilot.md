@@ -67,7 +67,11 @@ open. Do not add completion hooks that guess a turn or upload a transcript.
 Copilot CLI 1.0.96 and the actual helper passed 7/7 protocol checks with local fixtures and a trusted
 synthetic repository. An untrusted-repository control completed its model reply without running the hooks.
 These checks use canned replies; they do not establish that a real model follows the MCP instructions.
-VS Code Local still needs actual-editor acceptance. See the [compatibility matrix](../../docs/coding-clients.md).
+VS Code Local 1.142.0-insider passed six actual-editor protocol checks and a bounded real
+Bitdeer/Neo4j MCP write/new-chat recall workflow. SessionStart already supplied the answer
+in the new chat profile, so this is interoperability evidence, not recall-only answer attribution.
+See versions, original assertion limits and remaining remote acceptance in the
+[compatibility matrix](../../docs/coding-clients.md).
 Verify the client version, hook diagnostics, tools and a synthetic session before enabling
 real project memory. Hook execution requires the client's workspace trust and hook settings. A local
 service must run in the same network environment as the client; these templates do not connect a cloud
