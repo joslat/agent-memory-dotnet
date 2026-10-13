@@ -6,113 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- Graduate the selected writer, Recommended composition and ordinary retrieval/update-judge APIs
-  for the 2.0 candidate. `AMWRITE001` and `AMREC001` suppression is no longer required.
-  `AMGATE001` remains on compound-question planning and its opt-in configuration/constructor.
-  Runtime defaults and graph data are unchanged by graduation. See [migration](docs/migration-2.0.md).
-
-### Fixed
-
-- Honor `--history off` in the HaluMem and LongMemEval measurement harnesses even when
-  Recommended enables supersession notes. Record the effective history setting in HaluMem output.
-
-- Discard incomplete Claude/Codex completion captures when final assistant text is missing or blank.
-  Do not silently submit them as deliberate user-only writes; explicit MCP writes remain supported.
-
-- Preserve working-memory text in coding hook recall. Apply the existing context budget and
-  decoded-secret checks to the MCP string projection, while retaining SessionStart profile behavior.
-
-- Return authenticated 405 responses for stateless coding MCP GET/DELETE probes. Preserve
-  project authentication and origin checks; valid local tokens no longer trigger a false
-  OAuth challenge, and the optional remote endpoint no longer reports these methods as 404.
-
-- Strip the store-aware writer's copied `fact: "subject | predicate | object"` format wrapper
-  before mapping a complete fact. Preserve field quotes and replacement/correction targets;
-  existing stored facts are not rewritten.
-- Clarify the store-aware writer's retention rules for personal aspirations expressed with
-  emotion: preserve the wish without inventing an action or commitment, and exclude praise
-  alone and unendorsed assistant suggestions. Semantic retention remains model-dependent.
-- Preserve a fact's replacement target when the writer expresses its replacement as a relationship;
-  store it as a fact without requiring separate entity endpoints. Keep distinct named closing
-  proposals through within-extraction deduplication, including when their replacement text matches.
-
-### Tooling
-- Make release verification work with Windows checkouts: ignore CRLF-only manifest lines and
-  isolate local/HTTPS NuGet feeds in a temporary configuration with native local paths.
-
-- Add opt-in coding `recall_preview` / `recall_expand` tools with expiring scoped selected-ID
-  handles, current owner/liveness/source checks, and item/JSON-body byte/deadline limits.
-  Source assertions stay unverified; default recall responses and native injection are unchanged.
-
-- Add opt-in coding-host recall receipts and explicit feedback, scoped to owner/project/session with
-  bounded retention/expiry, measured gate/budget diagnostics and unchanged baseline wire behavior.
-
-- Add opt-in coding-host `writeJournal` receipts backed by private embedded SQLite. Retain scoped
-  status, duplicate/conflict checks and accepted never-started work across restart. Interrupted
-  writer attempts remain Unknown; no blind replay or exactly-once extraction claim. Off preserves
-  the baseline queue and wire. Terminal receipts clear captured text; retention never deletes graph history.
-
-- Use Recommended by default in ConversationalAgent, with an explicit `--conversational` legacy
-  choice, post-preset extraction overrides, optional configured retrieval judges and a tier summary.
-- Disable automatic query splitting in the experimental Recommended preset, preserving the frozen
-  Conversational preset and explicit subqueries. Add general MCP retrieval-gate configuration and
-  coding-host `useRetrievalGate` / `automaticQuerySplitting` overrides; retrieval opt-out leaves
-  separately configured storage closing permission intact.
-- Separate storage judge selection from retrieval ordering with `MemoryGateOptions.UpdateJudgeName`.
-  Coding hosts now require `closingJudgeName` for external closing judgments; omission uses the host
-  model. Set the former first endpoint's name to preserve its use. General-library null selection
-  retains legacy ordering; explicit invalid names fail validation and opt-outs remain effective.
-
-- Add explicit coding-service `allowExtractorFallback` (off by default) and report the actual
-  extraction path in HTTP/MCP job receipts. `ExtractionResult.Path` distinguishes writer attempts,
-  extractor fallback, imports, pre-extracted inputs, skipped turns and unknown custom results;
-  ingestion status remains independent, and interrupted/prior attempts remain unknown.
-
-- Add opt-in Copilot CLI `userPromptTransformed` recall to the coding helper and inactive template.
-  Preserve the model-facing prompt, send only the user query to memory, and append bounded sourced
-  context. No transcript parsing, automatic write, or client activation.
-- Add opt-in `store-sessions --search-cases` to capture original owner-scoped retrieval and historical
-  contexts, candidate mappings and diagnostics alongside writer provenance, without relevance judging.
-- Add preparation-first `paired-gate` comparisons over recorded candidate pools, using the shipped
-  gate with equal context budgets, displacement reporting and explicit failure/request evidence.
-- Add opt-in `store-sessions --record-provenance` exports with typed source arrays, persisted message
-  evidence, capture times and input/binary fingerprints. The default legacy export remains unchanged.
-
-### Fixed
-
-- Reject out-of-range and non-finite System One probabilities before blending them. Missing or blank
-  configured credentials now skip HTTP transport. Existing retrieval/closing fallback and cooldown
-  policies handle these failures; valid negative verdicts remain unchanged.
-
-- Build the MCP container with the repository's .NET 10 SDK and runtime instead of incompatible
-  .NET 9 images. Restrict its build context to public inputs, excluding private/generated files.
-
-- Reject non-finite or out-of-range update-judge scores before closing stored facts, preferences or
-  relationships, including scores from the writer's host-model fallback.
-- Keep the source entity and its facts unchanged when the store declines a corrected-name merge;
-  skip retirement, restatement and target re-embedding for that name pair.
-
-### Documentation
-
-- Separate public documentation from private development records: move implementation plans,
-  research snapshots, experiment preregistrations, and internal findings out of `docs/reviews`;
-  retain three measured-result reports under `docs/performance` and update their references.
-  Extract historical roadmap/package-merger analysis and the unpublished token-cost pilot while
-  preserving public architecture and token-accounting guidance.
-
-### Changed
-
-- **Internal closing approval policy**: named and similarity closing sources now share judge selection,
-  fallback and score approval in one policy. Existing requests, thresholds, batching, cancellation,
-  named-only fallback and score-key lookup behavior are preserved; no public configuration changes.
-
-- **Common internal closing application**: automatic fact, preference and relationship closings now
-  use typed proposals and one repository-application path, including fact withdrawal, entity retirement,
-  name correction and date/edge consequences. Existing decision rules, temporal behavior, transaction boundaries and outcome
-  attribution remain unchanged. No new judge policy, provider call or public option is introduced.
-
 ### Added
 
 - Add `AgentFrameworkOptions.ApplyRecommended()` to disable question-turn deferral when composing
@@ -186,27 +79,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stores written by the extractors: precision about 54% to 60% with nothing lost (world 7); over stores the store-aware
   writer wrote it finds almost nothing to close (rounds 3-4), so it is a cleanup for 1.x stores, not a default. The CLI:
   `consolidate --close-generic-entities --close-unsaid-preferences [--owner <id>] [--approve <id,id,...>] [--apply]`.
-- **The store-aware writer reinforces what is said again** (AMWRITE001): a turn that says a stored fact or preference again
+- **The store-aware writer reinforces what is said again**: a turn that says a stored fact or preference again
   is answered "confirm" with its id, in the same call, and the library counts it as said again (one more mention, confidence
   by `MemoryOptions.ConfidenceReinforcementAlpha`) instead of writing nothing. Before, the writer's rule "what is already
   stored is not stored again" left every memory at one mention. A preference reinforced by dedup now counts the mention
   too. World 6, three runs each: 24-26 repeats reinforced a store; three-judge precision 97.34% against 97.67%, stale 0.67
   against 0.33, complete recall 73.4% against 76.4% (within the registered limit, at its edge).
-- **The store-aware writer ends what an event ends, and lets a one-off end with its day** (AMWRITE001): a move, a death, a
+- **The store-aware writer ends what an event ends, and lets a one-off end with its day**: a move, a death, a
   birth, a wedding, a breakup, a new job or a retirement replaces the stored state it ends (one replace for each, even when
   the person is named by a role; only the person's own event counts), and a plan or a state true only for a short while is
   stored with "until", the end of its validity, while something that happened stays true with its date. The update judge's
   named question (System One's and the host model's, word for word) now also reads a death, a marriage, a move or a birth
   as ending the state the person was in. Scenario suite (three repeats): one-offs 0/6 to 6/6, events said on their day kept
   6/6; a death's closing confirmed 5 of 6 (0 before), near the judge's bar.
-- **The Recommended preset shows what a recalled fact replaced** (AMREC001): `ResolveSupersessions` is on in
+- **The Recommended preset shows what a recalled fact replaced**: `ResolveSupersessions` is on in
   `MemoryOptions.CreateRecommended()`, so "leads a team of five (since 2023-10-24; previously a team of 4)" answers a
   question about the earlier value; a correction is never shown as "previously", and neither is a value the current one
   only restates more fully. LongMemEval knowledge-update, one user turn at a time: 63 of 78 without, 72 and 71 with.
 - **The store-aware writer confirms only a repeat that adds nothing**: said again with a reason, goal, detail, number,
   name or date, the stored memory is replaced by the fuller one (HaluMem person 1: the confirm had swallowed updates;
   storage F1 0.808 to 0.862 with this rule).
-- **The store-aware writer can end a stored connection** (AMWRITE001): a replace or correct may name a stored relationship,
+- **The store-aware writer can end a stored connection**: a replace or correct may name a stored relationship,
   from a fact ("got married" ends "engaged to") or from a relationship (`ExtractedRelationship.ReplacesId`, new); the update
   judge is asked the same named question and, on a confirm, the relationship is ended (its valid-until set; the edge stays
   as history), even when its replacement cannot be stored (an endpoint the store does not hold). The writer is now also
@@ -217,7 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs the first answer held no JSON 104 times and the second 10, each a model that reasoned through its whole room and
   answered nothing; a fresh call rarely repeats it, so the turns lost or handed to the extractors fall from about 0.28%
   to an expected 0.03%, for one more call on 0.3% of turns. A turn whose writer answers is unchanged.
-- **The store-aware memory writer** (`LlmExtractionOptions.UseMemoryWriter`, experimental `AMWRITE001`, off). Each turn
+- **The store-aware memory writer** (`LlmExtractionOptions.UseMemoryWriter`, off in low-level options). Each turn
   of one user message is written by one call that sees the owner's most relevant stored memories and proposes only what
   is new, what replaces or corrects a stored memory (naming it), or nothing; its closings apply only when the update
   judge confirms them (`ExtractionOptions.NamedClosingThreshold`, 0.60). Measured on two fresh twelve-session worlds:
@@ -227,29 +120,135 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ExtractionOptions.FallBackToExtractorsWhenWriterFails = false` keeps the earlier behaviour (the turn stores nothing
   and its outcomes say why).
 - **The host's chat model as the update judge's second tier** (`LlmExtractionOptions.ChatModelUpdateJudge`,
-  `IMemoryUpdateJudgeFallback`; experimental `AMWRITE001`; on in the Recommended preset): the closings the store-aware
+  `IMemoryUpdateJudgeFallback`; on in the Recommended preset): the closings the store-aware
   writer names are confirmed by the host's chat model, asked the gate's question word for word, when no outside judge
   answers (none registered, switched off, or it fails). Measured on world 6, three store runs each: stale values 0.33 a
   store against JEV's 0.33, complete recall 76.4% against 75.0%, precision 97.7% against 97.9%, for about 0.2 chat calls
   a turn more; with no judge at all, 16 replaced values a store stay live. The extractors' similarity path keeps its own
   judge.
-- **Each leg of memory says the tier it runs at** (`IMemoryTiers`, `IMemoryTierSource`, `MemoryTier`; experimental
-  `AMREC001`): storage (the writer with or without the update judge, or the extractors, and what a failed writer call
+- **Each leg of memory says the tier it runs at** (`IMemoryTiers`, `IMemoryTierSource`, `MemoryTier`): storage (the writer with or without the update judge, or the extractors, and what a failed writer call
   falls back to), retrieval (the gate's judges, or the similarity floor and why) and dreaming (off). Logged once on the
   first write (`Memory tiers: ...`) and available to a host at any time.
 - **A judge that keeps failing is left out for a cool-down** (`MemoryGateOptions.JudgeFailuresBeforeCooldown`, 3, and
-  `JudgeCooldown`, one minute; experimental `AMGATE001`). After three failed calls in a row the gate and the update judge
+  `JudgeCooldown`, one minute). After three failed calls in a row the gate and the update judge
   stop calling that judge for a minute, then ask it once: an answer brings it back. Meanwhile recall takes the similarity
   floor when no judge is left and the update judge closes nothing; the log, the span (`memory.judge.cooldown`,
   `memory.judge.skipped`, the gate's fallback `cooldown`) and `MemoryGateTrace` say so. Before, a judge that was down was
   asked on every turn (a local judge not running cost about 2 s each time). 0 restores that.
-- **The Recommended preset** (experimental `AMREC001`): `MemoryOptions.CreateRecommended()` (the Conversational preset
+- **The Recommended preset**: `MemoryOptions.CreateRecommended()` (the Conversational preset
   plus `Extraction.BitemporalChanges`), `LlmExtractionOptions.ApplyRecommended()` (the Conversational extraction half
-  plus the store-aware writer) and `MemoryGateOptions.ApplyRecommended()` (the retrieval memory router and the update
-  judge; the judge endpoint is the host's). Opt-in; the Conversational preset and the defaults are unchanged. Unlike
-  the Conversational preset, its contents may change before 2.0. Validation packs accept `"preset": "recommended"`
+  plus the store-aware writer) and `MemoryGateOptions.ApplyRecommended()` (the retrieval gate and the update
+  judge; the judge endpoint is the host's). Explicit in library composition and selected by new conversational sample/coding-host configurations;
+  the Conversational preset and low-level defaults are unchanged. Validation packs accept `"preset": "recommended"`
   and the LongMemEval harness `--preset recommended` (its batched preparation does not exercise the writer, and its
   report says so).
+
+### Changed
+
+- Graduate the selected writer, Recommended composition and ordinary retrieval/update-judge APIs
+  for the 2.0 candidate. `AMWRITE001` and `AMREC001` suppression is no longer required.
+  `AMGATE001` remains on compound-question planning and its opt-in configuration/constructor.
+  Runtime defaults and graph data are unchanged by graduation. See [migration](docs/migration-2.0.md).
+
+- **Internal closing approval policy**: named and similarity closing sources now share judge selection,
+  fallback and score approval in one policy. Existing requests, thresholds, batching, cancellation,
+  named-only fallback and score-key lookup behavior are preserved; no public configuration changes.
+
+- **Common internal closing application**: automatic fact, preference and relationship closings now
+  use typed proposals and one repository-application path, including fact withdrawal, entity retirement,
+  name correction and date/edge consequences. Existing decision rules, temporal behavior, transaction boundaries and outcome
+  attribution remain unchanged. No new judge policy, provider call or public option is introduced.
+
+### Fixed
+
+- Honor `--history off` in the HaluMem and LongMemEval measurement harnesses even when
+  Recommended enables supersession notes. Record the effective history setting in HaluMem output.
+
+- Discard incomplete Claude/Codex completion captures when final assistant text is missing or blank.
+  Do not silently submit them as deliberate user-only writes; explicit MCP writes remain supported.
+
+- Preserve working-memory text in coding hook recall. Apply the existing context budget and
+  decoded-secret checks to the MCP string projection, while retaining SessionStart profile behavior.
+
+- Return authenticated 405 responses for stateless coding MCP GET/DELETE probes. Preserve
+  project authentication and origin checks; valid local tokens no longer trigger a false
+  OAuth challenge, and the optional remote endpoint no longer reports these methods as 404.
+
+- Strip the store-aware writer's copied `fact: "subject | predicate | object"` format wrapper
+  before mapping a complete fact. Preserve field quotes and replacement/correction targets;
+  existing stored facts are not rewritten.
+- Clarify the store-aware writer's retention rules for personal aspirations expressed with
+  emotion: preserve the wish without inventing an action or commitment, and exclude praise
+  alone and unendorsed assistant suggestions. Semantic retention remains model-dependent.
+- Preserve a fact's replacement target when the writer expresses its replacement as a relationship;
+  store it as a fact without requiring separate entity endpoints. Keep distinct named closing
+  proposals through within-extraction deduplication, including when their replacement text matches.
+
+- Reject out-of-range and non-finite System One probabilities before blending them. Missing or blank
+  configured credentials now skip HTTP transport. Existing retrieval/closing fallback and cooldown
+  policies handle these failures; valid negative verdicts remain unchanged.
+
+- Build the MCP container with the repository's .NET 10 SDK and runtime instead of incompatible
+  .NET 9 images. Restrict its build context to public inputs, excluding private/generated files.
+
+- Reject non-finite or out-of-range update-judge scores before closing stored facts, preferences or
+  relationships, including scores from the writer's host-model fallback.
+- Keep the source entity and its facts unchanged when the store declines a corrected-name merge;
+  skip retirement, restatement and target re-embedding for that name pair.
+
+### Tooling
+
+- Make release verification work with Windows checkouts: ignore CRLF-only manifest lines and
+  isolate local/HTTPS NuGet feeds in a temporary configuration with native local paths.
+
+- Add opt-in coding `recall_preview` / `recall_expand` tools with expiring scoped selected-ID
+  handles, current owner/liveness/source checks, and item/JSON-body byte/deadline limits.
+  Source assertions stay unverified; default recall responses and native injection are unchanged.
+
+- Add opt-in coding-host recall receipts and explicit feedback, scoped to owner/project/session with
+  bounded retention/expiry, measured gate/budget diagnostics and unchanged baseline wire behavior.
+
+- Add opt-in coding-host `writeJournal` receipts backed by private embedded SQLite. Retain scoped
+  status, duplicate/conflict checks and accepted never-started work across restart. Interrupted
+  writer attempts remain Unknown; no blind replay or exactly-once extraction claim. Off preserves
+  the baseline queue and wire. Terminal receipts clear captured text; retention never deletes graph history.
+
+- Use Recommended by default in ConversationalAgent, with an explicit `--conversational` legacy
+  choice, post-preset extraction overrides, optional configured retrieval judges and a tier summary.
+- Disable automatic query splitting in the Recommended preset, preserving the frozen
+  Conversational preset and explicit subqueries. Add general MCP retrieval-gate configuration and
+  coding-host `useRetrievalGate` / `automaticQuerySplitting` overrides; retrieval opt-out leaves
+  separately configured storage closing permission intact.
+- Separate storage judge selection from retrieval ordering with `MemoryGateOptions.UpdateJudgeName`.
+  Coding hosts now require `closingJudgeName` for external closing judgments; omission uses the host
+  model. Set the former first endpoint's name to preserve its use. General-library null selection
+  retains legacy ordering; explicit invalid names fail validation and opt-outs remain effective.
+
+- Add explicit coding-service `allowExtractorFallback` (off by default) and report the actual
+  extraction path in HTTP/MCP job receipts. `ExtractionResult.Path` distinguishes writer attempts,
+  extractor fallback, imports, pre-extracted inputs, skipped turns and unknown custom results;
+  ingestion status remains independent, and interrupted/prior attempts remain unknown.
+
+- Add opt-in Copilot CLI `userPromptTransformed` recall to the coding helper and inactive template.
+  Preserve the model-facing prompt, send only the user query to memory, and append bounded sourced
+  context. No transcript parsing, automatic write, or client activation.
+- Add opt-in `store-sessions --search-cases` to capture original owner-scoped retrieval and historical
+  contexts, candidate mappings and diagnostics alongside writer provenance, without relevance judging.
+- Add preparation-first `paired-gate` comparisons over recorded candidate pools, using the shipped
+  gate with equal context budgets, displacement reporting and explicit failure/request evidence.
+- Add opt-in `store-sessions --record-provenance` exports with typed source arrays, persisted message
+  evidence, capture times and input/binary fingerprints. The default legacy export remains unchanged.
+
+### Documentation
+
+- Separate public documentation from private development records: move implementation plans,
+  research snapshots, experiment preregistrations, and internal findings out of `docs/reviews`;
+  retain three measured-result reports under `docs/performance` and update their references.
+  Extract historical roadmap/package-merger analysis and the unpublished token-cost pilot while
+  preserving public architecture and token-accounting guidance.
+
+- Reconcile graduated API labels and composition links across the configuration and adapter guides.
+  Describe the release workflow's actual NuGet API-key authentication separately from OIDC attestation signing.
 
 ## [1.9.0] - 2026-10-05
 

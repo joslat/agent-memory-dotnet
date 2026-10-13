@@ -34,7 +34,7 @@ The shipped source packages are:
 - `AgentMemory.SemanticKernel`
 - `AgentMemory.McpServer`
 - `AgentMemory.Analytics`
-- `AgentMemory.Gate` (experimental, `AMGATE001`: the retrieval memory router)
+- `AgentMemory.Gate` (retrieval and update judging; compound-question planning remains experimental under `AMGATE001`)
 - `AgentMemory` meta-package
 
 Supporting projects include `tools/AgentMemory.Cli`, samples, benchmarks, and unit/integration/performance tests.

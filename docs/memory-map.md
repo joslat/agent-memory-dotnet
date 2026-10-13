@@ -35,7 +35,7 @@ protocol/fallback behavior, not model quality or live provider availability.
 The adapter's explicit `ApplyRecommended()` preset stops requesting deferred question turns, keeping
 ordinary turns separate for the single-turn writer. Inline and queued dispatch are tested, including
 explicit overrides. Writer/judge registration remains the host's responsibility; existing
-Conversational configurations are unchanged. See [composition](getting-started.md#46-the-recommended-preset-experimental-amrec001).
+Conversational configurations are unchanged. See [composition](getting-started.md#46-the-recommended-preset).
 
 **Coding service - BUILT / WIRED, with bounded real-client acceptance.** Explicit
 `--coding-config` adds project-bound HTTP/MCP, a bounded writer queue, caller-asserted provenance

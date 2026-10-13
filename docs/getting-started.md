@@ -502,7 +502,7 @@ What it adds to the Conversational preset:
   confirmed by the same chat model, asked the gate's question. Measured on world 6: as good as JEV (0.33 stale values a
   store against 0.33, precision 97.7% against 97.9%) for about 0.2 chat calls a turn more; with no judge at all, 16
   replaced values a store stay live.
-- **With a judge endpoint** (`AgentMemory.Gate`, `AMGATE001`): the update judge confirms the writer's closings, and the
+- **With a judge endpoint** (`AgentMemory.Gate`): the update judge confirms the writer's closings, and the
   retrieval memory router judges each memory found for the prompt (every needed memory reached the prompt on 96.1% and
   96.5% of turns, against 67.6% and 76.8% for the similarity floor, with less than half the memory tokens). Without an
   endpoint, recall uses the similarity floor and the host's chat model confirms the writer's closings.
