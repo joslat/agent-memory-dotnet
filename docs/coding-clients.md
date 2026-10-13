@@ -7,7 +7,7 @@ project memory. These observations were checked on 13 October 2026.
 | Client | Implemented hook path | Writes | Actual-client evidence |
 |---|---|---|---|
 | Claude Code 2.1.296 | Session profile; prompt capture and recall; matching completion; cleanup when failure event arrives | Paired `prompt_id` hooks, or explicit MCP | 7/7 protocol checks; 17/17 real Bitdeer/Neo4j paired-hook checks. Terminal-error cleanup has the limitation below. |
-| Codex CLI 0.160.1 | Session profile; prompt capture and recall; matching completion; interruption cleanup | Paired `turn_id` hooks, or explicit MCP | 7/7 protocol checks; 17/17 real Bitdeer/Neo4j paired-hook checks. Actual interruption acceptance remains open. |
+| Codex CLI 0.160.1 | Session profile; prompt capture and recall; matching completion; interruption cleanup | Paired `turn_id` hooks, or explicit MCP | 7/7 protocol checks; 17/17 real Bitdeer/Neo4j paired-hook checks. App-server 0.162.1 interruption passed 8/8 local-fixture checks; terminal Ctrl+C was not tested. |
 | Copilot CLI 1.0.96 | Session profile and native transformed-prompt recall | Explicit MCP | 7/7 protocol checks, plus a real Bitdeer/MCP/Neo4j run with 18/18 bounded checks. |
 | VS Code Local 1.142.0-insider | Session profile | Explicit MCP | Actual editor: 6/6 protocol checks; real Bitdeer/Neo4j write, new-chat profile and explicit recall verified. See scope and limits below. |
 
@@ -93,6 +93,21 @@ missing/wrong-project credentials and untrusted origins in both transports. The 
 then discovered all six tools and completed the bounded workflow without that OAuth detour.
 This follows the [MCP transport contract](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
 External HTTPS/OAuth connector acceptance remains separate.
+
+## Codex interruption acceptance
+
+The installed Codex app-server 0.162.1 passed eight bounded checks using the actual memory
+helper and deterministic loopback model/service fixtures. After UserPromptSubmit captured a
+turn, `turn/interrupt` emitted the matching Interrupt hook and an interrupted turn status.
+The helper replaced the captured text with a tombstone; no memory write occurred.
+This tests protocol cancellation, not a terminal Ctrl+C, provider outage or database workflow.
+[App-server lifecycle](https://learn.chatgpt.com/docs/app-server),
+[Interrupt hooks](https://learn.chatgpt.com/docs/hooks#interrupt).
+
+The first attempt cancelled the turn but skipped all untrusted hooks, so it did not prove
+cleanup. Reviewing and trusting the four exact hook hashes in the isolated profile enabled
+the same test. Do not infer hook execution from successful cancellation alone. The earlier
+real paired-hook run used CLI 0.160.1; these are separately versioned results.
 
 ## Trust and versions
 
