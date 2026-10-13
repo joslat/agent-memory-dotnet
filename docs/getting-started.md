@@ -465,7 +465,8 @@ frozen for a major version.
 
 ### 4.6 The Recommended preset (experimental, `AMREC001`)
 
-The Conversational preset, plus what the storage and retrieval research measured as better, switched on together:
+The Recommended preset combines the selected storage and retrieval behavior. It starts from
+Conversational, disables automatic query splitting, and applies the changes below:
 
 ```csharp
 #pragma warning disable AMREC001, AMGATE001
@@ -477,13 +478,18 @@ builder.Services.AddAgentMemoryFramework(options => options.ApplyRecommended());
 builder.Services.AddAgentMemoryGate(gate =>
 {
     gate.ApplyRecommended();
-    gate.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY" });
+    gate.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY", Weight = 0.8 });
+    gate.Judges.Add(new SystemOneEndpoint { Name = "laya", Endpoint = new Uri("http://127.0.0.1:8765/v1/systemone"), Weight = 0.2 });
+    gate.UpdateJudgeName = "jev";
 });
 #pragma warning restore AMREC001, AMGATE001
 ```
 
 What it adds to the Conversational preset:
 
+- **Automatic query splitting is off** (`FanOut.Enabled = false`). The gate judges candidates for
+  the original query. Explicit `RecallRequest.SubQueries` still work; hosts can re-enable automatic
+  splitting after creating the preset. The frozen Conversational preset retains its existing setting.
 - **The store-aware writer** (`LlmExtractionOptions.UseMemoryWriter`, `AMWRITE001`): each turn is written by one call
   that sees the owner's most relevant stored memories and proposes only what is new, what replaces or corrects a stored
   memory, or nothing. On two fresh twelve-session worlds, 90.8% and 87.8% of what it stored was right, against 42.3% and
@@ -526,6 +532,32 @@ without the new call are unchanged. Other adapters do not need the Agent Framewo
 
 Unlike the Conversational preset, its contents may change before 2.0, as the measurements on the library's other
 benchmarks come in; 2.0 is planned to make them the defaults.
+
+**Host configuration and migration.** Apply presets first, then explicit overrides. A Core-only
+registration cannot install a judge from another package: add `AgentMemory.Gate` and configure only
+the endpoints you permit. Remove the LAYA entry above when no local server is configured; remove
+the JEV entry and set `UpdateJudge = false` when only LAYA is permitted for retrieval. Its retrieval
+training does not qualify it as a storage-closing judge. With no gate registration, existing recall
+remains available. With `Mode = MemoryGateMode.Floor`, retrieval makes no judge calls; the separately
+enabled storage judge is unaffected. Agent Framework and Semantic Kernel use these shared host
+registrations rather than installing their own providers. DemoBrain has separate application settings.
+
+The general `agent-memory-mcp` host accepts the standard `AgentMemory:RetrievalRouter` configuration
+section. For example, environment variables below enable the explicitly named local judge:
+
+```text
+AgentMemory__RetrievalRouter__Judges__0__Name=laya
+AgentMemory__RetrievalRouter__Judges__0__Endpoint=http://127.0.0.1:8765/v1/systemone
+AgentMemory__RetrievalRouter__Judges__0__Model=laya
+AgentMemory__RetrievalRouter__Judges__0__Weight=0.2
+```
+
+Use the endpoint's actual served model identifier. `Mode` defaults to `Judge`; set
+`AgentMemory__RetrievalRouter__Mode=Floor` to disable retrieval judging explicitly. With no section,
+the existing assembler is unchanged, even if provider credentials exist. This configures retrieval;
+it does not install a conversation writer in the general MCP host. Coding mode uses its own strict
+JSON configuration, including `useRetrievalGate` and `automaticQuerySplitting`, documented in
+[coding service](coding-service.md).
 
 **Optional compound-question experiment (`AMGATE001`, no established benefit).** In your existing
 `AddAgentMemoryGate` configuration, set `CompoundQuestions = true` and explicitly set `CompoundDetector`

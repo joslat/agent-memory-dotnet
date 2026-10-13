@@ -8,6 +8,13 @@
 
 ## 1. Vision & Goals
 
+**Retrieval composition:** Recommended disables automatic core query splitting; the frozen
+Conversational preset and explicit request subqueries retain their behavior. The general MCP host
+installs the optional gate only when `AgentMemory:RetrievalRouter` is explicitly configured.
+Coding mode uses its strict JSON settings: `useRetrievalGate` controls Judge versus Floor,
+independently of storage closing permission; `automaticQuerySplitting` is an explicit override.
+Adapters consume the shared host registrations without adding provider dependencies.
+
 **Judge response boundary:** the shared System One client rejects missing configured credentials
 before transport and validates each requested probability as finite and within `[0, 1]`. An invalid
 response fails that call rather than becoming a score. Existing per-type retrieval blending/floor

@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tooling
 
+- Disable automatic query splitting in the experimental Recommended preset, preserving the frozen
+  Conversational preset and explicit subqueries. Add general MCP retrieval-gate configuration and
+  coding-host `useRetrievalGate` / `automaticQuerySplitting` overrides; retrieval opt-out leaves
+  separately configured storage closing permission intact.
 - Separate storage judge selection from retrieval ordering with `MemoryGateOptions.UpdateJudgeName`.
   Coding hosts now require `closingJudgeName` for external closing judgments; omission uses the host
   model. Set the former first endpoint's name to preserve its use. General-library null selection

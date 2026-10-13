@@ -45,6 +45,7 @@ internal static class CodingHost
             store.DatabasePrefix = "coding-"; store.AutoProvision = false;
         });
         var memory = MemoryOptions.CreateRecommended();
+        memory.FanOut.Enabled = configuration.Options.AutomaticQuerySplitting;
         // Explicit permission; the job receipt preserves the actual path independently of success.
         memory.Extraction.FallBackToExtractorsWhenWriterFails = configuration.Options.AllowExtractorFallback;
         services.AddAgentMemoryCore(memory);
@@ -61,6 +62,7 @@ internal static class CodingHost
             services.AddAgentMemoryGate(o =>
             {
                 o.ApplyRecommended();
+                o.Mode = configuration.Options.UseRetrievalGate ? MemoryGateMode.Judge : MemoryGateMode.Floor;
                 // Retrieval training/list order does not qualify a model to approve storage closings.
                 o.UpdateJudge = configuration.Options.ClosingJudgeName is not null;
                 o.UpdateJudgeName = configuration.Options.ClosingJudgeName;

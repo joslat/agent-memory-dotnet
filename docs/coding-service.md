@@ -59,6 +59,19 @@ Recommended memory/writer preset; extractor fallback is off unless explicitly en
 settings do not customize that preset. The mode clears ambient ASP.NET configuration and binds only the
 configured IPv4 loopback address, with at most 64 concurrent connections. Do not expose it through a proxy.
 
+### Configurable retrieval
+
+Configured judges are used by default (`"useRetrievalGate": true`). Set it to `false` to
+use similarity-floor retrieval without retrieval judge calls. This leaves the separately
+configured `closingJudgeName` active for storage. With no configured judges, recall uses
+the existing core path. A failed judge leaves the remaining answering judges, or the floor
+if none answer; this does not discover or enable another endpoint.
+
+Recommended now disables automatic query splitting. Set `"automaticQuerySplitting": true`
+to opt back in. This controls the core's automatic subquery searches, independently of the
+gate and of the optional compound-question experiment (which coding mode leaves off).
+The general MCP host's `AgentMemory:RetrievalRouter` settings do not override coding JSON.
+
 ### Configurable extractor fallback
 
 Set `"allowExtractorFallback": true` in the coding-service JSON to permit configured extractors

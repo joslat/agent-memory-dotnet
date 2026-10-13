@@ -1,17 +1,21 @@
 ﻿using AgentMemory.Abstractions.Services;
 using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
+using AgentMemory.Gate;
 using AgentMemory.McpServer;
 using AgentMemory.Neo4j.Infrastructure;
 using Azure;
 using Azure.AI.OpenAI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace AgentMemory.McpHost;
+
+#pragma warning disable AMGATE001 // Explicit host configuration enables the optional retrieval gate.
 
 /// <summary>
 /// The turnkey MCP server: 27 memory tools over stdio or HTTP, configured entirely by environment.
@@ -31,6 +35,12 @@ namespace AgentMemory.McpHost;
 /// </remarks>
 internal static class McpHostProgram
 {
+    internal static void ConfigureRetrieval(IServiceCollection services, IConfiguration configuration)
+    {
+        var section = configuration.GetSection(GateServiceCollectionExtensions.SectionName);
+        if (section.Exists()) services.AddAgentMemoryGate(section);
+    }
+
     internal static async Task<int> RunAsync(string[] args)
     {
         if (args.Any(argument => argument is "--help" or "-h" or "/?"))
@@ -83,6 +93,7 @@ internal static class McpHostProgram
         // threshold, reranking or temporal resolution. The empty body was not laziness: until 25.1 made
         // the scalar options settable, no other body would have compiled.
         builder.Services.AddAgentMemoryCore(options.Memory);
+        ConfigureRetrieval(builder.Services, builder.Configuration);
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
         builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(

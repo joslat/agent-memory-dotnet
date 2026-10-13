@@ -99,12 +99,14 @@ public sealed class PresetWiringTests
 
         var memory = provider.GetRequiredService<IOptions<MemoryOptions>>().Value;
         memory.Extraction.BitemporalChanges.Should().BeTrue();
-        memory.FanOut.Enabled.Should().BeTrue();
+        memory.FanOut.Enabled.Should().BeFalse("Recommended disables automatic splitting; Conversational remains frozen");
         provider.GetRequiredService<IOptions<LlmExtractionOptions>>().Value.UseMemoryWriter.Should().BeTrue();
         LongMemEvalMemoryProfile.ProductOptions(LongMemEvalPreset.Conversational, false, false).Extraction.BitemporalChanges.Should().BeFalse();
         LongMemEvalPresets.Seal("m", LongMemEvalPreset.Recommended).Should().Be("m+preset:recommended");
 
         var coverage = LongMemEvalPresets.Coverage(LongMemEvalPreset.Recommended);
+        var exercised = (string[])coverage.GetType().GetProperty("exercised")!.GetValue(coverage)!;
+        exercised.Should().Contain("FanOut.Enabled=false").And.NotContain("FanOut");
         var notExercised = (string[])coverage.GetType().GetProperty("notExercised")!.GetValue(coverage)!;
         notExercised.Should().Contain(item => item.StartsWith("UseMemoryWriter", StringComparison.Ordinal));
     }

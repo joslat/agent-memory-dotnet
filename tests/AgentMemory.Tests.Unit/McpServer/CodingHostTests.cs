@@ -20,6 +20,27 @@ namespace AgentMemory.Tests.Unit.McpServer;
 public sealed class CodingHostTests
 {
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task Explicit_retrieval_selection_preserves_the_separate_storage_judge(bool useRetrievalGate, bool automaticQuerySplitting)
+    {
+        var config = CodingConfiguration.Parse(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            ownerId = "owner", projects = new { alpha = "ALPHA_TOKEN" }, closingJudgeName = "closing",
+            useRetrievalGate, automaticQuerySplitting,
+            judges = new[] { new { name = "closing", endpoint = "http://127.0.0.1:8765/v1/systemone", model = "closing" } },
+        }), CodingConfigurationTests.EnvironmentValues().GetValueOrDefault);
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        CodingHost.Configure(builder, config);
+        await using var app = builder.Build();
+        var gate = app.Services.GetRequiredService<IOptions<MemoryGateOptions>>().Value;
+        gate.Mode.Should().Be(useRetrievalGate ? MemoryGateMode.Judge : MemoryGateMode.Floor);
+        gate.UpdateJudge.Should().BeTrue("retrieval opt-out does not revoke the separately configured closing permission");
+        gate.UpdateJudgeName.Should().Be("closing");
+        app.Services.GetRequiredService<IOptions<MemoryOptions>>().Value.FanOut.Enabled.Should().Be(automaticQuerySplitting);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("closing")]
     public async Task Retrieval_list_order_does_not_grant_storage_closing_permission(string? closing)

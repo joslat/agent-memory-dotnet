@@ -12,6 +12,10 @@ internal sealed record CodingServiceOptions
     public bool EnableBrowserUi { get; init; }
     /// <summary>Allow extractors after a failed writer. Off makes no fallback calls; job receipts report the actual path.</summary>
     public bool AllowExtractorFallback { get; init; }
+    /// <summary>Judge retrieval when configured endpoints are available. False uses the similarity floor without retrieval judge calls.</summary>
+    public bool UseRetrievalGate { get; init; } = true;
+    /// <summary>Explicit override for automatic query splitting. Off performs no automatic subquery derivation or searches.</summary>
+    public bool AutomaticQuerySplitting { get; init; }
     /// <summary>Exact configured judge name permitted to approve storage closings. Null uses only the host-model closing fallback.</summary>
     public string? ClosingJudgeName { get; init; }
     /// <summary>Explicit HTTPS/OAuth mode. Null adds no OAuth discovery, validation or rate-limit services.</summary>

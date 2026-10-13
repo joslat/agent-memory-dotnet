@@ -3,6 +3,12 @@
 A reference for what agent memory is, what a memory system has to decide that a store does not, and
 **exactly** which of those decisions AgentMemory makes today.
 
+**Retrieval composition — BUILT / WIRED.** Recommended disables automatic query splitting;
+Conversational is unchanged and explicit subqueries remain supported. General MCP can configure
+the gate through `AgentMemory:RetrievalRouter`; coding mode can select the similarity floor
+independently of its storage judge. A provider key alone does not install a retrieval judge.
+These configuration paths do not establish deployed-client interoperability or new accuracy gains.
+
 The store-aware writer removes the prompt's `fact: "subject | predicate | object"` wrapper
 when a model copies it into a complete fact. This is a format repair, not a semantic quality
 improvement or a migration of existing data; legitimate field quotes remain intact.

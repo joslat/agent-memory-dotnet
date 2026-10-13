@@ -495,7 +495,8 @@ public sealed record MemoryOptions
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>What it switches on.</b> Everything <see cref="CreateConversational"/> does, plus
+    /// <b>What it changes.</b> The <see cref="CreateConversational"/> configuration with automatic query fan-out
+    /// disabled (explicit request subqueries still work), plus
     /// <see cref="ExtractionOptions.BitemporalChanges"/>: a change ends the old value's valid time and keeps it believed,
     /// so a question about the past keeps the value that was true then; and <see cref="MemoryProjectionOptions.ResolveSupersessions"/>:
     /// a recalled fact shows what it replaced, "(since D; previously X)", so a question about an earlier value finds it
@@ -531,6 +532,7 @@ public sealed record MemoryOptions
     {
         var options = CreateConversational();
         options.Extraction.BitemporalChanges = true;
+        options.FanOut.Enabled = false;
         return options with { Projection = options.Projection with { ResolveSupersessions = true } };
     }
 }

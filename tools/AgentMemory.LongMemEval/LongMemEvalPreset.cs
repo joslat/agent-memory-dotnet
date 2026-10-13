@@ -62,7 +62,8 @@ internal static class LongMemEvalPresets
             {
                 "SupersedeReplacedFacts", "RenameOnCorrectedName", "CanonicalFactSubjects", "DeduplicateWithinExtraction",
                 "LinkFactsToEntities", "EntityResolution.EnablePartialNameMatch", "EntityResolution.TypeStrictFiltering=false",
-                "Recall.MaxRelationships=5", "ResolveTemporalQueries", "FanOut", "Isolation=StrictMultiTenant",
+                "Recall.MaxRelationships=5", "ResolveTemporalQueries",
+                preset == LongMemEvalPreset.Recommended ? "FanOut.Enabled=false" : "FanOut", "Isolation=StrictMultiTenant",
                 "WorkingMemory.RecentTopicsDays=7", "EmbeddingCacheCapacity", "UseAccessTrackingQueue",
                 "SkipEscalationWhenOwnerHasNoRows", "TemporalValidity=Extract", "MarkCorrections", "OwnPreferencesOnly",
                 "CaptureEventCompanions",
