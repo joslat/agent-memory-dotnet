@@ -8,6 +8,8 @@ using AgentMemory.Inference;
 using AgentMemory.Gate;
 using Microsoft.Extensions.AI;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 #pragma warning disable AMREC001 // Explicit coding mode selects the recommended preset.
 #pragma warning disable AMWRITE001
@@ -75,7 +77,17 @@ internal static class CodingHost
             });
         services.AddSingleton(configuration.Options).AddSingleton(configuration.Access).AddSingleton(configuration.Content);
         services.AddSingleton<CodingOperationScope>().AddSingleton<CodingMemoryOperations>().AddSingleton<CodingApi>();
-        services.AddSingleton<ICodingWriter, CodingWriter>().AddSingleton<CodingWriteQueue>();
+        services.AddSingleton<ICodingWriter, CodingWriter>();
+        if (configuration.Options.WriteJournal is { } journal)
+            services.AddSingleton<ICodingWriteJournal>(_ => new CodingWriteJournal(journal,
+                Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new[]
+                    { configuration.Options.OwnerId, host.Neo4jUri, "coding-" }))),
+                identity => identity.OwnerId == configuration.Options.OwnerId &&
+                    configuration.Options.Projects.ContainsKey(identity.ProjectId) &&
+                    (configuration.Options.Remote is null || configuration.Options.Remote.AllowWrites)));
+        services.AddSingleton(sp => new CodingWriteQueue(sp.GetRequiredService<ICodingWriter>(), configuration.Content,
+            retainedJobs: configuration.Options.WriteJournal?.RetainedJobs ?? 512,
+            journal: sp.GetService<ICodingWriteJournal>()));
         services.AddHostedService(sp => sp.GetRequiredService<CodingWriteQueue>());
         CodingTransport.AddServices(services);
         if (configuration.Options.Remote is not null) CodingRemoteAuthentication.AddServices(services, configuration.Options);
@@ -115,9 +127,11 @@ internal static class CodingHost
             using var startup = new CancellationTokenSource(TimeSpan.FromMinutes(2));
             await PrepareAsync(app, configuration, startup.Token).ConfigureAwait(false);
             CodingTransport.Map(app);
-            Console.Error.WriteLine(configuration.Options.Remote is null
+            var notice = configuration.Options.Remote is null
                 ? "agent-memory-mcp: coding mode, loopback only; input filtering is heuristic; jobs are not durable."
-                : "agent-memory-mcp: coding mode, HTTPS/OAuth; input filtering is heuristic; jobs are not durable.");
+                : "agent-memory-mcp: coding mode, HTTPS/OAuth; input filtering is heuristic; jobs are not durable.";
+            Console.Error.WriteLine(configuration.Options.WriteJournal is null ? notice :
+                notice.Replace("jobs are not durable.", "bounded durable receipts enabled; uncertain attempts are not replayed.", StringComparison.Ordinal));
             await app.RunAsync().ConfigureAwait(false);
             return 0;
         }

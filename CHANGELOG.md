@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tooling
 
+- Add opt-in coding-host `writeJournal` receipts backed by private embedded SQLite. Retain scoped
+  status, duplicate/conflict checks and accepted never-started work across restart. Interrupted
+  writer attempts remain Unknown; no blind replay or exactly-once extraction claim. Off preserves
+  the baseline queue and wire. Terminal receipts clear captured text; retention never deletes graph history.
+
 - Use Recommended by default in ConversationalAgent, with an explicit `--conversational` legacy
   choice, post-preset extraction overrides, optional configured retrieval judges and a tier summary.
 - Disable automatic query splitting in the experimental Recommended preset, preserving the frozen

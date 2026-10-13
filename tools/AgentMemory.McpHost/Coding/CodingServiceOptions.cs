@@ -20,10 +20,13 @@ internal sealed record CodingServiceOptions
     public string? ClosingJudgeName { get; init; }
     /// <summary>Explicit HTTPS/OAuth mode. Null adds no OAuth discovery, validation or rate-limit services.</summary>
     public CodingRemoteOptions? Remote { get; init; }
+    /// <summary>Opt-in private write receipts. Null creates no journal files/services and preserves baseline receipt/tool bytes.</summary>
+    public CodingJournalOptions? WriteJournal { get; init; }
     public IReadOnlyList<CodingJudgeOptions> Judges { get; init; } = [];
 
     public void Validate()
     {
+        WriteJournal?.Validate();
         if (string.IsNullOrWhiteSpace(OwnerId) || OwnerId.Length > 256 ||
             Projects is not { Count: > 0 and <= 32 } ||
             Projects.Any(p => p.Key.Length > 32 || !Regex.IsMatch(p.Key, "\\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\z") ||

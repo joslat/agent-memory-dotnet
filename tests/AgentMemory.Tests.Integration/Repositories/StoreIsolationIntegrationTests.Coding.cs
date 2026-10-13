@@ -27,10 +27,15 @@ namespace AgentMemory.Tests.Integration.Repositories;
 public sealed partial class StoreIsolationIntegrationTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Coding_worker_persists_sources_and_facts_only_in_the_bound_project_and_forgets_non_destructively(bool fallback)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Coding_worker_persists_sources_and_facts_only_in_the_bound_project_and_forgets_non_destructively(bool fallback, bool durable)
     {
+        using var journalFolder = new CodingJournalTestDirectory();
+        var journalJson = durable ? System.Text.Json.JsonSerializer.Serialize(new CodingJournalOptions
+            { Directory = journalFolder.Path }, CodingApi.Json) : "null";
         var neo4j = new Neo4jOptions
         {
             Uri = _container!.GetConnectionString(), Username = Username, Password = Password,
@@ -56,7 +61,7 @@ public sealed partial class StoreIsolationIntegrationTests
             ["NEO4J_URI"] = neo4j.Uri, ["NEO4J_USERNAME"] = Username, ["NEO4J_PASSWORD"] = Password,
             ["ALPHA_TOKEN"] = new string('x', 40), ["BETA_TOKEN"] = new string('y', 40),
         };
-        var config = CodingConfiguration.Parse($$"""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN","beta":"BETA_TOKEN"},"url":"http://127.0.0.1:{{port}}","allowExtractorFallback":{{(fallback ? "true" : "false")}}}""",
+        var config = CodingConfiguration.Parse($$"""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN","beta":"BETA_TOKEN"},"url":"http://127.0.0.1:{{port}}","allowExtractorFallback":{{(fallback ? "true" : "false")}},"writeJournal":{{journalJson}}}""",
             environment.GetValueOrDefault);
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
         CodingHost.Configure(builder, config);
@@ -102,6 +107,7 @@ public sealed partial class StoreIsolationIntegrationTests
             var second = await SubmitAsync("beta", request with { UserText = "beta-choice" });
             alphaJob = await AwaitCodingJobAsync(client, "alpha", environment["ALPHA_TOKEN"], first.JobId);
             alphaJob.State.Should().Be(CodingJobState.Succeeded, alphaJob.ErrorCode);
+            alphaJob.Durability.Should().Be(durable ? "journal" : null);
             alphaJob.ExtractionPath.Should().Be(fallback ? ExtractionPath.WriterFallback : ExtractionPath.Writer);
             var betaJob = await AwaitCodingJobAsync(client, "beta", environment["BETA_TOKEN"], second.JobId);
             betaJob.State.Should().Be(CodingJobState.Succeeded, betaJob.ErrorCode);
@@ -139,6 +145,25 @@ public sealed partial class StoreIsolationIntegrationTests
         (await operations.HistoryAsync(beta, betaFact.Id)).Should().ContainSingle()
             .Which.Status.Should().Be(MemoryHistoryStatus.Live);
 
+        if (durable)
+        {
+            await app.DisposeAsync(); // Release the first host's journal lease before reopening it.
+            var binding = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new[] { config.Options.OwnerId, neo4j.Uri, "coding-" })));
+            using var journal = new CodingWriteJournal(config.Options.WriteJournal!, binding,
+                identity => identity.OwnerId == "owner" && identity.ProjectId is "alpha" or "beta");
+            var mustNotReplay = new RejectCodingReplay();
+            using var reopened = new CodingWriteQueue(mustNotReplay, config.Content, journal: journal);
+            reopened.Get(alpha, alphaJob.JobId).Should().Be(alphaJob);
+            reopened.Get(beta, alphaJob.JobId).Should().BeNull();
+            reopened.TryEnqueue(alpha, request).Should().Be(alphaJob);
+            reopened.Invoking(q => q.TryEnqueue(alpha, request with { UserText = "changed" }))
+                .Should().Throw<CodingTurnConflictException>();
+            await reopened.StartAsync(default);
+            await reopened.StopAsync(default);
+            mustNotReplay.Calls.Should().Be(0);
+        }
+
         async Task<CodingWriteJob> SubmitAsync(string project, CodingRememberRequest value)
         {
             using var message = new HttpRequestMessage(HttpMethod.Post, $"/projects/{project}/remember")
@@ -163,6 +188,27 @@ public sealed partial class StoreIsolationIntegrationTests
             var job = (await response.Content.ReadFromJsonAsync<CodingWriteJob>(CodingApi.Json, deadline.Token))!;
             if (job.State is not (CodingJobState.Queued or CodingJobState.Running)) return job;
             await Task.Delay(20, deadline.Token);
+        }
+    }
+
+    private sealed class RejectCodingReplay : ICodingWriter
+    {
+        public int Calls { get; private set; }
+        public Task<CodingWriteResult> WriteAsync(CodingIdentity identity, CodingRememberRequest request, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            throw new InvalidOperationException("A completed durable receipt must not replay extraction.");
+        }
+    }
+
+    private sealed class CodingJournalTestDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "coding-integration-journal-" + Guid.NewGuid().ToString("N"));
+        public void Dispose()
+        {
+            if (!Directory.Exists(Path)) return;
+            foreach (var file in Directory.GetFiles(Path)) File.Delete(file);
+            Directory.Delete(Path);
         }
     }
 

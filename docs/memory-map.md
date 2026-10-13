@@ -53,8 +53,12 @@ project OAuth audiences, one configured owner subject and explicit read/write sc
 Keycloak/PKCE/consent/HTTPS/MCP lab passed 41/41 checks and a separate lifecycle run passed 27/27.
 Actual Claude **cloud** connector acceptance remains unverified. No service starts by default.
 
-Queued acknowledgements remain **non-durable**: a host restart can lose accepted waiting work
-and job status. Persisted sources do not prove extraction completed. Durable receipts, scoped
+Baseline queued acknowledgements remain **non-durable**. The opt-in `writeJournal` host capability
+is **BUILT / WIRED**: transactional receipts, scoped duplicate/conflict retention and recovery of
+never-started work. Interrupted writer attempts become Unknown and are not replayed; a graph source
+is not proof of completed extraction. A bounded real Qwen/Bitdeer + Neo4j/Ollama/OAuth control
+passed 27/27 crash/recovery checks; two GLM writer runs exceeded their observation windows and
+remain failed runs. This is infrastructure evidence, not a model-quality comparison. Scoped
 recall diagnostics and preview/evidence expansion are not capabilities of this baseline.
 
 **Actual extraction path — BUILT / WIRED, not benchmark-measured.** `ExtractionResult.Path`

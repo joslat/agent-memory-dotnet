@@ -20,6 +20,44 @@ namespace AgentMemory.Tests.Unit.McpServer;
 public sealed class CodingHostTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Journal_is_instantiated_only_when_explicitly_configured(bool enabled)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "coding-host-journal-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                ownerId = "owner", projects = new { alpha = "ALPHA_TOKEN" },
+                writeJournal = enabled ? new { directory = path } : null,
+            });
+            var config = CodingConfiguration.Parse(json, CodingConfigurationTests.EnvironmentValues().GetValueOrDefault);
+            var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+            CodingHost.Configure(builder, config);
+            await using var app = builder.Build();
+            Directory.Exists(path).Should().BeFalse("registration alone performs no journal I/O");
+            var journal = app.Services.GetService<ICodingWriteJournal>();
+            (journal is not null).Should().Be(enabled);
+            Directory.Exists(path).Should().Be(enabled);
+            if (journal is not null)
+            {
+                journal.CanResume(new("owner", "alpha")).Should().BeTrue();
+                journal.CanResume(new("other", "alpha")).Should().BeFalse();
+                journal.CanResume(new("owner", "beta")).Should().BeFalse();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(path))
+            {
+                foreach (var file in Directory.GetFiles(path)) File.Delete(file);
+                Directory.Delete(path);
+            }
+        }
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, true)]
     public async Task Explicit_retrieval_selection_preserves_the_separate_storage_judge(bool useRetrievalGate, bool automaticQuerySplitting)

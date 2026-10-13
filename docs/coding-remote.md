@@ -159,7 +159,8 @@ The connector relies on model tool selection; it does not add coding hooks or gu
 No connector is installed automatically. Live client use, provider data permissions and deployment
 verification remain separate from the local protocol tests.
 
-The existing queue is in-process and not durable. Token validation does not provide immediate token
-revocation: use short-lived access tokens and the provider's session controls. This is not a multi-user
+The default queue is in-process. [Optional durable receipts](coding-service.md#optional-durable-write-receipts)
+retain accepted work/status and recheck server write permission on recovery. Token validation does not
+provide immediate token revocation: use short-lived access tokens and the provider's session controls. This is not a multi-user
 SaaS or a claim of production security review. The input filter is heuristic and cannot audit stored
 graph data or prove that a response contains no secrets. Plan which project memories a client may receive.

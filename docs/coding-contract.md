@@ -114,7 +114,10 @@ or provenance produces `turn_conflict`. Other owner/project receipts are not vis
 `extractionPath` reports the observed pipeline path independently of state. Baseline receipts
 are lost on restart/eviction. A persisted source after restart proves an attempt began; it does
 not prove extraction committed. The writer returns Unknown instead of replaying extraction.
-A durable journal is a separate opt-in capability; v1 currently makes no exactly-once guarantee.
+The optional `writeJournal` capability adds a `durability` receipt field (`journal` or `uncertain`)
+and conditionally describes retention/recovery in the existing tools. Off preserves the v1 wire.
+[Journal configuration](coding-service.md#optional-durable-write-receipts) defines its bounded
+recovery and failure contract. Neither path makes an exactly-once extraction guarantee.
 
 ## Errors and readiness
 

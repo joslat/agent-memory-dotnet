@@ -15,14 +15,16 @@ The shared [host contract v1](coding-contract.md) separates independent capabili
 
 | Tested client | MCP tools | Automatic recall | Automatic completed-turn capture | Durable queue acknowledgement | Governed storage |
 |---|---|---|---|---|---|
-| Claude Code 2.1.296 | Yes | Session profile + prompt | Paired hooks; terminal-error caveat below | No | Host writer, scope and history |
-| Codex CLI 0.160.1 | Yes | Session profile + prompt | Paired hooks; interruption checked separately on app-server 0.162.1 | No | Host writer, scope and history |
-| Copilot CLI 1.0.96 | Yes | Session profile + opt-in transformed prompt | No; explicit writes | No | Host writer, scope and history |
-| VS Code Local 1.142.0-insider | Yes | Session profile only | No; explicit writes | No | Host writer, scope and history |
+| Claude Code 2.1.296 | Yes | Session profile + prompt | Paired hooks; terminal-error caveat below | Opt-in host journal | Host writer, scope and history |
+| Codex CLI 0.160.1 | Yes | Session profile + prompt | Paired hooks; interruption checked separately on app-server 0.162.1 | Opt-in host journal | Host writer, scope and history |
+| Copilot CLI 1.0.96 | Yes | Session profile + opt-in transformed prompt | No; explicit writes | Opt-in host journal | Host writer, scope and history |
+| VS Code Local 1.142.0-insider | Yes | Session profile only | No; explicit writes | Opt-in host journal | Host writer, scope and history |
 | Claude web connector | Not validated | Not validated | Not validated | Not validated | Requires separate cloud acceptance |
 
-These columns describe this integration at the tested versions. Durable graph records do not
-make an in-memory queue acknowledgement durable. Governed storage does not verify the truth of
+These columns describe this integration at the tested client versions. The new opt-in host journal
+is shared by HTTP and MCP; the earlier client runs used the non-durable baseline. Its dedicated
+crash/restart acceptance is separate from native-client activation. Durable graph records alone do
+not make an in-memory queue acknowledgement durable. Governed storage does not verify the truth of
 assistant claims. No single maturity badge substitutes for these distinctions. Runtime/live host
 checks were performed on Windows; Linux container service checks do not prove Linux/macOS client
 hook compatibility. The existing packaged .NET host contains the helper; no separate npm service

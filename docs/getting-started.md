@@ -723,3 +723,10 @@ builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
 | [`samples/AgentMemory.Sample.BlendedAgent`](../samples/AgentMemory.Sample.BlendedAgent/) | Blended GraphRAG + memory sample |
 | [`samples/AgentMemory.Sample.McpHost`](../samples/AgentMemory.Sample.McpHost/) | MCP server host sample |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | How to build, test, and contribute |
+
+### Coding-host durable receipts
+
+For native coding clients, the optional host `writeJournal` configuration retains accepted work
+and receipts across restart. It is off by default and uses a dedicated private local directory;
+it does not change the library persistence or retrieval defaults. See
+[setup and recovery semantics](coding-service.md#optional-durable-write-receipts).

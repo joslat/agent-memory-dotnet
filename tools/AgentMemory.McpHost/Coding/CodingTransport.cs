@@ -13,10 +13,11 @@ internal static class CodingTransport
             {
                 var identity = request.Services!.GetRequiredService<IHttpContextAccessor>().HttpContext!.Features.Get<CodingIdentity>()
                     ?? throw new UnauthorizedAccessException();
+                var definitions = CodingToolDefinitions.For(request.Services!.GetRequiredService<CodingServiceOptions>().WriteJournal is not null);
                 return ValueTask.FromResult(new ListToolsResult
                 {
-                    Tools = identity.CanWrite ? CodingToolDefinitions.All :
-                        CodingToolDefinitions.All.Where(t => t.Name is not ("remember" or "forget")).ToArray(),
+                    Tools = identity.CanWrite ? definitions.ToArray() :
+                        definitions.Where(t => t.Name is not ("remember" or "forget")).ToArray(),
                 });
             })
             .WithCallToolHandler(async (request, ct) =>

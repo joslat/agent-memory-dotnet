@@ -70,6 +70,78 @@ Recommended memory/writer preset; extractor fallback is off unless explicitly en
 settings do not customize that preset. The mode clears ambient ASP.NET configuration and binds only the
 configured IPv4 loopback address, with at most 64 concurrent connections. Do not expose it through a proxy.
 
+### Optional durable write receipts
+
+The default queue is in-process. To retain accepted work and receipts across host restarts,
+explicitly add a dedicated private local directory to the coding JSON:
+
+```json
+"writeJournal": {
+  "directory": "C:\\private-data\\agent-memory\\coding-journal",
+  "retainedJobs": 512
+}
+```
+
+Linux example: `/var/lib/agent-memory/journal`. Omit `writeJournal` to retain baseline behavior:
+no journal service or file I/O, unchanged baseline tool descriptions and no extra receipt field.
+This uses embedded SQLite in the coding host only; it adds no server or core library dependency.
+Disabling the option leaves existing journal files intact and does not recover their queued work.
+The service must own the directory. Newly created directories are private (Unix 0700; Windows
+current service account, SYSTEM and administrators). Permissive existing directories are
+rejected; Windows also checks existing journal-file ACLs. Unix directory access protects its files,
+and the database is set to mode 0600. Links and Windows UNC paths are rejected.
+Use a local filesystem, not a network share or a synchronized folder. The journal is bound to the
+configured owner and Neo4j URI; reusing it for another deployment fails startup.
+
+For a container with a read-only root filesystem, provide a writable private mount whose root
+belongs to the image's service UID. Provision that mount once, outside the running memory process;
+do not run the service as root or grant it filesystem-management capabilities. Mounting an empty
+root-owned volume over a service path does not grant the non-root service write access.
+
+With the option on:
+
+- `remember` returns `durability: "journal"` only after the request and receipt commit locally.
+  It still returns 202, and acceptance still does not mean extraction succeeded.
+- The worker commits Running before calling the existing writer. Recovery resumes only entries
+  still Queued. A previously Running entry becomes Unknown (`restart_during_write`) and is never
+  automatically re-extracted. Persisted sources alone do not prove extraction completed.
+- Terminal receipts, duplicate IDs and payload conflicts survive restart within retention. Original
+  source IDs and payload hashes are unchanged. A duplicate can return its existing terminal result.
+- Queued recovery checks the current owner/project, server write permission and content policy.
+  Removed projects or disabled remote writes cancel that queued work (`recovery_not_authorized`).
+  Tokens authorize acceptance; their later expiry/revocation does not cancel already accepted work.
+- An unavailable journal stops admission/execution. An uncertain state transition reports Unknown,
+  `journal_unavailable` and `durability: "uncertain"`; restart after repairing storage to recover.
+  A failed acceptance may have committed before the caller saw the failure; retry the identical
+  turn ID and payload, never create a new ID merely because the response was lost.
+- Orderly shutdown retains never-started work for the next host; interrupted active work becomes
+  Unknown. The baseline queue instead cancels waiting work on shutdown.
+
+There is one worker and 64 waiting slots. Retention is 64..4096 receipts (default 512); oldest
+terminal receipts are evicted when new admission needs space. Active work is never evicted.
+Receipt availability and duplicate recognition end at eviction; graph history remains intact.
+Conversation text is cleared from terminal journal entries, while hashes, scope and results remain.
+SQLite secure-delete is enabled; this is not encryption or a promise to erase backups/filesystem
+snapshots. Keep the directory out of source control and use appropriate private storage.
+
+The database is capped at 64 MiB, entries at 128 KiB, and retained row count at the configured limit.
+The rollback journal is transient additional disk use. Integrity/version/owner mismatches fail closed
+without deleting evidence. One host holds the journal's exclusive process lease; multiple independent
+journals aimed at the same graph are **not** a supported multi-writer coordination scheme.
+
+The journal uses SQLite DELETE journaling and EXTRA synchronization. The graph and journal are
+separate transactions: this does not provide exactly-once extraction. Process restart checks cannot
+prove sudden-power-loss behavior on every filesystem/device. See
+[SQLite commit guarantees](https://www.sqlite.org/atomiccommit.html) and
+[synchronization settings](https://www.sqlite.org/pragma.html#pragma_synchronous).
+
+A bounded real Linux-container acceptance used Qwen/Qwen3.8-27B through Bitdeer, local bge-m3,
+Neo4j and Keycloak. All 27 checks passed, including forced host-process termination, fresh-session
+retrieval after recovery, duplicate/conflict retention and write opt-out before recovery. The
+interrupted writer was held under a real graph lock before source creation. Two separate GLM-5.3-Flash
+writer runs exceeded 120/240-second observation windows; they remain failures. No default model,
+prompt or semantic threshold changed, and this is not a quality benchmark or power-loss test.
+
 ### Configurable retrieval
 
 Configured judges are used by default (`"useRetrievalGate": true`). Set it to `false` to
@@ -184,11 +256,13 @@ model-generated output. Select and redact client input accordingly. Provider cal
 by the writer, embeddings and configured judges to those providers. Building or configuring this mode
 does not authorize sending sensitive data to a provider.
 
-The in-process queue has one worker, capacity 64 and at most 512 retained jobs. Overflow returns 503.
+The default in-process queue has one worker, capacity 64 and at most 512 retained jobs. Overflow returns 503.
 Job states distinguish queued/running, succeeded, partial, failed, unknown and cancelled. After eviction
 or restart, an existing source means prior-attempt-unknown and is not automatically re-extracted.
-Partial source writes can remain after failures. There are no durable jobs, exactly-once guarantee or
-multi-instance coordination. Shutdown cancels waiting jobs and marks interrupted writes unknown.
+Partial source writes can remain after failures. The baseline offers no durable jobs, exactly-once
+guarantee or multi-instance coordination. Shutdown cancels waiting jobs and marks interrupted writes
+unknown. The opt-in journal above adds bounded durable receipts and conservative recovery; it does
+not provide exactly-once extraction or distributed coordination.
 
 Failures return stable codes, without exception payloads. Coding mode suppresses framework/provider
 log providers and emits only generic startup diagnostics to stderr; request text is not an operational

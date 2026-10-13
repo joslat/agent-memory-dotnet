@@ -1369,6 +1369,15 @@ payloads using the same turn ID are rejected. After eviction or restart, a store
 is not durable, and this does not promise exactly-once writes or safe concurrent service instances.
 Shutdown cancels waiting jobs and marks an interrupted write unknown. Unit checks and a real two-database
 test with a deterministic writer cover persistence, provenance, isolation, retries and soft forgetting.
+Optional `WriteJournal` adds a host-owned SQLite receipt journal (Microsoft.Data.Sqlite in the
+McpHost tool only). It commits acceptance before acknowledgement, Running before writer execution,
+and the terminal result before reporting durable completion. Recovery resumes never-started work
+and marks interrupted attempts Unknown; it rechecks configured scope/write permission/content.
+The journal and Neo4j are separate transactions, with no exactly-once promise. A private directory,
+exclusive host lease, bound owner/deployment identity, row/payload/page limits and retention control
+its footprint. Terminal receipts drop captured text; receipt eviction never deletes graph records.
+Off creates no journal services/files and preserves baseline receipt/tool bytes. See the
+[configuration and recovery contract](coding-service.md#optional-durable-write-receipts).
 The internal HTTP and stateless MCP mappings share a strict dispatcher for `recall`, `remember`,
 `forget`, `history`, `profile` and `write_status`. Unknown arguments are rejected, including owner or
 project overrides. HTTP acceptance returns 202; completion requires a status query. Recall reuses the
