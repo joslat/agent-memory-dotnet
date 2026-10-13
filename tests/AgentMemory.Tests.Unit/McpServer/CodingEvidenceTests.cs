@@ -146,7 +146,7 @@ public sealed class CodingEvidenceTests
     {
         await using var f = new Fixture(options: new() { MaxBytes = 1024 });
         var id = (await f.Preview()).GetProperty("previewId").GetString()!;
-        f.Row = f.Row with { Summary = string.Concat(Enumerable.Repeat("??\n\"<&", 1000)) };
+        f.Row = f.Row with { Summary = string.Concat(Enumerable.Repeat("\U0001F600\n\"<&", 1000)) };
         var result = await f.Expand(id);
         result.StatusCode.Should().Be(200);
         JsonSerializer.SerializeToUtf8Bytes(result.Body, CodingApi.Json).Length.Should().BeLessThanOrEqualTo(1024);
