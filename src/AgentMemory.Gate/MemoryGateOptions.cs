@@ -37,7 +37,11 @@ public sealed class SystemOneEndpoint
     /// <summary>The endpoint, e.g. <c>https://api.typesafe.ai/v1/systemone</c> or <c>http://127.0.0.1:8765/v1/systemone</c>.</summary>
     public Uri? Endpoint { get; set; }
 
-    /// <summary>The environment variable holding the key (never logged); none for a local server.</summary>
+    /// <summary>
+    /// The environment variable holding the key (never logged); null for an unauthenticated local server.
+    /// When configured but missing or blank, this judge fails without an HTTP request and follows the
+    /// normal fallback/cooldown policy. Supplying a key permits a later attempt, after any active cooldown.
+    /// </summary>
     public string? KeyVariable { get; set; }
 
     /// <summary>The model the endpoint is asked for.</summary>

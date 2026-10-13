@@ -3,6 +3,11 @@
 A reference for what agent memory is, what a memory system has to decide that a store does not, and
 **exactly** which of those decisions AgentMemory makes today.
 
+**Judge failure handling — BUILT / WIRED.** Missing configured credentials skip transport; invalid
+probabilities fail the call. Deterministic tests cover the surviving retrieval judge, credential
+recovery and named-only storage fallback without retrying valid negative verdicts. This validates
+protocol/fallback behavior, not model quality or live provider availability.
+
 **Recommended Agent Framework migration — BUILT / WIRED, not a new quality measurement.**
 The adapter's explicit `ApplyRecommended()` preset stops requesting deferred question turns, keeping
 ordinary turns separate for the single-turn writer. Inline and queued dispatch are tested, including

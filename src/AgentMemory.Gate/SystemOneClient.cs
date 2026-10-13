@@ -163,6 +163,11 @@ internal sealed class SystemOneClient
     private async Task<IReadOnlyDictionary<string, double>> SendAsync(
         SystemOneEndpoint endpoint, object state, IReadOnlyDictionary<string, YesNo> questions, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var key = endpoint.KeyVariable is { } variable ? Environment.GetEnvironmentVariable(variable) : null;
+        if (endpoint.KeyVariable is not null && string.IsNullOrWhiteSpace(key))
+            throw new InvalidOperationException($"The judge '{endpoint.Name}' has no configured credential available.");
+
         var body = Render(endpoint.Model, state, questions);
         for (var attempt = 0; ; attempt++)
         {
@@ -170,7 +175,7 @@ internal sealed class SystemOneClient
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
             };
-            if (endpoint.KeyVariable is { } variable && Environment.GetEnvironmentVariable(variable) is { Length: > 0 } key)
+            if (key is not null)
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
             using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if ((response.StatusCode == HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500) && attempt == 0)
@@ -188,7 +193,14 @@ internal sealed class SystemOneClient
     {
         using var document = JsonDocument.Parse(body);
         var answers = document.RootElement.GetProperty("answers");
-        return asked.ToDictionary(id => id, id => answers.GetProperty(id).GetProperty("noul").GetDouble(), StringComparer.Ordinal);
+        return asked.ToDictionary(id => id, id =>
+        {
+            var value = answers.GetProperty(id).GetProperty("noul");
+            if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var score)
+                || !double.IsFinite(score) || score < 0 || score > 1)
+                throw new JsonException("A judge probability must be a finite number between zero and one.");
+            return score;
+        }, StringComparer.Ordinal);
     }
 }
 

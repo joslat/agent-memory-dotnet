@@ -8,6 +8,12 @@
 
 ## 1. Vision & Goals
 
+**Judge response boundary:** the shared System One client rejects missing configured credentials
+before transport and validates each requested probability as finite and within `[0, 1]`. An invalid
+response fails that call rather than becoming a score. Existing per-type retrieval blending/floor
+fallback and named-closing host-model fallback apply; valid negative verdicts are preserved.
+Missing credentials participate in the existing cooldown and can recover on a later attempt.
+
 **Recommended adapter composition:** `AgentFrameworkOptions.ApplyRecommended()` (`AMREC001`)
 disables question-turn deferral without resetting other host settings. This keeps the adapter's
 ordinary extraction requests compatible with the single-user-turn writer when migrating from

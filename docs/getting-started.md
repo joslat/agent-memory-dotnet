@@ -509,6 +509,14 @@ and a host can ask for it at any time (`IMemoryTiers`, `AMREC001`): without a ju
 `retrieval: similarity floor (Judge mode has no judge configured)`, and while every judge is left out after repeated
 failures it says so.
 
+When `SystemOneEndpoint.KeyVariable` is set, a missing or blank value makes that judge unavailable
+without sending an HTTP request. Leave it null only for an intentionally unauthenticated endpoint.
+Failures follow the configured cooldown; after supplying the credential, a later attempt can recover.
+The client rejects incomplete responses and probabilities outside the finite `[0, 1]` range.
+Retrieval uses the answering permitted judges, or the similarity floor if a memory type has none.
+An invalid external closing response can use the configured host-model fallback only for writer-named
+closings. A valid negative response remains a rejection. These checks add no endpoint discovery.
+
 For Agent Framework hosts, `AgentFrameworkOptions.ApplyRecommended()` disables `DeferQuestionTurns`,
 including on an instance previously configured with `ApplyConversational()`. The writer takes one user
 message at a time; releasing a held question with the next turn would select the extractors instead.

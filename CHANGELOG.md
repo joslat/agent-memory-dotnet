@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject out-of-range and non-finite System One probabilities before blending them. Missing or blank
+  configured credentials now skip HTTP transport. Existing retrieval/closing fallback and cooldown
+  policies handle these failures; valid negative verdicts remain unchanged.
+
 - Build the MCP container with the repository's .NET 10 SDK and runtime instead of incompatible
   .NET 9 images. Restrict its build context to public inputs, excluding private/generated files.
 
