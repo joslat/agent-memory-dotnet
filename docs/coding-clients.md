@@ -6,8 +6,8 @@ project memory. These observations were checked on 13 October 2026.
 
 | Client | Implemented hook path | Writes | Actual-client evidence |
 |---|---|---|---|
-| Claude Code 2.1.296 | Session profile; prompt capture and recall; matching completion; failure cleanup | Paired `prompt_id` hooks, or explicit MCP | Actual CLI and helper processes passed 7/7 protocol checks with local service/model fixtures. |
-| Codex CLI 0.160.1 | Session profile; prompt capture and recall; matching completion; interruption cleanup | Paired `turn_id` hooks, or explicit MCP | Actual CLI and helper processes passed 7/7 protocol checks with local service/model fixtures. |
+| Claude Code 2.1.296 | Session profile; prompt capture and recall; matching completion; cleanup when failure event arrives | Paired `prompt_id` hooks, or explicit MCP | 7/7 protocol checks; 17/17 real Bitdeer/Neo4j paired-hook checks. Terminal-error cleanup has the limitation below. |
+| Codex CLI 0.160.1 | Session profile; prompt capture and recall; matching completion; interruption cleanup | Paired `turn_id` hooks, or explicit MCP | 7/7 protocol checks; 17/17 real Bitdeer/Neo4j paired-hook checks. Actual interruption acceptance remains open. |
 | Copilot CLI 1.0.96 | Session profile and native transformed-prompt recall | Explicit MCP | 7/7 protocol checks, plus a real Bitdeer/MCP/Neo4j run with 18/18 bounded checks. |
 | VS Code Local | Session profile | Explicit MCP | Synthetic contract coverage; actual editor workflow remains unverified. Select the Local harness: provider-hosted sessions have different contracts. |
 
@@ -30,6 +30,42 @@ path and Recommended writer/host closing judge. It is not a quality benchmark or
 provider, outage, interruption, duplicate or editor workflow. The history and forget operations in this
 run came from the test harness through HTTP, not model-selected MCP calls. No personal client setup
 or existing database was changed.
+
+Additional real Copilot sessions submitted an identical turn twice and then changed the payload
+under that same turn ID. The duplicate returned the same completed job; the changed payload
+received `turn_conflict`. Stored content and relationships remained unchanged. Whole-graph equality
+failed because the client hooks performed recall, updating access counters and creating
+read-audit records. Those original failed assertions remain in the evidence.
+
+With the service stopped, both hooks reported unavailability and the client still answered the
+synthetic prompt. MCP tools were disconnected for this case: it establishes hook fail-open behavior,
+not resilience of an unavailable MCP connection at client startup.
+
+## Real Claude and Codex paired capture
+
+Each client passed 17/17 bounded checks using real Bitdeer GLM-5.3-Flash, the coding host,
+Ollama embeddings and disposable Neo4j. A completion hook queued the captured user/assistant
+pair automatically, its job completed, and the fact persisted. A fresh session retrieved it;
+a different project answered UNKNOWN. Each run used three fresh sessions, isolated client
+settings and no explicit rescue writes. These runs used the current post-build host binary.
+
+For routing, Bitdeer documents both an Anthropic-compatible connection and a Responses API
+connection. Configure these in an isolated client profile; do not assume a Chat Completions URL
+alone supports either protocol. [Claude connection](https://developers.bitdeer.ai/docs/guides/integrations/claude-code-cli),
+[Codex connection](https://developers.bitdeer.ai/docs/guides/integrations/codex).
+
+### Terminal-error limitation
+
+In a separate local protocol fixture, Claude 2.1.296 in restricted print mode received a terminal
+HTTP 400 error. SessionStart and UserPromptSubmit fired, but neither Stop nor StopFailure arrived.
+No memory write occurred; the pending user capture remained. Therefore immediate failure cleanup
+is not established for that invocation, despite the documented StopFailure contract. This is a
+client/configuration observation, not a real-provider outage result.
+
+The helper discards captures when a matching failure event arrives. Otherwise its 24-hour lifetime
+prevents expired captures from being submitted, and later capture activity prunes expired entries;
+there is no background timer that guarantees deletion at 24 hours. Do not treat pending captures
+as completed writes or describe cleanup as unconditional.
 
 ## Trust and versions
 
