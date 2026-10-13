@@ -202,7 +202,10 @@ implementation code. It checks manifest/informational-version agreement but does
 publishers or grant trust. The already-loaded assembly overload reads attribute metadata only.
 Local manifest validation now checks owned ontology names, provenance reservations, relationships,
 render templates, numeric constraints and typed views. It returns all problems without database or
-provider calls; cross-module resolution and generated schema-name checks remain unfinished.
+provider calls. The pure complete-set resolver freezes caller data, checks ranges, dependencies,
+cross-module names/targets and cycles, and returns no partial set on failure. Its metadata fingerprint
+excludes future profile/configuration/trust identities. Feature inputs do not prove DI registrations;
+profile composition, actual host probes, generated schema-name checks and activation remain unfinished.
 
 The rule the exception does **not** relax: a layered adapter still never depends on `Neo4j`, and
 `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly

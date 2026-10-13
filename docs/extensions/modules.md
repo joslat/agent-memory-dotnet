@@ -54,7 +54,7 @@ and relation descriptions follow the 200-character bound. Shared scope is declar
 it does not authorize a shared write.
 
 This reader validates wire shape, not complete semantic compatibility. Call `Validate()` for the local
-ontology and view checks below. Whole-set SDK/dependency/host resolution and trust/activation remain unfinished. Do not treat a successful parse as
+ontology and view checks below. The pure resolver below checks complete metadata sets; profile/DI, trust and activation remain unfinished. Do not treat a successful parse as
 permission to execute code or apply schema. No existing host activates manifests automatically.
 
 ## Assembly discovery without implementation execution
@@ -73,7 +73,7 @@ For untrusted implementation files, use the file/image overloads before any runt
 
 Discovery is not publisher verification or a sandbox. A later activation path must verify and load
 the authorized bytes; parsing a path once does not authorize whatever later occupies that path.
-Whole-set validation, signature checks and runtime activation are still separate unfinished work.
+Profile/DI validation, signature checks and runtime activation remain separate unfinished work.
 The implementation uses the framework's [PE metadata reader](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.metadata.metadatareader)
 and [PEReader](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.portableexecutable.pereader).
 
@@ -104,3 +104,24 @@ matches, that two modules have disjoint namespaces, or that the host supports re
 Those require complete-set resolution. Signature verification and activation remain separate.
 The editor JSON Schema and generated index/constraint-name collision checks are still unfinished;
 this API alone does not close the module-resolution capability.
+
+
+## Complete metadata sets
+
+`ModuleResolver.Resolve(manifests, sdkVersion, availableFeatures)` deep-freezes declarations and
+returns dependency-ordered `Modules`, ordinal `Errors` and a `ManifestFingerprint`. Any error returns
+an empty module set and null fingerprint. Duplicate identities are rejected even when one declaration
+is locally invalid. Missing/invalid dependencies, incompatible ranges, SDK requirements and independent
+cycles are diagnosed together. The resolver checks cross-module prefix/label/relationship collisions
+and that declared dependency targets actually exist. Ontology/views imply `ModuleSchema`.
+
+Caller arrays, dictionaries and JSON documents may be changed/disposed after resolution without
+changing the result; inputs must not be concurrently modified during the call. The fingerprint is
+SHA-256 over normalized metadata and the target SDK, with ordinal maps/module order. Named arrays
+retain their declaration order. It is not the eventual active-set fingerprint: composition still
+needs profile, configuration, migration and trust identities.
+
+Available features are explicit planning inputs, not proof of a running host. A host must derive them
+from actual effective registrations/options. This API performs no DI, provider calls, module code
+execution or schema work, and does not authorize activation. Profile registration reconciliation,
+actual host probes, generated index/constraint collisions and runtime activation remain unfinished.

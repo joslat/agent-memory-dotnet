@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experimental complete metadata resolver freezes caller declarations, checks module dependencies,
+  ranges, cross-module names/targets and feature inputs, and aggregates errors without exposing a
+  partial set. Profile/DI resolution, publisher verification and activation remain unfinished.
+
 - Experimental local manifest validation reports ontology ownership, reserved-name, numeric-bound,
   render-reference and typed-view errors without code execution or database work. Complete module-set
   resolution and activation remain unfinished.

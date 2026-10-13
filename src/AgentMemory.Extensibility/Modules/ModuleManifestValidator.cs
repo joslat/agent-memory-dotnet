@@ -14,7 +14,7 @@ internal sealed class ModuleManifestValidator
     private static readonly Regex Relationship = Pattern(@"\A[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*\z");
     private static readonly Regex RenderParts = Pattern(@"\{\{|\}\}|\{([A-Za-z][A-Za-z0-9_]*)(?::([^{}]+))?\}|[{}]");
     private static readonly Regex Timestamp = Pattern(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})\z");
-    private static readonly FrozenSet<string> ReservedLabels = ModuleReservedNames.Labels.Select(Snake).ToFrozenSet(StringComparer.Ordinal);
+    private static readonly FrozenSet<string> ReservedLabels = ModuleReservedNames.Labels.Select(SchemaName).ToFrozenSet(StringComparer.Ordinal);
     private readonly SortedSet<string> _errors = new(StringComparer.Ordinal);
 
     internal IReadOnlyList<string> Validate(ModuleManifest manifest)
@@ -49,8 +49,8 @@ internal sealed class ModuleManifestValidator
                 if (!Label.IsMatch(name)) Error(path, "invalid type identifier");
                 if (!name.StartsWith(prefix, StringComparison.Ordinal)) Error(path, "type must carry its label prefix");
                 if (!types.TryAdd(name, type)) Error(path, "duplicate type name");
-                if (!names.Add(Snake(name))) Error(path, "type names collide after schema-name normalization");
-                if (ReservedLabels.Contains(Snake(name)))
+                if (!names.Add(SchemaName(name))) Error(path, "type names collide after schema-name normalization");
+                if (ReservedLabels.Contains(SchemaName(name)))
                     Error(path, "reserved base, upstream or SDK label");
                 if (type.Scope is not ("owner" or "shared")) Error(path + ".scope", "expected owner or shared");
                 if (type.Description is not null && string.IsNullOrWhiteSpace(type.Description))
@@ -74,7 +74,7 @@ internal sealed class ModuleManifestValidator
                 if (relation is null) { Error("$.ontology.relations", "null relationship declaration"); continue; }
                 var path = "$.ontology.relations." + relation.Name;
                 var name = relation.Name ?? "";
-                if (!Relationship.IsMatch(name) || !name.StartsWith(Snake(prefix).ToUpperInvariant() + "_", StringComparison.Ordinal))
+                if (!Relationship.IsMatch(name) || !name.StartsWith(SchemaName(prefix).ToUpperInvariant() + "_", StringComparison.Ordinal))
                     Error(path, "relationship must carry its UPPER_SNAKE prefix and suffix");
                 if (!relations.Add(name)) Error(path, "duplicate relationship name");
                 if (ModuleReservedNames.Relationships.Contains(name)) Error(path, "reserved relationship type");
@@ -124,7 +124,7 @@ internal sealed class ModuleManifestValidator
         }
     }
 
-    private static string Snake(string value) => Regex.Replace(Regex.Replace(value,
+    internal static string SchemaName(string value) => Regex.Replace(Regex.Replace(value,
         "([A-Z]+)([A-Z][a-z])", "$1_$2", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking),
         "([a-z0-9])([A-Z])", "$1_$2", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking).ToLowerInvariant();
     private static Regex Pattern(string pattern) => new(pattern, RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
