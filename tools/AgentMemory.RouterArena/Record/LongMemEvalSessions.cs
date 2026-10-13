@@ -105,8 +105,7 @@ public sealed class LongMemEvalSessions(TextWriter output)
             services.AddSingleton<IClock>(clock);
 #pragma warning disable AMREC001, AMGATE001
             // --history on: recall shows what a kept fact replaced, "(since D; previously X)", as the prompt renders it.
-            var memory = MemoryOptions.CreateRecommended();
-            if (history) memory = memory with { Projection = memory.Projection with { ResolveSupersessions = true } };
+            var memory = BenchmarkMemoryOptions.CreateRecommended(history);
             services.AddNeo4jAgentMemory(memory, Neo4j, o =>
             {
                 o.ApplyRecommended();

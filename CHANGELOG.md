@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Honor `--history off` in the HaluMem and LongMemEval measurement harnesses even when
+  Recommended enables supersession notes. Record the effective history setting in HaluMem output.
+
 - Discard incomplete Claude/Codex completion captures when final assistant text is missing or blank.
   Do not silently submit them as deliberate user-only writes; explicit MCP writes remain supported.
 
