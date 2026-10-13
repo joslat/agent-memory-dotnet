@@ -125,3 +125,25 @@ Available features are explicit planning inputs, not proof of a running host. A 
 from actual effective registrations/options. This API performs no DI, provider calls, module code
 execution or schema work, and does not authorize activation. Profile registration reconciliation,
 actual host probes, generated index/constraint collisions and runtime activation remain unfinished.
+
+
+## Composition profiles
+
+`ModuleCompositionProfile.Parse(json)` reads `agentmemory.modules/v1alpha1` with the same strict
+JSON helpers as manifests: 128 KiB UTF-8 limit, depth 32, duplicate/unknown field refusal and no
+source loading. A profile declares `stores` (alias to `provider`) and `modules` (id, version interval,
+store, exactly one `assembly` or `manifest`, optional `configuration` and optional `sha256` bundle pin).
+It preserves an exact UTF-8 input hash, including whitespace. Collections are immutable.
+
+`ModuleProfileResolver.Resolve(profile, registrations, sdkVersion, availableFeatures, storeProviders)`
+uses the metadata resolver, then checks missing/extra module registrations, profile version intervals,
+store aliases and provider identities. Declared graph links across different store aliases are refused;
+non-graph dependencies can still span stores. A failure exposes no composed modules or fingerprint.
+An omitted options section resolves to `AgentMemory:Modules:<moduleId>`; no values are bound here.
+
+The composition fingerprint includes metadata and exact profile bytes. Host/CLI may use this pure
+result to prepare activation, but must still discover the declared source bytes, verify trust/pins,
+derive actual host capabilities, bind and validate options, and include those identities in the
+active-set fingerprint. A parsed path or digest never authorizes loading it. This checkpoint provides
+no profile DI extension, loader, CLI execution or permanent ModulePlan singleton. DI-only metadata
+composition remains available through `ModuleResolver`; running-module composition remains unfinished.

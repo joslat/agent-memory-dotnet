@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experimental strict composition profiles and pure profile/registration reconciliation for shared
+  host/CLI planning. Missing/extra registrations, version/provider mismatches and cross-store graph
+  links fail before activation; actual DI/CLI wiring, options validation and trust remain unfinished.
+
 - Experimental complete metadata resolver freezes caller declarations, checks module dependencies,
   ranges, cross-module names/targets and feature inputs, and aggregates errors without exposing a
   partial set. Profile/DI resolution, publisher verification and activation remain unfinished.

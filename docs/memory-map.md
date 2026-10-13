@@ -8,7 +8,9 @@ stable contracts. This adds no new memory capability or measured accuracy result
 remains experimental and off. See [migration](migration-2.0.md) for host defaults and compatibility.
 
 **Module resolution primitives - BUILT.** The experimental SDK validates version/range syntax and
-owned identifiers and shares internal dependency ordering with built-in schema extensions. Strict bounded manifest wire parsing and typed declarations are also built. Profile/DI composition, module persistence and runtime activation are still unimplemented.
+owned identifiers and shares internal dependency ordering with built-in schema extensions. Strict bounded manifest wire parsing and typed declarations are also built. Pure profile parsing/reconciliation is built: explicit modules, version/store/provider bindings,
+configuration section paths and profile byte hashes. Actual DI/CLI composition, option binding,
+module persistence and runtime activation are still unimplemented.
 Local semantic validation now checks ontology ownership, constraints, references and typed views;
 The pure complete-set resolver now freezes declarations and checks dependency targets, ranges,
 cycles, schema namespaces and explicit feature inputs. It does not prove actual host registrations
