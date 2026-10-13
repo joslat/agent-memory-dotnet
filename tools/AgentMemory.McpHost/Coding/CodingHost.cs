@@ -76,6 +76,8 @@ internal static class CodingHost
                 }).ToList();
             });
         services.AddSingleton(configuration.Options).AddSingleton(configuration.Access).AddSingleton(configuration.Content);
+        if (configuration.Options.RecallDiagnostics is { } diagnostics)
+            services.AddSingleton(sp => new CodingRecallReceipts(diagnostics, configuration.Content));
         services.AddSingleton<CodingOperationScope>().AddSingleton<CodingMemoryOperations>().AddSingleton<CodingApi>();
         services.AddSingleton<ICodingWriter, CodingWriter>();
         if (configuration.Options.WriteJournal is { } journal)

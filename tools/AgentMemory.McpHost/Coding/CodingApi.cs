@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AgentMemory.Abstractions.Domain;
@@ -8,7 +9,7 @@ namespace AgentMemory.McpHost.Coding;
 internal sealed record CodingApiResult(int StatusCode, object Body);
 
 /// <summary>One strict request contract and operation dispatcher for HTTP and MCP.</summary>
-internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue queue)
+internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue queue, CodingRecallReceipts? receipts = null)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -24,14 +25,31 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!identity.CanWrite && operation is "remember" or "forget") return Error(403, "insufficient_scope");
+            if (receipts is not null && !identity.CanWrite && operation == "recall_feedback") return Error(403, "insufficient_scope");
             if (arguments.ValueKind != JsonValueKind.Object) return Error(400, "invalid_input");
             switch (operation)
             {
                 case "recall":
                     var recall = Read<RecallInput>(arguments);
+                    var started = receipts is null ? 0L : Stopwatch.GetTimestamp();
                     var result = await memory.RecallAsync(identity, recall.Session, recall.Query, cancellationToken).ConfigureAwait(false);
+                    if (receipts is not null)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var receipt = receipts.Record(identity, recall.Session, result, Stopwatch.GetElapsedTime(started));
+                        return new(200, new { result.TotalItemsRetrieved, result.Truncated, result.EstimatedTokenCount,
+                            context = McpMemoryProjection.Context(result.Context), recallId = receipt.RecallId });
+                    }
                     return new(200, new { result.TotalItemsRetrieved, result.Truncated, result.EstimatedTokenCount,
                         context = McpMemoryProjection.Context(result.Context) });
+                case "recall_status" when receipts is not null:
+                    var lookup = Read<RecallStatusInput>(arguments);
+                    var observation = receipts.Get(identity, lookup.Session, lookup.RecallId);
+                    return observation is null ? Error(404, "recall_not_found") : new(200, observation);
+                case "recall_feedback" when receipts is not null:
+                    var feedback = Read<RecallFeedbackInput>(arguments);
+                    var updated = receipts.Feedback(identity, feedback.Session, feedback.RecallId, feedback.Label);
+                    return updated is null ? Error(404, "recall_not_found") : new(200, updated);
                 case "remember":
                     var job = queue.TryEnqueue(identity, Read<CodingRememberRequest>(arguments));
                     return job is null ? Error(503, "queue_unavailable") : new(202, job);
@@ -68,5 +86,12 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
     private sealed record ForgetInput { public required MemoryHistoryKind Kind { get; init; } public required string Id { get; init; } }
     private sealed record HistoryInput { public string? Id { get; init; } }
     private sealed record StatusInput { public required string JobId { get; init; } }
+    private sealed record RecallStatusInput { public required string Session { get; init; } public string? RecallId { get; init; } }
+    private sealed record RecallFeedbackInput
+    {
+        public required string Session { get; init; }
+        public required string RecallId { get; init; }
+        public required CodingRecallFeedback Label { get; init; }
+    }
     private sealed record EmptyInput;
 }

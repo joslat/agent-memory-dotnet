@@ -6,7 +6,8 @@ using Microsoft.Extensions.Options;
 namespace AgentMemory.McpHost.Coding;
 
 /// <summary>Operations shared by local HTTP hooks and coding MCP tools.</summary>
-internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptions<MemoryOptions> options, CodingContentPolicy content)
+internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptions<MemoryOptions> options, CodingContentPolicy content,
+    CodingRecallReceipts? receipts = null)
 {
     public Task<RecallResult> RecallAsync(CodingIdentity identity, string session, string query,
         CancellationToken cancellationToken = default)
@@ -19,7 +20,8 @@ internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptio
             .RecallAsync(new RecallRequest
             {
                 SessionId = CodingInput.SessionId(identity, session), UserId = identity.OwnerId,
-                Query = query, Options = options.Value.Recall with { Scope = MemoryScope.For(identity.OwnerId, false) },
+                Query = query, Options = options.Value.Recall with { Scope = MemoryScope.For(identity.OwnerId, false),
+                    IncludeDiagnostics = receipts is not null || options.Value.Recall.IncludeDiagnostics },
             }, ct), cancellationToken);
     }
 

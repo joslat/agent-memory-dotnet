@@ -1378,6 +1378,13 @@ exclusive host lease, bound owner/deployment identity, row/payload/page limits a
 its footprint. Terminal receipts drop captured text; receipt eviction never deletes graph records.
 Off creates no journal services/files and preserves baseline receipt/tool bytes. See the
 [configuration and recovery contract](coding-service.md#optional-durable-write-receipts).
+Optional `RecallDiagnostics` adds a host-local bounded receipt store and a content-free projection
+of existing recall/gate measurements. HTTP/MCP share owner/project/session scope, lookup and explicit
+feedback. This adds no core service, schema, provider call or second recall engine. Off registers no
+receipt service/tools and requests no additional core diagnostics. On emits measured receipt/feedback
+activities on `AgentMemoryDiagnostics.Source`. Retained observations never authorize content expansion
+or mutate memory. See [configuration and limits](coding-service.md#optional-recall-diagnostics-and-feedback).
+
 The internal HTTP and stateless MCP mappings share a strict dispatcher for `recall`, `remember`,
 `forget`, `history`, `profile` and `write_status`. Unknown arguments are rejected, including owner or
 project overrides. HTTP acceptance returns 202; completion requires a status query. Recall reuses the

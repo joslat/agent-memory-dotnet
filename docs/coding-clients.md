@@ -35,6 +35,12 @@ hook invocation, context delivery and the applicable write/recall envelope, **no
 durable ingestion, interruption behavior in every client, or a complete database-backed workflow.
 The separate unit suites cover interruption, duplicate handling, malformed input and failures.
 
+The optional host `recallDiagnostics` capability adds scoped `recall_status` and write-permission
+`recall_feedback` tools. Native hooks can ignore the additive recall ID; context injection is unchanged.
+A separate real OAuth/MCP host run passed 24/24 receipt, scope, permission, eviction and expiry checks.
+This does not claim that every native client automatically displays receipts or submits feedback;
+those remain explicit tool calls. [Configuration and limits](coding-service.md#optional-recall-diagnostics-and-feedback).
+
 ## Real Copilot acceptance
 
 Copilot 1.0.96 used Bitdeer GLM-5.3-Flash through its custom-provider connection, the actual coding

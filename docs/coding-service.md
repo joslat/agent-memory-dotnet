@@ -142,6 +142,52 @@ interrupted writer was held under a real graph lock before source creation. Two 
 writer runs exceeded 120/240-second observation windows; they remain failures. No default model,
 prompt or semantic threshold changed, and this is not a quality benchmark or power-loss test.
 
+### Optional recall diagnostics and feedback
+
+Add `"recallDiagnostics": { "retainedReceipts": 256, "lifetimeSeconds": 600 }` to the coding
+configuration to enable bounded recall observations. Omit it for unchanged baseline response/tool
+bytes, no receipt service or feedback operations, and no additional retrieval diagnostics request.
+This option is independent of `writeJournal`; recall receipts live only in this host process.
+
+Successful `recall` adds `recallId` alongside the existing response. The selected context is unchanged.
+`recall_status { "session": "s", "recallId": "..." }` reads the corresponding receipt; omit the ID for
+that session's latest retained receipt. Both operations use the authenticated owner/project and the
+same validated client session. A wrong scope, evicted/expired ID or host restart returns the same
+`recall_not_found` (404). A session name is a client correlation key, not a separate security principal:
+clients authorized as the same owner/project can share its receipts if they know the session.
+
+A receipt records elapsed recall milliseconds, the engine's token estimate (not billing), token
+truncation and latency-budget exhaustion separately, selected IDs/provenance, and available section
+search/limit/return/timeout measurements. Missing measurements stay null. Gate outcome is the actual
+measured `judge`, `floor`, `everything`, `floor (fallback)`, or `unknown` when no recognized trace is
+available. Provider fallback error text is never retained: the reason is `not_configured` only for the
+known missing-judge case, otherwise `unspecified`. An empty result alone does not explain its cause.
+
+There are at most 64 item IDs and four source-message IDs per item, each at most 256 characters;
+`idsTruncated` reports omission. Sections follow the item lists delivered by the coding recall response.
+Working memory and GraphRAG are presence flags; forgotten-topic summaries are not resurrected as item
+IDs. Internal candidates/relationships not delivered by that response are not presented as delivered
+items. A receipt is an observation at recall time, not fresh evidence or authorization to expand content.
+It retains no query, recalled prose, embedding, arbitrary metadata or provider exception text.
+
+`recall_feedback { "session": "s", "recallId": "...", "label": "useful" }` requires write permission.
+Labels are `useful`, `irrelevant`, `stale`, or `incorrect`; no free-text feedback is accepted. One current
+label is retained per receipt; identical submissions are idempotent, and changes do not extend expiry.
+Feedback is not a memory correction, model training, threshold update or correctness certification.
+Use the existing governed memory operations to correct or close a memory.
+
+Retention is 1..1024 receipts (default 256), with a 1..3600-second lifetime (default 600). Admission,
+lookup and feedback remove expired entries; capacity evicts the oldest admission. Expired observations
+are never returned, although bounded process memory may hold them until the next receipt operation.
+A restart clears all observations and feedback. Optional `coding.recall.receipt` and
+`coding.recall.feedback` activities use the existing `AgentMemory` ActivitySource with generated
+receipt IDs, bounded labels and measured counts/timing; no conversation or memory text is tagged.
+
+A bounded real Linux-host run with Keycloak PKCE/OAuth, Neo4j and Ollama bge-m3 passed 24/24 checks:
+selected IDs matched delivered context, session/project scope held, feedback required write permission,
+and eviction/expiry worked. This reused synthetic stored memories and exercised no new writer or
+judge call. It proves this delivery path, not better retrieval quality or model calibration.
+
 ### Configurable retrieval
 
 Configured judges are used by default (`"useRetrievalGate": true`). Set it to `false` to

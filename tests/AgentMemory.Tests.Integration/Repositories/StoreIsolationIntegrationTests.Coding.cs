@@ -61,7 +61,7 @@ public sealed partial class StoreIsolationIntegrationTests
             ["NEO4J_URI"] = neo4j.Uri, ["NEO4J_USERNAME"] = Username, ["NEO4J_PASSWORD"] = Password,
             ["ALPHA_TOKEN"] = new string('x', 40), ["BETA_TOKEN"] = new string('y', 40),
         };
-        var config = CodingConfiguration.Parse($$"""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN","beta":"BETA_TOKEN"},"url":"http://127.0.0.1:{{port}}","allowExtractorFallback":{{(fallback ? "true" : "false")}},"writeJournal":{{journalJson}}}""",
+        var config = CodingConfiguration.Parse($$"""{"ownerId":"owner","projects":{"alpha":"ALPHA_TOKEN","beta":"BETA_TOKEN"},"url":"http://127.0.0.1:{{port}}","allowExtractorFallback":{{(fallback ? "true" : "false")}},"writeJournal":{{journalJson}},"recallDiagnostics":{{(durable ? "{}" : "null")}}}""",
             environment.GetValueOrDefault);
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
         CodingHost.Configure(builder, config);
@@ -116,6 +116,26 @@ public sealed partial class StoreIsolationIntegrationTests
             foreign.Headers.Authorization = new("Bearer", environment["BETA_TOKEN"]);
             using var denied = await client.SendAsync(foreign);
             denied.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            // The stub hashes exact text; use the fact embedding input, not a semantic paraphrase.
+            using var recallRequest = new HttpRequestMessage(HttpMethod.Post, "/projects/alpha/recall")
+                { Content = JsonContent.Create(new { session = "fresh-diagnostics", query = "Project uses alpha-choice" }) };
+            recallRequest.Headers.Authorization = new("Bearer", environment["ALPHA_TOKEN"]);
+            using var recallResponse = await client.SendAsync(recallRequest);
+            recallResponse.EnsureSuccessStatusCode();
+            var recallBody = await recallResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            recallBody.TryGetProperty("recallId", out var recallId).Should().Be(durable);
+            if (durable)
+            {
+                var receipts = app.Services.GetRequiredService<CodingRecallReceipts>();
+                var receipt = receipts.Get(alpha, "fresh-diagnostics", recallId.GetString());
+                receipt.Should().NotBeNull();
+                receipt!.Items.Should().Contain(i => i.SourceMessageIds.Contains(alphaJob.SourceMessageId!));
+                receipt.Items.Should().NotContain(i => i.SourceMessageIds.Contains(betaJob.SourceMessageId!));
+                receipts.Get(beta, "fresh-diagnostics", receipt.RecallId).Should().BeNull();
+                receipts.Feedback(alpha, "fresh-diagnostics", receipt.RecallId, CodingRecallFeedback.Useful)!
+                    .Feedback.Should().Be(CodingRecallFeedback.Useful);
+            }
+
         }
         finally { await app.StopAsync(); }
 

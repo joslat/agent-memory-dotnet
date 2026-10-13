@@ -30,7 +30,16 @@ internal static class CodingToolDefinitions
         },
     }).ToArray();
 
-    public static IReadOnlyList<Tool> For(bool durable) => durable ? Durable : All;
+    private static readonly Tool[] Diagnostics =
+    [
+        Define("recall_status", "Read a bounded, expiring recall observation for this session. Omit recallId for the latest. IDs are historical observations, not authorization to expand content.",
+            ("session", Text(256), true), ("recallId", Text(32), false)),
+        Define("recall_feedback", "Record one explicit feedback label for a retained recall. This does not change memory, train a model or prove correctness.",
+            ("session", Text(256), true), ("recallId", Text(32), true),
+            ("label", new { type = "string", @enum = new[] { "useful", "irrelevant", "stale", "incorrect" } }, true)),
+    ];
+    public static IReadOnlyList<Tool> For(bool durable, bool diagnostics = false) =>
+        diagnostics ? [.. durable ? Durable : All, .. Diagnostics] : durable ? Durable : All;
 
     private static object Text(int maximum) => new { type = "string", minLength = 1, maxLength = maximum };
 

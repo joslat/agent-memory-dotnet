@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tooling
 
+- Add opt-in coding-host recall receipts and explicit feedback, scoped to owner/project/session with
+  bounded retention/expiry, measured gate/budget diagnostics and unchanged baseline wire behavior.
+
 - Add opt-in coding-host `writeJournal` receipts backed by private embedded SQLite. Retain scoped
   status, duplicate/conflict checks and accepted never-started work across restart. Interrupted
   writer attempts remain Unknown; no blind replay or exactly-once extraction claim. Off preserves

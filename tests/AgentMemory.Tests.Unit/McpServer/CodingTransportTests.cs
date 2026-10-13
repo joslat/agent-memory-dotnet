@@ -20,6 +20,30 @@ namespace AgentMemory.Tests.Unit.McpServer;
 public sealed class CodingTransportTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Optional_recall_receipts_are_shared_by_HTTP_and_MCP(bool diagnostics)
+    {
+        await using var fixture = await Fixture.Start(diagnostics: diagnostics);
+        var tools = await fixture.Rpc("tools/list", new { });
+        tools.GetProperty("result").GetProperty("tools").EnumerateArray().Select(x => x.GetProperty("name").GetString())
+            .Contains("recall_status").Should().Be(diagnostics);
+        using var request = fixture.Request("/projects/alpha/recall", new { session = "s", query = "q" }, true);
+        using var response = await fixture.Client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.TryGetProperty("recallId", out var id).Should().Be(diagnostics);
+        if (!diagnostics) return;
+        var status = await fixture.Rpc("tools/call", new { name = "recall_status", arguments = new { session = "s", recallId = id.GetString() } });
+        var receipt = JsonSerializer.Deserialize<JsonElement>(status.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!);
+        receipt.GetProperty("recallId").GetString().Should().Be(id.GetString());
+        var feedback = await fixture.Rpc("tools/call", new { name = "recall_feedback", arguments = new { session = "s", recallId = id.GetString(), label = "useful" } });
+        feedback.GetProperty("result").GetProperty("isError").GetBoolean().Should().BeFalse();
+        var wrong = await fixture.Rpc("tools/call", new { name = "recall_status", arguments = new { session = "other", recallId = id.GetString() } });
+        wrong.GetProperty("result").GetProperty("isError").GetBoolean().Should().BeTrue();
+    }
+
+    [Theory]
     [InlineData("GET")]
     [InlineData("DELETE")]
     public async Task Authenticated_stateless_MCP_methods_do_not_trigger_OAuth(string method)
@@ -257,14 +281,14 @@ public sealed class CodingTransportTests
         private WebApplication _app = null!;
         private static readonly string Token = new('a', 40);
 
-        public static async Task<Fixture> Start(bool enableBrowserUi = false, ICodingWriter? writer = null)
+        public static async Task<Fixture> Start(bool enableBrowserUi = false, ICodingWriter? writer = null, bool diagnostics = false)
         {
             var fixture = new Fixture();
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
             builder.Logging.ClearProviders();
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             var services = builder.Services;
-            var options = new CodingServiceOptions { OwnerId = "owner", EnableBrowserUi = enableBrowserUi, Projects = new Dictionary<string, string> { ["alpha"] = "ALPHA_KEY", ["beta"] = "BETA_KEY" } };
+            var options = new CodingServiceOptions { OwnerId = "owner", EnableBrowserUi = enableBrowserUi, RecallDiagnostics = diagnostics ? new() : null, Projects = new Dictionary<string, string> { ["alpha"] = "ALPHA_KEY", ["beta"] = "BETA_KEY" } };
             services.AddSingleton(options).AddSingleton(new CodingProjectAccess(options, name => name == "ALPHA_KEY" ? Token : new string('b', 40)));
             services.AddSingleton(fixture.Profile);
             services.AddSingleton<IWritableMemoryOwnerContext, DefaultMemoryOwnerContext>();
@@ -275,6 +299,14 @@ public sealed class CodingTransportTests
             }));
             services.AddSingleton(Options.Create(new MemoryOptions()));
             services.AddSingleton(new CodingContentPolicy([Token]));
+            if (options.RecallDiagnostics is { } receiptOptions)
+                services.AddSingleton(sp => new CodingRecallReceipts(receiptOptions, sp.GetRequiredService<CodingContentPolicy>()));
+            var recall = Substitute.For<IMemoryRecall>();
+            recall.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(new RecallResult
+            {
+                Context = new MemoryContext { SessionId = "s", AssembledAtUtc = DateTimeOffset.UnixEpoch },
+            });
+            services.AddSingleton(recall);
             services.AddSingleton<CodingOperationScope>().AddSingleton<CodingMemoryOperations>().AddSingleton<CodingApi>();
             services.AddSingleton<ICodingWriter, CodingWriter>().AddSingleton<CodingWriteQueue>();
             if (writer is not null)

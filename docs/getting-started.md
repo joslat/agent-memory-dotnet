@@ -730,3 +730,7 @@ For native coding clients, the optional host `writeJournal` configuration retain
 and receipts across restart. It is off by default and uses a dedicated private local directory;
 it does not change the library persistence or retrieval defaults. See
 [setup and recovery semantics](coding-service.md#optional-durable-write-receipts).
+
+Coding hosts can also opt into `recallDiagnostics` for bounded, expiring recall receipts and explicit
+feedback. This leaves selected context unchanged and adds no model training or durable recall log.
+See [receipt configuration](coding-service.md#optional-recall-diagnostics-and-feedback).

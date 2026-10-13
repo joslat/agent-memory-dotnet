@@ -119,10 +119,18 @@ and conditionally describes retention/recovery in the existing tools. Off preser
 [Journal configuration](coding-service.md#optional-durable-write-receipts) defines its bounded
 recovery and failure contract. Neither path makes an exactly-once extraction guarantee.
 
+## Optional recall observations
+
+The off-by-default `recallDiagnostics` capability adds `recallId` only to successful recall responses,
+plus `recall_status` and write-scoped `recall_feedback`. The v1 context/identity contract is unchanged.
+Receipts are owner/project/session-scoped, bounded and expiring process memory; restart loses them.
+Feedback is an explicit observation, not a graph write or automatic learning. See
+[configuration, wire fields and limits](coding-service.md#optional-recall-diagnostics-and-feedback).
+
 ## Errors and readiness
 
 The shared dispatcher reports `invalid_input` (400), `insufficient_scope` (403),
-`unknown_operation` / `job_not_found` (404), `turn_conflict` (409), `queue_unavailable` or
+`unknown_operation` / `job_not_found` / optional `recall_not_found` (404), `turn_conflict` (409), `queue_unavailable` or
 `memory_unavailable` (503). Transport authorization, size and method errors are separate. Hook
 failure messages omit configuration, raw provider exceptions and content. Do not log tokens or
 full captured text to diagnose availability.
@@ -144,5 +152,5 @@ fixtures do not replace those acceptance runs.
 
 Compatible fixes enforce the documented intent without changing source IDs or existing hash bytes.
 An incompatible identity, field or persistence interpretation needs a new application-contract
-version and migration. Future durable receipts, diagnostics and evidence expansion must be explicit
+version and migration. Durable receipts, diagnostics and future evidence expansion must be explicit
 capabilities, tested both on and off, and must not imply that every client supports every feature.

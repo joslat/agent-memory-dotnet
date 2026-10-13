@@ -1903,3 +1903,15 @@ Related reading: [`architecture.md`](architecture.md) · [`schema.md`](schema.md
 *Last verified against the codebase on 2026-08-15. Line numbers drift; symbol names and file paths are
 the durable references. If a claim here disagrees with the code, the code is right and this document is
 a bug.*
+
+### Coding recall diagnostics (opt-in)
+
+**BUILT / WIRED / MEASURED:** the coding host can retain bounded, expiring owner/project/session-scoped
+recall receipts and explicit feedback. Receipts contain selected IDs and measured timing/gate/budget
+data; raw query, memory prose and arbitrary provider errors are excluded. Default responses/tools and
+selected context remain unchanged. Feedback does not train models or correct memory. Deterministic
+host/API/HTTP/MCP tests cover scope, expiry/capacity, permissions, failure/cancellation and off mode.
+A bounded actual Linux host + OAuth/Neo4j/Ollama run passed 24/24 checks on synthetic stored memories,
+including delivered-ID matching, wrong-session/project refusal, write permission, eviction and expiry.
+It reused the prior synthetic world; no retrieval-quality improvement or new inference-model claim.
+See [configuration and limits](coding-service.md#optional-recall-diagnostics-and-feedback).
