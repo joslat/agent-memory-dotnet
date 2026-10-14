@@ -216,8 +216,11 @@ editor schemas complement runtime validation; they add no production dependency 
 Framework-facing layered adapters still never depend on `Neo4j`. The experimental
 `AgentMemory.Extensibility.Neo4j` storage adapter is a separate storage-specific branch: it
 references the module SDK and public Neo4j APIs, without a Core friend-assembly escape. Its current
-implementation derives deterministic migration statements/keys/hashes; database plan/apply and
-recovery are still unfinished. Built-in extension lint is linked into the storage adapter through
+implementation derives deterministic migration statements/keys/hashes and explicitly plans/applies
+generated schema with recoverable ownership intents. Embedded handwritten-source discovery and an
+internal compiler with owned-namespace and operation checks are built; handwritten database
+assessment, execution/recovery and CLI wiring
+remain unfinished. Built-in extension lint is linked into the storage adapter through
 `shared/AdditiveMigrationLint.cs`, preserving existing diagnostics for script validation. Generated
 DDL uses fixed templates and validated identifiers, so quoted keyword properties remain valid.
 
@@ -2139,6 +2142,8 @@ wire bytes. See [contracts and limitations](coding-service.md#optional-evidence-
 The held `AgentMemory.Extensibility.Neo4j` adapter can inspect embedded migration sources as PE data;
 no implementation assembly is loaded. A shared bounded resource reader keeps metadata bounds checks
 consistent with portable manifest discovery. Cypher tokenization remains in the storage adapter.
-This prepares handwritten migrations but does not enable their execution: namespace/operation checks,
-shape ownership, multi-statement recovery and CLI wiring remain unfinished. See
+An internal compiler shares pure SDK namespace rules and additive lint, validates exact schema shapes
+and bounded scoped backfills, and collects ordered steps and ownership claims without database calls.
+This does not enable handwritten execution: database shape assessment, durable statement progress,
+multi-statement recovery and CLI wiring remain unfinished. See
 [embedded migration source discovery](extensions/modules.md#embedded-migration-source-discovery).

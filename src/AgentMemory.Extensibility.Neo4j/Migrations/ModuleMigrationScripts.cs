@@ -16,8 +16,9 @@ namespace AgentMemory.Extensibility.Neo4j.Migrations;
 [Experimental("AMEXT001")]
 public static class ModuleMigrationScripts
 {
-    private const int MaximumScriptBytes = 256 * 1024;
-    private const int MaximumTotalBytes = 1024 * 1024;
+    internal const int MaximumScriptBytes = 256 * 1024;
+    internal const int MaximumTotalBytes = 1024 * 1024;
+    internal const int MaximumScriptCount = 128;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly Regex FileName = new(@"\A[0-9]{4}_[A-Za-z][A-Za-z0-9_]*\.cypher\z", RegexOptions.CultureInvariant);
 
@@ -43,7 +44,7 @@ public static class ModuleMigrationScripts
                 var name = ResourceFileName(metadata.GetString(resource.Name));
                 if (name is null) continue;
                 if (!FileName.IsMatch(name)) throw Invalid("expected Migrations/000N_name.cypher: " + name);
-                if (steps.Count == 128) throw Invalid("more than 128 embedded scripts");
+                if (steps.Count == MaximumScriptCount) throw Invalid("more than 128 embedded scripts");
                 var key = name[..^".cypher".Length];
                 if (!keys.Add(key)) throw Invalid("duplicate migration key: " + key);
                 var bytes = ManagedEmbeddedResources.Read(pe, resource, MaximumScriptBytes, "Module migration " + key);
@@ -65,6 +66,8 @@ public static class ModuleMigrationScripts
         catch (IOException e) { throw new FormatException("Module migration: truncated managed assembly image.", e); }
         catch (OverflowException e) { throw new FormatException("Module migration: resource metadata exceeds supported bounds.", e); }
     }
+
+    internal static bool IsValidKey(string? key) => key is not null && FileName.IsMatch(key + ".cypher");
 
     private static string? ResourceFileName(string resourceName)
     {

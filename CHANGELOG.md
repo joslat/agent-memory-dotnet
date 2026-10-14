@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Add experimental metadata-only discovery of embedded module migration sources, with immutable
-  hashes and bounded quote-aware parsing. Handwritten migration execution remains unavailable.
+  hashes and bounded quote-aware parsing. An internal compiler validates composite schema shapes,
+  scoped backfills, namespace ownership and script ordering using shared SDK naming rules and additive
+  lint. Handwritten migration execution remains unavailable pending database/recovery and CLI wiring.
 
 
 ### Added

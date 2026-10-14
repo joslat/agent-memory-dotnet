@@ -47,12 +47,9 @@ internal sealed class ModuleManifestValidator
                 if (type is null) { Error("$.ontology.types", "null type declaration"); continue; }
                 var name = type.Name ?? "";
                 var path = "$.ontology.types." + name;
-                if (!Label.IsMatch(name)) Error(path, "invalid type identifier");
-                if (!name.StartsWith(prefix, StringComparison.Ordinal)) Error(path, "type must carry its label prefix");
+                ValidateOwnedLabel(name, prefix, path);
                 if (!types.TryAdd(name, type)) Error(path, "duplicate type name");
                 if (!names.Add(SchemaName(name))) Error(path, "type names collide after schema-name normalization");
-                if (ReservedLabels.Contains(SchemaName(name)))
-                    Error(path, "reserved base, upstream or SDK label");
                 if (type.Scope is not ("owner" or "shared")) Error(path + ".scope", "expected owner or shared");
                 if (type.Description is not null && string.IsNullOrWhiteSpace(type.Description))
                     Error(path + ".description", "description cannot be empty");
@@ -62,8 +59,7 @@ internal sealed class ModuleManifestValidator
                 foreach (var pair in props)
                 {
                     var at = path + ".properties." + pair.Key;
-                    if (!PropertyName.IsMatch(pair.Key)) Error(at, "invalid property identifier");
-                    if (ModuleReservedNames.Properties.Contains(pair.Key)) Error(at, "reserved SDK property");
+                    ValidateWritableProperty(pair.Key, at);
                     if (pair.Value is null) Error(at, "null property declaration");
                     else ValidateProperty(pair.Value, at);
                 }
@@ -80,10 +76,8 @@ internal sealed class ModuleManifestValidator
                 if (relation is null) { Error("$.ontology.relations", "null relationship declaration"); continue; }
                 var path = "$.ontology.relations." + relation.Name;
                 var name = relation.Name ?? "";
-                if (!Relationship.IsMatch(name) || !name.StartsWith(SchemaName(prefix).ToUpperInvariant() + "_", StringComparison.Ordinal))
-                    Error(path, "relationship must carry its UPPER_SNAKE prefix and suffix");
+                ValidateOwnedRelationship(name, prefix, path);
                 if (!relations.Add(name)) Error(path, "duplicate relationship name");
-                if (ModuleReservedNames.Relationships.Contains(name)) Error(path, "reserved relationship type");
                 if (!types.ContainsKey(relation.From ?? "")) Error(path + ".from", "source must be an owned type");
                 ValidateTarget(relation.To, types, modules, path + ".to");
                 if (relation.Max is <= 0) Error(path + ".max", "maximum must be positive");
@@ -107,6 +101,51 @@ internal sealed class ModuleManifestValidator
                 ValidateFilter(filter, props, path + ".where");
         }
         return _errors.ToList().AsReadOnly();
+    }
+
+    internal IReadOnlyList<string> ValidateReferences(ModuleManifest manifest, IReadOnlyList<string> labels,
+        IReadOnlyList<string> relationships, IReadOnlyList<string> objects, IReadOnlyList<string> writtenProperties)
+    {
+        Validate(manifest);
+        if (manifest.Ontology is not { } ontology)
+        {
+            if (labels.Count != 0 || relationships.Count != 0 || objects.Count != 0 || writtenProperties.Count != 0)
+                Error("$.references", "schema references require an owned ontology");
+        }
+        else
+        {
+            var prefix = ontology.LabelPrefix ?? "";
+            foreach (var name in labels) ValidateOwnedLabel(name ?? "", prefix, "$.references.labels." + name);
+            foreach (var name in relationships) ValidateOwnedRelationship(name ?? "", prefix, "$.references.relationships." + name);
+            foreach (var name in writtenProperties) ValidateWritableProperty(name ?? "", "$.references.writtenProperties." + name);
+            foreach (var name in objects)
+            {
+                var path = "$.references.objects." + name;
+                if (string.IsNullOrWhiteSpace(name) || name.Any(char.IsControl)) Error(path, "invalid schema object identifier");
+                else if (ModuleReservedNames.SchemaObjects.Contains(name)) Error(path, "reserved schema object");
+            }
+        }
+        return _errors.ToList().AsReadOnly();
+    }
+
+    private void ValidateWritableProperty(string name, string path)
+    {
+        if (!PropertyName.IsMatch(name)) Error(path, "invalid property identifier");
+        if (ModuleReservedNames.Properties.Contains(name)) Error(path, "reserved SDK property");
+    }
+
+    private void ValidateOwnedLabel(string name, string prefix, string path)
+    {
+        if (!Label.IsMatch(name)) Error(path, "invalid type identifier");
+        if (!name.StartsWith(prefix, StringComparison.Ordinal)) Error(path, "type must carry its label prefix");
+        if (ReservedLabels.Contains(SchemaName(name))) Error(path, "reserved base, upstream or SDK label");
+    }
+
+    private void ValidateOwnedRelationship(string name, string prefix, string path)
+    {
+        if (!Relationship.IsMatch(name) || !name.StartsWith(SchemaName(prefix).ToUpperInvariant() + "_", StringComparison.Ordinal))
+            Error(path, "relationship must carry its UPPER_SNAKE prefix and suffix");
+        if (ModuleReservedNames.Relationships.Contains(name)) Error(path, "reserved relationship type");
     }
 
     private void ValidateTarget(string? target, IReadOnlyDictionary<string, ModuleType> types,

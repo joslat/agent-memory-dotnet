@@ -1962,6 +1962,8 @@ module is activated automatically. See [module application](extensions/modules.m
 
 
 Embedded module migration discovery is **BUILT** as an experimental metadata-only API in the held
-Neo4j adapter. Quoted input and resource bounds have unit coverage. Handwritten sources are **not
-WIRED** into the migrator or CLI, and no handwritten migration database acceptance is claimed.
+Neo4j adapter. Its internal compiler has unit coverage for resource bounds, full-source hashes, exact
+composite range/uniqueness shapes, owned namespaces, scoped backfills and conflicting ownership.
+Compilation does not authorize execution. Handwritten sources are **not WIRED** into the migrator
+or CLI, and no handwritten migration database acceptance is claimed.
 [Contract and limits](extensions/modules.md#embedded-migration-source-discovery).

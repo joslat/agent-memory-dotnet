@@ -233,6 +233,27 @@ reader preserves quoted semicolons and URLs, removes comments without joining to
 unclosed or excessively nested input. Backslash-escaped identifiers are deliberately rejected;
 doubled backticks are supported. Parsing is not complete Cypher grammar or authorization validation.
 
-Discovery does not authorize execution. These definitions cannot yet be supplied to `ModuleMigrator`:
-owned-namespace/operation validation, handwritten shape ownership, multi-statement recovery and CLI
-wiring remain unfinished. Existing generated-schema application and built-in migrations are unchanged.
+The internal compiler now extracts exact named range-index and uniqueness-constraint shapes,
+including ordered composite properties and node/relationship identity. It requires `IF NOT EXISTS`,
+static identifiers and matching property variables. It also accepts bounded `MATCH ... [WHERE ...]
+SET ...` backfills: each node has an explicit owned label, each relationship an explicit owned type,
+and property writes target a bound variable. Scalar expressions support property reads, literals,
+lists, arithmetic, comparisons, Boolean operators and a fixed set of built-in conversion/string/date
+functions. Procedures, user functions, subqueries, dynamic access, variable-length paths, rebinding
+clauses and graph deletion are rejected. This is a deliberately explicit grammar, not unrestricted Cypher.
+
+`ModuleNamespaceReferences.Validate` shares the manifest validator's naming and reserved-name rules.
+Historical names within the owned prefix need not occur in the current ontology. SDK-managed property
+writes are refused; reading or indexing those properties is allowed. The existing additive lint is
+shared without changing built-in migrations; quoted values and comments are not interpreted as commands.
+
+Compilation checks full-source hashes and resource limits, orders generated definitions before scripts
+within dependency order, and collects historical label/type/object claims. Conflicting module ownership,
+duplicate object names and equivalent shapes under another name are rejected before database access.
+The compiler has unit coverage; database shape assessment and ownership reservation remain separate checks.
+
+Discovery and compilation do not authorize execution. These definitions cannot yet be supplied to
+`ModuleMigrator`: handwritten database assessment, multi-statement recovery and CLI wiring remain
+unfinished. Backfills may be non-idempotent (for example, increments); execution must commit their
+statement progress in the same transaction as the update before enabling retries. Existing generated
+schema application and built-in migrations are unchanged. No handwritten database acceptance is claimed.
