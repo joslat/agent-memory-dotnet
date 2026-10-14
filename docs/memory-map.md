@@ -1966,5 +1966,7 @@ composite range/uniqueness shapes, owned namespaces, scoped backfills and confli
 Compilation does not authorize execution. Authorized handwritten sources are **WIRED** into explicit
 application, with **MEASURED** real Neo4j acceptance for composite/relationship schema, partial failure,
 atomic backfill rollback, lost commit acknowledgements, concurrent matching applies and changed-input
-refusal. Hostless CLI and runtime activation remain unfinished; no automatic application is claimed.
+refusal. Operator CLI plan/apply is **WIRED** through the same engine, with bounded metadata-only
+source loading, optional byte pins and explicit store/actor selection. Runtime activation remains
+unfinished; no automatic application or host capability probing is claimed.
 [Contract and limits](extensions/modules.md#embedded-migration-source-discovery).

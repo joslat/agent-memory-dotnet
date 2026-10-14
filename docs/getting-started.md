@@ -747,5 +747,7 @@ The held module adapter supports explicit generated and handwritten migrations. 
 registering services does not apply them. Load authorized embedded sources as metadata, provide them
 to the four-argument `ModuleMigrator` constructor, inspect `PlanAsync`, then explicitly call
 `ApplyAsync(actor)`. Use the same validated composition for both operations. This does not activate
-module code or establish publisher trust; hostless CLI integration remains unfinished. See
+module code or establish publisher trust. The operator CLI also accepts `modules plan|apply
+--profile <path> [--store <alias>]`; apply requires `--actor`. Source hashes and whole-profile
+resolution are checked before migration database calls. See
 [module application and recovery](extensions/modules.md#explicit-module-schema-application).

@@ -14,8 +14,9 @@ public sealed record ModuleResolution
     public IReadOnlyList<string> Errors { get; }
     /// <summary>Whether metadata checks succeeded; does not attest actual host registration or trust.</summary>
     public bool Succeeded => Errors.Count == 0;
-    /// <summary>SHA-256 of normalized manifest metadata and target SDK, or null on failure.</summary>
-    /// <remarks>This is not the eventual active-set fingerprint: profile, configuration, migration
+    /// <summary>SHA-256 of validated metadata and resolution scope, or null on failure.</summary>
+    /// <remarks>A profile store projection also binds its whole composition and store alias.
+    /// This is not the eventual active-set fingerprint: configuration, migration
     /// and trust identities must be added by composition before activation.</remarks>
     public string? ManifestFingerprint { get; }
 }

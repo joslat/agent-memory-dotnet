@@ -21,6 +21,8 @@
          IConsolidationService / IMemoryDecayService and the rest of the memory services. -->
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Validation\AgentMemory.Validation.csproj" />
+    <!-- Explicit operator migrations only; held SDK dependencies never enter the published core. -->
+    <ProjectReference Include="../../src/AgentMemory.Extensibility.Neo4j/AgentMemory.Extensibility.Neo4j.csproj" />
     <!-- NOT in the meta-package, and `perf` measures the MAF turn (ProvideAIContext/StoreAIContext),
          which is the whole point of turn-level measurement. -->
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />

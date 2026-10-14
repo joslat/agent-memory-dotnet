@@ -1,0 +1,1 @@
+{"format":"agentmemory.module/v1alpha1","id":"com.example.migrationfixture","version":"0.1.0","sdk":"[0.1,0.2)","ontology":{"labelPrefix":"CliReview","types":[{"name":"CliReviewItem","properties":{"count":{"type":"int"},"note":{"type":"string"}}}]}}

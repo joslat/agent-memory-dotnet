@@ -226,7 +226,7 @@ var result = await migrator.ApplyAsync("operator-name", cancellationToken);
 ```
 
 The caller authorizes the source bytes and metadata. Source loading does not execute implementation
-code. Hostless CLI commands, runtime activation and first-write readiness remain unfinished. Administrators must serialize external schema changes with application;
+code. Explicit CLI plan/apply is available; runtime activation and first-write readiness remain unfinished. Administrators must serialize external schema changes with application;
 the reservation lock coordinates compliant module migrators, not arbitrary administrative DDL.
 For schema-owner reporting, select the optional [`module-bookkeeping`](module-bookkeeping.md)
 declaration. Neither its registration nor the migrator constructor changes the base schema.
@@ -271,4 +271,52 @@ Discovery and compilation do not authorize execution. Explicit script-input appl
 compiled shapes, ownership claims and ordered statements as planning. Real Neo4j acceptance covers
 mixed composite/relationship schema and backfills, matching recovery after DDL or lost commit
 acknowledgements, rollback, concurrent matching applies, later-statement failure and altered input
-refusal. Base migration rows remain unchanged. Hostless CLI and runtime activation are still unfinished.
+refusal. Base migration rows remain unchanged. Explicit CLI plan/apply uses this same engine; runtime activation is still unfinished.
+
+
+## Operator CLI for module migrations
+
+The non-packable operator CLI accepts the experimental composition profile:
+
+```sh
+dotnet run --project tools/AgentMemory.Cli -- modules plan --profile modules.json --store local
+dotnet run --project tools/AgentMemory.Cli -- modules apply --profile modules.json --store local --actor release-operator
+```
+
+Use the ordinary `--uri`, `--user`, `--password`, `--database` options or matching Neo4j configuration
+and environment values to select the connection. One invocation addresses one store/database;
+multiple store aliases require an explicit `--store`. Only `neo4j-direct` providers are supported.
+Plan reads schema/ledger without writing. Apply reserves and applies the same compiled migrations.
+Exit codes: 0 for a successful plan/application, 2 for a database-plan refusal, 1 for invalid input
+or execution failure. Standard output is a JSON report; failures are written to standard error.
+Unknown options are rejected, so an unsupported `--dry-run` cannot silently become an application.
+
+```json
+{
+  "format": "agentmemory.modules/v1alpha1",
+  "stores": { "local": { "provider": "neo4j-direct" } },
+  "modules": [
+    { "id": "com.example.reviews", "version": "[0.1,0.2)", "store": "local",
+      "assembly": "modules/Reviews.dll" }
+  ]
+}
+```
+
+An entry can use `manifest` instead of `assembly` for generated schema only. Paths are resolved
+relative to the profile file. Optional `sha256` pins cover exact source bytes, including assembly
+metadata/resources. All sources are read into bounded snapshots before execution; an assembly's
+manifest and embedded scripts come from the same image. Profile/manifest JSON is limited to 128 KiB,
+assembly images to 64 MiB. Strict UTF-8 decoding prevents replacement-character identity changes.
+The report includes exact profile/source hashes, composition/store fingerprints, module versions,
+normalized migration hashes, pending/applied definitions, retained undeclared keys and refusal reasons.
+A pin proves byte identity, not publisher trust. This command does not activate module code.
+
+The whole profile must resolve successfully before the selected store is projected. Dependencies
+in another store remain valid composition dependencies; cross-store graph relationships are refused.
+Selecting an empty store cannot hide an invalid dependency elsewhere in the profile. A valid empty
+store makes no migration database calls.
+
+The tool supplies `ModuleSchema`. Modules requiring `History` or `Reminders` need explicit
+`--host-features History,Reminders` target declarations. These declarations are reported as such:
+they are not probes of live host services, options validation or proof of runtime activation.
+The held SDK references are confined to this non-packable tool; published core dependencies remain unchanged.

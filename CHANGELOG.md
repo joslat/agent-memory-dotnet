@@ -6,10 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add explicit experimental `modules plan|apply --profile` operator commands. Validate source hashes,
+  whole-profile dependencies and store selection before migration database calls, inspect assemblies
+  without loading their code, and report pending/applied/refused plans as JSON. Apply requires an actor;
+  unknown options are refused. Host features remain explicit declarations, not activation/probe evidence.
+
 - Apply authorized handwritten module migrations through an explicit constructor overload. Compiled
   schema assessment rejects equivalent foreign objects; backfills commit atomically with statement
   progress, so matching retries and concurrent applies do not repeat committed updates. Preserve
-  legacy generated-ledger rows and keep hostless CLI/runtime activation work separate.
+  legacy generated-ledger rows and keep runtime activation work separate.
 
 - Pin LongMemEval's transitive `System.Security.Cryptography.Pkcs` dependency to patched 8.0.2
   for [CVE-2026-70162](https://github.com/advisories/GHSA-2fmv-rv2c-59x7) and
@@ -18,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add experimental metadata-only discovery of embedded module migration sources, with immutable
   hashes and bounded quote-aware parsing. An internal compiler validates composite schema shapes,
   scoped backfills, namespace ownership and script ordering using shared SDK naming rules and additive
-  lint. Explicit handwritten execution is available; hostless CLI wiring remains unfinished.
+  lint. Explicit handwritten execution is available; explicit operator CLI wiring is available.
 
 
 ### Added
@@ -28,8 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Held experimental Neo4j module adapter with deterministic derived migration definitions, stable
   keys and LF-normalized hashes. Built-in additive script lint is linked into the adapter;
   explicit generated-schema plan/apply reserves ownership and immutable intent before DDL,
-  recovers matching interrupted applications and refuses foreign or changed shapes. Hand scripts,
-  CLI integration and runtime activation remain unfinished.
+  recovers matching interrupted applications and refuses foreign or changed shapes. Hand scripts and operator CLI integration are available;
+  runtime activation remains unfinished.
 
 - Experimental packaged editor schemas for manifests/profiles and deterministic module schema-object
   descriptors. Validation rejects generated index/constraint name collisions within/across modules

@@ -57,5 +57,6 @@
   </Folder>
   <Folder Name="/tests/Fixtures/">
     <Project Path="tests/Fixtures/ModuleDiscoveryFixture/ModuleDiscoveryFixture.csproj" />
+    <Project Path="tests/Fixtures/ModuleMigrationFixture/ModuleMigrationFixture.csproj" />
   </Folder>
 </Solution>

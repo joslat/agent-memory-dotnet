@@ -49,7 +49,7 @@ public static class ModuleProfileResolver
                     errors.Add($"Module '{module.Id}' relationship '{relation.Name}' is cross-store: '{source.Store}' to '{destination.Store}'.");
             }
         }
-        if (errors.Count != 0) return new ModuleProfileResolution(System.Array.AsReadOnly(System.Array.Empty<ComposedModule>()), errors.ToList().AsReadOnly(), null);
+        if (errors.Count != 0) return new ModuleProfileResolution(System.Array.AsReadOnly(System.Array.Empty<ComposedModule>()), errors.ToList().AsReadOnly(), null, []);
         var composed = metadata.Modules.Select(manifest =>
         {
             var binding = entries[manifest.Id];
@@ -64,7 +64,7 @@ public static class ModuleProfileResolver
             format = "agentmemory.composition-metadata/v1alpha1", profile = profile.Sha256,
             metadata = metadata.ManifestFingerprint
         }))).ToLowerInvariant();
-        return new ModuleProfileResolution(composed, errors.ToList().AsReadOnly(), fingerprint);
+        return new ModuleProfileResolution(composed, errors.ToList().AsReadOnly(), fingerprint, profile.Stores.Keys.ToList().AsReadOnly());
     }
 }
 
@@ -86,8 +86,27 @@ public sealed record ComposedModule
 [Experimental("AMEXT001")]
 public sealed record ModuleProfileResolution
 {
-    internal ModuleProfileResolution(IReadOnlyList<ComposedModule> modules, IReadOnlyList<string> errors, string? fingerprint)
-    { Modules = modules; Errors = errors; CompositionFingerprint = fingerprint; }
+    private readonly IReadOnlyList<string> _stores;
+    internal ModuleProfileResolution(IReadOnlyList<ComposedModule> modules, IReadOnlyList<string> errors,
+        string? fingerprint, IReadOnlyList<string> stores)
+    { Modules = modules; Errors = errors; CompositionFingerprint = fingerprint; _stores = stores; }
+
+    /// <summary>Projects a validated composition onto one declared store, preserving dependency order.</summary>
+    /// <remarks>Whole-profile validation must succeed first. Ordinary dependencies in another store remain
+    /// declared; they are not re-resolved as missing from this slice. This does not connect to a store or
+    /// establish host capabilities. The fingerprint binds the complete composition and selected alias.</remarks>
+    public ModuleResolution ForStore(string store)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(store);
+        if (!Succeeded) throw new InvalidOperationException("Cannot select a store from an invalid module composition.");
+        if (!_stores.Contains(store, StringComparer.Ordinal)) throw new ArgumentException("Unknown profile store: " + store, nameof(store));
+        var modules = Modules.Where(m => m.Binding.Store == store).Select(m => m.Manifest).ToList().AsReadOnly();
+        var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            format = "agentmemory.composition-store/v1alpha1", composition = CompositionFingerprint, store
+        }))).ToLowerInvariant();
+        return new ModuleResolution(modules, System.Array.Empty<string>(), fingerprint);
+    }
     /// <summary>Validated metadata bindings in dependency order, or empty on failure.</summary>
     public IReadOnlyList<ComposedModule> Modules { get; }
     /// <summary>All diagnosed problems in ordinal order.</summary>

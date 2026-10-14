@@ -10,7 +10,7 @@ namespace AgentMemory.Extensibility.Neo4j.Migrations;
 /// <summary>Explicit per-store application of compiled module migrations with durable ownership and intent.</summary>
 /// <remarks>No work runs in the constructor or registration. Empty schema composition makes zero
 /// database calls. Generated and explicit handwritten inputs share ownership and recovery checks.
-/// Hostless CLI integration remains separate unfinished work. The caller authorizes module metadata
+/// The operator CLI uses this same engine. The caller authorizes module metadata
 /// and sources, and supplies the transaction runner for exactly one store.</remarks>
 [Experimental("AMEXT001")]
 public sealed class ModuleMigrator

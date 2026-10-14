@@ -2148,5 +2148,8 @@ Explicit handwritten execution shares that compiled plan. Exact database assessm
 or equivalent shapes; each backfill commits atomically with durable statement progress under the
 SDK migration lock. DDL commits separately and resumes through its reserved hash and exact shape.
 The existing constructor remains generated-only; a four-argument overload accepts authorized scripts.
-No constructor or registration runs migrations. Hostless CLI wiring remains unfinished. See
+No constructor or registration runs migrations. The non-packable CLI now consumes bounded, frozen
+profile/manifest/assembly sources and invokes the same migrator. Whole-profile validation precedes
+store projection; assembly metadata inspection executes no module code. Explicit target-host feature
+declarations are not capability probes. Published core packages gain no held-SDK dependencies. See
 [embedded migration source discovery](extensions/modules.md#embedded-migration-source-discovery).

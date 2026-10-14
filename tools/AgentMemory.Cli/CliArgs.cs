@@ -86,6 +86,12 @@ public static class CliHelp
             COMMANDS:
               migrate                Apply pending Cypher migrations. Base only, unless --extensions
                                      names schema extensions — see SCHEMA EXTENSIONS below.
+              modules plan|apply --profile <path> [--store <alias>] [--actor <name>]
+                                     Experimental module migrations for neo4j-direct. Plan only reads;
+                                     apply requires an actor. Sources are inspected without loading code.
+                                     --host-features History,Reminders declares target requirements,
+                                     not a probe of host availability. JSON report; exit 2 on refusal.
+                                     Connection options below select this one store's database.
               bootstrap              Create schema constraints and indexes.
               schema-check           Verify the LIVE database has every constraint/index the bootstrap
                                      creates (runtime conformance). Exit 1 listing any missing objects.

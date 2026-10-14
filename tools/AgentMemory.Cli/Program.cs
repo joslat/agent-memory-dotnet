@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -154,9 +154,15 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
 
 try
 {
+    // Validate source bytes and the complete composition before creating database services.
+    var moduleInput = string.Equals(cli.Command, "modules", StringComparison.OrdinalIgnoreCase)
+        ? ModuleCommandInput.Load(cli) : null;
+
     // No args passed to the builder: configuration comes from environment variables + appsettings, so a
     // bare command token (e.g. "migrate") never trips the configuration command-line provider.
     var builder = Host.CreateApplicationBuilder();
+    // Module reports are machine-readable JSON; command failures still go to stderr.
+    if (moduleInput is not null) builder.Logging.ClearProviders();
     var cfg = builder.Configuration;
 
     // Precedence per setting: CLI option > Neo4j:* config > NEO4J_* env > default.
@@ -220,6 +226,8 @@ try
 
     return cli.Command.ToLowerInvariant() switch
     {
+        "modules" => await new ModulesCommand(
+            sp.GetRequiredService<INeo4jTransactionRunner>(), output).ExecuteAsync(moduleInput!),
         "migrate" => await new MigrateCommand(
             sp.GetRequiredService<IMigrationRunner>(), output).ExecuteAsync(),
         "bootstrap" => await new BootstrapCommand(
