@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Pin LongMemEval's transitive `System.Security.Cryptography.Pkcs` dependency to patched 8.0.2
+  for [CVE-2026-70162](https://github.com/advisories/GHSA-2fmv-rv2c-59x7) and
+  [CVE-2026-84008](https://github.com/advisories/GHSA-846f-f764-76mx), restoring clean NuGet audit.
+
 - Add experimental metadata-only discovery of embedded module migration sources, with immutable
   hashes and bounded quote-aware parsing. An internal compiler validates composite schema shapes,
   scoped backfills, namespace ownership and script ordering using shared SDK naming rules and additive
