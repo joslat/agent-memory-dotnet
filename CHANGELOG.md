@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Expose experimental `ModuleSchemaDerivation.Derive(manifest)` for database-free editor previews,
+  sharing the migrator's generated DDL and hashes without treating local preview as activation approval.
+
 - Add explicit experimental `modules plan|apply --profile` operator commands. Validate source hashes,
   whole-profile dependencies and store selection before migration database calls, inspect assemblies
   without loading their code, and report pending/applied/refused plans as JSON. Apply requires an actor;

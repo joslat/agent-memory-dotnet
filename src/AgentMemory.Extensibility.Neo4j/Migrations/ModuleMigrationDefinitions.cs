@@ -16,22 +16,20 @@ internal static class ModuleMigrationDefinitions
             throw new ArgumentException("Module migration definitions require successful complete-set resolution.", nameof(resolution));
 
         var steps = new List<ModuleMigrationStep>();
-        foreach (var module in resolution.Modules)
-        {
-            foreach (var shape in ModuleSchemaObjects.Describe(module))
-            {
-                var statement = ModuleSchemaQueries.Create(shape);
-                steps.Add(new ModuleMigrationStep
-                {
-                    ModuleId = module.Id,
-                    Key = "derived/" + shape.Name,
-                    Statement = statement,
-                    Sha256 = Hash(statement)
-                });
-            }
-        }
+        foreach (var module in resolution.Modules) steps.AddRange(DeriveLocal(module));
         return steps.AsReadOnly();
     }
+
+    internal static IReadOnlyList<ModuleMigrationStep> DeriveLocal(ModuleManifest manifest) =>
+        ModuleSchemaObjects.Describe(manifest).Select(shape =>
+        {
+            var statement = ModuleSchemaQueries.Create(shape);
+            return new ModuleMigrationStep
+            {
+                ModuleId = manifest.Id, Key = "derived/" + shape.Name,
+                Statement = statement, Sha256 = Hash(statement)
+            };
+        }).ToList().AsReadOnly();
 
     internal static string Hash(string statement)
     {

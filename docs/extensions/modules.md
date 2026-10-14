@@ -320,3 +320,15 @@ The tool supplies `ModuleSchema`. Modules requiring `History` or `Reminders` nee
 `--host-features History,Reminders` target declarations. These declarations are reported as such:
 they are not probes of live host services, options validation or proof of runtime activation.
 The held SDK references are confined to this non-packable tool; published core dependencies remain unchanged.
+
+
+## Schema preview without a database
+
+`ModuleSchemaDerivation.Derive(manifest)` returns the generated DDL definitions, stable keys and
+normalized hashes using exactly the same derivation as the migrator. This experimental public API
+lets editors and DemoBrain preview a locally valid manifest without opening a database, activating
+a module or inventing dependency registrations. Code-only modules return no definitions.
+
+Local preview is not whole-profile validation or application permission: dependency compatibility,
+namespace collisions across modules, host capabilities, source trust and database ownership must
+still be checked before applying. Handwritten scripts remain separate explicit inputs.
