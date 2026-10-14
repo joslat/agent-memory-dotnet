@@ -1,10 +1,9 @@
 # Experimental module SDK
 
-The current core release inventory holds `AgentMemory.Extensibility` and its framework adapter
-on their separate experimental version line. The source contains context contributors/compiler,
-supported framework admission methods, and the resolution primitives below. It does not yet contain
-the complete manifest/profile resolver, module store, migrations or runtime loader. Registering
-contributors is not module-platform activation.
+The current core release inventory holds the module SDK and its adapters on a separate experimental
+version line. Source includes context contributors/compiler, metadata/profile resolution, explicit
+module migrations and pure proposal admission. Transactional module records, ingestion orchestration
+and runtime activation remain unfinished. Registering contributors does not activate a module platform.
 
 ## Version and identity primitives
 
@@ -332,3 +331,32 @@ a module or inventing dependency registrations. Code-only modules return no defi
 Local preview is not whole-profile validation or application permission: dependency compatibility,
 namespace collisions across modules, host capabilities, source trust and database ownership must
 still be checked before applying. Handwritten scripts remain separate explicit inputs.
+
+## Typed proposals and pure admission
+
+`AgentMemory.Extensibility.Ingestion` defines `IngestionRequest`, `IngestedMessage`,
+`IngestionProviderDescriptor`, `ModuleProposal`, `ProposedLink` and `ProposalSource`.
+These are model-independent, JSON-serializable inputs; a proposal cannot supply its own module or owner.
+The host must resolve the claimed owner through its isolation policy before exposing it to providers.
+
+`ModuleProposalAdmission.Admit(resolution, provider, request, proposal)` uses the frozen metadata
+resolution. It returns concrete errors or an independent immutable proposal snapshot. It validates:
+
+- Provider ownership, declared source type and a nonempty logical key without control characters.
+- Declared scalar properties, required fields, exact case-sensitive enums, string length and inclusive
+  numeric bounds. Integer checks retain full Int64 precision. Optional absent properties are omitted;
+  explicit null is refused. Date/time values are literals: `$now` is not a valid timestamp proposal.
+- Source IDs belonging to the request, without duplicates, plus a nonempty excerpt of at most 500
+  UTF-16 code units. The accepted snapshot survives disposal of the input JSON document.
+- Declared outgoing relations, distinct targets, proposed cardinality and target selectors. Exact
+  entity-name/alias lookup is permitted only for `core:Entity`; lookup itself belongs to storage.
+- Shared types only for an `OnRequest` provider explicitly selected by an `OnRequest` host request.
+  Selecting an `EveryTurn` provider explicitly does not grant it permission to write shared records.
+- `Invalidate` operations carry identity and provenance, with no silently ignored property/link changes.
+
+**Admission is a pure shape check, not a write or proof of persisted provenance.** The future store
+must verify source messages against the resolved owner's session, migration readiness and scoped/live
+targets in its transaction. It must check required anchors and final cardinality after merging retained
+links; omitting a required link from an update does not establish that the final record lacks that link.
+Text remains untrusted and must pass the host's existing rendering policy. No DI activation, model
+call, storage query or existing prompt change is introduced by these types and helper.

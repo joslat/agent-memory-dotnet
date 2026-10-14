@@ -9,15 +9,15 @@ remains experimental and off. See [migration](migration-2.0.md) for host default
 
 **Module resolution primitives - BUILT.** The experimental SDK validates version/range syntax and
 owned identifiers and shares internal dependency ordering with built-in schema extensions. Strict bounded manifest wire parsing and typed declarations are also built. Pure profile parsing/reconciliation is built: explicit modules, version/store/provider bindings,
-configuration section paths and profile byte hashes. Actual DI/CLI composition, option binding,
-module persistence and runtime activation are still unimplemented.
+configuration section paths and profile byte hashes. Explicit CLI migration composition is built; runtime DI composition, option binding,
+module record persistence and activation remain unimplemented.
 Local semantic validation now checks ontology ownership, constraints, references and typed views;
 The pure complete-set resolver now freezes declarations and checks dependency targets, ranges,
 cycles, schema namespaces and explicit feature inputs. It does not prove actual host registrations
 or grant activation permission. Generated index/constraint collision checks and editor schemas are
 built. The separate held Neo4j module adapter now derives DDL definitions with stable keys and
-normalized hashes; additive script lint is shared with the storage adapter. Database planning/application, ownership/recovery
-and module persistence remain unimplemented; descriptors themselves still perform no database work.
+normalized hashes; additive script lint is shared with the storage adapter. Explicit database planning/application and ownership/recovery are built; module record persistence
+remains unimplemented. Schema descriptors themselves perform no database work.
 Metadata-only assembly discovery is built: it checks the single bounded manifest and informational
 version without loading implementation code. It does not establish publisher trust. These primitives
 add no retrieval, extraction or module activation to existing hosts.
@@ -25,7 +25,7 @@ add no retrieval, extraction or module activation to existing hosts.
 **Module adapter seams - BUILT / WIRED.** Protected admission/rendering and provider-ID lookup
 support derived adapters without friend access. Module retrieval uses the last user question;
 trailing assistant/tool messages cannot replace it. ID lookup does not establish persisted provenance.
-These methods do not implement the planned manifest, module store or runtime loading platform.
+These methods do not implement the module record store or runtime loading platform.
 
 **Retrieval composition — BUILT / WIRED.** Recommended disables automatic query splitting;
 Conversational is unchanged and explicit subqueries remain supported. General MCP can configure
@@ -1957,7 +1957,7 @@ immunity. Preview remains opt-in; comparative quality/cost evaluation is separat
 BUILT: the held Neo4j module adapter explicitly plans/applies generated schema with a separate
 ownership/intent ledger. Empty schema composition makes no database calls. Real Neo4j tests cover
 bootstrap-only operation, repeat/roll-forward, competing claims, hash/shape refusal and crash recovery.
-CLI commands and runtime first-write readiness remain unfinished; no module is activated automatically. See [module application](extensions/modules.md#explicit-module-schema-application).
+CLI commands are wired; runtime first-write readiness remains unfinished; no module is activated automatically. See [module application](extensions/modules.md#explicit-module-schema-application).
 
 
 Embedded module migration discovery is **BUILT** as an experimental metadata-only API in the held
@@ -1970,3 +1970,11 @@ refusal. Operator CLI plan/apply is **WIRED** through the same engine, with boun
 source loading, optional byte pins and explicit store/actor selection. Runtime activation remains
 unfinished; no automatic application or host capability probing is claimed.
 [Contract and limits](extensions/modules.md#embedded-migration-source-discovery).
+
+
+**Module proposal admission ? BUILT, not wired to persisted records.** The held SDK validates and
+freezes typed proposals without model/database calls. Unit coverage exercises ownership, exact scalar
+bounds, source-ID membership, relationship shape and explicit shared-provider selection. Accepted
+source IDs still need actual owner/session membership verification by storage. Transactional record
+writes, provider orchestration and adapter ingestion remain unfinished; no coding-memory quality or
+end-to-end write claim follows from these checks. [Contract](extensions/modules.md#typed-proposals-and-pure-admission).

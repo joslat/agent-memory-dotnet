@@ -1,6 +1,5 @@
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -13,7 +12,6 @@ internal sealed class ModuleManifestValidator
     private static readonly Regex PropertyName = Pattern(@"\A[A-Za-z][A-Za-z0-9_]*\z");
     private static readonly Regex Relationship = Pattern(@"\A[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*\z");
     private static readonly Regex RenderParts = Pattern(@"\{\{|\}\}|\{([A-Za-z][A-Za-z0-9_]*)(?::([^{}]+))?\}|[{}]");
-    private static readonly Regex Timestamp = Pattern(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})\z");
     private static readonly FrozenSet<string> ReservedLabels = ModuleReservedNames.Labels.Select(SchemaName).ToFrozenSet(StringComparer.Ordinal);
     private readonly SortedSet<string> _errors = new(StringComparer.Ordinal);
 
@@ -207,8 +205,8 @@ internal sealed class ModuleManifestValidator
         if (property.Type is not ("int" or "float")) { Error(path, "numeric bounds require int or float type"); return; }
         var min = property.Minimum;
         var max = property.Maximum;
-        var validMin = min is null || NumberFits(min.Value, property.Type);
-        var validMax = max is null || NumberFits(max.Value, property.Type);
+        var validMin = min is null || ModuleScalarValues.NumberFits(min.Value, property.Type);
+        var validMax = max is null || ModuleScalarValues.NumberFits(max.Value, property.Type);
         if (!validMin) Error(path + ".min", "minimum must fit the declared numeric type");
         if (!validMax) Error(path + ".max", "maximum must fit the declared numeric type");
         if (validMin && validMax && min is not null && max is not null
@@ -231,46 +229,13 @@ internal sealed class ModuleManifestValidator
             if (filter.Operator == "in")
             {
                 if (filter.Value.ValueKind != JsonValueKind.Array) Error(path, "membership requires an array of typed literals");
-                else if (filter.Value.EnumerateArray().Any(v => !ValueFits(v, property.Type, allowNull: false)))
+                else if (filter.Value.EnumerateArray().Any(v => !ModuleScalarValues.ValueFits(v, property.Type, allowNull: false)))
                     Error(path, "membership element does not fit the property type");
             }
-            else if (!ValueFits(filter.Value, property.Type, filter.Operator is "=" or "!="))
+            else if (!ModuleScalarValues.ValueFits(filter.Value, property.Type, filter.Operator is "=" or "!="))
                 Error(path, "filter value or placeholder does not fit the property type");
         }
         catch (ObjectDisposedException) { Error(path, "filter JSON document has been disposed"); }
     }
 
-    private static bool NumberFits(JsonElement value, string type)
-    {
-        try
-        {
-            return value.ValueKind == JsonValueKind.Number && (type == "int" ? value.TryGetInt64(out _)
-                : value.TryGetDouble(out var number) && double.IsFinite(number));
-        }
-        catch (ObjectDisposedException) { return false; }
-    }
-
-    private static bool ValueFits(JsonElement value, string type, bool allowNull)
-    {
-        if (value.ValueKind == JsonValueKind.Null) return allowNull;
-        if (value.ValueKind == JsonValueKind.String)
-        {
-            var text = value.GetString()!;
-            if (text == "$now") return type == "datetime";
-            if (text == "$session") return type == "string";
-            return type switch
-            {
-                "string" => true,
-                "date" => DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
-                "datetime" => Timestamp.IsMatch(text) && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
-                _ => false
-            };
-        }
-        return type switch
-        {
-            "int" or "float" => NumberFits(value, type),
-            "bool" => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
-            _ => false
-        };
-    }
 }

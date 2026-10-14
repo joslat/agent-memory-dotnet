@@ -196,7 +196,7 @@ Built-in schema extensions and the experimental SDK share internal dependency cl
 and diagnostics without giving the SDK a Neo4j dependency or exposing a public registry.
 The SDK's version/range and owned-ID validators are documented under [modules](extensions/modules.md);
 the bounded data-only manifest reader rejects ambiguous/unsupported wire fields. Complete semantic
-resolution and the runtime host remain unfinished; parsing does not grant activation permission.
+resolution is available; the runtime host remains unfinished. Parsing does not grant activation permission.
 Assembly-file/image discovery inspects PE metadata and bounded embedded resources without loading
 implementation code. It checks manifest/informational-version agreement but does not authenticate
 publishers or grant trust. The already-loaded assembly overload reads attribute metadata only.
@@ -207,7 +207,7 @@ cross-module names/targets and cycles, and returns no partial set on failure. It
 excludes future profile/configuration/trust identities. Feature inputs do not prove DI registrations;
 Pure profile composition now reconciles explicit entries, version intervals and store/provider
 bindings against planning inputs, refusing graph links across distinct stores. Its hash includes exact
-profile bytes; options values, trust and source identity remain activation obligations. Actual DI/CLI
+profile bytes; options values, trust and source identity remain activation obligations. Explicit CLI migration wiring is available; runtime DI
 wiring, host probes and activation remain unfinished. Derived schema descriptors now carry stable
 constraint/index names and exact label/property identities. Local and complete-set guards reject
 collisions with each other or reserved actual base/built-in/upstream objects. Packaged standalone
@@ -219,10 +219,18 @@ references the module SDK and public Neo4j APIs, without a Core friend-assembly 
 implementation derives deterministic migration statements/keys/hashes and explicitly plans/applies
 generated schema with recoverable ownership intents. Embedded handwritten-source discovery and an
 internal compiler with owned-namespace and operation checks are built. Explicit handwritten
-execution uses exact database assessment and atomic backfill progress; CLI wiring remains unfinished.
+execution uses exact database assessment and atomic backfill progress; explicit profile CLI wiring uses
+the same engine.
 Built-in extension lint is linked into the storage adapter through
 `shared/AdditiveMigrationLint.cs`, preserving existing diagnostics for script validation. Generated
 DDL uses fixed templates and validated identifiers, so quoted keyword properties remain valid.
+
+Typed ingestion proposals and pure admission live in the SDK's `Ingestion` namespace. The admission
+helper shares scalar validation with manifest filters, but evaluates no filter placeholders in stored
+values. It deep-copies accepted JSON/collections and checks provider/type ownership, property bounds,
+source-ID membership and explicit shared-write selection. It performs no database or model calls.
+Persisted provenance, version transactions, provider orchestration and adapter write wiring remain
+unfinished; shape acceptance must never stand in for those checks. See [proposal admission](extensions/modules.md#typed-proposals-and-pure-admission).
 
 The portable `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
 references rather than left to intention.

@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental typed module proposals and pure admission with immutable accepted snapshots,
+  exact scalar constraints, request-source membership and explicit shared-provider restrictions.
+  Storage provenance checks and ingestion orchestration remain separate unfinished work; this adds
+  no automatic module writes, model calls or changes to existing host prompts.
+
 - Expose experimental `ModuleSchemaDerivation.Derive(manifest)` for database-free editor previews,
   sharing the migrator's generated DDL and hashes without treating local preview as activation approval.
 
