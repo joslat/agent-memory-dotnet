@@ -54,7 +54,7 @@ internal sealed class ModuleRecordLinks(ModuleResolution resolution)
             !originalKeys.SetEquals(final.Keys));
     }
 
-    private string TargetLabel(ModuleManifest module, ModuleRelation relation)
+    internal string TargetLabel(ModuleManifest module, ModuleRelation relation)
     {
         if (relation.To == "core:Entity") return "Entity";
         var parts = relation.To.Split(':');
@@ -65,20 +65,7 @@ internal sealed class ModuleRecordLinks(ModuleResolution resolution)
         return parts[1];
     }
 
-    private static async Task<string?> FollowAsync(IAsyncQueryRunner runner, string label, string id,
-        string? owner, CancellationToken cancellationToken)
-    {
-        var visited = new HashSet<string>(StringComparer.Ordinal);
-        for (var depth = 0; depth < 16; depth++)
-        {
-            if (!visited.Add(id)) return null;
-            var rows = await RowsAsync(runner, ModuleRecordQueries.Target(label, false, false), new { target = id, owner }, cancellationToken).ConfigureAwait(false);
-            if (rows.Count != 1) return null;
-            var row = rows[0]["row"].As<Dictionary<string, object>>();
-            var next = Text(row, label == "Entity" ? "merged_into" : "superseded_by");
-            if (!string.IsNullOrWhiteSpace(next)) { id = next; continue; }
-            return row.ContainsKey("invalidated_at") ? null : Text(row, "id");
-        }
-        return null;
-    }
+    private static Task<string?> FollowAsync(IAsyncQueryRunner runner, string label, string id,
+        string? owner, CancellationToken cancellationToken) =>
+        ModuleTargetResolver.FollowAsync(runner, label, id, owner, true, null, cancellationToken);
 }

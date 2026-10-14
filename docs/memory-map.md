@@ -10,13 +10,13 @@ remains experimental and off. See [migration](migration-2.0.md) for host default
 **Module resolution primitives - BUILT.** The experimental SDK validates version/range syntax and
 owned identifiers and shares internal dependency ordering with built-in schema extensions. Strict bounded manifest wire parsing and typed declarations are also built. Pure profile parsing/reconciliation is built: explicit modules, version/store/provider bindings,
 configuration section paths and profile byte hashes. Explicit CLI migration composition is built; runtime DI composition, option binding,
-module reads/views and activation remain unimplemented.
+explicit module reads/views are implemented; activation remains unimplemented.
 Local semantic validation now checks ontology ownership, constraints, references and typed views;
 The pure complete-set resolver now freezes declarations and checks dependency targets, ranges,
 cycles, schema namespaces and explicit feature inputs. It does not prove actual host registrations
 or grant activation permission. Generated index/constraint collision checks and editor schemas are
 built. The separate held Neo4j module adapter now derives DDL definitions with stable keys and
-normalized hashes; additive script lint is shared with the storage adapter. Explicit database planning/application and ownership/recovery are built; transactional record writes are implemented, while module reads/views remain unfinished. Schema descriptors themselves perform no database work.
+normalized hashes; additive script lint is shared with the storage adapter. Explicit database planning/application and ownership/recovery are built; transactional record writes are implemented, and explicit scoped reads/shared views are implemented. Schema descriptors themselves perform no database work.
 Metadata-only assembly discovery is built: it checks the single bounded manifest and informational
 version without loading implementation code. It does not establish publisher trust. These primitives
 add no retrieval, extraction or module activation to existing hosts.
@@ -1971,10 +1971,10 @@ unfinished; no automatic application or host capability probing is claimed.
 [Contract and limits](extensions/modules.md#embedded-migration-source-discovery).
 
 
-**Module proposal admission - BUILT, not wired to persisted records.** The held SDK validates and
+**Module proposal admission - BUILT, composed explicitly with the record store.** The held SDK validates and
 freezes typed proposals without model/database calls. Unit coverage exercises ownership, exact scalar
 bounds, source-ID membership, relationship shape and explicit shared-provider selection. Accepted
-source IDs still need actual owner/session membership verification by storage. Transactional record writes are implemented in the held adapter; framework ingestion remains unfinished; no coding-memory quality or
+source IDs undergo actual owner/session membership verification in the explicit held Neo4j store; framework ingestion remains unfinished; no coding-memory quality or
 end-to-end write claim follows from these checks. [Contract](extensions/modules.md#typed-proposals-and-pure-admission).
 
 
@@ -1991,6 +1991,14 @@ acceptance remains unfinished.
 verify actual source owner/session/role/content, migration readiness, locked key versions, copied
 provenance and scoped live links. Tests cover concurrent writers, transaction rollback, shared writes,
 merge chasing, ambiguous targets and refusal of inconsistent record owners or backward history clocks.
-These tests establish storage behavior, not coding usefulness. Module reads/views, required-anchor
-filtering on reads and framework persistence wiring remain unfinished. Existing hosts gain no automatic
+These tests establish storage behavior, not coding usefulness. Scoped reads/views and required-anchor filtering are implemented; framework persistence wiring remains unfinished. Existing hosts gain no automatic
 module writes. [Write contract and limits](extensions/modules.md#transactional-neo4j-module-writes).
+
+
+**Scoped module reads and shared views - BUILT / MEASURED in isolated integration tests.**
+Explicit bound readers enforce owner/shared scope, direct dependency access, migration readiness,
+current/system-time versions and required anchors before limiting results. Shared view evaluation
+uses the same reader and returns exact records/provenance plus invariant rendered text. Unsupported
+valid-time requests remain NotApplicable. Real Neo4j tests cover dependency refusal, typed filters,
+ordering and history; existing hosts do not automatically use these APIs. Contributor/adapter wiring,
+complete runtime lifecycle and effectiveness remain unverified. [Read/view contract](extensions/modules.md#scoped-module-reads-and-shared-views).

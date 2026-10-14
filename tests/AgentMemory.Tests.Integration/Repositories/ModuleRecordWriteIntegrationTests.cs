@@ -12,7 +12,7 @@ using Neo4j.Driver;
 namespace AgentMemory.Tests.Integration.Repositories;
 
 [Trait("Category", "Integration")]
-public sealed class ModuleRecordWriteIntegrationTests(Neo4jIntegrationFixture fixture) : IClassFixture<Neo4jIntegrationFixture>
+public sealed partial class ModuleRecordWriteIntegrationTests(Neo4jIntegrationFixture fixture) : IClassFixture<Neo4jIntegrationFixture>
 {
     [Fact]
     public async Task PendingMigrationsRefuseWithoutApplyingDdlThenExplicitApplyMakesWritesReady()

@@ -7,6 +7,8 @@
     <Version>0.1.0</Version>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The scoped reader consumes the host isolation contract directly, never Core. -->
+    <ProjectReference Include="../AgentMemory.Abstractions/AgentMemory.Abstractions.csproj" />
     <ProjectReference Include="../AgentMemory.Extensibility/AgentMemory.Extensibility.csproj" />
     <ProjectReference Include="../AgentMemory.Neo4j/AgentMemory.Neo4j.csproj" />
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />

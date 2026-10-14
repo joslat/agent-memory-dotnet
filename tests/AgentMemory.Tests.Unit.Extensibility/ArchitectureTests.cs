@@ -11,7 +11,7 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Abstractions only.</b> Nothing the SDK needs lives in Core — the compiler talks to
+/// <b>Abstractions only.</b> Nothing the SDK needs lives in Core â€” the compiler talks to
 /// <c>IMemoryContextAssembler</c>, an Abstractions interface, and <c>ChatMessage</c> comes from
 /// <c>Microsoft.Extensions.AI.Abstractions</c>, which Abstractions already references. Keeping it
 /// that way is what lets a host on a different storage backend consume the SDK without dragging the
@@ -19,7 +19,7 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 /// </para>
 /// <para>
 /// Asserted here rather than in <c>eng/package-consumers</c>, which are release smoke consumers that
-/// prove packages install — a different question from what an assembly is allowed to reference.
+/// prove packages install â€” a different question from what an assembly is allowed to reference.
 /// </para>
 /// </remarks>
 public sealed class ArchitectureTests
@@ -72,7 +72,8 @@ public sealed class ArchitectureTests
             type.GetCustomAttribute<System.Diagnostics.CodeAnalysis.ExperimentalAttribute>() != null);
         var names = storage.GetReferencedAssemblies().Select(reference => reference.Name ?? string.Empty).ToArray();
         names.Where(name => name.StartsWith("AgentMemory.", StringComparison.Ordinal)).Should()
-            .OnlyContain(name => name == "AgentMemory.Extensibility" || name == "AgentMemory.Neo4j");
+            .OnlyContain(name => name == "AgentMemory.Extensibility" || name == "AgentMemory.Neo4j"
+                || name == "AgentMemory.Abstractions");
         names.Should().NotContain(name => name.StartsWith("Microsoft.Agents", StringComparison.Ordinal)
             || name.StartsWith("Microsoft.SemanticKernel", StringComparison.Ordinal)
             || name.StartsWith("ModelContextProtocol", StringComparison.Ordinal));

@@ -6,19 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add explicit experimental scoped module reads and shared view evaluation: direct dependency access,
+  current/system-time versions, required-anchor filtering, typed predicates and invariant rendering
+  with stored record provenance. Unsupported valid-time requests stay distinct from empty results.
+  No automatic registration, module activation or schema work; framework wiring remains unfinished.
+
 - Add explicit experimental Neo4j module writes with transactional source-owner verification,
   locked logical-key versions, non-destructive history, bounded scoped link resolution and atomic
   batch refusal. Module migration planning/application now owns the optional key constraint; record
-  writes never apply DDL. Module reads/views and framework write wiring remain unfinished.
+  writes never apply DDL. Framework write wiring remains unfinished; explicit module reads/views are available.
 
 - Add explicit experimental module ingestion orchestration: owner-policy resolution before providers,
   dependency-ordered batches, original-index refusal reports and frozen provider-free replay. Validate
   complete replay inputs before writes, propagate cancellation and report uncertain store commits
-  honestly. Concrete Neo4j writes are now available; module reads/views and framework write wiring remain unfinished.
+  honestly. Concrete Neo4j writes are now available; explicit reads/views are available and framework write wiring remains unfinished.
 
 - Add experimental typed module proposals and pure admission with immutable accepted snapshots,
   exact scalar constraints, request-source membership and explicit shared-provider restrictions.
-  Storage provenance checks remain unfinished and orchestration is explicitly composed; this adds
+  Storage provenance checks now run in the held Neo4j store; orchestration is explicitly composed. This adds
   no automatic module writes, model calls or changes to existing host prompts.
 
 - Expose experimental `ModuleSchemaDerivation.Derive(manifest)` for database-free editor previews,

@@ -213,6 +213,8 @@ constraint/index names and exact label/property identities. Local and complete-s
 collisions with each other or reserved actual base/built-in/upstream objects. Packaged standalone
 editor schemas complement runtime validation; they add no production dependency or schema writes.
 
+The held module storage adapter references `Abstractions` directly for `IMemoryIsolationPolicy` and
+read scopes; it does not reference Core or a framework SDK.
 Framework-facing layered adapters still never depend on `Neo4j`. The experimental
 `AgentMemory.Extensibility.Neo4j` storage adapter is a separate storage-specific branch: it
 references the module SDK and public Neo4j APIs, without a Core friend-assembly escape. Its current
@@ -234,7 +236,8 @@ awaits each batch in dependency order and replays frozen inputs without provider
 The store contract requires a transaction per admitted batch, and uncertain acknowledgements remain
 unknown rather than assumed rollback. The held Neo4j store now verifies source provenance and writes versioned records/links in one provider
 transaction. Its SDK-owned key constraint is prepared by explicit migration application, with no core
-schema changes when disabled. Module reads/views and framework write wiring remain unfinished;
+schema changes when disabled. Explicit scoped reads and shared views are implemented in the held SDK/Neo4j adapter; framework
+write wiring remains unfinished;
 shape acceptance alone must never stand in for storage checks. See [proposal admission](extensions/modules.md#typed-proposals-and-pure-admission).
 
 The portable `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly

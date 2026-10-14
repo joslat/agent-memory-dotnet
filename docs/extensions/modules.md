@@ -2,7 +2,7 @@
 
 The current core release inventory holds the module SDK and its adapters on a separate experimental
 version line. Source includes context contributors/compiler, metadata/profile resolution, explicit
-module migrations, pure proposal admission and explicit ordered ingestion/replay. Transactional module writes are implemented in the held Neo4j adapter; module reads/views, framework
+module migrations, pure proposal admission and explicit ordered ingestion/replay. Transactional writes/reads and shared view evaluation are implemented in the held SDK/Neo4j adapter; framework
 write wiring and runtime activation remain unfinished. Registering contributors does not activate a module platform.
 
 ## Version and identity primitives
@@ -396,8 +396,7 @@ an empty result. Raw exception text is logged through the host logger, not copie
 
 `IModuleStore` defines the transactional write contract; the held Neo4j adapter implements it below.
 Orchestration tests use controlled providers/stores to prove execution behavior. Separate fresh-Neo4j
-tests exercise actual write invariants. Framework persistence callbacks, module reads and shared view
-evaluation remain unfinished. Neither suite is a coding-memory effectiveness benchmark.
+tests exercise actual write invariants. Framework persistence callbacks remain unfinished; explicit reads and shared views are available below. Neither suite is a coding-memory effectiveness benchmark.
 
 ## Transactional Neo4j module writes
 
@@ -434,6 +433,48 @@ Within one transaction the store:
 A transactional invariant refusal rolls back the whole admitted provider batch, including earlier
 proposals and newly created key rows. Unexpected errors propagate, preserving unknown-commit handling
 in the orchestrator. Historical records retain copied source IDs/session/excerpt when messages are
-cleared. Core records are not rewritten or relabeled. Module reads, system-time lookup, anchor-loss
-filtering during reads, view evaluation and framework callback wiring are subsequent work; these write
-APIs alone do not complete end-to-end module ingestion.
+cleared. Core records are not rewritten or relabeled. Framework callback wiring remains unfinished;
+these write APIs alone do not complete end-to-end module ingestion.
+
+## Scoped module reads and shared views
+
+The experimental `IModuleReader` is a read capability separate from `IModuleStore` write authority.
+Construct `Neo4jModuleReader` explicitly with the resolved set, calling-module ID, real host isolation
+policy, transaction runner and any configured handwritten migration sources. Construction performs no
+query and registers nothing. The host grants the bound reader; a query cannot change its caller identity.
+
+`FindAsync(ModuleQuery, ModuleReadContext, cancellationToken)` accepts only owned types in the calling
+module or its direct declared dependencies. The host isolation policy resolves owner/shared visibility
+before database work. Pending/inconsistent migrations refuse reads; reads never apply schema or write
+records. Queries use the manifest's closed typed predicate language, with parameterized values and
+validated identifiers. Limits are 1-1000 records, at most 64 predicates and 256 membership values.
+
+Current queries return live versions; `SystemAsOfUtc` selects the half-open creation/invalidation
+interval. `$now` uses that pin, or the injected clock for current reads; `$session` requires an explicit
+session. `ValidAsOfUtc` returns `NotApplicable`, not today's records. `Succeeded` with no records means
+searched-and-empty; `Refused` means invalid scope/query/readiness. Dates and datetimes use native Neo4j
+typed comparisons; optional null equality/inequality uses missing-property semantics. Sorts place nulls
+last, respect direction, and use version ID for ties.
+
+Declared outgoing links resolve only within the record's allowed owner/shared scope. Identity chasing
+is bounded to 16 records and stops on cycles. System-time reads retain the pre-merge target where it
+was live. Missing required anchors exclude records **before** applying the result limit. Paging is
+cancellable; the requested result limit does not imply a fixed scan-cost bound or a concurrent snapshot.
+
+`IModuleViews`, implemented by `ModuleViews(resolution, reader)`, evaluates a declared local view through
+that same reader and returns ordered `ModuleViewItem` values: exact stored records, copied provenance
+and rendered text. It does not perform admission or declare rendered text safe for HTML/prompts.
+Contributors, the conformance kit and Workbench can use this same service; their complete wiring is
+separate work. No existing host automatically activates it.
+
+Rendering shares the manifest's placeholder grammar: `{property}`, optional .NET scalar format,
+and escaped `{{`/`}}`. Numeric/date formats use invariant culture; datetimes normalize to UTC. Stored
+braces are data, not recursively expanded templates. Missing optional values render empty; missing
+required values or invalid formats refuse the view without returning partial items. Without a template,
+only present declared properties render, in ordinal property-name order as `name=value` pairs.
+The host remains responsible for admission, output budgets and handling full-trust module code.
+
+Isolated integration tests exercise actual writes followed by current/historical reads, strict/shared
+scope, declared dependencies, required-anchor loss, merge identity, native typed filters, descending
+view order and rendering. These are storage/view contract checks, not completed runtime activation,
+framework ingestion wiring or a measure of memory usefulness.

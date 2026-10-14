@@ -11,7 +11,6 @@ internal sealed class ModuleManifestValidator
     private static readonly Regex Label = Pattern(@"\A[A-Z][A-Za-z0-9]*\z");
     private static readonly Regex PropertyName = Pattern(@"\A[A-Za-z][A-Za-z0-9_]*\z");
     private static readonly Regex Relationship = Pattern(@"\A[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*\z");
-    private static readonly Regex RenderParts = Pattern(@"\{\{|\}\}|\{([A-Za-z][A-Za-z0-9_]*)(?::([^{}]+))?\}|[{}]");
     private static readonly FrozenSet<string> ReservedLabels = ModuleReservedNames.Labels.Select(SchemaName).ToFrozenSet(StringComparer.Ordinal);
     private readonly SortedSet<string> _errors = new(StringComparer.Ordinal);
 
@@ -159,7 +158,7 @@ internal sealed class ModuleManifestValidator
     private void ValidateRender(string render, IReadOnlyDictionary<string, ModuleProperty> properties, string path)
     {
         if (string.IsNullOrWhiteSpace(render)) Error(path, "empty render template");
-        foreach (Match part in RenderParts.Matches(render))
+        foreach (Match part in ModuleRenderTemplate.Parts.Matches(render))
         {
             if (part.Value is "{{" or "}}") continue;
             if (!part.Groups[1].Success) Error(path, "unbalanced or malformed render placeholder");
