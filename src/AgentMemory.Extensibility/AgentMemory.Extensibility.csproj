@@ -55,4 +55,7 @@
     <None Remove="Schemas/*.json" />
     <None Include="Schemas/*.json" Pack="true" PackagePath="contentFiles/any/any/Schemas/" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../shared/ManagedEmbeddedResources.cs" Link="Shared/ManagedEmbeddedResources.cs" />
+  </ItemGroup>
 </Project>

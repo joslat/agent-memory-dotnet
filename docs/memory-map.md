@@ -1959,3 +1959,9 @@ ownership/intent ledger. Empty schema composition makes no database calls. Real 
 bootstrap-only operation, repeat/roll-forward, competing claims, hash/shape refusal and crash recovery.
 Hand-written migrations, CLI commands and runtime first-write readiness remain unfinished; no
 module is activated automatically. See [module application](extensions/modules.md#explicit-module-schema-application).
+
+
+Embedded module migration discovery is **BUILT** as an experimental metadata-only API in the held
+Neo4j adapter. Quoted input and resource bounds have unit coverage. Handwritten sources are **not
+WIRED** into the migrator or CLI, and no handwritten migration database acceptance is claimed.
+[Contract and limits](extensions/modules.md#embedded-migration-source-discovery).

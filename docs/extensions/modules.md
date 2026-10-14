@@ -186,8 +186,8 @@ adds definitions without changing existing keys or hashes. Empty composition pro
 Built-in additive lint is linked into the adapter for hand-script validation. Generated definitions
 use fixed templates and validated identifiers: quoted properties such as `delete` are valid and
 must not be misclassified as destructive operations by a script-text regex. The shared lint is
-not an arbitrary Cypher security sandbox. Hand-written script loading/namespace checks and CLI
-integration remain unfinished. No migration runs during registration. The portable SDK remains
+not an arbitrary Cypher security sandbox. Embedded source discovery is available below; handwritten
+namespace checks, execution and CLI integration remain unfinished. No migration runs during registration. The portable SDK remains
 independent of Neo4j.
 
 ## Explicit module schema application
@@ -215,3 +215,24 @@ unfinished integration work. Administrators must serialize external schema chang
 the reservation lock coordinates compliant module migrators, not arbitrary administrative DDL.
 For schema-owner reporting, select the optional [`module-bookkeeping`](module-bookkeeping.md)
 declaration. Neither its registration nor the migrator constructor changes the base schema.
+
+
+## Embedded migration source discovery
+
+`ModuleMigrationScripts.LoadFromAssemblyImage(image)` reads definitions from PE metadata without
+loading the assembly, running its initializer or constructing attributes. It first validates the
+embedded module manifest and informational version through the portable SDK. It accepts default
+MSBuild `*.Migrations.000N_name.cypher` resources and explicit root `Migrations/000N_name.cypher`
+logical names. Scripts return in ordinal key order with the manifest's module ID and a hash over
+the complete source, including comments, with only line endings normalized to LF.
+
+Sources must be UTF-8 without a BOM. Limits are 256 KiB per script, 1 MiB combined and 128 scripts
+per assembly, within the existing 64 MiB image limit. Linked files, duplicate keys, malformed names,
+invalid UTF-8, empty scripts and incomplete quoted expressions are rejected. The bounded lexical
+reader preserves quoted semicolons and URLs, removes comments without joining tokens, and rejects
+unclosed or excessively nested input. Backslash-escaped identifiers are deliberately rejected;
+doubled backticks are supported. Parsing is not complete Cypher grammar or authorization validation.
+
+Discovery does not authorize execution. These definitions cannot yet be supplied to `ModuleMigrator`:
+owned-namespace/operation validation, handwritten shape ownership, multi-statement recovery and CLI
+wiring remain unfinished. Existing generated-schema application and built-in migrations are unchanged.

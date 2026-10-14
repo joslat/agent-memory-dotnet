@@ -2132,3 +2132,13 @@ not reuse diagnostics as authorization. Expansion validates owner/project/sessio
 and parent/source links, with item, JSON-body byte and deadline limits. No schema, core dependency,
 new router or native injection change. Off adds no services/cache/tools/reads and preserves existing
 wire bytes. See [contracts and limitations](coding-service.md#optional-evidence-preview-and-expansion).
+
+
+### Experimental module migration sources
+
+The held `AgentMemory.Extensibility.Neo4j` adapter can inspect embedded migration sources as PE data;
+no implementation assembly is loaded. A shared bounded resource reader keeps metadata bounds checks
+consistent with portable manifest discovery. Cypher tokenization remains in the storage adapter.
+This prepares handwritten migrations but does not enable their execution: namespace/operation checks,
+shape ownership, multi-statement recovery and CLI wiring remain unfinished. See
+[embedded migration source discovery](extensions/modules.md#embedded-migration-source-discovery).

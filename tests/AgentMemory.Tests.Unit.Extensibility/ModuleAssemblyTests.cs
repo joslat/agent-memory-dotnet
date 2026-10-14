@@ -128,11 +128,11 @@ public sealed class ModuleAssemblyTests
             .WithMessage("*offset*outside*");
     }
 
-    private static byte[] Image(string? version, params (string Name, byte[] Bytes)[] files) =>
+    internal static byte[] Image(string? version, params (string Name, byte[] Bytes)[] files) =>
         Image(version, files, duplicateVersion: false);
 
-    private static byte[] Image(string? version, (string Name, byte[] Bytes)[] files,
-        bool duplicateVersion = false, bool linked = false, uint? offset = null)
+    internal static byte[] Image(string? version, (string Name, byte[] Bytes)[] files,
+        bool duplicateVersion = false, bool linked = false, uint? offset = null, string? linkedResource = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(0, metadata.GetOrAddString("MetadataFixture.dll"), metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
@@ -153,7 +153,7 @@ public sealed class ModuleAssemblyTests
         var resources = new BlobBuilder();
         foreach (var file in files)
         {
-            EntityHandle implementation = linked
+            EntityHandle implementation = linked || file.Name == linkedResource
                 ? metadata.AddAssemblyFile(metadata.GetOrAddString("must-not-follow.resources"), default, containsMetadata: false) : default;
             metadata.AddManifestResource(ManifestResourceAttributes.Public, metadata.GetOrAddString(file.Name), implementation, offset ?? (uint)resources.Count);
             resources.WriteUInt32((uint)file.Bytes.Length);resources.WriteBytes(file.Bytes);resources.Align(8);

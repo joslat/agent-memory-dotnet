@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental metadata-only discovery of embedded module migration sources, with immutable
+  hashes and bounded quote-aware parsing. Handwritten migration execution remains unavailable.
+
+
 ### Added
 
 - Optional module-ledger schema ownership declaration, off by default with no core migration scripts.

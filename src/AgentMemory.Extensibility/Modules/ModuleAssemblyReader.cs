@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using AgentMemory.Shared;
 
 namespace AgentMemory.Extensibility.Modules;
 
@@ -35,17 +36,8 @@ internal static class ModuleAssemblyReader
                 .Where(r => metadata.GetString(r.Name).EndsWith(Suffix, StringComparison.Ordinal)).ToArray();
             if (resources.Length != 1) throw Invalid("expected exactly one embedded module manifest");
             var resource = resources[0];
-            if (!resource.Implementation.IsNil) throw Invalid("module manifest must be embedded, not linked externally");
-            var directory = pe.PEHeaders.CorHeader.ResourcesDirectory;
-            if (directory.Size < 4 || resource.Offset > directory.Size - 4)
-                throw Invalid("manifest resource offset is outside the declared resource directory");
-            var section = pe.GetSectionData(directory.RelativeVirtualAddress);
-            if (directory.Size > section.Length) throw Invalid("truncated managed resource directory");
-            var bytes = section.GetReader(checked((int)resource.Offset), directory.Size - checked((int)resource.Offset));
-            var length = bytes.ReadUInt32();
-            if (length > ModuleManifest.MaximumUtf8Bytes || length > bytes.RemainingBytes)
-                throw Invalid("manifest resource length is out of bounds");
-            var manifest = Parse(bytes.ReadBytes((int)length));
+            var manifest = Parse(ManagedEmbeddedResources.Read(pe, resource, ModuleManifest.MaximumUtf8Bytes,
+                "Module discovery: module manifest"));
             CheckVersion(manifest, InformationalVersion(metadata));
             return manifest;
         }

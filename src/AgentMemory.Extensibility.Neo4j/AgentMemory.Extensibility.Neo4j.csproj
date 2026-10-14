@@ -15,4 +15,7 @@
     <Compile Include="../../shared/AdditiveMigrationLint.cs" Link="Shared/AdditiveMigrationLint.cs" />
     <Compile Include="../../shared/ModuleBookkeepingSchema.cs" Link="Shared/ModuleBookkeepingSchema.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../shared/ManagedEmbeddedResources.cs" Link="Shared/ManagedEmbeddedResources.cs" />
+  </ItemGroup>
 </Project>
