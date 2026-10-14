@@ -8,9 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional module-ledger schema ownership declaration, off by default with no core migration scripts.
+
 - Held experimental Neo4j module adapter with deterministic derived migration definitions, stable
   keys and LF-normalized hashes. Built-in additive script lint is linked into the adapter;
-  module database plan/apply, ownership checks and recovery remain unfinished.
+  explicit generated-schema plan/apply reserves ownership and immutable intent before DDL,
+  recovers matching interrupted applications and refuses foreign or changed shapes. Hand scripts,
+  CLI integration and runtime activation remain unfinished.
 
 - Experimental packaged editor schemas for manifests/profiles and deterministic module schema-object
   descriptors. Validation rejects generated index/constraint name collisions within/across modules

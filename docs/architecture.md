@@ -1829,9 +1829,9 @@ CREATE POINT INDEX entity_location_idx IF NOT EXISTS FOR (e:Entity) ON (e.locati
 ### 4.7 Schema owned by extensions, not by base
 
 Everything in §4.1–§4.6 is the **base** schema: it exists on every database that has run migrations,
-whatever a host configured. The four shipped extensions (§4.3.1) own the shapes below, and **none of
-them exists on a database whose operator did not apply that extension's DDL** — registering an
-extension in code does not create schema; `agentmemory migrate --extensions <ids>` does.
+whatever a host configured. The registered extensions below declare ownership; registration alone
+creates no schema. The existing capability scripts run only through explicit extension migration.
+The experimental module ledger has a separate explicit application path and no core scripts.
 
 | Extension | Labels | Relationship types | Properties | Indexes / constraints |
 |---|---|---|---|---|
@@ -1840,8 +1840,10 @@ extension in code does not create schema; `agentmemory migrate --extensions <ids
 | `delta-recall` | *none* | *none* | *none* | 7 RANGE indexes: `fact_created_at_idx`, `fact_invalidated_at_idx`, `fact_valid_from_idx`, `fact_valid_until_idx`, `preference_created_at_idx`, `preference_invalidated_at_idx`, `entity_created_at_idx` |
 | `arithmetic` | *none* — a derived fact is an ordinary `:Fact` | `DERIVED_FROM` (Fact → Fact) | `Fact.fact_kind`, `Fact.derivation_key`, `Fact.derivation_operator`, `Fact.derivation`, `Fact.derived_at` | `fact_derivation_key_idx`, `fact_kind_idx` |
 
+| `module-bookkeeping` | `ModuleMigration` | *none* | [SDK ledger properties](extensions/module-bookkeeping.md) | `module_migration_key` composite uniqueness via explicit module application; no core scripts |
+
 Two things this table is saying deliberately. **One new relationship type and one adopted label across
-four capabilities** — `DERIVED_FROM` is the only .NET-only edge added, and it is argued for on the
+the four memory capabilities** — `DERIVED_FROM` is the only .NET-only edge added, and it is argued for on the
 grounds that the staleness cascade needs traversal in a direction a JSON id list cannot serve
 (§3.2.10); `:User` *narrows* divergence rather than widening it. And **`procedural` declares no
 migration script at all**: its DDL shipped in the base sequence before the extension system existed, so

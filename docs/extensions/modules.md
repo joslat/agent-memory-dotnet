@@ -170,8 +170,8 @@ Local validation rejects collisions within a module and with reserved base, buil
 SDK bookkeeping objects. Complete-set resolution also rejects collisions across modules, even when
 labels and prefixes differ. Repository tests pin reservations to actual bootstrap builders, shipped
 migrations and the upstream snapshot. These are planned shapes: migration ownership, existing-object
-checks, DDL application and the migration ledger remain unimplemented. The held storage adapter
-now derives DDL definitions as described below.
+checks, DDL application and the migration ledger are provided by the held storage adapter below;
+this portable descriptor itself performs no storage work.
 
 
 ## Neo4j migration definitions
@@ -186,7 +186,32 @@ adds definitions without changing existing keys or hashes. Empty composition pro
 Built-in additive lint is linked into the adapter for hand-script validation. Generated definitions
 use fixed templates and validated identifiers: quoted properties such as `delete` are valid and
 must not be misclassified as destructive operations by a script-text regex. The shared lint is
-not an arbitrary Cypher security sandbox. Hand-written script namespace checks, database ownership and
-bootstrap checks, applying/applied intents, read-only database planning, explicit application,
-recovery and CLI integration remain unfinished. No migration runs during registration, and this
-checkpoint provides no database-writing API. The portable SDK remains independent of Neo4j.
+not an arbitrary Cypher security sandbox. Hand-written script loading/namespace checks and CLI
+integration remain unfinished. No migration runs during registration. The portable SDK remains
+independent of Neo4j.
+
+## Explicit module schema application
+
+`new ModuleMigrator(transactionRunner, resolution)` prepares generated definitions for one store,
+without executing module code or database queries. `PlanAsync()` reads the existing schema and
+ledger. `ApplyAsync("operator-or-host-name")` explicitly reserves ownership and immutable hashes,
+applies pending DDL and stamps completion. Both accept cancellation. A composition with no schema
+claims performs zero database calls; reapplying a completed set performs no DDL or ledger writes.
+
+Base bootstrap constraint names must be present; running base migrations is not required. The SDK
+uses a separate `ModuleMigration` ledger with composite uniqueness on `(module_id, key)`. Namespace
+claims (prefix, label, relationship and object name) live under `io.agentmemory.sdk`; script intents
+live under each module ID. An application module cannot use the exact SDK bookkeeping identity.
+A shared transaction lock serializes reservation checks across compliant
+hosts. All pending hashes and claims commit before any module DDL. DDL and applied stamps are
+separate transactions: a crash retains `applying` intent and a matching retry resumes idempotently.
+Foreign ownership, mutated hashes, changed/missing applied shapes and failed indexes are refused.
+Previously applied keys omitted by an upgrade are reported and retained. A relationship-only upgrade
+still reserves its namespace even when no new index is required.
+
+This API currently applies **generated schema only**. It does not load hand-written scripts, expose
+CLI commands, activate a module, or implement runtime first-write readiness. Those remain separate
+unfinished integration work. Administrators must serialize external schema changes with application;
+the reservation lock coordinates compliant module migrators, not arbitrary administrative DDL.
+For schema-owner reporting, select the optional [`module-bookkeeping`](module-bookkeeping.md)
+declaration. Neither its registration nor the migrator constructor changes the base schema.

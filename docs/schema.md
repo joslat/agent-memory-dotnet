@@ -31,6 +31,12 @@ Compatibility is enforced as a guardrail, not a runtime compatibility layer. `ag
 | `ConsolidationRun` | Applied memory-hygiene audit record | Written by applied consolidation runs. |
 | `MemoryReadAudit` | Read/access audit record | Created when long-term access timestamps are updated; carries read kind, memory id, owner, access count, and read time. |
 
+The optional experimental [`module-bookkeeping`](extensions/module-bookkeeping.md) declaration
+owns `ModuleMigration` separately from the base `Migration` ledger. It is off by default and ships
+no core migration scripts. Selecting its metadata adds no database calls or DDL; module application
+is an explicit storage-adapter operation for generated schema. Hand scripts and CLI integration
+remain unfinished; see [module application](extensions/modules.md#explicit-module-schema-application).
+
 Entity nodes may also receive type/subtype labels such as `PERSON`, `ORGANIZATION`, `LOCATION`, `EVENT`, and `OBJECT`.
 
 ## Relationship Types

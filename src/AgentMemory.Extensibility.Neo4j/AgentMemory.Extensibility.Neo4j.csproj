@@ -13,5 +13,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../../shared/AdditiveMigrationLint.cs" Link="Shared/AdditiveMigrationLint.cs" />
+    <Compile Include="../../shared/ModuleBookkeepingSchema.cs" Link="Shared/ModuleBookkeepingSchema.cs" />
   </ItemGroup>
 </Project>

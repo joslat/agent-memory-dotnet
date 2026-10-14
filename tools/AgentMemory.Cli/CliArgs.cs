@@ -192,7 +192,8 @@ public static class CliHelp
               someone is whoever owns the deployment's schema.
               Skipping it does not error. The queries still run and the only symptom is
               a scan where a seek belonged, which is why this is spelled out here.
-              Available: arithmetic, delta-recall, procedural, working-memory.
+              Available: arithmetic, delta-recall, module-bookkeeping, procedural, working-memory.
+              module-bookkeeping declares ownership only; explicit module application is separate.
               Empty (the default) is the base schema, byte-identical.
               Applies to every database-backed command, so `schema-check` reports on the
               same set `migrate` applied. See docs/extensions/README.md.

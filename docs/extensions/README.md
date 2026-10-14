@@ -176,6 +176,8 @@ extension's scripts and skips them through the ordinary applied-check.
 
 ## Shipped extensions
 
+- [`module-bookkeeping`](module-bookkeeping.md) - optional SDK ledger ownership metadata; no core migration scripts.
+
 - [`procedural`](procedural.md) — the `trace_kind` promotion marker.
 - [`working-memory`](working-memory.md) — the compiled per-owner profile block on upstream's `:User`.
 - [`delta-recall`](delta-recall.md) — RANGE indexes over the clocks "what changed since I last looked?"
@@ -183,7 +185,9 @@ extension's scripts and skips them through the ordinary applied-check.
 - [`arithmetic`](arithmetic.md) — the session accountant's materialised aggregates: `fact_kind='derived'`
   on `:Fact` plus one `DERIVED_FROM` edge, for answers that must be computed rather than found.
 
-Four ids, frozen: `arithmetic`, `delta-recall`, `procedural`, `working-memory`. An id is load-bearing
+Five registered ids: `arithmetic`, `delta-recall`, `module-bookkeeping`, `procedural`, `working-memory`.
+The ledger declaration has no core migration scripts; explicit module application is separate.
+For extensions with scripts, an id is load-bearing
 inside `(:Migration).version` keys, so renaming one orphans applied migrations on every database that
 has them — which is why a test pins the list.
 

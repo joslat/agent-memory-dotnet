@@ -1951,3 +1951,11 @@ run passed 27/27 checks for expansion, scope, bounds, eviction and expiry using 
 This measures delivery mechanics, not improved coding answers, compiler verification or prompt-injection
 immunity. Preview remains opt-in; comparative quality/cost evaluation is separate. See
 [contract and limits](coding-service.md#optional-evidence-preview-and-expansion).
+
+### Experimental module migration storage
+
+BUILT: the held Neo4j module adapter explicitly plans/applies generated schema with a separate
+ownership/intent ledger. Empty schema composition makes no database calls. Real Neo4j tests cover
+bootstrap-only operation, repeat/roll-forward, competing claims, hash/shape refusal and crash recovery.
+Hand-written migrations, CLI commands and runtime first-write readiness remain unfinished; no
+module is activated automatically. See [module application](extensions/modules.md#explicit-module-schema-application).
