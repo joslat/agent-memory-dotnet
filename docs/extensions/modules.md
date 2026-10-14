@@ -170,4 +170,23 @@ Local validation rejects collisions within a module and with reserved base, buil
 SDK bookkeeping objects. Complete-set resolution also rejects collisions across modules, even when
 labels and prefixes differ. Repository tests pin reservations to actual bootstrap builders, shipped
 migrations and the upstream snapshot. These are planned shapes: migration ownership, existing-object
-checks, DDL generation/application and the migration ledger remain unimplemented.
+checks, DDL application and the migration ledger remain unimplemented. The held storage adapter
+now derives DDL definitions as described below.
+
+
+## Neo4j migration definitions
+
+The experimental `AgentMemory.Extensibility.Neo4j` storage adapter is held at version 0.1.0.
+Its internal definition builder consumes successful frozen complete-set resolution: dependencies
+first, then derived object names in ordinal order. Each object has a stable `derived/<object-name>`
+key, quoted identifiers, idempotent constraint/index creation text and lowercase SHA-256 over
+UTF-8 text with CRLF/CR normalized to LF. Exact property spelling is preserved. Adding a type
+adds definitions without changing existing keys or hashes. Empty composition produces no work.
+
+Built-in additive lint is linked into the adapter for hand-script validation. Generated definitions
+use fixed templates and validated identifiers: quoted properties such as `delete` are valid and
+must not be misclassified as destructive operations by a script-text regex. The shared lint is
+not an arbitrary Cypher security sandbox. Hand-written script namespace checks, database ownership and
+bootstrap checks, applying/applied intents, read-only database planning, explicit application,
+recovery and CLI integration remain unfinished. No migration runs during registration, and this
+checkpoint provides no database-writing API. The portable SDK remains independent of Neo4j.

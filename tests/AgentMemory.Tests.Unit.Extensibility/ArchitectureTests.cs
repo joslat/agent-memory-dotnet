@@ -63,4 +63,18 @@ public sealed class ArchitectureTests
 
         unmarked.Should().BeEmpty("the 0.x line and the attribute must agree");
     }
+
+    [Fact]
+    public void ModuleStorageAdapterExportsOnlyExperimentalTypesAndDoesNotReachIntoCore()
+    {
+        var storage = typeof(AgentMemory.Extensibility.Neo4j.Migrations.ModuleMigrationStep).Assembly;
+        storage.GetExportedTypes().Should().OnlyContain(type =>
+            type.GetCustomAttribute<System.Diagnostics.CodeAnalysis.ExperimentalAttribute>() != null);
+        var names = storage.GetReferencedAssemblies().Select(reference => reference.Name ?? string.Empty).ToArray();
+        names.Where(name => name.StartsWith("AgentMemory.", StringComparison.Ordinal)).Should()
+            .OnlyContain(name => name == "AgentMemory.Extensibility" || name == "AgentMemory.Neo4j");
+        names.Should().NotContain(name => name.StartsWith("Microsoft.Agents", StringComparison.Ordinal)
+            || name.StartsWith("Microsoft.SemanticKernel", StringComparison.Ordinal)
+            || name.StartsWith("ModelContextProtocol", StringComparison.Ordinal));
+    }
 }

@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Held experimental Neo4j module adapter with deterministic derived migration definitions, stable
+  keys and LF-normalized hashes. Built-in additive script lint is linked into the adapter;
+  module database plan/apply, ownership checks and recovery remain unfinished.
+
 - Experimental packaged editor schemas for manifests/profiles and deterministic module schema-object
   descriptors. Validation rejects generated index/constraint name collisions within/across modules
   and with reserved storage objects; no DDL or activation is performed.

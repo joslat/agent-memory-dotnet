@@ -25,18 +25,6 @@ internal static class SchemaExtensionValidator
 {
     private static readonly Regex IdPattern = new("^[a-z][a-z0-9-]*$", RegexOptions.Compiled);
 
-    /// <summary>
-    /// Statements a migration under the <c>ext/</c> namespace is allowed to be. Base migrations are
-    /// exempt — the lint applies to the extension namespace only, because base is reviewed as base.
-    /// </summary>
-    private static readonly Regex AllowedStatement = new(
-        @"^\s*(CREATE\s+(INDEX|CONSTRAINT|VECTOR\s+INDEX|FULLTEXT\s+INDEX)\b.*IF\s+NOT\s+EXISTS\b|MATCH\b)",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
-
-    private static readonly Regex ForbiddenStatement = new(
-        @"\b(DROP|REMOVE|DETACH\s+DELETE|DELETE)\b",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
     /// <summary>Validates one extension's identity in isolation. Cheap; run at startup.</summary>
     public static IReadOnlyList<string> ValidateIdentity(ISchemaExtension extension)
     {
@@ -160,29 +148,8 @@ internal static class SchemaExtensionValidator
     /// </remarks>
     public static IReadOnlyList<string> LintMigrationScript(
         string extensionId, string scriptName, string cypher)
-    {
-        var problems = new List<string>();
-
-        foreach (var statement in Infrastructure.MigrationRunner.ParseStatements(cypher))
-        {
-            if (ForbiddenStatement.IsMatch(statement))
-            {
-                problems.Add(
-                    $"ext/{extensionId}/{scriptName}: statement removes or rewrites existing shape "
-                    + $"(R1 is additive-only): {Excerpt(statement)}");
-                continue;
-            }
-
-            if (!AllowedStatement.IsMatch(statement))
-            {
-                problems.Add(
-                    $"ext/{extensionId}/{scriptName}: statement is neither a 'CREATE … IF NOT EXISTS' "
-                    + $"schema object nor a MATCH-scoped backfill: {Excerpt(statement)}");
-            }
-        }
-
-        return problems;
-    }
+        => AgentMemory.Shared.AdditiveMigrationLint.Validate(
+            Infrastructure.MigrationRunner.ParseStatements(cypher), $"ext/{extensionId}/{scriptName}");
 
     private static void Claim(
         List<string> problems, Dictionary<string, string> owners, string shape, string extensionId)
@@ -198,6 +165,4 @@ internal static class SchemaExtensionValidator
         owners[shape] = extensionId;
     }
 
-    private static string Excerpt(string statement) =>
-        statement.Length <= 120 ? statement : statement[..120] + "…";
 }

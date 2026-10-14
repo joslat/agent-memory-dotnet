@@ -15,7 +15,9 @@ Local semantic validation now checks ontology ownership, constraints, references
 The pure complete-set resolver now freezes declarations and checks dependency targets, ranges,
 cycles, schema namespaces and explicit feature inputs. It does not prove actual host registrations
 or grant activation permission. Generated index/constraint collision checks and editor schemas are
-built; typed shape descriptors do not generate/apply DDL or implement module persistence.
+built. The separate held Neo4j module adapter now derives DDL definitions with stable keys and
+normalized hashes; additive script lint is shared with the storage adapter. Database planning/application, ownership/recovery
+and module persistence remain unimplemented; descriptors themselves still perform no database work.
 Metadata-only assembly discovery is built: it checks the single bounded manifest and informational
 version without loading implementation code. It does not establish publisher trust. These primitives
 add no retrieval, extraction or module activation to existing hosts.

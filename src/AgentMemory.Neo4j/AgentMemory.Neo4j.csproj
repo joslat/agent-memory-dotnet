@@ -52,4 +52,7 @@
     <Compile Include="..\..\shared\DependencyOrder.cs" Link="Shared\DependencyOrder.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../../shared/AdditiveMigrationLint.cs" Link="Shared/AdditiveMigrationLint.cs" />
+  </ItemGroup>
 </Project>

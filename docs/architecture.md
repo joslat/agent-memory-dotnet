@@ -213,8 +213,15 @@ constraint/index names and exact label/property identities. Local and complete-s
 collisions with each other or reserved actual base/built-in/upstream objects. Packaged standalone
 editor schemas complement runtime validation; they add no production dependency or schema writes.
 
-The rule the exception does **not** relax: a layered adapter still never depends on `Neo4j`, and
-`AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
+Framework-facing layered adapters still never depend on `Neo4j`. The experimental
+`AgentMemory.Extensibility.Neo4j` storage adapter is a separate storage-specific branch: it
+references the module SDK and public Neo4j APIs, without a Core friend-assembly escape. Its current
+implementation derives deterministic migration statements/keys/hashes; database plan/apply and
+recovery are still unfinished. Built-in extension lint is linked into the storage adapter through
+`shared/AdditiveMigrationLint.cs`, preserving existing diagnostics for script validation. Generated
+DDL uses fixed templates and validated identifiers, so quoted keyword properties remain valid.
+
+The portable `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
 references rather than left to intention.
 
 ```mermaid
@@ -225,6 +232,9 @@ graph TD
     MCP["MCP Server<br/>(Phase 6)"] --> Core
     Neo4j["AgentMemory.Neo4j<br/>(+ GraphRAG retrieval)"] --> Core
     Neo4j --> Abs
+    ModuleStore["Extensibility.Neo4j<br/>(held storage adapter)"] --> Neo4j
+    ModuleStore --> ModuleSdk["Extensibility SDK"]
+    ModuleSdk --> Abs
     Core["AgentMemory.Core"] --> Abs
     Abs["AgentMemory.Abstractions<br/>(M.E.AI.Abstractions only)"]
     OBS -. decorates .-> MAF

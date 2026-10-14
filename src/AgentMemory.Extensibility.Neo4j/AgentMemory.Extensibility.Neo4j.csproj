@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>AgentMemory.Extensibility.Neo4j</RootNamespace>
+    <Description>Experimental Neo4j storage and migration adapter for AgentMemory modules.</Description>
+    <PackageTags>agent-memory;memory;extensibility;neo4j</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AgentMemory.Extensibility/AgentMemory.Extensibility.csproj" />
+    <ProjectReference Include="../AgentMemory.Neo4j/AgentMemory.Neo4j.csproj" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../shared/AdditiveMigrationLint.cs" Link="Shared/AdditiveMigrationLint.cs" />
+  </ItemGroup>
+</Project>
