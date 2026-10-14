@@ -34,8 +34,9 @@ Compatibility is enforced as a guardrail, not a runtime compatibility layer. `ag
 The optional experimental [`module-bookkeeping`](extensions/module-bookkeeping.md) declaration
 owns `ModuleMigration` separately from the base `Migration` ledger. It is off by default and ships
 no core migration scripts. Selecting its metadata adds no database calls or DDL; module application
-is an explicit storage-adapter operation for generated schema. Hand scripts and CLI integration
-remain unfinished; see [module application](extensions/modules.md#explicit-module-schema-application).
+is an explicit storage-adapter operation for generated and authorized handwritten statements. The
+SDK-owned `completed_statements` property records committed progress; backfill data and its counter
+commit together. Hostless CLI integration remains unfinished; see [module application](extensions/modules.md#explicit-module-schema-application).
 
 Entity nodes may also receive type/subtype labels such as `PERSON`, `ORGANIZATION`, `LOCATION`, `EVENT`, and `OBJECT`.
 

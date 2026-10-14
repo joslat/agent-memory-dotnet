@@ -7,7 +7,18 @@ internal sealed record ModuleDatabaseObject(string Name, string Kind, string Ent
     IReadOnlyList<string> Labels, IReadOnlyList<string> Properties, bool IsConstraint,
     string? OwningConstraint, string? State);
 
-internal sealed record ModuleLedgerEntry(string ModuleId, string Key, string? Hash, string? State, string? Owner);
+internal sealed record ModuleLedgerEntry(string ModuleId, string Key, string? Hash, string? State, string? Owner,
+    long? CompletedStatements = null, bool InvalidProgress = false)
+{
+    internal static ModuleLedgerEntry FromRow(IReadOnlyDictionary<string, object> row)
+    {
+        string? Get(string key) => row.TryGetValue(key, out var v) ? v?.As<string>() : null;
+        row.TryGetValue("completed_statements", out var raw);
+        long? progress = raw switch { long value => value, int value => value, _ => null };
+        return new(Get("module_id") ?? "", Get("key") ?? "", Get("sha256"), Get("state"), Get("owner_module_id"),
+            progress, raw is not null && progress is null);
+    }
+}
 
 internal sealed record ModuleDatabaseSnapshot(
     IReadOnlyList<ModuleDatabaseObject> Objects, IReadOnlySet<string> Labels,
@@ -36,12 +47,8 @@ internal sealed record ModuleDatabaseSnapshot(
         var relations = (await relationCursor.ToListAsync().ConfigureAwait(false)).Select(r => r["relationshipType"].As<string>()).ToHashSet(StringComparer.Ordinal);
         cancellationToken.ThrowIfCancellationRequested();
         var ledgerCursor = await runner.RunAsync(ModuleLedgerQueries.Ledger, parameters).ConfigureAwait(false);
-        var entries = (await ledgerCursor.ToListAsync().ConfigureAwait(false)).Select(r =>
-        {
-            var row = r["row"].As<Dictionary<string, object>>();
-            string? Get(string key) => row.TryGetValue(key, out var v) ? v?.As<string>() : null;
-            return new ModuleLedgerEntry(Get("module_id") ?? "", Get("key") ?? "", Get("sha256"), Get("state"), Get("owner_module_id"));
-        }).ToArray();
+        var entries = (await ledgerCursor.ToListAsync().ConfigureAwait(false))
+            .Select(r => ModuleLedgerEntry.FromRow(r["row"].As<Dictionary<string, object>>())).ToArray();
         return new(objects.AsReadOnly(), labels, relations, Array.AsReadOnly(entries));
     }
 }

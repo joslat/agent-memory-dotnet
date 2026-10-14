@@ -1,4 +1,4 @@
-﻿# Architecture Overview — Agent Memory for .NET
+# Architecture Overview — Agent Memory for .NET
 
 **Last Updated:** 2026-10-13 (2.0 API stability, explicit migration and host composition)
 **Author:** Jose Luis Latorre Millas
@@ -218,9 +218,9 @@ Framework-facing layered adapters still never depend on `Neo4j`. The experimenta
 references the module SDK and public Neo4j APIs, without a Core friend-assembly escape. Its current
 implementation derives deterministic migration statements/keys/hashes and explicitly plans/applies
 generated schema with recoverable ownership intents. Embedded handwritten-source discovery and an
-internal compiler with owned-namespace and operation checks are built; handwritten database
-assessment, execution/recovery and CLI wiring
-remain unfinished. Built-in extension lint is linked into the storage adapter through
+internal compiler with owned-namespace and operation checks are built. Explicit handwritten
+execution uses exact database assessment and atomic backfill progress; CLI wiring remains unfinished.
+Built-in extension lint is linked into the storage adapter through
 `shared/AdditiveMigrationLint.cs`, preserving existing diagnostics for script validation. Generated
 DDL uses fixed templates and validated identifiers, so quoted keyword properties remain valid.
 
@@ -2144,6 +2144,9 @@ no implementation assembly is loaded. A shared bounded resource reader keeps met
 consistent with portable manifest discovery. Cypher tokenization remains in the storage adapter.
 An internal compiler shares pure SDK namespace rules and additive lint, validates exact schema shapes
 and bounded scoped backfills, and collects ordered steps and ownership claims without database calls.
-This does not enable handwritten execution: database shape assessment, durable statement progress,
-multi-statement recovery and CLI wiring remain unfinished. See
+Explicit handwritten execution shares that compiled plan. Exact database assessment rejects foreign
+or equivalent shapes; each backfill commits atomically with durable statement progress under the
+SDK migration lock. DDL commits separately and resumes through its reserved hash and exact shape.
+The existing constructor remains generated-only; a four-argument overload accepts authorized scripts.
+No constructor or registration runs migrations. Hostless CLI wiring remains unfinished. See
 [embedded migration source discovery](extensions/modules.md#embedded-migration-source-discovery).

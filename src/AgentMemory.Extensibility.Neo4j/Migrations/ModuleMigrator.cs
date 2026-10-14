@@ -7,33 +7,41 @@ using Neo4j.Driver;
 
 namespace AgentMemory.Extensibility.Neo4j.Migrations;
 
-/// <summary>Explicit per-store application of derived module schema with durable ownership and intent.</summary>
+/// <summary>Explicit per-store application of compiled module migrations with durable ownership and intent.</summary>
 /// <remarks>No work runs in the constructor or registration. Empty schema composition makes zero
-/// database calls. This experimental entrypoint currently handles generated definitions; hand-script
-/// loading and hostless CLI integration are separate unfinished work. The caller authorizes module
-/// metadata and supplies the transaction runner for exactly one store.</remarks>
+/// database calls. Generated and explicit handwritten inputs share ownership and recovery checks.
+/// Hostless CLI integration remains separate unfinished work. The caller authorizes module metadata
+/// and sources, and supplies the transaction runner for exactly one store.</remarks>
 [Experimental("AMEXT001")]
 public sealed class ModuleMigrator
 {
     private readonly INeo4jTransactionRunner _runner;
-    private readonly ModuleResolution _resolution;
-    private readonly IReadOnlyList<ModuleMigrationStep> _steps;
+    private readonly ModuleMigrationCompilation _compilation;
+    private readonly ModuleMigrationExecutor _executor;
     private readonly IReadOnlyList<ModuleNamespaceClaim> _claims;
     private readonly TimeProvider _clock;
     private readonly object _readParameters;
 
     /// <summary>Prepares immutable definitions without database calls or module code execution.</summary>
     public ModuleMigrator(INeo4jTransactionRunner runner, ModuleResolution resolution, TimeProvider? timeProvider = null)
+        : this(runner, resolution, [], timeProvider) { }
+
+    /// <summary>Compiles explicit handwritten sources alongside generated schema, without database access.</summary>
+    /// <remarks>Scripts must belong to the resolved modules and carry full LF-normalized source hashes.
+    /// The explicit fourth argument preserves the existing three-argument constructor, including null clocks.
+    /// Compilation checks operations and namespaces; the caller still authorizes the metadata/source bytes.</remarks>
+    public ModuleMigrator(INeo4jTransactionRunner runner, ModuleResolution resolution,
+        IReadOnlyList<ModuleMigrationStep> scripts, TimeProvider? timeProvider)
     {
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentNullException.ThrowIfNull(resolution);
         _runner = runner;
-        _resolution = resolution;
-        _steps = ModuleMigrationDefinitions.Derive(resolution);
+        _compilation = ModuleMigrationCompilation.Compile(resolution, scripts);
         if (resolution.Modules.Any(m => m.Id == ModuleBookkeepingSchema.NamespaceLedgerId))
             throw new ArgumentException("The SDK bookkeeping identity cannot be used by an application module.", nameof(resolution));
-        _claims = ModuleMigrationAssessment.Claims(resolution);
+        _claims = _compilation.Claims;
         _clock = timeProvider ?? TimeProvider.System;
+        _executor = new ModuleMigrationExecutor(runner, _clock);
         _readParameters = new { moduleIds = resolution.Modules.Select(m => m.Id).ToArray(), sdkId = ModuleBookkeepingSchema.NamespaceLedgerId };
     }
 
@@ -46,9 +54,10 @@ public sealed class ModuleMigrator
             .ConfigureAwait(false)), cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Reserves matching ownership/hashes, applies pending derived DDL, then stamps completion.</summary>
+    /// <summary>Reserves matching ownership/hashes, applies pending statements, then stamps completion.</summary>
     /// <remarks>Actor is mandatory. DDL and ledger stamps are separate transactions; failures preserve
-    /// applying intent and matching retries resume. Foreign namespaces and changed hashes are refused.
+    /// applying intent and matching retries resume. Backfills commit atomically with statement progress.
+    /// Foreign namespaces and changed hashes are refused.
     /// Administrators must serialize external schema changes with this operation; this lock coordinates
     /// compliant module migrators, not arbitrary database administrators.</remarks>
     public async Task<ModuleMigrationPlan> ApplyAsync(string actor, CancellationToken cancellationToken = default)
@@ -75,10 +84,8 @@ public sealed class ModuleMigrator
             return current;
         }, cancellationToken).ConfigureAwait(false);
         foreach (var step in reserved.Pending)
-        {
-            await ExecuteAsync(step.Statement, null, cancellationToken).ConfigureAwait(false);
-            await ExecuteAsync(ModuleLedgerQueries.Applied, Parameters(step, actor), cancellationToken).ConfigureAwait(false);
-        }
+            await _executor.ApplyAsync(_compilation.Steps.Single(s => s.Definition.ModuleId == step.ModuleId && s.Definition.Key == step.Key),
+                actor, cancellationToken).ConfigureAwait(false);
         var final = await PlanAsync(cancellationToken).ConfigureAwait(false);
         RefuseProblems(final);
         if (final.Pending.Count != 0 || final.PendingNamespaces.Count != 0) throw new InvalidOperationException("Module migration application did not complete all reserved intents.");
@@ -89,7 +96,7 @@ public sealed class ModuleMigrator
     { moduleId = step.ModuleId, key = step.Key, hash = step.Sha256, actor, now = _clock.GetUtcNow().ToString("O") };
 
     private ModuleMigrationPlan Assess(ModuleDatabaseSnapshot snapshot) =>
-        ModuleMigrationAssessment.Assess(_resolution, _steps, _claims, snapshot);
+        ModuleMigrationAssessment.Assess(_compilation, snapshot);
 
     private static void RefuseProblems(ModuleMigrationPlan plan)
     {

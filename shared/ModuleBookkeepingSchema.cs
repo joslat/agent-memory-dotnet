@@ -11,6 +11,6 @@ internal static class ModuleBookkeepingSchema
     internal static IReadOnlySet<string> Properties { get; } = new[]
     {
         "module_id", "key", "sha256", "state", "actor", "applied_actor",
-        "started_at", "applied_at", "owner_module_id"
+        "started_at", "applied_at", "owner_module_id", "completed_statements"
     }.ToFrozenSet(StringComparer.Ordinal);
 }

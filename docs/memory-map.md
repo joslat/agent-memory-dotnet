@@ -1957,13 +1957,14 @@ immunity. Preview remains opt-in; comparative quality/cost evaluation is separat
 BUILT: the held Neo4j module adapter explicitly plans/applies generated schema with a separate
 ownership/intent ledger. Empty schema composition makes no database calls. Real Neo4j tests cover
 bootstrap-only operation, repeat/roll-forward, competing claims, hash/shape refusal and crash recovery.
-Hand-written migrations, CLI commands and runtime first-write readiness remain unfinished; no
-module is activated automatically. See [module application](extensions/modules.md#explicit-module-schema-application).
+CLI commands and runtime first-write readiness remain unfinished; no module is activated automatically. See [module application](extensions/modules.md#explicit-module-schema-application).
 
 
 Embedded module migration discovery is **BUILT** as an experimental metadata-only API in the held
 Neo4j adapter. Its internal compiler has unit coverage for resource bounds, full-source hashes, exact
 composite range/uniqueness shapes, owned namespaces, scoped backfills and conflicting ownership.
-Compilation does not authorize execution. Handwritten sources are **not WIRED** into the migrator
-or CLI, and no handwritten migration database acceptance is claimed.
+Compilation does not authorize execution. Authorized handwritten sources are **WIRED** into explicit
+application, with **MEASURED** real Neo4j acceptance for composite/relationship schema, partial failure,
+atomic backfill rollback, lost commit acknowledgements, concurrent matching applies and changed-input
+refusal. Hostless CLI and runtime activation remain unfinished; no automatic application is claimed.
 [Contract and limits](extensions/modules.md#embedded-migration-source-discovery).

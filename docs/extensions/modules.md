@@ -186,9 +186,9 @@ adds definitions without changing existing keys or hashes. Empty composition pro
 Built-in additive lint is linked into the adapter for hand-script validation. Generated definitions
 use fixed templates and validated identifiers: quoted properties such as `delete` are valid and
 must not be misclassified as destructive operations by a script-text regex. The shared lint is
-not an arbitrary Cypher security sandbox. Embedded source discovery is available below; handwritten
-namespace checks, execution and CLI integration remain unfinished. No migration runs during registration. The portable SDK remains
-independent of Neo4j.
+not an arbitrary Cypher security sandbox. Embedded source discovery, namespace checks and explicit
+execution are available below; hostless CLI integration remains unfinished. No migration runs during
+registration. The portable SDK remains independent of Neo4j.
 
 ## Explicit module schema application
 
@@ -203,15 +203,30 @@ uses a separate `ModuleMigration` ledger with composite uniqueness on `(module_i
 claims (prefix, label, relationship and object name) live under `io.agentmemory.sdk`; script intents
 live under each module ID. An application module cannot use the exact SDK bookkeeping identity.
 A shared transaction lock serializes reservation checks across compliant
-hosts. All pending hashes and claims commit before any module DDL. DDL and applied stamps are
-separate transactions: a crash retains `applying` intent and a matching retry resumes idempotently.
-Foreign ownership, mutated hashes, changed/missing applied shapes and failed indexes are refused.
+hosts. All pending hashes and claims commit before any module statement. DDL and progress stamps
+use separate transactions: matching retries use `IF NOT EXISTS` plus exact shape checks. Each backfill
+and its `completed_statements` increment share one transaction under the same SDK lock, so an
+increment is not repeated after a lost commit acknowledgement or by a concurrent matching apply.
+The migration remains `applying` until all statements complete.
+Foreign ownership, mutated hashes, changed/missing completed shapes, failed indexes and equivalent
+objects under another name are refused. Invalid or absent handwritten progress is refused; older
+generated ledger rows without progress remain readable because each contains one replay-safe DDL statement.
 Previously applied keys omitted by an upgrade are reported and retained. A relationship-only upgrade
 still reserves its namespace even when no new index is required.
 
-This API currently applies **generated schema only**. It does not load hand-written scripts, expose
-CLI commands, activate a module, or implement runtime first-write readiness. Those remain separate
-unfinished integration work. Administrators must serialize external schema changes with application;
+To include explicit handwritten sources, use the four-argument overload. It preserves the existing
+three-argument constructor, including calls that pass a null time provider:
+
+```csharp
+var scripts = ModuleMigrationScripts.LoadFromAssemblyImage(authorizedImage);
+var migrator = new ModuleMigrator(transactionRunner, resolution, scripts, TimeProvider.System);
+var plan = await migrator.PlanAsync(cancellationToken);
+// The operator/host explicitly chooses to apply this authorized source and composition.
+var result = await migrator.ApplyAsync("operator-name", cancellationToken);
+```
+
+The caller authorizes the source bytes and metadata. Source loading does not execute implementation
+code. Hostless CLI commands, runtime activation and first-write readiness remain unfinished. Administrators must serialize external schema changes with application;
 the reservation lock coordinates compliant module migrators, not arbitrary administrative DDL.
 For schema-owner reporting, select the optional [`module-bookkeeping`](module-bookkeeping.md)
 declaration. Neither its registration nor the migrator constructor changes the base schema.
@@ -252,8 +267,8 @@ within dependency order, and collects historical label/type/object claims. Confl
 duplicate object names and equivalent shapes under another name are rejected before database access.
 The compiler has unit coverage; database shape assessment and ownership reservation remain separate checks.
 
-Discovery and compilation do not authorize execution. These definitions cannot yet be supplied to
-`ModuleMigrator`: handwritten database assessment, multi-statement recovery and CLI wiring remain
-unfinished. Backfills may be non-idempotent (for example, increments); execution must commit their
-statement progress in the same transaction as the update before enabling retries. Existing generated
-schema application and built-in migrations are unchanged. No handwritten database acceptance is claimed.
+Discovery and compilation do not authorize execution. Explicit script-input application uses the same
+compiled shapes, ownership claims and ordered statements as planning. Real Neo4j acceptance covers
+mixed composite/relationship schema and backfills, matching recovery after DDL or lost commit
+acknowledgements, rollback, concurrent matching applies, later-statement failure and altered input
+refusal. Base migration rows remain unchanged. Hostless CLI and runtime activation are still unfinished.

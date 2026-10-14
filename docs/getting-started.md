@@ -739,3 +739,13 @@ For explicit bounded evidence tools, configure the optional coding-host `evidenc
 [preview/expansion configuration](coding-service.md#optional-evidence-preview-and-expansion) lists
 all defaults and limits. It is independent of diagnostics and durable capture, and remains disabled
 by default. Native coding hooks continue ordinary recall.
+
+
+### Experimental module migration inputs
+
+The held module adapter supports explicit generated and handwritten migrations. Constructing or
+registering services does not apply them. Load authorized embedded sources as metadata, provide them
+to the four-argument `ModuleMigrator` constructor, inspect `PlanAsync`, then explicitly call
+`ApplyAsync(actor)`. Use the same validated composition for both operations. This does not activate
+module code or establish publisher trust; hostless CLI integration remains unfinished. See
+[module application and recovery](extensions/modules.md#explicit-module-schema-application).

@@ -22,8 +22,7 @@ internal static class ModuleMigrationAssessment
             .Concat(ModuleSchemaObjects.Describe(m).Select(s => new ModuleNamespaceClaim("namespace/object/" + s.Name, m.Id, "object", s.Name))))
         .OrderBy(c => c.Key, StringComparer.Ordinal).ToList().AsReadOnly();
 
-    internal static ModuleMigrationPlan Assess(ModuleResolution resolution, IReadOnlyList<ModuleMigrationStep> steps,
-        IReadOnlyList<ModuleNamespaceClaim> claims, ModuleDatabaseSnapshot snapshot)
+    internal static ModuleMigrationPlan Assess(ModuleMigrationCompilation compilation, ModuleDatabaseSnapshot snapshot)
     {
         var problems = new List<string>();
         var pending = new List<ModuleMigrationStep>();
@@ -41,7 +40,7 @@ internal static class ModuleMigrationAssessment
         var duplicates = snapshot.Entries.GroupBy(e => (e.ModuleId, e.Key)).Where(g => g.Count() != 1).ToArray();
         foreach (var duplicate in duplicates) problems.Add("Duplicate module ledger identity: " + duplicate.Key);
         var entries = snapshot.Entries.GroupBy(e => (e.ModuleId, e.Key)).ToDictionary(g => g.Key, g => g.First());
-        foreach (var claim in claims)
+        foreach (var claim in compilation.Claims)
         {
             var exists = claim.Kind switch
             {
@@ -59,36 +58,35 @@ internal static class ModuleMigrationAssessment
                 if (exists) problems.Add("Existing namespace has no matching module ownership: " + claim.Name);
             }
         }
-        var shapes = resolution.Modules.SelectMany(ModuleSchemaObjects.Describe).ToDictionary(s => s.Name, StringComparer.Ordinal);
-        foreach (var step in steps)
+        foreach (var migration in compilation.Steps)
         {
-            var shape = shapes[step.Key["derived/".Length..]];
-            var actual = snapshot.Objects.Where(o => o.Name == shape.Name).ToArray();
-            var constraint = shape.Kind == ModuleSchemaObjectKind.UniqueConstraint;
-            var matches = actual.Any(o => Matches(o, shape, constraint));
-            if (actual.Any(o => !Matches(o, shape, constraint)
-                && !(constraint && !o.IsConstraint && o.OwningConstraint == shape.Name
-                    && o.EntityType == "NODE" && o.Labels.SequenceEqual([shape.Label]) && o.Properties.SequenceEqual([shape.Property]))))
-                problems.Add("Existing schema object differs from declared shape: " + shape.Name);
-            if (actual.Any(o => o.State == "FAILED")) problems.Add("Index is failed: " + shape.Name);
-            if (entries.TryGetValue((step.ModuleId, step.Key), out var entry))
+            var step = migration.Definition;
+            entries.TryGetValue((step.ModuleId, step.Key), out var entry);
+            var completed = 0;
+            if (entry is not null)
             {
-                if (entry.Hash != step.Sha256) problems.Add("Migration hash differs from reserved/applied hash: " + step.ModuleId + "/" + step.Key);
-                if (entry.State is not ("applying" or "applied")) problems.Add("Invalid migration state: " + step.ModuleId + "/" + step.Key);
-                if (entry.State == "applied")
-                {
-                    if (!matches) problems.Add("Applied schema object is missing: " + shape.Name);
-                    applied.Add(step);
-                }
-                else pending.Add(step);
+                try { completed = ModuleMigrationProgress.Completed(migration, entry); }
+                catch (InvalidOperationException e) { problems.Add(e.Message); }
             }
-            else
+            for (var index = 0; index < migration.Operations.Count; index++)
             {
-                if (actual.Length != 0) problems.Add("Schema object has no matching migration intent: " + shape.Name);
-                pending.Add(step);
+                if (migration.Operations[index].Shape is not { } shape) continue;
+                var actual = snapshot.Objects.Where(o => o.Name == shape.Name).ToArray();
+                var matches = actual.Any(o => Matches(o, shape));
+                if (actual.Any(o => !Matches(o, shape) && !IsBackingIndex(o, shape)))
+                    problems.Add("Existing schema object differs from declared shape: " + shape.Name);
+                if (snapshot.Objects.Any(o => o.Name != shape.Name && Conflicts(o, shape)))
+                    problems.Add("Existing equivalent schema object has another name: " + shape.Name);
+                if (actual.Any(o => o.State == "FAILED")) problems.Add("Index is failed: " + shape.Name);
+                if ((entry?.State == "applied" || completed > index) && !matches)
+                    problems.Add("Applied schema object is missing: " + shape.Name);
+                if (entry is null && actual.Length != 0)
+                    problems.Add("Schema object has no matching migration intent: " + shape.Name);
             }
+            if (entry?.State == "applied") applied.Add(step);
+            else pending.Add(step);
         }
-        var keys = steps.Select(s => (s.ModuleId, s.Key)).ToHashSet();
+        var keys = compilation.Steps.Select(s => (s.Definition.ModuleId, s.Definition.Key)).ToHashSet();
         return new ModuleMigrationPlan
         {
             Pending = pending.AsReadOnly(), PendingNamespaces = pendingNamespaces.AsReadOnly(), Applied = applied.AsReadOnly(), Problems = problems.AsReadOnly(),
@@ -98,8 +96,18 @@ internal static class ModuleMigrationAssessment
         };
     }
 
-    private static bool Matches(ModuleDatabaseObject o, ModuleSchemaObject shape, bool constraint) =>
-        o.IsConstraint == constraint && o.EntityType == "NODE" && o.Labels.SequenceEqual([shape.Label])
-        && o.Properties.SequenceEqual([shape.Property]) && o.Kind == (constraint ? "UNIQUENESS" : "RANGE")
-        && (constraint || o.OwningConstraint is null);
+    private static bool Matches(ModuleDatabaseObject actual, ModuleMigrationSchemaObject shape) =>
+        actual.IsConstraint == shape.IsConstraint && SameSchema(actual, shape) && actual.Kind == shape.Kind
+        && (shape.IsConstraint || actual.OwningConstraint is null);
+
+    private static bool IsBackingIndex(ModuleDatabaseObject actual, ModuleMigrationSchemaObject shape) =>
+        shape.IsConstraint && !actual.IsConstraint && actual.Kind == "RANGE"
+        && actual.OwningConstraint == shape.Name && SameSchema(actual, shape);
+
+    private static bool SameSchema(ModuleDatabaseObject actual, ModuleMigrationSchemaObject shape) =>
+        actual.EntityType == shape.EntityType && actual.Labels.SequenceEqual(shape.Labels)
+        && actual.Properties.SequenceEqual(shape.Properties);
+
+    private static bool Conflicts(ModuleDatabaseObject actual, ModuleMigrationSchemaObject shape) =>
+        SameSchema(actual, shape) && actual.Kind is "RANGE" or "UNIQUENESS" or "RELATIONSHIP_UNIQUENESS" or "NODE_KEY" or "RELATIONSHIP_KEY";
 }

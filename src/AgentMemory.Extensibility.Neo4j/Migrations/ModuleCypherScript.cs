@@ -7,7 +7,7 @@ internal sealed record ModuleCypherToken(ModuleCypherTokenKind Kind, string Text
 internal sealed record ModuleCypherStatement(string Text, IReadOnlyList<ModuleCypherToken> Tokens);
 
 // A bounded lexical reader, not a Cypher grammar or authorization boundary. The compiler must
-// validate allowed operations, exact owned shapes and idempotency before any statement executes.
+// validate allowed operations and exact owned shapes; execution must persist replay-safe progress.
 internal static class ModuleCypherScript
 {
     internal const int MaximumCharacters = 262144;

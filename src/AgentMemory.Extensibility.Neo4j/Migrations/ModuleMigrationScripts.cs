@@ -12,7 +12,8 @@ namespace AgentMemory.Extensibility.Neo4j.Migrations;
 /// <remarks>Embedded Migrations/000N_name.cypher resources must be UTF-8 without a BOM, at most
 /// 256 KiB each, 1 MiB combined and 128 scripts per assembly. Default dotted MSBuild resource names
 /// and root Migrations/ logical names are accepted. Namespace, operation and database ownership
-/// checks are separate obligations; these definitions cannot yet be supplied to ModuleMigrator.</remarks>
+/// checks are enforced by the explicit script-input ModuleMigrator constructor and database planning.
+/// Source discovery alone does not authorize application.</remarks>
 [Experimental("AMEXT001")]
 public static class ModuleMigrationScripts
 {
