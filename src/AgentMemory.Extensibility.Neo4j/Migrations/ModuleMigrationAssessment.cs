@@ -37,6 +37,17 @@ internal static class ModuleMigrationAssessment
                 || (obj.IsConstraint ? obj.Kind != "UNIQUENESS" : obj.OwningConstraint != ModuleBookkeepingSchema.ConstraintName))
                 problems.Add("Foreign or incompatible module ledger constraint: " + obj.Name);
         }
+        var keyObjects = snapshot.Objects.Where(o => o.Name == ModuleBookkeepingSchema.KeyConstraintName).ToArray();
+        foreach (var obj in keyObjects)
+            if (obj.EntityType != "NODE" || !obj.Labels.SequenceEqual([ModuleBookkeepingSchema.KeyLabel])
+                || !obj.Properties.SequenceEqual(["id"])
+                || (obj.IsConstraint ? obj.Kind != "UNIQUENESS" : obj.OwningConstraint != ModuleBookkeepingSchema.KeyConstraintName))
+                problems.Add("Foreign or incompatible module key constraint: " + obj.Name);
+        if (snapshot.Objects.Any(o => o.Name != ModuleBookkeepingSchema.KeyConstraintName && o.EntityType == "NODE"
+            && o.Labels.SequenceEqual([ModuleBookkeepingSchema.KeyLabel]) && o.Properties.SequenceEqual(["id"])
+            && o.Kind is "UNIQUENESS" or "NODE_KEY" or "RANGE"))
+            problems.Add("Equivalent module key schema object has another name.");
+        var pendingBookkeeping = keyObjects.Any(o => o.IsConstraint) ? Array.Empty<string>() : [ModuleBookkeepingSchema.KeyConstraintName];
         var duplicates = snapshot.Entries.GroupBy(e => (e.ModuleId, e.Key)).Where(g => g.Count() != 1).ToArray();
         foreach (var duplicate in duplicates) problems.Add("Duplicate module ledger identity: " + duplicate.Key);
         var entries = snapshot.Entries.GroupBy(e => (e.ModuleId, e.Key)).ToDictionary(g => g.Key, g => g.First());
@@ -89,7 +100,7 @@ internal static class ModuleMigrationAssessment
         var keys = compilation.Steps.Select(s => (s.Definition.ModuleId, s.Definition.Key)).ToHashSet();
         return new ModuleMigrationPlan
         {
-            Pending = pending.AsReadOnly(), PendingNamespaces = pendingNamespaces.AsReadOnly(), Applied = applied.AsReadOnly(), Problems = problems.AsReadOnly(),
+            PendingBookkeeping = Array.AsReadOnly(pendingBookkeeping), Pending = pending.AsReadOnly(), PendingNamespaces = pendingNamespaces.AsReadOnly(), Applied = applied.AsReadOnly(), Problems = problems.AsReadOnly(),
             UndeclaredAppliedKeys = snapshot.Entries.Where(e => e.ModuleId != ModuleBookkeepingSchema.NamespaceLedgerId
                 && e.State == "applied" && !keys.Contains((e.ModuleId, e.Key)))
                 .Select(e => e.ModuleId + "/" + e.Key).OrderBy(k => k, StringComparer.Ordinal).ToList().AsReadOnly()

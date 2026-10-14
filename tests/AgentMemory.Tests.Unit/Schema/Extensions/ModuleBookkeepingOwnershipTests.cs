@@ -12,7 +12,8 @@ public sealed class ModuleBookkeepingOwnershipTests
     {
         var extension = SchemaExtensionRegistry.CreateDefault().Find("module-bookkeeping");
         extension.Should().NotBeNull();
-        extension!.DeclaredLabels.Should().Equal("ModuleMigration");
+        extension!.DeclaredLabels.Should().BeEquivalentTo(["ModuleMigration", "ModuleKey"]);
+        extension.DeclaredProperties["ModuleKey"].Should().Contain(["id", "module_id", "type", "key", "owner_id", "version", "current_id"]);
         extension.DeclaredProperties["ModuleMigration"].Should().Contain(["module_id", "key", "sha256", "state", "actor"]);
         extension.MigrationScripts.Should().BeEmpty("module apply has its own ledger and explicit entrypoint");
         extension.BaseResidentMigrations.Should().BeEmpty();

@@ -751,3 +751,14 @@ module code or establish publisher trust. The operator CLI also accepts `modules
 --profile <path> [--store <alias>]`; apply requires `--actor`. Source hashes and whole-profile
 resolution are checked before migration database calls. See
 [module application and recovery](extensions/modules.md#explicit-module-schema-application).
+
+
+### Experimental module record store
+
+The held Neo4j module adapter offers explicit `Neo4jModuleStore` construction from a transaction runner,
+frozen module resolution and optional handwritten migration sources. Pass it as the corresponding
+module's store binding when constructing `ModuleIngestion`; no default host service is replaced.
+Run explicit module migration application first, including any reported `PendingBookkeeping`
+constraint. Writes refuse pending schema work and never apply DDL. Enable `module-bookkeeping` only
+when requesting schema-owner reporting for SDK ledger/key shapes. Framework callbacks, module reads
+and view evaluation remain unfinished. See [module writes](extensions/modules.md#transactional-neo4j-module-writes).

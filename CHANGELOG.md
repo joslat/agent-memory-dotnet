@@ -6,10 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add explicit experimental Neo4j module writes with transactional source-owner verification,
+  locked logical-key versions, non-destructive history, bounded scoped link resolution and atomic
+  batch refusal. Module migration planning/application now owns the optional key constraint; record
+  writes never apply DDL. Module reads/views and framework write wiring remain unfinished.
+
 - Add explicit experimental module ingestion orchestration: owner-policy resolution before providers,
   dependency-ordered batches, original-index refusal reports and frozen provider-free replay. Validate
   complete replay inputs before writes, propagate cancellation and report uncertain store commits
-  honestly. Concrete module record persistence and framework write wiring remain unfinished.
+  honestly. Concrete Neo4j writes are now available; module reads/views and framework write wiring remain unfinished.
 
 - Add experimental typed module proposals and pure admission with immutable accepted snapshots,
   exact scalar constraints, request-source membership and explicit shared-provider restrictions.

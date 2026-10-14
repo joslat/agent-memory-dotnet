@@ -11,6 +11,8 @@ internal static class ModuleLedgerQueries
     internal const string Ledger = "MATCH (m:" + ModuleBookkeepingSchema.Label + ") WHERE m.module_id IN $moduleIds OR m.module_id = $sdkId RETURN properties(m) AS row";
     internal const string CreateLedger = "CREATE CONSTRAINT " + ModuleBookkeepingSchema.ConstraintName
         + " IF NOT EXISTS FOR (m:" + ModuleBookkeepingSchema.Label + ") REQUIRE (m.module_id, m.key) IS UNIQUE";
+    internal const string CreateKeys = "CREATE CONSTRAINT " + ModuleBookkeepingSchema.KeyConstraintName
+        + " IF NOT EXISTS FOR (k:" + ModuleBookkeepingSchema.KeyLabel + ") REQUIRE k.id IS UNIQUE";
     // Every compliant writer takes the same write lock before checking and reserving any namespace.
     // DDL runs outside this data transaction; matching durable intents make interruption resumable.
     internal const string Lock = "MERGE (m:" + ModuleBookkeepingSchema.Label + " {module_id:$sdkId, key:'reservation-lock'}) "

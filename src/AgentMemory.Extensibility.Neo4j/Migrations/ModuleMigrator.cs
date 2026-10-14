@@ -68,8 +68,9 @@ public sealed class ModuleMigrator
         var initial = await PlanAsync(cancellationToken).ConfigureAwait(false);
         RefuseProblems(initial);
         // A fully applied set has no DDL or ledger writes on subsequent application.
-        if (initial.Pending.Count == 0 && initial.PendingNamespaces.Count == 0) return initial;
+        if (initial.Pending.Count == 0 && initial.PendingNamespaces.Count == 0 && initial.PendingBookkeeping.Count == 0) return initial;
         await ExecuteAsync(ModuleLedgerQueries.CreateLedger, null, cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(ModuleLedgerQueries.CreateKeys, null, cancellationToken).ConfigureAwait(false);
         var reserved = await _runner.WriteAsync(async r =>
         {
             await ExecuteInAsync(r, ModuleLedgerQueries.Lock, new { sdkId = ModuleBookkeepingSchema.NamespaceLedgerId,
@@ -88,8 +89,20 @@ public sealed class ModuleMigrator
                 actor, cancellationToken).ConfigureAwait(false);
         var final = await PlanAsync(cancellationToken).ConfigureAwait(false);
         RefuseProblems(final);
-        if (final.Pending.Count != 0 || final.PendingNamespaces.Count != 0) throw new InvalidOperationException("Module migration application did not complete all reserved intents.");
+        if (final.Pending.Count != 0 || final.PendingNamespaces.Count != 0 || final.PendingBookkeeping.Count != 0) throw new InvalidOperationException("Module migration application did not complete all reserved intents.");
         return final;
+    }
+
+    internal async Task<ModuleMigrationPlan> PlanInAsync(IAsyncQueryRunner runner, CancellationToken cancellationToken)
+    {
+        if (_claims.Count == 0) return new();
+        var snapshot = await ModuleDatabaseSnapshot.ReadAsync(runner, _readParameters, cancellationToken).ConfigureAwait(false);
+        var plan = Assess(snapshot);
+        var configured = _compilation.Steps.Select(s => (s.Definition.ModuleId, s.Definition.Key)).ToHashSet();
+        var unfinished = snapshot.Entries.Where(e => e.ModuleId != ModuleBookkeepingSchema.NamespaceLedgerId
+            && e.State == "applying" && !configured.Contains((e.ModuleId, e.Key))).ToArray();
+        return unfinished.Length == 0 ? plan : plan with
+        { Problems = plan.Problems.Concat(unfinished.Select(e => "Unconfigured pending module migration: " + e.ModuleId + "/" + e.Key)).ToList().AsReadOnly() };
     }
 
     private object Parameters(ModuleMigrationStep step, string actor) => new

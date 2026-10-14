@@ -232,8 +232,10 @@ source-ID membership and explicit shared-write selection. It performs no databas
 Provider orchestration now explicitly binds authorized providers and stores, resolves the owner first,
 awaits each batch in dependency order and replays frozen inputs without provider/current-clock calls.
 The store contract requires a transaction per admitted batch, and uncertain acknowledgements remain
-unknown rather than assumed rollback. Persisted provenance, version transactions and adapter write
-wiring remain unfinished; shape acceptance must never stand in for those checks. See [proposal admission](extensions/modules.md#typed-proposals-and-pure-admission).
+unknown rather than assumed rollback. The held Neo4j store now verifies source provenance and writes versioned records/links in one provider
+transaction. Its SDK-owned key constraint is prepared by explicit migration application, with no core
+schema changes when disabled. Module reads/views and framework write wiring remain unfinished;
+shape acceptance alone must never stand in for storage checks. See [proposal admission](extensions/modules.md#typed-proposals-and-pure-admission).
 
 The portable `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
 references rather than left to intention.

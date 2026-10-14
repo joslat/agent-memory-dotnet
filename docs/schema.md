@@ -196,3 +196,15 @@ Live recall excludes invalidated records. As-of recall can answer what was belie
 - `IMigrationRunner` applies versioned `.cypher` migrations and records applied versions.
 - `agentmemory schema-check` compares live database objects with `SchemaConformance.ExpectedObjectNames(dimensions)`.
 - `agentmemory schema-parity` compares the .NET schema descriptor against embedded upstream Python snapshots.
+
+
+### Experimental module record bookkeeping
+
+The optional `module-bookkeeping` declaration also owns `ModuleKey`: `id`, `module_id`, `type`,
+`owner_id`, `key`, `version`, `current_id` and the transient `lock_token`. Its unique `module_key_id`
+constraint is applied only through the held module migrator. The default base schema is unchanged.
+Module type labels/properties/relations are owned by the resolved manifest and migration namespace
+claims. Version records use the SDK-reserved `id`, `key_id`, `key`, `owner_id`, `created_at`,
+`invalidated_at`, `superseded_by`, `source_session_id`, `source_message_ids` and `source_excerpt` fields,
+and the existing `SUPERSEDED_BY` relationship between versions. No core record is relabeled.
+See [module writes and limits](extensions/modules.md#transactional-neo4j-module-writes).

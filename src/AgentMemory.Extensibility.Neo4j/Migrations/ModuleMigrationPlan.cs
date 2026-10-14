@@ -14,6 +14,8 @@ public sealed record ModuleMigrationPlan
     public IReadOnlyList<string> Problems { get; init; } = [];
     /// <summary>Namespace identities needing durable ownership, even when no new DDL is needed.</summary>
     public IReadOnlyList<string> PendingNamespaces { get; init; } = [];
+    /// <summary>SDK bookkeeping constraints needing explicit application; never created by record writes.</summary>
+    public IReadOnlyList<string> PendingBookkeeping { get; init; } = [];
     /// <summary>Previously applied module/key identities omitted by this declaration, retained without rollback.</summary>
     public IReadOnlyList<string> UndeclaredAppliedKeys { get; init; } = [];
 }

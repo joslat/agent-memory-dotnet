@@ -1,6 +1,6 @@
 # Module bookkeeping ownership
 
-`module-bookkeeping` declares ownership for the experimental module migration ledger. It is off by
+`module-bookkeeping` declares ownership for the experimental module migration ledger and version-key records. It is off by
 default. The module adapter and base schema reporting share this declaration through internal linked
 source; the adapter does not access backend internals or require a friend-assembly grant.
 
@@ -15,6 +15,12 @@ The SDK owns the `ModuleMigration` label and these properties:
 - `started_at`, `applied_at`: reservation and completion timestamps.
 - `owner_module_id`: owner of a namespace claim held under the SDK ledger identity.
 
+Version 2 also owns `ModuleKey` and its `id`, `module_id`, `type`, `owner_id`, `key`, `version`
+and `current_id` properties. `lock_token` is a transient SDK lock marker set and removed in the
+same query before reading the version/current pair; it is never retained after a successful write. The `module_key_id` constraint makes `id` unique. A key's identity hashes
+module, type, the nullable owner bucket and logical key as an unambiguous structured tuple. Its locked
+version counter and current-record reference serialize writes across hosts. No core record is relabeled.
+
 There are no declared relationship types. Namespace-claim keys belong to the SDK identity
 `io.agentmemory.sdk`; module script keys belong to the actual module identity. This page declares
 the owned shape used by explicit generated/handwritten application and interrupted-intent recovery.
@@ -24,7 +30,9 @@ the owned shape used by explicit generated/handwritten application and interrupt
 This extension ships **no core migration scripts** and owns no base-resident migrations. Enabling
 its schema reporting does not create a constraint, ledger row or `Migration` record. The held
 `AgentMemory.Extensibility.Neo4j` adapter owns explicit module-ledger DDL and plan/apply.
-Registration, schema reporting and module activation are separate operations.
+Explicit application also creates the SDK `module_key_id` constraint after exact shape checks.
+Planning reports it under `PendingBookkeeping` when absent. Record writes refuse missing constraints;
+they never apply schema automatically. Registration, schema reporting and activation are separate.
 
 ## Semantics
 
@@ -53,7 +61,8 @@ applies, later-statement failure/recovery, and altered source or missing-progres
 
 ## Parity delta
 
-When selected, the declaration adds the .NET-only `ModuleMigration` label and the declared
+When selected, the declaration adds the .NET-only `ModuleMigration` and `ModuleKey` labels and the declared
 `module_id`, `key`, `sha256`, `state`, `actor`, `applied_actor`, `started_at`, `applied_at` and
-`owner_module_id`, `completed_statements` properties to the effective policy. No upstream-only labels are adopted and no
+`owner_module_id`, `completed_statements`, `id`, `type`, `owner_id`, `version`, `current_id` and `lock_token`
+properties to the effective policy. The existing `key` property is shared by the declarations. No upstream-only labels are adopted and no
 relationship types are added. The base descriptor and policy remain unchanged when it is off.

@@ -2,8 +2,8 @@
 
 The current core release inventory holds the module SDK and its adapters on a separate experimental
 version line. Source includes context contributors/compiler, metadata/profile resolution, explicit
-module migrations, pure proposal admission and explicit ordered ingestion/replay. Transactional module
-records, framework write wiring and runtime activation remain unfinished. Registering contributors does not activate a module platform.
+module migrations, pure proposal admission and explicit ordered ingestion/replay. Transactional module writes are implemented in the held Neo4j adapter; module reads/views, framework
+write wiring and runtime activation remain unfinished. Registering contributors does not activate a module platform.
 
 ## Version and identity primitives
 
@@ -225,7 +225,7 @@ var result = await migrator.ApplyAsync("operator-name", cancellationToken);
 ```
 
 The caller authorizes the source bytes and metadata. Source loading does not execute implementation
-code. Explicit CLI plan/apply is available; runtime activation and first-write readiness remain unfinished. Administrators must serialize external schema changes with application;
+code. Explicit CLI plan/apply is available; runtime activation remains unfinished; explicit record writes check migration readiness. Administrators must serialize external schema changes with application;
 the reservation lock coordinates compliant module migrators, not arbitrary administrative DDL.
 For schema-owner reporting, select the optional [`module-bookkeeping`](module-bookkeeping.md)
 declaration. Neither its registration nor the migrator constructor changes the base schema.
@@ -354,9 +354,9 @@ resolution. It returns concrete errors or an independent immutable proposal snap
   Selecting an `EveryTurn` provider explicitly does not grant it permission to write shared records.
 - `Invalidate` operations carry identity and provenance, with no silently ignored property/link changes.
 
-**Admission is a pure shape check, not a write or proof of persisted provenance.** The future store
-must verify source messages against the resolved owner's session, migration readiness and scoped/live
-targets in its transaction. It must check required anchors and final cardinality after merging retained
+**Admission is a pure shape check, not a write or proof of persisted provenance.** The concrete store
+verifies source messages against the resolved owner's session, migration readiness and scoped/live
+targets in its transaction. It checks required anchors and final cardinality after merging retained
 links; omitting a required link from an update does not establish that the final record lacks that link.
 Text remains untrusted and must pass the host's existing rendering policy. No DI activation, model
 call, storage query or existing prompt change is introduced by these types and helper.
@@ -394,8 +394,46 @@ Store receipts must cover each admitted index exactly once, use supported outcom
 only for refusals. Cancellation propagates, including when a provider ignores cancellation and returns
 an empty result. Raw exception text is logged through the host logger, not copied into the report.
 
-**Current limit:** `IModuleStore` defines the transactional contract; the concrete module record store
-and framework persistence callback are still unfinished. Orchestration tests use controlled providers
-and stores to prove ordering/failure/replay behavior, not real Neo4j writes. Actual migration readiness,
-owner/session provenance, version locking, relationship resolution and historical reads require the
-concrete store and its integration acceptance. No coding-memory quality claim follows from these tests.
+`IModuleStore` defines the transactional write contract; the held Neo4j adapter implements it below.
+Orchestration tests use controlled providers/stores to prove execution behavior. Separate fresh-Neo4j
+tests exercise actual write invariants. Framework persistence callbacks, module reads and shared view
+evaluation remain unfinished. Neither suite is a coding-memory effectiveness benchmark.
+
+## Transactional Neo4j module writes
+
+`AgentMemory.Extensibility.Neo4j.Storage.Neo4jModuleStore` binds a public transaction runner, frozen
+module resolution and any explicit handwritten migration sources. It is constructed explicitly; no
+service is automatically registered. Source/metadata/provider mismatches are refused before writes.
+
+`ModuleMigrator.ApplyAsync` now also prepares the SDK-owned `module_key_id` uniqueness constraint.
+`PlanAsync` reports missing SDK constraints in `PendingBookkeeping`; empty compositions still make no
+database calls. Existing objects with the wrong shape or an equivalent foreign name are refused.
+The optional [module-bookkeeping](module-bookkeeping.md) declaration owns the key fields; core
+bootstrap and the base `Migration` ledger remain unchanged. A record write never applies DDL.
+
+Within one transaction the store:
+
+1. Reassesses the configured migrations and refuses pending/inconsistent work, including a recorded
+   applying migration omitted from its configured source list.
+2. Verifies each cited message through its actual `Conversation`/`HAS_MESSAGE` relationship, matching
+   the resolved owner, session, stored conversation ID, role and content. Request IDs alone are insufficient.
+3. Locks distinct logical keys in stable order. The unique `ModuleKey` hashes module/type/owner/key;
+   its version counter and current reference govern deterministic version IDs. A transient lock marker
+   is set and removed before reading both properties. Concurrent hosts cannot create two current versions.
+4. Validates current-record identity/owner and resolves declared links inside the transaction. Core
+   IDs or exact names/aliases can follow `merged_into`; module keys and carried links follow
+   `superseded_by`. Chases stop after 16 records or a cycle; name lookup refuses over 64 candidates.
+   Ambiguous, missing, out-of-scope or invalidated proposed targets are refused. Shared source records
+   can link only to shared targets. Required anchors and final cardinality are checked after copying links;
+   an explicit max-one link replaces its copied predecessor.
+5. Returns `NoOp` for equal properties and links; otherwise appends a version, stamps the old record
+   and connects `SUPERSEDED_BY`. Invalidation preserves the record and clears the key's current reference.
+   A write clock before the preceding creation/invalidation is refused rather than creating overlapping
+   history. Providers must order proposals when one references a record created earlier in the same batch.
+
+A transactional invariant refusal rolls back the whole admitted provider batch, including earlier
+proposals and newly created key rows. Unexpected errors propagate, preserving unknown-commit handling
+in the orchestrator. Historical records retain copied source IDs/session/excerpt when messages are
+cleared. Core records are not rewritten or relabeled. Module reads, system-time lookup, anchor-loss
+filtering during reads, view evaluation and framework callback wiring are subsequent work; these write
+APIs alone do not complete end-to-end module ingestion.

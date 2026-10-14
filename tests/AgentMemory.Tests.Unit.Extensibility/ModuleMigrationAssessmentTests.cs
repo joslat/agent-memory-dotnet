@@ -20,6 +20,19 @@ public sealed class ModuleMigrationAssessmentTests
         claims.Select(c => new ModuleLedgerEntry("io.agentmemory.sdk", c.Key, null, "owned", c.Owner)).ToArray());
 
     [Fact]
+    public void KeyBookkeepingIsExplicitlyPendingAndExactExistingShapeClearsIt()
+    {
+        var compilation = ModuleMigrationCompilation.Compile(Resolve(), []);
+        ModuleMigrationAssessment.Assess(compilation, Snapshot(compilation.Claims)).PendingBookkeeping.Should().Equal("module_key_id");
+        var correct = new ModuleDatabaseObject("module_key_id", "UNIQUENESS", "NODE", ["ModuleKey"], ["id"], true, null, null);
+        ModuleMigrationAssessment.Assess(compilation, Snapshot(compilation.Claims, correct)).PendingBookkeeping.Should().BeEmpty();
+        ModuleMigrationAssessment.Assess(compilation, Snapshot(compilation.Claims, correct with { Labels = ["Other"] }))
+            .Problems.Should().Contain(p => p.Contains("module key constraint", StringComparison.OrdinalIgnoreCase));
+        ModuleMigrationAssessment.Assess(compilation, Snapshot(compilation.Claims, correct with { Name = "foreign_key_shape" }))
+            .Problems.Should().Contain(p => p.Contains("another name", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void EquivalentShapeUnderAnotherNameCannotMakeIfNotExistsSilentlySkipTheRequestedObject()
     {
         var resolution = Resolve();
