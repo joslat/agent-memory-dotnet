@@ -50,12 +50,7 @@ public static class ModuleProposalAdmission
         ValidateProperties(proposal, type, errors);
         ValidateLinks(proposal, module, errors);
         if (errors.Count != 0) return new(null, errors.ToList().AsReadOnly());
-        var frozen = proposal with
-        {
-            Properties = proposal.Properties.ToDictionary(p => p.Key, p => p.Value.Clone(), StringComparer.Ordinal).AsReadOnly(),
-            Links = proposal.Links.Select(link => link with { }).ToList().AsReadOnly(),
-            Source = proposal.Source with { MessageIds = proposal.Source.MessageIds.ToList().AsReadOnly() }
-        };
+        var frozen = ModuleIngestionSnapshot.Proposal(proposal);
         return new(frozen, []);
     }
 

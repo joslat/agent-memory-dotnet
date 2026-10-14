@@ -1972,9 +1972,17 @@ unfinished; no automatic application or host capability probing is claimed.
 [Contract and limits](extensions/modules.md#embedded-migration-source-discovery).
 
 
-**Module proposal admission ? BUILT, not wired to persisted records.** The held SDK validates and
+**Module proposal admission - BUILT, not wired to persisted records.** The held SDK validates and
 freezes typed proposals without model/database calls. Unit coverage exercises ownership, exact scalar
 bounds, source-ID membership, relationship shape and explicit shared-provider selection. Accepted
 source IDs still need actual owner/session membership verification by storage. Transactional record
-writes, provider orchestration and adapter ingestion remain unfinished; no coding-memory quality or
+writes and adapter ingestion remain unfinished; no coding-memory quality or
 end-to-end write claim follows from these checks. [Contract](extensions/modules.md#typed-proposals-and-pure-admission).
+
+
+**Module ingestion orchestration - BUILT, not wired to a concrete module record store.** Explicitly
+bound providers run after owner resolution, in dependency order with awaited batch commits. Reports
+preserve refusals/partial progress and unknown commit status on store errors. Recorded replay verifies
+owner/request/metadata and reuses the write clock without provider calls. Controlled provider/store
+tests cover these mechanics; real module transaction and framework-write acceptance remain unfinished.
+[Execution and limits](extensions/modules.md#ordered-ingestion-and-recorded-replay).

@@ -229,8 +229,11 @@ Typed ingestion proposals and pure admission live in the SDK's `Ingestion` names
 helper shares scalar validation with manifest filters, but evaluates no filter placeholders in stored
 values. It deep-copies accepted JSON/collections and checks provider/type ownership, property bounds,
 source-ID membership and explicit shared-write selection. It performs no database or model calls.
-Persisted provenance, version transactions, provider orchestration and adapter write wiring remain
-unfinished; shape acceptance must never stand in for those checks. See [proposal admission](extensions/modules.md#typed-proposals-and-pure-admission).
+Provider orchestration now explicitly binds authorized providers and stores, resolves the owner first,
+awaits each batch in dependency order and replays frozen inputs without provider/current-clock calls.
+The store contract requires a transaction per admitted batch, and uncertain acknowledgements remain
+unknown rather than assumed rollback. Persisted provenance, version transactions and adapter write
+wiring remain unfinished; shape acceptance must never stand in for those checks. See [proposal admission](extensions/modules.md#typed-proposals-and-pure-admission).
 
 The portable `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
 references rather than left to intention.

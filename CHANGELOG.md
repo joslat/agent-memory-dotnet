@@ -6,9 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add explicit experimental module ingestion orchestration: owner-policy resolution before providers,
+  dependency-ordered batches, original-index refusal reports and frozen provider-free replay. Validate
+  complete replay inputs before writes, propagate cancellation and report uncertain store commits
+  honestly. Concrete module record persistence and framework write wiring remain unfinished.
+
 - Add experimental typed module proposals and pure admission with immutable accepted snapshots,
   exact scalar constraints, request-source membership and explicit shared-provider restrictions.
-  Storage provenance checks and ingestion orchestration remain separate unfinished work; this adds
+  Storage provenance checks remain unfinished and orchestration is explicitly composed; this adds
   no automatic module writes, model calls or changes to existing host prompts.
 
 - Expose experimental `ModuleSchemaDerivation.Derive(manifest)` for database-free editor previews,

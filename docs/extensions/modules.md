@@ -2,8 +2,8 @@
 
 The current core release inventory holds the module SDK and its adapters on a separate experimental
 version line. Source includes context contributors/compiler, metadata/profile resolution, explicit
-module migrations and pure proposal admission. Transactional module records, ingestion orchestration
-and runtime activation remain unfinished. Registering contributors does not activate a module platform.
+module migrations, pure proposal admission and explicit ordered ingestion/replay. Transactional module
+records, framework write wiring and runtime activation remain unfinished. Registering contributors does not activate a module platform.
 
 ## Version and identity primitives
 
@@ -360,3 +360,42 @@ targets in its transaction. It must check required anchors and final cardinality
 links; omitting a required link from an update does not establish that the final record lacks that link.
 Text remains untrusted and must pass the host's existing rendering policy. No DI activation, model
 call, storage query or existing prompt change is introduced by these types and helper.
+
+## Ordered ingestion and recorded replay
+
+`ModuleIngestion` implements `IModuleIngestion`. A host constructs it with a successful frozen
+`ModuleResolution`, authorized `IIngestionProvider` instances, explicit module-ID-to-`IModuleStore`
+bindings, its `IMemoryIsolationPolicy`, a `TimeProvider` and logger. This is explicit composition;
+`AddAgentMemoryExtensibility()` does not activate or register a module ingestion engine automatically.
+
+Each call resolves the claimed owner with tenant access **before any provider runs**, then freezes
+source messages and provider selection. An owner-policy refusal returns `Denied` without invoking a
+provider, store or clock. An empty provider set performs no policy, clock or store work. Automatic
+turns skip OnRequest providers; explicit requests reject unknown or duplicate selected IDs.
+
+Providers run in metadata dependency order, then ordinal provider-ID order within a module. Each
+admitted batch is awaited before the next provider runs. Shape refusals retain original output indices;
+accepted proposals make one store call. Empty/all-refused batches make none. Different provider batches
+and core persistence are separate transactions. A failed provider does not erase earlier results or
+prevent later providers from using already-existing records. No retry or exactly-once guarantee is added.
+
+`IngestionReport.Recorded` retains frozen, serializable proposal batches before admission, including
+shapes later refused and batches whose store call failed. A batch binds its provider/trigger, metadata
+fingerprint, canonical resolved-request hash and captured write clock. `ReplayAsync` rechecks owner
+policy and validates **all** recordings before writing the first batch. It runs admission/storage in
+dependency order with the recorded clock, without calling providers or the current clock. The request
+hash includes owner, session, messages, turn time and explicit selection. Hashes bind inputs but are not
+signatures or permission grants; replay is a trusted host operation. Reproducing a result requires a
+matching initial graph, and this is not replay of core extraction or an entire agent conversation.
+
+Provider and store failures are reported separately. A store exception or malformed receipt produces
+`Unavailable` with **unknown commit status**, since losing an acknowledgement does not prove rollback.
+Store receipts must cover each admitted index exactly once, use supported outcomes and carry reasons
+only for refusals. Cancellation propagates, including when a provider ignores cancellation and returns
+an empty result. Raw exception text is logged through the host logger, not copied into the report.
+
+**Current limit:** `IModuleStore` defines the transactional contract; the concrete module record store
+and framework persistence callback are still unfinished. Orchestration tests use controlled providers
+and stores to prove ordering/failure/replay behavior, not real Neo4j writes. Actual migration readiness,
+owner/session provenance, version locking, relationship resolution and historical reads require the
+concrete store and its integration acceptance. No coding-memory quality claim follows from these tests.
