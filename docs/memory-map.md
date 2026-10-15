@@ -1999,14 +1999,14 @@ These tests establish storage behavior, not coding usefulness. Scoped reads/view
 module writes. [Write contract and limits](extensions/modules.md#transactional-neo4j-module-writes).
 
 
-**Runtime view restrictions - BUILT; real-store acceptance pending.** Typed key, relationship-target
+**Runtime view restrictions - BUILT / MEASURED in isolated Neo4j tests.** Typed key, relationship-target
 and reduced-limit arguments use the shared view/reader. Target predicates resolve scoped identities
 before taking results, including across pages; runtime arguments cannot replace declared filters.
 Unit checks cover validation, independent snapshots and refusal by older view implementations.
 The shared view contributor accepts an explicit argument selector after owner resolution; null
 selection skips storage and unsupported valid-time requests never invoke it.
-New Neo4j cases cover paging, merge-time boundaries and foreign/shared targets; their execution must
-be verified separately. This is not package/runtime acceptance.
+The Neo4j cases passed for paging, merge-time boundaries and foreign/shared targets. Per-request
+contributor arguments additionally have compiler contract coverage. This is not package/runtime acceptance.
 
 **Bounded module history enumeration - BUILT; real-store acceptance pending.** Explicit history
 selection lists retained versions of one key with an optional creation cutoff and fixed numeric
@@ -2033,3 +2033,9 @@ fresh-session retrieval and foreign-owner exclusion. Unowned conversations are r
 host must establish conversation ownership before ingestion. Deterministic proposals and embeddings
 verify engineering contracts, not model quality or coding effectiveness. Runtime module leases remain
 separate work. [Host setup and limits](extensions/modules.md#explicit-agent-framework-module-ingestion-and-views).
+
+**Commitments package authoring example - BUILT; real-service acceptance pending.** Independent NuGet
+consumers exercise two module versions on net8/net9/net10, structured-user-only proposals, SDK admission,
+shared view arguments and exact loaded package bytes. This uses a ProbeReader for contribution contract
+checks. Actual graph writes, native fresh-session retrieval, migration and signed load/reload/unload are
+separate unverified requirements. [Example and verification](../eng/module-consumers/README.md).

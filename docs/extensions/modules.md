@@ -620,3 +620,17 @@ The returned fingerprint still describes metadata only. Runtime option binding, 
 leases and load/unload remain separate work. Existing `ModuleProfileResolver` and CLI `--host-features`
 remain pure planning surfaces; their feature claims are not runtime capability evidence. No probe is
 called by existing hosts unless they explicitly use this API.
+
+## Independent Commitments package example
+
+[Commitments & Follow-ups](../../eng/module-consumers/Commitments/README.md) is an example authoring
+consumer, built entirely against freshly packed NuGet SDK packages. It supplies owner-scoped
+CommitmentItem records, required COMMITMENT_ABOUT anchors, structured user teaching, and entity/due/
+history contributors using the shared views. V2 adds optional indexed priority_reason; apply its
+owned schema change explicitly and do not invent a backfilled reason.
+
+The [consumer verifier](../../eng/module-consumers/README.md) builds v1/v2 on net8.0/net9.0/net10.0,
+uses an isolated cache/feed with AgentMemory-only source mapping, and compares loaded DLL bytes to
+the actual nupkgs. It preserves metadata, command and test receipts. Contract checks use a ProbeReader
+test double and do not establish real storage, native host integration, migration or signed dynamic
+lifecycle acceptance. No sample package is added to the release manifest or published by this work.

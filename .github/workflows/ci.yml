@@ -34,6 +34,9 @@ jobs:
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
+          dotnet-version: |
+            8.0.x
+            9.0.x
           cache: true
           cache-dependency-path: '**/*.csproj'
 
@@ -90,6 +93,9 @@ jobs:
           --results-directory TestResults
 
       # Testcontainers spins up neo4j:5.26 automatically — no manual service container needed.
+      - name: Experimental Commitments package consumers
+        run: python eng/verify-commitments-package.py --output artifacts/commitments-package
+
       - name: Integration tests
         run: >
           dotnet test tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj
@@ -154,6 +160,19 @@ jobs:
         with:
           name: test-results
           path: TestResults/*.trx
+          if-no-files-found: ignore
+
+      - name: Upload Commitments package proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: commitments-package-proof
+          path: |
+            artifacts/commitments-package/report.json
+            artifacts/commitments-package/commands.json
+            artifacts/commitments-package/*.log
+            artifacts/commitments-package/assets-*.json
+            artifacts/commitments-package/feed/*.nupkg
           if-no-files-found: ignore
 
       # Public repo: works tokenless, but a CODECOV_TOKEN repo secret (from codecov.io, after

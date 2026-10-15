@@ -1,0 +1,95 @@
+{
+  "format": "agentmemory.module/v1alpha1",
+  "id": "io.agentmemory.examples.commitments",
+  "version": "1.0.0",
+  "sdk": "[0.1,0.2)",
+  "ontology": {
+    "labelPrefix": "Commitment",
+    "types": [
+      {
+        "name": "CommitmentItem",
+        "scope": "owner",
+        "render": "{title} | {status} | priority {priority} | due {due_at:O} | {detail}",
+        "properties": {
+          "title": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "status": {
+            "type": "string",
+            "required": true,
+            "values": [
+              "open",
+              "completed",
+              "cancelled"
+            ],
+            "indexed": true
+          },
+          "priority": {
+            "type": "int",
+            "required": true,
+            "min": 0,
+            "max": 5
+          },
+          "due_at": {
+            "type": "datetime",
+            "indexed": true
+          }
+        }
+      }
+    ],
+    "relations": [
+      {
+        "name": "COMMITMENT_ABOUT",
+        "from": "CommitmentItem",
+        "to": "core:Entity",
+        "required": true,
+        "max": 1
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "open-for-entity",
+      "type": "CommitmentItem",
+      "where": [
+        [
+          "status",
+          "=",
+          "open"
+        ]
+      ],
+      "orderBy": "due_at",
+      "limit": 10
+    },
+    {
+      "id": "due",
+      "type": "CommitmentItem",
+      "where": [
+        [
+          "status",
+          "=",
+          "open"
+        ],
+        [
+          "due_at",
+          "<=",
+          "$now"
+        ]
+      ],
+      "orderBy": "due_at",
+      "limit": 10
+    },
+    {
+      "id": "history",
+      "type": "CommitmentItem",
+      "selection": "history",
+      "limit": 20
+    }
+  ]
+}
