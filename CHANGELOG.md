@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Experimental Agent Framework modules: preserve explicit session read times through native context
+  compilation with `WithModuleReadTime`; refuse malformed saved selections instead of retrieving
+  current module data. Core recall and writes remain unchanged.
+
+
 - Add an independent Commitments memory-package example and NuGet consumer verification on .NET 8/9/10.
   V1/v2 exercise structured user teaching, shared views and optional priority-reason metadata without
   project-reference shortcuts. These contract checks do not claim real-service or dynamic lifecycle acceptance.

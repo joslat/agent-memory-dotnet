@@ -198,10 +198,9 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Straight through to the composed provider: persistence, extraction and its exception handling
-    /// are exactly today's. Module ingestion proposals are a later slice and are deliberately absent
-    /// rather than stubbed — a write path that looked registered and did nothing would be worse than
-    /// its absence.
+    /// Delegates persistence and extraction to the base provider. When explicitly registered,
+    /// module ingestion observes successfully persisted turns through OnTurnPersistedAsync;
+    /// retrieval time selections do not change write timestamps or ownership.
     /// </remarks>
     protected override ValueTask StoreAIContextAsync(
         InvokedContext context, CancellationToken cancellationToken = default)
@@ -236,6 +235,7 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
             // one -- and half the scopes restored looks exactly like all of them.
             using var scopes = BeginRetrievalScopes(ids.applicationId, ids.userId);
 
+            var times = AgentSessionModuleExtensions.ReadModuleTimes(context.Session);
             var request = new ContextRequest
             {
                 SessionId = ids.sessionId,
@@ -243,6 +243,8 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
                 Owner = ids.userId,
                 RecentTurn = turn,
                 Query = QuestionOf(turn),
+                SystemAsOf = times.SystemAsOf,
+                AsOf = times.AsOf,
             };
 
             // CORE IS EXCLUDED BECAUSE IT WAS ALREADY RENDERED, by `base` at the top of the turn.

@@ -760,8 +760,7 @@ frozen module resolution and optional handwritten migration sources. Pass it as 
 module's store binding when constructing `ModuleIngestion`; no default host service is replaced.
 Run explicit module migration application first, including any reported `PendingBookkeeping`
 constraint. Writes refuse pending schema work and never apply DDL. Enable `module-bookkeeping` only
-when requesting schema-owner reporting for SDK ledger/key shapes. Framework callbacks, module reads
-and view evaluation remain unfinished. See [module writes](extensions/modules.md#transactional-neo4j-module-writes).
+when requesting schema-owner reporting for SDK ledger/key shapes. Module ingestion callbacks, scoped reads and shared views are explicitly configured below. See [module writes](extensions/modules.md#transactional-neo4j-module-writes).
 
 
 ### Experimental module ingestion
@@ -784,6 +783,12 @@ versions in fixed newest-first order. Leave selection omitted for the original s
 DI registration; they use the same explicitly granted module reader. For agent contributions, pass a
 cheap argument selector as the fifth `ViewContributor` constructor argument (after priority); return
 null when the view does not apply. The compiler retains control of owner/shared scope.
+
+To select module read times on a native session, import `AgentMemory.Extensibility.AgentFramework`
+and call `session.WithModuleReadTime(systemAsOfUtc: instant)`. Both time arguments replace prior
+selections; `WithModuleReadTime()` clears them. This affects module contributors only, not core recall
+or persisted writes. Invalid saved selections refuse module compilation; unsupported valid-time reads
+remain NotApplicable. See [native session read times](extensions/modules.md#native-session-read-times).
 
 See [module ingestion and views](extensions/modules.md#explicit-agent-framework-module-ingestion-and-views)
 for lifetime, isolation and shutdown requirements. Dynamic loading requires the separate runtime

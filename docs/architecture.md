@@ -2213,3 +2213,9 @@ failures discard the complete candidate set. Constructors for module/store/runne
 queries are outside this check. A capability result is neither migration readiness nor authorization
 to activate code. The SDK adds only the options package for this check, not a Core or storage dependency.
 See [module capability checks](extensions/modules.md#effective-host-capability-checks).
+
+Native module time selection is an adapter-owned session concern. `WithModuleReadTime` persists
+explicit system/valid-time selections; `ExtensibleMemoryContextProvider` maps them into the shared
+compiler request after restoring owner/store scope. It neither adds owner authority nor changes core
+recall or write clocks. Invalid serialized state refuses module compilation, and the no-module path
+returns before reading those keys. [Contract](extensions/modules.md#native-session-read-times).

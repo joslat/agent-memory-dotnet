@@ -2008,11 +2008,12 @@ selection skips storage and unsupported valid-time requests never invoke it.
 The Neo4j cases passed for paging, merge-time boundaries and foreign/shared targets. Per-request
 contributor arguments additionally have compiler contract coverage. This is not package/runtime acceptance.
 
-**Bounded module history enumeration - BUILT; real-store acceptance pending.** Explicit history
+**Bounded module history enumeration - BUILT / MEASURED in isolated integration tests.** Explicit history
 selection lists retained versions of one key with an optional creation cutoff and fixed numeric
 version ordering at equal timestamps. Views share the same selection and require a runtime key.
 Default snapshots and manifest fingerprints are preserved. Parser/schema/admission/view checks pass;
-new real-store tests cover invalidation, copied provenance, owner isolation and query-time anchors.
+Real Neo4j tests pass for equal-time numeric version ordering, invalidation, copied provenance,
+owner isolation and query-time anchors.
 The package's frozen-world and dynamic lifecycle acceptance remain separate work.
 
 **Scoped module reads and shared views - BUILT / MEASURED in isolated integration tests.**
@@ -2039,3 +2040,9 @@ consumers exercise two module versions on net8/net9/net10, structured-user-only 
 shared view arguments and exact loaded package bytes. This uses a ProbeReader for contribution contract
 checks. Actual graph writes, native fresh-session retrieval, migration and signed load/reload/unload are
 separate unverified requirements. [Example and verification](../eng/module-consumers/README.md).
+
+**Native module read-time selection ? BUILT / WIRED; package-world acceptance pending.**
+`WithModuleReadTime` carries host-selected transaction/valid times through the Agent Framework session
+into module compilation. Contract tests cover actual provider invocation, identity preservation,
+clearing, serialization and malformed-state refusal. This does not time-pin core recall, backdate writes,
+or prove model effectiveness. [Contract](extensions/modules.md#native-session-read-times).

@@ -587,6 +587,21 @@ unowned/foreign conversation. Module storage refuses mismatched source ownership
 core conversation ownership to make ingestion succeed. Use host-authorized conversation identities;
 `AddConversationAsync` is an administrative upsert, not a tenant-claim operation.
 
+### Native session read times
+
+The experimental Agent Framework adapter accepts host-selected module times through
+`session.WithModuleReadTime(systemAsOfUtc: instant, validAsOfUtc: null)` in
+`AgentMemory.Extensibility.AgentFramework`. Both arguments replace the previous selections; call
+`WithModuleReadTime()` to clear them. UTC round-trip strings survive framework session serialization.
+The adapter passes them to `ContextRequest.SystemAsOf` and `AsOf` before compiling contributors.
+Unsupported valid-time reads retain the shared reader's NotApplicable result.
+
+These selections affect module retrieval only: core recall, source persistence and module write times
+are unchanged. A malformed saved selection refuses module compilation (with the existing warning)
+while preserving core context; it never silently substitutes current module data. With no registered
+module contributors, the adapter does not inspect these state keys. The host must separately configure
+core history/recall if it needs a wholly historical context or a module-only acceptance control.
+
 ## Effective host capability checks
 
 `ModuleHostProfileResolver.Resolve` checks a structurally valid profile against actual host service
