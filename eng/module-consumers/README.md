@@ -75,3 +75,18 @@ have terminal receipts; a successful compile or a primary pass does not prove th
 Explicit retained-data v1/v2 migration and signed runtime lifecycle remain separate. Failures are never
 averaged into a passing score. Supplied worlds and raw traces belong in private evidence, not public CI
 artifacts. `--build-only` performs no service operations and cannot claim a world pass.
+
+## Native telemetry receipts
+
+The native consumer records the existing AgentMemory diagnostics source while executing the frozen
+world. Fixture operation scopes distinguish module turns, core-only turns and recorded replay without
+adding a library source/exporter. `report.json` includes the exact activities, parent ids, tags, events,
+module metadata fingerprint and package version. The host uses explicit resolution-bound compilation.
+
+`eng/module_native_telemetry.py` independently inspects these records for all four module span families,
+actual database nesting, owning versions, set-level migration attribution, no-module core turns, replay,
+upgrade no-op behavior and private input exclusion. It writes a separate `telemetry-checks.json` and
+fails the service stage if any check fails. Original world assertions remain unchanged. The mutation
+suite runs without services using `python eng/test_module_native_telemetry.py` and is included in CI.
+The build-only command proves package consumption, not native trace acceptance. Hosted execution must
+pass with exact source/package/world identities before claiming those results. No inference is involved.

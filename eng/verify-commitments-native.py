@@ -10,6 +10,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
+from module_native_telemetry import write_verdict
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +55,8 @@ ET.indent(config); ET.ElementTree(config).write(out/'NuGet.Config',encoding='utf
 commands=[]
 def sha(data): return hashlib.sha256(data).hexdigest()
 def run(name, command, allow_failure=False):
+    if command[:2] in (['dotnet','build'], ['dotnet','pack']):
+        command = [*command, '--disable-build-servers', '-m:1']
     result=subprocess.run(command,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,encoding='utf-8',errors='replace')
     (out/(name+'.log')).write_text(result.stdout,encoding='utf-8')
     commands.append({'name':name,'command':command,'exitCode':result.returncode})
@@ -92,6 +95,8 @@ shutil.copytree(consumer.parent/'bin/Release/net10.0',runtime)
 source={p.relative_to(ROOT).as_posix():sha(p.read_bytes()) for p in (ROOT/'eng/module-consumers').rglob('*')
         if p.is_file() and 'bin' not in p.parts and 'obj' not in p.parts}
 source['eng/verify-commitments-native.py']=sha(Path(__file__).read_bytes())
+source['eng/module_native_telemetry.py']=sha((ROOT/'eng/module_native_telemetry.py').read_bytes())
+source['eng/test_module_native_telemetry.py']=sha((ROOT/'eng/test_module_native_telemetry.py').read_bytes())
 source['eng/run-commitments-negative-cases.py']=sha((ROOT/'eng/run-commitments-negative-cases.py').read_bytes())
 source['eng/run-commitments-upgrade.py']=sha((ROOT/'eng/run-commitments-upgrade.py').read_bytes())
 report={'createdAtUtc':datetime.now(timezone.utc).isoformat(),
@@ -113,6 +118,8 @@ if result_path.exists():
     for package_id,key in [('AgentMemory.Examples.Commitments','assembly'),('AgentMemory.Extensibility','sdk')]:
         if sha(Path(result[key]).read_bytes())!=loaded[package_id]['sha256']:
             raise SystemExit('Runtime loaded an unexpected package DLL: '+package_id)
+    trace_valid = write_verdict(out/'primary/telemetry-checks.json', result, json.loads(world.read_bytes()))
+    if not trace_valid: code = 1
     if code==0 and (result['failed'] or not result['checks'] or result['status']!='primary_passed_acceptance_incomplete'):
         raise SystemExit('Process exit disagrees with acceptance receipt.')
 elif code==0:

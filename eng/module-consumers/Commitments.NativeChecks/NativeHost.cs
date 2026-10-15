@@ -168,7 +168,7 @@ internal sealed class NativeHost : IAsyncDisposable
                 };
             });
             services.AddScoped<IContextCompiler>(sp => new CapturingCompiler(new ContextCompiler(
-                sp.GetServices<IContextContributor>(), sp.GetRequiredService<IMemoryIsolationPolicy>(), clock,
+                Resolution, sp.GetServices<IContextContributor>(), sp.GetRequiredService<IMemoryIsolationPolicy>(), clock,
                 sp.GetRequiredService<ILogger<ContextCompiler>>()), Envelopes));
         }
         Services = services.BuildServiceProvider(validateScopes: true);
@@ -191,6 +191,7 @@ internal sealed class NativeHost : IAsyncDisposable
 
     public async Task<IngestionReport> ReplayAsync(CapturedIngestion captured)
     {
+        using var operation = Program.Trace?.BeginOperation("native.replay");
         using var scope = Services.CreateScope();
         return await Pipeline(scope.ServiceProvider).ReplayAsync(captured.Request, captured.Report.Recorded);
     }
@@ -199,6 +200,7 @@ internal sealed class NativeHost : IAsyncDisposable
         string text, string userMessageId, string assistantMessageId, DateTimeOffset? systemAsOf = null,
         DateTimeOffset? validAsOf = null, string assistantText = "Acknowledged.")
     {
+        using var operation = Program.Trace?.BeginOperation(_resolution is null ? "native.core.turn" : "native.module.turn");
         var beforeIngestion = Captured.Count; var beforeEnvelopes = Envelopes.Count;
         var beforeQueries = Queries.Count; var beforeProviders = ProviderCalls;
         using var scope = Services.CreateScope(); var sp = scope.ServiceProvider;

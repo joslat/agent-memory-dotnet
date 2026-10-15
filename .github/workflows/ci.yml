@@ -93,6 +93,9 @@ jobs:
           --results-directory TestResults
 
       # Testcontainers spins up neo4j:5.26 automatically — no manual service container needed.
+      - name: Native module trace inspector mutation checks
+        run: python eng/test_module_native_telemetry.py
+
       - name: Experimental Commitments package consumers
         run: python eng/verify-commitments-package.py --output artifacts/commitments-package
 

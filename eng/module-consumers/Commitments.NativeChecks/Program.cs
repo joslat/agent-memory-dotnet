@@ -17,8 +17,10 @@ internal static partial class Program
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     private static readonly List<object> Evidence = [];
     private static readonly List<Check> Checks = [];
+    internal static NativeTraceCapture? Trace { get; private set; }
     private static string _output = "";
     private static string _worldHash = "";
+    private static string? _moduleFingerprint;
     private static string _scenario = "primary";
 
     private static async Task<int> Main(string[] args)
@@ -34,6 +36,8 @@ internal static partial class Program
         _output = Path.GetFullPath(args[3]);
         if (Directory.Exists(_output)) throw new IOException("Evidence output already exists; refusing overwrite.");
         Directory.CreateDirectory(_output);
+        using var trace = new NativeTraceCapture();
+        Trace = trace;
         try
         {
             var bytes = await File.ReadAllBytesAsync(args[1]);
@@ -51,6 +55,7 @@ internal static partial class Program
             var password = Environment.GetEnvironmentVariable("NEO4J_PASSWORD") ?? throw new InvalidOperationException("Missing test-service password.");
             var clock = new WorldClock { UtcNow = world.GetProperty("teachSteps")[0].GetProperty("atUtc").GetDateTimeOffset().AddDays(-1) };
             await using var host = new NativeHost(uri, password, clock, modules: true);
+            _moduleFingerprint = host.Resolution.ManifestFingerprint;
             await using var control = new NativeHost(uri, password, clock, modules: false);
             var runner = host.Services.GetRequiredService<INeo4jTransactionRunner>();
             if (_scenario == "upgrade-v2")
@@ -219,7 +224,7 @@ internal static partial class Program
         {
             status,scenario=_scenario,createdAtUtc=DateTimeOffset.UtcNow,worldSha256=_worldHash,packageVersion=CommitmentsModule.Manifest.Version.ToString(),
             assembly=typeof(CommitmentsModule).Assembly.Location,sdk=typeof(ModuleReadContext).Assembly.Location,
-            passed=Checks.Count(c=>c.Passed),failed=Checks.Count(c=>!c.Passed),checks=Checks,evidence=Evidence,
+            passed=Checks.Count(c=>c.Passed),failed=Checks.Count(c=>!c.Passed),checks=Checks,evidence=Evidence,telemetry=Trace?.Snapshot(),moduleFingerprint=_moduleFingerprint,
             limits=new[]{"Deterministic client captures model inputs; no inference or effectiveness score.",
                 "This receipt covers only its named scenario. Other forks, v1/v2 migration and lifecycle require separate receipts.",
                 "Static package activation; signed loading, draining and unload belong to the runtime acceptance task."}

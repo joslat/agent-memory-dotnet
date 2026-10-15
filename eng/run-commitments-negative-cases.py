@@ -9,6 +9,7 @@ import re
 import secrets
 import subprocess
 import time
+from module_native_telemetry import write_verdict
 
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--prepared',required=True)
@@ -75,7 +76,9 @@ for case in cases:
         for package,key in [('AgentMemory.Examples.Commitments','assembly'),('AgentMemory.Extensibility','sdk')]:
             if hashlib.sha256(Path(receipt[key]).read_bytes()).hexdigest()!=prepared['loadedPackages'][package]['sha256']:
                 raise RuntimeError('Unexpected runtime package identity.')
-        if run.returncode==0 and receipt['status']=='negative_passed_acceptance_incomplete' and receipt['failed']==0:
+        trace_valid = write_verdict(folder/'receipt/telemetry-checks.json', receipt, world)
+        if not trace_valid: result['telemetryFailed'] = True
+        if trace_valid and run.returncode==0 and receipt['status']=='negative_passed_acceptance_incomplete' and receipt['failed']==0:
             result['status']='passed'
     except Exception as error:
         result['error']=str(error)

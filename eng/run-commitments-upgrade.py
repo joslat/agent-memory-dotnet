@@ -1,5 +1,6 @@
 """Run a packaged v2 consumer on the retained successful v1 primary store; hosted runners only."""
 import argparse
+from module_native_telemetry import write_verdict
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -98,6 +99,8 @@ if result_path.exists():
     if result['worldSha256']!=a.world_sha256 or result['packageVersion']!='2.0.0': raise SystemExit('Runtime identity mismatch.')
     for package,key in [('AgentMemory.Examples.Commitments','assembly'),('AgentMemory.Extensibility','sdk')]:
         if sha(result[key])!=loaded[package]['sha256']: raise SystemExit('Unexpected runtime assembly: '+package)
+    trace_valid = write_verdict(base/'upgrade/telemetry-checks.json', result, json.loads(world.read_bytes()), json.loads(spec.read_bytes()))
+    if not trace_valid: code = 1
     if code==0 and (result['failed'] or not result['checks'] or result['status']!='upgrade_passed_acceptance_incomplete'):
         raise SystemExit('Exit code disagrees with upgrade receipt.')
 elif code==0: raise SystemExit('No upgrade receipt.')
