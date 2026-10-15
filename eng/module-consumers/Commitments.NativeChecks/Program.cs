@@ -124,7 +124,7 @@ internal static partial class Program
                     await Save("in_progress");
                     if (Text(selected, "forkAfter") == id)
                     {
-                        await RunNegative(host, control, runner, world, selected, captured, baseline);
+                        await RunNegative(host, () => new NativeHost(uri, password, clock, modules: false), runner, world, selected, captured, warmup, baseline);
                         await Save(Checks.All(c => c.Passed) ? "negative_passed_acceptance_incomplete" : "failed");
                         return Checks.All(c => c.Passed) ? 0 : 1;
                     }

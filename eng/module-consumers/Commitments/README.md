@@ -41,3 +41,8 @@ applies the additive migration twice, and checks retained history plus actual v2
 Separate runtime directories preserve both versions' binary identities. No downgrade is attempted;
 this is static process replacement, not signed dynamic loading. The upgrade runner refuses arbitrary
 existing data, missing primary proof, mismatched frozen inputs and local service execution.
+
+The module-off negative control creates a fresh core-only host after teaching, then compares cold
+and warm invocations against matching pre-teaching controls. Every invocation uses a fresh session.
+Exact query multisets and client input must match; no module calls or DDL are permitted. Cache expiry
+from advancing the synthetic teaching clock must not be confused with extra module work.

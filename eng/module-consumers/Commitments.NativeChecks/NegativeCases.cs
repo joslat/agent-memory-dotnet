@@ -18,8 +18,8 @@ internal static partial class Program
     // Each invocation requires an empty disposable database and replays real native teaching only
     // through the frozen fork point. No module records are copied or seeded, and no database reset
     // is performed by this executable.
-    private static async Task RunNegative(NativeHost host, NativeHost control, INeo4jTransactionRunner runner,
-        JsonElement world, JsonElement negative, IReadOnlyDictionary<string, CapturedIngestion> captured, NativeRun baseline)
+    private static async Task RunNegative(NativeHost host, Func<NativeHost> createControl, INeo4jTransactionRunner runner,
+        JsonElement world, JsonElement negative, IReadOnlyDictionary<string, CapturedIngestion> captured, NativeRun coldBaseline, NativeRun baseline)
     {
         var id = Text(negative, "id");
         var first = world.GetProperty("teachSteps").EnumerateArray().Single(s => Text(s, "id") == "alex-open");
@@ -164,8 +164,16 @@ internal static partial class Program
             {
                 var query = world.GetProperty("queries").EnumerateArray().Single(q => Text(q, "id") == "open-after-correction");
                 var enabled = await Query(host, query, id + "-enabled"); CheckQuery(query, enabled);
+                // The frozen case requires a fresh core-only host. Compare the same cache states:
+                // teaching advances the world clock beyond the shared-corpus probe cache lifetime.
+                await using var control = createControl();
+                var coldDisabled = await Query(control, query, id + "-cold-disabled");
                 var disabled = await Query(control, query, id + "-disabled");
-                Evidence.Add(new { kind = "off-neutrality", baseline, enabled, disabled });
+                Evidence.Add(new { kind = "off-neutrality", coldBaseline, baseline, enabled, coldDisabled, disabled });
+                Require(id + "/cold-module-not-invoked", coldDisabled.Ingestion.Count == 0 && coldDisabled.Envelopes.Count == 0 && coldDisabled.ProviderCalls == 0);
+                Require(id + "/cold-core-input-neutrality", SameInput(coldBaseline, coldDisabled));
+                Require(id + "/cold-core-query-shape-neutrality", coldBaseline.Queries.Order(StringComparer.Ordinal).SequenceEqual(coldDisabled.Queries.Order(StringComparer.Ordinal), StringComparer.Ordinal));
+                Require(id + "/cold-no-module-query-or-ddl", !coldDisabled.Queries.Any(IsModuleQuery));
                 Require(id + "/module-not-invoked", disabled.Ingestion.Count == 0 && disabled.Envelopes.Count == 0 && disabled.ProviderCalls == 0);
                 Require(id + "/core-input-neutrality", SameInput(baseline, disabled));
                 Require(id + "/core-query-shape-neutrality", baseline.Queries.Order(StringComparer.Ordinal).SequenceEqual(disabled.Queries.Order(StringComparer.Ordinal), StringComparer.Ordinal));
