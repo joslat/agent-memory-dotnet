@@ -682,8 +682,8 @@ denied and unselected paths emit no ingestion span; invalid replay is rejected b
 No listener means no activity; when sampling requests no data, diagnostic counters are not computed.
 Normal reports and exceptions remain authoritative even when telemetry is disabled.
 
-Migration tracing is separate pending implementation; its constant alone does not establish the span.
-Native trace acceptance and signed runtime load/unload also remain separate from listener unit checks.
+Migration tracing is described below. Native trace acceptance and signed runtime load/unload remain
+separate from listener unit checks.
 
 ## Module compiler telemetry
 
@@ -714,3 +714,26 @@ before applicability, without omission events. Empty, core-only and fully exclud
 no module activities. With no sampled data, instrumentation does not inspect section item counts.
 Listener tests cover identity freezing, nesting, privacy, omissions, cancellation, DI compatibility,
 scoped lifetimes and disabled paths. Native service trace acceptance remains separate.
+
+## Module migration telemetry
+
+Explicit `ModuleMigrator.PlanAsync` and `ApplyAsync` emit `memory.module.migrate` on the same source.
+`memory.module.operation` distinguishes `plan`, `apply` and owned `step` execution. Plan/apply carry a
+metadata-labelled resolution fingerprint without a module id: namespace reservation and SDK ledger
+work belong to the composition. Each actual step is a child of apply and carries its resolved owner
+id/version. Its database activities nest under that step. No actor, Cypher, problem text or raw
+exception content is added to module tags/events.
+
+Plan outcomes are `Pending`, `Completed` or `Refused`. Apply returns `NoOp` for an already applied set,
+otherwise `Completed` only after the final assessment succeeds. A failure is `Unavailable`, a known
+policy refusal `Refused`, and caller cancellation `Cancelled`; exceptions still propagate. Those three
+failure outcomes have Error status. Assessment tags `memory.module.migration.pending`, `.applied` and
+`.problems` count definitions/problems in the returned assessment, not newly executed statements or
+modified records. A repeat no-op can therefore report previously applied definitions.
+
+Empty schema composition emits no activity and makes no database call. Invalid actors and pre-cancelled
+calls fail before tracing/database access. No-data sampling avoids telemetry-only assessment counts.
+The instrumentation preserves the existing plan/apply, recovery and durable-intent engine. Controlled
+transaction tests verify attribution, nesting, failure/cancellation, privacy and no-op behavior; a hosted
+real-Neo4j test verifies successful steps and read-only repeat Apply. Native package trace acceptance
+and hosted execution of this new integration test must be verified before claiming full acceptance.

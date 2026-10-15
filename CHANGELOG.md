@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Trace explicit module migration planning/application and owned steps on the shared source. Preserve
+  set-level ledger attribution, read-only planning, repeat no-ops and existing recovery behavior; exclude
+  actor identities, scripts and private failure details from module telemetry.
+
 - Add explicit resolution-bound module compiler construction and scoped DI registration, with frozen
   contributor identities and compile/contribute activities on the shared diagnostics source. Preserve
   legacy DI, exclusions and no-data sampling; omit private content from events and tags.

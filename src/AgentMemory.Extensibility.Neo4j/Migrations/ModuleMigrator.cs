@@ -13,8 +13,9 @@ namespace AgentMemory.Extensibility.Neo4j.Migrations;
 /// The operator CLI uses this same engine. The caller authorizes module metadata
 /// and sources, and supplies the transaction runner for exactly one store.</remarks>
 [Experimental("AMEXT001")]
-public sealed class ModuleMigrator
+public sealed partial class ModuleMigrator
 {
+    private readonly ModuleResolution _resolution;
     private readonly INeo4jTransactionRunner _runner;
     private readonly ModuleMigrationCompilation _compilation;
     private readonly ModuleMigrationExecutor _executor;
@@ -36,6 +37,7 @@ public sealed class ModuleMigrator
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentNullException.ThrowIfNull(resolution);
         _runner = runner;
+        _resolution = resolution;
         _compilation = ModuleMigrationCompilation.Compile(resolution, scripts);
         if (resolution.Modules.Any(m => m.Id == ModuleBookkeepingSchema.NamespaceLedgerId))
             throw new ArgumentException("The SDK bookkeeping identity cannot be used by an application module.", nameof(resolution));
@@ -50,8 +52,24 @@ public sealed class ModuleMigrator
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (_claims.Count == 0) return new();
-        return await _runner.ReadAsync(async r => Assess(await ModuleDatabaseSnapshot.ReadAsync(r, _readParameters, cancellationToken)
-            .ConfigureAwait(false)), cancellationToken).ConfigureAwait(false);
+        using var activity = StartMigrationActivity("plan");
+        try
+        {
+            var plan = await _runner.ReadAsync(async r => Assess(await ModuleDatabaseSnapshot.ReadAsync(r, _readParameters, cancellationToken)
+                .ConfigureAwait(false)), cancellationToken).ConfigureAwait(false);
+            ObservePlan(activity, plan);
+            return plan;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            ObserveMigrationOutcome(activity, "Cancelled");
+            throw;
+        }
+        catch
+        {
+            ObserveMigrationFailure(activity);
+            throw;
+        }
     }
 
     /// <summary>Reserves matching ownership/hashes, applies pending statements, then stamps completion.</summary>
@@ -65,32 +83,50 @@ public sealed class ModuleMigrator
         if (string.IsNullOrWhiteSpace(actor)) throw new ArgumentException("An explicit migration actor is required.", nameof(actor));
         cancellationToken.ThrowIfCancellationRequested();
         if (_claims.Count == 0) return new();
-        var initial = await PlanAsync(cancellationToken).ConfigureAwait(false);
-        RefuseProblems(initial);
-        // A fully applied set has no DDL or ledger writes on subsequent application.
-        if (initial.Pending.Count == 0 && initial.PendingNamespaces.Count == 0 && initial.PendingBookkeeping.Count == 0) return initial;
-        await ExecuteAsync(ModuleLedgerQueries.CreateLedger, null, cancellationToken).ConfigureAwait(false);
-        await ExecuteAsync(ModuleLedgerQueries.CreateKeys, null, cancellationToken).ConfigureAwait(false);
-        var reserved = await _runner.WriteAsync(async r =>
+        using var activity = StartMigrationActivity("apply");
+        try
         {
-            await ExecuteInAsync(r, ModuleLedgerQueries.Lock, new { sdkId = ModuleBookkeepingSchema.NamespaceLedgerId,
-                actor, now = _clock.GetUtcNow().ToString("O") }, cancellationToken).ConfigureAwait(false);
-            var current = Assess(await ModuleDatabaseSnapshot.ReadAsync(r, _readParameters, cancellationToken).ConfigureAwait(false));
-            RefuseProblems(current);
-            foreach (var claim in _claims)
-                await ExecuteInAsync(r, ModuleLedgerQueries.Claim, new { sdkId = ModuleBookkeepingSchema.NamespaceLedgerId,
-                    key = claim.Key, owner = claim.Owner, actor, now = _clock.GetUtcNow().ToString("O") }, cancellationToken).ConfigureAwait(false);
-            foreach (var step in current.Pending)
-                await ExecuteInAsync(r, ModuleLedgerQueries.Intent, Parameters(step, actor), cancellationToken).ConfigureAwait(false);
-            return current;
-        }, cancellationToken).ConfigureAwait(false);
-        foreach (var step in reserved.Pending)
-            await _executor.ApplyAsync(_compilation.Steps.Single(s => s.Definition.ModuleId == step.ModuleId && s.Definition.Key == step.Key),
-                actor, cancellationToken).ConfigureAwait(false);
-        var final = await PlanAsync(cancellationToken).ConfigureAwait(false);
-        RefuseProblems(final);
-        if (final.Pending.Count != 0 || final.PendingNamespaces.Count != 0 || final.PendingBookkeeping.Count != 0) throw new InvalidOperationException("Module migration application did not complete all reserved intents.");
-        return final;
+            var initial = await PlanAsync(cancellationToken).ConfigureAwait(false);
+            RefuseProblems(initial, activity);
+            // A fully applied set has no DDL or ledger writes on subsequent application.
+            if (initial.Pending.Count == 0 && initial.PendingNamespaces.Count == 0 && initial.PendingBookkeeping.Count == 0)
+            {
+                ObservePlan(activity, initial, "NoOp");
+                return initial;
+            }
+            await ExecuteAsync(ModuleLedgerQueries.CreateLedger, null, cancellationToken).ConfigureAwait(false);
+            await ExecuteAsync(ModuleLedgerQueries.CreateKeys, null, cancellationToken).ConfigureAwait(false);
+            var reserved = await _runner.WriteAsync(async r =>
+            {
+                await ExecuteInAsync(r, ModuleLedgerQueries.Lock, new { sdkId = ModuleBookkeepingSchema.NamespaceLedgerId,
+                    actor, now = _clock.GetUtcNow().ToString("O") }, cancellationToken).ConfigureAwait(false);
+                var current = Assess(await ModuleDatabaseSnapshot.ReadAsync(r, _readParameters, cancellationToken).ConfigureAwait(false));
+                RefuseProblems(current, activity);
+                foreach (var claim in _claims)
+                    await ExecuteInAsync(r, ModuleLedgerQueries.Claim, new { sdkId = ModuleBookkeepingSchema.NamespaceLedgerId,
+                        key = claim.Key, owner = claim.Owner, actor, now = _clock.GetUtcNow().ToString("O") }, cancellationToken).ConfigureAwait(false);
+                foreach (var step in current.Pending)
+                    await ExecuteInAsync(r, ModuleLedgerQueries.Intent, Parameters(step, actor), cancellationToken).ConfigureAwait(false);
+                return current;
+            }, cancellationToken).ConfigureAwait(false);
+            foreach (var step in reserved.Pending)
+                await ApplyOwnedStepAsync(step, actor, cancellationToken).ConfigureAwait(false);
+            var final = await PlanAsync(cancellationToken).ConfigureAwait(false);
+            RefuseProblems(final, activity);
+            if (final.Pending.Count != 0 || final.PendingNamespaces.Count != 0 || final.PendingBookkeeping.Count != 0) throw new InvalidOperationException("Module migration application did not complete all reserved intents.");
+            ObservePlan(activity, final, "Completed");
+            return final;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            ObserveMigrationOutcome(activity, "Cancelled");
+            throw;
+        }
+        catch
+        {
+            ObserveMigrationFailure(activity);
+            throw;
+        }
     }
 
     internal async Task<ModuleMigrationPlan> PlanInAsync(IAsyncQueryRunner runner, CancellationToken cancellationToken)
@@ -111,9 +147,11 @@ public sealed class ModuleMigrator
     private ModuleMigrationPlan Assess(ModuleDatabaseSnapshot snapshot) =>
         ModuleMigrationAssessment.Assess(_compilation, snapshot);
 
-    private static void RefuseProblems(ModuleMigrationPlan plan)
+    private static void RefuseProblems(ModuleMigrationPlan plan, System.Diagnostics.Activity? activity)
     {
-        if (plan.Problems.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, plan.Problems));
+        if (plan.Problems.Count == 0) return;
+        ObserveMigrationOutcome(activity, "Refused");
+        throw new InvalidOperationException(string.Join(Environment.NewLine, plan.Problems));
     }
 
     private Task ExecuteAsync(string statement, object? parameters, CancellationToken cancellationToken) =>

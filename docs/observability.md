@@ -110,4 +110,7 @@ Explicitly resolution-bound compilation emits `memory.module.compile` and child
 `memory.module.contribute` activities, with frozen module/contributor metadata and typed omission events.
 Legacy, core-only and excluded paths emit no module spans.
 [Binding, outcomes and off behavior](extensions/modules.md#module-compiler-telemetry).
-Migration and runtime lifecycle trace coverage remain separate; native trace acceptance is pending.
+Explicit migration plan/apply and owned steps emit `memory.module.migrate`; shared bookkeeping stays
+set-level while each executed step carries its actual module identity. See
+[migration fields and outcomes](extensions/modules.md#module-migration-telemetry).
+Runtime lifecycle trace coverage remains separate; native trace acceptance is pending.

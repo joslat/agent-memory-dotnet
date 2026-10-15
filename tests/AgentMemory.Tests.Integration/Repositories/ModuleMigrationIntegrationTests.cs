@@ -1,4 +1,7 @@
 #pragma warning disable AMEXT001
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Extensibility.Neo4j.Migrations;
 using AgentMemory.Neo4j.Infrastructure;
@@ -53,6 +56,59 @@ public sealed class ModuleMigrationIntegrationTests(Neo4jIntegrationFixture fixt
         (await upgrade.ApplyAsync("upgrade")).Applied.Should().HaveCount(6);
         (await Read("MATCH (m:Migration) RETURN properties(m) AS row ORDER BY m.version"))
             .Select(r => r["row"]).Should().BeEquivalentTo(before.Select(r => r["row"]));
+    }
+
+    [Fact]
+    public async Task MigrationTelemetryAttributesRealStepsAndKeepsRepeatApplyReadOnly()
+    {
+        var resolution = ModuleResolver.Resolve(
+            Resolve("MigTraceA", "tracea").Modules.Concat(Resolve("MigTraceB", "traceb").Modules).ToArray(),
+            ModuleVersion.Parse("0.1.0"), new HashSet<string> { "ModuleSchema" });
+        var migrator = new ModuleMigrator(fixture.TransactionRunner, resolution);
+        using var root = new Activity("migration-trace-integration").Start();
+        var stopped = new ConcurrentBag<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => ReferenceEquals(source, AgentMemoryDiagnostics.Source),
+            Sample = (ref ActivityCreationOptions<ActivityContext> options) => options.Parent.TraceId == root.TraceId
+                ? ActivitySamplingResult.AllDataAndRecorded : ActivitySamplingResult.None,
+            ActivityStopped = activity => { if (activity.TraceId == root.TraceId) stopped.Add(activity); }
+        };
+        ActivitySource.AddActivityListener(listener);
+        var plan = await migrator.PlanAsync();
+        plan.Problems.Should().BeEmpty(); plan.Pending.Should().HaveCount(6);
+        stopped.Where(a => a.OperationName == "memory.db.tx").Should().NotBeEmpty()
+            .And.OnlyContain(a => Equals(a.GetTagItem("db.mode"), "read"));
+        stopped.Clear();
+        var result = await migrator.ApplyAsync("private-trace-actor");
+        result.Applied.Should().HaveCount(6); result.Pending.Should().BeEmpty();
+        var apply = stopped.Single(a => Equals(a.GetTagItem("memory.module.operation"), "apply"));
+        apply.GetTagItem("memory.module.outcome").Should().Be("Completed");
+        apply.GetTagItem("memory.module.id").Should().BeNull("shared ledger work is not owned by the first module");
+        var steps = stopped.Where(a => Equals(a.GetTagItem("memory.module.operation"), "step")).ToArray();
+        steps.Should().HaveCount(6).And.OnlyContain(a => a.ParentSpanId == apply.SpanId);
+        foreach (var module in resolution.Modules)
+        {
+            var owned = steps.Where(a => Equals(a.GetTagItem("memory.module.id"), module.Id)).ToArray();
+            owned.Should().HaveCount(3).And.OnlyContain(a => Equals(a.GetTagItem("memory.module.version"), "1.0.0")
+                && Equals(a.GetTagItem("memory.module.outcome"), "Completed"));
+            foreach (var step in owned)
+                stopped.Should().Contain(a => a.OperationName == "memory.db.tx" && a.ParentSpanId == step.SpanId);
+        }
+        stopped.Should().Contain(a => a.OperationName == "memory.db.tx" && a.ParentSpanId == apply.SpanId
+            && Equals(a.GetTagItem("db.mode"), "write"), "shared bookkeeping belongs to the set-level apply");
+        string.Join("|", stopped.SelectMany(a => a.TagObjects.Select(t => t.Value?.ToString())
+            .Concat(a.Events.SelectMany(e => e.Tags.Select(t => t.Value?.ToString()))))).Should().NotContain("private-trace-actor");
+        const string ledgerQuery = "MATCH (m:ModuleMigration) RETURN properties(m) AS row ORDER BY m.module_id, m.key";
+        var before = (await Read(ledgerQuery)).Select(r => r["row"]).ToArray();
+        stopped.Clear();
+        (await migrator.ApplyAsync("private-repeat-actor")).Applied.Should().HaveCount(6);
+        stopped.Where(a => a.OperationName == "memory.db.tx").Should().NotBeEmpty()
+            .And.OnlyContain(a => Equals(a.GetTagItem("db.mode"), "read"));
+        stopped.Should().NotContain(a => Equals(a.GetTagItem("memory.module.operation"), "step"));
+        stopped.Single(a => Equals(a.GetTagItem("memory.module.operation"), "apply"))
+            .GetTagItem("memory.module.outcome").Should().Be("NoOp");
+        (await Read(ledgerQuery)).Select(r => r["row"]).Should().BeEquivalentTo(before);
     }
 
     [Fact]

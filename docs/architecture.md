@@ -2234,4 +2234,7 @@ versions before invocation; compile/contribute spans use the same diagnostics so
 an explicit four-argument factory so an ambient resolution cannot change its behavior. The bound
 registration is explicit and scoped, and installs no global catalog. Core-only/excluded paths emit
 no module activities. [Compiler contract](extensions/modules.md#module-compiler-telemetry).
-Migration instrumentation and native trace acceptance remain separate work.
+`ModuleMigrator` traces set-level planning/application and actual owned steps separately, preserving
+shared-ledger attribution, durable-intent execution and repeat no-op behavior. No new schema or
+migration operation is introduced. [Migration contract](extensions/modules.md#module-migration-telemetry).
+Native trace acceptance remains separate work.

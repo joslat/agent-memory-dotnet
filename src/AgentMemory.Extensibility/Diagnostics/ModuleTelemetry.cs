@@ -37,6 +37,12 @@ public static class ModuleTelemetry
     public const string ContributorId = "memory.contributor.id";
     /// <summary>Compile event recording an omission identity and reason, without private details.</summary>
     public const string Omission = "memory.module.omission";
+    /// <summary>Pending definitions in the returned migration assessment, not statement or record counts.</summary>
+    public const string MigrationsPending = "memory.module.migration.pending";
+    /// <summary>Applied definitions in the returned assessment, including previously applied definitions.</summary>
+    public const string MigrationsApplied = "memory.module.migration.applied";
+    /// <summary>Number of assessed problems; diagnostic text is never included.</summary>
+    public const string MigrationProblems = "memory.module.migration.problems";
     /// <summary>Frozen host-bound provider identity.</summary>
     public const string ProviderId = "memory.provider.id";
 }
