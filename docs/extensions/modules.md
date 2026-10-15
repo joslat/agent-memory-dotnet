@@ -739,3 +739,21 @@ The instrumentation preserves the existing plan/apply, recovery and durable-inte
 transaction tests verify attribution, nesting, failure/cancellation, privacy and no-op behavior; a hosted
 real-Neo4j test verifies successful steps and read-only repeat Apply. Native package trace acceptance
 and hosted execution of this new integration test must be verified before claiming full acceptance.
+
+## Admission before module selection
+
+Derived Agent Framework adapters can use `AdmitMemoryItem(category, text)` to evaluate an
+untrusted item with the provider's effective admission policy and security options. A refusal
+returns null. An admitted item exposes immutable `Text` and `Category`; only its admitted text
+may be offered to a relevance judge. Keep this decision within the current request.
+
+After selection, `RenderAdmittedItems(category, items)` uses the same escaping and recalled-memory
+wrapper as `RenderAdmittedBlock`, without evaluating admission again. Items are bound to their
+originating provider and category; mixing either throws. Repeated rendering can measure the exact
+UTF-8 byte size of whole-item subsets without repeating a stateful policy or its diagnostics.
+These objects are transient admission decisions, not persisted trust grants or a module sandbox.
+
+The existing `RenderAdmittedBlock` still admits and renders directly, with the same bytes and one
+policy evaluation per item. It does not allocate the new two-stage items. Neither new method
+retrieves memories, discovers a judge, calls a model or enables module relevance judging. Automatic
+candidate selection, keyed provenance and shared module budgets remain separate implementation work.

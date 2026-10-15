@@ -2056,19 +2056,26 @@ or prove model effectiveness. [Contract](extensions/modules.md#native-session-re
 module ingestion and replay emit module/provider-bound activities on the shared AgentMemory source,
 with known outcome counts, cancellation and nested store activity. Unit checks cover identity freezing,
 privacy, replay, partial/uncertain outcomes and disabled paths/sampling. This is instrumentation proof,
-not a memory-effectiveness result or completed native trace acceptance. Signed runtime lifecycle tracing remains separate. [Contract](extensions/modules.md#module-ingestion-telemetry).
+not a memory-effectiveness result. The packaged native harness also verifies actual storage/replay trace nesting and privacy with isolated Neo4j. Signed runtime lifecycle tracing remains separate. [Contract](extensions/modules.md#module-ingestion-telemetry).
 
 **Experimental module compiler telemetry - BUILT / WIRED through explicit host binding; listener-unit verification.**
 The resolution-first constructor and DI overload freeze module/contributor identity and emit nested
 compile/contribute activities with omission reasons and known counts. Legacy DI, exclusions, core-only
 paths and no-data sampling retain their behavior. Tests cover scoped DI, rejected bindings, cancellation,
-privacy and identity mutation. Native database/host trace acceptance is still pending; this is not
-model-effectiveness evidence. [Contract](extensions/modules.md#module-compiler-telemetry).
+privacy and identity mutation. The packaged native harness verifies actual host/database nesting, core-only controls and read-free negative cases; this is not model-effectiveness evidence. [Contract](extensions/modules.md#module-compiler-telemetry).
 
 **Experimental module migration telemetry - BUILT / WIRED; controlled transaction tests.**
 Explicit plan/apply and owned migration steps emit shared-source activities with an attempted-definition
 count on each owned step, including failed attempts. Set-level bookkeeping is
 not attributed to an arbitrary module. Known refusal, failure, cancellation, empty composition and
 repeat no-op outcomes are tested; assessment counts do not claim newly modified records. A real-Neo4j
-integration check is added but awaits hosted execution. Native package trace acceptance remains pending.
+integration check passed, as did native package trace acceptance across primary, negative and retained-data upgrade scenarios. Repeat Apply is observed as read-only.
 [Contract](extensions/modules.md#module-migration-telemetry).
+
+
+**Two-stage adapter admission - BUILT; adapter-seam unit verification.** Derived Agent Framework
+adapters can admit untrusted items once, select them, and render with the existing escaping/wrapper.
+Cross-provider/category reuse is refused. Tests cover strict/default and stateful custom policies,
+repeat measurement without policy calls, and unchanged direct-rendering output. This does not yet
+wire automatic module judging or enforce candidate/deadline budgets.
+[Contract](extensions/modules.md#admission-before-module-selection).

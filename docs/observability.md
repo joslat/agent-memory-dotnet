@@ -113,4 +113,7 @@ Legacy, core-only and excluded paths emit no module spans.
 Explicit migration plan/apply and owned steps emit `memory.module.migrate`; shared bookkeeping stays
 set-level while each attempted step carries its actual module identity and a one-definition step count. See
 [migration fields and outcomes](extensions/modules.md#module-migration-telemetry).
-Runtime lifecycle trace coverage remains separate; native trace acceptance is pending.
+The packaged Commitments native harness verifies these activities against actual isolated Neo4j
+transactions, including source-bound identities, core-only controls, replay and retained-data upgrade.
+These are deterministic instrumentation checks, not model-effectiveness measurements. Runtime lifecycle
+trace coverage remains separate.

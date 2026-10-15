@@ -31,7 +31,7 @@ namespace AgentMemory.AgentFramework;
 // provider instance, one attribution stamp, one merge. Unsealing is not a breaking change -- no
 // existing consumer can be broken by a type becoming inheritable -- and the alternative was to
 // re-render core memory, which the 1.0 lockdown and the #92 drift note both argue against.
-public class Neo4jMemoryContextProvider : AIContextProvider
+public partial class Neo4jMemoryContextProvider : AIContextProvider
 {
     private readonly IMemoryService _memoryService;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
@@ -155,28 +155,6 @@ public class Neo4jMemoryContextProvider : AIContextProvider
     /// content without them would ignore a host's Strict setting while this class honoured it.
     /// </remarks>
     protected ContextFormatOptions FormatOptions => _formatOptions;
-
-    /// <summary>
-    /// Admits untrusted extension items using this provider's effective policy and security options,
-    /// then delimits and escapes them as one recalled-memory block. Returns empty if all items are refused.
-    /// </summary>
-    /// <remarks>Evaluates each item once. This method performs no retrieval or persistence.</remarks>
-    protected string RenderAdmittedBlock(string category, IEnumerable<string> texts)
-    {
-        ArgumentNullException.ThrowIfNull(category);
-        ArgumentNullException.ThrowIfNull(texts);
-        var admitted = new List<string>();
-        foreach (var text in texts)
-        {
-            ArgumentNullException.ThrowIfNull(text);
-            if (MafTypeMapper.AdmitItem(category, text, MemoryTrustLevel.Untrusted,
-                    _formatOptions, _admissionPolicy, _logger))
-                admitted.Add(text);
-        }
-
-        return admitted.Count == 0 ? string.Empty
-            : MafTypeMapper.WrapUntrustedContent(category, string.Join(Environment.NewLine, admitted));
-    }
 
     /// <summary>
     /// Maps an existing provider message ID to the memory ID convention, or returns null if absent.

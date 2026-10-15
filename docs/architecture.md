@@ -2238,3 +2238,12 @@ no module activities. [Compiler contract](extensions/modules.md#module-compiler-
 shared-ledger attribution, durable-intent execution and repeat no-op behavior. No new schema or
 migration operation is introduced. [Migration contract](extensions/modules.md#module-migration-telemetry).
 Native trace acceptance remains separate work.
+
+
+The supported Agent Framework admission seam also permits two-stage item handling:
+`AdmitMemoryItem` returns an immutable provider/category-bound decision; `RenderAdmittedItems`
+escapes a selected subset without re-evaluating the policy. The existing direct rendering path
+reuses the same admission/wrapping functions without allocating two-stage items. This permits
+admission before optional judging and exact byte measurement, without publishing mapper internals,
+granting SDK friend access, or enabling a gate from DI alone.
+[Contract and current limits](extensions/modules.md#admission-before-module-selection).

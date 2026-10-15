@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add protected two-stage Agent Framework admission: evaluate an untrusted item once, then render
+  selected items with the existing escaping without repeating policy evaluation. Decisions remain
+  bound to the originating provider/category; existing direct rendering keeps its behavior.
+
 - Trace explicit module migration planning/application and owned steps on the shared source. Preserve
   set-level ledger attribution, owned step-attempt counts, read-only planning, repeat no-ops and existing recovery behavior; exclude
   actor identities, scripts and private failure details from module telemetry.
