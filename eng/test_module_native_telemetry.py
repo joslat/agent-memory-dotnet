@@ -65,5 +65,13 @@ class TraceInspectorTests(unittest.TestCase):
         self.assertIn('migration/noop-read-only', [c['name'] for c in checks if not c['passed']])
         self.assertIn('migration/noop-no-owned-step', [c['name'] for c in checks if not c['passed']])
 
+    def test_noop_without_recorded_database_reads_is_not_proof(self):
+        report, world = fixture(); report['scenario'] = 'upgrade-v2'
+        report['telemetry']['spans'][5]['tags']['memory.module.outcome'] = 'NoOp'
+        report['telemetry']['spans'][7]['parentSpanId'] = '0' * 16
+        failed = [c['name'] for c in inspect(report, world) if not c['passed']]
+        self.assertIn('migration/noop-read-transactions-observed', failed)
+
+
 
 if __name__ == '__main__': unittest.main(verbosity=2)

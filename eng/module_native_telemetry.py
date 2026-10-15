@@ -71,6 +71,7 @@ def inspect(report, world, upgrade=None):
         noops = [s for s in modules if s.get('tags', {}).get('memory.module.operation') == 'apply'
                  and s.get('tags', {}).get('memory.module.outcome') == 'NoOp']
         check('migration/repeat-noop-observed', bool(noops))
+        check('migration/noop-read-transactions-observed', all(any(reaches(d['spanId'], s['spanId']) for d in db) for s in noops))
         check('migration/noop-read-only', all(d.get('tags', {}).get('db.mode') == 'read'
               for s in noops for d in db if reaches(d['spanId'], s['spanId'])))
         check('migration/noop-no-owned-step', all(not reaches(t['spanId'], s['spanId'])
