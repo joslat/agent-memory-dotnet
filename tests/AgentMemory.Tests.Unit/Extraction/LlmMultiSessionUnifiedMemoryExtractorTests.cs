@@ -21,6 +21,7 @@ public sealed class LlmMultiSessionUnifiedMemoryExtractorTests
         var entered = 0;
         var active = 0;
         var maximumActive = 0;
+        var sync = new object();
         client.GetResponseAsync(
                 Arg.Any<IEnumerable<ChatMessage>>(),
                 Arg.Any<ChatOptions>(),
@@ -28,7 +29,10 @@ public sealed class LlmMultiSessionUnifiedMemoryExtractorTests
             .Returns(async call =>
             {
                 var nowActive = Interlocked.Increment(ref active);
-                maximumActive = Math.Max(maximumActive, nowActive);
+                lock (sync)
+                {
+                    maximumActive = Math.Max(maximumActive, nowActive);
+                }
                 if (Interlocked.Increment(ref entered) == expectedConcurrency)
                     release.TrySetResult();
                 await release.Task;
