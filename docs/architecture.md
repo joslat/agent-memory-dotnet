@@ -2199,6 +2199,8 @@ application-specific Cypher or post-filtered limited lists are required. Existin
 their original query; default hosts still do not activate modules.
 
 Declared-view contributors share `ModuleViews` and preserve resolved scope and typed omission outcomes;
+an explicit per-request argument selector can narrow a view without replacing resolved scope or
+copying the contribution path. Null selection is NotApplicable and performs no read;
 module text still crosses the existing host admission boundary.
 
 ### Module host capability inspection

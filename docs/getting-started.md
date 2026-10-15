@@ -781,7 +781,9 @@ Arguments preserve declared predicates and ordering and can only reduce the decl
 A view declaring `"selection": "history"` also requires an exact runtime `Key`; it returns retained
 versions in fixed newest-first order. Leave selection omitted for the original snapshot behavior.
 [Typed view arguments](extensions/modules.md#scoped-module-reads-and-shared-views) need no additional
-DI registration; they use the same explicitly granted module reader.
+DI registration; they use the same explicitly granted module reader. For agent contributions, pass a
+cheap argument selector as the fifth `ViewContributor` constructor argument (after priority); return
+null when the view does not apply. The compiler retains control of owner/shared scope.
 
 See [module ingestion and views](extensions/modules.md#explicit-agent-framework-module-ingestion-and-views)
 for lifetime, isolation and shutdown requirements. Dynamic loading requires the separate runtime

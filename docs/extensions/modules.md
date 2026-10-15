@@ -507,6 +507,14 @@ its stored audit value even when that invalidation happened after the creation c
 provenance remains available after source-message deletion. No versioning flag, schema mutation or
 write behavior changes are introduced by selecting history.
 
+The five-argument `ViewContributor` constructor accepts a cheap
+`Func<ContextRequest, ModuleViewArguments?>` after the explicit priority. It runs once per contribution,
+after the compiler resolves the owner, and cannot replace that resolved owner/shared scope. A null
+selection produces `NotApplicable` without reading storage; invalid arguments produce `Denied`.
+Unsupported valid-time requests never invoke the selector. The original constructor still uses the
+original view call. This lets a package select an entity or history key without copying contribution,
+rendering or isolation logic. Selecting arguments is host/package domain logic, not an automatic router.
+
 Rendering shares the manifest's placeholder grammar: `{property}`, optional .NET scalar format,
 and escaped `{{`/`}}`. Numeric/date formats use invariant culture; datetimes normalize to UTC. Stored
 braces are data, not recursively expanded templates. Missing optional values render empty; missing

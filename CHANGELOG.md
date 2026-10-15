@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Allow explicit per-request arguments in experimental view contributors while preserving resolved
+  owner/shared scope. Null selection skips storage; existing contributor construction stays unchanged.
+
 - Add experimental bounded per-key module history reads and declared history views. Preserve default
   snapshot queries and fingerprints; order equal-time versions numerically and retain invalidation
   audit metadata. Runtime keys and existing owner/anchor checks remain required.

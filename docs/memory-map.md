@@ -2003,6 +2003,8 @@ module writes. [Write contract and limits](extensions/modules.md#transactional-n
 and reduced-limit arguments use the shared view/reader. Target predicates resolve scoped identities
 before taking results, including across pages; runtime arguments cannot replace declared filters.
 Unit checks cover validation, independent snapshots and refusal by older view implementations.
+The shared view contributor accepts an explicit argument selector after owner resolution; null
+selection skips storage and unsupported valid-time requests never invoke it.
 New Neo4j cases cover paging, merge-time boundaries and foreign/shared targets; their execution must
 be verified separately. This is not package/runtime acceptance.
 

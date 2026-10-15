@@ -14,6 +14,7 @@ public sealed class ViewContributor : IContextContributor
 {
     private readonly IModuleViews _views;
     private readonly string _viewId;
+    private readonly Func<ContextRequest, ModuleViewArguments?>? _arguments;
     /// <inheritdoc/>
     public ContextContributorDescriptor Descriptor { get; }
 
@@ -27,6 +28,15 @@ public sealed class ViewContributor : IContextContributor
         _viewId = viewId;
         var id = ModuleIdentity.OwnedId(reader.CallerModuleId, viewId);
         Descriptor = new(id, new[] { id }.ToFrozenSet(StringComparer.Ordinal), priority);
+    }
+
+    /// <summary>Binds a cheap per-request argument selector. Null means this view is not applicable.</summary>
+    /// <remarks>The selector runs once after owner policy resolution, never for unsupported valid time.
+    /// It cannot override the declared view or the compiler's resolved owner/shared scope.</remarks>
+    public ViewContributor(ModuleResolution resolution, IModuleReader reader, string viewId, int priority,
+        Func<ContextRequest, ModuleViewArguments?> arguments) : this(resolution, reader, viewId, priority)
+    {
+        ArgumentNullException.ThrowIfNull(arguments); _arguments = arguments;
     }
 
     /// <inheritdoc/>
@@ -46,11 +56,17 @@ public sealed class ViewContributor : IContextContributor
     {
         ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
         if (request.AsOf is not null) return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "Module views do not support valid time." };
-        var result = await _views.EvaluateAsync(_viewId, new()
+        var arguments = _arguments?.Invoke(request);
+        if (_arguments is not null && arguments is null)
+            return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "No view arguments selected for this request." };
+        var context = new ModuleReadContext
         {
             Scope = request.ResolvedScope ?? (request.Owner is null ? null : MemoryScope.For(request.Owner)),
             SessionId = request.SessionId, SystemAsOfUtc = request.SystemAsOf
-        }, cancellationToken).ConfigureAwait(false);
+        };
+        var result = arguments is null
+            ? await _views.EvaluateAsync(_viewId, context, cancellationToken).ConfigureAwait(false)
+            : await _views.EvaluateWithArgumentsAsync(_viewId, arguments, context, cancellationToken).ConfigureAwait(false);
         if (result.Status != ModuleReadStatus.Succeeded) return new()
         {
             OmissionReason = result.Status == ModuleReadStatus.NotApplicable ? ContextOmissionReason.NotApplicable : ContextOmissionReason.Denied,
