@@ -65,6 +65,7 @@ public sealed class ModuleMigrationTelemetryTests
         owned.ParentSpanId.Should().Be(apply.SpanId);
         owned.GetTagItem("memory.module.id").Should().Be("com.example.second");
         owned.GetTagItem("memory.module.version").Should().Be("2.0.0");
+        owned.GetTagItem("memory.module.migration.steps").Should().Be(1, "one owned definition is attempted by this span, even when it fails");
         owned.GetTagItem("memory.module.outcome").Should().Be("Unavailable");
         apply.GetTagItem("memory.module.outcome").Should().Be("Unavailable");
         apply.GetTagItem("memory.module.id").Should().BeNull();

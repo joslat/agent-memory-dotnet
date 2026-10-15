@@ -111,6 +111,6 @@ Explicitly resolution-bound compilation emits `memory.module.compile` and child
 Legacy, core-only and excluded paths emit no module spans.
 [Binding, outcomes and off behavior](extensions/modules.md#module-compiler-telemetry).
 Explicit migration plan/apply and owned steps emit `memory.module.migrate`; shared bookkeeping stays
-set-level while each executed step carries its actual module identity. See
+set-level while each attempted step carries its actual module identity and a one-definition step count. See
 [migration fields and outcomes](extensions/modules.md#module-migration-telemetry).
 Runtime lifecycle trace coverage remains separate; native trace acceptance is pending.

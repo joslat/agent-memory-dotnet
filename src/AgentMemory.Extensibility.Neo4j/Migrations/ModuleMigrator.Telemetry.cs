@@ -18,6 +18,7 @@ public sealed partial class ModuleMigrator
             var module = _resolution.Modules.Single(m => m.Id == moduleId);
             activity.SetTag(ModuleTelemetry.ModuleId, module.Id);
             activity.SetTag(ModuleTelemetry.ModuleVersion, module.Version.ToString());
+            activity.SetTag(ModuleTelemetry.MigrationSteps, 1);
         }
         return activity;
     }

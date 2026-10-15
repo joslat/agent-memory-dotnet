@@ -18,7 +18,7 @@ def fixture():
     span(13, sid(1), 'memory.module.ingest', {**metadata, **owned, 'memory.provider.id': 'com.example.notes:teach', 'memory.module.operation': 'ingest'})
     span(14, sid(13), 'memory.db.tx', {'db.mode': 'write'})
     span(15, root, 'memory.module.migrate', {**metadata, 'memory.module.operation': 'apply'})
-    span(16, sid(15), 'memory.module.migrate', {**metadata, **owned, 'memory.module.operation': 'step'})
+    span(16, sid(15), 'memory.module.migrate', {**metadata, **owned, 'memory.module.operation': 'step', 'memory.module.migration.steps': 1})
     span(17, sid(16), 'memory.db.tx', {'db.mode': 'write'})
     span(18, sid(4), 'memory.module.ingest', {**metadata, **owned, 'memory.provider.id': 'com.example.notes:teach', 'memory.module.operation': 'replay'})
     operations = [{'name': name, 'spanId': sid(n), 'parentSpanId': root} for n, name in
@@ -51,6 +51,7 @@ class TraceInspectorTests(unittest.TestCase):
             'no-contribution-db': lambda r: r['telemetry']['spans'][2].__setitem__('parentSpanId', '0' * 16),
             'foreign-provider': lambda r: r['telemetry']['spans'][3]['tags'].__setitem__('memory.provider.id', 'com.foreign:teach'),
             'foreign-trace': lambda r: r['telemetry']['spans'][0].__setitem__('traceId', 'b' * 32),
+            'missing-step-count': lambda r: r['telemetry']['spans'][6]['tags'].pop('memory.module.migration.steps'),
             'owned-set-work': lambda r: r['telemetry']['spans'][5]['tags'].update({'memory.module.id': 'com.example.notes', 'memory.module.version': '1.0.0'}),
         }
         for name, mutate in changes.items():

@@ -721,7 +721,9 @@ Explicit `ModuleMigrator.PlanAsync` and `ApplyAsync` emit `memory.module.migrate
 `memory.module.operation` distinguishes `plan`, `apply` and owned `step` execution. Plan/apply carry a
 metadata-labelled resolution fingerprint without a module id: namespace reservation and SDK ledger
 work belong to the composition. Each actual step is a child of apply and carries its resolved owner
-id/version. Its database activities nest under that step. No actor, Cypher, problem text or raw
+id/version and `memory.module.migration.steps = 1`: one owned definition attempted, including a
+failed attempt. This is not a statement count or a claim of successful writes. Its database activities
+nest under that step. No actor, Cypher, problem text or raw
 exception content is added to module tags/events.
 
 Plan outcomes are `Pending`, `Completed` or `Refused`. Apply returns `NoOp` for an already applied set,

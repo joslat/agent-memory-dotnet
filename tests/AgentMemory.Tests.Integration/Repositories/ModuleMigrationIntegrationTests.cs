@@ -91,7 +91,8 @@ public sealed class ModuleMigrationIntegrationTests(Neo4jIntegrationFixture fixt
         {
             var owned = steps.Where(a => Equals(a.GetTagItem("memory.module.id"), module.Id)).ToArray();
             owned.Should().HaveCount(3).And.OnlyContain(a => Equals(a.GetTagItem("memory.module.version"), "1.0.0")
-                && Equals(a.GetTagItem("memory.module.outcome"), "Completed"));
+                && Equals(a.GetTagItem("memory.module.outcome"), "Completed")
+                && Equals(a.GetTagItem("memory.module.migration.steps"), 1));
             foreach (var step in owned)
                 stopped.Should().Contain(a => a.OperationName == "memory.db.tx" && a.ParentSpanId == step.SpanId);
         }

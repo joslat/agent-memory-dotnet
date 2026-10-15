@@ -2066,7 +2066,8 @@ privacy and identity mutation. Native database/host trace acceptance is still pe
 model-effectiveness evidence. [Contract](extensions/modules.md#module-compiler-telemetry).
 
 **Experimental module migration telemetry - BUILT / WIRED; controlled transaction tests.**
-Explicit plan/apply and owned migration steps emit shared-source activities. Set-level bookkeeping is
+Explicit plan/apply and owned migration steps emit shared-source activities with an attempted-definition
+count on each owned step, including failed attempts. Set-level bookkeeping is
 not attributed to an arbitrary module. Known refusal, failure, cancellation, empty composition and
 repeat no-op outcomes are tested; assessment counts do not claim newly modified records. A real-Neo4j
 integration check is added but awaits hosted execution. Native package trace acceptance remains pending.

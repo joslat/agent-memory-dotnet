@@ -51,6 +51,7 @@ def inspect(report, world, upgrade=None):
         if name == 'memory.module.ingest':
             check(prefix + 'owned-provider', tags.get('memory.provider.id', '').startswith(expected_module + ':'))
         if tags.get('memory.module.operation') == 'step':
+            check(prefix + 'one-owned-step-attempt', tags.get('memory.module.migration.steps') == 1)
             parent = by_id.get(span.get('parentSpanId'), {})
             check(prefix + 'apply-parent', parent.get('name') == 'memory.module.migrate' and parent.get('tags', {}).get('memory.module.operation') == 'apply')
     db = [s for s in spans if s['name'] == 'memory.db.tx']
