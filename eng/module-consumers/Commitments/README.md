@@ -25,9 +25,19 @@ clock/system-time pin. The package does not route arbitrary natural-language que
 
 V1 is 1.0.0. V2 is 2.0.0 and adds optional indexed priority_reason (maximum 200 characters). The host
 must explicitly apply the generated additive schema migration; no old reason is invented or backfilled.
+V2 renders the supplied reason in the shared view; V1 rendering remains unchanged.
 Use the same package identity for both. No dynamic loading, signing or runtime graduation is implied
 by compiling this example. The projects are not published by the repository release manifest.
 
 Build through the repository's module-consumer verification procedure with a freshly packed SDK feed.
 No ProjectReference or friend access is permitted. With ModuleSdkVersion unset, projects are inert
 for source-discovery tools; that state cannot execute the consumer checks.
+
+Native acceptance uses `eng/verify-commitments-native.py` with a separately frozen world/hash and an
+explicitly disposable loopback Neo4j service. `--negative-cases` creates isolated hosted-only forks.
+`--upgrade-spec` plus `--upgrade-sha256` runs after primary and negative success. It retains the v1
+store, verifies its receipt/snapshot, builds a separately verified v2 package consumer, explicitly
+applies the additive migration twice, and checks retained history plus actual v2 teaching/retrieval.
+Separate runtime directories preserve both versions' binary identities. No downgrade is attempted;
+this is static process replacement, not signed dynamic loading. The upgrade runner refuses arbitrary
+existing data, missing primary proof, mismatched frozen inputs and local service execution.

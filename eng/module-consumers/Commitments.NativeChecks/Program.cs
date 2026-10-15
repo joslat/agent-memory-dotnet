@@ -23,10 +23,14 @@ internal static partial class Program
 
     private static async Task<int> Main(string[] args)
     {
-        if (args.Length is not (4 or 6) || args[0] != "--world" || args[2] != "--output"
-            || (args.Length == 6 && args[4] != "--case"))
-            throw new ArgumentException("Expected --world <frozen-json> --output <new-directory> [--case <negative-id>].");
-        _scenario = args.Length == 6 ? args[5] : "primary";
+        if (args.Length < 4 || args.Length % 2 != 0 || args[0] != "--world" || args[2] != "--output")
+            throw new ArgumentException("Expected --world <json> --output <new-directory> [--case <id>] or [--upgrade-from <primary-receipt> --upgrade-spec <json>].");
+        var options = args.Chunk(2).ToDictionary(pair => pair[0], pair => pair[1], StringComparer.Ordinal);
+        if (options.Keys.Any(k => k is not ("--world" or "--output" or "--case" or "--upgrade-from" or "--upgrade-spec"))
+            || options.ContainsKey("--upgrade-from") != options.ContainsKey("--upgrade-spec")
+            || (options.ContainsKey("--case") && options.ContainsKey("--upgrade-from")))
+            throw new ArgumentException("Unknown or incompatible scenario options.");
+        _scenario = options.GetValueOrDefault("--case", options.ContainsKey("--upgrade-from") ? "upgrade-v2" : "primary");
         _output = Path.GetFullPath(args[3]);
         if (Directory.Exists(_output)) throw new IOException("Evidence output already exists; refusing overwrite.");
         Directory.CreateDirectory(_output);
@@ -38,7 +42,7 @@ internal static partial class Program
             using var document = JsonDocument.Parse(bytes); var world = document.RootElement;
             if (world.GetProperty("module").GetString() != CommitmentsModule.Id)
                 throw new InvalidOperationException("World does not target the loaded package.");
-            JsonElement? negative = _scenario == "primary" ? null : world.GetProperty("negativeCases").EnumerateArray()
+            JsonElement? negative = _scenario is "primary" or "upgrade-v2" ? null : world.GetProperty("negativeCases").EnumerateArray()
                 .Single(n => Text(n, "id") == _scenario);
             var uri = Environment.GetEnvironmentVariable("NEO4J_URI") ?? "";
             if (!Uri.TryCreate(uri, UriKind.Absolute, out var address) || !address.IsLoopback
@@ -49,6 +53,14 @@ internal static partial class Program
             await using var host = new NativeHost(uri, password, clock, modules: true);
             await using var control = new NativeHost(uri, password, clock, modules: false);
             var runner = host.Services.GetRequiredService<INeo4jTransactionRunner>();
+            if (_scenario == "upgrade-v2")
+            {
+                await Upgrade(host, runner, world, options["--upgrade-from"], options["--upgrade-spec"]);
+                await Save(Checks.All(c => c.Passed) ? "upgrade_passed_acceptance_incomplete" : "failed");
+                return Checks.All(c => c.Passed) ? 0 : 1;
+            }
+            if (CommitmentsModule.Manifest.Version.ToString() != "1.0.0")
+                throw new InvalidOperationException("Primary and negative teaching require the v1 package.");
             var existing = await Count(runner, "MATCH (n) RETURN count(n) AS n");
             if (existing != 0) throw new InvalidOperationException("Primary world requires an empty disposable database; refusing existing data.");
             await host.Services.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync();
@@ -145,6 +157,7 @@ internal static partial class Program
             var expected = Strings(controlQuery,"expectedIds");
             Require("runner-mutation/reject-missing-result",expected.Count>0 && !EqualIds([],expected));
             Require("runner-mutation/reject-substituted-result",!EqualIds(["mutated-record-id"],expected));
+            Evidence.Add(new { kind = "retained-upgrade-snapshot", snapshot = await SnapshotCommitments(runner) });
             await Save(Checks.All(c=>c.Passed)?"primary_passed_acceptance_incomplete":"failed");
             return Checks.All(c=>c.Passed)?0:1;
         }

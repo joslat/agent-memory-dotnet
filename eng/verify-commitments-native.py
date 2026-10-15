@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -17,8 +18,14 @@ parser.add_argument('--output', required=True)
 parser.add_argument('--world')
 parser.add_argument('--world-sha256')
 parser.add_argument('--negative-cases', action='store_true', help='After primary success, run every frozen negative case in separate hosted-only disposable containers.')
+parser.add_argument('--upgrade-spec', help='Frozen retained-data upgrade specification; requires all negative cases.')
+parser.add_argument('--upgrade-sha256')
 parser.add_argument('--build-only', action='store_true', help='Compile the consumer without service access; not acceptance.')
 args = parser.parse_args()
+if bool(args.upgrade_spec) != bool(args.upgrade_sha256) or (args.upgrade_spec and not args.negative_cases):
+    parser.error('Upgrade requires a frozen specification/hash and the complete negative-case stage.')
+if args.upgrade_spec and hashlib.sha256(Path(args.upgrade_spec).read_bytes()).hexdigest()!=args.upgrade_sha256:
+    parser.error('Upgrade specification hash mismatch; refusing preparation.')
 if args.negative_cases and (args.build_only or os.environ.get('GITHUB_ACTIONS') != 'true'):
     parser.error('Negative container orchestration is only enabled on a hosted GitHub Actions runner after a primary run.')
 if not args.build_only and (not args.world or not args.world_sha256):
@@ -80,21 +87,24 @@ for identity in assets['libraries']:
     metadata=json.loads((out/'packages'/package_id.lower()/version/'.nupkg.metadata').read_bytes())
     if Path(metadata['source']).resolve()!=feed: raise SystemExit('Unexpected package source: '+package_id)
     loaded[package_id]={'version':version,'sha256':sha(data)}
+runtime=out/'runtime-v1'
+shutil.copytree(consumer.parent/'bin/Release/net10.0',runtime)
 source={p.relative_to(ROOT).as_posix():sha(p.read_bytes()) for p in (ROOT/'eng/module-consumers').rglob('*')
         if p.is_file() and 'bin' not in p.parts and 'obj' not in p.parts}
 source['eng/verify-commitments-native.py']=sha(Path(__file__).read_bytes())
 source['eng/run-commitments-negative-cases.py']=sha((ROOT/'eng/run-commitments-negative-cases.py').read_bytes())
+source['eng/run-commitments-upgrade.py']=sha((ROOT/'eng/run-commitments-upgrade.py').read_bytes())
 report={'createdAtUtc':datetime.now(timezone.utc).isoformat(),
         'head':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
         'worktreeStatus':subprocess.check_output(['git','status','--short'],cwd=ROOT,text=True),
         'sourceHashes':source,'packages':{p.name:sha(p.read_bytes()) for p in feed.glob('*.nupkg')},
-        'loadedPackages':loaded,'consumerAssembly':{'path':str(consumer.parent/'bin/Release/net10.0/Commitments.NativeChecks.dll'),'sha256':sha((consumer.parent/'bin/Release/net10.0/Commitments.NativeChecks.dll').read_bytes())},'serviceExecuted':False,'status':'prepared'}
+        'loadedPackages':loaded,'consumerAssembly':{'path':str(runtime/'Commitments.NativeChecks.dll'),'sha256':sha((runtime/'Commitments.NativeChecks.dll').read_bytes())},'serviceExecuted':False,'status':'prepared'}
 (out/'package-proof.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
 if args.build_only:
     print(json.dumps({'status':'build_only','packages':len(loaded),'serviceExecuted':False})); sys.exit(0)
 if sha(world.read_bytes())!=args.world_sha256: raise SystemExit('Frozen world changed during preparation; refusing service execution.')
-code=run('native-primary',['dotnet','run','--project',str(consumer),'-c','Release','-f','net10.0','--no-build','--no-restore',*props,
-                         '--','--world',str(world),'--output',str(out/'primary')],allow_failure=True)
+code=run('native-primary',['dotnet',str(runtime/'Commitments.NativeChecks.dll'),
+                         '--world',str(world),'--output',str(out/'primary')],allow_failure=True)
 result_path=out/'primary/report.json'
 if result_path.exists():
     result=json.loads(result_path.read_bytes())
@@ -115,5 +125,12 @@ if code==0 and args.negative_cases:
         '--prepared',str(out/'package-proof.json'),'--world',str(world),'--world-sha256',args.world_sha256],allow_failure=True)
     report['negativeCasesExecuted']=True
     report['status']='primary_and_negatives_passed_acceptance_incomplete' if code==0 else 'failed'
+    (out/'package-proof.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+if code==0 and args.upgrade_spec:
+    code=run('native-upgrade',['python','eng/run-commitments-upgrade.py',
+        '--prepared',str(out/'package-proof.json'),'--world',str(world),'--world-sha256',args.world_sha256,
+        '--spec',str(Path(args.upgrade_spec).resolve()),'--spec-sha256',args.upgrade_sha256],allow_failure=True)
+    report['upgradeExecuted']=True
+    report['status']='primary_negatives_upgrade_passed_lifecycle_pending' if code==0 else 'failed'
     (out/'package-proof.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
 sys.exit(code)

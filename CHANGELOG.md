@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add an independent Commitments memory-package example and NuGet consumer verification on .NET 8/9/10.
   V1/v2 exercise structured user teaching, shared views and optional priority-reason metadata without
-  project-reference shortcuts. These contract checks do not claim real-service or dynamic lifecycle acceptance.
+  project-reference shortcuts. A separate native harness covers isolated negative cases and retained-data
+  migration from v1 to v2. Include v2 priority reasons in shared-view output; preserve v1 rendering.
+  Signed dynamic lifecycle acceptance remains separate.
 
 - Allow explicit per-request arguments in experimental view contributors while preserving resolved
   owner/shared scope. Null selection skips storage; existing contributor construction stays unchanged.

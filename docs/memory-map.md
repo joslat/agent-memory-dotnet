@@ -2035,13 +2035,17 @@ host must establish conversation ownership before ingestion. Deterministic propo
 verify engineering contracts, not model quality or coding effectiveness. Runtime module leases remain
 separate work. [Host setup and limits](extensions/modules.md#explicit-agent-framework-module-ingestion-and-views).
 
-**Commitments package authoring example - BUILT; real-service acceptance pending.** Independent NuGet
+**Commitments package example - BUILT / WIRED; primary native world MEASURED.** Independent NuGet
 consumers exercise two module versions on net8/net9/net10, structured-user-only proposals, SDK admission,
-shared view arguments and exact loaded package bytes. This uses a ProbeReader for contribution contract
-checks. Actual graph writes, native fresh-session retrieval, migration and signed load/reload/unload are
-separate unverified requirements. [Example and verification](../eng/module-consumers/README.md).
+shared view arguments and exact loaded package bytes. The authoring checks use a ProbeReader. Separately,
+the packaged v1 native world passed 148 checks on isolated Neo4j: actual stored messages/provenance,
+corrections, replay, owner isolation, time-pinned history, fresh-session retrieval and module-off inputs.
+Its terminal chat client and embeddings are deterministic; this proves wiring, not model effectiveness.
+Twelve isolated negative forks and retained-data v1/v2 migration have executable acceptance runners;
+compilation alone does not prove their service outcomes. Signed load/reload/unload remains separate.
+[Example and verification](../eng/module-consumers/README.md).
 
-**Native module read-time selection ? BUILT / WIRED; package-world acceptance pending.**
+**Native module read-time selection - BUILT / WIRED / MEASURED in the primary package world.**
 `WithModuleReadTime` carries host-selected transaction/valid times through the Agent Framework session
 into module compilation. Contract tests cover actual provider invocation, identity preservation,
 clearing, serialization and malformed-state refusal. This does not time-pin core recall, backdate writes,

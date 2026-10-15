@@ -129,6 +129,22 @@ await Check("package-contributors-reuse-shared-target-and-history-views", async 
     var skipped = await CommitmentsModule.ForEntity(resolution, reader, _ => null).ContributeResultAsync(request);
     Require(reader.Calls == calls && skipped.OmissionReason == ContextOmissionReason.NotApplicable, "Absent entity queried every commitment");
 });
+await Check("version-specific-reason-reaches-shared-view", async () =>
+{
+    var proposal = (await provider.ProposeAsync(Request())).Single();
+    var properties = proposal.Properties.ToDictionary(p => p.Key, p => p.Value);
+    if (isV2) properties["priority_reason"] = JsonSerializer.SerializeToElement("Time-sensitive");
+    var record = new ModuleRecord { ModuleId = manifest.Id, Type = CommitmentsModule.Type, Id = "render-probe", Key = "draft",
+        OwnerId = "alex", CreatedAtUtc = DateTimeOffset.UnixEpoch, SourceSessionId = "session", Source = proposal.Source,
+        Properties = properties, Links = [new() { Relation = CommitmentsModule.About, TargetId = "atlas", TargetType = "core:Entity" }] };
+    var reader = new ProbeReader { Records = [record] };
+    var result = await CommitmentsModule.ForEntity(resolution, reader, _ => "atlas").ContributeResultAsync(
+        new ContextRequest { SessionId = "fresh", Owner = "alex", Query = "why is this important?" });
+    Require(result.Section?.Items.Count == 1, "Missing rendered record");
+    var rendered = result.Section!.Items[0].Text;
+    Require(rendered.Contains("Time-sensitive", StringComparison.Ordinal) == isV2, "Stored v2 reason did not reach the shared view");
+    if (!isV2) Require(rendered == "Send Atlas draft | open | priority 2 | due 2026-10-19T16:00:00.0000000+00:00 | Explicit teaching", "V1 rendering changed");
+});
 Console.WriteLine(JsonSerializer.Serialize(new { packageVersion = manifest.Version.Value, framework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
     assembly = typeof(CommitmentProvider).Assembly.Location, sdk = typeof(ModuleManifest).Assembly.Location, passed = results.Count - failed, failed, checks = results }));
 return failed == 0 ? 0 : 1;
@@ -140,6 +156,7 @@ sealed class ProbeReader : IModuleReader
     public ModuleQuery? Query { get; private set; }
     public ModuleReadContext? Context { get; private set; }
     public int Calls { get; private set; }
+    public IReadOnlyList<ModuleRecord> Records { get; init; } = [];
     public Task<ModuleReadResult> FindAsync(ModuleQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
-    { Calls++; Query = query; Context = context; return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Succeeded }); }
+    { Calls++; Query = query; Context = context; return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Succeeded, Records = Records }); }
 }

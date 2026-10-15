@@ -9,7 +9,7 @@
       {
         "name": "CommitmentItem",
         "scope": "owner",
-        "render": "{title} | {status} | priority {priority} | due {due_at:O} | {detail}",
+        "render": "{title} | {status} | priority {priority} | due {due_at:O} | {detail} | {priority_reason}",
         "properties": {
           "title": {
             "type": "string",
