@@ -90,3 +90,15 @@ fails the service stage if any check fails. Original world assertions remain unc
 suite runs without services using `python eng/test_module_native_telemetry.py` and is included in CI.
 The build-only command proves package consumption, not native trace acceptance. Hosted execution must
 pass with exact source/package/world identities before claiming those results. No inference is involved.
+
+
+Each v1/v2 native consumer build runs `--verify-trace-capture` in a fresh process before any world
+execution. This checks cold initialization of the shared source and exact parent capture. The fixture
+initializes that source before registering its identity-based listener; comparing against an unassigned
+static field during source construction would miss every activity. This local check needs no database.
+
+The trace verifier follows the frozen negative forks: source/write-refusal and ownerless
+cases never select a retrieval view, so their contributions must be `NotApplicable` with
+no database descendants. Primary, upgrade, and the five retrieval negative cases still
+require actual contribution database traces. All cases require ingestion and migration
+traces; this distinction adds no query and changes no world or semantic expectation.

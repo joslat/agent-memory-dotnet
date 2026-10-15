@@ -13,9 +13,12 @@ internal sealed class NativeTraceCapture : IDisposable
     private readonly ActivityListener _listener;
     public NativeTraceCapture()
     {
+        // Materialize the source before subscribing. During its own constructor the static Source
+        // field is still null, so comparing against that field in ShouldListenTo loses a cold source.
+        var source = AgentMemoryDiagnostics.Source;
         _listener = new ActivityListener
         {
-            ShouldListenTo = source => ReferenceEquals(source, AgentMemoryDiagnostics.Source),
+            ShouldListenTo = candidate => ReferenceEquals(candidate, source),
             Sample = (ref ActivityCreationOptions<ActivityContext> options) => options.Parent.TraceId == _root.TraceId
                 ? ActivitySamplingResult.AllDataAndRecorded : ActivitySamplingResult.None,
             ActivityStopped = activity =>

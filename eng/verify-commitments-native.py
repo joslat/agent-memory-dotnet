@@ -74,6 +74,7 @@ props=['-p:ModuleSdkVersion=0.1.0','-p:CommitmentsPackageVersion=1.0.0','-p:Rest
 run('pack-example',['dotnet','pack','eng/module-consumers/Commitments/Commitments.csproj','-c','Release','-o',str(feed),*props])
 consumer=ROOT/'eng/module-consumers/Commitments.NativeChecks/Commitments.NativeChecks.csproj'
 run('build-consumer',['dotnet','build',str(consumer),'-c','Release',*props])
+run('trace-cold-start',['dotnet',str(consumer.parent/'bin/Release/net10.0/Commitments.NativeChecks.dll'),'--verify-trace-capture'])
 assets_path=consumer.parent/'obj/project.assets.json'; assets=json.loads(assets_path.read_bytes())
 if any(v['type']=='project' for v in assets['libraries'].values()): raise SystemExit('ProjectReference consumer bypass detected.')
 (out/'consumer-assets.json').write_bytes(assets_path.read_bytes())

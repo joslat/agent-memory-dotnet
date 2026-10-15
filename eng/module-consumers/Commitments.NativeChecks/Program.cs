@@ -25,6 +25,17 @@ internal static partial class Program
 
     private static async Task<int> Main(string[] args)
     {
+        if (args is ["--verify-trace-capture"])
+        {
+            using var capture = new NativeTraceCapture();
+            using (var probe = AgentMemory.Abstractions.Diagnostics.AgentMemoryDiagnostics.Source.StartActivity("native.trace-probe")) { }
+            using var receipt = JsonDocument.Parse(JsonSerializer.Serialize(capture.Snapshot(), Json));
+            var spans = receipt.RootElement.GetProperty("spans").EnumerateArray().ToArray();
+            var passed = spans.Length == 1 && spans[0].GetProperty("name").GetString() == "native.trace-probe"
+                && spans[0].GetProperty("parentSpanId").GetString() == receipt.RootElement.GetProperty("rootSpanId").GetString();
+            Console.WriteLine(JsonSerializer.Serialize(new { passed, receipt = receipt.RootElement }, Json));
+            return passed ? 0 : 1;
+        }
         if (args.Length < 4 || args.Length % 2 != 0 || args[0] != "--world" || args[2] != "--output")
             throw new ArgumentException("Expected --world <json> --output <new-directory> [--case <id>] or [--upgrade-from <primary-receipt> --upgrade-spec <json>].");
         var options = args.Chunk(2).ToDictionary(pair => pair[0], pair => pair[1], StringComparer.Ordinal);

@@ -33,6 +33,34 @@ class TraceInspectorTests(unittest.TestCase):
         report, world = fixture()
         self.assertTrue(all(c['passed'] for c in inspect(report, world)))
 
+    def test_nonretrieval_negative_forks_require_inapplicability_and_no_read(self):
+        # These frozen forks teach and exercise write/source refusals; Program skips primary
+        # queries and NegativeCases never selects a retrieval view for these scenarios.
+        scenarios = ('missing-source', 'foreign-source', 'wrong-owner-anchor', 'ambiguous-name',
+                     'unknown-command-field', 'assistant-command', 'ownerless-everyturn')
+        for scenario in scenarios:
+            with self.subTest(scenario=scenario):
+                report, world = fixture(); report['scenario'] = scenario
+                contribution = report['telemetry']['spans'][1]
+                contribution['tags']['memory.module.outcome'] = 'NotApplicable'
+                report['telemetry']['spans'].pop(2)
+                self.assertTrue(all(c['passed'] for c in inspect(report, world)))
+                # Do not excuse a searched view or silently allow an unexpected database read.
+                contribution['tags']['memory.module.outcome'] = 'Section'
+                self.assertFalse(all(c['passed'] for c in inspect(report, world)))
+                report, world = fixture(); report['scenario'] = scenario
+                report['telemetry']['spans'][1]['tags']['memory.module.outcome'] = 'NotApplicable'
+                self.assertFalse(all(c['passed'] for c in inspect(report, world)))
+
+    def test_retrieval_negative_forks_still_require_database_traces(self):
+        for scenario in ('required-anchor-loss', 'session-clear', 'missing-anchor-before-limit',
+                         'off-neutrality', 'runner-mutation-control'):
+            with self.subTest(scenario=scenario):
+                report, world = fixture(); report['scenario'] = scenario
+                self.assertTrue(all(c['passed'] for c in inspect(report, world)))
+                report['telemetry']['spans'].pop(2)
+                self.assertFalse(all(c['passed'] for c in inspect(report, world)))
+
     def test_rejects_missing_receipt(self):
         report, world = fixture(); del report['telemetry']
         self.assertFalse(all(c['passed'] for c in inspect(report, world)))

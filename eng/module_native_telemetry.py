@@ -58,7 +58,18 @@ def inspect(report, world, upgrade=None):
     for family in ('contribute', 'ingest', 'migrate'):
         candidates = [s for s in modules if s['name'] == 'memory.module.' + family
                       and (family != 'migrate' or s.get('tags', {}).get('memory.module.operation') == 'step')]
-        check('database/' + family, any(reaches(d['spanId'], s['spanId']) for d in db for s in candidates))
+        # These unchanged frozen forks skip primary queries and never select a view in
+        # NegativeCases. Require NotApplicable AND no read, rather than inventing retrieval.
+        no_retrieval = report['scenario'] in (
+            'missing-source', 'foreign-source', 'wrong-owner-anchor', 'ambiguous-name',
+            'unknown-command-field', 'assistant-command', 'ownerless-everyturn')
+        if family == 'contribute' and no_retrieval:
+            check('database/contribute-not-applicable', bool(candidates) and all(
+                s.get('tags', {}).get('memory.module.outcome') == 'NotApplicable' for s in candidates))
+            check('database/contribute-no-unrequested-read', not any(
+                reaches(d['spanId'], s['spanId']) for d in db for s in candidates))
+        else:
+            check('database/' + family, any(reaches(d['spanId'], s['spanId']) for d in db for s in candidates))
     core = [o for o in operations if o['name'] == 'native.core.turn']
     if report['scenario'] != 'upgrade-v2':
         check('off/core-turns-observed', len(core) >= 2)
