@@ -682,6 +682,35 @@ denied and unselected paths emit no ingestion span; invalid replay is rejected b
 No listener means no activity; when sampling requests no data, diagnostic counters are not computed.
 Normal reports and exceptions remain authoritative even when telemetry is disabled.
 
-Compiler/contributor and migration tracing are separate pending implementation; constants alone do
-not establish those spans. Native trace acceptance and signed runtime load/unload also remain separate
-from these listener unit checks.
+Migration tracing is separate pending implementation; its constant alone does not establish the span.
+Native trace acceptance and signed runtime load/unload also remain separate from listener unit checks.
+
+## Module compiler telemetry
+
+Use `services.AddAgentMemoryExtensibility(resolution)` or the `ContextCompiler` constructor whose
+first argument is a successful `ModuleResolution` to bind contributors explicitly. Registration
+replaces the compiler registration while preserving scoped lifetimes; register contributors separately.
+The host supplies resolution metadata. Registration installs neither an ambient catalog nor an exporter.
+The original constructor and parameterless registration keep their legacy behavior even if an unrelated
+resolution is registered in DI; arbitrary contributors there emit no inferred module identities.
+
+The bound compiler snapshots each descriptor once, requires unique contributor ids owned by resolved
+modules, and preserves the existing `CoreMemoryContextContributor` separately. Failed resolution,
+foreign ids, duplicate ids and an impersonated core id fail before contributor callbacks. This binding
+is metadata validation, not a security sandbox, signed activation or runtime module-set lease.
+
+`memory.module.compile` parents `memory.module.contribute` activities on the shared AgentMemory source.
+Compilation carries the metadata fingerprint and `memory.module.count`: distinct bound modules with
+at least one non-excluded contributor before applicability. Each contribution carries its frozen
+module id/version and contributor id, its outcome and known item count. Database activities started
+during a contribution inherit that contribution as parent. Typed omissions become
+`memory.module.omission` events on compilation, containing only contributor id and omission reason.
+The detailed omission remains in the envelope; private details are never copied into trace events.
+
+Completed compilation is `Completed`, or `Partial` if a contributor was unavailable. Contribution
+outcomes are `Section` or the existing typed omission reason. Caller cancellation propagates and marks
+both activities `Cancelled`; unavailable/cancelled activities have Error status. Exclusions still occur
+before applicability, without omission events. Empty, core-only and fully excluded compositions emit
+no module activities. With no sampled data, instrumentation does not inspect section item counts.
+Listener tests cover identity freezing, nesting, privacy, omissions, cancellation, DI compatibility,
+scoped lifetimes and disabled paths. Native service trace acceptance remains separate.

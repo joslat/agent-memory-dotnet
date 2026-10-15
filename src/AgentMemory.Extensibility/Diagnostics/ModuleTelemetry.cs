@@ -31,6 +31,12 @@ public static class ModuleTelemetry
     public const string Items = "memory.module.items";
     /// <summary>Known refused item outcomes; a subset of Items, not an inferred failed-write count.</summary>
     public const string Refused = "memory.module.refused";
+    /// <summary>Distinct bound modules with at least one non-excluded contributor, before applicability.</summary>
+    public const string ModuleCount = "memory.module.count";
+    /// <summary>Frozen host-bound contributor identity.</summary>
+    public const string ContributorId = "memory.contributor.id";
+    /// <summary>Compile event recording an omission identity and reason, without private details.</summary>
+    public const string Omission = "memory.module.omission";
     /// <summary>Frozen host-bound provider identity.</summary>
     public const string ProviderId = "memory.provider.id";
 }

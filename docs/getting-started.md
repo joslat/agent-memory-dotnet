@@ -828,3 +828,12 @@ Types are in `AgentMemory.Extensibility.Modules` and `AgentMemory.Extensibility.
 when using keyed store registrations; required services and options must use that same key. No
 module-store implementation is automatically registered by this check. Success does not connect to
 the database, migrate it or load module code. Follow the separate explicit migration/admission flow.
+
+### Experimental module compiler diagnostics
+
+Hosts that explicitly compose module contributors can bind a successful `ModuleResolution` with
+`services.AddAgentMemoryExtensibility(resolution)`. Register contributors separately. This selects the
+scoped compiler with frozen module identities and shared-source compile/contribute activities; it does
+not resolve a catalog or authorize a publisher. The parameterless registration preserves the legacy
+compiler, including when a resolution happens to be present in DI. See the
+[module compiler contract](extensions/modules.md#module-compiler-telemetry) for outcomes and opt-outs.

@@ -2052,9 +2052,15 @@ clearing, serialization and malformed-state refusal. This does not time-pin core
 or prove model effectiveness. [Contract](extensions/modules.md#native-session-read-times).
 
 
-**Experimental module ingestion telemetry ? BUILT / WIRED; listener-unit verification.** Explicit
+**Experimental module ingestion telemetry - BUILT / WIRED; listener-unit verification.** Explicit
 module ingestion and replay emit module/provider-bound activities on the shared AgentMemory source,
 with known outcome counts, cancellation and nested store activity. Unit checks cover identity freezing,
 privacy, replay, partial/uncertain outcomes and disabled paths/sampling. This is instrumentation proof,
-not a memory-effectiveness result or completed native trace acceptance. Compiler/contributor, migration
-and signed runtime lifecycle tracing remain separate. [Contract](extensions/modules.md#module-ingestion-telemetry).
+not a memory-effectiveness result or completed native trace acceptance. Migration and signed runtime lifecycle tracing remain separate. [Contract](extensions/modules.md#module-ingestion-telemetry).
+
+**Experimental module compiler telemetry - BUILT / WIRED through explicit host binding; listener-unit verification.**
+The resolution-first constructor and DI overload freeze module/contributor identity and emit nested
+compile/contribute activities with omission reasons and known counts. Legacy DI, exclusions, core-only
+paths and no-data sampling retain their behavior. Tests cover scoped DI, rejected bindings, cancellation,
+privacy and identity mutation. Native database/host trace acceptance is still pending; this is not
+model-effectiveness evidence. [Contract](extensions/modules.md#module-compiler-telemetry).

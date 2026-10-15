@@ -104,5 +104,10 @@ No additional exporter or per-module source is registered.
 
 Owner IDs, source messages, memory text and raw exception details are excluded. Known outcomes do not
 claim uncertain writes succeeded; cancellation propagates. Empty/denied/unselected paths have no span.
-See [module tags and limits](extensions/modules.md#module-ingestion-telemetry). Compiler/contributor,
-migration and runtime lifecycle trace coverage are not implied by the ingestion activity.
+See [module tags and limits](extensions/modules.md#module-ingestion-telemetry).
+
+Explicitly resolution-bound compilation emits `memory.module.compile` and child
+`memory.module.contribute` activities, with frozen module/contributor metadata and typed omission events.
+Legacy, core-only and excluded paths emit no module spans.
+[Binding, outcomes and off behavior](extensions/modules.md#module-compiler-telemetry).
+Migration and runtime lifecycle trace coverage remain separate; native trace acceptance is pending.

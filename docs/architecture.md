@@ -2229,4 +2229,9 @@ it does not recalculate admission or introduce a second write policy. Replay nev
 Empty/denied/unselected paths perform no trace work; no-data sampling avoids telemetry-only counts.
 The SDK depends on no observability exporter and installs no source or listener. Identity is metadata,
 not publisher trust or a live-set lease. [Span fields and limits](extensions/modules.md#module-ingestion-telemetry).
-Compiler/contributor and migration instrumentation remain separate work.
+Explicit resolution-bound `ContextCompiler` construction freezes owned contributor descriptors and
+versions before invocation; compile/contribute spans use the same diagnostics source. Legacy DI uses
+an explicit four-argument factory so an ambient resolution cannot change its behavior. The bound
+registration is explicit and scoped, and installs no global catalog. Core-only/excluded paths emit
+no module activities. [Compiler contract](extensions/modules.md#module-compiler-telemetry).
+Migration instrumentation and native trace acceptance remain separate work.

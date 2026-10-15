@@ -1,6 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
+using AgentMemory.Abstractions.Services;
 using AgentMemory.Extensibility.Capabilities;
 using AgentMemory.Extensibility.Context;
+using AgentMemory.Extensibility.Modules;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -37,7 +40,25 @@ public static class ServiceCollectionExtensions
         // singleton compiler or contributor would capture a scoped dependency: with scope validation
         // the graph refuses to build, and without it the captured assembler outlives its request.
         // This repository has paid for a captive dependency once already (the Diffbot typed client).
-        services.TryAddScoped<IContextCompiler, ContextCompiler>();
+        services.TryAddScoped<IContextCompiler>(sp => new ContextCompiler(
+            sp.GetServices<IContextContributor>(), sp.GetRequiredService<IMemoryIsolationPolicy>(),
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<ContextCompiler>>()));
+        return services;
+    }
+
+    /// <summary>Registers the compiler against an explicitly supplied, successful module resolution.</summary>
+    /// <remarks>Replaces the compiler registration; contributors remain separately registered.
+    /// The captured metadata supplies frozen telemetry identities, not publisher trust or a runtime lease.
+    /// Does not register a catalog, infer an ambient resolution, or install an exporter.</remarks>
+    public static IServiceCollection AddAgentMemoryExtensibility(this IServiceCollection services, ModuleResolution resolution)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(resolution);
+        if (!resolution.Succeeded) throw new ArgumentException("Successful metadata resolution is required.", nameof(resolution));
+        services.AddAgentMemoryExtensibility();
+        services.Replace(ServiceDescriptor.Scoped<IContextCompiler>(sp => new ContextCompiler(
+            resolution, sp.GetServices<IContextContributor>(), sp.GetRequiredService<IMemoryIsolationPolicy>(),
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<ContextCompiler>>())));
         return services;
     }
 
@@ -62,7 +83,7 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <remarks>
     /// Deliberately opt-in and deliberately separate from
-    /// <see cref="AddAgentMemoryExtensibility"/>. On the Agent Framework path the extensible provider
+    /// <see cref="AddAgentMemoryExtensibility(IServiceCollection)"/>. On the Agent Framework path the extensible provider
     /// inherits the shipped one and gets core memory from <c>base</c>; adding this there would render
     /// core twice, once inherited and once compiled, which is the single outcome the opaque core
     /// section exists to prevent.
