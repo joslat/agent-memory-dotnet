@@ -22,3 +22,36 @@ The checks use deterministic structured input and a clearly named ProbeReader te
 composition. They prove authoring/packaged API contracts, not graph persistence, native host wiring,
 migration or signed runtime lifecycle. Those need the isolated real-service acceptance world.
 See [Commitments](Commitments/README.md) for input and domain semantics. CI runs this same verifier.
+
+## Native service consumer
+
+`Commitments.NativeChecks` references the actual example, both SDK adapters and Microsoft Agent
+Framework through NuGet. `eng/verify-commitments-native.py` packs the complete eight-package chain
+into a fresh mapped feed, rejects ProjectReference assets and checks every loaded AgentMemory DLL
+against its nupkg. Use a new output directory:
+
+```sh
+python eng/verify-commitments-native.py --output artifacts/native-build-001 --build-only
+python eng/verify-commitments-native.py --output artifacts/native-world-001 \
+  --world /path/to/frozen-world.json --world-sha256 <registered-sha256>
+```
+
+Service execution requires `AGENTMEMORY_DISPOSABLE_NEO4J=1`, a loopback `NEO4J_URI`, and the disposable
+service's `NEO4J_PASSWORD`. The initial database must be empty; the runner never resets existing data.
+The host bootstraps core schema and explicitly applies module migrations. It seeds only core entity
+anchors; teaching goes through actual `ChatClientAgent.RunAsync`, native persisted-source ingestion,
+the packaged provider and real Neo4j. Each retrieval gets a new native session. Recent and relevant
+core conversation recall are both zero in enabled and control hosts.
+
+The deterministic chat client only acknowledges; it records the exact instructions/messages a model
+would receive. Assertions cover frozen record IDs, version/provenance/owner stamps, recorded replay,
+view results, system/valid-time selection, rendered content and an off control with retained data.
+Entity/due contributors use the package factories; the bounded history case uses the same declared
+package view through `ViewContributor` with its explicit runtime limit. No model, semantic-quality or
+coding benchmark claim follows from these checks.
+
+This is the primary-world stage, not complete package acceptance. Reports say
+`primary_passed_acceptance_incomplete` even when every primary assertion passes: remaining negative
+forks, source clearing, v1/v2 migration and signed runtime lifecycle need separate receipts. Failures
+are never averaged into a passing score. The supplied world and raw traces belong in private evidence,
+not public CI artifacts. `--build-only` performs no service operations and cannot claim a world pass.

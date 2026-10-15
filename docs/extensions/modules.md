@@ -649,3 +649,10 @@ uses an isolated cache/feed with AgentMemory-only source mapping, and compares l
 the actual nupkgs. It preserves metadata, command and test receipts. Contract checks use a ProbeReader
 test double and do not establish real storage, native host integration, migration or signed dynamic
 lifecycle acceptance. No sample package is added to the release manifest or published by this work.
+
+The independent `Commitments.NativeChecks` consumer additionally drives actual `ChatClientAgent`
+invocations against an explicitly disposable loopback Neo4j service. Its deterministic terminal client
+captures the inputs sent by the framework; it is not an inference provider or a storage double. The
+runner requires a hash-pinned external world and disables recent/relevant core conversation recall.
+Its primary-world results remain distinct from negative-fork, upgrade and signed lifecycle acceptance.
+See [native consumer setup](../../eng/module-consumers/README.md#native-service-consumer).

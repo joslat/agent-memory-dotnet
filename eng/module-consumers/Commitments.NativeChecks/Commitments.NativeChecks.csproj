@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFrameworks>net10.0</TargetFrameworks></PropertyGroup>
+  <PropertyGroup Condition="'$(ConsumerIsInert)' != 'true'"><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup Condition="'$(ConsumerIsInert)' != 'true'">
+    <PackageReference Include="AgentMemory.Examples.Commitments" Version="$(CommitmentsPackageVersion)" />
+    <PackageReference Include="AgentMemory.Extensibility.AgentFramework" Version="$(ModuleSdkVersion)" />
+    <PackageReference Include="AgentMemory.Extensibility.Neo4j" Version="$(ModuleSdkVersion)" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.23.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
+  </ItemGroup>
+</Project>
