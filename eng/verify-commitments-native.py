@@ -16,8 +16,11 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', required=True)
 parser.add_argument('--world')
 parser.add_argument('--world-sha256')
+parser.add_argument('--negative-cases', action='store_true', help='After primary success, run every frozen negative case in separate hosted-only disposable containers.')
 parser.add_argument('--build-only', action='store_true', help='Compile the consumer without service access; not acceptance.')
 args = parser.parse_args()
+if args.negative_cases and (args.build_only or os.environ.get('GITHUB_ACTIONS') != 'true'):
+    parser.error('Negative container orchestration is only enabled on a hosted GitHub Actions runner after a primary run.')
 if not args.build_only and (not args.world or not args.world_sha256):
     parser.error('A frozen world and its pre-registered SHA256 are required for service execution.')
 if not args.build_only:
@@ -80,11 +83,12 @@ for identity in assets['libraries']:
 source={p.relative_to(ROOT).as_posix():sha(p.read_bytes()) for p in (ROOT/'eng/module-consumers').rglob('*')
         if p.is_file() and 'bin' not in p.parts and 'obj' not in p.parts}
 source['eng/verify-commitments-native.py']=sha(Path(__file__).read_bytes())
+source['eng/run-commitments-negative-cases.py']=sha((ROOT/'eng/run-commitments-negative-cases.py').read_bytes())
 report={'createdAtUtc':datetime.now(timezone.utc).isoformat(),
         'head':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
         'worktreeStatus':subprocess.check_output(['git','status','--short'],cwd=ROOT,text=True),
         'sourceHashes':source,'packages':{p.name:sha(p.read_bytes()) for p in feed.glob('*.nupkg')},
-        'loadedPackages':loaded,'serviceExecuted':False,'status':'prepared'}
+        'loadedPackages':loaded,'consumerAssembly':{'path':str(consumer.parent/'bin/Release/net10.0/Commitments.NativeChecks.dll'),'sha256':sha((consumer.parent/'bin/Release/net10.0/Commitments.NativeChecks.dll').read_bytes())},'serviceExecuted':False,'status':'prepared'}
 (out/'package-proof.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
 if args.build_only:
     print(json.dumps({'status':'build_only','packages':len(loaded),'serviceExecuted':False})); sys.exit(0)
@@ -106,4 +110,10 @@ elif code==0:
 report['serviceExecuted']=True; report['status']='primary_passed_acceptance_incomplete' if code==0 else 'failed'
 (out/'package-proof.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
 print(json.dumps({'status':report['status'],'serviceExecuted':True,'report':str(out/'primary/report.json')}))
+if code==0 and args.negative_cases:
+    code=run('native-negative-cases',['python','eng/run-commitments-negative-cases.py',
+        '--prepared',str(out/'package-proof.json'),'--world',str(world),'--world-sha256',args.world_sha256],allow_failure=True)
+    report['negativeCasesExecuted']=True
+    report['status']='primary_and_negatives_passed_acceptance_incomplete' if code==0 else 'failed'
+    (out/'package-proof.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
 sys.exit(code)

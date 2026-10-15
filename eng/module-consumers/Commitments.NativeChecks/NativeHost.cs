@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AgentMemory.Abstractions.Options;
@@ -59,7 +61,16 @@ internal sealed record ChatInput(string? Instructions, IReadOnlyList<MessageInpu
 }
 internal sealed record CapturedIngestion(IngestionRequest Request, IngestionReport Report);
 internal sealed record NativeRun(IReadOnlyList<ChatInput> Inputs, IReadOnlyList<ContextEnvelope> Envelopes,
-    IReadOnlyList<CapturedIngestion> Ingestion);
+    IReadOnlyList<CapturedIngestion> Ingestion, IReadOnlyList<string> Queries, int ProviderCalls);
+
+internal sealed class ObservedProvider(IIngestionProvider inner, Action observe) : IIngestionProvider
+{
+    public IngestionProviderDescriptor Descriptor => inner.Descriptor;
+    public Task<IReadOnlyList<ModuleProposal>> ProposeAsync(IngestionRequest request, CancellationToken cancellationToken = default)
+    {
+        observe(); return inner.ProposeAsync(request, cancellationToken);
+    }
+}
 
 internal sealed class CapturingIngestion(IModuleIngestion inner, List<CapturedIngestion> captured) : IModuleIngestion
 {
@@ -97,6 +108,8 @@ internal sealed class NativeHost : IAsyncDisposable
     public List<CapturedIngestion> Captured { get; } = [];
     public List<ContextEnvelope> Envelopes { get; } = [];
     public JsonElement? Selection { get; set; }
+    public ConcurrentQueue<string> Queries { get; } = new();
+    public int ProviderCalls { get; private set; }
 
     public NativeHost(string uri, string password, WorldClock clock, bool modules)
     {
@@ -121,6 +134,11 @@ internal sealed class NativeHost : IAsyncDisposable
             o.ConnectionAcquisitionTimeout = TimeSpan.FromSeconds(15);
             o.TransactionTimeout = TimeSpan.FromSeconds(30);
         });
+        var transactionDescriptor = services.Single(s => s.ServiceType == typeof(INeo4jTransactionRunner));
+        services.Replace(ServiceDescriptor.Singleton<INeo4jTransactionRunner>(sp => new ObservedTransactions(
+            (INeo4jTransactionRunner)(transactionDescriptor.ImplementationInstance
+                ?? transactionDescriptor.ImplementationFactory?.Invoke(sp)
+                ?? ActivatorUtilities.CreateInstance(sp, transactionDescriptor.ImplementationType!)), Queries.Enqueue)));
         services.AddSingleton<IClock>(clock);
         services.AddSingleton<TimeProvider>(clock);
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
@@ -137,6 +155,8 @@ internal sealed class NativeHost : IAsyncDisposable
                 var view = selection?.GetProperty("view").GetString();
                 return view switch
                 {
+                    "due" when selection!.Value.TryGetProperty("limit", out var dueLimit) =>
+                        new ViewContributor(Resolution, reader, "due", 100, _ => new ModuleViewArguments { Limit = dueLimit.GetInt32() }),
                     "due" => CommitmentsModule.Due(Resolution, reader),
                     "history" => new ViewContributor(Resolution, reader, "history", 100, _ => new ModuleViewArguments
                     {
@@ -158,10 +178,16 @@ internal sealed class NativeHost : IAsyncDisposable
     }
 
     private IModuleIngestion Pipeline(IServiceProvider sp) => new CapturingIngestion(new ModuleIngestion(Resolution,
-        [new CommitmentProvider()], new Dictionary<string, IModuleStore>
+        [new ObservedProvider(new CommitmentProvider(), () => ProviderCalls++)], new Dictionary<string, IModuleStore>
         {
             [CommitmentsModule.Id] = new Neo4jModuleStore(sp.GetRequiredService<INeo4jTransactionRunner>(), Resolution)
         }, sp.GetRequiredService<IMemoryIsolationPolicy>(), Clock, sp.GetRequiredService<ILogger<ModuleIngestion>>()), Captured);
+
+    public async Task<IngestionReport> IngestAsync(IngestionRequest request)
+    {
+        using var scope = Services.CreateScope();
+        return await Pipeline(scope.ServiceProvider).IngestAsync(request);
+    }
 
     public async Task<IngestionReport> ReplayAsync(CapturedIngestion captured)
     {
@@ -174,6 +200,7 @@ internal sealed class NativeHost : IAsyncDisposable
         DateTimeOffset? validAsOf = null, string assistantText = "Acknowledged.")
     {
         var beforeIngestion = Captured.Count; var beforeEnvelopes = Envelopes.Count;
+        var beforeQueries = Queries.Count; var beforeProviders = ProviderCalls;
         using var scope = Services.CreateScope(); var sp = scope.ServiceProvider;
         await sp.GetRequiredService<IShortTermMemoryService>().AddConversationAsync(conversationId, sessionId, owner);
         using var client = new RecordingChatClient(assistantMessageId, assistantText);
@@ -188,7 +215,8 @@ internal sealed class NativeHost : IAsyncDisposable
         var session = (await agent.CreateSessionAsync()).WithMemoryIdentity(owner, sessionId, conversationId);
         session.WithModuleReadTime(systemAsOf, validAsOf);
         await agent.RunAsync([new ChatMessage(ChatRole.User, text) { MessageId = userMessageId }], session);
-        return new(client.Inputs.ToArray(), Envelopes.Skip(beforeEnvelopes).ToArray(), Captured.Skip(beforeIngestion).ToArray());
+        return new(client.Inputs.ToArray(), Envelopes.Skip(beforeEnvelopes).ToArray(), Captured.Skip(beforeIngestion).ToArray(),
+            Queries.ToArray().Skip(beforeQueries).ToArray(), ProviderCalls - beforeProviders);
     }
     public ValueTask DisposeAsync() => Services.DisposeAsync();
 }

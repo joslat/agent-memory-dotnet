@@ -50,8 +50,28 @@ Entity/due contributors use the package factories; the bounded history case uses
 package view through `ViewContributor` with its explicit runtime limit. No model, semantic-quality or
 coding benchmark claim follows from these checks.
 
-This is the primary-world stage, not complete package acceptance. Reports say
-`primary_passed_acceptance_incomplete` even when every primary assertion passes: remaining negative
-forks, source clearing, v1/v2 migration and signed runtime lifecycle need separate receipts. Failures
-are never averaged into a passing score. The supplied world and raw traces belong in private evidence,
-not public CI artifacts. `--build-only` performs no service operations and cannot claim a world pass.
+The default runs the primary world. Named negative cases use `--case <id>` on the compiled consumer;
+each invocation refuses a nonempty database and reconstructs its fork using actual native teaching.
+The source/anchor/owner/role cases preserve recorded refusals and retained provenance. The source-clear
+case uses the public ClearSessionAsync API. The missing-anchor case tests history without a target
+filter, so a filter cannot accidentally hide a broken required-anchor check. The paging case verifies
+that a lost earlier candidate does not consume the declared limit.
+
+`--negative-cases` on the Python verifier is hosted-only (`GITHUB_ACTIONS=true`). It requires
+`NEO4J_SERVICE_ID` to identify the primary job's actual service container, then runs every frozen
+negative case sequentially in a separate disposable container using that exact image ID. It reuses
+the verified package build, binds each service only to loopback, records logs/identity/results, and
+removes only the container carrying that iteration's random ownership label. It never resets a database
+or touches local Docker. An infrastructure failure stops the sequence with incomplete coverage.
+
+The module-off case compares warmed core query shapes/counts and actual inputs before and after
+module teaching. Warm-up is separately recorded; every measured read still uses a fresh session.
+Query observation delegates to the actual transaction runner, including its atomic-write capability.
+Provider calls are observed while invoking the real package provider. Expected mutation-control
+failures remain visible in the receipt instead of being counted as successful retrievals.
+
+Reports explicitly distinguish primary and named negative passes from full acceptance. All cases must
+have terminal receipts; a successful compile or a primary pass does not prove the negative cases.
+Explicit retained-data v1/v2 migration and signed runtime lifecycle remain separate. Failures are never
+averaged into a passing score. Supplied worlds and raw traces belong in private evidence, not public CI
+artifacts. `--build-only` performs no service operations and cannot claim a world pass.

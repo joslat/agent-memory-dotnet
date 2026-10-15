@@ -12,18 +12,21 @@ using Neo4j.Driver;
 
 namespace Commitments.NativeChecks;
 
-internal static class Program
+internal static partial class Program
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     private static readonly List<object> Evidence = [];
     private static readonly List<Check> Checks = [];
     private static string _output = "";
     private static string _worldHash = "";
+    private static string _scenario = "primary";
 
     private static async Task<int> Main(string[] args)
     {
-        if (args.Length != 4 || args[0] != "--world" || args[2] != "--output")
-            throw new ArgumentException("Expected --world <frozen-json> --output <new-directory>.");
+        if (args.Length is not (4 or 6) || args[0] != "--world" || args[2] != "--output"
+            || (args.Length == 6 && args[4] != "--case"))
+            throw new ArgumentException("Expected --world <frozen-json> --output <new-directory> [--case <negative-id>].");
+        _scenario = args.Length == 6 ? args[5] : "primary";
         _output = Path.GetFullPath(args[3]);
         if (Directory.Exists(_output)) throw new IOException("Evidence output already exists; refusing overwrite.");
         Directory.CreateDirectory(_output);
@@ -35,6 +38,8 @@ internal static class Program
             using var document = JsonDocument.Parse(bytes); var world = document.RootElement;
             if (world.GetProperty("module").GetString() != CommitmentsModule.Id)
                 throw new InvalidOperationException("World does not target the loaded package.");
+            JsonElement? negative = _scenario == "primary" ? null : world.GetProperty("negativeCases").EnumerateArray()
+                .Single(n => Text(n, "id") == _scenario);
             var uri = Environment.GetEnvironmentVariable("NEO4J_URI") ?? "";
             if (!Uri.TryCreate(uri, UriKind.Absolute, out var address) || !address.IsLoopback
                 || Environment.GetEnvironmentVariable("AGENTMEMORY_DISPOSABLE_NEO4J") != "1")
@@ -56,6 +61,10 @@ internal static class Program
             // The fixture creates only core anchors. Module records must come through the real native write path.
             Require("no-seeded-module-records", await Count(runner, "MATCH (n:CommitmentItem) RETURN count(n) AS n") == 0);
             var controlQuery = world.GetProperty("queries").EnumerateArray().First(q => Text(q,"id") == "open-after-correction");
+            // Prime the core host before comparing warm query shapes across retained module data.
+            // Both measured reads still use fresh sessions; this warm-up is separately recorded.
+            var warmup = await Query(control, controlQuery, "control-warmup");
+            Evidence.Add(new { kind = "control-warmup", warmup });
             var baseline = await Query(control, controlQuery, "control-before");
             var captured = new Dictionary<string, CapturedIngestion>(StringComparer.Ordinal);
             var teachCount = 0; var queryCount = 0;
@@ -98,6 +107,17 @@ internal static class Program
                 }
                 else throw new InvalidOperationException("Unknown teaching step kind.");
                 teachCount++;
+                if (negative is { } selected)
+                {
+                    await Save("in_progress");
+                    if (Text(selected, "forkAfter") == id)
+                    {
+                        await RunNegative(host, control, runner, world, selected, captured, baseline);
+                        await Save(Checks.All(c => c.Passed) ? "negative_passed_acceptance_incomplete" : "failed");
+                        return Checks.All(c => c.Passed) ? 0 : 1;
+                    }
+                    continue;
+                }
                 foreach (var query in world.GetProperty("queries").EnumerateArray().Where(q => Text(q,"after") == id))
                 {
                     var previousTime = clock.UtcNow;
@@ -118,6 +138,7 @@ internal static class Program
                 }
                 await Save("in_progress");
             }
+            if (negative is not null) throw new InvalidOperationException("Negative case fork point was never reached.");
             Require("world/all-primary-teaching-steps",teachCount==world.GetProperty("teachSteps").GetArrayLength());
             Require("world/all-primary-queries",queryCount==world.GetProperty("queries").GetArrayLength());
             // Exercise the exact comparison used above: an omitted or substituted result must fail.
@@ -183,11 +204,11 @@ internal static class Program
     {
         var report=new
         {
-            status,createdAtUtc=DateTimeOffset.UtcNow,worldSha256=_worldHash,packageVersion=CommitmentsModule.Manifest.Version.ToString(),
+            status,scenario=_scenario,createdAtUtc=DateTimeOffset.UtcNow,worldSha256=_worldHash,packageVersion=CommitmentsModule.Manifest.Version.ToString(),
             assembly=typeof(CommitmentsModule).Assembly.Location,sdk=typeof(ModuleReadContext).Assembly.Location,
             passed=Checks.Count(c=>c.Passed),failed=Checks.Count(c=>!c.Passed),checks=Checks,evidence=Evidence,
             limits=new[]{"Deterministic client captures model inputs; no inference or effectiveness score.",
-                "Primary world runner only: remaining negative forks and v1/v2 migration are not yet executed.",
+                "This receipt covers only its named scenario. Other forks, v1/v2 migration and lifecycle require separate receipts.",
                 "Static package activation; signed loading, draining and unload belong to the runtime acceptance task."}
         };
         await File.WriteAllTextAsync(Path.Combine(_output,"report.json"),JsonSerializer.Serialize(report,Json));
