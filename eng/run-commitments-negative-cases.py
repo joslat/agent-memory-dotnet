@@ -40,7 +40,9 @@ for case in cases:
     nonce=secrets.token_hex(8); name='commitments-'+case+'-'+nonce
     container=None; started=time.monotonic(); result={'case':case,'status':'failed','startedAtUtc':datetime.now(timezone.utc).isoformat()}
     try:
-        password=secrets.token_urlsafe(20)
+        # Neo4j's entrypoint passes this to neo4j-admin as a positional argument.
+        # A random leading '-' is parsed as an option before the server starts.
+        password='validation-'+secrets.token_hex(20)
         command=['docker','run','--detach','--name',name,'--label','agentmemory.validation='+nonce,
             '--memory','2g','--cpus','2','--publish','127.0.0.1::7687',
             '--env','NEO4J_AUTH=neo4j/'+password,'--env','NEO4J_server_memory_heap_initial__size=256M',
@@ -50,7 +52,12 @@ for case in cases:
         for attempt in range(40):
             ready=subprocess.run(['docker','exec',container,'cypher-shell','-u','neo4j','-p',password,'RETURN 1'],
                 stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=15)
+            with (folder/'readiness.log').open('a',encoding='utf-8') as log:
+                log.write(f'Attempt {attempt+1}, exit {ready.returncode}\n'+ready.stdout+'\n')
             if ready.returncode==0: break
+            state=json.loads(subprocess.check_output(['docker','inspect','--format','{{json .State}}',container]))
+            if state['Status'] in ('exited','dead'):
+                raise RuntimeError(f"Disposable Neo4j exited during startup (exit {state['ExitCode']}); see container/readiness logs.")
             time.sleep(3)
         else: raise RuntimeError('Disposable Neo4j did not become ready.')
         port=subprocess.check_output(['docker','port',container,'7687/tcp'],text=True).strip()
