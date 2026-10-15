@@ -138,9 +138,10 @@ public sealed partial class ContextCompiler : IContextCompiler
                         ObserveOmission(compile, contribution, contributor, reason);
                         continue;
                     }
-                    sections.Add(result.Section!);
+                    var section = BindSection(contributor, result.Section!);
+                    sections.Add(section);
                     if (contribution is { IsAllDataRequested: true })
-                        ObserveOutcome(contribution, "Section", result.Section!.Items.Count);
+                        ObserveOutcome(contribution, "Section", section.Items.Count);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {

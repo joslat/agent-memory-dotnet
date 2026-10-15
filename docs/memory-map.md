@@ -2079,3 +2079,11 @@ Cross-provider/category reuse is refused. Tests cover strict/default and statefu
 repeat measurement without policy calls, and unchanged direct-rendering output. This does not yet
 wire automatic module judging or enforce candidate/deadline budgets.
 [Contract](extensions/modules.md#admission-before-module-selection).
+
+
+**Bound module candidate projection - BUILT; deterministic contract tests.** The compiler stamps
+metadata identity and rejects relabeled contributions. Views carry typed stored-version/source
+references; an explicitly called projector copies a bounded prefix into stable keyed candidates.
+Tests cover unrelated modules, version changes, mutable source lists, ordinal-only items and
+unselected-tail access. This does not yet wire optional judging, duplicate resolution, shared output
+budgets or safe deadlines into the native provider. [Contract](extensions/modules.md#bound-module-candidates-and-provenance).

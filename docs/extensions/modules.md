@@ -757,3 +757,33 @@ The existing `RenderAdmittedBlock` still admits and renders directly, with the s
 policy evaluation per item. It does not allocate the new two-stage items. Neither new method
 retrieves memories, discovers a judge, calls a model or enables module relevance judging. Automatic
 candidate selection, keyed provenance and shared module budgets remain separate implementation work.
+
+## Bound module candidates and provenance
+
+Resolution-bound compilation stamps `ContextSection.Binding` with frozen module/version,
+contributor, declared section type and `MetadataFingerprint`. A returned contributor id or section
+type that contradicts the frozen descriptor becomes an Unavailable omission. Legacy compilation
+does not invent a binding and removes a binding from a reused section; core rendering stays opaque.
+The existing constructors remain available. These are metadata bindings, not publisher trust,
+activated configuration identity or authority to change owner/store scope.
+
+`ViewContributor` preserves record-version and copied source references on each item's optional
+`ContextItem.Provenance`, in addition to its existing full view metadata. Version identity is the
+complete stored id; no numeric suffix is inferred. Source message ids are snapshotted separately
+from the reader's collections. Custom contributors can supply descriptive provenance, but it cannot
+authorize access or raise trust.
+
+Hosts can explicitly call `ModuleContextCandidates.Project(section, maxItems)` to copy a bounded
+prefix into immutable keyed candidates. It reports original offered items and items omitted by that
+cap, never truncates text, and never reads the unselected tail. It refuses unbound/relabeled sections
+and a record-version identity inconsistent with the item's id. Source lists are copied again when
+projecting custom items. The item cap does not bound arbitrary full-trust code or source-list size.
+
+Keys include the metadata binding, module, contributor, section and item/version identity; text
+matching alone does not deduplicate unrelated modules. Items without ids use an explicitly ordinal
+identity, stable only within the same ordered section, and gain no fabricated storage provenance.
+Repeated identical identities can produce equal keys; callers must resolve duplicate records and
+conflicting renderings before offering a unique-key judge batch. The projection itself does not
+judge, deduplicate, perform admission, render, resolve a service or query storage. It is not called
+automatically by the existing rendering path. Gate selection, shared output budgets and deadline
+handling remain separate work; all projected text still requires host admission before any model call.

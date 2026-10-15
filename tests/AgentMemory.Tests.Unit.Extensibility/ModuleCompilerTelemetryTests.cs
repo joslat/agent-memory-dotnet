@@ -141,7 +141,7 @@ public sealed class ModuleCompilerTelemetryTests
         using var trace = new ModuleTraceCapture(ActivitySamplingResult.None);
         var items = new CountingItems();
         var contributor = new Contributor(Id) { Result = (_, _) => Task.FromResult(new ContextContributionResult
-            { Section = new ContextSection(Id, Id, 1, items) }) };
+            { Section = new ContextSection(Id + ":section", Id, 1, items) }) };
         var compiler = bound ? Bound(Resolution(), contributor)
             : new ContextCompiler([contributor], Policy(), TimeProvider.System, NullLogger<ContextCompiler>.Instance);
         (await compiler.CompileAsync(Request())).Sections.Should().ContainSingle();

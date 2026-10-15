@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Experimental module context: retain host-bound contribution identity and typed record/source
+  provenance, reject relabeled bound output, and expose explicit bounded candidate projection.
+  Existing rendering does not activate a judge or projection automatically.
+
 - Add protected two-stage Agent Framework admission: evaluate an untrusted item once, then render
   selected items with the existing escaping without repeating policy evaluation. Decisions remain
   bound to the originating provider/category; existing direct rendering keeps its behavior.

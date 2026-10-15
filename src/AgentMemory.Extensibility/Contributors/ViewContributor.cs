@@ -74,6 +74,16 @@ public sealed class ViewContributor : IContextContributor
         };
         if (result.Items.Count == 0) return new() { OmissionReason = ContextOmissionReason.SearchedAndEmpty };
         return new() { Section = new(Descriptor.Id, Descriptor.Id, 1,
-            result.Items.Select(i => new ContextItem(i.Record.Id, i.Text)).ToList().AsReadOnly(), result) };
+            result.Items.Select(i => new ContextItem(i.Record.Id, i.Text)
+            {
+                Provenance = new()
+                {
+                    RecordModuleId = i.Record.ModuleId, RecordType = i.Record.Type,
+                    RecordVersionId = i.Record.Id, RecordKey = i.Record.Key,
+                    CreatedAtUtc = i.Record.CreatedAtUtc, InvalidatedAtUtc = i.Record.InvalidatedAtUtc,
+                    SourceSessionId = i.Record.SourceSessionId,
+                    SourceMessageIds = Array.AsReadOnly(i.Record.Source.MessageIds.ToArray())
+                }
+            }).ToList().AsReadOnly(), result) };
     }
 }

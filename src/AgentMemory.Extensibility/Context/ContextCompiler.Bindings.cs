@@ -31,6 +31,24 @@ public sealed partial class ContextCompiler
         return bound;
     }
 
+    private ContextSection BindSection(IContextContributor contributor, ContextSection section)
+    {
+        if (contributor is not BoundContributor bound)
+            return section.Binding is null ? section : section with { Binding = null };
+        if (!string.Equals(section.ContributorId, bound.Descriptor.Id, StringComparison.Ordinal)
+            || !bound.Descriptor.SectionTypes.Contains(section.TypeId))
+            throw new InvalidOperationException("A bound contribution must retain its contributor and declared section type.");
+        return section with
+        {
+            Binding = new()
+            {
+                ModuleId = bound.ModuleId, ModuleVersion = bound.ModuleVersion,
+                ContributorId = bound.Descriptor.Id, SectionType = section.TypeId,
+                MetadataFingerprint = Resolution!.ManifestFingerprint!
+            }
+        };
+    }
+
     // Only this host binding creates these wrappers. Implementation getters cannot relabel a running span.
     private sealed class BoundContributor(IContextContributor inner, ContextContributorDescriptor descriptor,
         string moduleId, string moduleVersion) : IContextContributor

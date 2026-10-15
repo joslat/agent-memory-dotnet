@@ -41,6 +41,24 @@ public sealed class ViewContributorTests
     }
 
     [Fact]
+    public async Task ViewCarriesIndependentTypedRecordAndSourceProvenance()
+    {
+        var sources = new List<string> { "source-one", "source-two" };
+        var record = new ModuleRecord { ModuleId = "com.example.views", Type = "ViewsItem", Id = "record-v2", Key = "goal",
+            CreatedAtUtc = DateTimeOffset.UnixEpoch, SourceSessionId = "teaching", Source = new() { MessageIds = sources, Excerpt = "lesson" },
+            Properties = new Dictionary<string, JsonElement> { ["text"] = JsonSerializer.SerializeToElement("lesson") } };
+        var reader = new Reader { Result = new() { Status = ModuleReadStatus.Succeeded, Records = [record] } };
+        var item = (await Compiler(reader).CompileAsync(new() { SessionId = "fresh", Owner = "claimed" })).Sections.Single().Items.Single();
+        sources.Clear();
+        var property = typeof(ContextItem).GetProperty("Provenance");
+        property.Should().NotBeNull("typed provenance must accompany an item through candidate selection");
+        var value = property!.GetValue(item); value.Should().NotBeNull();
+        value!.GetType().GetProperty("RecordVersionId")!.GetValue(value).Should().Be("record-v2");
+        value.GetType().GetProperty("RecordKey")!.GetValue(value).Should().Be("goal");
+        ((IReadOnlyList<string>)value.GetType().GetProperty("SourceMessageIds")!.GetValue(value)!).Should().Equal("source-one", "source-two");
+    }
+
+    [Fact]
     public async Task UnsupportedValidTimeDoesNotCallStorageAndEmptyReadIsDistinct()
     {
         var reader = new Reader(); var compiler = Compiler(reader);

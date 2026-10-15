@@ -2247,3 +2247,10 @@ reuses the same admission/wrapping functions without allocating two-stage items.
 admission before optional judging and exact byte measurement, without publishing mapper internals,
 granting SDK friend access, or enabling a gate from DI alone.
 [Contract and current limits](extensions/modules.md#admission-before-module-selection).
+
+
+Resolution-bound module compilation also validates returned contributor/section identities against
+the frozen descriptor and stamps a metadata binding. Typed item provenance carries stored version
+and source references without granting authority. Explicit bounded candidate projection uses this
+binding; legacy/core rendering and judge activation are unchanged. No framework, gate provider or
+Neo4j dependency is added to the SDK. [Contract](extensions/modules.md#bound-module-candidates-and-provenance).
