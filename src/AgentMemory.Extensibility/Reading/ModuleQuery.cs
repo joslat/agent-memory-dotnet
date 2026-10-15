@@ -16,6 +16,9 @@ public sealed record ModuleQuery
     public required string Type { get; init; }
     /// <summary>Optional exact logical key.</summary>
     public string? Key { get; init; }
+    /// <summary>Snapshot by default. History requires an exact key and uses fixed newest-version-first order.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public ModuleRecordSelection Selection { get; init; }
     /// <summary>Conjunctive predicates using the same closed language as manifest views.</summary>
     public IReadOnlyList<ModuleViewFilter> Where { get; init; } = [];
     /// <summary>Conjunctive exact targets of declared outgoing relations, checked before the result limit.</summary>

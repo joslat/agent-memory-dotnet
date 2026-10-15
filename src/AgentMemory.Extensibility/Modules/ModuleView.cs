@@ -11,6 +11,9 @@ public sealed record ModuleView
     public required string Id { get; init; }
     /// <summary>The owned type being queried.</summary>
     public required string Type { get; init; }
+    /// <summary>Snapshot by default. History requires an exact key and uses fixed newest-version-first order.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public ModuleRecordSelection Selection { get; init; }
     /// <summary>Conjunctive filter clauses.</summary>
     public IReadOnlyList<ModuleViewFilter> Where { get; init; } = [];
     /// <summary>Optional property ordering.</summary>

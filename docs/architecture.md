@@ -2186,6 +2186,12 @@ persisted-turn seam; neither Core nor the base adapter depends on the module SDK
 reuses `IBackgroundExtraction`, captures scalar sources and a fixed factory, and restores application
 and owner in a fresh scope before resolving the pipeline. Registration is off by absence: no callback,
 projection or module pipeline resolution. Static bindings do not implement runtime-set leases.
+Module reads default to current/system-time snapshots. Explicit history selection requires one key,
+retains invalidated versions and uses fixed creation-time/numeric-version order. A system-time pin
+bounds version creation and anchor resolution; retained invalidation timestamps remain audit metadata.
+History is a read selection, never a flag that disables versioned writes. Default selection is omitted
+from canonical manifest serialization to preserve existing composition fingerprints.
+
 Typed runtime view arguments can only narrow a declared view by key, outgoing relationship target
 or result limit. The shared reader validates declared relations and resolves both link and requested
 identity under the same record-owner/shared scope and clock before applying the result limit; no

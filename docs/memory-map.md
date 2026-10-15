@@ -2004,7 +2004,14 @@ and reduced-limit arguments use the shared view/reader. Target predicates resolv
 before taking results, including across pages; runtime arguments cannot replace declared filters.
 Unit checks cover validation, independent snapshots and refusal by older view implementations.
 New Neo4j cases cover paging, merge-time boundaries and foreign/shared targets; their execution must
-be verified separately. This is not bounded history enumeration or package/runtime acceptance.
+be verified separately. This is not package/runtime acceptance.
+
+**Bounded module history enumeration - BUILT; real-store acceptance pending.** Explicit history
+selection lists retained versions of one key with an optional creation cutoff and fixed numeric
+version ordering at equal timestamps. Views share the same selection and require a runtime key.
+Default snapshots and manifest fingerprints are preserved. Parser/schema/admission/view checks pass;
+new real-store tests cover invalidation, copied provenance, owner isolation and query-time anchors.
+The package's frozen-world and dynamic lifecycle acceptance remain separate work.
 
 **Scoped module reads and shared views - BUILT / MEASURED in isolated integration tests.**
 Explicit bound readers enforce owner/shared scope, direct dependency access, migration readiness,

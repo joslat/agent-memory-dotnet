@@ -36,10 +36,12 @@ public sealed class ModuleViews : IModuleViews
         if (arguments.Key is not null && string.IsNullOrWhiteSpace(arguments.Key)
             || arguments.Limit is { } limit && (limit <= 0 || limit > view.Limit))
             return new() { Status = ModuleReadStatus.Refused, Errors = ["View arguments require a nonempty optional key and a positive limit no greater than the declared limit."] };
+        if (view.Selection == ModuleRecordSelection.History && arguments.Key is null)
+            return new() { Status = ModuleReadStatus.Refused, Errors = ["History views require one exact logical key."] };
         IReadOnlyList<ModuleLinkFilter> links;
         try { links = ModuleQueryAdmission.CaptureLinks(_module, view.Type, arguments.Links); }
         catch (ArgumentException exception) { return new() { Status = ModuleReadStatus.Refused, Errors = [exception.Message] }; }
-        var read = await _reader.FindAsync(new() { ModuleId = _module.Id, Type = view.Type, Key = arguments.Key, Links = links,
+        var read = await _reader.FindAsync(new() { ModuleId = _module.Id, Type = view.Type, Selection = view.Selection, Key = arguments.Key, Links = links,
             Where = view.Where, OrderBy = view.OrderBy, Limit = arguments.Limit ?? view.Limit }, context, cancellationToken).ConfigureAwait(false);
         if (read.Status != ModuleReadStatus.Succeeded) return new() { Status = read.Status, Errors = read.Errors };
         var type = _module.Ontology!.Types.Single(t => t.Name == view.Type);

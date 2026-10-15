@@ -11,9 +11,14 @@ internal static class ModuleReadQueries
     {
         var clauses = query.Where.Select((filter, index) => Filter(filter, type.Properties[filter.Property].Type, index));
         var order = query.OrderBy is { } sort ? "n.`" + sort.Property + "` IS NULL ASC, n.`" + sort.Property + "` " + (sort.Descending ? "DESC, " : "ASC, ") : "";
+        var temporal = query.Selection == ModuleRecordSelection.History
+            ? "($asOf IS NULL OR n.created_at<=datetime($asOf)) "
+            : "(($asOf IS NULL AND n.invalidated_at IS NULL) OR ($asOf IS NOT NULL AND n.created_at<=datetime($asOf) AND (n.invalidated_at IS NULL OR n.invalidated_at>datetime($asOf)))) ";
+        if (query.Selection == ModuleRecordSelection.History)
+            order = "n.created_at DESC, toInteger(last(split(n.id, ':'))) DESC, ";
         return "MATCH (n:`" + type.Name + "`) WHERE ($owner IS NULL OR n.owner_id=$owner OR ($shared AND n.owner_id IS NULL)) "
             + "AND ($key IS NULL OR n.key=$key) AND "
-            + "(($asOf IS NULL AND n.invalidated_at IS NULL) OR ($asOf IS NOT NULL AND n.created_at<=datetime($asOf) AND (n.invalidated_at IS NULL OR n.invalidated_at>datetime($asOf)))) "
+            + temporal
             + string.Concat(clauses.Select(c => "AND (" + c + ") "))
             + "RETURN properties(n) AS row ORDER BY " + order + "n.id ASC SKIP $skip LIMIT $take";
     }

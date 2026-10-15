@@ -43,6 +43,22 @@ public sealed class ModuleEditorSchemaTests
     }
 
     [Theory]
+    [InlineData("snapshot", false, true)]
+    [InlineData("snapshot", true, true)]
+    [InlineData("history", false, true)]
+    [InlineData("history", true, false)]
+    [InlineData("History", false, false)]
+    [InlineData("all", false, false)]
+    public void HistorySelectionHasTheSameEditorAndRuntimeContract(string selection, bool sorted, bool accepted)
+    {
+        var root = JsonNode.Parse(ModuleHistoryReadTests.Manifest(selection))!;
+        if (sorted) root["views"]![0]!["orderBy"] = "title";
+        var json = root.ToJsonString();
+        EditorAccepts("module", json).Should().Be(accepted);
+        RuntimeAccepts("module", json).Should().Be(accepted);
+    }
+
+    [Theory]
     [InlineData("module")]
     [InlineData("modules")]
     public void EditorAndRuntimeAcceptRepresentativeDeclarations(string kind)

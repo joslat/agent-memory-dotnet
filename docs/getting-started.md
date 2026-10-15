@@ -778,6 +778,8 @@ be applied; neither invocation nor retrieval applies DDL. Register declared view
 When a caller selects an entity or logical record key, use the shared view's
 `EvaluateWithArgumentsAsync` with `ModuleViewArguments` rather than filtering its returned items.
 Arguments preserve declared predicates and ordering and can only reduce the declared limit.
+A view declaring `"selection": "history"` also requires an exact runtime `Key`; it returns retained
+versions in fixed newest-first order. Leave selection omitted for the original snapshot behavior.
 [Typed view arguments](extensions/modules.md#scoped-module-reads-and-shared-views) need no additional
 DI registration; they use the same explicitly granted module reader.
 

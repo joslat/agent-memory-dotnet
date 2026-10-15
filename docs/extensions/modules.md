@@ -489,7 +489,23 @@ and evaluated against resolved outgoing links **before** the result limit, inclu
 pages. Target IDs are data, not names or Cypher. Both the supplied identity and stored link follow
 the same bounded merge/supersession rules, record-owner/shared scope and system-time pin. A missing,
 foreign or unresolved target yields no matching records; malformed predicates refuse the query.
-This does not expose all historical versions of a key; bounded history enumeration is separate work.
+To list retained versions, set `ModuleQuery.Selection = ModuleRecordSelection.History` and supply
+one exact `Key`. A declared view uses `"selection": "history"`, with its key supplied through runtime
+arguments. A missing key refuses; arguments cannot change a view's declared selection. Snapshot
+selection remains the default, including when `"selection": "snapshot"` is explicit; existing manifest
+fingerprints are unchanged by the default.
+
+History returns retained versions, including superseded/invalidated and zero-duration versions, with
+the same 1-1000 record limit. It orders by creation time descending, numeric SDK version suffix
+descending (so version 10 precedes 9), then identity ascending. Property ordering is refused for
+history. An optional `SystemAsOfUtc` is an inclusive **creation cutoff**, while required anchors and
+link filters use that same query-time pin. Without a pin, they require current targets. A deleted or
+foreign anchor is not resurrected by history. `ValidAsOfUtc` remains unsupported.
+
+History is a retained version listing, not a historical database snapshot: `InvalidatedAtUtc` keeps
+its stored audit value even when that invalidation happened after the creation cutoff. Copied source
+provenance remains available after source-message deletion. No versioning flag, schema mutation or
+write behavior changes are introduced by selecting history.
 
 Rendering shares the manifest's placeholder grammar: `{property}`, optional .NET scalar format,
 and escaped `{{`/`}}`. Numeric/date formats use invariant culture; datetimes normalize to UTC. Stored

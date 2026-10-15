@@ -22,9 +22,11 @@ public static class ModuleQueryAdmission
         if (query.Limit is <= 0 or > ModuleQuery.MaximumLimit || query.Key is not null && string.IsNullOrWhiteSpace(query.Key)
             || query.Where is null || query.Where.Count > 64 || query.Where.Any(f => f is null))
             return Refused("Query requires a positive bounded limit, nonempty optional key and at most 64 non-null filters.");
+        if (query.Selection == ModuleRecordSelection.History && query.Key is null)
+            return Refused("History queries require one exact logical key.");
         // Reuse the manifest's typed view grammar. Frozen metadata is already valid; replacing its
         // views validates exactly the caller's query without creating a second operator/type policy.
-        var errors = (target with { Views = [new() { Id = "query", Type = query.Type,
+        var errors = (target with { Views = [new() { Id = "query", Type = query.Type, Selection = query.Selection,
             Where = query.Where, OrderBy = query.OrderBy, Limit = query.Limit }] }).Validate();
         if (errors.Count != 0) return new() { Status = ModuleReadStatus.Refused, Errors = errors };
         try

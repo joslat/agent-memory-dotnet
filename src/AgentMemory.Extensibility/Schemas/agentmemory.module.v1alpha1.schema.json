@@ -434,12 +434,42 @@
         },
         "limit": {
           "$ref": "#/$defs/positiveInt"
+        },
+        "selection": {
+          "type": "string",
+          "enum": [
+            "snapshot",
+            "history"
+          ],
+          "default": "snapshot",
+          "description": "History requires an exact runtime key and uses fixed newest-version-first order."
         }
       },
       "required": [
         "id",
         "type",
         "limit"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "selection": {
+                "const": "history"
+              }
+            },
+            "required": [
+              "selection"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "orderBy"
+              ]
+            }
+          }
+        }
       ]
     }
   }

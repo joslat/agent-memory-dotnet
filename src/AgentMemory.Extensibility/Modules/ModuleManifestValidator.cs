@@ -89,6 +89,10 @@ internal sealed class ModuleManifestValidator
             var path = "$.views." + view.Id;
             if (!ModuleIdentity.IsValidLocalId(view.Id)) Error(path, "invalid local view identifier");
             if (!viewIds.Add(view.Id ?? "")) Error(path, "duplicate view identifier");
+            if (view.Selection is not (ModuleRecordSelection.Snapshot or ModuleRecordSelection.History))
+                Error(path + ".selection", "unknown record selection");
+            if (view.Selection == ModuleRecordSelection.History && view.OrderBy is not null)
+                Error(path + ".orderBy", "history has fixed newest-version-first ordering");
             if (view.Limit <= 0) Error(path + ".limit", "view limit must be positive");
             if (!types.TryGetValue(view.Type ?? "", out var type)) { Error(path + ".type", "view must name an owned type"); continue; }
             var props = Map(type.Properties, "$.ontology.types." + type.Name + ".properties");

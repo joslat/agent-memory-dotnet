@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental bounded per-key module history reads and declared history views. Preserve default
+  snapshot queries and fingerprints; order equal-time versions numerically and retain invalidation
+  audit metadata. Runtime keys and existing owner/anchor checks remain required.
+
 - Add experimental typed module relationship-target filters and narrowing runtime view arguments.
   Resolve scoped target identities before result limits, preserve declared filters and ordering, and
   refuse unsupported arguments in older view implementations. Existing view calls remain unchanged.

@@ -118,13 +118,19 @@ internal static class ModuleManifestReader
 
     private static ModuleView View(JsonElement value, string path)
     {
-        Object(value, path, "id", "type", "where", "orderBy", "limit");
+        Object(value, path, "id", "type", "where", "orderBy", "limit", "selection");
         var id = Text(value, "id", path);
         if (!ModuleIdentity.IsValidLocalId(id)) throw Error(path + ".id", "expected local view identifier");
         return new ModuleView
         {
             Id = id, Type = Text(value, "type", path), Where = Array(value, "where", path, Filter),
             OrderBy = value.TryGetProperty("orderBy", out var sort) ? Order(sort, path + ".orderBy") : null,
+            Selection = value.TryGetProperty("selection", out var selection) ? String(selection, path + ".selection") switch
+            {
+                "snapshot" => ModuleRecordSelection.Snapshot,
+                "history" => ModuleRecordSelection.History,
+                _ => throw Error(path + ".selection", "expected snapshot or history")
+            } : ModuleRecordSelection.Snapshot,
             Limit = PositiveInteger(value, "limit", path) ?? throw Error(path + ".limit", "required field missing")
         };
     }
