@@ -762,3 +762,54 @@ Run explicit module migration application first, including any reported `Pending
 constraint. Writes refuse pending schema work and never apply DDL. Enable `module-bookkeeping` only
 when requesting schema-owner reporting for SDK ledger/key shapes. Framework callbacks, module reads
 and view evaluation remain unfinished. See [module writes](extensions/modules.md#transactional-neo4j-module-writes).
+
+
+### Experimental module ingestion
+
+Module storage remains explicitly enabled. After `AddNeo4jAgentMemory(...)` and
+`AddAgentMemoryFramework(...)`, call `AddAgentMemoryFrameworkModuleIngestion(createIngestion)` from
+the experimental `AgentMemory.Extensibility.AgentFramework` package. The factory must build the
+pipeline from the supplied scope and a fixed authorized module composition. Migrations must already
+be applied; neither invocation nor retrieval applies DDL. Register declared views separately through
+`IContextContributor` / `ViewContributor`.
+
+`ExtractInBackground` controls queued versus inline module ingestion independently of core
+`AutoExtractOnPersist`. Plain extensibility registration leaves automatic module writes off.
+See [module ingestion and views](extensions/modules.md#explicit-agent-framework-module-ingestion-and-views)
+for lifetime, isolation and shutdown requirements. Dynamic loading requires the separate runtime
+lifecycle support; this registration alone does not provide it.
+
+
+Owned ingestion requires a conversation already associated with that owner and session. The trusted
+host should create it through `IShortTermMemoryService.AddConversationAsync(conversationId, sessionId,
+userId)` in the selected application scope before the first turn. The adapter's minimal conversation
+creation does not assign ownership. `WithMemoryIdentity` supplies a claim; it cannot claim an existing
+unowned/foreign conversation. Module storage refuses mismatched source ownership and never changes
+core conversation ownership to make ingestion succeed. Use host-authorized conversation identities;
+`AddConversationAsync` is an administrative upsert, not a tenant-claim operation.
+
+### Check a composed module host
+
+For an experimental module host with its store services already registered, validate the profile
+against those registrations before constructing modules or applying migrations:
+
+```csharp
+var candidate = ModuleHostProfileResolver.Resolve(profile, manifests, ModuleVersion.Parse("0.1.0"),
+    new Dictionary<string, ModuleHostStore>
+    {
+        ["memory"] = new()
+        {
+            Provider = "neo4j-direct",
+            Services = storeScope.ServiceProvider,
+            SchemaProbe = new Neo4jModuleSchemaCapabilityProbe()
+        }
+    });
+if (!candidate.Succeeded)
+    throw new InvalidOperationException(string.Join(Environment.NewLine, candidate.Errors));
+```
+
+Types are in `AgentMemory.Extensibility.Modules` and `AgentMemory.Extensibility.Neo4j`, marked
+`AMEXT001`. The host owns `storeScope` and must retain it while inspecting services. Set `ServiceKey`
+when using keyed store registrations; required services and options must use that same key. No
+module-store implementation is automatically registered by this check. Success does not connect to
+the database, migrate it or load module code. Follow the separate explicit migration/admission flow.

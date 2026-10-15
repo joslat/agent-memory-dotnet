@@ -207,8 +207,7 @@ cross-module names/targets and cycles, and returns no partial set on failure. It
 excludes future profile/configuration/trust identities. Feature inputs do not prove DI registrations;
 Pure profile composition now reconciles explicit entries, version intervals and store/provider
 bindings against planning inputs, refusing graph links across distinct stores. Its hash includes exact
-profile bytes; options values, trust and source identity remain activation obligations. Explicit CLI migration wiring is available; runtime DI
-wiring, host probes and activation remain unfinished. Derived schema descriptors now carry stable
+profile bytes; options values, trust and source identity remain activation obligations. Explicit CLI migration wiring is available; dynamic runtime DI wiring, host probes and activation remain unfinished; static ingestion registration is available. Derived schema descriptors now carry stable
 constraint/index names and exact label/property identities. Local and complete-set guards reject
 collisions with each other or reserved actual base/built-in/upstream objects. Packaged standalone
 editor schemas complement runtime validation; they add no production dependency or schema writes.
@@ -236,8 +235,7 @@ awaits each batch in dependency order and replays frozen inputs without provider
 The store contract requires a transaction per admitted batch, and uncertain acknowledgements remain
 unknown rather than assumed rollback. The held Neo4j store now verifies source provenance and writes versioned records/links in one provider
 transaction. Its SDK-owned key constraint is prepared by explicit migration application, with no core
-schema changes when disabled. Explicit scoped reads and shared views are implemented in the held SDK/Neo4j adapter; framework
-write wiring remains unfinished;
+schema changes when disabled. Explicit scoped reads and shared views are implemented in the held SDK/Neo4j adapter; explicit framework ingestion and view contribution are wired;
 shape acceptance alone must never stand in for storage checks. See [proposal admission](extensions/modules.md#typed-proposals-and-pure-admission).
 
 The portable `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
@@ -2169,3 +2167,35 @@ profile/manifest/assembly sources and invokes the same migrator. Whole-profile v
 store projection; assembly metadata inspection executes no module code. Explicit target-host feature
 declarations are not capability probes. Published core packages gain no held-SDK dependencies. See
 [embedded migration source discovery](extensions/modules.md#embedded-migration-source-discovery).
+
+
+### Persisted-turn observer boundary
+
+Derived Agent Framework adapters can opt into `OnTurnPersistedAsync` through
+`ObservesPersistedTurns`. The base provider owns storage and publishes an immutable source projection
+only after successful nonempty message persistence. Observers receive actual IDs and stored content;
+they do not repeat storage or infer provider-ID mappings. Observation defaults off with no callback,
+source projection or extra clock read. Callback failure does not prevent core extraction; cancellation
+propagates. Owner claims still require the observer's real isolation policy. Scheduling and module
+activation are not granted by this hook. See [the seam contract](extensions/modules.md#persisted-turn-adapter-seam).
+
+
+The experimental Agent Framework module adapter now has explicit
+`AddAgentMemoryFrameworkModuleIngestion` activation. Its scoped handler consumes the base provider's
+persisted-turn seam; neither Core nor the base adapter depends on the module SDK. Queued ingestion
+reuses `IBackgroundExtraction`, captures scalar sources and a fixed factory, and restores application
+and owner in a fresh scope before resolving the pipeline. Registration is off by absence: no callback,
+projection or module pipeline resolution. Static bindings do not implement runtime-set leases.
+Declared-view contributors share `ModuleViews` and preserve resolved scope and typed omission outcomes;
+module text still crosses the existing host admission boundary.
+
+### Module host capability inspection
+
+The explicit experimental `ModuleHostProfileResolver` validates profile metadata before inspecting
+trusted per-store DI bindings. It checks History registration, effective reminder options, and schema
+support separately for each store and service key. The Neo4j adapter owns its runner-registration
+probe; SDK logic knows only the module-store contract and the adapter probe interface. All capability
+failures discard the complete candidate set. Constructors for module/store/runner services and database
+queries are outside this check. A capability result is neither migration readiness nor authorization
+to activate code. The SDK adds only the options package for this check, not a Core or storage dependency.
+See [module capability checks](extensions/modules.md#effective-host-capability-checks).

@@ -103,9 +103,9 @@ public sealed class ModuleAdmissionDefaultsTests
     [InlineData("tool")]
     public async Task ModuleQueryUsesLastUserQuestionWhenAnotherRoleTrails(string role)
     {
-        var contributor = Substitute.For<IContextContributor>();
-        contributor.Descriptor.Returns(new ContextContributorDescriptor("capture", new HashSet<string> { "capture.section" }));
-        contributor.AppliesAsync(Arg.Any<ContextRequest>(), Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
+        // Exercise the default result adapter on a real legacy contributor; interface substitutes
+        // intercept default interface methods instead of executing their implementation.
+        var contributor = new CapturingModuleContributor();
         var harness = new DefaultsHarness(MemoryContextSecurityMode.Permissive, contributor);
         var context = new AIContextProvider.InvokingContext(
             harness.Context.Agent, harness.Context.Session,
@@ -113,8 +113,19 @@ public sealed class ModuleAdmissionDefaultsTests
 
         await harness.Provider.InvokingAsync(context, CancellationToken.None);
 
-        await contributor.Received(1).ContributeAsync(
-            Arg.Is<ContextRequest>(r => r.Query == "Which tests failed?"), Arg.Any<CancellationToken>());
+        contributor.Requests.Should().ContainSingle().Which.Query.Should().Be("Which tests failed?");
+    }
+
+    private sealed class CapturingModuleContributor : IContextContributor
+    {
+        public ContextContributorDescriptor Descriptor { get; } = new("capture", new HashSet<string> { "capture.section" });
+        public List<ContextRequest> Requests { get; } = [];
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => ValueTask.FromResult(true);
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            return Task.FromResult<ContextSection?>(null);
+        }
     }
 
     private sealed class InjectingModuleContributor : IContextContributor

@@ -814,6 +814,17 @@ public class Neo4jMemoryContextProvider : AIContextProvider
         AdvanceDeltaCheckpoint(context.Session);
     }
 
+    /// <summary>Opt-in for derived adapters observing successful message persistence.</summary>
+    /// <remarks>False by default: no callback, source projection or additional clock read occurs.</remarks>
+    protected virtual bool ObservesPersistedTurns => false;
+
+    /// <summary>Receives the complete stored turn after core extraction completes or is queued.</summary>
+    /// <remarks>Called only when observation is enabled and a nonempty turn was fully stored. No callback
+    /// occurs for invocation/persistence failure. Non-cancellation observer failures are logged independently
+    /// and do not prevent core extraction. Implementations must preserve cancellation and apply authorization.</remarks>
+    protected virtual Task OnTurnPersistedAsync(PersistedMemoryTurn turn, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
     /// <summary>Internal helper exposed for unit testing.</summary>
     internal async Task PerformStoreAsync(
         IEnumerable<ChatMessage> requestMessages,
@@ -846,6 +857,17 @@ public class Neo4jMemoryContextProvider : AIContextProvider
             // Extraction sees the complete turn (#89): what the user said, as the :Message stored above,
             // so provenance resolves; the reply too unless ExtractFromUserMessagesOnly.
             var turnMessages = storedRequestMessages.Concat(storedMessages).ToList();
+            PersistedMemoryTurn? persisted = null;
+            if (turnMessages.Count > 0 && ObservesPersistedTurns)
+            {
+                persisted = new PersistedMemoryTurn
+                {
+                    SessionId = sessionId, ConversationId = conversationId, Owner = userId,
+                    ApplicationId = _storeContext?.ApplicationId, AtUtc = _clock.UtcNow,
+                    Messages = turnMessages.Select(m => new PersistedTurnMessage
+                    { Id = m.MessageId, Role = m.Role, Text = m.Content }).ToList().AsReadOnly()
+                };
+            }
             if (_agentOptions.AutoExtractOnPersist && turnMessages.Count > 0)
             {
                 await TurnExtraction.ExtractAsync(
@@ -857,6 +879,21 @@ public class Neo4jMemoryContextProvider : AIContextProvider
                         UserId = userId
                     }, _agentOptions, _backgroundExtraction, _logger, cancellationToken,
                     _storeContext?.ApplicationId).ConfigureAwait(false);
+            }
+            if (persisted is not null)
+            {
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await OnTurnPersistedAsync(persisted, cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception exception)
+                {
+                    MemoryTelemetry.RecordException(System.Diagnostics.Activity.Current, exception);
+                    _logger.LogWarning(exception, "Persisted-turn observer failed for session {SessionId}; core extraction is unaffected.", sessionId);
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -2,8 +2,7 @@
 
 The current core release inventory holds the module SDK and its adapters on a separate experimental
 version line. Source includes context contributors/compiler, metadata/profile resolution, explicit
-module migrations, pure proposal admission and explicit ordered ingestion/replay. Transactional writes/reads and shared view evaluation are implemented in the held SDK/Neo4j adapter; framework
-write wiring and runtime activation remain unfinished. Registering contributors does not activate a module platform.
+module migrations, pure proposal admission and explicit ordered ingestion/replay. Transactional writes/reads and shared view evaluation are implemented in the held SDK/Neo4j adapter; explicit framework ingestion is wired; dynamic runtime activation remains unfinished. Registering contributors does not activate a module platform.
 
 ## Version and identity primitives
 
@@ -396,7 +395,7 @@ an empty result. Raw exception text is logged through the host logger, not copie
 
 `IModuleStore` defines the transactional write contract; the held Neo4j adapter implements it below.
 Orchestration tests use controlled providers/stores to prove execution behavior. Separate fresh-Neo4j
-tests exercise actual write invariants. Framework persistence callbacks remain unfinished; explicit reads and shared views are available below. Neither suite is a coding-memory effectiveness benchmark.
+tests exercise actual write invariants. Explicit framework persistence callbacks, scoped reads and shared views are available below. Neither suite is a coding-memory effectiveness benchmark.
 
 ## Transactional Neo4j module writes
 
@@ -433,7 +432,7 @@ Within one transaction the store:
 A transactional invariant refusal rolls back the whole admitted provider batch, including earlier
 proposals and newly created key rows. Unexpected errors propagate, preserving unknown-commit handling
 in the orchestrator. Historical records retain copied source IDs/session/excerpt when messages are
-cleared. Core records are not rewritten or relabeled. Framework callback wiring remains unfinished;
+cleared. Core records are not rewritten or relabeled. Framework callbacks are explicitly wired; dynamic runtime activation remains unfinished;
 these write APIs alone do not complete end-to-end module ingestion.
 
 ## Scoped module reads and shared views
@@ -464,8 +463,8 @@ cancellable; the requested result limit does not imply a fixed scan-cost bound o
 `IModuleViews`, implemented by `ModuleViews(resolution, reader)`, evaluates a declared local view through
 that same reader and returns ordered `ModuleViewItem` values: exact stored records, copied provenance
 and rendered text. It does not perform admission or declare rendered text safe for HTML/prompts.
-Contributors, the conformance kit and Workbench can use this same service; their complete wiring is
-separate work. No existing host automatically activates it.
+The explicitly registered `ViewContributor` uses this same service. Conformance-kit and Workbench
+wiring remain separate work. No existing host automatically activates it.
 
 Rendering shares the manifest's placeholder grammar: `{property}`, optional .NET scalar format,
 and escaped `{{`/`}}`. Numeric/date formats use invariant culture; datetimes normalize to UTC. Stored
@@ -477,4 +476,98 @@ The host remains responsible for admission, output budgets and handling full-tru
 Isolated integration tests exercise actual writes followed by current/historical reads, strict/shared
 scope, declared dependencies, required-anchor loss, merge identity, native typed filters, descending
 view order and rendering. These are storage/view contract checks, not completed runtime activation,
-framework ingestion wiring or a measure of memory usefulness.
+dynamic module loading or a measure of memory usefulness.
+
+## Persisted-turn adapter seam
+
+`Neo4jMemoryContextProvider` exposes a protected opt-in `ObservesPersistedTurns` and
+`OnTurnPersistedAsync(PersistedMemoryTurn, CancellationToken)` callback. The default is false:
+no callback, extra clock read or source projection occurs. It is independent of core
+`AutoExtractOnPersist` and `ExtractFromUserMessagesOnly` settings.
+
+The callback runs after all turn messages have been successfully stored and core extraction has
+completed or been queued. Its immutable input is captured before core extraction filters the roles.
+It receives storage-returned IDs/content/roles, a read-only source list, session/conversation, host
+owner claim and captured application ID. Mutable message metadata and embeddings are not exposed.
+This is not an owner authorization grant or a multi-message transaction receipt. A later storage
+failure can leave earlier messages persisted, but does not publish a successful-turn callback.
+Invocation failures and empty turns publish nothing. Non-cancellation observer failures are logged
+without undoing core extraction; caller cancellation propagates.
+
+The callback itself neither activates module ingestion nor schedules background work. A derived adapter
+must not reconstruct source IDs or save the turn a second time.
+
+
+## Explicit Agent Framework module ingestion and views
+
+Call `AddAgentMemoryFrameworkModuleIngestion(createIngestion)` after the core memory and Agent
+Framework registrations to enable automatic module ingestion. The factory receives the active scoped
+service provider and must return an `IModuleIngestion` bound to an authorized, fixed module resolution,
+providers and stores. Registering `IModuleIngestion` alone or calling
+`AddAgentMemoryFrameworkExtensibility()` does **not** enable automatic module writes.
+Without explicit activation there is no module callback, source projection or pipeline resolution.
+
+The handler passes actual stored user **and** assistant sources as `EveryTurn`; it does not inherit
+core extraction's user-only filter. It neither invokes `OnRequest` providers nor grants shared writes.
+The real pipeline still resolves isolation before generation and verifies provenance against storage.
+Provider refusals/unavailability are logged by provider identity/status without logging source text.
+Non-cancellation callback failures leave core extraction operational; cancellation propagates.
+
+`AgentFrameworkOptions.ExtractInBackground` also selects module dispatch. Background work uses the
+existing `IBackgroundExtraction` queue, ordered by owner (or session when unowned), after core work for that key. It captures immutable
+sources and the binding, creates a fresh DI scope, restores the captured application/owner, and only
+then constructs the pipeline. A missing/unrestorable application scope refuses ingestion. Rejected
+queue submissions drain earlier work for that key before falling back inline. Hosts should drain the
+queue before disposing storage. This is in-process scheduling, not durable or exactly-once delivery.
+Runtime-set leases, dynamic replacement and unload safety are separate capabilities; a static factory
+must not resolve an independently changing module set and claim snapshot consistency.
+
+Register a `ViewContributor(resolution, reader, viewId)` as `IContextContributor` to expose a declared
+view. It uses `ModuleViews` rather than duplicating predicates/rendering, carries exact version IDs
+and provenance in section metadata, and preserves the compiler's resolved owner/shared scope.
+`ContributeResultAsync` distinguishes refused, inapplicable and searched-empty results. Its default
+interface implementation preserves existing contributors' section-only behavior. The native provider
+continues to apply the core recalled-memory admission policy to rendered module text.
+
+
+Owned ingestion requires a conversation already associated with that owner and session. The trusted
+host should create it through `IShortTermMemoryService.AddConversationAsync(conversationId, sessionId,
+userId)` in the selected application scope before the first turn. The adapter's minimal conversation
+creation does not assign ownership. `WithMemoryIdentity` supplies a claim; it cannot claim an existing
+unowned/foreign conversation. Module storage refuses mismatched source ownership and never changes
+core conversation ownership to make ingestion succeed. Use host-authorized conversation identities;
+`AddConversationAsync` is an administrative upsert, not a tenant-claim operation.
+
+## Effective host capability checks
+
+`ModuleHostProfileResolver.Resolve` checks a structurally valid profile against actual host service
+bindings. Supply a `ModuleHostStore` per alias, with the effective service provider, provider identity
+and optional service key. These are trusted host inputs, not module declarations. Structural failures
+return before probing services or evaluating options; any capability failure returns no partial module
+set and no composition fingerprint.
+
+| Requirement | Evidence inspected in the bound store |
+|---|---|
+| History | Registered `IMemoryHistoryService` |
+| Reminders | Effective `IOptions<MemoryOptions>.Value.Recall`: `ProspectiveFiring=true` and `ValidTime=Current` |
+| ModuleSchema (derived from ontology/views) | Registered `IModuleStore`, plus a matching storage adapter probe; `Neo4jModuleSchemaCapabilityProbe` additionally requires `INeo4jTransactionRunner` |
+
+A keyed store must supply these services/options at that exact key. Nothing falls back to unkeyed
+registrations or borrows capabilities from another store. Dedicated store containers may use unkeyed
+bindings. If a container cannot inspect registrations through `IServiceProviderIsService` or
+`IServiceProviderIsKeyedService`, a required capability is refused rather than guessed. Missing or
+invalid reminder options also refuse that requirement. Host options validation details are not copied
+into module diagnostics.
+
+The Neo4j probe lives in `AgentMemory.Extensibility.Neo4j`; the SDK has no Neo4j/Core dependency.
+The SDK references `Microsoft.Extensions.Options` to read effective options, without installing a
+configuration provider. NAMS registrations alone cannot provide the Neo4j module-schema capability.
+The probe does not construct module stores, history services or runners, open connections, run DDL,
+load implementation assemblies or call models. Trusted options factories and adapter probes may run.
+
+Capability is not readiness: successful registration inspection does not prove that factories can
+construct services, the database is reachable, migrations are applied or a publisher is trusted.
+The returned fingerprint still describes metadata only. Runtime option binding, immutable activation,
+leases and load/unload remain separate work. Existing `ModuleProfileResolver` and CLI `--host-features`
+remain pure planning surfaces; their feature claims are not runtime capability evidence. No probe is
+called by existing hosts unless they explicitly use this API.

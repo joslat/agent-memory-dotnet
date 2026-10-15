@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Use the host TimeProvider for coding-evidence deadlines as well as receipt lifetime. The system-clock
+  default and configured deadline remain unchanged; timeout tests now control time explicitly.
+
+- Add explicit experimental module host capability inspection, with effective reminder options,
+  per-store/key registration checks and a Neo4j adapter probe. Missing capabilities refuse the whole
+  composition before module construction; existing hosts do not run these checks automatically.
+
+- Add explicit experimental Agent Framework module-ingestion registration with captured persisted
+  sources, fresh background scopes and ordered fallback; add declared-view contributors with typed
+  omission outcomes. Automatic module writes remain off without explicit registration.
+
+
+- Add an opt-in protected persisted-turn callback for derived Agent Framework providers. It carries
+  actual storage-returned sources before core role filtering, preserves default off-path behavior,
+  and isolates observer errors from core extraction. Explicit module handler/queue wiring uses this seam.
+
 - Add explicit experimental scoped module reads and shared view evaluation: direct dependency access,
   current/system-time versions, required-anchor filtering, typed predicates and invariant rendering
   with stored record provenance. Unsupported valid-time requests stay distinct from empty results.

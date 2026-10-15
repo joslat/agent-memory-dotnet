@@ -81,7 +81,7 @@ public sealed class ContextCompiler(
             ownerId: request.Owner,
             operationName: nameof(CompileAsync),
             access: MemoryOperationAccess.Tenant);
-        var resolvedRequest = request with { Owner = resolved.OwnerId };
+        var resolvedRequest = request with { Owner = resolved.OwnerId, ResolvedScope = resolved };
 
         var sections = new List<ContextSection>();
         var omissions = new List<ContextOmission>();
@@ -104,20 +104,18 @@ public sealed class ContextCompiler(
                     continue;
                 }
 
-                var section = await contributor.ContributeAsync(resolvedRequest, cancellationToken)
+                var result = await contributor.ContributeResultAsync(resolvedRequest, cancellationToken)
                     .ConfigureAwait(false);
-
-                // A contributor that applied and returned nothing is NOT the same as one that did not
-                // apply, and the envelope says which by REASON rather than by a detail string: a
-                // caller switching on the reason could not tell them apart when both said
-                // NotApplicable, which made the public contract contradict its own documentation.
-                if (section is null)
+                cancellationToken.ThrowIfCancellationRequested();
+                if ((result.Section is null) == (result.OmissionReason is null)
+                    || result.OmissionReason is { } invalid && !Enum.IsDefined(invalid))
+                    throw new InvalidOperationException("A contribution requires exactly one section or a supported omission.");
+                if (result.OmissionReason is { } reason)
                 {
-                    omissions.Add(new ContextOmission(id, ContextOmissionReason.SearchedAndEmpty));
+                    omissions.Add(new ContextOmission(id, reason, result.Detail));
                     continue;
                 }
-
-                sections.Add(section);
+                sections.Add(result.Section!);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

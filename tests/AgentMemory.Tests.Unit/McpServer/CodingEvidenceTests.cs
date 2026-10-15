@@ -224,15 +224,23 @@ public sealed class CodingEvidenceTests
     [InlineData(true)]
     public async Task Deadline_returns_a_bounded_error_without_partial_evidence(bool expansion)
     {
-        await using var f = new Fixture(options: new() { DeadlineMilliseconds = 100 });
-        var id = (await f.Preview()).GetProperty("previewId").GetString()!;
+        var clock = new DeadlineClock();
+        await using var f = new Fixture(options: new() { DeadlineMilliseconds = 100 }, clock: clock);
+        var id = expansion ? (await f.Preview()).GetProperty("previewId").GetString()! : "unused";
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         if (expansion)
             f.History.GetHistoryAsync(Arg.Any<MemoryHistoryQuery>(), Arg.Any<CancellationToken>()).Returns(async call =>
-            { await Task.Delay(10000, call.Arg<CancellationToken>()); return (IReadOnlyList<MemoryHistoryRecord>)[f.Row]; });
+            { entered.SetResult(); await Task.Delay(Timeout.Infinite, call.Arg<CancellationToken>()); return (IReadOnlyList<MemoryHistoryRecord>)[f.Row]; });
         else
             f.Recall.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(async call =>
-            { await Task.Delay(10000, call.Arg<CancellationToken>()); return f.Result; });
-        var result = expansion ? await f.Expand(id) : await f.Call("recall_preview", new { session = "s", query = "q" });
+            { entered.SetResult(); await Task.Delay(Timeout.Infinite, call.Arg<CancellationToken>()); return f.Result; });
+        var pending = expansion ? f.Expand(id) : f.Call("recall_preview", new { session = "s", query = "q" });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        clock.ActiveTimers.Should().Be(1, "the operation deadline must use the host clock");
+        clock.Advance(TimeSpan.FromMilliseconds(99));
+        pending.IsCompleted.Should().BeFalse("99 ms does not reach the 100 ms deadline");
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var result = await pending.WaitAsync(TimeSpan.FromSeconds(5));
         result.StatusCode.Should().Be(504);
         Json(result).GetProperty("error").GetString().Should().Be("evidence_timeout");
         JsonSerializer.Serialize(result.Body).Should().NotContain("private-");
@@ -287,6 +295,43 @@ public sealed class CodingEvidenceTests
     {
         public DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
         public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    private sealed class DeadlineClock : TimeProvider
+    {
+        private DateTimeOffset _now = DateTimeOffset.UnixEpoch;
+        private readonly List<DeadlineTimer> _timers = [];
+        public int ActiveTimers => _timers.Count(t => t.Active);
+        public override DateTimeOffset GetUtcNow() => _now;
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new DeadlineTimer(this, callback, state);
+            timer.Change(dueTime, period); _timers.Add(timer); return timer;
+        }
+        public void Advance(TimeSpan elapsed)
+        {
+            _now += elapsed;
+            foreach (var timer in _timers.ToArray()) timer.FireIfDue();
+        }
+        private sealed class DeadlineTimer(DeadlineClock clock, TimerCallback callback, object? state) : ITimer
+        {
+            private DateTimeOffset _due;
+            public bool Active { get; private set; }
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                period.Should().Be(Timeout.InfiniteTimeSpan, "cancellation uses a one-shot timer");
+                Active = dueTime != Timeout.InfiniteTimeSpan;
+                _due = Active ? clock._now + dueTime : DateTimeOffset.MaxValue;
+                return true;
+            }
+            public void FireIfDue()
+            {
+                if (!Active || _due > clock._now) return;
+                Active = false; callback(state);
+            }
+            public void Dispose() => Active = false;
+            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+        }
     }
 
     private static JsonElement Json(CodingApiResult result) => JsonSerializer.SerializeToElement(result.Body, CodingApi.Json);

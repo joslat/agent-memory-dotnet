@@ -21,6 +21,12 @@ Metadata-only assembly discovery is built: it checks the single bounded manifest
 version without loading implementation code. It does not establish publisher trust. These primitives
 add no retrieval, extraction or module activation to existing hosts.
 
+**Module host capability checks - BUILT, explicit API.** Actual registrations and effective reminder
+options are checked per store/key by `ModuleHostProfileResolver`; Neo4j schema support requires a
+module store and runner. Tested with actual DI compositions, including NAMS refusal. This is not a
+live connectivity test, automatic runtime activation or a model-quality measurement. Existing hosts
+perform no additional work unless this API is called. See [module checks](extensions/modules.md#effective-host-capability-checks).
+
 **Module adapter seams - BUILT / WIRED.** Protected admission/rendering and provider-ID lookup
 support derived adapters without friend access. Module retrieval uses the last user question;
 trailing assistant/tool messages cannot replace it. ID lookup does not establish persisted provenance.
@@ -1974,16 +1980,14 @@ unfinished; no automatic application or host capability probing is claimed.
 **Module proposal admission - BUILT, composed explicitly with the record store.** The held SDK validates and
 freezes typed proposals without model/database calls. Unit coverage exercises ownership, exact scalar
 bounds, source-ID membership, relationship shape and explicit shared-provider selection. Accepted
-source IDs undergo actual owner/session membership verification in the explicit held Neo4j store; framework ingestion remains unfinished; no coding-memory quality or
-end-to-end write claim follows from these checks. [Contract](extensions/modules.md#typed-proposals-and-pure-admission).
+source IDs undergo actual owner/session membership verification in the explicit held Neo4j store; explicit framework ingestion has separate real-Neo4j acceptance below; proposal checks alone make no coding-memory quality claim. [Contract](extensions/modules.md#typed-proposals-and-pure-admission).
 
 
 **Module ingestion orchestration - BUILT, explicitly composable with the held Neo4j record store.** Explicitly
 bound providers run after owner resolution, in dependency order with awaited batch commits. Reports
 preserve refusals/partial progress and unknown commit status on store errors. Recorded replay verifies
 owner/request/metadata and reuses the write clock without provider calls. Controlled provider/store
-tests cover these mechanics; separate fresh-Neo4j tests exercise transactional writes. Framework-write
-acceptance remains unfinished.
+tests cover these mechanics; separate fresh-Neo4j tests exercise transactional writes. Native framework-write acceptance covers inline/background delivery and fresh-session retrieval (below).
 [Execution and limits](extensions/modules.md#ordered-ingestion-and-recorded-replay).
 
 
@@ -1991,7 +1995,7 @@ acceptance remains unfinished.
 verify actual source owner/session/role/content, migration readiness, locked key versions, copied
 provenance and scoped live links. Tests cover concurrent writers, transaction rollback, shared writes,
 merge chasing, ambiguous targets and refusal of inconsistent record owners or backward history clocks.
-These tests establish storage behavior, not coding usefulness. Scoped reads/views and required-anchor filtering are implemented; framework persistence wiring remains unfinished. Existing hosts gain no automatic
+These tests establish storage behavior, not coding usefulness. Scoped reads/views, required-anchor filtering and explicitly enabled framework ingestion are implemented. Existing hosts gain no automatic
 module writes. [Write contract and limits](extensions/modules.md#transactional-neo4j-module-writes).
 
 
@@ -2000,5 +2004,16 @@ Explicit bound readers enforce owner/shared scope, direct dependency access, mig
 current/system-time versions and required anchors before limiting results. Shared view evaluation
 uses the same reader and returns exact records/provenance plus invariant rendered text. Unsupported
 valid-time requests remain NotApplicable. Real Neo4j tests cover dependency refusal, typed filters,
-ordering and history; existing hosts do not automatically use these APIs. Contributor/adapter wiring,
-complete runtime lifecycle and effectiveness remain unverified. [Read/view contract](extensions/modules.md#scoped-module-reads-and-shared-views).
+ordering and history; existing hosts do not automatically use these APIs. Declared-view contributors and native adapter ingestion have isolated Neo4j acceptance; complete runtime lifecycle and effectiveness remain unverified. [Read/view contract](extensions/modules.md#scoped-module-reads-and-shared-views).
+
+
+**Persisted-turn observer seam - BUILT / WIRED / MEASURED in isolated integration tests.** Derived Agent
+Framework providers may opt into actual storage-returned source messages, owner/store identity and
+completion time. Disabled observation creates no payload and reads no extra clock. Native invocation
+failure, persistence failure, callback failure/cancellation and immutable source snapshots are covered.
+Explicit module registration connects this seam to real ingestion and declared-view retrieval. Native
+adapter acceptance exercises inline/background storage, versioned correction, actual source IDs,
+fresh-session retrieval and foreign-owner exclusion. Unowned conversations are refused: the trusted
+host must establish conversation ownership before ingestion. Deterministic proposals and embeddings
+verify engineering contracts, not model quality or coding effectiveness. Runtime module leases remain
+separate work. [Host setup and limits](extensions/modules.md#explicit-agent-framework-module-ingestion-and-views).

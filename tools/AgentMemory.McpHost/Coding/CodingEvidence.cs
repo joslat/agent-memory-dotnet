@@ -12,19 +12,21 @@ internal sealed class CodingEvidence
     private readonly CodingEvidenceReader _reader;
     private readonly CodingEvidenceOptions _options;
     private readonly CodingRecallReceipts _previews;
+    private readonly TimeProvider _clock;
 
     public CodingEvidence(CodingMemoryOperations memory, CodingEvidenceReader reader, CodingEvidenceOptions options,
         CodingContentPolicy content, TimeProvider? clock = null)
     {
         options.Validate(); _memory = memory; _reader = reader; _options = options;
+        _clock = clock ?? TimeProvider.System;
         _previews = new(new() { RetainedReceipts = options.RetainedPreviews, LifetimeSeconds = options.LifetimeSeconds }, content, clock);
     }
 
     public async Task<CodingEvidencePreview> PreviewAsync(CodingIdentity identity, string session, string query,
         CancellationToken cancellationToken = default)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(_options.DeadlineMilliseconds);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(_options.DeadlineMilliseconds), _clock);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
             var started = Stopwatch.GetTimestamp();
@@ -75,8 +77,8 @@ internal sealed class CodingEvidence
         CodingInput.RequireText(previewId, 32, nameof(previewId));
         var receipt = _previews.Get(identity, session, previewId);
         if (receipt is null) return null;
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(_options.DeadlineMilliseconds);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(_options.DeadlineMilliseconds), _clock);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
             var items = new List<CodingEvidenceItem>();

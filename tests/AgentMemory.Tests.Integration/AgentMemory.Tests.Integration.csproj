@@ -28,6 +28,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj" />
     <ProjectReference Include="../../src/AgentMemory.Extensibility.Neo4j/AgentMemory.Extensibility.Neo4j.csproj" />
     <ProjectReference Include="../../tools/AgentMemory.Cli/AgentMemory.Cli.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />

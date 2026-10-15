@@ -42,6 +42,7 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
     private readonly IContextCompiler _compiler;
     private readonly ILogger<ExtensibleMemoryContextProvider> _logger;
     private readonly bool _hasModuleContributors;
+    private readonly ModuleTurnIngestion? _moduleTurnIngestion;
 
     // The one id the module compilation path never runs. Static because it never varies, and named
     // because "the core contributor" appears in three decisions in this file and must mean one thing.
@@ -69,6 +70,30 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy,
         IMemoryContextAdmissionPolicy? admissionPolicy)
         : this(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions, agentOptions, baseLogger, compiler, moduleContributors, logger, storeContext, ownerContext, toolFactory, recallPolicy, admissionPolicy, backgroundExtraction: null)
+    {
+    }
+
+    /// <summary>Previous constructor retained for binary compatibility.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public ExtensibleMemoryContextProvider(
+        AgentMemory.Abstractions.Services.IMemoryService memoryService,
+        AgentMemory.Abstractions.Services.IEmbeddingOrchestrator embeddingOrchestrator,
+        AgentMemory.Abstractions.Services.IClock clock,
+        AgentMemory.Abstractions.Services.IIdGenerator idGenerator,
+        Microsoft.Extensions.Options.IOptions<AgentMemory.Abstractions.Options.MemoryOptions> memoryOptions,
+        Microsoft.Extensions.Options.IOptions<ContextFormatOptions> formatOptions,
+        Microsoft.Extensions.Options.IOptions<AgentFrameworkOptions> agentOptions,
+        ILogger<Neo4jMemoryContextProvider> baseLogger,
+        IContextCompiler compiler,
+        IEnumerable<Capabilities.IContextContributor> moduleContributors,
+        ILogger<ExtensibleMemoryContextProvider> logger,
+        AgentMemory.Abstractions.Services.IMemoryStoreContext? storeContext,
+        AgentMemory.Abstractions.Services.IWritableMemoryOwnerContext? ownerContext,
+        AgentMemory.AgentFramework.Tools.MemoryToolFactory? toolFactory,
+        AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy,
+        IMemoryContextAdmissionPolicy? admissionPolicy,
+        IBackgroundExtraction? backgroundExtraction)
+        : this(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions, agentOptions, baseLogger, compiler, moduleContributors, logger, storeContext, ownerContext, toolFactory, recallPolicy, admissionPolicy, backgroundExtraction, moduleTurnIngestion: null)
     {
     }
 
@@ -100,12 +125,14 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         AgentMemory.AgentFramework.Tools.MemoryToolFactory? toolFactory = null,
         AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy = null,
         IMemoryContextAdmissionPolicy? admissionPolicy = null,
-        IBackgroundExtraction? backgroundExtraction = null)
+        IBackgroundExtraction? backgroundExtraction = null,
+        ModuleTurnIngestion? moduleTurnIngestion = null)
         : base(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions,
                agentOptions, baseLogger, storeContext, ownerContext, toolFactory, recallPolicy,
                admissionPolicy, backgroundExtraction)
     {
         ArgumentNullException.ThrowIfNull(moduleContributors);
+        _moduleTurnIngestion = moduleTurnIngestion;
         _compiler = compiler ?? throw new ArgumentNullException(nameof(compiler));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -115,6 +142,13 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         _hasModuleContributors = moduleContributors.Any(c => !string.Equals(
             c.Descriptor.Id, CoreMemoryContextContributor.ContributorId, StringComparison.Ordinal));
     }
+
+    /// <inheritdoc/>
+    protected override bool ObservesPersistedTurns => _moduleTurnIngestion is not null;
+
+    /// <inheritdoc/>
+    protected override Task OnTurnPersistedAsync(PersistedMemoryTurn turn, CancellationToken cancellationToken = default)
+        => _moduleTurnIngestion!.IngestAsync(turn, cancellationToken);
 
     // NO SECOND STATE KEY. Inheriting means there is one provider instance, so it keeps the shipped
     // `"Neo4jMemory"` key and the after-run correlation the base already does with itself is

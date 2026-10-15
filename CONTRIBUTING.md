@@ -64,6 +64,16 @@ dotnet test tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.cs
 
 Integration tests use [Testcontainers](https://testcontainers.com/guides/getting-started-with-testcontainers-for-dotnet/) to spin up a disposable Neo4j 5 container automatically. Docker Desktop must be running.
 
+Before local service tests, Python users can run `python eng/check-local-test-host.py`. Continue only
+if it exits successfully. This read-only check requires 10 GiB of free host-disk headroom by default
+and a usable Docker response within 20 seconds. `--minimum-free-gib` sets a host-specific budget;
+it is not a guarantee of the suite's peak usage. The check also covers the standard Windows Docker
+data drive when present; use `--docker-data-path` for a relocated data file. It never restarts
+Docker/WSL, creates containers or deletes data. Avoid concurrent heavy service suites on constrained
+machines. Preserve failed/interrupted evidence separately, and verify disk/Docker health before retrying
+following a storage failure. Python is optional for this helper, not a library/runtime requirement.
+
+
 ### All tests at once
 
 ```bash

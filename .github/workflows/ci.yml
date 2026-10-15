@@ -85,7 +85,7 @@ jobs:
         run: >
           dotnet test AgentMemory.slnx -c Release --no-build
           --filter "Category!=Integration&Category!=Performance"
-          --logger "trx;LogFileName=unit.trx"
+          --logger trx
           --collect:"XPlat Code Coverage"
           --results-directory TestResults
 

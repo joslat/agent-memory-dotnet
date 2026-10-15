@@ -34,6 +34,14 @@ public interface IContextContributor
 
     /// <summary>Produces this contributor's section.</summary>
     Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Produces a section or a typed omission. Existing contributors retain their behavior through this default implementation.</summary>
+    async Task<ContextContributionResult> ContributeResultAsync(ContextRequest request, CancellationToken cancellationToken = default)
+    {
+        var section = await ContributeAsync(request, cancellationToken).ConfigureAwait(false);
+        return section is null ? new() { OmissionReason = ContextOmissionReason.SearchedAndEmpty } : new() { Section = section };
+    }
+
 }
 
 /// <summary>What a contributor is, and when it applies.</summary>

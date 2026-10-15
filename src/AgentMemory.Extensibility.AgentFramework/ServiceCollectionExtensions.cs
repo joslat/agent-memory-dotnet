@@ -38,7 +38,7 @@ public static class ServiceCollectionExtensions
 
         services.AddAgentMemoryExtensibility();
 
-        services.AddScoped<ExtensibleMemoryContextProvider>();
+        services.TryAddScoped<ExtensibleMemoryContextProvider>();
 
         // Anything asking for the shipped provider gets the extended one. It IS one, by inheritance,
         // so this cannot narrow what a caller receives.
@@ -47,4 +47,29 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+    /// <summary>Explicitly enables automatic module ingestion after successful message persistence.</summary>
+    /// <remarks>
+    /// Registering IModuleIngestion alone does not enable this path. Without this call there is no
+    /// module callback, source projection, pipeline resolution or write. The factory must bind an
+    /// authorized, fixed module composition and resolve scoped services from its supplied provider.
+    /// Background work uses a fresh scope and the captured owner/application. This static binding
+    /// does not implement runtime module leases or hot replacement.
+    /// </remarks>
+    public static IServiceCollection AddAgentMemoryFrameworkModuleIngestion(
+        this IServiceCollection services,
+        Func<IServiceProvider, Ingestion.IModuleIngestion> createIngestion)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(createIngestion);
+        services.AddAgentMemoryFrameworkExtensibility();
+        services.Replace(ServiceDescriptor.Singleton(new ModuleTurnIngestionBinding(createIngestion)));
+        services.TryAddScoped<ModuleTurnIngestion>(sp => new ModuleTurnIngestion(
+            sp, sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<ModuleTurnIngestionBinding>(),
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentFrameworkOptions>>().Value,
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ModuleTurnIngestion>>(),
+            sp.GetService<IBackgroundExtraction>()));
+        return services;
+    }
+
 }

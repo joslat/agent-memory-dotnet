@@ -410,3 +410,12 @@ embeddings and disposable Neo4j: profile/history, correction and completed job s
 closed history, wrong-project rejection, isolation and disconnect. The initial synthetic fact was
 seeded through HTTP; correction and closing came from the page controls. This is wiring acceptance,
 not a model-quality benchmark or remote deployment support.
+
+### Evidence deadline clock
+
+The optional evidence service uses the host `TimeProvider` for preview/expansion deadline timers
+and receipt lifetime. Production defaults to `TimeProvider.System`; `DeadlineMilliseconds` and
+caller cancellation keep their existing behavior. A host supplying a custom clock must implement
+its timer behavior consistently. Contract tests advance a controlled clock to 99 ms and 100 ms to
+verify the configured 100 ms boundary without racing setup against wall time. These tests are not
+coding-agent benchmark runs.
