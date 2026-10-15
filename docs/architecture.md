@@ -2260,5 +2260,14 @@ Explicit module selection is framework-independent: the SDK consumes compiler-bo
 requires host admission/rendering, and optionally calls the existing IMemoryGate abstraction.
 It deduplicates record identities, retains origins, validates complete keyed decisions and applies
 whole-item/exact UTF-8 allowances. Stage receipts distinguish admission and actual judge attempts.
-Core context stays opaque. No native activation or hard deadline is implied; host scope ownership
+Core context stays opaque. Native activation requires explicit registration; host scope ownership
 and in-flight draining must precede timeout returns. [Contract](extensions/modules.md#explicit-module-selection).
+
+
+`AddAgentMemoryFrameworkModuleSelection` composes that SDK selector with the actual native provider.
+A scoped ModuleTurnSelection lazily resolves the configured gate and optional result observer under
+the application and compiler-resolved owner scope. The renderer retains provider-bound admission
+decisions and reuses the existing wrapper; core messages/tools remain opaque and unchanged. Existing
+constructor signatures and opt-outs are preserved. Observer failures do not discard selected content.
+This static wiring does not own draining service scopes or implement deadline return/unload safety.
+[Configuration and validation scope](extensions/modules.md#native-module-selection-registration).

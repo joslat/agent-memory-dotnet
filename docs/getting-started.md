@@ -837,3 +837,13 @@ scoped compiler with frozen module identities and shared-source compile/contribu
 not resolve a catalog or authorize a publisher. The parameterless registration preserves the legacy
 compiler, including when a resolution happens to be present in DI. See the
 [module compiler contract](extensions/modules.md#module-compiler-telemetry) for outcomes and opt-outs.
+
+
+### Experimental native module selection
+
+Hosts using resolution-bound memory modules can opt into `AddAgentMemoryFrameworkModuleSelection`
+with `ModuleSelectionOptions` after core services and module registration. It applies admission,
+whole-item module budgets and optional judging separately from core memory. `UseJudge` defaults off;
+turn it on only to use the host's explicitly configured `IMemoryGate`. An optional scoped
+`IModuleSelectionObserver` receives selection receipts under the resolved request scope.
+See [registration, limits and current acceptance scope](extensions/modules.md#native-module-selection-registration).

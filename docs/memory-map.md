@@ -2076,8 +2076,8 @@ integration check passed, as did native package trace acceptance across primary,
 **Two-stage adapter admission - BUILT; adapter-seam unit verification.** Derived Agent Framework
 adapters can admit untrusted items once, select them, and render with the existing escaping/wrapper.
 Cross-provider/category reuse is refused. Tests cover strict/default and stateful custom policies,
-repeat measurement without policy calls, and unchanged direct-rendering output. This does not yet
-wire automatic module judging or enforce candidate/deadline budgets.
+repeat measurement without policy calls, and unchanged direct-rendering output. The explicit native
+selection registration below consumes this seam; the seam itself does not activate judging or budgets.
 [Contract](extensions/modules.md#admission-before-module-selection).
 
 
@@ -2085,14 +2085,23 @@ wire automatic module judging or enforce candidate/deadline budgets.
 metadata identity and rejects relabeled contributions. Views carry typed stored-version/source
 references; an explicitly called projector copies a bounded prefix into stable keyed candidates.
 Tests cover unrelated modules, version changes, mutable source lists, ordinal-only items and
-unselected-tail access. This does not yet wire optional judging, duplicate resolution, shared output
-budgets or safe deadlines into the native provider. [Contract](extensions/modules.md#bound-module-candidates-and-provenance).
+unselected-tail access. The selector/native registration below adds duplicate handling, optional judging
+and shared output budgets; safe deadlines remain unfinished. [Contract](extensions/modules.md#bound-module-candidates-and-provenance).
 
 
 **Explicit SDK module selection - BUILT; deterministic contract tests.** The caller supplies host
 admission/rendering and can explicitly enable an existing IMemoryGate. Duplicate records retain
 all origins; conflicts are omitted. Complete finite scores, final negative decisions, bounded
 outage fallback, whole-item UTF-8 limits and stage receipts are covered. Unicode boundaries and
-zero output budgets are exercised. Automatic native wiring, safe deadlines/draining and real-service
+zero output budgets are exercised. Explicit native wiring is available below; safe deadlines/draining and real-service
 selection acceptance remain unfinished; no relevance-quality improvement is claimed.
 [Contract](extensions/modules.md#explicit-module-selection).
+
+
+**Native module selection - BUILT / WIRED; deterministic adapter tests.** Explicit registration
+connects the SDK selector to the provider's actual admission and rendering. Configured-gate opt-in,
+stateful policy evaluation once, provenance, exact output budgets, core preservation and owner/store
+scope are exercised through native DI. Scoped observers expose results without a global last-result
+slot. Empty/off paths avoid extra selection calls. Real isolated Neo4j selection acceptance and safe
+shared deadlines/draining remain unfinished. No model-effectiveness claim.
+[Configuration](extensions/modules.md#native-module-selection-registration).

@@ -6,10 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Wire experimental native module selection through explicit registration. Reuse the provider's
+  effective admission/escaping, preserve core messages/tools, and expose scoped result observation.
+  Judge and observer resolution run under the compiled owner/application scope. Existing constructors
+  and the default direct-rendering path remain available; deadline/draining acceptance remains pending.
+
 - Add explicit experimental module candidate selection with host admission before optional judging,
   duplicate/source preservation, complete finite decision validation, bounded outage fallback,
   exact rendered UTF-8 limits and stage receipts. Existing native rendering is unchanged;
-  automatic host wiring and deadline/draining acceptance are separate work.
+  shared deadline/draining acceptance remains separate work.
 
 - Experimental module context: retain host-bound contribution identity and typed record/source
   provenance, reject relabeled bound output, and expose explicit bounded candidate projection.

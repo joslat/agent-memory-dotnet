@@ -37,12 +37,13 @@ namespace AgentMemory.Extensibility.AgentFramework;
 /// </para>
 /// </remarks>
 [Experimental("AMEXT001")]
-public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
+public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
 {
     private readonly IContextCompiler _compiler;
     private readonly ILogger<ExtensibleMemoryContextProvider> _logger;
     private readonly bool _hasModuleContributors;
     private readonly ModuleTurnIngestion? _moduleTurnIngestion;
+    private readonly ModuleTurnSelection? _moduleTurnSelection;
 
     // The one id the module compilation path never runs. Static because it never varies, and named
     // because "the core contributor" appears in three decisions in this file and must mean one thing.
@@ -97,6 +98,33 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
     {
     }
 
+    /// <summary>Previous constructor retained for binary compatibility.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public ExtensibleMemoryContextProvider(
+        AgentMemory.Abstractions.Services.IMemoryService memoryService,
+        AgentMemory.Abstractions.Services.IEmbeddingOrchestrator embeddingOrchestrator,
+        AgentMemory.Abstractions.Services.IClock clock,
+        AgentMemory.Abstractions.Services.IIdGenerator idGenerator,
+        Microsoft.Extensions.Options.IOptions<AgentMemory.Abstractions.Options.MemoryOptions> memoryOptions,
+        Microsoft.Extensions.Options.IOptions<ContextFormatOptions> formatOptions,
+        Microsoft.Extensions.Options.IOptions<AgentFrameworkOptions> agentOptions,
+        ILogger<Neo4jMemoryContextProvider> baseLogger,
+        IContextCompiler compiler,
+        IEnumerable<Capabilities.IContextContributor> moduleContributors,
+        ILogger<ExtensibleMemoryContextProvider> logger,
+        AgentMemory.Abstractions.Services.IMemoryStoreContext? storeContext,
+        AgentMemory.Abstractions.Services.IWritableMemoryOwnerContext? ownerContext,
+        AgentMemory.AgentFramework.Tools.MemoryToolFactory? toolFactory,
+        AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy,
+        IMemoryContextAdmissionPolicy? admissionPolicy,
+        IBackgroundExtraction? backgroundExtraction,
+        ModuleTurnIngestion? moduleTurnIngestion)
+        : this(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions,
+            agentOptions, baseLogger, compiler, moduleContributors, logger, storeContext, ownerContext,
+            toolFactory, recallPolicy, admissionPolicy, backgroundExtraction, moduleTurnIngestion, moduleTurnSelection: null)
+    {
+    }
+
     /// <summary>Creates the provider. Base dependencies are the shipped provider's, unchanged.</summary>
     [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public ExtensibleMemoryContextProvider(
@@ -126,13 +154,15 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy = null,
         IMemoryContextAdmissionPolicy? admissionPolicy = null,
         IBackgroundExtraction? backgroundExtraction = null,
-        ModuleTurnIngestion? moduleTurnIngestion = null)
+        ModuleTurnIngestion? moduleTurnIngestion = null,
+        ModuleTurnSelection? moduleTurnSelection = null)
         : base(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions,
                agentOptions, baseLogger, storeContext, ownerContext, toolFactory, recallPolicy,
                admissionPolicy, backgroundExtraction)
     {
         ArgumentNullException.ThrowIfNull(moduleContributors);
         _moduleTurnIngestion = moduleTurnIngestion;
+        _moduleTurnSelection = moduleTurnSelection;
         _compiler = compiler ?? throw new ArgumentNullException(nameof(compiler));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -174,6 +204,9 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         if (!_hasModuleContributors) return coreContext;
 
         var envelope = await CompileModulesAsync(context, cancellationToken).ConfigureAwait(false);
+        if (_moduleTurnSelection is not null && envelope is not null)
+            return await SelectModuleContextAsync(coreContext, envelope, context, cancellationToken).ConfigureAwait(false);
+
         // THE BASE'S EFFECTIVE POLICY, not the constructor argument. They differ precisely when no
         // policy was supplied: the base substitutes a default and this class used to keep the null,
         // so a directly constructed provider gated CORE memory and admitted MODULE text unchecked --

@@ -755,8 +755,7 @@ These objects are transient admission decisions, not persisted trust grants or a
 
 The existing `RenderAdmittedBlock` still admits and renders directly, with the same bytes and one
 policy evaluation per item. It does not allocate the new two-stage items. Neither new method
-retrieves memories, discovers a judge, calls a model or enables module relevance judging. Automatic
-host selection wiring remains separate implementation work; the explicit SDK selector is described below.
+retrieves memories, discovers a judge, calls a model or enables module relevance judging. Native selection is enabled only by the explicit registration described below.
 
 ## Bound module candidates and provenance
 
@@ -786,7 +785,7 @@ Repeated identical identities can produce equal keys; callers must resolve dupli
 conflicting renderings before offering a unique-key judge batch. The projection itself does not
 judge, deduplicate, perform admission, render, resolve a service or query storage. It is not called
 automatically by the existing rendering path. The explicit selector below supplies duplicate handling, gate selection and shared output budgets.
-Native wiring and deadline handling remain separate work; all projected text still requires host admission before any model call.
+Native selection requires explicit registration; deadline handling remains separate work; all projected text still requires host admission before any model call.
 
 
 ## Explicit module selection
@@ -794,7 +793,7 @@ Native wiring and deadline handling remain separate work; all projected text sti
 `ModuleContextSelection.SelectAsync(envelope, renderer, cancellationToken)` selects only bound module
 sections. The SDK depends on the existing `IMemoryGate` abstraction, not a gate implementation,
 framework or database. Core sections are excluded and core instructions/budget stay with the caller.
-Existing native rendering does not invoke this selector automatically.
+Existing native rendering does not invoke this selector unless the host explicitly registers module selection.
 
 Supply an `IModuleCandidateRenderer` backed by the host's effective admission policy. `Admit` runs
 once per unique eligible candidate, before any judge call; refusals and admission failures cannot
@@ -834,5 +833,52 @@ unique groups; counts of origins describe original contributions. Results contai
 text/provenance and belong in owner-scoped diagnostics, not unrestricted logs or trace tags.
 
 This API passes and checks cancellation but does not promise a hard deadline or ownership of scoped
-services. Native registration, shared collection deadlines, retained in-flight resources and real
-isolated host acceptance remain required before the module selection phase is complete.
+services. Shared collection deadlines, retained in-flight resources and real isolated host acceptance remain
+required before the module selection phase is complete.
+
+
+## Native module selection registration
+
+After registering the core services, resolution-bound compiler and module contributors, a host can
+explicitly enable selection with `AddAgentMemoryFrameworkModuleSelection`:
+
+```csharp
+services.AddAgentMemoryExtensibility(resolution);
+services.AddAgentMemoryFrameworkModuleSelection(new ModuleSelectionOptions
+{
+    UseJudge = true, // Explicit opt-in to the host's configured IMemoryGate.
+    MaxItems = 12,
+    MaxItemsPerContributor = 24,
+    MaxRenderedUtf8Bytes = 8192,
+});
+```
+
+Without this registration, the provider retains its existing direct rendering and performs no
+candidate projection, selector or observer resolution. Registration snapshots contributor limits;
+it does not install a gate implementation. With `UseJudge = false` (the default), even a registered
+throwing IMemoryGate factory remains untouched. With explicit on, only eligible admitted candidates
+cause lazy resolution of the scoped configured gate. No credentials or alternate judge are discovered.
+The compiler must be bound to the intended `ModuleResolution`; unbound contributions are rejected
+by projection with an observable reason, not assigned invented module identities.
+
+The provider delegates core retrieval exactly once, excludes core contribution, then admits module
+items through its effective strict/custom policy. The retained admission objects feed the same
+escaping/wrapper used by direct rendering, without a second policy call during budget measurement.
+Module output bytes include its actual wrappers and section separators, plus an append separator if
+core instructions exist. Core messages/tools and their separate allowance pass through unchanged;
+when selection is empty, the original core context is returned. Existing constructor signatures are
+retained for compiled consumers. Contributor reads keep the existing owner/store scopes.
+
+An optional scoped `IModuleSelectionObserver` receives the compiled envelope and exact selection
+result, including source references, omitted items and actual judge attempts. The host lazily resolves
+both gate and observer inside the turn's application and compiler-resolved owner scope, then restores
+the prior ambient values. Store diagnostic receipts under that scope; do not use a singleton mutable
+last-result property or expose raw result data as unrestricted trace tags. Observer construction/callback
+failure is logged without private exception text and does not discard selected context; caller
+cancellation still propagates. Empty module compositions do not compile, judge or notify an observer.
+
+Tests exercise actual provider DI, strict/default and stateful custom admission, provenance, negative
+judgments, outages, exact UTF-8 boundaries, opt-outs, observer failure and owner/application restoration
+using deterministic substitutes. This is native wiring proof, not real Neo4j selection acceptance or a
+model-quality measurement. No shared deadline, owned draining lease or dynamic unload is added by this
+registration; these remain explicit unfinished acceptance work.
