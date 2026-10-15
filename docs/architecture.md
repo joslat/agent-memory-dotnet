@@ -1,12 +1,37 @@
-﻿# Architecture Overview — Agent Memory for .NET
+# Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-08-16 (schema-extension system, projection layer, and eight off-by-default memory capabilities — working memory, delta recall, derived/arithmetic memory, prospective firing, legible forgetting, access-tracking queue)
+**Last Updated:** 2026-10-13 (2.0 API stability, explicit migration and host composition)
 **Author:** Jose Luis Latorre Millas
 **Canonical Specification:** [specification.md](specification.md)
 
 ---
 
 ## 1. Vision & Goals
+
+**2.0 API stability:** the selected writer, Recommended composition and ordinary gate/update-judge
+contracts are stable. Compound planner types, its options and the planner-taking assembler
+constructor retain `AMGATE001`; the option stays off with no planner or extra call when disabled.
+This boundary changes diagnostics, not storage/recall behavior, provider discovery or low-level
+compatibility defaults. [Migration and host choices](migration-2.0.md).
+
+**Retrieval composition:** Recommended disables automatic core query splitting; the frozen
+Conversational preset and explicit request subqueries retain their behavior. The general MCP host
+installs the optional gate only when `AgentMemory:RetrievalRouter` is explicitly configured.
+Coding mode uses its strict JSON settings: `useRetrievalGate` controls Judge versus Floor,
+independently of storage closing permission; `automaticQuerySplitting` is an explicit override.
+Adapters consume the shared host registrations without adding provider dependencies.
+
+**Judge response boundary:** the shared System One client rejects missing configured credentials
+before transport and validates each requested probability as finite and within `[0, 1]`. An invalid
+response fails that call rather than becoming a score. Existing per-type retrieval blending/floor
+fallback and named-closing host-model fallback apply; valid negative verdicts are preserved.
+Missing credentials participate in the existing cooldown and can recover on a later attempt.
+
+**Recommended adapter composition:** `AgentFrameworkOptions.ApplyRecommended()`
+disables question-turn deferral without resetting other host settings. This keeps the adapter's
+ordinary extraction requests compatible with the single-user-turn writer when migrating from
+Conversational. It introduces no provider dependencies or automatic registrations. Conversational
+and unconfigured adapter behavior remain unchanged; explicit overrides apply after the preset.
 
 **Agent Framework pending-turn visibility:** `AgentFrameworkOptions.IncludePendingTurns` is an opt-in
 projection from the existing `BackgroundExtractionQueue`. `TurnExtraction` registers user turns with
@@ -159,8 +184,61 @@ what makes an empty module set byte-identical rather than merely equivalent. The
 parallel provider that re-renders core memory — is the second rendering path this codebase has
 already recorded as the place the #92 admission gate drifts.
 
-The rule the exception does **not** relax: a layered adapter still never depends on `Neo4j`, and
-`AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
+The module adapter uses supported protected methods on `Neo4jMemoryContextProvider`, with no
+friend-assembly grant: `RenderAdmittedBlock` admits each untrusted item using the effective policy
+and security options, then shares the existing delimiter/escaping implementation. `StoredMessageId`
+only maps an existing provider ID; it neither persists a message nor proves a source exists.
+`QuestionOf` gives core and module retrieval the same last non-empty user question, even when
+an assistant/tool message follows. Empty modules still delegate the unchanged core output.
+
+Built-in schema extensions and the experimental SDK share internal dependency closure/order through
+`shared/DependencyOrder.cs`, linked into both projects. This preserves built-in ready-batch order
+and diagnostics without giving the SDK a Neo4j dependency or exposing a public registry.
+The SDK's version/range and owned-ID validators are documented under [modules](extensions/modules.md);
+the bounded data-only manifest reader rejects ambiguous/unsupported wire fields. Complete semantic
+resolution is available; the runtime host remains unfinished. Parsing does not grant activation permission.
+Assembly-file/image discovery inspects PE metadata and bounded embedded resources without loading
+implementation code. It checks manifest/informational-version agreement but does not authenticate
+publishers or grant trust. The already-loaded assembly overload reads attribute metadata only.
+Local manifest validation now checks owned ontology names, provenance reservations, relationships,
+render templates, numeric constraints and typed views. It returns all problems without database or
+provider calls. The pure complete-set resolver freezes caller data, checks ranges, dependencies,
+cross-module names/targets and cycles, and returns no partial set on failure. Its metadata fingerprint
+excludes future profile/configuration/trust identities. Feature inputs do not prove DI registrations;
+Pure profile composition now reconciles explicit entries, version intervals and store/provider
+bindings against planning inputs, refusing graph links across distinct stores. Its hash includes exact
+profile bytes; options values, trust and source identity remain activation obligations. Explicit CLI migration wiring is available; dynamic runtime DI wiring, host probes and activation remain unfinished; static ingestion registration is available. Derived schema descriptors now carry stable
+constraint/index names and exact label/property identities. Local and complete-set guards reject
+collisions with each other or reserved actual base/built-in/upstream objects. Packaged standalone
+editor schemas complement runtime validation; they add no production dependency or schema writes.
+
+The held module storage adapter references `Abstractions` directly for `IMemoryIsolationPolicy` and
+read scopes; it does not reference Core or a framework SDK.
+Framework-facing layered adapters still never depend on `Neo4j`. The experimental
+`AgentMemory.Extensibility.Neo4j` storage adapter is a separate storage-specific branch: it
+references the module SDK and public Neo4j APIs, without a Core friend-assembly escape. Its current
+implementation derives deterministic migration statements/keys/hashes and explicitly plans/applies
+generated schema with recoverable ownership intents. Embedded handwritten-source discovery and an
+internal compiler with owned-namespace and operation checks are built. Explicit handwritten
+execution uses exact database assessment and atomic backfill progress; explicit profile CLI wiring uses
+the same engine.
+Built-in extension lint is linked into the storage adapter through
+`shared/AdditiveMigrationLint.cs`, preserving existing diagnostics for script validation. Generated
+DDL uses fixed templates and validated identifiers, so quoted keyword properties remain valid.
+
+Typed ingestion proposals and pure admission live in the SDK's `Ingestion` namespace. The admission
+helper shares scalar validation with manifest filters, but evaluates no filter placeholders in stored
+values. It deep-copies accepted JSON/collections and checks provider/type ownership, property bounds,
+source-ID membership and explicit shared-write selection. It performs no database or model calls.
+Provider orchestration now explicitly binds authorized providers and stores, resolves the owner first,
+awaits each batch in dependency order and replays frozen inputs without provider/current-clock calls.
+The store contract requires a transaction per admitted batch, and uncertain acknowledgements remain
+unknown rather than assumed rollback. The held Neo4j store now verifies source provenance and writes versioned records/links in one provider
+transaction. Its SDK-owned key constraint is prepared by explicit migration application, with no core
+schema changes when disabled. Explicit scoped reads and shared views are implemented in the held SDK/Neo4j adapter; explicit framework ingestion and view contribution are wired;
+shape acceptance alone must never stand in for storage checks. See [proposal admission](extensions/modules.md#typed-proposals-and-pure-admission).
+
+The portable `AgentMemory.Extensibility` itself depends on `Abstractions` alone, asserted by a test over assembly
 references rather than left to intention.
 
 ```mermaid
@@ -171,6 +249,9 @@ graph TD
     MCP["MCP Server<br/>(Phase 6)"] --> Core
     Neo4j["AgentMemory.Neo4j<br/>(+ GraphRAG retrieval)"] --> Core
     Neo4j --> Abs
+    ModuleStore["Extensibility.Neo4j<br/>(held storage adapter)"] --> Neo4j
+    ModuleStore --> ModuleSdk["Extensibility SDK"]
+    ModuleSdk --> Abs
     Core["AgentMemory.Core"] --> Abs
     Abs["AgentMemory.Abstractions<br/>(M.E.AI.Abstractions only)"]
     OBS -. decorates .-> MAF
@@ -200,7 +281,7 @@ time in an internal comparison.
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.10.1 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 85 domain records (`MemoryWhyNot`, `OwnerMemoryExport`, `OwnerErasure`, `OwnerImportResult`, `MemoryLink`, `MemoryIntegrityReport`, `MemoryIntegrityRule`, `MemoryRoute`, `MemoryRoutePlan`, `RecalledRelationship`, Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, `MemoryDelta`, `MemoryDeltaRequest`, `SupersededFactPair`, `SupersededPreferencePair`, `FactDeltaRows`, `PreferenceDeltaRows`, `ProspectiveDueResult`, `ForgottenTopicSummary`, `RecallSubQuery`, `SubQueryYield`, `RecallFanOutReport`, etc.), 57 service interfaces (incl. `IPreferenceSourceCheck`, `IMemoryUpdateJudgeFallback`, `IMemoryTiers`, `IMemoryTierSource`, `IMemoryWriter`, `IMemoryGate`, `IMemoryUpdateJudge`, `IMemoryRecallExplainer`, `IMemoryOwnerDataService`, `IMemoryIntegrityService`, `IMemoryRouter`, `IMemoryAccessTracker`, `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 20 configuration types (incl. `DerivedMemoryOptions`, `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 37 enums (incl. `FactClosureReason`, `DatePrecision`, `DerivedFactMode`, `DerivationOperators`, `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`, `MemoryTypeAffinity`) |
+| **Key types** | 85 domain records (`MemoryWhyNot`, `OwnerMemoryExport`, `OwnerErasure`, `OwnerImportResult`, `MemoryLink`, `MemoryIntegrityReport`, `MemoryIntegrityRule`, `MemoryRoute`, `MemoryRoutePlan`, `RecalledRelationship`, Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, `MemoryDelta`, `MemoryDeltaRequest`, `SupersededFactPair`, `SupersededPreferencePair`, `FactDeltaRows`, `PreferenceDeltaRows`, `ProspectiveDueResult`, `ForgottenTopicSummary`, `RecallSubQuery`, `SubQueryYield`, `RecallFanOutReport`, etc.), 57 service interfaces (incl. `IPreferenceSourceCheck`, `IMemoryUpdateJudgeFallback`, `IMemoryTiers`, `IMemoryTierSource`, `IMemoryWriter`, `IMemoryGate`, `IMemoryUpdateJudge`, `IMemoryRecallExplainer`, `IMemoryOwnerDataService`, `IMemoryIntegrityService`, `IMemoryRouter`, `IMemoryAccessTracker`, `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 20 configuration types (incl. `DerivedMemoryOptions`, `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 39 enums (incl. `ExtractionPath`, `ExtractionInputMode`, `FactClosureReason`, `DatePrecision`, `DerivedFactMode`, `DerivationOperators`, `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`, `MemoryTypeAffinity`) |
 
 **Namespace structure:**
 ```
@@ -212,6 +293,24 @@ AgentMemory.Abstractions.Options       — configuration records
 
 ### 3.2 AgentMemory.Core
 
+**Explicit ingestion intent.** `ExtractionRequest.InputMode` separates caller intent from provider
+configuration. `Unspecified` retains the existing entry points and provider/prompt paths.
+`ConversationTurn` validates one target user message and requires an enabled writer; `Import` bypasses
+writers and uses configured extractors. Core validates mode/deferral conflicts before service work,
+and all batch requests before a multi-session call. Explicit live turns cannot be coalesced into that
+batch API. The internal extraction stage carries intent; public service and extractor interfaces are
+unchanged. Core's no-op stubs are excluded from explicit-mode provider availability checks. Writer
+failure fallback, provenance, scope, trust and persistence policies otherwise retain their contracts.
+This is an additive selection API, not a provider preset or a measured policy improvement.
+
+Core's `ExtractBatchAsync` resolves every request's read scope and write owner before extraction or
+persistence, including when no multi-session extractor is enabled. A late policy rejection fails the
+whole batch before work starts. Those exact resolutions are reused during processing, so custom
+policies run once per request. This is validation before side effects, not an all-or-nothing database
+transaction: later provider or persistence failures retain the existing outcome/transaction behavior.
+Custom pipeline implementations still own their own validation; the default interface fallback has
+no isolation-policy dependency.
+
 | Attribute | Value |
 |---|---|
 | **Purpose** | Orchestration — service implementations, extraction pipeline, context assembly, stubs |
@@ -220,6 +319,71 @@ AgentMemory.Abstractions.Options       — configuration records
 | **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver, `MemoryContextFormatter` (#92 Phase 6), `InstructionLikeContentDetector`/`RecalledMemoryDelimiter`/`RecalledMessageRoleGate` (shared by the Agent Framework and Semantic Kernel adapters, #92 Phases 6-7), `MemoryContextProjector`/`IProjectionFeature`/`ProjectionRenderer` (§3.2.8) |
 
 #### 3.2.1 Ingestion outcomes (#101)
+
+`PersistenceStage` delegates writer-confirmed repeats to the internal `ConfirmedMemoryReinforcement`
+component. It runs after core persistence and corrected-name propagation, outside the core transaction,
+and before the working-memory rebuild. Only live facts/preferences belonging to the same owner are
+reinforced, once per confirmed ID; failures remain best-effort and caller cancellation propagates.
+This separation does not change extraction prompts, closing rules or repository operations.
+
+`MemoryEmbeddingPreparation` owns both batch and individual embedding preparation before the storage
+transaction starts. Invalid or failed batch responses retain the existing item-by-item fallback.
+Its prepared data is passed into persistence and reused after a confirmed rollback.
+`PersistenceOutcomes` shares success/failure recording between preparation and persistence, including
+the same fail-fast exception and accumulated outcomes. Neither component depends on a storage provider.
+
+`EntityPersistence` writes entities and returns their name/alias lookup and distinct persisted count.
+It retains batch fallback, explicit provenance and speaker-name embedding at their existing position
+inside persistence. `MemoryUserNames` supplies the shared speaker/name vocabulary to extraction,
+the writer and context assembly; these callers no longer depend on the persistence orchestrator.
+`PersistenceMetadata` shares monotonic trust and repository-owned provenance rules across item types.
+
+`PreferencePersistence` and `RelationshipPersistence` own their typed writes and deterministic
+replacement handling within the same transaction. Their results retain source-key mappings and
+persisted/created IDs for the subsequent writer-named or similarity-judge closing step. Relationship
+resolution reuses the entity map and owner-scoped lookups; replacement edges end only after their
+successors were persisted. These components preserve the existing policy differences between writer
+and extractor turns.
+
+`FactNames` supplies one naming rule for fact preparation, correction matching and batch identity.
+`FactPreparation` preserves owner-scoped trust and per-item provenance when constructing a write;
+it still runs inside persistence where the existing-fact lookup belongs. The pure
+`WithinExtractionFactDeduplication` step runs before the transaction and keeps its existing number,
+negation, validity and source-role safeguards.
+
+`JudgedMemoryClosings` discovers writer-named and similarity candidates. One internal `ClosingPolicy`
+owns judge availability, batch evaluation, named-only host-model fallback and score approval. It keeps
+the two paths' existing request text, thresholds and fallback rules. Both require a finite score in
+`[0, 1]` before applying their threshold; invalid or missing scores leave the corresponding stored
+memory open. The original judge dictionary is retained, including custom key lookup semantics.
+Candidate filtering, source-local duplicate precedence and application order remain in the source.
+Within-extraction fact merging retains additional named closing targets on the prepared fact.
+Persistence writes the merged statement once, then presents each retained target to the closing
+judge using that persisted statement. This preserves all proposals without inflating mention counts.
+The writer maps a relationship-shaped replacement of a stored fact back to a fact, retaining its
+target and correction flag without requiring new entity endpoints. Actual relationship replacements
+continue through the relationship path.
+Every automatic ingestion closing now reaches one internal
+`ClosingPipeline` as a typed `ClosingProposal`: fact supersession carries its temporal reason and
+clock, preference supersession carries its successor, and relationship ending carries its end time
+with optional successor attribution. The pipeline owns repository application and successful journal
+recording. Fact withdrawal and post-merge entity retirement are separate proposal types using their
+existing invalidation APIs without a successor or a new journal entry. The pipeline preserves
+source-specific outcome attribution, repository refusals, cancellation and
+exceptions. It adds no judge call, global deduplication or new decision rule. `PersistenceClosingJournal` retains
+the existing asynchronous operation lifetime. `EdgeEnding` runs after relationship writes inside persistence.
+`CorrectedNamePropagation` runs after the core transaction, before confirmation reinforcement and
+the working-memory rebuild. This decomposition preserves their existing call order and failure rules.
+When a corrected-name merge is declined by the store, propagation stops for that name pair: the source
+entity stays live, its facts are not restated, and the target embedding is not refreshed.
+
+`FactPersistence` owns fact writes and their batch fallback. Its per-operation `FactWriteSet` tracks
+the current-value decision, source order and written/created IDs. `FactReplacementResolver` applies
+deterministic replacements only after the writes finish and returns edge-ending work to the stage.
+Only confirmed fact closings schedule that work. Declined corrections stay in the live support set;
+an event date is protected while any incoming relationship remains live after edge-ending attempts.
+Speaker-name lookup belongs to `EntityPersistence`. The stage coordinates these components and
+transaction/replay boundaries; writer-turn selection now uses the extraction result explicitly.
 
 `ExtractAndPersistAsync`/`IMemoryExtractionPipeline.ExtractAsync` extract and persist independent
 items (entities, facts, preferences, relationships) from a batch of messages. Individual items can
@@ -1231,6 +1395,118 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 > `memory_start_trace` now accepts a `userId` and scopes the trace — previously an MCP-started trace
 > went to the shared/global bucket (CHANGELOG [Unreleased]).
 
+**Opt-in local coding host.** `tools/AgentMemory.McpHost/Coding` contains
+project-bound bearer authentication, scoped operation execution, and recall/history/profile/soft-forget
+operations. Explicit `--coding-config <private.json>` startup registers these HTTP/MCP endpoints;
+the existing host's transport, tools and defaults are unchanged without that option. Credentials bind a configured owner
+to one canonical project ID. Operations require `DatabasePerApplication`, pre-provisioned
+`coding-<project>` databases and no automatic provisioning; ambient project tags alone do not isolate
+a shared database. Session IDs incorporate owner and project, reads exclude shared records, and
+forgetting uses scoped invalidation. Request checks reject browser origins by default and always reject
+non-loopback hostnames; the optional page's same-origin exception is described below.
+The stateless coding MCP endpoint explicitly routes unsupported GET/DELETE methods through
+its normal project authorization, then returns 405 with `Allow: POST`. This preserves route
+identity for local bearer and remote OAuth checks instead of misreporting method probes as
+authentication failures or missing resources.
+Internal writer ingestion stores bounded source turns with caller-supplied commit/reference metadata,
+then uses explicit `ConversationTurn` input and untrusted provenance. Extractor fallback is off by
+default; `allowExtractorFallback` explicitly permits it after a failed writer call. Host wiring and
+adapter preflight both enforce permission. `ExtractionResult.Path` carries the actual attempted path
+from extraction through single/batch pipeline results to coding job receipts (`extractionPath`).
+It is separate from ingestion success: a failed fallback is still `writerFallback`, and a custom
+pipeline or interrupted job reports unknown rather than inferring success from configuration.
+Host-model fallback for named closing judgments remains separate. See
+[the coding-service configuration](coding-service.md#configurable-extractor-fallback).
+Coding `closingJudgeName` explicitly names the external endpoint permitted to judge storage closings;
+without it the host-model judge handles named closings. Retrieval list order grants no such permission.
+General-library callers can use `MemoryGateOptions.UpdateJudgeName`; null preserves first-endpoint
+compatibility there. Missing/ambiguous explicit selections fail validation. A selected endpoint's
+outage uses the existing host-model fallback, never an arbitrary retrieval model; a negative verdict
+does not trigger another judge.
+The writer continues to learn from the user target; the assistant reply is stored for later context.
+A single background worker preserves submission order, bounds admission and job retention, and exposes
+only owner/project-scoped job status. Retained duplicate submissions return their existing job; changed
+payloads using the same turn ID are rejected. After eviction or restart, a stored source means
+**prior attempt unknown**, not successful extraction: it is not automatically re-extracted. Queued work
+is not durable, and this does not promise exactly-once writes or safe concurrent service instances.
+Shutdown cancels waiting jobs and marks an interrupted write unknown. Unit checks and a real two-database
+test with a deterministic writer cover persistence, provenance, isolation, retries and soft forgetting.
+Optional `WriteJournal` adds a host-owned SQLite receipt journal (Microsoft.Data.Sqlite in the
+McpHost tool only). It commits acceptance before acknowledgement, Running before writer execution,
+and the terminal result before reporting durable completion. Recovery resumes never-started work
+and marks interrupted attempts Unknown; it rechecks configured scope/write permission/content.
+The journal and Neo4j are separate transactions, with no exactly-once promise. A private directory,
+exclusive host lease, bound owner/deployment identity, row/payload/page limits and retention control
+its footprint. Terminal receipts drop captured text; receipt eviction never deletes graph records.
+Off creates no journal services/files and preserves baseline receipt/tool bytes. See the
+[configuration and recovery contract](coding-service.md#optional-durable-write-receipts).
+Optional `RecallDiagnostics` adds a host-local bounded receipt store and a content-free projection
+of existing recall/gate measurements. HTTP/MCP share owner/project/session scope, lookup and explicit
+feedback. This adds no core service, schema, provider call or second recall engine. Off registers no
+receipt service/tools and requests no additional core diagnostics. On emits measured receipt/feedback
+activities on `AgentMemoryDiagnostics.Source`. Retained observations never authorize content expansion
+or mutate memory. See [configuration and limits](coding-service.md#optional-recall-diagnostics-and-feedback).
+
+The internal HTTP and stateless MCP mappings share a strict dispatcher for `recall`, `remember`,
+`forget`, `history`, `profile` and `write_status`. Unknown arguments are rejected, including owner or
+project overrides. HTTP acceptance returns 202; completion requires a status query. Recall reuses the
+MCP package's embedding-free projection. Authentication precedes a 64 KiB body limit, including chunked
+requests. Loopback tests exercise the real MCP SDK, rejected credentials, project routing and size limits.
+No new endpoint is active by default. Coding startup clears ambient ASP.NET endpoint configuration,
+binds one IPv4 loopback listener, bootstraps each pre-provisioned project under its owner/store scope,
+then starts the hosted worker and transport. The shared inference resolver requires explicit Bitdeer
+or local Ollama; endpoints and optional TypeSafe/local System One judges are checked. The Recommended
+writer permits extractor fallback only through its explicit host option. Compound retrieval remains off. The actual host's HTTP/worker
+path is tested over two real databases with deterministic inference replacements.
+Input checks reject configured credential substrings, recognizable secret formats and bulk content
+before admission, recall, or source persistence; selected prior conversation text is checked too.
+The checker retains supplied credential values in process memory for matching, separate from the hashed
+authentication lookup. These heuristics cannot guarantee arbitrary prose is secret-free, audit existing
+graph content, or filter model-generated output. Startup binds project/database/provider/judge credentials
+into the checks. The native `--coding-hook` command shares strict configuration parsing with the host,
+validates repository identity through Git, and talks only to the configured loopback project endpoint.
+It pairs Claude events by session/prompt ID using private bounded pending state, injects whole typed
+memories within a character budget, and treats queued acceptance separately from successful ingestion.
+Its source is untrusted; it reads no transcript or source file. Optional `EnableBrowserUi` defaults false:
+off registers no page routes and retains rejection of every browser Origin. On maps fixed embedded
+assets and permits exact same-origin HTTP requests with the existing project bearer checks. Endpoint
+metadata limits the unauthenticated exception to those data-free assets; MCP never gets the browser
+exception. The page renders memories as text under a restrictive CSP, retains credentials only in tab
+memory, and reuses history/profile/forget/remember/status operations. Corrections are sourced writer
+proposals, not direct graph edits. Real client activation and remote deployment remain separate work.
+The hook configuration's `Harness` defaults to Claude. `VsCodeLocal` and `CopilotCli` reuse bounded
+HTTP and context projection, with their distinct session-start output envelopes. They read only the
+profile without pending state or guessed completion pairing. Copilot CLI additionally supports explicit
+`--event userPromptTransformed`: query-only recall, a separate session namespace, and bounded memory
+appended to the unchanged model-facing prompt. Expanded files/instructions never enter the recall body.
+Omission dispatches no transform path and preserves prior behavior. The returned override is bounded
+by serialized UTF-8 bytes; empty recall leaves the original prompt. No transcript or write path is added.
+VS Code per-turn recall and both clients' writes still use MCP instructions. Actual-client evidence is linked below.
+`Codex` uses the shared turn helper with its documented `turn_id` and `Interrupt` contract. It has a
+separate service-session namespace and pending-state key; existing Claude cache keys remain readable.
+The helper's model field is not a provider authorization check. Templates remain inactive, and actual
+client/provider validation is separate from helper tests.
+The [coding host contract v1](coding-contract.md) specifies these shared adapter semantics and
+legacy source/hash compatibility without adding wire fields or negotiation. A paired Stop requires
+nonblank final assistant text; otherwise the helper discards its pending capture and reports an
+incomplete event. Explicit user-only tool writes remain distinct. No assistant reply is treated as
+verified code/test evidence. The [capability matrix](coding-clients.md) separates tools, automatic
+recall, completion capture, durable acknowledgement and governed storage by tested client version.
+Templates are in `samples/CodingMemory`.
+Optional `Remote` configuration selects direct HTTPS and a separate MCP-only resource-server boundary.
+Omission registers no OAuth services or metadata routes and preserves local bearer behavior. Remote
+mode uses standard ASP.NET JWT validation with an external OIDC issuer: exact issuer/subject, one exact
+project audience, signed unexpired RS256 `at+jwt` tokens, and `memory:read`. Mutations also require
+`Remote.AllowWrites` (default false) and `memory:write`; the shared dispatcher enforces this even for
+unadvertised tool calls. Job ownership remains owner/project based when token permissions change.
+Static project tokens, browser UI, plain HTTP and forwarded-header TLS are not supported in this mode.
+Discovery advertises the project's resource and authorization server. A fixed-window limit allows 120
+requests per minute per configured project, with no queue or attacker-selected partition keys, before
+JWT validation. The existing listener/body/worker bounds still apply. Certificate credentials join the
+input filter and are snapshotted during configuration. TLS/JWT tests use synthetic credentials;
+deployment and external authorization-server compatibility are separate gates. See [remote setup](coding-remote.md).
+See [coding service configuration and limits](coding-service.md).
+
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)
 
 | Attribute | Value |
@@ -1292,6 +1568,52 @@ what that means for it — for most, the query is never issued at all rather tha
 | Working memory (§3.2.11) | `MemoryOptions.WorkingMemory.Enabled` | `true` (was `false` when this table was written) | plus `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` to render it |
 | Trace outcomes in context (§3.4.1.5) | `ContextFormatOptions.IncludeTraceOutcomes` | `false` | brings `ProcedureTrustClause` with it |
 | Schema extensions (§4.3.1) | `Neo4jOptions.Extensions` | empty set | empty is the base schema, byte-identical |
+| Compound-question judging | `MemoryGateOptions.CompoundQuestions` | `false` | Same candidate pool, at most three additional focuses; no planner resolution or extra calls/prompt/metadata changes when off; development comparison did not qualify promotion |
+
+**Compound-question judging** (`AMGATE001`) is optional coordination inside `GatedMemoryContextAssembler`.
+The existing gate first decides on the complete question. `ICompoundQuestionPlanner` can then provide
+two or three constrained focuses. The built-in planner asks an explicit System One `CompoundDetector`
+whether splitting is useful, then uses the host's `IChatClient` to split. Its detector threshold is a
+development operating point of 0.5, not calibrated confidence or measured evidence of benefit.
+
+Each part reuses the original conversation, clock and candidate keys, and retains the complete question
+alongside its focus. Admissions are the union of the baseline and complete, valid part decisions, using
+the maximum score per candidate. These combined scores are **not calibrated probabilities**. No additional
+searches, owner/time scope changes or recursive splitting occur. Floor, Everything, empty-pool and as-of
+paths bypass the planner. Neither the default options nor the Recommended preset enable it.
+
+Baseline, detection, splitting and part judging share `MemoryGateOptions.Timeout`; optional work gets
+only the time left after baseline. Waiting is bounded even for asynchronous providers that ignore their
+cancellation token. A missing planner dependency, malformed plan, invalid decision or optional failure
+preserves the baseline and any completed valid parts; caller cancellation propagates. The existing floor
+fallback applies if baseline itself fails. Limits: three parts of 512 characters, question and conversation
+of 4,096 characters each, 300 candidates and 65,536 candidate-text characters. Exceeding an input limit
+skips optional work; limits do not truncate a question or broaden retrieval.
+
+`gate.compound` contains a `CompoundQuestionTrace` with outcome, bounded reason code, part counts,
+additional gate invocations and optional duration. Those invocations are not HTTP request counts: each
+gate call can fan out by memory type and judge, with retries. No question or provider exception text is
+included in this trace. Local tests establish mechanics. A bounded development comparison retained the
+baseline: no coverage gain, additional clutter and optional timeouts. Its baseline coverage ceiling
+limits quality conclusions; no held-out retrieval-quality benefit is established. Keep the option off.
+
+The operator-only `compound-evaluate` command invokes the same internal coordinator through a friend
+assembly declaration for `router-arena`; it does not copy its selection policy or add a runtime library
+dependency. Its paired fixed-pool experiment reuses one baseline, hashes its inputs and binaries, counts
+HTTP attempts below both protocols, and flags degraded judge blends. This measures gate selection, not
+store search or a complete answer pipeline.
+
+The operator-only [`paired-gate` tool](performance/paired-gate-evaluation.md) invokes the shipped
+`SystemOneMemoryGate` on two recorded pools with identical originals. It reports scores, gate rejections,
+context-budget losses and displaced originals under one explicit rendered-context rule. This controlled
+experiment is separate from the library assembler's pre-gate budgeting; it changes no runtime defaults,
+store records or recall path. Search capture and answer scoring remain the experiment caller's responsibility.
+
+[`store-sessions --search-cases`](performance/store-session-exports.md#search-captures) optionally
+captures the original assembler in the recorder's isolated store, before gate decoration. It uses the
+existing wide-retrieval and conversation construction code, retains full contexts and diagnostics,
+and performs no relevance judging or question ingestion. Historical cases use actual as-of assembly.
+This tool-only path records post-library-budget evidence; it does not change runtime recall defaults.
 
 Some defaults have since been switched on, each on evidence from simulated conversations: the
 working-memory profile block, dates in the prompt (`IncludeDates`) and a separate shared-knowledge recall
@@ -1524,9 +1846,9 @@ CREATE POINT INDEX entity_location_idx IF NOT EXISTS FOR (e:Entity) ON (e.locati
 ### 4.7 Schema owned by extensions, not by base
 
 Everything in §4.1–§4.6 is the **base** schema: it exists on every database that has run migrations,
-whatever a host configured. The four shipped extensions (§4.3.1) own the shapes below, and **none of
-them exists on a database whose operator did not apply that extension's DDL** — registering an
-extension in code does not create schema; `agentmemory migrate --extensions <ids>` does.
+whatever a host configured. The registered extensions below declare ownership; registration alone
+creates no schema. The existing capability scripts run only through explicit extension migration.
+The experimental module ledger has a separate explicit application path and no core scripts.
 
 | Extension | Labels | Relationship types | Properties | Indexes / constraints |
 |---|---|---|---|---|
@@ -1535,8 +1857,10 @@ extension in code does not create schema; `agentmemory migrate --extensions <ids
 | `delta-recall` | *none* | *none* | *none* | 7 RANGE indexes: `fact_created_at_idx`, `fact_invalidated_at_idx`, `fact_valid_from_idx`, `fact_valid_until_idx`, `preference_created_at_idx`, `preference_invalidated_at_idx`, `entity_created_at_idx` |
 | `arithmetic` | *none* — a derived fact is an ordinary `:Fact` | `DERIVED_FROM` (Fact → Fact) | `Fact.fact_kind`, `Fact.derivation_key`, `Fact.derivation_operator`, `Fact.derivation`, `Fact.derived_at` | `fact_derivation_key_idx`, `fact_kind_idx` |
 
+| `module-bookkeeping` | `ModuleMigration` | *none* | [SDK ledger properties](extensions/module-bookkeeping.md) | `module_migration_key` composite uniqueness via explicit module application; no core scripts |
+
 Two things this table is saying deliberately. **One new relationship type and one adopted label across
-four capabilities** — `DERIVED_FROM` is the only .NET-only edge added, and it is argued for on the
+the four memory capabilities** — `DERIVED_FROM` is the only .NET-only edge added, and it is argued for on the
 grounds that the staleness cascade needs traversal in a direction a JSON id list cannot serve
 (§3.2.10); `:User` *narrows* divergence rather than widening it. And **`procedural` declares no
 migration script at all**: its DDL shipped in the base sequence before the extension system existed, so
@@ -1816,3 +2140,134 @@ All timestamps are stored as **native Neo4j `datetime()`** values via the `Neo4j
 | **Temporal query support** | ✅ Enables Cypher temporal functions: `duration.between()`, `date.truncate()`, etc. |
 | **Schema consistency** | ✅ All repositories use the same approach — no more mixed ISO string / native datetime |
 | **Neo4j Browser UX** | ✅ Native datetime renders properly in Neo4j tools |
+
+### Bounded coding evidence delivery
+
+The optional coding-host `evidence` configuration adds preview/expansion over existing retrieval
+and scoped repository/history services. Its private receipt cache stores selected IDs only; it does
+not reuse diagnostics as authorization. Expansion validates owner/project/session, current validity
+and parent/source links, with item, JSON-body byte and deadline limits. No schema, core dependency,
+new router or native injection change. Off adds no services/cache/tools/reads and preserves existing
+wire bytes. See [contracts and limitations](coding-service.md#optional-evidence-preview-and-expansion).
+
+
+### Experimental module migration sources
+
+The held `AgentMemory.Extensibility.Neo4j` adapter can inspect embedded migration sources as PE data;
+no implementation assembly is loaded. A shared bounded resource reader keeps metadata bounds checks
+consistent with portable manifest discovery. Cypher tokenization remains in the storage adapter.
+An internal compiler shares pure SDK namespace rules and additive lint, validates exact schema shapes
+and bounded scoped backfills, and collects ordered steps and ownership claims without database calls.
+Explicit handwritten execution shares that compiled plan. Exact database assessment rejects foreign
+or equivalent shapes; each backfill commits atomically with durable statement progress under the
+SDK migration lock. DDL commits separately and resumes through its reserved hash and exact shape.
+The existing constructor remains generated-only; a four-argument overload accepts authorized scripts.
+No constructor or registration runs migrations. The non-packable CLI now consumes bounded, frozen
+profile/manifest/assembly sources and invokes the same migrator. Whole-profile validation precedes
+store projection; assembly metadata inspection executes no module code. Explicit target-host feature
+declarations are not capability probes. Published core packages gain no held-SDK dependencies. See
+[embedded migration source discovery](extensions/modules.md#embedded-migration-source-discovery).
+
+
+### Persisted-turn observer boundary
+
+Derived Agent Framework adapters can opt into `OnTurnPersistedAsync` through
+`ObservesPersistedTurns`. The base provider owns storage and publishes an immutable source projection
+only after successful nonempty message persistence. Observers receive actual IDs and stored content;
+they do not repeat storage or infer provider-ID mappings. Observation defaults off with no callback,
+source projection or extra clock read. Callback failure does not prevent core extraction; cancellation
+propagates. Owner claims still require the observer's real isolation policy. Scheduling and module
+activation are not granted by this hook. See [the seam contract](extensions/modules.md#persisted-turn-adapter-seam).
+
+
+The experimental Agent Framework module adapter now has explicit
+`AddAgentMemoryFrameworkModuleIngestion` activation. Its scoped handler consumes the base provider's
+persisted-turn seam; neither Core nor the base adapter depends on the module SDK. Queued ingestion
+reuses `IBackgroundExtraction`, captures scalar sources and a fixed factory, and restores application
+and owner in a fresh scope before resolving the pipeline. Registration is off by absence: no callback,
+projection or module pipeline resolution. Static bindings do not implement runtime-set leases.
+Module reads default to current/system-time snapshots. Explicit history selection requires one key,
+retains invalidated versions and uses fixed creation-time/numeric-version order. A system-time pin
+bounds version creation and anchor resolution; retained invalidation timestamps remain audit metadata.
+History is a read selection, never a flag that disables versioned writes. Default selection is omitted
+from canonical manifest serialization to preserve existing composition fingerprints.
+
+Typed runtime view arguments can only narrow a declared view by key, outgoing relationship target
+or result limit. The shared reader validates declared relations and resolves both link and requested
+identity under the same record-owner/shared scope and clock before applying the result limit; no
+application-specific Cypher or post-filtered limited lists are required. Existing view calls retain
+their original query; default hosts still do not activate modules.
+
+Declared-view contributors share `ModuleViews` and preserve resolved scope and typed omission outcomes;
+an explicit per-request argument selector can narrow a view without replacing resolved scope or
+copying the contribution path. Null selection is NotApplicable and performs no read;
+module text still crosses the existing host admission boundary.
+
+### Module host capability inspection
+
+The explicit experimental `ModuleHostProfileResolver` validates profile metadata before inspecting
+trusted per-store DI bindings. It checks History registration, effective reminder options, and schema
+support separately for each store and service key. The Neo4j adapter owns its runner-registration
+probe; SDK logic knows only the module-store contract and the adapter probe interface. All capability
+failures discard the complete candidate set. Constructors for module/store/runner services and database
+queries are outside this check. A capability result is neither migration readiness nor authorization
+to activate code. The SDK adds only the options package for this check, not a Core or storage dependency.
+See [module capability checks](extensions/modules.md#effective-host-capability-checks).
+
+Native module time selection is an adapter-owned session concern. `WithModuleReadTime` persists
+explicit system/valid-time selections; `ExtensibleMemoryContextProvider` maps them into the shared
+compiler request after restoring owner/store scope. It neither adds owner authority nor changes core
+recall or write clocks. Invalid serialized state refuses module compilation, and the no-module path
+returns before reading those keys. [Contract](extensions/modules.md#native-session-read-times).
+
+
+### Experimental module ingestion diagnostics
+
+`ModuleIngestion` owns ingestion/replay activities on the existing Abstractions diagnostics source.
+It snapshots the resolved manifest version with each provider binding and tags existing outcomes;
+it does not recalculate admission or introduce a second write policy. Replay never invokes providers.
+Empty/denied/unselected paths perform no trace work; no-data sampling avoids telemetry-only counts.
+The SDK depends on no observability exporter and installs no source or listener. Identity is metadata,
+not publisher trust or a live-set lease. [Span fields and limits](extensions/modules.md#module-ingestion-telemetry).
+Explicit resolution-bound `ContextCompiler` construction freezes owned contributor descriptors and
+versions before invocation; compile/contribute spans use the same diagnostics source. Legacy DI uses
+an explicit four-argument factory so an ambient resolution cannot change its behavior. The bound
+registration is explicit and scoped, and installs no global catalog. Core-only/excluded paths emit
+no module activities. [Compiler contract](extensions/modules.md#module-compiler-telemetry).
+`ModuleMigrator` traces set-level planning/application and actual owned steps separately, preserving
+shared-ledger attribution, durable-intent execution and repeat no-op behavior. No new schema or
+migration operation is introduced. [Migration contract](extensions/modules.md#module-migration-telemetry).
+Native trace acceptance remains separate work.
+
+
+The supported Agent Framework admission seam also permits two-stage item handling:
+`AdmitMemoryItem` returns an immutable provider/category-bound decision; `RenderAdmittedItems`
+escapes a selected subset without re-evaluating the policy. The existing direct rendering path
+reuses the same admission/wrapping functions without allocating two-stage items. This permits
+admission before optional judging and exact byte measurement, without publishing mapper internals,
+granting SDK friend access, or enabling a gate from DI alone.
+[Contract and current limits](extensions/modules.md#admission-before-module-selection).
+
+
+Resolution-bound module compilation also validates returned contributor/section identities against
+the frozen descriptor and stamps a metadata binding. Typed item provenance carries stored version
+and source references without granting authority. Explicit bounded candidate projection uses this
+binding; legacy/core rendering and judge activation are unchanged. No framework, gate provider or
+Neo4j dependency is added to the SDK. [Contract](extensions/modules.md#bound-module-candidates-and-provenance).
+
+
+Explicit module selection is framework-independent: the SDK consumes compiler-bound candidates,
+requires host admission/rendering, and optionally calls the existing IMemoryGate abstraction.
+It deduplicates record identities, retains origins, validates complete keyed decisions and applies
+whole-item/exact UTF-8 allowances. Stage receipts distinguish admission and actual judge attempts.
+Core context stays opaque. Native activation requires explicit registration; host scope ownership
+and in-flight draining must precede timeout returns. [Contract](extensions/modules.md#explicit-module-selection).
+
+
+`AddAgentMemoryFrameworkModuleSelection` composes that SDK selector with the actual native provider.
+A scoped ModuleTurnSelection lazily resolves the configured gate and optional result observer under
+the application and compiler-resolved owner scope. The renderer retains provider-bound admission
+decisions and reuses the existing wrapper; core messages/tools remain opaque and unchanged. Existing
+constructor signatures and opt-outs are preserved. Observer failures do not discard selected content.
+This static wiring does not own draining service scopes or implement deadline return/unload safety.
+[Configuration and validation scope](extensions/modules.md#native-module-selection-registration).

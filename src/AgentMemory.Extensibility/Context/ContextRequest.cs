@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using AgentMemory.Abstractions.Options;
 using Microsoft.Extensions.AI;
 
 namespace AgentMemory.Extensibility.Context;
@@ -24,6 +25,9 @@ namespace AgentMemory.Extensibility.Context;
 [Experimental("AMEXT001")]
 public sealed record ContextRequest
 {
+    // Only the compiler sets this after real policy resolution; public owner claims cannot forge it.
+    internal MemoryScope? ResolvedScope { get; init; }
+
     /// <summary>The session whose context is being assembled.</summary>
     public required string SessionId { get; init; }
 

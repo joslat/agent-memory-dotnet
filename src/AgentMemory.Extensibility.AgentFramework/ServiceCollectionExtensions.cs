@@ -1,4 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Collections.Frozen;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.Extensibility.Context;
+using Microsoft.Extensions.Logging;
 using AgentMemory.AgentFramework;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -38,7 +42,7 @@ public static class ServiceCollectionExtensions
 
         services.AddAgentMemoryExtensibility();
 
-        services.AddScoped<ExtensibleMemoryContextProvider>();
+        services.TryAddScoped<ExtensibleMemoryContextProvider>();
 
         // Anything asking for the shipped provider gets the extended one. It IS one, by inheritance,
         // so this cannot narrow what a caller receives.
@@ -47,4 +51,48 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+    /// <summary>Explicitly enables automatic module ingestion after successful message persistence.</summary>
+    /// <remarks>
+    /// Registering IModuleIngestion alone does not enable this path. Without this call there is no
+    /// module callback, source projection, pipeline resolution or write. The factory must bind an
+    /// authorized, fixed module composition and resolve scoped services from its supplied provider.
+    /// Background work uses a fresh scope and the captured owner/application. This static binding
+    /// does not implement runtime module leases or hot replacement.
+    /// </remarks>
+    public static IServiceCollection AddAgentMemoryFrameworkModuleIngestion(
+        this IServiceCollection services,
+        Func<IServiceProvider, Ingestion.IModuleIngestion> createIngestion)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(createIngestion);
+        services.AddAgentMemoryFrameworkExtensibility();
+        services.Replace(ServiceDescriptor.Singleton(new ModuleTurnIngestionBinding(createIngestion)));
+        services.TryAddScoped<ModuleTurnIngestion>(sp => new ModuleTurnIngestion(
+            sp, sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<ModuleTurnIngestionBinding>(),
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentFrameworkOptions>>().Value,
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ModuleTurnIngestion>>(),
+            sp.GetService<IBackgroundExtraction>()));
+        return services;
+    }
+
+    /// <summary>Explicitly enables bounded native module selection, with optional judging.</summary>
+    /// <remarks>Without this registration the provider retains direct rendering: no candidate projection,
+    /// selector or observer resolution. UseJudge defaults off and never resolves IMemoryGate while off.
+    /// Options are snapshotted at registration. Requires a resolution-bound module compiler; existing
+    /// core context and its allowance remain separate. This static path does not own a deadline or lease.</remarks>
+    public static IServiceCollection AddAgentMemoryFrameworkModuleSelection(
+        this IServiceCollection services, ModuleSelectionOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.ContributorItemLimits);
+        var snapshot = options with { ContributorItemLimits = options.ContributorItemLimits.ToFrozenDictionary(StringComparer.Ordinal) };
+        services.AddAgentMemoryFrameworkExtensibility();
+        services.Replace(ServiceDescriptor.Scoped<ModuleTurnSelection>(sp => new ModuleTurnSelection(
+            new ModuleContextSelection(snapshot, () => sp.GetService<IMemoryGate>()),
+            sp.GetRequiredService<ILogger<ModuleTurnSelection>>(), () => sp.GetService<IModuleSelectionObserver>())));
+        return services;
+    }
+
 }

@@ -59,11 +59,11 @@ internal static partial class ReplacementShapes
         // present form of a single-valued relation, still valid: "I lived in Paris, then moved to London" states
         // history, and London is the home.
         // The speaker by any name this extraction states for them ("I'm Dana"): "Dana lives in Paris" is the speaker's home.
-        var names = aged.Where(PersistenceStage.UserNames.IsNamingFact)
+        var names = aged.Where(MemoryUserNames.IsNamingFact)
             .Select(fact => MemoryTripleCanonicalizer.CanonicalValue(fact.Object))
             .ToHashSet(StringComparer.Ordinal);
         string SubjectKey(string subject) =>
-            PersistenceStage.UserNames.IsSelf(subject) || names.Contains(MemoryTripleCanonicalizer.CanonicalValue(subject))
+            MemoryUserNames.IsSelf(subject) || names.Contains(MemoryTripleCanonicalizer.CanonicalValue(subject))
                 ? "\u0001self"
                 : MemoryTripleCanonicalizer.CanonicalValue(subject);
         var statedStates = aged

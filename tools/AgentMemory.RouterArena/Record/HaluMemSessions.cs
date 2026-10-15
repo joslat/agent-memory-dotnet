@@ -99,10 +99,9 @@ public sealed class HaluMemSessions(TextWriter output)
         var services = new ServiceCollection();
         services.AddLogging(ArenaLogging.Console);
         services.AddSingleton<IClock>(clock);
-#pragma warning disable AMREC001, AMGATE001
+#pragma warning disable AMGATE001
         // --history on: recall shows what a kept fact replaced, "(since D; previously X)", as the prompt renders it.
-        var memory = MemoryOptions.CreateRecommended();
-        if (history) memory = memory with { Projection = memory.Projection with { ResolveSupersessions = true } };
+        var memory = BenchmarkMemoryOptions.CreateRecommended(history);
         services.AddNeo4jAgentMemory(memory, Neo4j, o => o.ApplyRecommended());
         var usage = new UsageCountingChatClient(chat);
         services.AddSingleton<IChatClient>(usage);
@@ -112,7 +111,7 @@ public sealed class HaluMemSessions(TextWriter output)
             g.ApplyRecommended();
             g.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY" });
         });
-#pragma warning restore AMREC001, AMGATE001
+#pragma warning restore AMGATE001
         await using var provider = services.BuildServiceProvider();
         await provider.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(cancellationToken).ConfigureAwait(false);
         var tx = provider.GetRequiredService<INeo4jTransactionRunner>();
@@ -204,7 +203,7 @@ public sealed class HaluMemSessions(TextWriter output)
                 + $"{watch.Elapsed.TotalSeconds:0} s");
             await RunFile.WriteAsync(outPath, JsonSerializer.Serialize(new
             {
-                format = "halumem-sessions/1", data = Path.GetFileName(dataPath), person, uuid, owner = ownerId, model = settings.Model, sessions = results,
+                format = "halumem-sessions/1", data = Path.GetFileName(dataPath), person, uuid, owner = ownerId, model = settings.Model, history = memory.Projection.ResolveSupersessions, sessions = results,
             }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);
             turnsSoFar += dialogue.Count(d => d.GetProperty("role").GetString() == "user");
             errorsSoFar += lost.Errors + failed.Count;

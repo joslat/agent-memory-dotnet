@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "dotnet /absolute/path/AgentMemory.McpHost.dll --coding-hook /private/path/vscode-client.json",
+        "windows": "dotnet C:/path/to/AgentMemory.McpHost.dll --coding-hook C:/Users/YOU/AppData/Local/AgentMemory/vscode-client.json",
+        "timeout": 6
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <CommitmentsPackageVersion Condition="'$(CommitmentsPackageVersion)' == ''">1.0.0</CommitmentsPackageVersion>
+    <Version>$(CommitmentsPackageVersion)</Version>
+    <AssemblyName>AgentMemory.Examples.Commitments</AssemblyName>
+    <RootNamespace>AgentMemory.Examples.Commitments</RootNamespace>
+    <PackageId>AgentMemory.Examples.Commitments</PackageId>
+    <Authors>AgentMemory contributors</Authors>
+    <Description>Experimental Commitments and Follow-ups memory package; deterministic structured teaching.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsPackable Condition="'$(ConsumerIsInert)' != 'true'">true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ConsumerIsInert)' != 'true'">
+    <PackageReference Include="AgentMemory.Extensibility" Version="$(ModuleSdkVersion)" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <EmbeddedResource Include="manifest-$(CommitmentsPackageVersion).json" LogicalName="Commitments.agentmemory-module.json" />
+  </ItemGroup>
+  <Target Name="ValidateModuleVersion" BeforeTargets="CoreCompile" Condition="'$(ConsumerIsInert)' != 'true'">
+    <Error Condition="'$(CommitmentsPackageVersion)' != '1.0.0' and '$(CommitmentsPackageVersion)' != '2.0.0'" Text="Use the explicit v1 or v2 manifest." />
+  </Target>
+</Project>

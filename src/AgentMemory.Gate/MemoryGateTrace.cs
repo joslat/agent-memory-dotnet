@@ -18,7 +18,7 @@ namespace AgentMemory.Gate;
 /// <param name="AnsweredBy">The judges that answered (judge only), e.g. <c>jev+laya</c>.</param>
 /// <param name="JudgeMilliseconds">The judges' time (judge or fallback); 0 otherwise.</param>
 /// <param name="Items">Every memory considered, in the order the recall found them.</param>
-[Experimental("AMGATE001")]
+
 public sealed record MemoryGateTrace(
     MemoryGateMode Mode,
     string Outcome,
@@ -39,13 +39,16 @@ public sealed record MemoryGateTrace(
 /// <param name="MemoryType">Its type as the judge was told it: semantic, prospective, entity-graph, preference, episodic,
 /// reasoning.</param>
 /// <param name="Text">The memory as the judge was shown it.</param>
-/// <param name="Probability">The blended probability that it helps the reply, when the judges were asked and answered.</param>
+/// <param name="Probability">
+/// The judges' blended score. With compound judging, the maximum of baseline and valid part scores;
+/// that union score is not a calibrated probability. Null when the judges were not asked or did not answer.
+/// </param>
 /// <param name="Kept">Whether it reached the prompt.</param>
-[Experimental("AMGATE001")]
+
 public sealed record MemoryGateTraceItem(string ItemId, string MemoryType, string Text, double? Probability, bool Kept);
 
 /// <summary>The gate's span and its attributes (counts and names only; never a memory's text).</summary>
-[Experimental("AMGATE001")]
+
 public static class MemoryGateTelemetry
 {
     /// <summary>One live recall through the gate, on the <c>AgentMemory</c> source.</summary>

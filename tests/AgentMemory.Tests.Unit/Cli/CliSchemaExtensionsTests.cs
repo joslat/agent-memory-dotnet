@@ -126,7 +126,7 @@ public sealed class CliSchemaExtensionsTests
     public void TheKnownIdsAreTheShippedOnes()
     {
         CliSchemaExtensions.KnownIds.Should().BeEquivalentTo(
-            ["arithmetic", "delta-recall", "procedural", "working-memory"]);
+            ["arithmetic", "delta-recall", "module-bookkeeping", "procedural", "working-memory"]);
     }
 
     // ── the middle link ───────────────────────────────────────────────

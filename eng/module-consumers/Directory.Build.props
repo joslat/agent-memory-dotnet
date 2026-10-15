@@ -1,0 +1,18 @@
+<Project>
+  <!-- Independent consumers intentionally do not import repository project metadata or source references. -->
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);AMEXT001</NoWarn>
+    <IsPackable>false</IsPackable>
+    <ConsumerIsInert Condition="'$(ModuleSdkVersion)' == ''">true</ConsumerIsInert>
+  </PropertyGroup>
+  <!-- Source sweeps must not restore an unpublished SDK. The explicit verification script supplies the version. -->
+  <PropertyGroup Condition="'$(ConsumerIsInert)' == 'true'">
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+</Project>

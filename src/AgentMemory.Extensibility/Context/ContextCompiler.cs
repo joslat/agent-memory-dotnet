@@ -53,17 +53,34 @@ public interface IContextCompiler
 /// </para>
 /// </remarks>
 [Experimental("AMEXT001")]
-public sealed class ContextCompiler(
-    IEnumerable<IContextContributor> contributors,
-    IMemoryIsolationPolicy isolationPolicy,
-    TimeProvider timeProvider,
-    ILogger<ContextCompiler> logger) : IContextCompiler
+public sealed partial class ContextCompiler : IContextCompiler
 {
-    private readonly IReadOnlyList<IContextContributor> _contributors =
-        (contributors ?? throw new ArgumentNullException(nameof(contributors)))
-            .OrderBy(c => c.Descriptor.Priority)
-            .ThenBy(c => c.Descriptor.Id, StringComparer.Ordinal)
-            .ToArray();
+    private readonly IReadOnlyList<IContextContributor> _contributors;
+    private readonly IMemoryIsolationPolicy _isolationPolicy;
+    private readonly TimeProvider _timeProvider;
+    private readonly ILogger<ContextCompiler> _logger;
+    private Modules.ModuleResolution? Resolution { get; }
+
+    /// <summary>Compiles legacy contributors without inferring module identity or emitting module spans.</summary>
+    public ContextCompiler(IEnumerable<IContextContributor> contributors, IMemoryIsolationPolicy isolationPolicy,
+        TimeProvider timeProvider, ILogger<ContextCompiler> logger)
+    {
+        _contributors = (contributors ?? throw new ArgumentNullException(nameof(contributors)))
+            .OrderBy(c => c.Descriptor.Priority).ThenBy(c => c.Descriptor.Id, StringComparer.Ordinal).ToArray();
+        _isolationPolicy = isolationPolicy;
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
+
+    /// <summary>Compiles explicitly host-bound module contributors with frozen metadata identities.</summary>
+    /// <remarks>Metadata resolution is not publisher trust or a runtime-set lease. Core uses the existing
+    /// CoreMemoryContextContributor; other contributors require distinct ids owned by the supplied modules.</remarks>
+    public ContextCompiler(Modules.ModuleResolution resolution, IEnumerable<IContextContributor> contributors,
+        IMemoryIsolationPolicy isolationPolicy, TimeProvider timeProvider, ILogger<ContextCompiler> logger)
+        : this(Bind(resolution, contributors), isolationPolicy, timeProvider, logger)
+    {
+        Resolution = resolution;
+    }
 
     /// <inheritdoc/>
     public async Task<ContextEnvelope> CompileAsync(
@@ -73,71 +90,95 @@ public sealed class ContextCompiler(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // THE OWNER IS RESOLVED BEFORE ANY CONTRIBUTOR SEES THE REQUEST. Passing the host's claimed
-        // owner to contributor code and only recording the resolved owner in the snapshot would still
-        // let a module query on the untrusted claim, which is the boundary this policy exists to set.
-        var resolved = isolationPolicy.ResolveReadScope(
-            explicitScope: null,
-            ownerId: request.Owner,
-            operationName: nameof(CompileAsync),
-            access: MemoryOperationAccess.Tenant);
-        var resolvedRequest = request with { Owner = resolved.OwnerId };
-
-        var sections = new List<ContextSection>();
-        var omissions = new List<ContextOmission>();
-
-        foreach (var contributor in _contributors)
+        using var compile = StartCompileActivity(excludedContributorIds);
+        try
         {
-            var id = contributor.Descriptor.Id;
+            // THE OWNER IS RESOLVED BEFORE ANY CONTRIBUTOR SEES THE REQUEST. Passing the host's claimed
+            // owner to contributor code and only recording the resolved owner in the snapshot would still
+            // let a module query on the untrusted claim, which is the boundary this policy exists to set.
+            var resolved = _isolationPolicy.ResolveReadScope(
+                explicitScope: null,
+                ownerId: request.Owner,
+                operationName: nameof(CompileAsync),
+                access: MemoryOperationAccess.Tenant);
+            var resolvedRequest = request with { Owner = resolved.OwnerId, ResolvedScope = resolved };
 
-            // SKIPPED BEFORE APPLIESASYNC, because the cost this avoids is the contributor's own
-            // work. Recording nothing is deliberate: see the interface remarks.
-            if (excludedContributorIds is not null && excludedContributorIds.Contains(id)) continue;
+            var sections = new List<ContextSection>();
+            var omissions = new List<ContextOmission>();
 
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
+            foreach (var contributor in _contributors)
             {
-                if (!await contributor.AppliesAsync(resolvedRequest, cancellationToken).ConfigureAwait(false))
+                var id = contributor.Descriptor.Id;
+
+                // SKIPPED BEFORE APPLIESASYNC, because the cost this avoids is the contributor's own
+                // work. Recording nothing is deliberate: see the interface remarks.
+                if (excludedContributorIds is not null && excludedContributorIds.Contains(id)) continue;
+
+                cancellationToken.ThrowIfCancellationRequested();
+                using var contribution = StartContributionActivity(contributor);
+
+                try
                 {
-                    omissions.Add(new ContextOmission(id, ContextOmissionReason.NotApplicable));
-                    continue;
+                    if (!await contributor.AppliesAsync(resolvedRequest, cancellationToken).ConfigureAwait(false))
+                    {
+                        omissions.Add(new ContextOmission(id, ContextOmissionReason.NotApplicable));
+                        ObserveOmission(compile, contribution, contributor, ContextOmissionReason.NotApplicable);
+                        continue;
+                    }
+
+                    var result = await contributor.ContributeResultAsync(resolvedRequest, cancellationToken)
+                        .ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if ((result.Section is null) == (result.OmissionReason is null)
+                        || result.OmissionReason is { } invalid && !Enum.IsDefined(invalid))
+                        throw new InvalidOperationException("A contribution requires exactly one section or a supported omission.");
+                    if (result.OmissionReason is { } reason)
+                    {
+                        omissions.Add(new ContextOmission(id, reason, result.Detail));
+                        ObserveOmission(compile, contribution, contributor, reason);
+                        continue;
+                    }
+                    var section = BindSection(contributor, result.Section!);
+                    sections.Add(section);
+                    if (contribution is { IsAllDataRequested: true })
+                        ObserveOutcome(contribution, "Section", section.Items.Count);
                 }
-
-                var section = await contributor.ContributeAsync(resolvedRequest, cancellationToken)
-                    .ConfigureAwait(false);
-
-                // A contributor that applied and returned nothing is NOT the same as one that did not
-                // apply, and the envelope says which by REASON rather than by a detail string: a
-                // caller switching on the reason could not tell them apart when both said
-                // NotApplicable, which made the public contract contradict its own documentation.
-                if (section is null)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    omissions.Add(new ContextOmission(id, ContextOmissionReason.SearchedAndEmpty));
-                    continue;
+                    ObserveOutcome(contribution, "Cancelled");
+                    throw;
                 }
+                catch (Exception exception)
+                {
+                    _logger.LogWarning(
+                        exception, "Context contributor '{ContributorId}' failed; recorded as omitted.", id);
+                    omissions.Add(new ContextOmission(
+                        id, ContextOmissionReason.Unavailable, exception.GetType().Name));
+                    ObserveOmission(compile, contribution, contributor, ContextOmissionReason.Unavailable);
+                }
+            }
 
-                sections.Add(section);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                logger.LogWarning(
-                    exception, "Context contributor '{ContributorId}' failed; recorded as omitted.", id);
-                omissions.Add(new ContextOmission(
-                    id, ContextOmissionReason.Unavailable, exception.GetType().Name));
-            }
+            // THE OWNER IS RESOLVED, NOT ECHOED, which is what the snapshot's own contract says it is.
+            // The request carries what the HOST claims; the policy decides what that means under the
+            // configured isolation mode, and the envelope records the decision. Copying the claim through
+            // would have made a field documented as evidence of enforcement into a restatement of the
+            // input -- true-looking, and unable to show that anything had been enforced.
+            var snapshot = new ContextSnapshot(resolved.OwnerId, request.AsOf, request.SystemAsOf);
+            var envelope = new ContextEnvelope(request, snapshot, sections, omissions, _timeProvider.GetUtcNow());
+            if (compile is { IsAllDataRequested: true })
+                ObserveOutcome(compile, omissions.Any(o => o.Reason == ContextOmissionReason.Unavailable) ? "Partial" : "Completed",
+                    sections.Sum(section => section.Items.Count));
+            return envelope;
         }
-
-        // THE OWNER IS RESOLVED, NOT ECHOED, which is what the snapshot's own contract says it is.
-        // The request carries what the HOST claims; the policy decides what that means under the
-        // configured isolation mode, and the envelope records the decision. Copying the claim through
-        // would have made a field documented as evidence of enforcement into a restatement of the
-        // input -- true-looking, and unable to show that anything had been enforced.
-        var snapshot = new ContextSnapshot(resolved.OwnerId, request.AsOf, request.SystemAsOf);
-        return new ContextEnvelope(request, snapshot, sections, omissions, timeProvider.GetUtcNow());
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            ObserveOutcome(compile, "Cancelled");
+            throw;
+        }
+        catch
+        {
+            ObserveOutcome(compile, "Unavailable");
+            throw;
+        }
     }
 }

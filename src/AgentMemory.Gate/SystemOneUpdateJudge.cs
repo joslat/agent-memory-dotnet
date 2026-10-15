@@ -6,9 +6,9 @@ namespace AgentMemory.Gate;
 
 /// <summary>
 /// The judge on the write path: one call, one yes/no question per pair, "does the new memory replace this stored one?",
-/// asked of the first configured judge (JEV, as measured). The write path closes at its own threshold.
+/// asked of the explicitly selected judge (or the first configured endpoint for legacy callers).
+/// The write path closes at its own threshold; retrieval blends never select storage policy.
 /// </summary>
-[Experimental("AMGATE001")]
 public sealed class SystemOneUpdateJudge : IMemoryUpdateJudge
 {
     private readonly SystemOneClient _client;
@@ -21,7 +21,11 @@ public sealed class SystemOneUpdateJudge : IMemoryUpdateJudge
     }
 
     /// <inheritdoc />
-    public bool IsEnabled => _options.Value.UpdateJudge && _options.Value.Judges.Any(j => j.Endpoint is not null);
+    public bool IsEnabled => _options.Value.UpdateJudge && Select(_options.Value) is not null;
+
+    private static SystemOneEndpoint? Select(MemoryGateOptions options) => options.UpdateJudgeName is null
+        ? options.Judges.FirstOrDefault(j => j.Endpoint is not null)
+        : options.Judges.SingleOrDefault(j => j.Endpoint is not null && j.Name == options.UpdateJudgeName);
 
     internal static readonly (string True, string False) Criteria =
         ("the stored memory stops being true now: it is changed, cancelled or corrected by the new one",
@@ -44,8 +48,10 @@ public sealed class SystemOneUpdateJudge : IMemoryUpdateJudge
     public Task<IReadOnlyDictionary<string, double>> JudgeAsync(MemoryUpdateRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var judge = _options.Value.Judges.First(j => j.Endpoint is not null);
-        return _client.AskAsync(judge, State(request), Questions(request), _options.Value, cancellationToken);
+        var options = _options.Value;
+        var judge = options.UpdateJudge ? Select(options) : null;
+        if (judge is null) throw new InvalidOperationException("No enabled storage-closing judge is selected.");
+        return _client.AskAsync(judge, State(request), Questions(request), options, cancellationToken);
     }
 
     internal static object State(MemoryUpdateRequest request) => new Dictionary<string, object?>

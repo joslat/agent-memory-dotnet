@@ -98,7 +98,7 @@ public sealed class WithinExtractionDedupTests
     public void Facts_that_differ_in_what_they_say_are_never_one_statement(
         string s1, string p1, string o1, string s2, string p2, string o2)
     {
-        PersistenceStage.MayBeOneStatement(F(s1, p1, o1), F(s2, p2, o2)).Should().BeFalse();
+        WithinExtractionFactDeduplication.MayBeOneStatement(F(s1, p1, o1), F(s2, p2, o2)).Should().BeFalse();
     }
 
     [Theory]
@@ -108,7 +108,7 @@ public sealed class WithinExtractionDedupTests
     [InlineData("user", "is training for", "half marathon", "user", "is training for", "the half marathon in April")]
     public void Rephrasings_of_one_slot_may_be_one_statement(string s1, string p1, string o1, string s2, string p2, string o2)
     {
-        PersistenceStage.MayBeOneStatement(F(s1, p1, o1), F(s2, p2, o2)).Should().BeTrue();
+        WithinExtractionFactDeduplication.MayBeOneStatement(F(s1, p1, o1), F(s2, p2, o2)).Should().BeTrue();
     }
 
     /// <summary>
@@ -147,7 +147,7 @@ public sealed class WithinExtractionDedupTests
         var march = F("user", "lives in", "Porto") with { ValidFrom = DateTimeOffset.Parse("2026-03-01T00:00:00Z") };
         var april = march with { ValidFrom = DateTimeOffset.Parse("2026-04-01T00:00:00Z") };
 
-        PersistenceStage.MayBeOneStatement(march, april).Should().BeFalse();
+        WithinExtractionFactDeduplication.MayBeOneStatement(march, april).Should().BeFalse();
     }
 
     [Fact]

@@ -46,6 +46,6 @@ public sealed record ExtractedPreference
     public string? Replaces { get; init; }
 
     /// <inheritdoc cref="ExtractedFact.ReplacesId"/>
-    [Experimental("AMWRITE001")]
+
     public string? ReplacesId { get; init; }
 }

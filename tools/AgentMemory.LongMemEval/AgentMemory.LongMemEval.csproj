@@ -27,6 +27,8 @@
          Pinned explicitly rather than suppressed: NU1903 is a real advisory, and NoWarn would
          hide the next one too. -->
     <PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.11" />
+    <!-- AgentEval/PDFsharp resolves PKCS 8.0.1; 8.0.2 fixes CVE-2026-70162 and CVE-2026-84008. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.2" />
   </ItemGroup>
 
   <ItemGroup>

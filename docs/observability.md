@@ -93,3 +93,27 @@ and owner or application ids are never attributes. Exceptions are recorded by ty
 
 Measured: about 0.7 µs per sampled span and about 17 ns per span with no listener; a full agent turn with
 every source enabled adds roughly 0.1 ms.
+
+## Experimental module ingestion
+
+Hosts using the explicit module pipeline can observe `memory.module.ingest` on the same `AgentMemory`
+source. One activity covers a selected provider's generation/admission/write, or a recorded replay.
+It carries frozen module/version/provider identity, a metadata-labelled resolution fingerprint,
+operation and existing outcome counts. Nested database activities inherit its parent context.
+No additional exporter or per-module source is registered.
+
+Owner IDs, source messages, memory text and raw exception details are excluded. Known outcomes do not
+claim uncertain writes succeeded; cancellation propagates. Empty/denied/unselected paths have no span.
+See [module tags and limits](extensions/modules.md#module-ingestion-telemetry).
+
+Explicitly resolution-bound compilation emits `memory.module.compile` and child
+`memory.module.contribute` activities, with frozen module/contributor metadata and typed omission events.
+Legacy, core-only and excluded paths emit no module spans.
+[Binding, outcomes and off behavior](extensions/modules.md#module-compiler-telemetry).
+Explicit migration plan/apply and owned steps emit `memory.module.migrate`; shared bookkeeping stays
+set-level while each attempted step carries its actual module identity and a one-definition step count. See
+[migration fields and outcomes](extensions/modules.md#module-migration-telemetry).
+The packaged Commitments native harness verifies these activities against actual isolated Neo4j
+transactions, including source-bound identities, core-only controls, replay and retained-data upgrade.
+These are deterministic instrumentation checks, not model-effectiveness measurements. Runtime lifecycle
+trace coverage remains separate.

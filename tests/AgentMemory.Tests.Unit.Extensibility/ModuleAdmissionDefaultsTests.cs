@@ -98,6 +98,36 @@ public sealed class ModuleAdmissionDefaultsTests
         produced.Instructions.Should().Contain("plain.section");
     }
 
+    [Theory]
+    [InlineData("assistant")]
+    [InlineData("tool")]
+    public async Task ModuleQueryUsesLastUserQuestionWhenAnotherRoleTrails(string role)
+    {
+        // Exercise the default result adapter on a real legacy contributor; interface substitutes
+        // intercept default interface methods instead of executing their implementation.
+        var contributor = new CapturingModuleContributor();
+        var harness = new DefaultsHarness(MemoryContextSecurityMode.Permissive, contributor);
+        var context = new AIContextProvider.InvokingContext(
+            harness.Context.Agent, harness.Context.Session,
+            new AIContext { Messages = [new ChatMessage(ChatRole.User, "Which tests failed?"), new ChatMessage(new ChatRole(role), "trailing non-question")] });
+
+        await harness.Provider.InvokingAsync(context, CancellationToken.None);
+
+        contributor.Requests.Should().ContainSingle().Which.Query.Should().Be("Which tests failed?");
+    }
+
+    private sealed class CapturingModuleContributor : IContextContributor
+    {
+        public ContextContributorDescriptor Descriptor { get; } = new("capture", new HashSet<string> { "capture.section" });
+        public List<ContextRequest> Requests { get; } = [];
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => ValueTask.FromResult(true);
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            return Task.FromResult<ContextSection?>(null);
+        }
+    }
+
     private sealed class InjectingModuleContributor : IContextContributor
     {
         public ContextContributorDescriptor Descriptor { get; } =

@@ -1,0 +1,10 @@
+{
+  "harness": "codex",
+  "project": "my-project",
+  "tokenVariable": "MY_PROJECT_MEMORY_TOKEN",
+  "repositoryRoot": "C:/git/my-project",
+  "stateDirectory": "C:/Users/YOU/AppData/Local/AgentMemory/my-project-codex-hooks",
+  "serviceUrl": "http://127.0.0.1:5234",
+  "timeoutMilliseconds": 2000,
+  "secretVariables": ["BITDEER_API_KEY", "NEO4J_PASSWORD", "JEV_API_KEY"]
+}

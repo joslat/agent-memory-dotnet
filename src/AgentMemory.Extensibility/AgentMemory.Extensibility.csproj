@@ -40,6 +40,8 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <!-- Abstractions again: the SDK offers registration helpers, it does not build a container. -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+    <!-- Host capability checks read the effective options; no configuration provider is installed. -->
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>
@@ -47,4 +49,15 @@
     <InternalsVisibleTo Include="AgentMemory.Extensibility.AgentFramework" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\shared\DependencyOrder.cs" Link="Shared\DependencyOrder.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Schemas/*.json" />
+    <None Include="Schemas/*.json" Pack="true" PackagePath="contentFiles/any/any/Schemas/" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../shared/ManagedEmbeddedResources.cs" Link="Shared/ManagedEmbeddedResources.cs" />
+  </ItemGroup>
 </Project>

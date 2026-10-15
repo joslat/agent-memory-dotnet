@@ -9,6 +9,8 @@ namespace AgentMemory.Core.Extraction;
 /// </summary>
 internal sealed record ExtractionStageResult
 {
+    public ExtractionPath Path { get; init; }
+
     // ── Raw extracted items — returned to callers via ExtractionResult ──
 
     public IReadOnlyList<ExtractedEntity> RawEntities { get; init; } = Array.Empty<ExtractedEntity>();
@@ -57,10 +59,10 @@ internal sealed record ExtractionStageResult
     /// </summary>
     public bool WrittenByWriter { get; init; }
 
-    /// <summary>AMWRITE001. Stored facts the writer said the turn says again: persistence reinforces them.</summary>
+    /// <summary>Stored facts the writer said the turn says again: persistence reinforces them.</summary>
     public IReadOnlyList<string> ConfirmedFactIds { get; init; } = Array.Empty<string>();
 
-    /// <summary>AMWRITE001. Stored preferences the writer said the turn says again: persistence reinforces them.</summary>
+    /// <summary>Stored preferences the writer said the turn says again: persistence reinforces them.</summary>
     public IReadOnlyList<string> ConfirmedPreferenceIds { get; init; } = Array.Empty<string>();
 
     /// <summary>

@@ -16,6 +16,8 @@ expected="$(mktemp)"
 actual="$(mktemp)"
 
 while IFS='|' read -r package_id project; do
+  # A CRLF blank line otherwise becomes a phantom package named carriage return.
+  package_id="${package_id%$'\r'}"
   [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
   printf '%s.%s.nupkg\n' "$package_id" "$VERSION"
 done < "$MANIFEST" | sort > "$expected"

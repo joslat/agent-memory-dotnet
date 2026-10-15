@@ -15,6 +15,14 @@ internal interface IExtractionStage
     IDisposable? BeginOrJoinResolutionBatch();
     void InvalidateResolutionBatch();
 
+    /// <summary>Uses explicit input intent without changing the legacy entry points.</summary>
+    Task<ExtractionStageResult> ExtractForInputAsync(
+        ExtractionWindow window,
+        ExtractionInputMode inputMode,
+        ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Extracts, merges, filters, validates, and resolves items from the given messages. When
     /// <paramref name="scope"/> is supplied (R1) entity resolution is confined to the owner's own and

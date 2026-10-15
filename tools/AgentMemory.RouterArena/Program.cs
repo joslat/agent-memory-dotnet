@@ -49,6 +49,27 @@ var dryRun = args.Contains("--dry-run");
 
 switch (args.FirstOrDefault())
 {
+    case "paired-gate":
+        if (Get("file") is not { } pairFile || Get("config") is not { } pairConfig || Get("out") is not { } pairOutput)
+        {
+            Console.WriteLine("router-arena paired-gate --data <folder> --file <pair.json> --config <gate.json> --out <new-directory> [--execute]");
+            return 1;
+        }
+        return await PairedGateCommand.RunAsync(pairFile, pairConfig, pairOutput, args.Contains("--execute"), Console.Out);
+    case "closing-evaluate":
+        if (Get("file") is not { } closingFile || Get("config") is not { } closingConfig || Get("out") is not { } closingOutput)
+        {
+            Console.WriteLine("router-arena closing-evaluate --data <folder> --file <pairs.json> --config <judge.json> --out <prefix> [--dry-run] [--limit n]");
+            return 1;
+        }
+        return await ClosingEvaluationCommand.RunAsync(closingFile, closingConfig, closingOutput, dryRun, Limit(), Console.Out);
+    case "compound-evaluate":
+        if (Get("file") is not { } compoundFile || Get("config") is not { } compoundConfig || Get("out") is not { } compoundOutput)
+        {
+            Console.WriteLine("router-arena compound-evaluate --data <folder> --file <fixed-pool.json> --config <gate.json> --out <prefix> [--dry-run] [--limit n]");
+            return 1;
+        }
+        return await CompoundEvaluationCommand.RunAsync(compoundFile, compoundConfig, compoundOutput, dryRun, Limit(), Console.Out);
     case "record":
         if (Get("world") is not { } world || Get("items") is not { } items || Get("out") is not { } output)
         {
@@ -366,7 +387,8 @@ switch (args.FirstOrDefault())
         return await new AgentMemory.RouterArena.Record.StoreSessions(Console.Out).RunAsync(Path.Combine(worldDir, $"{worldName}.pack.json"),
             Path.Combine(worldDir, "sets"), form, Get("out") ?? Path.Combine(strategy, "performance", "runs", "2026-10-04_eye", "storage",
                 worldName, $"store-sessions-{form}.json"), dryRun, Limit(), set: worldSet, ownerName: Get("owner-name"),
-                recall: args.Contains("--recall"), consolidate: args.Contains("--consolidate"));
+                recall: args.Contains("--recall"), consolidate: args.Contains("--consolidate"), recordProvenance: args.Contains("--record-provenance"),
+                searchCasesPath: Get("search-cases"));
     }
     case "probe-relationships":
     {
@@ -435,6 +457,6 @@ switch (args.FirstOrDefault())
         Console.WriteLine($"matrix: {matrix.Items.Count} turns, dev {matrix.InSplit("dev").Count()}, held out {matrix.InSplit("heldout").Count()}, sha256 {matrix.Sha256[..12]}");
         return 0;
     default:
-        Console.WriteLine("router-arena record | ask-model | ask-jev --mode doors|gates|items | round1 | round2 | final | leaderboard | inspect  [--set v1|v2] [--dry-run] [--limit n]");
+        Console.WriteLine("router-arena record | ask-model | ask-jev --mode doors|gates|items | compound-evaluate | round1 | round2 | final | leaderboard | inspect  [--set v1|v2] [--dry-run] [--limit n]");
         return args.Length == 0 ? 0 : 1;
 }

@@ -12,6 +12,19 @@ CONSUMERS_DIR="eng/package-consumers"
 TFMS=(net8.0 net9.0 net10.0)
 
 ARTIFACTS_ABS="$(cd "$ARTIFACTS" && pwd)"
+# NuGet expects a native filesystem path for a local feed on Windows.
+case "${OSTYPE:-}" in
+  msys*|cygwin*) ARTIFACTS_ABS="$(cygpath -w "$ARTIFACTS_ABS")" ;;
+esac
+
+# Keep feeds as separate configuration entries. Passing multiple --source arguments can be
+# normalized as one filesystem path by the Windows SDK, corrupting the HTTPS feed URL.
+# Use the NuGet CLI to encode paths (including spaces/XML characters), and exclude ambient feeds.
+sources_config="$(mktemp)"
+trap 'rm -f "$sources_config"' EXIT
+printf '<configuration><packageSources><clear /></packageSources></configuration>\n' > "$sources_config"
+dotnet nuget add source "$ARTIFACTS_ABS" --name freshly-packed --configfile "$sources_config"
+dotnet nuget add source https://api.nuget.org/v3/index.json --name nuget.org --configfile "$sources_config"
 
 for consumer in "$CONSUMERS_DIR"/Consumer.*/; do
   name="$(basename "$consumer")"
@@ -20,8 +33,7 @@ for consumer in "$CONSUMERS_DIR"/Consumer.*/; do
   echo "== $name: restore =="
   dotnet restore "$proj" \
     -p:ConsumerPackageVersion="$VERSION" \
-    --source "$ARTIFACTS_ABS" \
-    --source https://api.nuget.org/v3/index.json
+    --configfile "$sources_config"
 
   for tfm in "${TFMS[@]}"; do
     echo "== $name ($tfm): build =="

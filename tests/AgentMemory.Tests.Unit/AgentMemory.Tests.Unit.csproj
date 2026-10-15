@@ -53,4 +53,11 @@
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge.Nams\AgentMemory.TckBridge.Nams.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../Fixtures/ModuleMigrationFixture/ModuleMigrationFixture.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyModuleMigrationFixture" AfterTargets="Build">
+    <MakeDir Directories="$(OutDir)ModuleFixtures" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)../Fixtures/ModuleMigrationFixture/bin/$(Configuration)/net10.0/ModuleMigrationFixture.dll" DestinationFolder="$(OutDir)ModuleFixtures" />
+  </Target>
 </Project>

@@ -309,10 +309,10 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 now = now.ToString("O"),
                 minMentions = Math.Max(1, _options.MinRecentTopicMentions),
                 limit = Math.Max(1, _options.MaxRecentTopics),
-                selfWords = AgentMemory.Core.Extraction.PersistenceStage.UserNames.SelfWords,
-                selfKeys = AgentMemory.Core.Extraction.PersistenceStage.UserNames.SelfWords
+                selfWords = AgentMemory.Core.Extraction.MemoryUserNames.SelfWords,
+                selfKeys = AgentMemory.Core.Extraction.MemoryUserNames.SelfWords
                     .Select(AgentMemory.Core.Memory.MemoryTripleCanonicalizer.CanonicalValue).Distinct().ToList(),
-                namingKeys = AgentMemory.Core.Extraction.PersistenceStage.UserNames.NamingPredicates
+                namingKeys = AgentMemory.Core.Extraction.MemoryUserNames.NamingPredicates
                     .Select(AgentMemory.Core.Memory.MemoryTripleCanonicalizer.Canonical).Distinct().ToList(),
             }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);

@@ -125,10 +125,19 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
     }
 
     /// <inheritdoc/>
-    public async Task<ExtractionResult> ExtractAsync(
+    public Task<ExtractionResult> ExtractAsync(
         ExtractionRequest request,
+        CancellationToken cancellationToken = default) =>
+        ExtractRequestAsync(request, resolvedTarget: null, cancellationToken);
+
+    // Batch preflight resolves all targets before any provider or persistence work. Reuse those
+    // exact decisions: a custom policy must not be called again after extraction has started.
+    private async Task<ExtractionResult> ExtractRequestAsync(
+        ExtractionRequest request,
+        (MemoryScope? Scope, string? OwnerId)? resolvedTarget,
         CancellationToken cancellationToken = default)
     {
+        ExtractionInputValidation.Validate(request);
         var sw = Stopwatch.StartNew();
         _logger.LogDebug(
             "Starting extraction for session {SessionId}, {MessageCount} messages.",
@@ -138,7 +147,7 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         // own + shared entities, so an incoming entity can't resolve onto another owner's private entity.
         // Resolved through the central isolation policy (#100) so SingleTenant/WarnOnUnscoped/
         // StrictMultiTenant behave identically for extraction as for every other tenant operation.
-        var (scope, ownerId) = ResolveTarget(request, nameof(ExtractAsync));
+        var (scope, ownerId) = resolvedTarget ?? ResolveTarget(request, nameof(ExtractAsync));
 
         // H-1: a single request is a batch of one. Without it the name pre-embedding (one request for all
         // new names) never ran on this path, the one every agent turn takes: four new names cost four
@@ -150,7 +159,11 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         // mention counts on facts that merely stayed inside the window.
         // Without context, the original call — the off state stays identical at the call itself, not
         // merely in what the extractors end up seeing.
-        var staged = request.ContextMessages.Count == 0
+        var staged = request.InputMode != ExtractionInputMode.Unspecified
+            ? await _extractionStage.ExtractForInputAsync(
+                new ExtractionWindow { Targets = request.Messages, Context = request.ContextMessages },
+                request.InputMode, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false)
+            : request.ContextMessages.Count == 0
             ? await _extractionStage.ExtractAsync(
                 request.Messages, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false)
             : await _extractionStage.ExtractWithContextAsync(
@@ -177,6 +190,7 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
 
         return new ExtractionResult
         {
+            Path = staged.Path,
             Entities = staged.RawEntities,
             Facts = staged.RawFacts,
             Preferences = staged.RawPreferences,

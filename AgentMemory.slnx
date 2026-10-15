@@ -29,6 +29,7 @@
     <Project Path="src/AgentMemory.McpServer/AgentMemory.McpServer.csproj" />
     <Project Path="src/AgentMemory.Nams/AgentMemory.Nams.csproj" />
     <Project Path="src/AgentMemory.AgentFramework.Nams/AgentMemory.AgentFramework.Nams.csproj" />
+    <Project Path="src/AgentMemory.Extensibility.Neo4j/AgentMemory.Extensibility.Neo4j.csproj" />
     <Project Path="src/AgentMemory.Extensibility/AgentMemory.Extensibility.csproj" />
     <Project Path="src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj" />
     <Project Path="src/AgentMemory.Gate/AgentMemory.Gate.csproj" />
@@ -53,5 +54,9 @@
     <Project Path="tests/AgentMemory.Tests.Unit.LongMemEval/AgentMemory.Tests.Unit.LongMemEval.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit.Extensibility/AgentMemory.Tests.Unit.Extensibility.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit.SemanticKernel/AgentMemory.Tests.Unit.SemanticKernel.csproj" />
+  </Folder>
+  <Folder Name="/tests/Fixtures/">
+    <Project Path="tests/Fixtures/ModuleDiscoveryFixture/ModuleDiscoveryFixture.csproj" />
+    <Project Path="tests/Fixtures/ModuleMigrationFixture/ModuleMigrationFixture.csproj" />
   </Folder>
 </Solution>

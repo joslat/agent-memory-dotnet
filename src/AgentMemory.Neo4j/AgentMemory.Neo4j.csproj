@@ -16,9 +16,8 @@
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- Implements the store-aware writer's searches (FindMentioningAsync), experimental as AMWRITE001. -->
-    <NoWarn>$(NoWarn);AMWRITE001;AMDREAM001</NoWarn>
-    <Description>Neo4j persistence and retrieval for AgentMemory for .NET — repositories, schema bootstrapper, and GraphRAG retrievers (vector, fulltext, hybrid, graph).</Description>
+    <NoWarn>$(NoWarn);AMDREAM001</NoWarn>
+    <Description>Neo4j persistence and retrieval for AgentMemory for .NET â€” repositories, schema bootstrapper, and GraphRAG retrievers (vector, fulltext, hybrid, graph).</Description>
     <PackageTags>agent-memory;neo4j;graphrag;memory;ai</PackageTags>
   </PropertyGroup>
 
@@ -49,4 +48,12 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\shared\DependencyOrder.cs" Link="Shared\DependencyOrder.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../../shared/AdditiveMigrationLint.cs" Link="Shared/AdditiveMigrationLint.cs" />
+    <Compile Include="../../shared/ModuleBookkeepingSchema.cs" Link="Shared/ModuleBookkeepingSchema.cs" />
+  </ItemGroup>
 </Project>

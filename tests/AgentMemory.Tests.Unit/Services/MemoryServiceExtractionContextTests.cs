@@ -73,6 +73,34 @@ public sealed class MemoryServiceExtractionContextTests
             .Single(c => c.GetMethodInfo().Name == nameof(IMemoryExtractionPipeline.ExtractAsync))
             .GetArguments()[0]!;
 
+    [Theory]
+    [InlineData(ExtractionInputMode.ConversationTurn)]
+    [InlineData(ExtractionInputMode.Import)]
+    public async Task Explicit_mode_rejects_deferral_before_context_or_pipeline_work(ExtractionInputMode mode)
+    {
+        var request = new ExtractionRequest
+        {
+            Messages = [M("m1", "Can you help?")], SessionId = "s-1", InputMode = mode, DeferIfOnlyAsking = true,
+        };
+        await CreateSut(contextTurns: 3).Invoking(s => s.ExtractAndPersistAsync(request)).Should().ThrowAsync<ArgumentException>();
+        _shortTerm.ReceivedCalls().Should().BeEmpty();
+        _pipeline.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(ExtractionInputMode.ConversationTurn)]
+    [InlineData(ExtractionInputMode.Import)]
+    public async Task Context_enrichment_preserves_explicit_mode(ExtractionInputMode mode)
+    {
+        SessionHolds(M("earlier", "My sister is Alice."));
+        await CreateSut(contextTurns: 3).ExtractAndPersistAsync(new ExtractionRequest
+        {
+            Messages = [M("m1", "She lives in Madrid.")], SessionId = "s-1", InputMode = mode,
+        });
+        CapturedRequest().InputMode.Should().Be(mode);
+        CapturedRequest().ContextMessages.Should().ContainSingle(m => m.MessageId == "earlier");
+    }
+
     private Task ExtractAsync(int contextTurns, params Message[] targets) =>
         CreateSut(contextTurns).ExtractAndPersistAsync(
             new ExtractionRequest { Messages = targets, SessionId = "s-1" });

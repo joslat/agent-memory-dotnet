@@ -15,7 +15,7 @@ namespace AgentMemory.Tests.Unit.Extraction;
 
 /// <summary>
 /// AMWRITE001: the store-aware writer, storage round 3's selected form F ported from the research harness. Its prompt is the
-/// harness's word for word; its reply is read as the harness read it; the extraction stage asks it instead of the extractors
+/// harness-derived, with explicit retention rules; the extraction stage asks it instead of the extractors
 /// only when it is enabled; and persistence closes only the stored memories it named, each confirmed by the update judge.
 /// </summary>
 public sealed class MemoryWriterTests
@@ -24,6 +24,7 @@ public sealed class MemoryWriterTests
     /// The harness's system prompt for form F and the person Lukas (round3.py run_turn, storage_round2.py p2), with one rule
     /// line and one operation added on 2026-10-10 (what the turn says again is confirmed, so it is reinforced), and two rules
     /// the same day: an event ends what it changes, and a one-off is stored with the date it ends ("until").
+    /// The 13 October aspiration rule distinguishes desired contributions from reactions and invented commitments.
     /// </summary>
     private const string HarnessSystemLukas =
         "You write Lukas's long-term memory of one kind: every kind = \n" +
@@ -44,9 +45,12 @@ public sealed class MemoryWriterTests
         "  morning, she asked me to braid her hair today) stays true: store it with its date, never with \"until\".\n" +
         "- A question stores nothing, unless it also tells something (\"I'm off to Seville on the 13th, what should I pack?\" stores\n" +
         "  the trip and its date).\n" +
+        "- Separate a personal aspiration from its emotional wording. Wanting to contribute or make an impact in a named\n" +
+        "  activity is a goal even without a date, concrete steps or a promise. Keep it as a wish, aim or value, not as\n" +
+        "  an activity already started or a firm commitment. A stored taste does not already cover a new goal.\n" +
         "- Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.\n" +
-        "  A lasting goal, value, commitment or fact said with feeling is kept; only the feeling is not (\"I'm excited to\n" +
-        "  start volunteering with therapy dogs\" keeps the volunteering).\n" +
+        "  Praise or excitement alone is not a personal goal. Earlier assistant suggestions alone are not the person's\n" +
+        "  intentions; keep only what the last user message actually says about their wishes, plans, values or facts.\n" +
         "- What is already stored is not stored again, in any words: when the last message says it again and adds nothing,\n" +
         "  confirm it. When it says it again with anything more (a reason, a goal, a detail, a number, a name, a date),\n" +
         "  replace the stored memory with the fuller one.\n" +
@@ -67,7 +71,7 @@ public sealed class MemoryWriterTests
         "Set \"kind\" on every operation to fact, preference, entity or relationship.";
 
     [Fact]
-    public void The_system_prompt_is_the_measured_one_with_the_confirm()
+    public void The_system_prompt_matches_the_versioned_retention_rules()
     {
         MemoryWriterPrompt.System("Lukas", maxOperations: 6).Should().Be(HarnessSystemLukas);
     }
@@ -233,6 +237,53 @@ public sealed class MemoryWriterTests
         result.Relationships.Should().ContainSingle().Which.Should().BeEquivalentTo(new { SourceEntity = "Mia", TargetEntity = "Lukas", RelationshipType = "SISTER_OF" });
     }
 
+    [Theory]
+    [InlineData("add")]
+    [InlineData("replace")]
+    [InlineData("correct")]
+    public void A_fact_with_the_prompt_format_wrapper_does_not_store_the_wrapper(string action)
+    {
+        // Observed in the real smoke: subject 'fact: "Alice', object 'Lisbon"'.
+        var stored = MemoryWriterOps.Stored.Number([new MemoryWriterOps.Stored("old-city", 'F', "Alice | lives in | Porto")]);
+        var reply = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            ops = new[] { new { op = action, kind = "fact", text = "fact: \"Alice | lives in | Lisbon\"", id = "F1" } },
+        });
+
+        MemoryWriterOps.TryParse(reply, 6, out var ops).Should().BeTrue();
+        var fact = MemoryWriterOps.ToResult(ops, stored, "Alice").Facts.Should().ContainSingle().Subject;
+
+        fact.Should().BeEquivalentTo(new
+        {
+            Subject = "Alice", Predicate = "lives in", Object = "Lisbon",
+            ReplacesId = action == "add" ? null : "old-city",
+            ReplacementIsCorrection = action == "correct",
+        });
+    }
+
+    [Theory]
+    [InlineData("Alice | calls home | \"Lisbon\"", "Alice", "calls home", "\"Lisbon\"")]
+    [InlineData("\"Alice\" | lives in | Lisbon", "\"Alice\"", "lives in", "Lisbon")]
+    [InlineData("fact: fiction | is | a book title", "fact: fiction", "is", "a book title")]
+    [InlineData("fact: \"Alice | lives in | Lisbon", "fact: \"Alice", "lives in", "Lisbon")]
+    [InlineData("fact: \"Alice | Lisbon\"", "fact: \"Alice", "is", "Lisbon\"")]
+    [InlineData("fact: \"Alice mentioned Lisbon\"", "Alice", "noted", "fact: \"Alice mentioned Lisbon\"")]
+    [InlineData("fact: \"", "Alice", "noted", "fact: \"")]
+    public void Fact_format_cleanup_preserves_content_without_a_complete_triple_wrapper(string text, string subject, string predicate, string value)
+    {
+        var fact = MemoryWriterOps.ToResult([new("add", "fact", text, null)], [], "Alice").Facts.Single();
+
+        fact.Should().BeEquivalentTo(new { Subject = subject, Predicate = predicate, Object = value });
+    }
+
+    [Fact]
+    public void A_wrapped_fact_preserves_quotes_and_pipes_within_its_object()
+    {
+        var fact = MemoryWriterOps.ToResult([new("add", "fact", "fact: \"Alice | reads | \"Porto | Lisbon\"\"", null)], [], "Alice").Facts.Single();
+
+        fact.Should().BeEquivalentTo(new { Subject = "Alice", Predicate = "reads", Object = "\"Porto | Lisbon\"" });
+    }
+
     [Fact]
     public void A_replace_may_end_a_stored_connection_from_a_fact_or_from_a_connection()
     {
@@ -264,6 +315,23 @@ public sealed class MemoryWriterTests
         MemoryWriterOps.TryParse(reply, 6, out var ops).Should().BeTrue();
 
         ops.Should().ContainSingle().Which.Should().Be(new MemoryWriterOps.Op("confirm", "fact", "", "P1"));
+    }
+
+    [Theory]
+    [InlineData("replace", false)]
+    [InlineData("correct", true)]
+    public void A_relationship_shaped_fact_replacement_keeps_the_fact_and_its_target(string action, bool correction)
+    {
+        var stored = MemoryWriterOps.Stored.Number([new MemoryWriterOps.Stored("engagement-fact", 'F', "Alice | is engaged to | Bob")]);
+
+        var result = MemoryWriterOps.ToResult([new(action, "relationship", "Alice -[MARRIED_TO]-> Bob", "F1")], stored, "Alice");
+
+        result.Facts.Should().ContainSingle().Which.Should().BeEquivalentTo(new
+        {
+            Subject = "Alice", Predicate = "married to", Object = "Bob",
+            ReplacesId = "engagement-fact", ReplacementIsCorrection = correction,
+        });
+        result.Relationships.Should().BeEmpty("a fact replacement must not depend on separately persisted entity endpoints");
     }
 
     [Fact]
@@ -506,14 +574,81 @@ public sealed class PersistenceStageMemoryWriterTests
     [Fact]
     public async Task When_the_update_judge_fails_the_host_model_judges_the_named_closing()
     {
+        MemoryUpdateRequest? outsideRequest = null;
         _judge.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>())
-            .Returns<IReadOnlyDictionary<string, double>>(_ => throw new HttpRequestException("the judge is down"));
+            .Returns<IReadOnlyDictionary<string, double>>(ci =>
+            {
+                outsideRequest = ci.Arg<MemoryUpdateRequest>();
+                throw new HttpRequestException("the judge is down");
+            });
         HostSays(1.0);
 
         await CreateSut(withHost: true).PersistAsync(MovedToLeoben(), ownerId: "lukas");
 
         await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
-        await _host.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Named), Arg.Any<CancellationToken>());
+        await _host.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Named && ReferenceEquals(r, outsideRequest)), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(0.60)]
+    [InlineData(1.0)]
+    public async Task Named_threshold_is_inclusive(double score)
+    {
+        JudgeSays(score);
+
+        await CreateSut().PersistAsync(MovedToLeoben(), ownerId: "lukas");
+
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Named_batch_preserves_score_key_semantics_and_does_not_fallback_for_partial_answers(bool missing)
+    {
+        _idGen.GenerateId().Returns("fact-new", "fact-other");
+        _factRepo.GetByIdAsync("fact-other-old", Arg.Any<CancellationToken>())
+            .Returns(Graz with { FactId = "fact-other-old", Subject = "Iris" });
+        var scores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["P1"] = 0.60, ["unasked"] = 1.0,
+        };
+        if (!missing) scores["P2"] = double.NaN;
+        _judge.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>()).Returns(scores);
+        var turn = new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "We moved.", WrittenByWriter = true,
+            FilteredFacts = [MovedToLeoben().FilteredFacts[0],
+                new ExtractedFact { Subject = "Iris", Predicate = "lives in", Object = "Vienna", ReplacesId = "fact-other-old" }],
+        };
+
+        await CreateSut(withHost: true).PersistAsync(turn, ownerId: "lukas");
+
+        await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Named && r.Said == "We moved."
+            && r.Now == _clock.UtcNow && r.Pairs.Count == 2 && r.Pairs[0].Key == "p1" && r.Pairs[1].Key == "p2"
+            && r.Pairs[0].NewMemory == "Lukas | lives in | Leoben" && r.Pairs[1].NewMemory == "Iris | lives in | Vienna"),
+            Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().SupersedeAsync("fact-other-old", Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _host.DidNotReceiveWithAnyArgs().JudgeAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Cancellation_during_named_judging_never_invokes_the_host_fallback()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _judge.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), cancellation.Token)
+            .Returns<IReadOnlyDictionary<string, double>>(_ =>
+            {
+                cancellation.Cancel();
+                throw new OperationCanceledException(cancellation.Token);
+            });
+
+        var act = () => CreateSut(withHost: true).PersistAsync(MovedToLeoben(), ownerId: "lukas", cancellationToken: cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        await _host.DidNotReceiveWithAnyArgs().JudgeAsync(default!, default);
+        await _factRepo.DidNotReceiveWithAnyArgs().SupersedeAsync(default!, default!, default, default);
     }
 
     [Fact]
@@ -605,7 +740,12 @@ public sealed class PersistenceStageMemoryWriterTests
     [Theory]
     [InlineData(0.59)]
     [InlineData(0.1)]
-    public async Task Below_the_threshold_both_stay(double p)
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    [InlineData(1.01)]
+    [InlineData(-0.01)]
+    public async Task Invalid_or_below_threshold_scores_leave_both_memories(double p)
     {
         JudgeSays(p);
 
@@ -613,6 +753,21 @@ public sealed class PersistenceStageMemoryWriterTests
 
         result.FactCount.Should().Be(1);
         await _factRepo.DidNotReceive().SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(1.01)]
+    public async Task Invalid_fallback_scores_leave_both_memories(double p)
+    {
+        HostSays(p);
+
+        var result = await CreateSut(withJudge: false, withHost: true).PersistAsync(MovedToLeoben(), ownerId: "lukas");
+
+        result.FactCount.Should().Be(1);
+        await _host.Received(1).JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceiveWithAnyArgs().SupersedeAsync(default!, default!, default, default);
     }
 
     [Fact]
@@ -692,6 +847,9 @@ public sealed class PersistenceStageMemoryWriterTests
 
     [Theory]
     [InlineData(0.59, "lukas", false)]   // the judge does not confirm
+    [InlineData(double.NaN, "lukas", false)]
+    [InlineData(double.PositiveInfinity, "lukas", false)]
+    [InlineData(1.01, "lukas", false)]
     [InlineData(0.99, "bob", false)]     // another owner's connection
     [InlineData(0.99, "lukas", true)]    // a connection that already ended
     public async Task A_named_connection_otherwise_stays(double p, string owner, bool ended)
@@ -805,6 +963,37 @@ public sealed class PersistenceStageMemoryWriterTests
 
         await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Pairs.Count == 1), Arg.Any<CancellationToken>());
         await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Identical_new_facts_keep_each_distinct_named_closing_after_deduplication()
+    {
+        JudgeSays(0.95);
+        _factRepo.GetByIdAsync("fact-plan", Arg.Any<CancellationToken>()).Returns(Graz with
+        {
+            FactId = "fact-plan", Predicate = "plans to move to", Object = "Leoben",
+        });
+        _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns([1f, 0f, 0f, 0f]);
+        _orchestrator.EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => (IReadOnlyList<float[]>)ci.Arg<IReadOnlyList<string>>().Select(_ => new[] { 1f, 0f, 0f, 0f }).ToList());
+        var sut = new PersistenceStage(_orchestrator, _entityRepo, _factRepo, _prefRepo, _relRepo, _clock, _idGen,
+            NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
+            Options.Create(new ExtractionOptions { DeduplicateWithinExtraction = true }), updateJudge: _judge);
+
+        await sut.PersistAsync(new ExtractionStageResult
+        {
+            SourceMessageIds = ["msg-1"], SourceText = "We moved to Leoben.", WrittenByWriter = true,
+            FilteredFacts =
+            [
+                new ExtractedFact { Subject = "Lukas", Predicate = "lives in", Object = "Leoben", ReplacesId = "fact-graz" },
+                new ExtractedFact { Subject = "Lukas", Predicate = "lives in", Object = "Leoben", ReplacesId = "fact-plan" },
+            ],
+        }, ownerId: "lukas");
+
+        await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Pairs.Count == 2), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).SupersedeAsync("fact-plan", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]

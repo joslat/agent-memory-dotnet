@@ -176,6 +176,8 @@ extension's scripts and skips them through the ordinary applied-check.
 
 ## Shipped extensions
 
+- [`module-bookkeeping`](module-bookkeeping.md) - optional SDK ledger ownership metadata; no core migration scripts.
+
 - [`procedural`](procedural.md) — the `trace_kind` promotion marker.
 - [`working-memory`](working-memory.md) — the compiled per-owner profile block on upstream's `:User`.
 - [`delta-recall`](delta-recall.md) — RANGE indexes over the clocks "what changed since I last looked?"
@@ -183,7 +185,9 @@ extension's scripts and skips them through the ordinary applied-check.
 - [`arithmetic`](arithmetic.md) — the session accountant's materialised aggregates: `fact_kind='derived'`
   on `:Fact` plus one `DERIVED_FROM` edge, for answers that must be computed rather than found.
 
-Four ids, frozen: `arithmetic`, `delta-recall`, `procedural`, `working-memory`. An id is load-bearing
+Five registered ids: `arithmetic`, `delta-recall`, `module-bookkeeping`, `procedural`, `working-memory`.
+The ledger declaration has no core migration scripts; explicit module application is separate.
+For extensions with scripts, an id is load-bearing
 inside `(:Migration).version` keys, so renaming one orphans applied migrations on every database that
 has them — which is why a test pins the list.
 
@@ -298,3 +302,9 @@ Two shapes that look like mistakes and are not: an extension with **no migration
 its DDL is base-resident), and an extension with **no declarations at all** (delta-recall — it declares
 seven indexes through its migration and nothing else, because an index is invisible to the parity
 verifier by construction).
+
+## Experimental module SDK
+
+The separate [module SDK](modules.md) documents its current source capabilities and limits.
+It is held out of the core release inventory; it does not change the built-in extension registration
+contract described above.

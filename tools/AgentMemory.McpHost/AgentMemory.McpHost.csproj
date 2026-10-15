@@ -20,13 +20,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <EmbeddedResource Include="Coding/Page/*" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Option parsing is the part most likely to be quietly wrong and least likely to be caught by
          running the server, so it is unit-tested directly rather than through reflection. -->
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,6 +38,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extraction.Llm\AgentMemory.Extraction.Llm.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Gate\AgentMemory.Gate.csproj" />
   </ItemGroup>
 
   <ItemGroup>

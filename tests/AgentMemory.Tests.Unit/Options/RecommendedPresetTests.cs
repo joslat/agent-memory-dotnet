@@ -15,16 +15,17 @@ namespace AgentMemory.Tests.Unit.OptionsTests;
 public sealed class RecommendedPresetTests
 {
     [Fact]
-    public void The_memory_half_is_the_conversational_preset_with_bitemporal_changes()
+    public void The_memory_half_keeps_conversational_compatibility_but_disables_automatic_query_splitting()
     {
         var recommended = MemoryOptions.CreateRecommended();
         var conversational = MemoryOptions.CreateConversational();
 
         recommended.Extraction.BitemporalChanges.Should().BeTrue();
         recommended.Projection.ResolveSupersessions.Should().BeTrue();
+        recommended.FanOut.Enabled.Should().BeFalse("the recommended gate judges the original query without automatic extra searches");
         recommended.Should().BeEquivalentTo(conversational, o => o.Excluding(x => x.Extraction.BitemporalChanges)
-                .Excluding(x => x.Projection.ResolveSupersessions),
-            "everything else is the Conversational preset");
+                .Excluding(x => x.Projection.ResolveSupersessions).Excluding(x => x.FanOut.Enabled),
+            "all other Conversational settings remain compatible");
     }
 
     [Fact]
@@ -38,6 +39,11 @@ public sealed class RecommendedPresetTests
         MemoryOptions.CreateConversational().Projection.ResolveSupersessions.Should().BeFalse("the Conversational preset is frozen");
         new MemoryOptions().Isolation.Mode.Should().Be(MemoryIsolationMode.SingleTenant);
         MemoryOptions.CreateRecommended().Extraction.Should().NotBeSameAs(MemoryOptions.CreateRecommended().Extraction);
+        MemoryOptions.CreateConversational().FanOut.Enabled.Should().BeTrue("the existing preset remains frozen");
+        var customized = MemoryOptions.CreateRecommended();
+        customized.FanOut.Enabled = true;
+        customized.FanOut.Enabled.Should().BeTrue("hosts retain an explicit override");
+        MemoryOptions.CreateRecommended().FanOut.Enabled.Should().BeFalse("a host override must not mutate later presets");
     }
 
     [Fact]
@@ -75,5 +81,29 @@ public sealed class RecommendedPresetTests
     public void Question_turns_are_not_held_by_default()
     {
         new AgentFrameworkOptions().DeferQuestionTurns.Should().BeFalse();
+    }
+
+    [Fact]
+    public void The_framework_half_migrates_conversational_deferral_without_resetting_host_options()
+    {
+        var options = new AgentFrameworkOptions
+        {
+            ExtractInBackground = false,
+            AutoExtractOnPersist = false,
+            IncludePendingTurns = true,
+            DefaultSessionIdKey = "custom_session",
+        }.ApplyConversational();
+        var expected = new AgentFrameworkOptions
+        {
+            ExtractInBackground = false,
+            AutoExtractOnPersist = false,
+            IncludePendingTurns = true,
+            DefaultSessionIdKey = "custom_session",
+        };
+
+        options.ApplyRecommended().Should().BeSameAs(options);
+
+        options.Should().BeEquivalentTo(expected);
+        new AgentFrameworkOptions().ApplyConversational().DeferQuestionTurns.Should().BeTrue();
     }
 }

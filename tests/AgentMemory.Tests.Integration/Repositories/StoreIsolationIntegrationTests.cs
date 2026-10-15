@@ -21,7 +21,7 @@ namespace AgentMemory.Tests.Integration.Repositories;
 /// </summary>
 [Trait("Category", "Integration")]
 [Trait("Edition", "Enterprise")] // pulls neo4j:*-enterprise + accepts the eval license; filter with Edition!=Enterprise to skip
-public sealed class StoreIsolationIntegrationTests : IAsyncLifetime
+public sealed partial class StoreIsolationIntegrationTests : IAsyncLifetime
 {
     private const string Username = "neo4j";
     private const string Password = "testpassword";

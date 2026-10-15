@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "agent-memory": {
+      "type": "http",
+      "url": "http://127.0.0.1:5234/projects/my-project/mcp",
+      "headers": { "Authorization": "Bearer ${input:projectMemoryToken}" }
+    }
+  },
+  "inputs": [
+    { "type": "promptString", "id": "projectMemoryToken", "description": "Project memory token", "password": true }
+  ]
+}

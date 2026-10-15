@@ -38,6 +38,7 @@ namespace AgentMemory.Tests.Integration.Repositories;
 /// </para>
 /// </remarks>
 [Collection("Neo4j Integration")]
+[Trait("Category", "Integration")]
 public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
 {
     private const int Owners = 50;

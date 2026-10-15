@@ -1,9 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using AgentMemory.AgentFramework;
-using AgentMemory.AgentFramework.Mapping;
 using AgentMemory.AgentFramework.Security;
-using AgentMemory.Abstractions.Domain;
 using AgentMemory.Extensibility.Context;
 using AgentMemory.Extensibility.Contributors;
 using Microsoft.Agents.AI;
@@ -39,11 +37,13 @@ namespace AgentMemory.Extensibility.AgentFramework;
 /// </para>
 /// </remarks>
 [Experimental("AMEXT001")]
-public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
+public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
 {
     private readonly IContextCompiler _compiler;
     private readonly ILogger<ExtensibleMemoryContextProvider> _logger;
     private readonly bool _hasModuleContributors;
+    private readonly ModuleTurnIngestion? _moduleTurnIngestion;
+    private readonly ModuleTurnSelection? _moduleTurnSelection;
 
     // The one id the module compilation path never runs. Static because it never varies, and named
     // because "the core contributor" appears in three decisions in this file and must mean one thing.
@@ -71,6 +71,57 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy,
         IMemoryContextAdmissionPolicy? admissionPolicy)
         : this(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions, agentOptions, baseLogger, compiler, moduleContributors, logger, storeContext, ownerContext, toolFactory, recallPolicy, admissionPolicy, backgroundExtraction: null)
+    {
+    }
+
+    /// <summary>Previous constructor retained for binary compatibility.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public ExtensibleMemoryContextProvider(
+        AgentMemory.Abstractions.Services.IMemoryService memoryService,
+        AgentMemory.Abstractions.Services.IEmbeddingOrchestrator embeddingOrchestrator,
+        AgentMemory.Abstractions.Services.IClock clock,
+        AgentMemory.Abstractions.Services.IIdGenerator idGenerator,
+        Microsoft.Extensions.Options.IOptions<AgentMemory.Abstractions.Options.MemoryOptions> memoryOptions,
+        Microsoft.Extensions.Options.IOptions<ContextFormatOptions> formatOptions,
+        Microsoft.Extensions.Options.IOptions<AgentFrameworkOptions> agentOptions,
+        ILogger<Neo4jMemoryContextProvider> baseLogger,
+        IContextCompiler compiler,
+        IEnumerable<Capabilities.IContextContributor> moduleContributors,
+        ILogger<ExtensibleMemoryContextProvider> logger,
+        AgentMemory.Abstractions.Services.IMemoryStoreContext? storeContext,
+        AgentMemory.Abstractions.Services.IWritableMemoryOwnerContext? ownerContext,
+        AgentMemory.AgentFramework.Tools.MemoryToolFactory? toolFactory,
+        AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy,
+        IMemoryContextAdmissionPolicy? admissionPolicy,
+        IBackgroundExtraction? backgroundExtraction)
+        : this(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions, agentOptions, baseLogger, compiler, moduleContributors, logger, storeContext, ownerContext, toolFactory, recallPolicy, admissionPolicy, backgroundExtraction, moduleTurnIngestion: null)
+    {
+    }
+
+    /// <summary>Previous constructor retained for binary compatibility.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public ExtensibleMemoryContextProvider(
+        AgentMemory.Abstractions.Services.IMemoryService memoryService,
+        AgentMemory.Abstractions.Services.IEmbeddingOrchestrator embeddingOrchestrator,
+        AgentMemory.Abstractions.Services.IClock clock,
+        AgentMemory.Abstractions.Services.IIdGenerator idGenerator,
+        Microsoft.Extensions.Options.IOptions<AgentMemory.Abstractions.Options.MemoryOptions> memoryOptions,
+        Microsoft.Extensions.Options.IOptions<ContextFormatOptions> formatOptions,
+        Microsoft.Extensions.Options.IOptions<AgentFrameworkOptions> agentOptions,
+        ILogger<Neo4jMemoryContextProvider> baseLogger,
+        IContextCompiler compiler,
+        IEnumerable<Capabilities.IContextContributor> moduleContributors,
+        ILogger<ExtensibleMemoryContextProvider> logger,
+        AgentMemory.Abstractions.Services.IMemoryStoreContext? storeContext,
+        AgentMemory.Abstractions.Services.IWritableMemoryOwnerContext? ownerContext,
+        AgentMemory.AgentFramework.Tools.MemoryToolFactory? toolFactory,
+        AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy,
+        IMemoryContextAdmissionPolicy? admissionPolicy,
+        IBackgroundExtraction? backgroundExtraction,
+        ModuleTurnIngestion? moduleTurnIngestion)
+        : this(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions,
+            agentOptions, baseLogger, compiler, moduleContributors, logger, storeContext, ownerContext,
+            toolFactory, recallPolicy, admissionPolicy, backgroundExtraction, moduleTurnIngestion, moduleTurnSelection: null)
     {
     }
 
@@ -102,12 +153,16 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         AgentMemory.AgentFramework.Tools.MemoryToolFactory? toolFactory = null,
         AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy? recallPolicy = null,
         IMemoryContextAdmissionPolicy? admissionPolicy = null,
-        IBackgroundExtraction? backgroundExtraction = null)
+        IBackgroundExtraction? backgroundExtraction = null,
+        ModuleTurnIngestion? moduleTurnIngestion = null,
+        ModuleTurnSelection? moduleTurnSelection = null)
         : base(memoryService, embeddingOrchestrator, clock, idGenerator, memoryOptions, formatOptions,
                agentOptions, baseLogger, storeContext, ownerContext, toolFactory, recallPolicy,
                admissionPolicy, backgroundExtraction)
     {
         ArgumentNullException.ThrowIfNull(moduleContributors);
+        _moduleTurnIngestion = moduleTurnIngestion;
+        _moduleTurnSelection = moduleTurnSelection;
         _compiler = compiler ?? throw new ArgumentNullException(nameof(compiler));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -117,6 +172,13 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         _hasModuleContributors = moduleContributors.Any(c => !string.Equals(
             c.Descriptor.Id, CoreMemoryContextContributor.ContributorId, StringComparison.Ordinal));
     }
+
+    /// <inheritdoc/>
+    protected override bool ObservesPersistedTurns => _moduleTurnIngestion is not null;
+
+    /// <inheritdoc/>
+    protected override Task OnTurnPersistedAsync(PersistedMemoryTurn turn, CancellationToken cancellationToken = default)
+        => _moduleTurnIngestion!.IngestAsync(turn, cancellationToken);
 
     // NO SECOND STATE KEY. Inheriting means there is one provider instance, so it keeps the shipped
     // `"Neo4jMemory"` key and the after-run correlation the base already does with itself is
@@ -142,12 +204,15 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
         if (!_hasModuleContributors) return coreContext;
 
         var envelope = await CompileModulesAsync(context, cancellationToken).ConfigureAwait(false);
+        if (_moduleTurnSelection is not null && envelope is not null)
+            return await SelectModuleContextAsync(coreContext, envelope, context, cancellationToken).ConfigureAwait(false);
+
         // THE BASE'S EFFECTIVE POLICY, not the constructor argument. They differ precisely when no
         // policy was supplied: the base substitutes a default and this class used to keep the null,
         // so a directly constructed provider gated CORE memory and admitted MODULE text unchecked --
         // the #92 gate missing from the least trusted surface in the class, which is the one place it
         // is least affordable. Reading it from the base is also why there is no second default here.
-        var moduleText = RenderModuleSections(envelope, AdmissionPolicy, FormatOptions, _logger);
+        var moduleText = RenderModuleSections(envelope);
 
         // NOTHING APPENDED MEANS NOTHING CHANGED. Returning the core AIContext itself, rather than a
         // copy with equal fields, is what makes the empty-module case identical instead of merely
@@ -166,10 +231,9 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Straight through to the composed provider: persistence, extraction and its exception handling
-    /// are exactly today's. Module ingestion proposals are a later slice and are deliberately absent
-    /// rather than stubbed — a write path that looked registered and did nothing would be worse than
-    /// its absence.
+    /// Delegates persistence and extraction to the base provider. When explicitly registered,
+    /// module ingestion observes successfully persisted turns through OnTurnPersistedAsync;
+    /// retrieval time selections do not change write timestamps or ownership.
     /// </remarks>
     protected override ValueTask StoreAIContextAsync(
         InvokedContext context, CancellationToken cancellationToken = default)
@@ -204,13 +268,16 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
             // one -- and half the scopes restored looks exactly like all of them.
             using var scopes = BeginRetrievalScopes(ids.applicationId, ids.userId);
 
+            var times = AgentSessionModuleExtensions.ReadModuleTimes(context.Session);
             var request = new ContextRequest
             {
                 SessionId = ids.sessionId,
                 ConversationId = ids.conversationId,
                 Owner = ids.userId,
                 RecentTurn = turn,
-                Query = turn.LastOrDefault()?.Text,
+                Query = QuestionOf(turn),
+                SystemAsOf = times.SystemAsOf,
+                AsOf = times.AsOf,
             };
 
             // CORE IS EXCLUDED BECAUSE IT WAS ALREADY RENDERED, by `base` at the top of the turn.
@@ -239,71 +306,21 @@ public sealed class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
     /// <summary>
     /// Renders module sections only. The core section is opaque and is never rendered here.
     /// </summary>
-    private static string RenderModuleSections(
-        ContextEnvelope? envelope,
-        IMemoryContextAdmissionPolicy admissionPolicy,
-        ContextFormatOptions formatOptions,
-        ILogger logger)
+    private string RenderModuleSections(ContextEnvelope? envelope)
     {
         if (envelope is null) return string.Empty;
 
         var builder = new StringBuilder();
         foreach (var section in envelope.Sections)
         {
-            // The core section carries the MemoryContext as metadata for correlation and carries no
-            // text. Rendering it here would be the second rendering path this design exists to avoid.
+            // Core context was already rendered by the base provider.
             if (string.Equals(section.TypeId, CoreMemoryContextContributor.SectionType, StringComparison.Ordinal))
                 continue;
 
-            if (section.Items.Count == 0) continue;
-
-            // MODULE TEXT CROSSES THE SAME TRUST BOUNDARY AS RECALLED MEMORY, and until now it
-            // crossed it unchecked. A module section is third-party content going into the
-            // instruction block -- the exact surface #92 spent eight phases gating -- and a module
-            // reading an external store is a longer reach than recall has. Every item is put through
-            // the same admission policy recalled memory is, and a refused item is dropped and logged
-            // rather than trimmed or silently admitted.
-            // THE SAME ADMISSION FUNCTION RECALLED MEMORY GOES THROUGH, not a second one shaped like
-            // it. The hand-rolled loop that stood here built its MemoryAdmissionContext without
-            // `Mode` or `MinimumTrustForAdmissionBypass`, so a host running SecurityMode=Strict had
-            // it honoured for core memory and silently ignored for module text -- the setting whose
-            // entire purpose is to exclude instruction-like content, not reaching the newest and
-            // least trusted surface in the provider. Calling AdmitItem makes that class of omission
-            // impossible rather than fixed: there is one place the options are read.
-            //
-            // Its log lines say "recalled memory item"; the category is the module's section type, so
-            // the entry is still unambiguous, and sharing the security decision is worth more than
-            // the wording. Untrusted is not a guess -- module content is third-party by definition.
-            var admitted = new List<ContextItem>(section.Items.Count);
-            foreach (var item in section.Items)
-            {
-                if (MafTypeMapper.AdmitItem(
-                        section.TypeId, item.Text, MemoryTrustLevel.Untrusted,
-                        formatOptions, admissionPolicy, logger))
-                {
-                    admitted.Add(item);
-                }
-            }
-
-            // A section whose every item was refused contributes no header either: a heading with
-            // nothing under it tells the model a section exists and says nothing about it.
-            if (admitted.Count == 0) continue;
-
-            // DELIMITED AND ESCAPED, exactly as recalled memory is (#92 Phase 1). Admission alone is
-            // not the boundary: in Permissive -- the DEFAULT -- instruction-like content is admitted
-            // and flagged, and it is the delimiter that makes that safe, because the wrapper escapes
-            // `<` and `>` so a module cannot close the block early or forge one of its own. Appending
-            // the raw text, as this did, meant the newest untrusted surface in the provider was the
-            // only one reaching the prompt undelimited.
-            //
-            // One wrapped block per SECTION, not per item, which is the shape recalled memory uses:
-            // it joins a category's texts and wraps once. The category attribute carries the section
-            // type, so the plain "### <type>" heading that stood here is gone rather than kept
-            // alongside it -- two ways of naming the same thing is how a second rendering path starts.
+            var block = RenderAdmittedBlock(section.TypeId, section.Items.Select(item => item.Text));
+            if (block.Length == 0) continue;
             if (builder.Length > 0) builder.AppendLine().AppendLine();
-            builder.Append(MafTypeMapper.WrapUntrustedContent(
-                section.TypeId,
-                string.Join(Environment.NewLine, admitted.Select(i => i.Text))));
+            builder.Append(block);
         }
 
         return builder.ToString().TrimEnd();

@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 namespace AgentMemory.Gate;
 
 /// <summary>Adds the gate to an AgentMemory registration.</summary>
-[Experimental("AMGATE001")]
+
 public static class GateServiceCollectionExtensions
 {
     /// <summary>
@@ -25,6 +25,7 @@ public static class GateServiceCollectionExtensions
     ///     gate.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY", Weight = 0.8 });
     ///     gate.Judges.Add(new SystemOneEndpoint { Name = "laya", Endpoint = new("http://127.0.0.1:8765/v1/systemone"), Weight = 0.2 });
     ///     gate.UpdateJudge = true;
+    ///     gate.UpdateJudgeName = "jev";
     /// });
     /// </code>
     /// </example>
@@ -42,6 +43,9 @@ public static class GateServiceCollectionExtensions
             .Validate(o => o.Threshold is >= 0 and <= 1, "MemoryGateOptions.Threshold must be between 0 and 1.")
             .Validate(o => o.Timeout > TimeSpan.Zero, "MemoryGateOptions.Timeout must be positive.")
             .Validate(o => o.WideLimit > 0, "MemoryGateOptions.WideLimit must be positive.")
+            .Validate(o => o.UpdateJudgeName is null || (!string.IsNullOrWhiteSpace(o.UpdateJudgeName)
+                && o.Judges.Count(j => j.Name == o.UpdateJudgeName && j.Endpoint is not null) == 1),
+                "MemoryGateOptions.UpdateJudgeName must identify exactly one configured endpoint.")
             .Validate(o => o.JudgeFailuresBeforeCooldown >= 0, "MemoryGateOptions.JudgeFailuresBeforeCooldown must be 0 or more.")
             .Validate(o => o.JudgeCooldown > TimeSpan.Zero, "MemoryGateOptions.JudgeCooldown must be positive.");
         services.TryAddSingleton(sp => new SystemOneClient(new HttpClient(new SocketsHttpHandler
@@ -55,12 +59,16 @@ public static class GateServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource, RetrievalTierSource>());
         services.TryAddSingleton<IMemoryUpdateJudge>(sp => new SystemOneUpdateJudge(
             sp.GetRequiredService<SystemOneClient>(), sp.GetRequiredService<IOptions<MemoryGateOptions>>()));
+        services.TryAddSingleton<ICompoundQuestionPlanner>(sp => new SystemOneCompoundQuestionPlanner(
+            sp.GetRequiredService<SystemOneClient>(), sp.GetService<IChatClient>(), sp.GetRequiredService<IOptions<MemoryGateOptions>>()));
 
         services.Remove(original);
         services.Add(ServiceDescriptor.Describe(typeof(IMemoryContextAssembler), sp => new GatedMemoryContextAssembler(
             Inner(sp, original), sp.GetRequiredService<IMemoryGate>(), sp.GetRequiredService<IOptions<MemoryGateOptions>>(),
             sp.GetService<ILogger<GatedMemoryContextAssembler>>() ?? NullLogger<GatedMemoryContextAssembler>.Instance,
-            sp.GetService<IOptions<AgentMemory.Abstractions.Options.MemoryOptions>>(), sp.GetService<IClock>()), original.Lifetime));
+            sp.GetService<IOptions<AgentMemory.Abstractions.Options.MemoryOptions>>(), sp.GetService<IClock>(),
+            sp.GetRequiredService<IOptions<MemoryGateOptions>>().Value is { CompoundQuestions: true, Mode: MemoryGateMode.Judge }
+                ? sp.GetService<ICompoundQuestionPlanner>() : null), original.Lifetime));
         return services;
     }
 

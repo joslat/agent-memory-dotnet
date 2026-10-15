@@ -6,3 +6,7 @@
 
 # Squad CLI YAML frontmatter parser requires LF endings
 loop.md text eol=lf
+
+# Release scripts and the shell-read package inventory must survive Windows checkouts.
+eng/*.sh text eol=lf
+eng/release-packages.txt text eol=lf

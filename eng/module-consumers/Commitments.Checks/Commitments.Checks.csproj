@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup Condition="'$(ConsumerIsInert)' != 'true'"><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup Condition="'$(ConsumerIsInert)' != 'true'">
+    <PackageReference Include="AgentMemory.Examples.Commitments" Version="$(CommitmentsPackageVersion)" />
+    <PackageReference Include="AgentMemory.Extensibility" Version="$(ModuleSdkVersion)" />
+  </ItemGroup>
+</Project>

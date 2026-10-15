@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <InformationalVersion>0.1.0+fixture-build</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- The module initializer is the deliberate execution tripwire in this test-only assembly. -->
+    <NoWarn>$(NoWarn);CA2255</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="fixture.agentmemory-module.json" />
+    <EmbeddedResource Include="Migrations/*.cypher" />
+  </ItemGroup>
+</Project>

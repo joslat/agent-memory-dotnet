@@ -26,7 +26,6 @@ namespace AgentMemory.Abstractions.Services;
 /// is a smaller harm than a true one erased.
 /// </para>
 /// </remarks>
-[Experimental("AMWRITE001")]
 public interface IMemoryWriter
 {
     /// <summary>Whether the extraction stage should ask this writer instead of the extractors.</summary>
@@ -43,7 +42,7 @@ public interface IMemoryWriter
 /// <param name="Window">The turns to write from, and the earlier turns that explain them.</param>
 /// <param name="Scope">The scope of the write. The writer reads only the write owner's own memories (none of another owner's,
 /// none shared), and with no owner only the ownerless ones; it can close only the owner's own.</param>
-[Experimental("AMWRITE001")]
+
 public sealed record MemoryWriteRequest(ExtractionWindow Window, MemoryScope? Scope);
 
 /// <summary>
@@ -53,7 +52,6 @@ public sealed record MemoryWriteRequest(ExtractionWindow Window, MemoryScope? Sc
 /// asked the gate's question confirmed the writer's closings as JEV did (stale values 0.33 a store against 0.33, complete
 /// recall 76.4% against 75.0%, precision 97.7% against 97.9%); with no judge at all, 16 replaced values a store stayed live.
 /// </summary>
-[Experimental("AMWRITE001")]
 public interface IMemoryUpdateJudgeFallback : IMemoryUpdateJudge
 {
 }

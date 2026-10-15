@@ -3,6 +3,113 @@
 A reference for what agent memory is, what a memory system has to decide that a store does not, and
 **exactly** which of those decisions AgentMemory makes today.
 
+**2.0 API graduation:** the selected writer, ordinary gate and Recommended composition now have
+stable contracts. This adds no new memory capability or measured accuracy result. Compound planning
+remains experimental and off. See [migration](migration-2.0.md) for host defaults and compatibility.
+
+**Module resolution primitives - BUILT.** The experimental SDK validates version/range syntax and
+owned identifiers and shares internal dependency ordering with built-in schema extensions. Strict bounded manifest wire parsing and typed declarations are also built. Pure profile parsing/reconciliation is built: explicit modules, version/store/provider bindings,
+configuration section paths and profile byte hashes. Explicit CLI migration composition is built; runtime DI composition, option binding,
+explicit module reads/views are implemented; activation remains unimplemented.
+Local semantic validation now checks ontology ownership, constraints, references and typed views;
+The pure complete-set resolver now freezes declarations and checks dependency targets, ranges,
+cycles, schema namespaces and explicit feature inputs. It does not prove actual host registrations
+or grant activation permission. Generated index/constraint collision checks and editor schemas are
+built. The separate held Neo4j module adapter now derives DDL definitions with stable keys and
+normalized hashes; additive script lint is shared with the storage adapter. Explicit database planning/application and ownership/recovery are built; transactional record writes are implemented, and explicit scoped reads/shared views are implemented. Schema descriptors themselves perform no database work.
+Metadata-only assembly discovery is built: it checks the single bounded manifest and informational
+version without loading implementation code. It does not establish publisher trust. These primitives
+add no retrieval, extraction or module activation to existing hosts.
+
+**Module host capability checks - BUILT, explicit API.** Actual registrations and effective reminder
+options are checked per store/key by `ModuleHostProfileResolver`; Neo4j schema support requires a
+module store and runner. Tested with actual DI compositions, including NAMS refusal. This is not a
+live connectivity test, automatic runtime activation or a model-quality measurement. Existing hosts
+perform no additional work unless this API is called. See [module checks](extensions/modules.md#effective-host-capability-checks).
+
+**Module adapter seams - BUILT / WIRED.** Protected admission/rendering and provider-ID lookup
+support derived adapters without friend access. Module retrieval uses the last user question;
+trailing assistant/tool messages cannot replace it. ID lookup does not establish persisted provenance.
+These methods do not implement the module record store or runtime loading platform.
+
+**Retrieval composition — BUILT / WIRED.** Recommended disables automatic query splitting;
+Conversational is unchanged and explicit subqueries remain supported. General MCP can configure
+the gate through `AgentMemory:RetrievalRouter`; coding mode can select the similarity floor
+independently of its storage judge. A provider key alone does not install a retrieval judge.
+These configuration paths do not establish deployed-client interoperability or new accuracy gains.
+
+The store-aware writer removes the prompt's `fact: "subject | predicate | object"` wrapper
+when a model copies it into a complete fact. This is a format repair, not a semantic quality
+improvement or a migration of existing data; legitimate field quotes remain intact.
+Its retention prompt distinguishes a personal aspiration from excitement or praise alone,
+and asks for wishes to remain wishes rather than invented actions or firm commitments.
+This instruction does not guarantee every goal will be retained by the model.
+Relationship-shaped replacements of facts remain facts, retaining their closing targets without
+requiring separate entity endpoints. Distinct named closing proposals survive deduplication even
+when they share replacement text; each still requires the update judge's approval.
+Model omissions remain possible, including personal context implied by a reaction or abstract
+value statement. A valid negative closing verdict can leave an obsolete memory live alongside
+its replacement; it is not retried as a provider failure or silently overridden.
+
+**Judge failure handling — BUILT / WIRED.** Missing configured credentials skip transport; invalid
+probabilities fail the call. Deterministic tests cover the surviving retrieval judge, credential
+recovery and named-only storage fallback without retrying valid negative verdicts. This validates
+protocol/fallback behavior, not model quality or live provider availability.
+
+**Recommended Agent Framework migration — BUILT / WIRED, not a new quality measurement.**
+The adapter's explicit `ApplyRecommended()` preset stops requesting deferred question turns, keeping
+ordinary turns separate for the single-turn writer. Inline and queued dispatch are tested, including
+explicit overrides. Writer/judge registration remains the host's responsibility; existing
+Conversational configurations are unchanged. See [composition](getting-started.md#46-the-recommended-preset).
+
+**Coding service - BUILT / WIRED, with bounded real-client acceptance.** Explicit
+`--coding-config` adds project-bound HTTP/MCP, a bounded writer queue, caller-asserted provenance
+and non-destructive history/forgetting. Actual Claude/Codex paired hooks and Copilot explicit MCP
+writes ran through Bitdeer and disposable Neo4j; VS Code Local write/new-chat profile/recall also
+ran in the editor. These synthetic examples establish interoperability, not a coding-quality
+benchmark. The [versioned capability matrix](coding-clients.md) preserves counts, tested versions,
+failed assertions and attribution limits. Copilot/VS Code automatic completion capture remains
+unsupported; an instruction to invoke MCP is not automatic capture.
+
+The shared [host contract v1](coding-contract.md) retains scoped IDs and legacy payload hashes.
+Hooks inject bounded untrusted memory, including the actual working-memory string projection.
+Missing/blank final assistant text discards an incomplete paired capture. Deliberate user-only
+MCP writes remain valid. A final reply does not verify tests passed or code is correct.
+
+The optional local memory page exposes profile/history/corrections/forgetting and passed bounded
+real browser/writer/graph checks. The optional [remote server](coding-remote.md) uses direct TLS,
+project OAuth audiences, one configured owner subject and explicit read/write scopes. A real local
+Keycloak/PKCE/consent/HTTPS/MCP lab passed 41/41 checks and a separate lifecycle run passed 27/27.
+Actual Claude **cloud** connector acceptance remains unverified. No service starts by default.
+
+Baseline queued acknowledgements remain **non-durable**. The opt-in `writeJournal` host capability
+is **BUILT / WIRED**: transactional receipts, scoped duplicate/conflict retention and recovery of
+never-started work. Interrupted writer attempts become Unknown and are not replayed; a graph source
+is not proof of completed extraction. A bounded real Qwen/Bitdeer + Neo4j/Ollama/OAuth control
+passed 27/27 crash/recovery checks; two GLM writer runs exceeded their observation windows and
+remain failed runs. This is infrastructure evidence, not a model-quality comparison. Scoped
+recall diagnostics and preview/evidence expansion are not capabilities of this baseline.
+
+**Actual extraction path — BUILT / WIRED, not benchmark-measured.** `ExtractionResult.Path`
+reports writer, extractors, writer failure followed by extractors, pre-extracted input, skipped or
+unknown. Coding HTTP/MCP job receipts preserve this independently of ingestion success. The host
+permits extractor fallback only through `allowExtractorFallback`; it remains off by default.
+
+**Storage judge selection — BUILT / WIRED, not newly benchmark-measured.** A configured endpoint can
+be selected by exact name independently of retrieval blend order. The coding host requires
+`closingJudgeName` for external closings; omission uses its host-model judge. No new threshold,
+prompt, or model is promoted by this configuration change.
+
+**Explicit ingestion intent — BUILT / WIRED, not benchmark-measured.** `ExtractionRequest.InputMode`
+lets a caller require one conversation turn through an enabled writer, or import through configured
+extractors. Omission preserves existing behavior; adapter defaults and presets remain unchanged. This controls
+selection and validates request shape, not memory quality. See [the extraction guide](getting-started.md#42-extract-long-term-memory).
+
+The existing MCP extraction tool now exposes this optional input mode. Core batch extraction also
+validates all requests' scope/owner decisions before provider or persistence work, and reuses those
+decisions on both batch and per-request paths. These guarantees are locally tested; they do not add
+authentication, change ownership permissions, or make the whole batch one transaction.
+
 **Pending-turn visibility — BUILT / WIRED, not benchmark-measured.** The Agent Framework adapter can
 include outstanding same-store, same-owner, same-session user turns while its built-in queue extracts
 long-term memory. `IncludePendingTurns` is off by default and uses history admission and deduplication.
@@ -446,6 +553,16 @@ and their defaults are in [`configuration/memory-options.md`](configuration/memo
 
 ## 3. What makes a memory system great
 
+**Compound-question judging: BUILT, WIRED, DEVELOPMENT-TESTED, default off.**
+`MemoryGateOptions.CompoundQuestions` can judge up to three parts of a question over the existing
+candidate pool, preserving the complete question, its baseline admissions, scope and clock. It adds
+no searches and makes no memory-type routing decision. A System One detector and the host's chat
+model plan the parts; bounded failures keep completed admissions. Combined scores are selection
+scores, not calibrated confidence. A bounded fixed-pool development pilot did not qualify promotion:
+no coverage gain, extra clutter and optional timeouts. Baseline coverage was already at ceiling, so
+harder-world benefit remains unknown. No claim of improved recall, answers or cost is established.
+See [the architecture contract](architecture.md#36-this-cycles-capabilities-ship-dark-unless-stated-otherwise).
+
 Six positions, stated as claims so they can be argued with.
 
 **1. The retrieval budget *is* the memory system.** Everything upstream of it is bookkeeping in
@@ -820,7 +937,15 @@ the tractable case, and it is not most cases.
 > too. Within one extraction the current value is decided once (the last said that was not corrected
 > away; of dated values, the latest by date). Supersession replaces only a value that holds now: an
 > ended value is history and a not-yet-begun one is a plan, so neither replaces nor is replaced.
-> Relationship edges end (`valid_until`) when a single-valued relation is replaced. Known limits: a fact
+> Relationship edges end (`valid_until`) when a single-valued relation is replaced. Mirrored-edge cleanup
+> requires a confirmed fact closing; declined corrections continue to support their edges. A withdrawn
+> plan's source event date stays live while any incoming edge still refers to the event. These guards
+> are covered by deterministic tests, including partial success and declined repository operations.
+> Judge-based closings also reject non-finite scores and values outside `[0, 1]`, including host-model
+> fallback scores. Corrected-name propagation stops for a name pair when its entity merge is declined;
+> it does not retire the source or restate its facts. These safeguards are BUILT and tested locally;
+> they do not establish model quality or calibrated confidence.
+> Known limits: a fact
 > has one validity window, so a value said again after it was replaced keeps its earlier end; and a plan
 > that begins does not yet hand over. Detail in
 > [`architecture.md` §3.2.7](architecture.md#327-valid-time-recall-and-prospective-memory-gating).
@@ -1807,3 +1932,176 @@ Related reading: [`architecture.md`](architecture.md) · [`schema.md`](schema.md
 *Last verified against the codebase on 2026-08-15. Line numbers drift; symbol names and file paths are
 the durable references. If a claim here disagrees with the code, the code is right and this document is
 a bug.*
+
+### Coding recall diagnostics (opt-in)
+
+**BUILT / WIRED / MEASURED:** the coding host can retain bounded, expiring owner/project/session-scoped
+recall receipts and explicit feedback. Receipts contain selected IDs and measured timing/gate/budget
+data; raw query, memory prose and arbitrary provider errors are excluded. Default responses/tools and
+selected context remain unchanged. Feedback does not train models or correct memory. Deterministic
+host/API/HTTP/MCP tests cover scope, expiry/capacity, permissions, failure/cancellation and off mode.
+A bounded actual Linux host + OAuth/Neo4j/Ollama run passed 24/24 checks on synthetic stored memories,
+including delivered-ID matching, wrong-session/project refusal, write permission, eviction and expiry.
+It reused the prior synthetic world; no retrieval-quality improvement or new inference-model claim.
+See [configuration and limits](coding-service.md#optional-recall-diagnostics-and-feedback).
+
+### Coding evidence delivery (opt-in)
+
+**BUILT / WIRED / MEASURED:** `recall_preview` delivers bounded metadata and scoped expiring selected-ID
+handles; `recall_expand` rereads current owner/liveness and parent/source links before returning
+untrusted text. Serialized JSON-body byte, item and deadline bounds apply. Off adds no service,
+cache, tools or reads; existing recall and native injection are unchanged. Real Neo4j tests exercise
+source provenance and refusal after forgetting. A real Linux-host + Keycloak OAuth + Neo4j + Ollama
+run passed 27/27 checks for expansion, scope, bounds, eviction and expiry using existing synthetic memories.
+This measures delivery mechanics, not improved coding answers, compiler verification or prompt-injection
+immunity. Preview remains opt-in; comparative quality/cost evaluation is separate. See
+[contract and limits](coding-service.md#optional-evidence-preview-and-expansion).
+
+### Experimental module migration storage
+
+BUILT: the held Neo4j module adapter explicitly plans/applies generated schema with a separate
+ownership/intent ledger. Empty schema composition makes no database calls. Real Neo4j tests cover
+bootstrap-only operation, repeat/roll-forward, competing claims, hash/shape refusal and crash recovery.
+CLI commands are wired; explicit module writes now enforce first-write readiness; no module is activated automatically. See [module application](extensions/modules.md#explicit-module-schema-application).
+
+
+Embedded module migration discovery is **BUILT** as an experimental metadata-only API in the held
+Neo4j adapter. Its internal compiler has unit coverage for resource bounds, full-source hashes, exact
+composite range/uniqueness shapes, owned namespaces, scoped backfills and conflicting ownership.
+Compilation does not authorize execution. Authorized handwritten sources are **WIRED** into explicit
+application, with **MEASURED** real Neo4j acceptance for composite/relationship schema, partial failure,
+atomic backfill rollback, lost commit acknowledgements, concurrent matching applies and changed-input
+refusal. Operator CLI plan/apply is **WIRED** through the same engine, with bounded metadata-only
+source loading, optional byte pins and explicit store/actor selection. Runtime activation remains
+unfinished; no automatic application or host capability probing is claimed.
+[Contract and limits](extensions/modules.md#embedded-migration-source-discovery).
+
+
+**Module proposal admission - BUILT, composed explicitly with the record store.** The held SDK validates and
+freezes typed proposals without model/database calls. Unit coverage exercises ownership, exact scalar
+bounds, source-ID membership, relationship shape and explicit shared-provider selection. Accepted
+source IDs undergo actual owner/session membership verification in the explicit held Neo4j store; explicit framework ingestion has separate real-Neo4j acceptance below; proposal checks alone make no coding-memory quality claim. [Contract](extensions/modules.md#typed-proposals-and-pure-admission).
+
+
+**Module ingestion orchestration - BUILT, explicitly composable with the held Neo4j record store.** Explicitly
+bound providers run after owner resolution, in dependency order with awaited batch commits. Reports
+preserve refusals/partial progress and unknown commit status on store errors. Recorded replay verifies
+owner/request/metadata and reuses the write clock without provider calls. Controlled provider/store
+tests cover these mechanics; separate fresh-Neo4j tests exercise transactional writes. Native framework-write acceptance covers inline/background delivery and fresh-session retrieval (below).
+[Execution and limits](extensions/modules.md#ordered-ingestion-and-recorded-replay).
+
+
+**Neo4j module record writes - BUILT / MEASURED in isolated integration tests.** Explicit store calls
+verify actual source owner/session/role/content, migration readiness, locked key versions, copied
+provenance and scoped live links. Tests cover concurrent writers, transaction rollback, shared writes,
+merge chasing, ambiguous targets and refusal of inconsistent record owners or backward history clocks.
+These tests establish storage behavior, not coding usefulness. Scoped reads/views, required-anchor filtering and explicitly enabled framework ingestion are implemented. Existing hosts gain no automatic
+module writes. [Write contract and limits](extensions/modules.md#transactional-neo4j-module-writes).
+
+
+**Runtime view restrictions - BUILT / MEASURED in isolated Neo4j tests.** Typed key, relationship-target
+and reduced-limit arguments use the shared view/reader. Target predicates resolve scoped identities
+before taking results, including across pages; runtime arguments cannot replace declared filters.
+Unit checks cover validation, independent snapshots and refusal by older view implementations.
+The shared view contributor accepts an explicit argument selector after owner resolution; null
+selection skips storage and unsupported valid-time requests never invoke it.
+The Neo4j cases passed for paging, merge-time boundaries and foreign/shared targets. Per-request
+contributor arguments additionally have compiler contract coverage. This is not package/runtime acceptance.
+
+**Bounded module history enumeration - BUILT / MEASURED in isolated integration tests.** Explicit history
+selection lists retained versions of one key with an optional creation cutoff and fixed numeric
+version ordering at equal timestamps. Views share the same selection and require a runtime key.
+Default snapshots and manifest fingerprints are preserved. Parser/schema/admission/view checks pass;
+Real Neo4j tests pass for equal-time numeric version ordering, invalidation, copied provenance,
+owner isolation and query-time anchors.
+The package's frozen-world and dynamic lifecycle acceptance remain separate work.
+
+**Scoped module reads and shared views - BUILT / MEASURED in isolated integration tests.**
+Explicit bound readers enforce owner/shared scope, direct dependency access, migration readiness,
+current/system-time versions and required anchors before limiting results. Shared view evaluation
+uses the same reader and returns exact records/provenance plus invariant rendered text. Unsupported
+valid-time requests remain NotApplicable. Real Neo4j tests cover dependency refusal, typed filters,
+ordering and history; existing hosts do not automatically use these APIs. Declared-view contributors and native adapter ingestion have isolated Neo4j acceptance; complete runtime lifecycle and effectiveness remain unverified. [Read/view contract](extensions/modules.md#scoped-module-reads-and-shared-views).
+
+
+**Persisted-turn observer seam - BUILT / WIRED / MEASURED in isolated integration tests.** Derived Agent
+Framework providers may opt into actual storage-returned source messages, owner/store identity and
+completion time. Disabled observation creates no payload and reads no extra clock. Native invocation
+failure, persistence failure, callback failure/cancellation and immutable source snapshots are covered.
+Explicit module registration connects this seam to real ingestion and declared-view retrieval. Native
+adapter acceptance exercises inline/background storage, versioned correction, actual source IDs,
+fresh-session retrieval and foreign-owner exclusion. Unowned conversations are refused: the trusted
+host must establish conversation ownership before ingestion. Deterministic proposals and embeddings
+verify engineering contracts, not model quality or coding effectiveness. Runtime module leases remain
+separate work. [Host setup and limits](extensions/modules.md#explicit-agent-framework-module-ingestion-and-views).
+
+**Commitments package example - BUILT / WIRED; primary native world MEASURED.** Independent NuGet
+consumers exercise two module versions on net8/net9/net10, structured-user-only proposals, SDK admission,
+shared view arguments and exact loaded package bytes. The authoring checks use a ProbeReader. Separately,
+the packaged v1 native world passed 148 checks on isolated Neo4j: actual stored messages/provenance,
+corrections, replay, owner isolation, time-pinned history, fresh-session retrieval and module-off inputs.
+Its terminal chat client and embeddings are deterministic; this proves wiring, not model effectiveness.
+Twelve isolated negative forks and retained-data v1/v2 migration have executable acceptance runners;
+compilation alone does not prove their service outcomes. Signed load/reload/unload remains separate.
+[Example and verification](../eng/module-consumers/README.md).
+
+**Native module read-time selection - BUILT / WIRED / MEASURED in the primary package world.**
+`WithModuleReadTime` carries host-selected transaction/valid times through the Agent Framework session
+into module compilation. Contract tests cover actual provider invocation, identity preservation,
+clearing, serialization and malformed-state refusal. This does not time-pin core recall, backdate writes,
+or prove model effectiveness. [Contract](extensions/modules.md#native-session-read-times).
+
+
+**Experimental module ingestion telemetry - BUILT / WIRED; listener-unit verification.** Explicit
+module ingestion and replay emit module/provider-bound activities on the shared AgentMemory source,
+with known outcome counts, cancellation and nested store activity. Unit checks cover identity freezing,
+privacy, replay, partial/uncertain outcomes and disabled paths/sampling. This is instrumentation proof,
+not a memory-effectiveness result. The packaged native harness also verifies actual storage/replay trace nesting and privacy with isolated Neo4j. Signed runtime lifecycle tracing remains separate. [Contract](extensions/modules.md#module-ingestion-telemetry).
+
+**Experimental module compiler telemetry - BUILT / WIRED through explicit host binding; listener-unit verification.**
+The resolution-first constructor and DI overload freeze module/contributor identity and emit nested
+compile/contribute activities with omission reasons and known counts. Legacy DI, exclusions, core-only
+paths and no-data sampling retain their behavior. Tests cover scoped DI, rejected bindings, cancellation,
+privacy and identity mutation. The packaged native harness verifies actual host/database nesting, core-only controls and read-free negative cases; this is not model-effectiveness evidence. [Contract](extensions/modules.md#module-compiler-telemetry).
+
+**Experimental module migration telemetry - BUILT / WIRED; controlled transaction tests.**
+Explicit plan/apply and owned migration steps emit shared-source activities with an attempted-definition
+count on each owned step, including failed attempts. Set-level bookkeeping is
+not attributed to an arbitrary module. Known refusal, failure, cancellation, empty composition and
+repeat no-op outcomes are tested; assessment counts do not claim newly modified records. A real-Neo4j
+integration check passed, as did native package trace acceptance across primary, negative and retained-data upgrade scenarios. Repeat Apply is observed as read-only.
+[Contract](extensions/modules.md#module-migration-telemetry).
+
+
+**Two-stage adapter admission - BUILT; adapter-seam unit verification.** Derived Agent Framework
+adapters can admit untrusted items once, select them, and render with the existing escaping/wrapper.
+Cross-provider/category reuse is refused. Tests cover strict/default and stateful custom policies,
+repeat measurement without policy calls, and unchanged direct-rendering output. The explicit native
+selection registration below consumes this seam; the seam itself does not activate judging or budgets.
+[Contract](extensions/modules.md#admission-before-module-selection).
+
+
+**Bound module candidate projection - BUILT; deterministic contract tests.** The compiler stamps
+metadata identity and rejects relabeled contributions. Views carry typed stored-version/source
+references; an explicitly called projector copies a bounded prefix into stable keyed candidates.
+Tests cover unrelated modules, version changes, mutable source lists, ordinal-only items and
+unselected-tail access. The selector/native registration below adds duplicate handling, optional judging
+and shared output budgets; safe deadlines remain unfinished. [Contract](extensions/modules.md#bound-module-candidates-and-provenance).
+
+
+**Explicit SDK module selection - BUILT; deterministic contract tests.** The caller supplies host
+admission/rendering and can explicitly enable an existing IMemoryGate. Duplicate records retain
+all origins; conflicts are omitted. Complete finite scores, final negative decisions, bounded
+outage fallback, whole-item UTF-8 limits and stage receipts are covered. Unicode boundaries and
+zero output budgets are exercised. Explicit native wiring is available below; safe deadlines/draining and real-service
+selection acceptance remain unfinished; no relevance-quality improvement is claimed.
+[Contract](extensions/modules.md#explicit-module-selection).
+
+
+**Native module selection - BUILT / WIRED; deterministic adapter tests.** Explicit registration
+connects the SDK selector to the provider's actual admission and rendering. Configured-gate opt-in,
+stateful policy evaluation once, provenance, exact output budgets, core preservation and owner/store
+scope are exercised through native DI. Scoped observers expose results without a global last-result
+slot. Empty/off paths avoid extra selection calls. Real isolated Neo4j selection acceptance and safe
+shared deadlines/draining remain unfinished. No model-effectiveness claim.
+[Configuration](extensions/modules.md#native-module-selection-registration).

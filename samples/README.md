@@ -4,6 +4,9 @@ Runnable samples for **AgentMemory for .NET**, a Neo4j-backed agent-memory libra
 [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/) (MAF) and
 Semantic Kernel.
 
+For native coding-agent integration, see [Claude Code hooks and project MCP](CodingMemory/README.md).
+These are inactive templates for the opt-in local coding service, with bounded capture and recall.
+
 > **Context:** Microsoft's official **Neo4j Memory Provider for Agent Framework**
 > ([`neo4j-agent-memory`](https://github.com/neo4j-labs/agent-memory),
 > [Learn docs](https://learn.microsoft.com/en-us/agent-framework/integrations/neo4j-memory)) is
@@ -38,7 +41,7 @@ a memory **context provider** (injects memory before each run, persists after) p
 | Sample | Demonstrates |
 | --- | --- |
 | **AgentWithMemory** | The flagship golden path — the .NET equivalent of the official [`04_memory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/01-get-started/04_memory) / [`AgentWithMemory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/AgentWithMemory) sample, backed by **durable Neo4j memory**: `Neo4jMemoryContextProvider` + memory tools, explicit `WithMemoryIdentity(...)` owner/application/session scope, multi-turn session, **session serialize/restore** (`SerializeSessionAsync`/`DeserializeSessionAsync`), and **durable cross-session recall**. |
-| **ConversationalAgent** | The **Conversational preset** (`MemoryOptions.CreateConversational()` + `ApplyConversational()` on extraction and the agent adapter): memory learned from what the person says by a model, no memory tools. Three sessions: the person tells, changes their mind, then asks; the sample prints what is current and what each change replaced. Needs a live Neo4j and a model. |
+| **ConversationalAgent** | **Recommended** memory/writer/adapter composition by default; `--conversational` selects the frozen legacy preset. Three sessions: the person tells, changes their mind, then asks; the sample prints configured tiers and current/replaced facts. Optional `AgentMemory:RetrievalRouter` configuration enables permitted judges. Needs a live Neo4j and a model. |
 | **ShoppingAssistant** | The **.NET reimplementation of the official Neo4j retail-assistant example** — a shopping assistant that learns preferences and recommends products via graph traversal: `Neo4jMemoryContextProvider` + memory tools + **custom product tools** over a Neo4j product graph, a retail prompt, and durable cross-session recall. The agent itself decides when to call the memory/product tools — nothing is scripted. |
 | **NamsAgent** | The NAMS-backed sibling of AgentWithMemory — the same golden-path shape, but memory lives in the real [NAMS](https://memory.neo4jlabs.com) SaaS via `NamsMemoryContextProvider` (`AgentMemory.AgentFramework.Nams`) instead of a direct Neo4j connection: multi-turn session, session serialize/restore, and durable cross-session recall, all against the live service. |
 | **RealAgent** | A real `ChatClientAgent` with `Neo4jMemoryContextProvider` (long-term memory) **and** the memory tools, multi-turn `AgentSession`, and native MAF `UseOpenTelemetry()`. |

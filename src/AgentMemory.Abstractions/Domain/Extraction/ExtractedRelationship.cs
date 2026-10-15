@@ -43,6 +43,5 @@ public sealed record ExtractedRelationship
     /// (<see cref="Services.IMemoryWriter"/>) named it, or null. Ended at the write (its valid-until set; the edge stays as
     /// history) only when the update judge confirms the pair; otherwise this relationship is simply added.
     /// </summary>
-    [Experimental("AMWRITE001")]
     public string? ReplacesId { get; init; }
 }

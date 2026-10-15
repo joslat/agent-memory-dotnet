@@ -6,16 +6,216 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Documentation
+- Wire experimental native module selection through explicit registration. Reuse the provider's
+  effective admission/escaping, preserve core messages/tools, and expose scoped result observation.
+  Judge and observer resolution run under the compiled owner/application scope. Existing constructors
+  and the default direct-rendering path remain available; deadline/draining acceptance remains pending.
 
-- Separate public documentation from private development records: move implementation plans,
-  research snapshots, experiment preregistrations, and internal findings out of `docs/reviews`;
-  retain three measured-result reports under `docs/performance` and update their references.
-  Extract historical roadmap/package-merger analysis and the unpublished token-cost pilot while
-  preserving public architecture and token-accounting guidance.
+- Add explicit experimental module candidate selection with host admission before optional judging,
+  duplicate/source preservation, complete finite decision validation, bounded outage fallback,
+  exact rendered UTF-8 limits and stage receipts. Existing native rendering is unchanged;
+  shared deadline/draining acceptance remains separate work.
+
+- Experimental module context: retain host-bound contribution identity and typed record/source
+  provenance, reject relabeled bound output, and expose explicit bounded candidate projection.
+  Existing rendering does not activate a judge or projection automatically.
+
+- Add protected two-stage Agent Framework admission: evaluate an untrusted item once, then render
+  selected items with the existing escaping without repeating policy evaluation. Decisions remain
+  bound to the originating provider/category; existing direct rendering keeps its behavior.
+
+- Trace explicit module migration planning/application and owned steps on the shared source. Preserve
+  set-level ledger attribution, owned step-attempt counts, read-only planning, repeat no-ops and existing recovery behavior; exclude
+  actor identities, scripts and private failure details from module telemetry.
+
+- Add explicit resolution-bound module compiler construction and scoped DI registration, with frozen
+  contributor identities and compile/contribute activities on the shared diagnostics source. Preserve
+  legacy DI, exclusions and no-data sampling; omit private content from events and tags.
+
+- Add experimental module ingestion/replay activities on the shared AgentMemory diagnostics source,
+  with frozen module/provider identity, metadata fingerprint and known outcomes. Preserve cancellation,
+  opt-outs and replay behavior; exclude memory/source content and raw exception text from tags.
+
+
+- Experimental Agent Framework modules: preserve explicit session read times through native context
+  compilation with `WithModuleReadTime`; refuse malformed saved selections instead of retrieving
+  current module data. Core recall and writes remain unchanged.
+
+
+- Add an independent Commitments memory-package example and NuGet consumer verification on .NET 8/9/10.
+  V1/v2 exercise structured user teaching, shared views and optional priority-reason metadata without
+  project-reference shortcuts. A separate native harness covers isolated negative cases and retained-data
+  migration from v1 to v2. Include v2 priority reasons in shared-view output; preserve v1 rendering.
+  Signed dynamic lifecycle acceptance remains separate.
+
+- Allow explicit per-request arguments in experimental view contributors while preserving resolved
+  owner/shared scope. Null selection skips storage; existing contributor construction stays unchanged.
+
+- Add experimental bounded per-key module history reads and declared history views. Preserve default
+  snapshot queries and fingerprints; order equal-time versions numerically and retain invalidation
+  audit metadata. Runtime keys and existing owner/anchor checks remain required.
+
+- Add experimental typed module relationship-target filters and narrowing runtime view arguments.
+  Resolve scoped target identities before result limits, preserve declared filters and ordering, and
+  refuse unsupported arguments in older view implementations. Existing view calls remain unchanged.
+
+- Use the host TimeProvider for coding-evidence deadlines as well as receipt lifetime. The system-clock
+  default and configured deadline remain unchanged; timeout tests now control time explicitly.
+
+- Add explicit experimental module host capability inspection, with effective reminder options,
+  per-store/key registration checks and a Neo4j adapter probe. Missing capabilities refuse the whole
+  composition before module construction; existing hosts do not run these checks automatically.
+
+- Add explicit experimental Agent Framework module-ingestion registration with captured persisted
+  sources, fresh background scopes and ordered fallback; add declared-view contributors with typed
+  omission outcomes. Automatic module writes remain off without explicit registration.
+
+
+- Add an opt-in protected persisted-turn callback for derived Agent Framework providers. It carries
+  actual storage-returned sources before core role filtering, preserves default off-path behavior,
+  and isolates observer errors from core extraction. Explicit module handler/queue wiring uses this seam.
+
+- Add explicit experimental scoped module reads and shared view evaluation: direct dependency access,
+  current/system-time versions, required-anchor filtering, typed predicates and invariant rendering
+  with stored record provenance. Unsupported valid-time requests stay distinct from empty results.
+  No automatic registration, module activation or schema work; framework wiring remains unfinished.
+
+- Add explicit experimental Neo4j module writes with transactional source-owner verification,
+  locked logical-key versions, non-destructive history, bounded scoped link resolution and atomic
+  batch refusal. Module migration planning/application now owns the optional key constraint; record
+  writes never apply DDL. Framework write wiring remains unfinished; explicit module reads/views are available.
+
+- Add explicit experimental module ingestion orchestration: owner-policy resolution before providers,
+  dependency-ordered batches, original-index refusal reports and frozen provider-free replay. Validate
+  complete replay inputs before writes, propagate cancellation and report uncertain store commits
+  honestly. Concrete Neo4j writes are now available; explicit reads/views are available and framework write wiring remains unfinished.
+
+- Add experimental typed module proposals and pure admission with immutable accepted snapshots,
+  exact scalar constraints, request-source membership and explicit shared-provider restrictions.
+  Storage provenance checks now run in the held Neo4j store; orchestration is explicitly composed. This adds
+  no automatic module writes, model calls or changes to existing host prompts.
+
+- Expose experimental `ModuleSchemaDerivation.Derive(manifest)` for database-free editor previews,
+  sharing the migrator's generated DDL and hashes without treating local preview as activation approval.
+
+- Add explicit experimental `modules plan|apply --profile` operator commands. Validate source hashes,
+  whole-profile dependencies and store selection before migration database calls, inspect assemblies
+  without loading their code, and report pending/applied/refused plans as JSON. Apply requires an actor;
+  unknown options are refused. Host features remain explicit declarations, not activation/probe evidence.
+
+- Apply authorized handwritten module migrations through an explicit constructor overload. Compiled
+  schema assessment rejects equivalent foreign objects; backfills commit atomically with statement
+  progress, so matching retries and concurrent applies do not repeat committed updates. Preserve
+  legacy generated-ledger rows and keep runtime activation work separate.
+
+- Pin LongMemEval's transitive `System.Security.Cryptography.Pkcs` dependency to patched 8.0.2
+  for [CVE-2026-70162](https://github.com/advisories/GHSA-2fmv-rv2c-59x7) and
+  [CVE-2026-84008](https://github.com/advisories/GHSA-846f-f764-76mx), restoring clean NuGet audit.
+
+- Add experimental metadata-only discovery of embedded module migration sources, with immutable
+  hashes and bounded quote-aware parsing. An internal compiler validates composite schema shapes,
+  scoped backfills, namespace ownership and script ordering using shared SDK naming rules and additive
+  lint. Explicit handwritten execution is available; explicit operator CLI wiring is available.
+
 
 ### Added
 
+- Optional module-ledger schema ownership declaration, off by default with no core migration scripts.
+
+- Held experimental Neo4j module adapter with deterministic derived migration definitions, stable
+  keys and LF-normalized hashes. Built-in additive script lint is linked into the adapter;
+  explicit generated-schema plan/apply reserves ownership and immutable intent before DDL,
+  recovers matching interrupted applications and refuses foreign or changed shapes. Hand scripts and operator CLI integration are available;
+  runtime activation remains unfinished.
+
+- Experimental packaged editor schemas for manifests/profiles and deterministic module schema-object
+  descriptors. Validation rejects generated index/constraint name collisions within/across modules
+  and with reserved storage objects; no DDL or activation is performed.
+
+- Experimental strict composition profiles and pure profile/registration reconciliation for shared
+  host/CLI planning. Missing/extra registrations, version/provider mismatches and cross-store graph
+  links fail before activation; actual DI/CLI wiring, options validation and trust remain unfinished.
+
+- Experimental complete metadata resolver freezes caller declarations, checks module dependencies,
+  ranges, cross-module names/targets and feature inputs, and aggregates errors without exposing a
+  partial set. Profile/DI resolution, publisher verification and activation remain unfinished.
+
+- Experimental local manifest validation reports ontology ownership, reserved-name, numeric-bound,
+  render-reference and typed-view errors without code execution or database work. Complete module-set
+  resolution and activation remain unfinished.
+
+- Experimental module assembly discovery reads bounded PE resources and informational-version
+  metadata without loading implementation code. It rejects ambiguous/external manifests and version
+  mismatches; signature verification and activation remain separate unfinished work.
+
+- Experimental bounded, data-only module manifest reader with typed ontology/view declarations,
+  strict field handling and read-only parsed collections. Semantic resolution and activation remain
+  unfinished; successful parsing alone does not authorize a module.
+
+- Experimental module version/range and owned-identity validation. Built-in schema extensions and
+  the SDK share internal dependency ordering, preserving existing activation order and diagnostics.
+  The SDK remains held out of the core release; complete module activation is not implemented yet.
+
+- Protected `Neo4jMemoryContextProvider.RenderAdmittedBlock` and `StoredMessageId` extension methods.
+  The module adapter now uses supported admission/rendering access without a friend-assembly grant,
+  and shares core retrieval's last-user-question derivation when assistant/tool messages follow.
+  Message-ID lookup is non-mutating and does not verify persistence.
+
+- Add `AgentFrameworkOptions.ApplyRecommended()` to disable question-turn deferral when composing
+  the single-turn writer, including migration from Conversational. Preserve unrelated host settings,
+  explicit subsequent overrides and existing registrations; inference providers remain host-configured.
+
+- Inactive remote coding container template with read-only runtime/config mounts, non-root execution
+  and loopback port publication. HTTPS OIDC fixtures cover discovery, signing-key refresh and failures.
+
+- Optional HTTPS/OAuth coding MCP resource server: per-project resource discovery and token audiences,
+  one configured owner subject, read/write scopes, explicit remote write opt-in and bounded request rates.
+  Uses an external OIDC authorization server; local bearer mode remains unchanged. No deployment or
+  connector activation is automatic. See [remote configuration](docs/coding-remote.md).
+
+- Explicit Codex hook harness: pair capture/completion by `turn_id`, discard interrupted pending turns,
+  and isolate Codex state/session IDs from Claude while preserving existing Claude pending files.
+  Includes inactive hook/instruction templates and a disabled MCP configuration; no provider activation.
+
+- Copilot CLI and VS Code Local session-start profile hooks, selected explicitly in the private hook
+  configuration, with separate MCP/hook templates and per-turn tool instructions. Existing Claude behavior
+  remains the default; no guessed completion writes or automatic client activation.
+
+- Optional local coding memory page (`enableBrowserUi`, off by default): owner/project history and
+  profile, sourced correction proposals with job status, and non-destructive closing. Same-origin HTTP
+  still requires a project token; browser MCP stays disabled. No client or service is activated automatically.
+
+- Opt-in `--coding-hook <private-client.json>` Claude Code client: bounded profile/recall context,
+  repository-checked turn capture and asynchronous writes on matching completion events. Includes
+  private-state limits, non-blocking failures and inactive hook/MCP configuration templates.
+  See [the coding sample](samples/CodingMemory/README.md); no client is installed automatically.
+
+- Opt-in `agent-memory-mcp --coding-config <private.json>` mode: project-bound local HTTP/MCP,
+  writer-only queued ingestion with source references, scoped status/history/soft-forget, and
+  heuristic input checks. Uses separate pre-provisioned project databases and explicit Bitdeer or
+  local Ollama inference; optional JEV/local judges. Existing host behavior is unchanged.
+  See [configuration and limits](docs/coding-service.md).
+
+- **Paired closing-policy evaluation tool** (`router-arena closing-evaluate`): compares current named
+  and similarity questions on fixed pairs, reuses identical requests, and records hashes, failures,
+  retries and reported usage. Dry-run requires no credentials; runtime memory behavior is unchanged.
+
+- **MCP extraction input mode**: `extract_and_persist` accepts optional `inputMode` values
+  `Unspecified`, `ConversationTurn`, or `Import`. Omission preserves existing behavior; invalid values
+  and non-user conversation turns fail before invoking the memory service.
+- **Explicit extraction input intent** (`ExtractionRequest.InputMode`): `ConversationTurn` requires
+  one target user message and an enabled writer; `Import` bypasses the writer for configured extractors.
+  Omitted intent preserves existing behavior. Invalid mode/deferral/batch combinations fail before
+  provider work. No preset, prompt, public service interface or extraction default changes.
+- **Paired compound-retrieval evaluation tool** (`router-arena compound-evaluate`): validates fixed-pool
+  inputs without provider calls in dry-run, then records a shared-baseline comparison with input/binary
+  hashes, physical HTTP attempts, judge failures and available token usage. Checkpoints preserve failed
+  cases and prevent reuse of existing output prefixes. Evaluation data and results remain external.
+- **Experimental compound-question judging** (`MemoryGateOptions.CompoundQuestions`, `AMGATE001`,
+  off by default): an explicit System One detector and the host's chat client can split a question
+  into at most three retrieval focuses. The gate reuses its candidate pool and preserves baseline
+  admissions through optional failures and timeouts. Includes a replaceable planner and content-free
+  diagnostics. Mechanics are tested; retrieval quality and cost remain unmeasured. No preset enables it.
 - **Pending-turn context for Agent Framework** (`AgentFrameworkOptions.IncludePendingTurns`, off by
   default): the built-in extraction queue supplies outstanding user turns to the context provider,
   history provider and facade, scoped by store, owner and session. Existing admission and deduplication
@@ -32,27 +232,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stores written by the extractors: precision about 54% to 60% with nothing lost (world 7); over stores the store-aware
   writer wrote it finds almost nothing to close (rounds 3-4), so it is a cleanup for 1.x stores, not a default. The CLI:
   `consolidate --close-generic-entities --close-unsaid-preferences [--owner <id>] [--approve <id,id,...>] [--apply]`.
-- **The store-aware writer reinforces what is said again** (AMWRITE001): a turn that says a stored fact or preference again
+- **The store-aware writer reinforces what is said again**: a turn that says a stored fact or preference again
   is answered "confirm" with its id, in the same call, and the library counts it as said again (one more mention, confidence
   by `MemoryOptions.ConfidenceReinforcementAlpha`) instead of writing nothing. Before, the writer's rule "what is already
   stored is not stored again" left every memory at one mention. A preference reinforced by dedup now counts the mention
   too. World 6, three runs each: 24-26 repeats reinforced a store; three-judge precision 97.34% against 97.67%, stale 0.67
   against 0.33, complete recall 73.4% against 76.4% (within the registered limit, at its edge).
-- **The store-aware writer ends what an event ends, and lets a one-off end with its day** (AMWRITE001): a move, a death, a
+- **The store-aware writer ends what an event ends, and lets a one-off end with its day**: a move, a death, a
   birth, a wedding, a breakup, a new job or a retirement replaces the stored state it ends (one replace for each, even when
   the person is named by a role; only the person's own event counts), and a plan or a state true only for a short while is
   stored with "until", the end of its validity, while something that happened stays true with its date. The update judge's
   named question (System One's and the host model's, word for word) now also reads a death, a marriage, a move or a birth
   as ending the state the person was in. Scenario suite (three repeats): one-offs 0/6 to 6/6, events said on their day kept
   6/6; a death's closing confirmed 5 of 6 (0 before), near the judge's bar.
-- **The Recommended preset shows what a recalled fact replaced** (AMREC001): `ResolveSupersessions` is on in
+- **The Recommended preset shows what a recalled fact replaced**: `ResolveSupersessions` is on in
   `MemoryOptions.CreateRecommended()`, so "leads a team of five (since 2023-10-24; previously a team of 4)" answers a
   question about the earlier value; a correction is never shown as "previously", and neither is a value the current one
   only restates more fully. LongMemEval knowledge-update, one user turn at a time: 63 of 78 without, 72 and 71 with.
 - **The store-aware writer confirms only a repeat that adds nothing**: said again with a reason, goal, detail, number,
   name or date, the stored memory is replaced by the fuller one (HaluMem person 1: the confirm had swallowed updates;
   storage F1 0.808 to 0.862 with this rule).
-- **The store-aware writer can end a stored connection** (AMWRITE001): a replace or correct may name a stored relationship,
+- **The store-aware writer can end a stored connection**: a replace or correct may name a stored relationship,
   from a fact ("got married" ends "engaged to") or from a relationship (`ExtractedRelationship.ReplacesId`, new); the update
   judge is asked the same named question and, on a confirm, the relationship is ended (its valid-until set; the edge stays
   as history), even when its replacement cannot be stored (an endpoint the store does not hold). The writer is now also
@@ -63,7 +263,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs the first answer held no JSON 104 times and the second 10, each a model that reasoned through its whole room and
   answered nothing; a fresh call rarely repeats it, so the turns lost or handed to the extractors fall from about 0.28%
   to an expected 0.03%, for one more call on 0.3% of turns. A turn whose writer answers is unchanged.
-- **The store-aware memory writer** (`LlmExtractionOptions.UseMemoryWriter`, experimental `AMWRITE001`, off). Each turn
+- **The store-aware memory writer** (`LlmExtractionOptions.UseMemoryWriter`, off in low-level options). Each turn
   of one user message is written by one call that sees the owner's most relevant stored memories and proposes only what
   is new, what replaces or corrects a stored memory (naming it), or nothing; its closings apply only when the update
   judge confirms them (`ExtractionOptions.NamedClosingThreshold`, 0.60). Measured on two fresh twelve-session worlds:
@@ -73,29 +273,136 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ExtractionOptions.FallBackToExtractorsWhenWriterFails = false` keeps the earlier behaviour (the turn stores nothing
   and its outcomes say why).
 - **The host's chat model as the update judge's second tier** (`LlmExtractionOptions.ChatModelUpdateJudge`,
-  `IMemoryUpdateJudgeFallback`; experimental `AMWRITE001`; on in the Recommended preset): the closings the store-aware
+  `IMemoryUpdateJudgeFallback`; on in the Recommended preset): the closings the store-aware
   writer names are confirmed by the host's chat model, asked the gate's question word for word, when no outside judge
   answers (none registered, switched off, or it fails). Measured on world 6, three store runs each: stale values 0.33 a
   store against JEV's 0.33, complete recall 76.4% against 75.0%, precision 97.7% against 97.9%, for about 0.2 chat calls
   a turn more; with no judge at all, 16 replaced values a store stay live. The extractors' similarity path keeps its own
   judge.
-- **Each leg of memory says the tier it runs at** (`IMemoryTiers`, `IMemoryTierSource`, `MemoryTier`; experimental
-  `AMREC001`): storage (the writer with or without the update judge, or the extractors, and what a failed writer call
+- **Each leg of memory says the tier it runs at** (`IMemoryTiers`, `IMemoryTierSource`, `MemoryTier`): storage (the writer with or without the update judge, or the extractors, and what a failed writer call
   falls back to), retrieval (the gate's judges, or the similarity floor and why) and dreaming (off). Logged once on the
   first write (`Memory tiers: ...`) and available to a host at any time.
 - **A judge that keeps failing is left out for a cool-down** (`MemoryGateOptions.JudgeFailuresBeforeCooldown`, 3, and
-  `JudgeCooldown`, one minute; experimental `AMGATE001`). After three failed calls in a row the gate and the update judge
+  `JudgeCooldown`, one minute). After three failed calls in a row the gate and the update judge
   stop calling that judge for a minute, then ask it once: an answer brings it back. Meanwhile recall takes the similarity
   floor when no judge is left and the update judge closes nothing; the log, the span (`memory.judge.cooldown`,
   `memory.judge.skipped`, the gate's fallback `cooldown`) and `MemoryGateTrace` say so. Before, a judge that was down was
   asked on every turn (a local judge not running cost about 2 s each time). 0 restores that.
-- **The Recommended preset** (experimental `AMREC001`): `MemoryOptions.CreateRecommended()` (the Conversational preset
+- **The Recommended preset**: `MemoryOptions.CreateRecommended()` (the Conversational preset
   plus `Extraction.BitemporalChanges`), `LlmExtractionOptions.ApplyRecommended()` (the Conversational extraction half
-  plus the store-aware writer) and `MemoryGateOptions.ApplyRecommended()` (the retrieval memory router and the update
-  judge; the judge endpoint is the host's). Opt-in; the Conversational preset and the defaults are unchanged. Unlike
-  the Conversational preset, its contents may change before 2.0. Validation packs accept `"preset": "recommended"`
+  plus the store-aware writer) and `MemoryGateOptions.ApplyRecommended()` (the retrieval gate and the update
+  judge; the judge endpoint is the host's). Explicit in library composition and selected by new conversational sample/coding-host configurations;
+  the Conversational preset and low-level defaults are unchanged. Validation packs accept `"preset": "recommended"`
   and the LongMemEval harness `--preset recommended` (its batched preparation does not exercise the writer, and its
   report says so).
+
+### Changed
+
+- Graduate the selected writer, Recommended composition and ordinary retrieval/update-judge APIs
+  for the 2.0 candidate. `AMWRITE001` and `AMREC001` suppression is no longer required.
+  `AMGATE001` remains on compound-question planning and its opt-in configuration/constructor.
+  Runtime defaults and graph data are unchanged by graduation. See [migration](docs/migration-2.0.md).
+  Remove obsolete writer/Recommended warning suppressions and API labels from first-party code and samples.
+
+- **Internal closing approval policy**: named and similarity closing sources now share judge selection,
+  fallback and score approval in one policy. Existing requests, thresholds, batching, cancellation,
+  named-only fallback and score-key lookup behavior are preserved; no public configuration changes.
+
+- **Common internal closing application**: automatic fact, preference and relationship closings now
+  use typed proposals and one repository-application path, including fact withdrawal, entity retirement,
+  name correction and date/edge consequences. Existing decision rules, temporal behavior, transaction boundaries and outcome
+  attribution remain unchanged. No new judge policy, provider call or public option is introduced.
+
+### Fixed
+
+- Honor `--history off` in the HaluMem and LongMemEval measurement harnesses even when
+  Recommended enables supersession notes. Record the effective history setting in HaluMem output.
+
+- Discard incomplete Claude/Codex completion captures when final assistant text is missing or blank.
+  Do not silently submit them as deliberate user-only writes; explicit MCP writes remain supported.
+
+- Preserve working-memory text in coding hook recall. Apply the existing context budget and
+  decoded-secret checks to the MCP string projection, while retaining SessionStart profile behavior.
+
+- Return authenticated 405 responses for stateless coding MCP GET/DELETE probes. Preserve
+  project authentication and origin checks; valid local tokens no longer trigger a false
+  OAuth challenge, and the optional remote endpoint no longer reports these methods as 404.
+
+- Strip the store-aware writer's copied `fact: "subject | predicate | object"` format wrapper
+  before mapping a complete fact. Preserve field quotes and replacement/correction targets;
+  existing stored facts are not rewritten.
+- Clarify the store-aware writer's retention rules for personal aspirations expressed with
+  emotion: preserve the wish without inventing an action or commitment, and exclude praise
+  alone and unendorsed assistant suggestions. Semantic retention remains model-dependent.
+- Preserve a fact's replacement target when the writer expresses its replacement as a relationship;
+  store it as a fact without requiring separate entity endpoints. Keep distinct named closing
+  proposals through within-extraction deduplication, including when their replacement text matches.
+
+- Reject out-of-range and non-finite System One probabilities before blending them. Missing or blank
+  configured credentials now skip HTTP transport. Existing retrieval/closing fallback and cooldown
+  policies handle these failures; valid negative verdicts remain unchanged.
+
+- Build the MCP container with the repository's .NET 10 SDK and runtime instead of incompatible
+  .NET 9 images. Restrict its build context to public inputs, excluding private/generated files.
+
+- Reject non-finite or out-of-range update-judge scores before closing stored facts, preferences or
+  relationships, including scores from the writer's host-model fallback.
+- Keep the source entity and its facts unchanged when the store declines a corrected-name merge;
+  skip retirement, restatement and target re-embedding for that name pair.
+
+### Tooling
+
+- Make release verification work with Windows checkouts: ignore CRLF-only manifest lines and
+  isolate local/HTTPS NuGet feeds in a temporary configuration with native local paths.
+
+- Add opt-in coding `recall_preview` / `recall_expand` tools with expiring scoped selected-ID
+  handles, current owner/liveness/source checks, and item/JSON-body byte/deadline limits.
+  Source assertions stay unverified; default recall responses and native injection are unchanged.
+
+- Add opt-in coding-host recall receipts and explicit feedback, scoped to owner/project/session with
+  bounded retention/expiry, measured gate/budget diagnostics and unchanged baseline wire behavior.
+
+- Add opt-in coding-host `writeJournal` receipts backed by private embedded SQLite. Retain scoped
+  status, duplicate/conflict checks and accepted never-started work across restart. Interrupted
+  writer attempts remain Unknown; no blind replay or exactly-once extraction claim. Off preserves
+  the baseline queue and wire. Terminal receipts clear captured text; retention never deletes graph history.
+
+- Use Recommended by default in ConversationalAgent, with an explicit `--conversational` legacy
+  choice, post-preset extraction overrides, optional configured retrieval judges and a tier summary.
+- Disable automatic query splitting in the Recommended preset, preserving the frozen
+  Conversational preset and explicit subqueries. Add general MCP retrieval-gate configuration and
+  coding-host `useRetrievalGate` / `automaticQuerySplitting` overrides; retrieval opt-out leaves
+  separately configured storage closing permission intact.
+- Separate storage judge selection from retrieval ordering with `MemoryGateOptions.UpdateJudgeName`.
+  Coding hosts now require `closingJudgeName` for external closing judgments; omission uses the host
+  model. Set the former first endpoint's name to preserve its use. General-library null selection
+  retains legacy ordering; explicit invalid names fail validation and opt-outs remain effective.
+
+- Add explicit coding-service `allowExtractorFallback` (off by default) and report the actual
+  extraction path in HTTP/MCP job receipts. `ExtractionResult.Path` distinguishes writer attempts,
+  extractor fallback, imports, pre-extracted inputs, skipped turns and unknown custom results;
+  ingestion status remains independent, and interrupted/prior attempts remain unknown.
+
+- Add opt-in Copilot CLI `userPromptTransformed` recall to the coding helper and inactive template.
+  Preserve the model-facing prompt, send only the user query to memory, and append bounded sourced
+  context. No transcript parsing, automatic write, or client activation.
+- Add opt-in `store-sessions --search-cases` to capture original owner-scoped retrieval and historical
+  contexts, candidate mappings and diagnostics alongside writer provenance, without relevance judging.
+- Add preparation-first `paired-gate` comparisons over recorded candidate pools, using the shipped
+  gate with equal context budgets, displacement reporting and explicit failure/request evidence.
+- Add opt-in `store-sessions --record-provenance` exports with typed source arrays, persisted message
+  evidence, capture times and input/binary fingerprints. The default legacy export remains unchanged.
+
+### Documentation
+
+- Separate public documentation from private development records: move implementation plans,
+  research snapshots, experiment preregistrations, and internal findings out of `docs/reviews`;
+  retain three measured-result reports under `docs/performance` and update their references.
+  Extract historical roadmap/package-merger analysis and the unpublished token-cost pilot while
+  preserving public architecture and token-accounting guidance.
+
+- Reconcile graduated API labels and composition links across the configuration and adapter guides.
+  Describe the release workflow's actual NuGet API-key authentication separately from OIDC attestation signing.
 
 ## [1.9.0] - 2026-10-05
 
@@ -180,6 +487,14 @@ and [docs/routing.md](docs/routing.md).
 
 ### Fixed
 
+- **Batch isolation validation precedes extraction.** Core resolves every request's read scope and
+  write owner before any provider call or persistence, including the per-request fallback. A later
+  rejected request no longer permits earlier writes or sends rejected input to the batch extractor.
+  Resolved policy values are reused once per request; shared administrative imports remain supported.
+- **Declined fact closings preserve related memories.** Deterministic supersession and correction now
+  end mirrored relationships only when the repository confirms the fact closed. Partial corrections
+  retain support from facts left live, and an event date stays live while any incoming relationship
+  remains live, including a relationship whose ending was declined.
 - **Recalled relationships answer the question.** They were ordered by confidence and age only, so every recall returned
   the same few edges; they are now ordered by how closely their ends match the recalled entities and the names the
   recalled facts give. And a relationship naming someone met in an earlier message is resolved against the owner's

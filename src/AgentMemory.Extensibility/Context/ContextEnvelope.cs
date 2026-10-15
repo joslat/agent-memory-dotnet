@@ -62,13 +62,23 @@ public sealed record ContextSection(
     string ContributorId,
     int SchemaVersion,
     IReadOnlyList<ContextItem> Items,
-    object? Metadata = null);
+    object? Metadata = null)
+{
+    /// <summary>Identity stamped by an explicitly resolution-bound compiler; null for legacy/core sections.</summary>
+    /// <remarks>Metadata binding is not publisher trust, a runtime lease or authority to change request scope.</remarks>
+    public ContextModuleBinding? Binding { get; internal init; }
+}
 
 /// <summary>One item inside a section.</summary>
 /// <param name="Id">Stable id, where the contributor has one — used for provenance and de-duplication.</param>
 /// <param name="Text">The item as it should be read.</param>
 [Experimental("AMEXT001")]
-public sealed record ContextItem(string? Id, string Text);
+public sealed record ContextItem(string? Id, string Text)
+{
+    /// <summary>Optional typed record/version/source references, independent of rendered text.</summary>
+    /// <remarks>Contributor-supplied provenance is descriptive data, never a scope or trust grant.</remarks>
+    public ContextItemProvenance? Provenance { get; init; }
+}
 
 /// <summary>Why a contributor that could have run produced nothing.</summary>
 /// <param name="ContributorId">The contributor.</param>

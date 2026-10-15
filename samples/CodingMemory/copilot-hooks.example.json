@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "exec": "dotnet",
+        "args": ["C:/path/to/AgentMemory.McpHost.dll", "--coding-hook", "C:/Users/YOU/AppData/Local/AgentMemory/copilot-client.json"],
+        "timeoutSec": 6
+      }
+    ],
+    "userPromptTransformed": [
+      {
+        "type": "command",
+        "exec": "dotnet",
+        "args": ["C:/path/to/AgentMemory.McpHost.dll", "--coding-hook", "C:/Users/YOU/AppData/Local/AgentMemory/copilot-client.json", "--event", "userPromptTransformed"],
+        "timeoutSec": 6
+      }
+    ]
+  }
+}

@@ -31,6 +31,13 @@ Compatibility is enforced as a guardrail, not a runtime compatibility layer. `ag
 | `ConsolidationRun` | Applied memory-hygiene audit record | Written by applied consolidation runs. |
 | `MemoryReadAudit` | Read/access audit record | Created when long-term access timestamps are updated; carries read kind, memory id, owner, access count, and read time. |
 
+The optional experimental [`module-bookkeeping`](extensions/module-bookkeeping.md) declaration
+owns `ModuleMigration` separately from the base `Migration` ledger. It is off by default and ships
+no core migration scripts. Selecting its metadata adds no database calls or DDL; module application
+is an explicit storage-adapter operation for generated and authorized handwritten statements. The
+SDK-owned `completed_statements` property records committed progress; backfill data and its counter
+commit together. Hostless CLI integration remains unfinished; see [module application](extensions/modules.md#explicit-module-schema-application).
+
 Entity nodes may also receive type/subtype labels such as `PERSON`, `ORGANIZATION`, `LOCATION`, `EVENT`, and `OBJECT`.
 
 ## Relationship Types
@@ -189,3 +196,15 @@ Live recall excludes invalidated records. As-of recall can answer what was belie
 - `IMigrationRunner` applies versioned `.cypher` migrations and records applied versions.
 - `agentmemory schema-check` compares live database objects with `SchemaConformance.ExpectedObjectNames(dimensions)`.
 - `agentmemory schema-parity` compares the .NET schema descriptor against embedded upstream Python snapshots.
+
+
+### Experimental module record bookkeeping
+
+The optional `module-bookkeeping` declaration also owns `ModuleKey`: `id`, `module_id`, `type`,
+`owner_id`, `key`, `version`, `current_id` and the transient `lock_token`. Its unique `module_key_id`
+constraint is applied only through the held module migrator. The default base schema is unchanged.
+Module type labels/properties/relations are owned by the resolved manifest and migration namespace
+claims. Version records use the SDK-reserved `id`, `key_id`, `key`, `owner_id`, `created_at`,
+`invalidated_at`, `superseded_by`, `source_session_id`, `source_message_ids` and `source_excerpt` fields,
+and the existing `SUPERSEDED_BY` relationship between versions. No core record is relabeled.
+See [module writes and limits](extensions/modules.md#transactional-neo4j-module-writes).

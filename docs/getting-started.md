@@ -2,6 +2,18 @@
 
 **Prerequisites covered:** .NET 8, 9, or 10, Neo4j, NuGet packages, DI configuration, first memory store.
 
+For the opt-in local coding-agent HTTP/MCP host, see [the coding service guide](coding-service.md).
+For a remote MCP resource server, see [HTTPS/OAuth configuration](coding-remote.md); deployment and
+external authorization-server setup are explicit steps, and remote writes default off.
+Its optional [memory page](coding-service.md#local-memory-page) lets you inspect history, propose
+sourced corrections and close memories; set `enableBrowserUi` explicitly to enable it.
+For Copilot CLI and VS Code Local, see the [MCP and session-start templates](../samples/CodingMemory/copilot.md).
+For Codex, see the [paired-hook and MCP templates](../samples/CodingMemory/codex.md), including the
+separate client/provider configuration boundary.
+It uses .NET 10, separate project databases, project credentials and an explicit inference provider.
+The [Claude hook sample](../samples/CodingMemory/README.md) adds opt-in automatic recall/write hooks
+and explicit MCP tools, with private client configuration and no automatic installation.
+
 For Agent Framework hosts using background extraction, opt into pending-turn context with
 `services.AddAgentMemoryFramework(options => options.IncludePendingTurns = true);`.
 This keeps outstanding user turns visible within the same store, owner and session while they are
@@ -334,8 +346,64 @@ After adding messages, run the extraction pipeline to surface entities, facts, a
 await memory.ExtractAndPersistAsync(new ExtractionRequest
 {
     SessionId = sessionId,
+    Messages = messages,
 });
 ```
+
+`ExtractionResult.Path` reports the extraction path actually attempted: `Writer`, `Extractors`,
+`WriterFallback`, `PreExtracted`, or `Skipped`; custom implementations default to `Unknown`.
+Read `Status` alongside it: using a fallback does not imply it succeeded. The coding host exposes
+this as `extractionPath` and permits fallback through its explicit
+[`allowExtractorFallback` setting](coding-service.md#configurable-extractor-fallback).
+
+When configuring a retrieval blend, set `MemoryGateOptions.UpdateJudgeName` to the exact configured
+endpoint name permitted to judge storage closings, and enable `UpdateJudge`. Null retains the library's
+legacy first-endpoint choice. Selection does not change retrieval weights; `UpdateJudge = false`
+still disables external closing calls. The coding host uses explicit `closingJudgeName` instead,
+defaulting to its host-model closing judge when omitted.
+
+For explicit ingestion intent, set `ExtractionRequest.InputMode` when calling
+`ExtractAndPersistAsync` or `IMemoryExtractionPipeline.ExtractAsync`:
+
+| Mode | Behavior |
+|---|---|
+| `Unspecified` (default) | Existing entry-point behavior and configured writer/extractor selection. |
+| `ConversationTurn` | Exactly one target user message, with optional other-role targets. Requires a registered, enabled `IMemoryWriter`; does not enable it for you. |
+| `Import` | Uses configured unified or per-kind extractors, even when the input is one user message. Never selects the store-aware writer. |
+
+Earlier turns belong in `ContextMessages`, not `Messages`. Explicit modes cannot combine with
+`DeferIfOnlyAsking`; keep `Unspecified` for existing deferred-turn processing. `ConversationTurn`
+cannot use `ExtractBatchAsync`: replay live turns individually in chronological order. Import batching
+still uses the existing session/token limits and registered multi-session extractor, with the existing
+per-request fallback when none is enabled. `IngestBulkAsync` preserves each request's mode but is a
+concurrency scheduler, not an ordered conversation replay API.
+
+Provider options, prompts, trust, ownership, transaction settings and failure mode remain separate.
+Imports need an enabled unified extractor or a real per-kind extractor for a requested type; Core's
+no-op stubs alone do not qualify. Live turns retain `FallBackToExtractorsWhenWriterFails`; if no real
+extractor can handle a requested type, the writer's failure remains a failure. `TypesToExtract.None`
+does not require or call a provider. The existing adapters and retrospective helper methods continue
+to use `Unspecified`; no default or preset has changed.
+
+The MCP `extract_and_persist` tool exposes the same choice as optional `inputMode`:
+
+```json
+{
+  "messageText": "The support policy requires a response within two working days.",
+  "sessionId": "policy-import",
+  "userId": "owner-id",
+  "inputMode": "Import"
+}
+```
+
+The schema advertises `Unspecified`, `ConversationTurn`, and `Import`; omission preserves existing
+selection. `ConversationTurn` requires `role: "user"` (the role's default) and an enabled writer in the
+host. Mode selection does not change ownership or grant shared-write permissions. Read-only MCP
+servers continue to exclude this tool entirely.
+
+Core validates every batch request's isolation policy before provider calls or writes, even without
+a multi-session extractor. A later rejected owner/shared request prevents earlier requests from being
+written. This does not make otherwise valid batches transactional across provider/persistence failures.
 
 ### 4.3 Point-in-time recall
 
@@ -395,56 +463,152 @@ What it switches on:
 Every option stays individually settable afterwards: the preset returns ordinary options objects. Its contents are
 frozen for a major version.
 
-### 4.6 The Recommended preset (experimental, `AMREC001`)
+### 4.6 The Recommended preset
 
-The Conversational preset, plus what the storage and retrieval research measured as better, switched on together:
+The Recommended preset combines the selected storage and retrieval behavior. It starts from
+Conversational, disables automatic query splitting, and applies the changes below:
 
 ```csharp
-#pragma warning disable AMREC001, AMGATE001
 builder.Services.AddNeo4jAgentMemory(
     MemoryOptions.CreateRecommended(),
     neo4j => { /* ... */ },
     llm => llm.ApplyRecommended());
+builder.Services.AddAgentMemoryFramework(options => options.ApplyRecommended());
 builder.Services.AddAgentMemoryGate(gate =>
 {
     gate.ApplyRecommended();
-    gate.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY" });
+    gate.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY", Weight = 0.8 });
+    gate.Judges.Add(new SystemOneEndpoint { Name = "laya", Endpoint = new Uri("http://127.0.0.1:8765/v1/systemone"), Weight = 0.2 });
+    gate.UpdateJudgeName = "jev";
 });
-#pragma warning restore AMREC001, AMGATE001
 ```
 
 What it adds to the Conversational preset:
 
-- **The store-aware writer** (`LlmExtractionOptions.UseMemoryWriter`, `AMWRITE001`): each turn is written by one call
+- **Automatic query splitting is off** (`FanOut.Enabled = false`). The gate judges candidates for
+  the original query. Explicit `RecallRequest.SubQueries` still work; hosts can re-enable automatic
+  splitting after creating the preset. The frozen Conversational preset retains its existing setting.
+- **The store-aware writer** (`LlmExtractionOptions.UseMemoryWriter`): each turn is written by one call
   that sees the owner's most relevant stored memories and proposes only what is new, what replaces or corrects a stored
   memory, or nothing. On two fresh twelve-session worlds, 90.8% and 87.8% of what it stored was right, against 42.3% and
   39.1% for the extractors on the same turns. When its call fails (the model is down, times out, or answers without
-  JSON twice), the extractors write that turn instead, and the warning, the extraction span (`memory.write.fallback`)
+  JSON after the bounded attempts), the extractors write that turn instead, and the warning, the extraction span (`memory.write.fallback`)
   and `ExtractionStageResult.WriterFallbackReason` say so; `Extraction.FallBackToExtractorsWhenWriterFails = false`
   stores nothing for such a turn and records the error instead.
 - **Bitemporal changes** (`Extraction.BitemporalChanges`): a question about the past keeps the value that was true then.
   The writer was measured with it on.
-- **The host's chat model as the update judge's second tier** (`LlmExtractionOptions.ChatModelUpdateJudge`, `AMWRITE001`):
+- **The host's chat model as the update judge's second tier** (`LlmExtractionOptions.ChatModelUpdateJudge`):
   when no outside judge answers (no endpoint, or the endpoint down or left out after failures), the writer's closings are
   confirmed by the same chat model, asked the gate's question. Measured on world 6: as good as JEV (0.33 stale values a
   store against 0.33, precision 97.7% against 97.9%) for about 0.2 chat calls a turn more; with no judge at all, 16
   replaced values a store stay live.
-- **With a judge endpoint** (`AgentMemory.Gate`, `AMGATE001`): the update judge confirms the writer's closings, and the
+- **With a judge endpoint** (`AgentMemory.Gate`): the update judge confirms the writer's closings, and the
   retrieval memory router judges each memory found for the prompt (every needed memory reached the prompt on 96.1% and
   96.5% of turns, against 67.6% and 76.8% for the similarity floor, with less than half the memory tokens). Without an
   endpoint, recall uses the similarity floor and the host's chat model confirms the writer's closings.
 
 **What runs, said once.** The library logs each leg's tier on its first write, for example
 `Memory tiers: storage: writer + update judge (a failed writer call falls back to the extractors); retrieval: judge (jev); dreaming: off`,
-and a host can ask for it at any time (`IMemoryTiers`, `AMREC001`): without a judge endpoint it says
+and a host can ask for it at any time (`IMemoryTiers`): without a judge endpoint it says
 `retrieval: similarity floor (Judge mode has no judge configured)`, and while every judge is left out after repeated
 failures it says so.
 
-Leave `AgentFrameworkOptions.DeferQuestionTurns` off with it: the writer takes one user message at a time and writes
-nothing for a question, and a held question released with the next turn would go to the extractors instead.
+When `SystemOneEndpoint.KeyVariable` is set, a missing or blank value makes that judge unavailable
+without sending an HTTP request. Leave it null only for an intentionally unauthenticated endpoint.
+Failures follow the configured cooldown; after supplying the credential, a later attempt can recover.
+The client rejects incomplete responses and probabilities outside the finite `[0, 1]` range.
+Retrieval uses the answering permitted judges, or the similarity floor if a memory type has none.
+An invalid external closing response can use the configured host-model fallback only for writer-named
+closings. A valid negative response remains a rejection. These checks add no endpoint discovery.
 
-Unlike the Conversational preset, its contents may change before 2.0, as the measurements on the library's other
-benchmarks come in; 2.0 is planned to make them the defaults.
+For Agent Framework hosts, `AgentFrameworkOptions.ApplyRecommended()` disables `DeferQuestionTurns`,
+including on an instance previously configured with `ApplyConversational()`. The writer takes one user
+message at a time; releasing a held question with the next turn would select the extractors instead.
+The adapter preset preserves all other host settings and registers no inference providers. Apply explicit
+overrides after the preset. `ApplyConversational()` still holds question turns; existing registrations
+without the new call are unchanged. Other adapters do not need the Agent Framework registration above.
+
+The selected writer, ordinary gate and Recommended APIs are stable in the 2.0 candidate.
+Existing low-level registrations and Conversational defaults remain compatible; new recommended
+host configurations select the winners explicitly. See [the 2.0 migration guide](migration-2.0.md)
+for the package/API boundary, imports and legacy choices. Compound planning remains experimental.
+
+**Host configuration and migration.** Apply presets first, then explicit overrides. A Core-only
+registration cannot install a judge from another package: add `AgentMemory.Gate` and configure only
+the endpoints you permit. Remove the LAYA entry above when no local server is configured; remove
+the JEV entry and set `UpdateJudge = false` when only LAYA is permitted for retrieval. Its retrieval
+training does not qualify it as a storage-closing judge. With no gate registration, existing recall
+remains available. With `Mode = MemoryGateMode.Floor`, retrieval makes no judge calls; the separately
+enabled storage judge is unaffected. Agent Framework and Semantic Kernel use these shared host
+registrations rather than installing their own providers. DemoBrain has separate application settings.
+
+The general `agent-memory-mcp` host accepts the standard `AgentMemory:RetrievalRouter` configuration
+section. For example, environment variables below enable the explicitly named local judge:
+
+```text
+AgentMemory__RetrievalRouter__Judges__0__Name=laya
+AgentMemory__RetrievalRouter__Judges__0__Endpoint=http://127.0.0.1:8765/v1/systemone
+AgentMemory__RetrievalRouter__Judges__0__Model=laya
+AgentMemory__RetrievalRouter__Judges__0__Weight=0.2
+```
+
+Use the endpoint's actual served model identifier. `Mode` defaults to `Judge`; set
+`AgentMemory__RetrievalRouter__Mode=Floor` to disable retrieval judging explicitly. With no section,
+the existing assembler is unchanged, even if provider credentials exist. This configures retrieval;
+it does not install a conversation writer in the general MCP host. Coding mode uses its own strict
+JSON configuration, including `useRetrievalGate` and `automaticQuerySplitting`, documented in
+[coding service](coding-service.md).
+
+The [ConversationalAgent sample](../samples/AgentMemory.Sample.ConversationalAgent/Program.cs)
+uses Recommended by default, including the one-turn writer and host-model closing fallback.
+Pass `--conversational` to retain the frozen preset. Optional `AgentMemory:Extraction` settings
+apply after the preset; for example `AgentMemory__Extraction__UseMemoryWriter=false` selects
+extractors explicitly. Its optional gate uses the same `AgentMemory:RetrievalRouter` section.
+The printed tier line describes configuration/known health, not proof that a provider answered.
+
+**Optional compound-question experiment (`AMGATE001`, no established benefit).** In your existing
+`AddAgentMemoryGate` configuration, set `CompoundQuestions = true` and explicitly set `CompoundDetector`
+to a `SystemOneEndpoint`. Register the host's `IChatClient` for splitting. For example, if `judge` is
+the endpoint already added to `gate.Judges`:
+
+```csharp
+gate.CompoundQuestions = true;
+gate.CompoundDetector = judge;
+```
+
+The gate keeps its original decision and may add memories selected for up to three parts of the same
+question, using the same retrieved pool. Planning and judging share `gate.Timeout` (three seconds by
+default); a timeout preserves the completed baseline. Missing detector/chat configuration also preserves
+baseline retrieval. A custom `ICompoundQuestionPlanner` can be registered before adding the gate.
+`MemoryContext.Metadata["gate.compound"]` explains what ran, without question text. This option remains
+off in all presets; a bounded development comparison did not qualify it for promotion. No held-out
+retrieval-quality benefit is established. Turn it off to restore the
+original prompts and calls exactly. As-of recall always follows its existing path.
+
+The repository's operator tool provides a fixed-pool, paired comparison without a Neo4j store:
+
+```bash
+dotnet run --project tools/AgentMemory.RouterArena -- compound-evaluate \
+  --data ./evaluation --file ./evaluation/development.json \
+  --config ./evaluation/gate.json --out ./artifacts/compound-pilot --dry-run
+```
+
+The dataset supplies `schemaVersion: 1`, `status`, `now`, and `cases`; each case has an `id`, `question`,
+optional `conversation` (`role`, `text`), and `candidates` (`key`, `memoryType`, `text`). Labels may be
+kept alongside these fields but are not forwarded to either model. Configuration is `MemoryGateOptions`
+JSON with judges, an explicit compound detector, threshold and timeout. Example-bank files are rejected
+so the input hash covers the complete candidate experiment.
+
+Dry-run validates and counts without resolving credentials or clients. Execution requires explicitly
+configured Bitdeer inference and produces `<prefix>.baseline.json` and `<prefix>.compound.json`, with
+dataset/configuration/assembly hashes. Both arms share one baseline decision. Each case has fresh clients;
+SDK chat retries are pinned to zero, while System One retains its retry. Physical HTTP attempts, failures,
+actual answering judges and available token reports are recorded. Missing usage remains unknown, so token
+totals may be partial. A failed judge is reported even if the remaining blend answered successfully.
+Baseline failures remain failed cases; this experiment does not simulate a second store search for the
+similarity-floor fallback. Three consecutive baseline failures stop the run, leaving incomplete output
+explicitly marked. Results are checkpointed per case; existing result files or a retained `.lock`
+reservation require a new output prefix. No dataset or result is distributed with the tool.
 
 ---
 
@@ -559,3 +723,127 @@ builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
 | [`samples/AgentMemory.Sample.BlendedAgent`](../samples/AgentMemory.Sample.BlendedAgent/) | Blended GraphRAG + memory sample |
 | [`samples/AgentMemory.Sample.McpHost`](../samples/AgentMemory.Sample.McpHost/) | MCP server host sample |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | How to build, test, and contribute |
+
+### Coding-host durable receipts
+
+For native coding clients, the optional host `writeJournal` configuration retains accepted work
+and receipts across restart. It is off by default and uses a dedicated private local directory;
+it does not change the library persistence or retrieval defaults. See
+[setup and recovery semantics](coding-service.md#optional-durable-write-receipts).
+
+Coding hosts can also opt into `recallDiagnostics` for bounded, expiring recall receipts and explicit
+feedback. This leaves selected context unchanged and adds no model training or durable recall log.
+See [receipt configuration](coding-service.md#optional-recall-diagnostics-and-feedback).
+
+For explicit bounded evidence tools, configure the optional coding-host `evidence` object;
+[preview/expansion configuration](coding-service.md#optional-evidence-preview-and-expansion) lists
+all defaults and limits. It is independent of diagnostics and durable capture, and remains disabled
+by default. Native coding hooks continue ordinary recall.
+
+
+### Experimental module migration inputs
+
+The held module adapter supports explicit generated and handwritten migrations. Constructing or
+registering services does not apply them. Load authorized embedded sources as metadata, provide them
+to the four-argument `ModuleMigrator` constructor, inspect `PlanAsync`, then explicitly call
+`ApplyAsync(actor)`. Use the same validated composition for both operations. This does not activate
+module code or establish publisher trust. The operator CLI also accepts `modules plan|apply
+--profile <path> [--store <alias>]`; apply requires `--actor`. Source hashes and whole-profile
+resolution are checked before migration database calls. See
+[module application and recovery](extensions/modules.md#explicit-module-schema-application).
+
+
+### Experimental module record store
+
+The held Neo4j module adapter offers explicit `Neo4jModuleStore` construction from a transaction runner,
+frozen module resolution and optional handwritten migration sources. Pass it as the corresponding
+module's store binding when constructing `ModuleIngestion`; no default host service is replaced.
+Run explicit module migration application first, including any reported `PendingBookkeeping`
+constraint. Writes refuse pending schema work and never apply DDL. Enable `module-bookkeeping` only
+when requesting schema-owner reporting for SDK ledger/key shapes. Module ingestion callbacks, scoped reads and shared views are explicitly configured below. See [module writes](extensions/modules.md#transactional-neo4j-module-writes).
+
+
+### Experimental module ingestion
+
+Module storage remains explicitly enabled. After `AddNeo4jAgentMemory(...)` and
+`AddAgentMemoryFramework(...)`, call `AddAgentMemoryFrameworkModuleIngestion(createIngestion)` from
+the experimental `AgentMemory.Extensibility.AgentFramework` package. The factory must build the
+pipeline from the supplied scope and a fixed authorized module composition. Migrations must already
+be applied; neither invocation nor retrieval applies DDL. Register declared views separately through
+`IContextContributor` / `ViewContributor`.
+
+`ExtractInBackground` controls queued versus inline module ingestion independently of core
+`AutoExtractOnPersist`. Plain extensibility registration leaves automatic module writes off.
+When a caller selects an entity or logical record key, use the shared view's
+`EvaluateWithArgumentsAsync` with `ModuleViewArguments` rather than filtering its returned items.
+Arguments preserve declared predicates and ordering and can only reduce the declared limit.
+A view declaring `"selection": "history"` also requires an exact runtime `Key`; it returns retained
+versions in fixed newest-first order. Leave selection omitted for the original snapshot behavior.
+[Typed view arguments](extensions/modules.md#scoped-module-reads-and-shared-views) need no additional
+DI registration; they use the same explicitly granted module reader. For agent contributions, pass a
+cheap argument selector as the fifth `ViewContributor` constructor argument (after priority); return
+null when the view does not apply. The compiler retains control of owner/shared scope.
+
+To select module read times on a native session, import `AgentMemory.Extensibility.AgentFramework`
+and call `session.WithModuleReadTime(systemAsOfUtc: instant)`. Both time arguments replace prior
+selections; `WithModuleReadTime()` clears them. This affects module contributors only, not core recall
+or persisted writes. Invalid saved selections refuse module compilation; unsupported valid-time reads
+remain NotApplicable. See [native session read times](extensions/modules.md#native-session-read-times).
+
+See [module ingestion and views](extensions/modules.md#explicit-agent-framework-module-ingestion-and-views)
+for lifetime, isolation and shutdown requirements. Dynamic loading requires the separate runtime
+lifecycle support; this registration alone does not provide it.
+
+
+Owned ingestion requires a conversation already associated with that owner and session. The trusted
+host should create it through `IShortTermMemoryService.AddConversationAsync(conversationId, sessionId,
+userId)` in the selected application scope before the first turn. The adapter's minimal conversation
+creation does not assign ownership. `WithMemoryIdentity` supplies a claim; it cannot claim an existing
+unowned/foreign conversation. Module storage refuses mismatched source ownership and never changes
+core conversation ownership to make ingestion succeed. Use host-authorized conversation identities;
+`AddConversationAsync` is an administrative upsert, not a tenant-claim operation.
+
+### Check a composed module host
+
+For an experimental module host with its store services already registered, validate the profile
+against those registrations before constructing modules or applying migrations:
+
+```csharp
+var candidate = ModuleHostProfileResolver.Resolve(profile, manifests, ModuleVersion.Parse("0.1.0"),
+    new Dictionary<string, ModuleHostStore>
+    {
+        ["memory"] = new()
+        {
+            Provider = "neo4j-direct",
+            Services = storeScope.ServiceProvider,
+            SchemaProbe = new Neo4jModuleSchemaCapabilityProbe()
+        }
+    });
+if (!candidate.Succeeded)
+    throw new InvalidOperationException(string.Join(Environment.NewLine, candidate.Errors));
+```
+
+Types are in `AgentMemory.Extensibility.Modules` and `AgentMemory.Extensibility.Neo4j`, marked
+`AMEXT001`. The host owns `storeScope` and must retain it while inspecting services. Set `ServiceKey`
+when using keyed store registrations; required services and options must use that same key. No
+module-store implementation is automatically registered by this check. Success does not connect to
+the database, migrate it or load module code. Follow the separate explicit migration/admission flow.
+
+### Experimental module compiler diagnostics
+
+Hosts that explicitly compose module contributors can bind a successful `ModuleResolution` with
+`services.AddAgentMemoryExtensibility(resolution)`. Register contributors separately. This selects the
+scoped compiler with frozen module identities and shared-source compile/contribute activities; it does
+not resolve a catalog or authorize a publisher. The parameterless registration preserves the legacy
+compiler, including when a resolution happens to be present in DI. See the
+[module compiler contract](extensions/modules.md#module-compiler-telemetry) for outcomes and opt-outs.
+
+
+### Experimental native module selection
+
+Hosts using resolution-bound memory modules can opt into `AddAgentMemoryFrameworkModuleSelection`
+with `ModuleSelectionOptions` after core services and module registration. It applies admission,
+whole-item module budgets and optional judging separately from core memory. `UseJudge` defaults off;
+turn it on only to use the host's explicitly configured `IMemoryGate`. An optional scoped
+`IModuleSelectionObserver` receives selection receipts under the resolved request scope.
+See [registration, limits and current acceptance scope](extensions/modules.md#native-module-selection-registration).

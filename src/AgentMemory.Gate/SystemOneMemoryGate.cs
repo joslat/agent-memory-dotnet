@@ -16,7 +16,6 @@ namespace AgentMemory.Gate;
 /// judge answers a type, the decision fails as a whole and recall falls back to the similarity floor. A judge that keeps
 /// failing is left out without being called for a cool-down (<see cref="MemoryGateOptions.JudgeFailuresBeforeCooldown"/>).
 /// </remarks>
-[Experimental("AMGATE001")]
 public sealed class SystemOneMemoryGate : IMemoryGate
 {
     private readonly SystemOneClient _client;

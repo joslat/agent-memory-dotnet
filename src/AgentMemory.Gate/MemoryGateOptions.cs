@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 namespace AgentMemory.Gate;
 
 /// <summary>How a recall fills the prompt once the gate is added.</summary>
-[Experimental("AMGATE001")]
+
 public enum MemoryGateMode
 {
     /// <summary>
@@ -28,7 +28,7 @@ public enum MemoryGateMode
 }
 
 /// <summary>One decision-model endpoint speaking the System One protocol (TypeSafe's JEV online, or a local server).</summary>
-[Experimental("AMGATE001")]
+
 public sealed class SystemOneEndpoint
 {
     /// <summary>A name for diagnostics ("jev", "laya").</summary>
@@ -37,7 +37,11 @@ public sealed class SystemOneEndpoint
     /// <summary>The endpoint, e.g. <c>https://api.typesafe.ai/v1/systemone</c> or <c>http://127.0.0.1:8765/v1/systemone</c>.</summary>
     public Uri? Endpoint { get; set; }
 
-    /// <summary>The environment variable holding the key (never logged); none for a local server.</summary>
+    /// <summary>
+    /// The environment variable holding the key (never logged); null for an unauthenticated local server.
+    /// When configured but missing or blank, this judge fails without an HTTP request and follows the
+    /// normal fallback/cooldown policy. Supplying a key permits a later attempt, after any active cooldown.
+    /// </summary>
     public string? KeyVariable { get; set; }
 
     /// <summary>The model the endpoint is asked for.</summary>
@@ -54,7 +58,6 @@ public sealed class SystemOneEndpoint
 /// The gate's settings (<see cref="GateServiceCollectionExtensions.AddAgentMemoryGate(Microsoft.Extensions.DependencyInjection.IServiceCollection, Action{MemoryGateOptions})"/>,
 /// or from the configuration section <see cref="GateServiceCollectionExtensions.SectionName"/>).
 /// </summary>
-[Experimental("AMGATE001")]
 public sealed class MemoryGateOptions
 {
     /// <summary>How recall fills the prompt. <see cref="MemoryGateMode.Judge"/> once the gate is added.</summary>
@@ -72,8 +75,28 @@ public sealed class MemoryGateOptions
     /// <summary>How many memories each type is asked for in the wide search (with no similarity floor).</summary>
     public int WideLimit { get; set; } = 50;
 
-    /// <summary>How long the judges may take; past it, recall falls back to <see cref="MemoryGateMode.Floor"/>.</summary>
+    /// <summary>
+    /// How long judging may take. Without a completed baseline, timeout falls back to <see cref="MemoryGateMode.Floor"/>.
+    /// Compound planning and part judging share the remaining time and preserve the completed baseline on timeout.
+    /// </summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// Experimental compound-question judging over the existing candidate pool. Off by default:
+    /// no planner resolution, detector/splitter calls, extra gate calls or prompt/metadata changes.
+    /// On: the original gate decision is preserved, with at most three additional focuses within
+    /// the remaining <see cref="Timeout"/>. No quality benefit is established; presets do not enable it.
+    /// </summary>
+    [Experimental("AMGATE001")]
+    public bool CompoundQuestions { get; set; }
+
+    /// <summary>
+    /// Explicit System One endpoint used by the built-in compound planner to detect multiple needs.
+    /// Also requires the host's IChatClient for splitting. Missing either preserves baseline retrieval.
+    /// Unused when <see cref="CompoundQuestions"/> is false or a custom planner is registered.
+    /// </summary>
+    [Experimental("AMGATE001")]
+    public SystemOneEndpoint? CompoundDetector { get; set; }
 
     /// <summary>
     /// A file of labelled turns (JSON: <c>[{ "turn", "types": [...], "memories": [...] }]</c>); the judge is shown the
@@ -85,13 +108,20 @@ public sealed class MemoryGateOptions
     public int Examples { get; set; } = 3;
 
     /// <summary>
-    /// Whether the write path asks the first judge whether each new fact or preference replaces a stored one
-    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.65), and, with the store-aware writer (AMWRITE001), whether each
+    /// Whether the write path asks the selected judge (<see cref="UpdateJudgeName"/>) whether each new fact or preference replaces a stored one
+    /// (<c>ExtractionOptions.UpdateJudgeThreshold</c>, 0.65), and, with the store-aware writer, whether each
     /// closing it names is one (<c>ExtractionOptions.NamedClosingThreshold</c>, 0.60). Off: the write path without a judge,
     /// and the writer's closings are not applied unless the host's chat model judges them
     /// (<c>LlmExtractionOptions.ChatModelUpdateJudge</c>, which also steps in when this judge fails).
     /// </summary>
     public bool UpdateJudge { get; set; }
+
+    /// <summary>
+    /// Exact name in <see cref="Judges"/> permitted to judge storage closings. Null preserves the legacy
+    /// first-configured endpoint. Does not affect retrieval weights or override <see cref="UpdateJudge"/>.
+    /// A selected judge's failure goes to the host closing fallback, never another retrieval judge.
+    /// </summary>
+    public string? UpdateJudgeName { get; set; }
 
     /// <summary>
     /// A judge that failed this many calls in a row (an error, no connection, or the HTTP client's own timeout) is left out

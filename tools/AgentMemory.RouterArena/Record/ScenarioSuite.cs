@@ -85,7 +85,7 @@ public sealed class ScenarioSuite(TextWriter output)
             var services = new ServiceCollection();
             services.AddLogging(ArenaLogging.Console);
             services.AddSingleton<IClock>(clock);
-#pragma warning disable AMREC001, AMGATE001
+#pragma warning disable AMGATE001
             services.AddNeo4jAgentMemory(MemoryOptions.CreateRecommended(), Neo4j, o => o.ApplyRecommended());
             services.AddSingleton<IChatClient>(new UsageCountingChatClient(chat));
             // An instance, so the container never disposes the shared generator under another scenario.
@@ -95,7 +95,7 @@ public sealed class ScenarioSuite(TextWriter output)
                 g.ApplyRecommended();
                 g.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY" });
             });
-#pragma warning restore AMREC001, AMGATE001
+#pragma warning restore AMGATE001
             return services.BuildServiceProvider();
         }
 

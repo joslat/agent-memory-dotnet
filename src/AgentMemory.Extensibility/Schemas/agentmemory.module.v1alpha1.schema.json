@@ -1,0 +1,476 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/joslat/agent-memory-dotnet/main/src/AgentMemory.Extensibility/Schemas/agentmemory.module.v1alpha1.schema.json",
+  "title": "AgentMemory module v1alpha1",
+  "description": "Editor shape validation only. Call Parse, Validate and Resolve for ownership, references, bounds and host/trust checks.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "agentmemory.module/v1alpha1"
+    },
+    "id": {
+      "$ref": "#/$defs/moduleId"
+    },
+    "version": {
+      "$ref": "#/$defs/version"
+    },
+    "sdk": {
+      "$ref": "#/$defs/range"
+    },
+    "requires": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "modules": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/moduleId"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/range"
+          }
+        },
+        "host": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "History",
+              "Reminders"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "ontology": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "labelPrefix": {
+          "$ref": "#/$defs/label"
+        },
+        "types": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/type"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relation"
+          }
+        }
+      },
+      "required": [
+        "labelPrefix"
+      ]
+    },
+    "views": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/view"
+      }
+    }
+  },
+  "required": [
+    "format",
+    "id",
+    "version",
+    "sdk"
+  ],
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "moduleId": {
+      "type": "string",
+      "pattern": "^(?:[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*){2,})(?![\\s\\S])",
+      "maxLength": 64
+    },
+    "localId": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z][A-Za-z0-9._-]*)(?![\\s\\S])",
+      "maxLength": 64
+    },
+    "label": {
+      "type": "string",
+      "pattern": "^(?:[A-Z][A-Za-z0-9]*)(?![\\s\\S])"
+    },
+    "propertyName": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*)(?![\\s\\S])"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(?:(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?)(?![\\s\\S])"
+    },
+    "range": {
+      "type": "string",
+      "pattern": "^(?:\\s*(?:(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)){0,2}(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?|\\[\\s*(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)){0,2}(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?\\s*\\]|(?:\\[|\\()\\s*(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)){0,2}(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?\\s*,\\s*(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)){0,2}(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?\\s*(?:\\]|\\))|\\(\\s*,\\s*(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)){0,2}(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?\\s*(?:\\]|\\))|(?:\\[|\\()\\s*(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)){0,2}(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?\\s*,\\s*\\)|\\(\\s*,\\s*\\))\\s*)(?![\\s\\S])",
+      "description": "SemVer interval syntax; runtime checks ordering and nonempty bounds."
+    },
+    "positiveInt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "\\S"
+    },
+    "property": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "string",
+            "int",
+            "float",
+            "bool",
+            "date",
+            "datetime"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "indexed": {
+          "type": "boolean"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "maxLength": {
+          "$ref": "#/$defs/positiveInt"
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "values"
+                ]
+              },
+              {
+                "required": [
+                  "maxLength"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "min"
+                ]
+              },
+              {
+                "required": [
+                  "max"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "int",
+                  "float"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "int"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "min": {
+                "type": "integer",
+                "minimum": -9223372036854775808,
+                "maximum": 9223372036854775807
+              },
+              "max": {
+                "type": "integer",
+                "minimum": -9223372036854775808,
+                "maximum": 9223372036854775807
+              }
+            }
+          }
+        }
+      ]
+    },
+    "type": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/label"
+        },
+        "scope": {
+          "enum": [
+            "owner",
+            "shared"
+          ],
+          "default": "owner"
+        },
+        "description": {
+          "$ref": "#/$defs/text"
+        },
+        "color": {
+          "$ref": "#/$defs/text"
+        },
+        "render": {
+          "$ref": "#/$defs/text"
+        },
+        "properties": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/propertyName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/property"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)(?![\\s\\S])"
+        },
+        "from": {
+          "$ref": "#/$defs/label"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^(?:(?:[A-Z][A-Za-z0-9]*|core:Entity|[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*){2,}:[A-Z][A-Za-z0-9]*))(?![\\s\\S])"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "max": {
+          "$ref": "#/$defs/positiveInt"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        }
+      },
+      "required": [
+        "name",
+        "from",
+        "to"
+      ]
+    },
+    "literal": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "filter": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/propertyName"
+        },
+        {
+          "enum": [
+            "=",
+            "!=",
+            "<",
+            "<=",
+            ">",
+            ">=",
+            "in"
+          ]
+        },
+        {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/literal"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/literal"
+              }
+            }
+          ]
+        }
+      ],
+      "items": false,
+      "allOf": [
+        {
+          "if": {
+            "prefixItems": [
+              true,
+              {
+                "const": "in"
+              }
+            ]
+          },
+          "then": {
+            "prefixItems": [
+              true,
+              true,
+              {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                }
+              }
+            ]
+          },
+          "else": {
+            "prefixItems": [
+              true,
+              true,
+              {
+                "$ref": "#/$defs/literal"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/localId"
+        },
+        "type": {
+          "$ref": "#/$defs/label"
+        },
+        "where": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/filter"
+          }
+        },
+        "orderBy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/propertyName"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "property": {
+                  "$ref": "#/$defs/propertyName"
+                },
+                "descending": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "property"
+              ]
+            }
+          ]
+        },
+        "limit": {
+          "$ref": "#/$defs/positiveInt"
+        },
+        "selection": {
+          "type": "string",
+          "enum": [
+            "snapshot",
+            "history"
+          ],
+          "default": "snapshot",
+          "description": "History requires an exact runtime key and uses fixed newest-version-first order."
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "limit"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "selection": {
+                "const": "history"
+              }
+            },
+            "required": [
+              "selection"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "orderBy"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

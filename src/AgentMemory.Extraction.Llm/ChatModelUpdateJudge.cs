@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace AgentMemory.Extraction.Llm;
 
 /// <summary>
-/// The update judge's second tier (AMWRITE001, <see cref="LlmExtractionOptions.ChatModelUpdateJudge"/>): the closings a
+/// The update judge's second tier (<see cref="LlmExtractionOptions.ChatModelUpdateJudge"/>): the closings a
 /// store-aware writer names, confirmed by the host's chat model when no outside judge answers. The question and its two
 /// answers are the gate's (SystemOneUpdateJudge), word for word; the model answers yes or no per pair, read as a probability
 /// of 1 or 0 against the write path's threshold. An answer without JSON confirms nothing.
@@ -36,9 +36,7 @@ internal sealed class ChatModelUpdateJudge : IMemoryUpdateJudgeFallback
         _runner = new LlmExtractionRunner(chatClient, _options, logger);
     }
 
-#pragma warning disable AMWRITE001
     public bool IsEnabled => _options.ChatModelUpdateJudge;
-#pragma warning restore AMWRITE001
 
     public async Task<IReadOnlyDictionary<string, double>> JudgeAsync(MemoryUpdateRequest request, CancellationToken cancellationToken = default)
     {

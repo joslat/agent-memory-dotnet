@@ -255,7 +255,7 @@ public interface IFactRepository
     }
 
     /// <summary>
-    /// AMWRITE001. The facts in <paramref name="scope"/> whose subject, predicate or object contains any of
+    /// The facts in <paramref name="scope"/> whose subject, predicate or object contains any of
     /// <paramref name="names"/> (ignoring case), oldest first, at most <paramref name="limit"/>, closed ones left out: what the
     /// store-aware writer (<c>IMemoryWriter</c>) is shown about the people and things a turn names.
     /// </summary>
@@ -263,7 +263,7 @@ public interface IFactRepository
     /// The default finds only the facts whose subject or object IS one of the names (two keyed reads a name), a subset; a
     /// store should answer the containment with one query.
     /// </remarks>
-    [Experimental("AMWRITE001")]
+
     async Task<IReadOnlyList<Fact>> FindMentioningAsync(
         IReadOnlyCollection<string> names,
         MemoryScope scope,

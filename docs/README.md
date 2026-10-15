@@ -25,4 +25,5 @@ Public documentation must remain usable without that repository.
 | [security/production-checklist.md](security/production-checklist.md) | Pre-production hardening checklist |
 
 Schema-extension contracts are indexed in [extensions/README.md](extensions/README.md).
+The development recorder's opt-in provenance format is described in [store-session exports](performance/store-session-exports.md).
 For shared chat and embedding setup, see [configuration/inference-providers.md](configuration/inference-providers.md).

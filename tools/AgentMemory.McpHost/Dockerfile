@@ -1,4 +1,4 @@
-# Build the MCP host as a self-contained container image.
+# Build the MCP host as a framework-dependent container image.
 #
 # Built from the repository root so the ProjectReferences resolve:
 #   docker build -f tools/AgentMemory.McpHost/Dockerfile -t agent-memory-mcp .
@@ -6,10 +6,11 @@
 # The image defaults to the HTTP transport. stdio is for a client that launches the process itself,
 # which is the `dotnet tool install -g` path, not this one -- a container speaking stdio would need
 # `docker run -i` and an attached client, and getting that subtly wrong presents as a silent hang.
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.400 AS build
 WORKDIR /src
 
 COPY Directory.Build.props ./
+COPY global.json ./
 COPY README.md ./
 COPY resources/ ./resources/
 COPY src/ ./src/
@@ -18,7 +19,7 @@ COPY tools/AgentMemory.McpHost/ ./tools/AgentMemory.McpHost/
 RUN dotnet publish tools/AgentMemory.McpHost/AgentMemory.McpHost.csproj \
     -c Release -o /app --no-self-contained
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app .
 

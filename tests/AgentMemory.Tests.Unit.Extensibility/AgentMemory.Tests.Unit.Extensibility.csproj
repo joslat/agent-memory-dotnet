@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="FluentAssertions" Version="8.9.0" />
+    <PackageReference Include="JsonSchema.Net" Version="9.4.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="NSubstitute" Version="5.3.0" />
     <!-- The concrete container and logging, for the registration tests. The SDK itself references
@@ -25,7 +26,23 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
+    <ProjectReference Include="../../src/AgentMemory.Extensibility.Neo4j/AgentMemory.Extensibility.Neo4j.csproj" />
+    <!-- Test-only: verify refusal using the actual NAMS registration extension. -->
+    <ProjectReference Include="../../src/AgentMemory.Nams/AgentMemory.Nams.csproj" />
+    <!-- Test-only: pin reserved names to actual storage declarations. The SDK remains Abstractions-only. -->
+    <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility.AgentFramework\AgentMemory.Extensibility.AgentFramework.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Build a real implementation assembly, but never reference or load it into the test host. -->
+    <ProjectReference Include="..\Fixtures\ModuleDiscoveryFixture\ModuleDiscoveryFixture.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyModuleDiscoveryFixture" AfterTargets="Build">
+    <MakeDir Directories="$(OutDir)ModuleFixtures" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\Fixtures\ModuleDiscoveryFixture\bin\$(Configuration)\net10.0\ModuleDiscoveryFixture.dll" DestinationFolder="$(OutDir)ModuleFixtures" />
+  </Target>
+  <ItemGroup>
+    <None Include="../../src/AgentMemory.Extensibility/Schemas/*.json" Link="ModuleSchemas/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

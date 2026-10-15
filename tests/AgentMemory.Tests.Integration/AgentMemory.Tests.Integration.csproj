@@ -28,6 +28,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj" />
+    <ProjectReference Include="../../src/AgentMemory.Extensibility.Neo4j/AgentMemory.Extensibility.Neo4j.csproj" />
+    <ProjectReference Include="../../tools/AgentMemory.Cli/AgentMemory.Cli.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Analytics\AgentMemory.Analytics.csproj" />
@@ -39,6 +42,16 @@
     <ProjectReference Include="..\..\src\AgentMemory.Nams\AgentMemory.Nams.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Validation\AgentMemory.Validation.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge\AgentMemory.TckBridge.csproj" />
+    <ProjectReference Include="..\..\tools\AgentMemory.RouterArena\AgentMemory.RouterArena.csproj" Aliases="RouterArena" />
+    <ProjectReference Include="..\..\tools\AgentMemory.McpHost\AgentMemory.McpHost.csproj" Aliases="McpHost" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../Fixtures/ModuleMigrationFixture/ModuleMigrationFixture.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyModuleMigrationFixture" AfterTargets="Build">
+    <MakeDir Directories="$(OutDir)ModuleFixtures" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)../Fixtures/ModuleMigrationFixture/fixture.agentmemory-module.json" DestinationFolder="$(OutDir)ModuleFixtures" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)../Fixtures/ModuleMigrationFixture/bin/$(Configuration)/net10.0/ModuleMigrationFixture.dll" DestinationFolder="$(OutDir)ModuleFixtures" />
+  </Target>
 </Project>

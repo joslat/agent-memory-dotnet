@@ -52,9 +52,14 @@ public sealed class StoreSessions(TextWriter output)
 
     public async Task<int> RunAsync(string packPath, string setsDirectory, string form, string outPath, bool dryRun, int? limit,
         CancellationToken cancellationToken = default, string set = "w3", string? ownerName = null, bool recall = false,
-        bool consolidate = false)
+        bool consolidate = false, bool recordProvenance = false, string? searchCasesPath = null)
     {
-        // writer: the library with the store-aware writer (AMWRITE001, storage round 3's F ported) and the update judge
+        if (searchCasesPath is not null && !recordProvenance)
+        {
+            output.WriteLine("error: --search-cases requires --record-provenance.");
+            return 1;
+        }
+        // writer: the library with the store-aware writer (storage round 3's F ported) and the update judge
         // confirming its closings; the turn's earlier messages are its context, as the harness gave them.
         // writer-nojudge: the writer with no update judge (its closings are not applied); writer-hostjudge: the writer with the
         // update judge's question asked of the host's chat model instead of JEV (HostModelUpdateJudge). PLAN 41.26 (c).
@@ -63,6 +68,7 @@ public sealed class StoreSessions(TextWriter output)
             output.WriteLine($"error: store-sessions: --form must be today, update-judge, update-judge-dream, writer, writer-nojudge or writer-hostjudge (was {form})");
             return 1;
         }
+        var evidence = recordProvenance ? new StoreSessionEvidence(packPath, setsDirectory, set, AppContext.BaseDirectory) : null;
         var pack = ValidationPackReader.ReadFile(packPath);
         var problems = ValidationPackReader.Check(pack);
         if (problems.Count > 0)
@@ -71,6 +77,9 @@ public sealed class StoreSessions(TextWriter output)
             return 1;
         }
         var turns = ReadTurns(setsDirectory, set).Take(limit ?? int.MaxValue).ToList();
+        var searchPlan = searchCasesPath is null ? null : await SearchCapturePlan.ReadAsync(searchCasesPath, turns, cancellationToken).ConfigureAwait(false);
+        var searchResults = new List<SearchCaptureResult>();
+        evidence?.VerifyInputs();
         var resolution = InferenceProviderEnvironment.Resolve();
         if (resolution.Settings is not { } settings)
         {
@@ -89,6 +98,8 @@ public sealed class StoreSessions(TextWriter output)
         var dream = form == "update-judge-dream";
         if (dryRun)
         {
+            if (searchPlan is not null)
+                output.WriteLine($"store-sessions: {searchPlan.Cases.Count} planned search captures; wide limit {searchPlan.WideLimit}; no relevance-judge calls for capture.");
             output.WriteLine($"store-sessions: dry run: one pack load, about {turns.Count} extraction calls"
                 + (form != "today" ? " and an update-judge call for each write that has a similar stored memory" : "")
                 + (dream ? "; after each session, a dream pass over live pairs at cosine >= 0.85" : "")
@@ -126,11 +137,10 @@ public sealed class StoreSessions(TextWriter output)
         services.AddSingleton<IClock>(clock);
         // A measurement sees every writer failure: the turn stores nothing and its error is recorded, never handed to the
         // extractors (the library's default since 2026-10-08), so a run with a failed turn is visible and is run again.
-#pragma warning disable AMWRITE001
         store.Options.Extraction.FallBackToExtractorsWhenWriterFails = false;
-#pragma warning restore AMWRITE001
         var writerForm = form.StartsWith("writer", StringComparison.Ordinal);
         services.AddNeo4jAgentMemory(store.Options, Neo4j, writerForm ? o => o.UseMemoryWriter = true : _ => { });
+        if (searchPlan is not null) StoreSearchCapture.Register(services, store.Options);
         var usage = new UsageCountingChatClient(chat);
         services.AddSingleton<IChatClient>(usage);
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
@@ -155,6 +165,14 @@ public sealed class StoreSessions(TextWriter output)
         await using var provider = services.BuildServiceProvider();
         var ownerId = store.Owner(owner);
         var tx = provider.GetRequiredService<INeo4jTransactionRunner>();
+        if (evidence is not null)
+        {
+            using var seedScope = store.Provider.CreateScope();
+            var shortTerm = seedScope.ServiceProvider.GetRequiredService<IShortTermMemoryService>();
+            foreach (var session in pack.Sessions)
+                foreach (var message in await shortTerm.GetAllSessionMessagesAsync($"{store.Prefix}-{session.Id}", cancellationToken).ConfigureAwait(false))
+                    evidence.AddMessage(message, "seed", session.Shared ? null : store.Owner(session.Owner));
+        }
         if (!string.IsNullOrWhiteSpace(ownerName))
         {
             // --owner-name: the owner has said their name before the first turn ("user | is named | Lukas", written at the seed's
@@ -214,11 +232,15 @@ public sealed class StoreSessions(TextWriter output)
                     var added = new List<Message>();
                     var k = 0;
                     foreach (var (role, text) in turn.Prior.Select(p => (p.Role, p.Text)).Append(("user", turn.Text)))
-                        added.Add(await shortTerm.AddMessageAsync(new Message
+                    {
+                        var message = await shortTerm.AddMessageAsync(new Message
                         {
                             MessageId = $"{sessionId}-t{turn.Id[^2..]}-{k++}", ConversationId = sessionId, SessionId = sessionId, Role = role,
                             Content = text, TimestampUtc = at,
-                        }, cancellationToken).ConfigureAwait(false));
+                        }, cancellationToken).ConfigureAwait(false);
+                        added.Add(message);
+                        evidence?.AddMessage(message, k <= turn.Prior.Count ? "turn-context" : "turn-input", ownerId);
+                    }
                     // The writer reads the turn's earlier messages as context (the harness's CONVERSATION); the other forms
                     // extract from the last message alone, as they always did.
                     await pipeline.ExtractAsync(new ExtractionRequest
@@ -241,7 +263,7 @@ public sealed class StoreSessions(TextWriter output)
                 calls = calls1 - calls0, inputTokens = input1 - input0, outputTokens = output1 - output0,
                 promptChars = prompt1 - prompt0, replyChars = reply1 - reply0, ms = watch.ElapsedMilliseconds,
             };
-            var written = await AtAsync(tx, ownerId, at, cancellationToken).ConfigureAwait(false);
+            var written = await AtAsync(tx, ownerId, at, cancellationToken, recordProvenance).ConfigureAwait(false);
             results.Add(new { turn = turn.Id, session = turn.Session, at, text = turn.Text, written, error, cost, recall = recalled });
             output.WriteLine($"  {i + 1}/{turns.Count} {turn.Id}: {written.Count} written or closed{(error is null ? "" : $" ({error[..Math.Min(80, error.Length)]})")}");
             var lastOfSession = i == turns.Count - 1 || turns[i + 1].Session != turn.Session;
@@ -268,14 +290,23 @@ public sealed class StoreSessions(TextWriter output)
                         output.WriteLine($"  session {turn.Session}: the dream pass FAILED ({dreamErrors[0]}); the run goes on");
                     }
                 }
-                var live = await LiveAsync(tx, ownerId, cancellationToken).ConfigureAwait(false);
-                sessions.Add(new { session = turn.Session, date = turn.Date, live, dreamt, dreamErrors });
+                var live = await LiveAsync(tx, ownerId, cancellationToken, recordProvenance).ConfigureAwait(false);
+                sessions.Add(recordProvenance
+                    ? (object)new { session = turn.Session, date = turn.Date, live, dreamt, dreamErrors, capturedAt = clock.Now }
+                    : new { session = turn.Session, date = turn.Date, live, dreamt, dreamErrors });
+                if (searchPlan is not null)
+                {
+                    searchPlan.VerifyInput();
+                    foreach (var query in searchPlan.Cases.Where(c => c.Session == turn.Session))
+                    {
+                        using var scope = provider.CreateScope();
+                        searchResults.Add(await scope.ServiceProvider.GetRequiredService<StoreSearchCapture>()
+                            .CaptureAsync(query, sessionId, ownerId, searchPlan.WideLimit, cancellationToken).ConfigureAwait(false));
+                    }
+                }
                 output.WriteLine($"  session {turn.Session} ({turn.Date}): {live.Count} live memories");
             }
-            await RunFile.WriteAsync(outPath, JsonSerializer.Serialize(new
-            {
-                format = "store-sessions/1", form, model = settings.Model, pack = pack.Id, owner, results, sessions,
-            }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);
+            await SaveAsync(i == turns.Count - 1 && !consolidate).ConfigureAwait(false);
         }
         if (consolidate && !dryRun)
         {
@@ -306,13 +337,41 @@ public sealed class StoreSessions(TextWriter output)
                 consolidation = new { error = $"{ex.GetType().Name}: {ex.Message}" };
                 output.WriteLine($"  consolidation FAILED ({ex.GetType().Name}: {ex.Message})");
             }
-            await RunFile.WriteAsync(outPath, JsonSerializer.Serialize(new
-            {
-                format = "store-sessions/1", form, model = settings.Model, pack = pack.Id, owner, results, sessions, consolidation,
-            }, new JsonSerializerOptions { WriteIndented = true }), cancellationToken).ConfigureAwait(false);
+            await SaveAsync(true, consolidation).ConfigureAwait(false);
         }
         output.WriteLine($"store-sessions: {results.Count} turns, {sessions.Count} sessions to {outPath}");
-        return 0;
+        return searchResults.Any(r => r.Error is not null) ? 2 : 0;
+
+        Task SaveAsync(bool complete, object? consolidation = null)
+        {
+            evidence?.VerifyInputs();
+            searchPlan?.VerifyInput();
+            var run = new Dictionary<string, object?>
+            {
+                ["format"] = evidence is null ? "store-sessions/1" : "store-sessions/2", ["form"] = form,
+                ["model"] = settings.Model, ["pack"] = pack.Id, ["owner"] = owner, ["results"] = results, ["sessions"] = sessions,
+            };
+            if (consolidation is not null) run["consolidation"] = consolidation;
+            if (searchPlan is not null)
+                run["searchCapture"] = new
+                {
+                    schemaVersion = 1, role = searchPlan.Role, planFileSha256 = searchPlan.FileSha256,
+                    wideLimit = searchPlan.WideLimit, expectedCases = searchPlan.Cases.Count,
+                    complete = complete && searchResults.Count == searchPlan.Cases.Count && searchResults.All(r => r.Error is null),
+                    contextBudget = store.Options.ContextBudget,
+                    scope = "Owner-only library search/assembly before judge; historical captures bypass the gate; no overlay or answer measurement.",
+                    results = JsonSerializer.SerializeToElement(searchResults, SearchCapturePlan.Json),
+                };
+            if (evidence is not null)
+                run["provenance"] = evidence.Export(ownerId, new
+                {
+                    set, form, limit, ownerName, recall, consolidate, provider = settings.Provider, model = settings.Model,
+                    embeddingModel = request.Model, embeddingDimensions = ollama.Dimensions,
+                    fallBackToExtractorsWhenWriterFails = false, selectedTurnCount = turns.Count,
+                    selectedSessionCount = turns.Select(t => t.Session).Distinct().Count(),
+                }, complete);
+            return RunFile.WriteAsync(outPath, JsonSerializer.Serialize(run, new JsonSerializerOptions { WriteIndented = true }), cancellationToken);
+        }
     }
 
     private static readonly string[] AtCypher =
@@ -328,15 +387,15 @@ public sealed class StoreSessions(TextWriter output)
     ];
 
     /// <summary>Every node or relationship of the owner created or closed at the turn's instant, without vectors.</summary>
-    private static Task<List<Dictionary<string, object?>>> AtAsync(INeo4jTransactionRunner tx, string ownerId, DateTimeOffset at, CancellationToken ct) =>
-        QueryAsync(tx, AtCypher, new Dictionary<string, object?> { ["owner"] = ownerId, ["at"] = at.ToString("O") }, ct);
+    private static Task<List<Dictionary<string, object?>>> AtAsync(INeo4jTransactionRunner tx, string ownerId, DateTimeOffset at, CancellationToken ct, bool preserveTypes) =>
+        QueryAsync(tx, AtCypher, new Dictionary<string, object?> { ["owner"] = ownerId, ["at"] = at.ToString("O") }, ct, preserveTypes);
 
     /// <summary>The owner's live store: facts, entities and preferences not closed or merged, and live connections.</summary>
-    private static Task<List<Dictionary<string, object?>>> LiveAsync(INeo4jTransactionRunner tx, string ownerId, CancellationToken ct) =>
-        QueryAsync(tx, LiveCypher, new Dictionary<string, object?> { ["owner"] = ownerId }, ct);
+    private static Task<List<Dictionary<string, object?>>> LiveAsync(INeo4jTransactionRunner tx, string ownerId, CancellationToken ct, bool preserveTypes) =>
+        QueryAsync(tx, LiveCypher, new Dictionary<string, object?> { ["owner"] = ownerId }, ct, preserveTypes);
 
     internal static Task<List<Dictionary<string, object?>>> QueryAsync(INeo4jTransactionRunner tx, string[] cyphers,
-        Dictionary<string, object?> parameters, CancellationToken cancellationToken) =>
+        Dictionary<string, object?> parameters, CancellationToken cancellationToken, bool preserveTypes = false) =>
         tx.ReadAsync(async runner =>
         {
             var rows = new List<Dictionary<string, object?>>();
@@ -347,7 +406,7 @@ public sealed class StoreSessions(TextWriter output)
                 {
                     var p = r["p"].As<IDictionary<string, object>>()
                         .Where(kv => !kv.Key.Contains("embedding", StringComparison.Ordinal))
-                        .ToDictionary(kv => kv.Key, kv => (object?)kv.Value?.ToString());
+                        .ToDictionary(kv => kv.Key, kv => preserveTypes ? StoreSessionEvidence.Property(kv.Value) : kv.Value?.ToString());
                     rows.Add(new Dictionary<string, object?>
                     {
                         ["kind"] = string.Join(",", r["kind"].As<List<object>>()), ["source"] = r["s"].As<string?>(), ["target"] = r["t"].As<string?>(), ["props"] = p,

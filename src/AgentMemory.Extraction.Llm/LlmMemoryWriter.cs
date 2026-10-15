@@ -17,10 +17,10 @@ using Microsoft.Extensions.Options;
 namespace AgentMemory.Extraction.Llm;
 
 /// <summary>
-/// The store-aware writer (AMWRITE001): one model call per turn that sees the owner's most relevant stored memories and
+/// The store-aware writer : one model call per turn that sees the owner's most relevant stored memories and
 /// proposes only what is new (add), what changes a stored memory (replace, naming it) or what was wrong (correct, naming
 /// it), or nothing. Storage round 3's selected form "F", ported from the research harness (round3.py, storage_round2.py):
-/// its system prompt is the harness's, word for word. Measured in the harness on a fresh 12-session world: storage accuracy
+/// with later confirmation, temporal and aspiration rules. Historical form-F measurements on a fresh 12-session world: storage accuracy
 /// 90.8%, precision 96.8%, recall 87.1%, no wrong closure in nine runs (the library's extractors 42.3% on the same setup);
 /// through the library, on that world's first three sessions, 93.2% against the harness's 91.6-97.2% on the same turns.
 /// </summary>
@@ -130,7 +130,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         try
         {
             var facts = _services.GetRequiredService<IFactRepository>();
-            var name = await facts.FindLatestObjectAsync(PersistenceStage.UserNames.SelfWords, PersistenceStage.UserNames.NamingPredicates,
+            var name = await facts.FindLatestObjectAsync(MemoryUserNames.SelfWords, MemoryUserNames.NamingPredicates,
                 scope, cancellationToken).ConfigureAwait(false);
             return MemoryWriterPrompt.PlainName(name);
         }
@@ -227,7 +227,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     }
 }
 
-/// <summary>The writer's prompt: storage round 3's form F (round3.py, storage_round2.py prompt p2), word for word.</summary>
+/// <summary>The writer's prompt: storage round 3's form F plus the documented retention and transition rules.</summary>
 internal static class MemoryWriterPrompt
 {
     private const string Rules =
@@ -246,9 +246,12 @@ internal static class MemoryWriterPrompt
           morning, she asked me to braid her hair today) stays true: store it with its date, never with "until".
         - A question stores nothing, unless it also tells something ("I'm off to Seville on the 13th, what should I pack?" stores
           the trip and its date).
+        - Separate a personal aspiration from its emotional wording. Wanting to contribute or make an impact in a named
+          activity is a goal even without a date, concrete steps or a promise. Keep it as a wish, aim or value, not as
+          an activity already started or a firm commitment. A stored taste does not already cover a new goal.
         - Small talk, thanks, greetings, a passing mood or reaction, the request itself and general knowledge store nothing.
-          A lasting goal, value, commitment or fact said with feeling is kept; only the feeling is not ("I'm excited to
-          start volunteering with therapy dogs" keeps the volunteering).
+          Praise or excitement alone is not a personal goal. Earlier assistant suggestions alone are not the person's
+          intentions; keep only what the last user message actually says about their wishes, plans, values or facts.
         - What is already stored is not stored again, in any words: when the last message says it again and adds nothing,
           confirm it. When it says it again with anything more (a reason, a goal, a detail, a number, a name, a date),
           replace the stored memory with the fuller one.
@@ -448,7 +451,8 @@ internal static class MemoryWriterOps
     /// "Name (TYPE)", a connection from "A -[RELATION]-> B". A replace or correct names the stored memory it closes: a stored
     /// fact or connection for a fact (a wedding ends the engagement, 2026-10-10: world 9 kept "Owen -[ENGAGED_TO]-> Simone"
     /// live after the wedding in all three stores, the writer having no way to end it), a stored preference for a
-    /// preference, a stored connection for a connection; anything else is simply added.
+    /// preference, a stored connection for a connection; a connection-shaped replacement of a fact remains a fact so its
+    /// target is preserved without requiring separately persisted entity endpoints. Anything else is simply added.
     /// </summary>
     internal static UnifiedExtractionResult ToResult(IReadOnlyList<Op> ops, IReadOnlyList<Stored> stored, string? owner)
     {
@@ -472,6 +476,12 @@ internal static class MemoryWriterOps
             }
             if (Connection.Match(op.Text) is { Success: true } link)
             {
+                if (target?.Letter == 'F')
+                {
+                    facts.Add(CreateFact(op, target, link.Groups["s"].Value,
+                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), link.Groups["t"].Value));
+                    continue;
+                }
                 relationships.Add(new ExtractedRelationship
                 {
                     SourceEntity = link.Groups["s"].Value,
@@ -501,7 +511,7 @@ internal static class MemoryWriterOps
                 case "relationship":
                     break;   // a connection the text did not state as "A -[RELATION]-> B" cannot be stored as one
                 default:
-                    var parts = op.Text.Split('|', 3, StringSplitOptions.TrimEntries);
+                    var parts = FactText(op.Text).Split('|', 3, StringSplitOptions.TrimEntries);
                     var (subject, predicate, @object) = parts.Length switch
                     {
                         3 => (parts[0], parts[1], parts[2]),
@@ -509,14 +519,7 @@ internal static class MemoryWriterOps
                         _ => (owner ?? "user", "noted", op.Text.Trim()),
                     };
                     if (subject.Length == 0 || predicate.Length == 0 || @object.Length == 0) break;
-                    facts.Add(new ExtractedFact
-                    {
-                        Subject = subject, Predicate = predicate, Object = @object, SourceRole = "user",
-                        ReplacesId = target?.Letter is 'F' or 'R' ? target.Id : null,
-                        ReplacementIsCorrection = (target?.Letter is 'F' or 'R') && op.Action == "correct",
-                        ValidUntil = EndOfDay(op.Until),
-                        ValidUntilPrecision = EndOfDay(op.Until) is null ? DatePrecision.Unspecified : DatePrecision.Day,
-                    });
+                    facts.Add(CreateFact(op, target, subject, predicate, @object));
                     break;
             }
         }
@@ -526,6 +529,26 @@ internal static class MemoryWriterOps
             ConfirmedFactIds = [.. confirmedFacts.Distinct(StringComparer.Ordinal)],
             ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
         };
+    }
+
+    private static ExtractedFact CreateFact(Op op, Stored? target, string subject, string predicate, string value) => new()
+    {
+        Subject = subject, Predicate = predicate, Object = value, SourceRole = "user",
+        ReplacesId = target?.Letter is 'F' or 'R' ? target.Id : null,
+        ReplacementIsCorrection = (target?.Letter is 'F' or 'R') && op.Action == "correct",
+        ValidUntil = EndOfDay(op.Until),
+        ValidUntilPrecision = EndOfDay(op.Until) is null ? DatePrecision.Unspecified : DatePrecision.Day,
+    };
+
+    // Models can copy the prompt's format label and outer quotes into the JSON text value.
+    // Remove only that complete triple wrapper; quotes within a field remain meaningful content.
+    private static string FactText(string text)
+    {
+        const string Prefix = "fact: \"";
+        if (text.Length <= Prefix.Length || !text.StartsWith(Prefix, StringComparison.Ordinal) || !text.EndsWith('"')) return text;
+        var inner = text[Prefix.Length..^1];
+        var parts = inner.Split('|', 3, StringSplitOptions.TrimEntries);
+        return parts.Length == 3 && parts.All(p => p.Length > 0) ? inner : text;
     }
 
     /// <summary>

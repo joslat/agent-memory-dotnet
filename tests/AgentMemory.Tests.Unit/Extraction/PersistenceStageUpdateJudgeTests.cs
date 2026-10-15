@@ -64,6 +64,36 @@ public sealed class PersistenceStageUpdateJudgeTests
             .Returns(ci => (IReadOnlyDictionary<string, double>)ci.Arg<MemoryUpdateRequest>().Pairs.ToDictionary(x => x.Key, _ => p));
 
     [Theory]
+    [InlineData(0.65)]
+    [InlineData(1.0)]
+    public async Task Similarity_threshold_is_inclusive(double score)
+    {
+        JudgeSays(score);
+
+        await CreateSut().PersistAsync(Dropped10k());
+
+        await _factRepo.Received(1).SupersedeAsync("fact-old", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Similarity_failure_does_not_use_an_enabled_host_fallback()
+    {
+        var host = Substitute.For<IMemoryUpdateJudgeFallback>();
+        host.IsEnabled.Returns(true);
+        _judge.JudgeAsync(Arg.Any<MemoryUpdateRequest>(), Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("down"));
+        var sut = new PersistenceStage(_orchestrator, _entityRepo, _factRepo, _prefRepo, _relRepo, _clock, _idGen,
+            NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
+            Options.Create(new ExtractionOptions()), updateJudge: _judge, fallbackJudge: host);
+
+        var result = await sut.PersistAsync(Dropped10k());
+
+        result.FactCount.Should().Be(1);
+        await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => !r.Named), Arg.Any<CancellationToken>());
+        await host.DidNotReceiveWithAnyArgs().JudgeAsync(default!, default);
+        await _factRepo.DidNotReceiveWithAnyArgs().SupersedeAsync(default!, default!, default, default);
+    }
+
+    [Theory]
     [InlineData(null)]      // a write without an owner: a vector search with no scope reads every owner's memories
     [InlineData("ana")]     // another owner's write
     public async Task Another_owners_memory_is_never_offered_nor_closed(string? writer)
@@ -95,7 +125,12 @@ public sealed class PersistenceStageUpdateJudgeTests
     [Theory]
     [InlineData(0.64)]
     [InlineData(0.2)]
-    public async Task Below_the_threshold_nothing_is_closed(double p)
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    [InlineData(1.01)]
+    [InlineData(-0.01)]
+    public async Task Invalid_or_below_threshold_scores_close_nothing(double p)
     {
         JudgeSays(p);
 

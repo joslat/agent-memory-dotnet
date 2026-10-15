@@ -7,12 +7,14 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Gate;
+using AgentMemory.Core.Extraction;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 using Xunit;
 
 namespace AgentMemory.Tests.Unit.Gate;
@@ -327,6 +329,67 @@ public sealed class GateTests
     private static readonly SystemOneEndpoint Jev = new() { Name = "jev", Endpoint = new("https://jev.test/v1/systemone"), Weight = 0.8 };
     private static readonly SystemOneEndpoint Laya = new() { Name = "laya", Endpoint = new("http://laya.test/v1/systemone"), Weight = 0.2 };
 
+    [Theory]
+    [InlineData("jev", true)]
+    [InlineData(null, true)]
+    [InlineData("jev", false)]
+    [InlineData("missing", true)]
+    public async Task Storage_selection_is_explicit_and_never_routes_around_a_negative_verdict(string? selected, bool enabled)
+    {
+        var server = new Server(call => Answer(call, 0.1));
+        var judge = new SystemOneUpdateJudge(new SystemOneClient(new HttpClient(server)), Options.Create(new MemoryGateOptions
+        {
+            Judges = [Laya, Jev], UpdateJudge = enabled, UpdateJudgeName = selected,
+        }));
+        var request = new MemoryUpdateRequest("the plan changed", DateTimeOffset.UnixEpoch,
+            [new MemoryUpdatePair("p1", "new plan", "old plan")]);
+        if (!enabled || selected == "missing")
+        {
+            judge.IsEnabled.Should().BeFalse();
+            await judge.Invoking(j => j.JudgeAsync(request)).Should().ThrowAsync<InvalidOperationException>();
+            server.Calls.Should().BeEmpty();
+        }
+        else
+        {
+            judge.IsEnabled.Should().BeTrue();
+            (await judge.JudgeAsync(request))["p1"].Should().Be(0.1);
+            server.Calls.Should().ContainSingle().Which.Url.Should().Be((selected is null ? Laya : Jev).Endpoint!.ToString());
+        }
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("")]
+    [InlineData("duplicate")]
+    public void Invalid_storage_selection_is_rejected_by_options_validation(string selected)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IMemoryContextAssembler>(new Inner(Wide, Today));
+        services.AddAgentMemoryGate(o =>
+        {
+            o.UpdateJudgeName = selected;
+            o.Judges = [Jev, Laya, new() { Name = "duplicate", Endpoint = Jev.Endpoint }, new() { Name = "duplicate", Endpoint = Laya.Endpoint }];
+        });
+        using var provider = services.BuildServiceProvider();
+        FluentActions.Invoking(() => provider.GetRequiredService<IOptions<MemoryGateOptions>>().Value)
+            .Should().Throw<OptionsValidationException>().WithMessage("*UpdateJudgeName*");
+    }
+
+    [Fact]
+    public async Task A_selected_storage_judge_outage_never_calls_the_other_retrieval_model()
+    {
+        var server = new Server(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var judge = new SystemOneUpdateJudge(new SystemOneClient(new HttpClient(server)), Options.Create(new MemoryGateOptions
+        {
+            Judges = [Laya, Jev], UpdateJudge = true, UpdateJudgeName = "jev", JudgeFailuresBeforeCooldown = 1,
+        }));
+        var request = new MemoryUpdateRequest("the plan changed", DateTimeOffset.UnixEpoch,
+            [new MemoryUpdatePair("p1", "new plan", "old plan")]);
+        await judge.Invoking(j => j.JudgeAsync(request)).Should().ThrowAsync<HttpRequestException>();
+        await judge.Invoking(j => j.JudgeAsync(request)).Should().ThrowAsync<JudgeCoolingDownException>();
+        server.Calls.Should().ContainSingle().Which.Url.Should().Be(Jev.Endpoint!.ToString());
+    }
+
     [Fact]
     public async Task Each_type_is_asked_once_per_judge_in_the_measured_words_and_the_judges_are_blended()
     {
@@ -356,6 +419,85 @@ public sealed class GateTests
 
         var allDown = new Server(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         await GateOver(allDown, Jev, Laya).Invoking(g => g.DecideAsync(TwoTypes())).Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData("1.2")]
+    [InlineData("-0.1")]
+    [InlineData("1e999")]
+    [InlineData("null")]
+    [InlineData("\"NaN\"")]
+    public async Task An_invalid_probability_excludes_that_judge_instead_of_poisoning_the_blend(string score)
+    {
+        using var server = new Server(call => call.StartsWith("https://jev", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"answers\":{\"m1\":{\"noul\":" + score + "}}}", Encoding.UTF8, "application/json"),
+            }
+            : Answer(call, 0.6));
+
+        var decision = await GateOver(server, Jev, Laya).DecideAsync(TwoTypes());
+
+        decision.AnsweredBy.Should().Be("laya");
+        decision.Probabilities.Values.Should().OnlyContain(p => p == 0.6);
+        await GateOver(server, Jev).Invoking(g => g.DecideAsync(TwoTypes())).Should().ThrowAsync<Exception>();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    public async Task A_missing_configured_key_skips_transport_and_can_recover_when_supplied(string? missing)
+    {
+        var variable = "AGENT_MEMORY_TEST_KEY_" + Guid.NewGuid().ToString("N");
+        var secured = new SystemOneEndpoint { Name = "secured", Endpoint = Jev.Endpoint, KeyVariable = variable };
+        using var server = new Server(call => Answer(call, 0.6));
+        var gate = GateOver(server, secured, Laya);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, missing);
+            var fallback = await gate.DecideAsync(TwoTypes());
+            fallback.AnsweredBy.Should().Be("laya");
+            server.Calls.Should().OnlyContain(c => c.Url.StartsWith("http://laya", StringComparison.Ordinal));
+
+            // Fewer than the default three failures: no cooldown yet. Reuse the same client.
+            Environment.SetEnvironmentVariable(variable, "synthetic-test-key");
+            var recovered = await gate.DecideAsync(TwoTypes());
+            recovered.AnsweredBy.Should().Be("laya+secured");
+            server.Calls.Should().Contain(c => c.Url.StartsWith("https://jev", StringComparison.Ordinal));
+        }
+        finally { Environment.SetEnvironmentVariable(variable, null); }
+    }
+
+    [Theory]
+    [InlineData(-0.1, true)]
+    [InlineData(-0.1, false)]
+    [InlineData(0, true)]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(1, false)]
+    public async Task Invalid_external_closing_responses_use_only_the_permitted_named_fallback(double score, bool named)
+    {
+        using var server = new Server(call => Answer(call, score));
+        var judge = new SystemOneUpdateJudge(new SystemOneClient(new HttpClient(server)),
+            Options.Create(new MemoryGateOptions { Judges = [Jev], UpdateJudge = true }));
+        var fallback = Substitute.For<IMemoryUpdateJudgeFallback>();
+        fallback.IsEnabled.Returns(true);
+        var request = new MemoryUpdateRequest("plan changed", DateTimeOffset.UnixEpoch,
+            [new MemoryUpdatePair("p1", "new plan", "old plan")]) { Named = named };
+        fallback.JudgeAsync(request, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyDictionary<string, double>>(new Dictionary<string, double> { ["p1"] = 0.8 }));
+        var policy = new ClosingPolicy(new ExtractionOptions(), judge, fallback, NullLogger.Instance);
+
+        if (score < 0 && !named)
+            await policy.Invoking(p => p.EvaluateAsync(request)).Should().ThrowAsync<JsonException>();
+        else
+        {
+            var result = await policy.EvaluateAsync(request);
+            result["p1"].Should().Be(score < 0 ? 0.8 : score);
+        }
+
+        await fallback.Received(score < 0 && named ? 1 : 0).JudgeAsync(request, Arg.Any<CancellationToken>());
+        server.Calls.Should().ContainSingle();
     }
 
     [Fact]

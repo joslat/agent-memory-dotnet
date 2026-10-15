@@ -41,7 +41,7 @@ internal sealed class ExtractionStage : IExtractionStage
         ILogger<ExtractionStage> logger,
         // Optional and last: without an enabled writer the stage is exactly what it was.
         IEnumerable<IMemoryWriter>? writers = null,
-        // Optional: each leg's tier, logged once on the first write (AMREC001).
+        // Optional: each leg's tier, logged once on the first write.
         IMemoryTiers? tiers = null)
     {
         _writers = (writers ?? []).ToList().AsReadOnly();
@@ -64,6 +64,32 @@ internal sealed class ExtractionStage : IExtractionStage
 
     public void InvalidateResolutionBatch() =>
         (_entityResolver as IExtractionEntityResolver)?.InvalidateBatch();
+
+    public Task<ExtractionStageResult> ExtractForInputAsync(
+        ExtractionWindow window,
+        ExtractionInputMode inputMode,
+        ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (typesToExtract != ExtractionTypes.None)
+        {
+            if (inputMode == ExtractionInputMode.ConversationTurn && !_writers.Any(w => w.IsEnabled))
+                throw new InvalidOperationException("ConversationTurn requires an enabled IMemoryWriter. Register and enable a writer, or use Unspecified for legacy selection.");
+            if (inputMode == ExtractionInputMode.Import && !HasExtractor(typesToExtract))
+                throw new InvalidOperationException("Import requires an enabled unified extractor or a registered per-kind extractor for a requested memory type. A store-aware writer alone cannot extract imports.");
+        }
+        return ExtractCoreAsync(window, typesToExtract, scope, preExtracted: null, cancellationToken, inputMode);
+    }
+
+    // Core's graph-only registrations include empty stubs. They are not a provider for an explicit
+    // import or a successful fallback after a failed writer. Custom per-kind extractors remain valid.
+    private bool HasExtractor(ExtractionTypes types) =>
+        _unifiedExtractors.Any(e => e.IsEnabled)
+        || (types.HasFlag(ExtractionTypes.Entities) && _entityExtractors.Any(e => e is not Stubs.StubEntityExtractor))
+        || (types.HasFlag(ExtractionTypes.Facts) && _factExtractors.Any(e => e is not Stubs.StubFactExtractor))
+        || (types.HasFlag(ExtractionTypes.Preferences) && _preferenceExtractors.Any(e => e is not Stubs.StubPreferenceExtractor))
+        || (types.HasFlag(ExtractionTypes.Relationships) && _relationshipExtractors.Any(e => e is not Stubs.StubRelationshipExtractor));
 
     public Task<ExtractionStageResult> ExtractAsync(
         IReadOnlyList<Message> messages,
@@ -97,7 +123,8 @@ internal sealed class ExtractionStage : IExtractionStage
         ExtractionTypes typesToExtract,
         MemoryScope? scope,
         UnifiedExtractionResult? preExtracted,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ExtractionInputMode inputMode = ExtractionInputMode.Unspecified)
     {
         _tiers?.LogOnce(_logger);
         var messages = window.Targets;
@@ -119,7 +146,7 @@ internal sealed class ExtractionStage : IExtractionStage
             _logger.LogDebug(
                 "Skipping extraction for {Count} turn(s) carrying no extractable content (E4).",
                 messages.Count);
-            return new ExtractionStageResult { SourceMessageIds = sourceMessageIds };
+            return new ExtractionStageResult { SourceMessageIds = sourceMessageIds, Path = ExtractionPath.Skipped };
         }
 
         var strategy = _options.MergeStrategy;
@@ -138,11 +165,11 @@ internal sealed class ExtractionStage : IExtractionStage
         var unifiedExtractor = typesToExtract != ExtractionTypes.None
             ? _unifiedExtractors.FirstOrDefault(extractor => extractor.IsEnabled)
             : null;
-        // A store-aware writer, when one is enabled, decides instead of the extractors (AMWRITE001), for a window with exactly
+        // A store-aware writer, when one is enabled, decides instead of the extractors, for a window with exactly
         // one user message: the turn it was measured on. A window of several (a whole session, held question turns released
         // together) or of none (a document, assistant content) goes to the extractors as configured. Not on a pre-extracted
         // result: that call is already paid for, and its items were extracted without the store.
-        var writer = typesToExtract != ExtractionTypes.None && preExtracted is null
+        var writer = inputMode != ExtractionInputMode.Import && typesToExtract != ExtractionTypes.None && preExtracted is null
             ? _writers.FirstOrDefault(candidate => candidate.IsEnabled)
             : null;
         if (writer is not null && messages.Count(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase)) != 1)
@@ -159,7 +186,8 @@ internal sealed class ExtractionStage : IExtractionStage
         if (preExtracted is null && writer is not null)
         {
             var attempt = await WriteSafeAsync(writer, window, scope, typesToExtract, cancellationToken).ConfigureAwait(false);
-            if (attempt.Outcomes.Count > 0 && _options.FallBackToExtractorsWhenWriterFails)
+            if (attempt.Outcomes.Count > 0 && _options.FallBackToExtractorsWhenWriterFails
+                && (inputMode == ExtractionInputMode.Unspecified || HasExtractor(typesToExtract)))
             {
                 writerFallback = attempt.Outcomes[0].ErrorMessage ?? "the memory writer failed";
                 _logger.LogWarning(
@@ -390,7 +418,7 @@ internal sealed class ExtractionStage : IExtractionStage
             // I-7: an endpoint that is the user ("user -WORKS_AT-> Fabrikam") is not an extracted entity; with
             // ResolveUserToName, persistence maps it to the user's person entity, so it is not dropped here.
             bool IsUserEndpoint(string endpoint, bool source) =>
-                _options.ResolveUserToName && PersistenceStage.UserNames.MeansUserEndpoint(endpoint, source);
+                _options.ResolveUserToName && MemoryUserNames.MeansUserEndpoint(endpoint, source);
 
             // 40.91. An endpoint this extraction did not see may be someone the owner's memory already holds (met in an
             // earlier message): with an owner, persistence resolves it against the owner's stored entities, and skips it
@@ -458,6 +486,10 @@ internal sealed class ExtractionStage : IExtractionStage
             PreferenceExtractorCount = _preferenceExtractors.Count,
             RelationshipExtractorCount = _relationshipExtractors.Count,
             WrittenByWriter = writer is not null,
+            Path = typesToExtract == ExtractionTypes.None ? ExtractionPath.Skipped
+                : preExtracted is not null ? ExtractionPath.PreExtracted
+                : writerFallback is not null ? ExtractionPath.WriterFallback
+                : writer is not null ? ExtractionPath.Writer : ExtractionPath.Extractors,
             ConfirmedFactIds = writer is not null && written is { } confirmed ? confirmed.Result.ConfirmedFactIds : [],
             ConfirmedPreferenceIds = writer is not null && written is { } confirmedToo ? confirmedToo.Result.ConfirmedPreferenceIds : [],
             WriterFallbackReason = writerFallback,

@@ -295,7 +295,7 @@ internal static class FactQueries
     }
 
     /// <summary>
-    /// AMWRITE001. The live facts whose subject, predicate or object contains one of <c>$names</c> (lower-cased by the
+    /// The live facts whose subject, predicate or object contains one of <c>$names</c> (lower-cased by the
     /// caller), oldest first: what the store-aware writer is shown about the people and things a turn names.
     /// </summary>
     public static string FindMentioning(bool hasOwnerFilter, bool includeShared)

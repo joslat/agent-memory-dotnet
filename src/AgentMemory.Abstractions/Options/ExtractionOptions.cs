@@ -308,36 +308,33 @@ public sealed class ExtractionOptions
     /// unseen sets, one of them wrongly, and kept every labelled write.
     /// </summary>
     /// <remarks>Read only when an update judge is registered and enabled; otherwise nothing changes.</remarks>
-    [Experimental("AMGATE001")]
+
     public double UpdateJudgeThreshold { get; set; } = 0.65;
 
     /// <summary>
     /// How many of the owner's most similar stored memories of its kind each new fact or preference is set against.
     /// </summary>
-    [Experimental("AMGATE001")]
     public int UpdateJudgeCandidates { get; set; } = 3;
 
     /// <summary>
     /// The probability at which the update judge's yes closes a stored memory a store-aware writer named as replaced
-    /// (<see cref="Services.IMemoryWriter"/>, AMWRITE001). 0.60 by default, with the named question
+    /// (<see cref="Services.IMemoryWriter"/>). 0.60 by default, with the named question
     /// (<see cref="Services.MemoryUpdateRequest.Named"/>): storage round 4's selected form, read on a fresh world at 87.8%
     /// storage accuracy with 1.0 wrong closures a run. Through the library on that world (one run) it closed 22 of 30 replaced
     /// memories where the old question at 0.65 closed 16, at the cost of 2 wrong closures and 2 points of precision; raise it
     /// toward 0.65 to trade closings for fewer wrong ones. <see cref="UpdateJudgeThreshold"/> stays the bar for pairs found by
     /// similarity.
     /// </summary>
-    [Experimental("AMWRITE001")]
     public double NamedClosingThreshold { get; set; } = 0.60;
 
     /// <summary>
-    /// What a turn gets when the store-aware writer's call fails (<see cref="Services.IMemoryWriter"/>, AMWRITE001): true by
+    /// What a turn gets when the store-aware writer's call fails (<see cref="Services.IMemoryWriter"/>): true by
     /// default, the extractors write that turn as they would without a writer, so a model that is down, slow or answers
     /// without JSON costs the turn its writer, never its memory. The step down is logged as a warning, tagged on the
     /// extraction span (<c>memory.write.fallback</c>) and reported on the stage's result; the turn is then persisted as an
     /// extractor turn. False: the turn stores nothing and its outcomes say why (the behaviour before 2026-10-08; a
     /// measurement that must see every writer failure uses it).
     /// </summary>
-    [Experimental("AMWRITE001")]
     public bool FallBackToExtractorsWhenWriterFails { get; set; } = true;
 
 }

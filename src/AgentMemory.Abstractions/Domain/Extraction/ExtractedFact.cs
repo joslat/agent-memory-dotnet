@@ -66,14 +66,12 @@ public sealed record ExtractedFact
     /// fact ends ("got married" ends "engaged to"; the relationship ends and stays as history). Closed at the write only when
     /// the update judge confirms the pair; otherwise this fact is simply added.
     /// </summary>
-    [Experimental("AMWRITE001")]
     public string? ReplacesId { get; init; }
 
     /// <summary>
     /// With <see cref="ReplacesId"/>: true when the stored memory was wrong all along (a correction), false when it held
     /// until now (a change).
     /// </summary>
-    [Experimental("AMWRITE001")]
     public bool ReplacementIsCorrection { get; init; }
 
     /// <summary>
