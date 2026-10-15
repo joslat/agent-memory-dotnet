@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add explicit experimental module candidate selection with host admission before optional judging,
+  duplicate/source preservation, complete finite decision validation, bounded outage fallback,
+  exact rendered UTF-8 limits and stage receipts. Existing native rendering is unchanged;
+  automatic host wiring and deadline/draining acceptance are separate work.
+
 - Experimental module context: retain host-bound contribution identity and typed record/source
   provenance, reject relabeled bound output, and expose explicit bounded candidate projection.
   Existing rendering does not activate a judge or projection automatically.

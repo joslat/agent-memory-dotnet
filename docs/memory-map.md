@@ -2087,3 +2087,12 @@ references; an explicitly called projector copies a bounded prefix into stable k
 Tests cover unrelated modules, version changes, mutable source lists, ordinal-only items and
 unselected-tail access. This does not yet wire optional judging, duplicate resolution, shared output
 budgets or safe deadlines into the native provider. [Contract](extensions/modules.md#bound-module-candidates-and-provenance).
+
+
+**Explicit SDK module selection - BUILT; deterministic contract tests.** The caller supplies host
+admission/rendering and can explicitly enable an existing IMemoryGate. Duplicate records retain
+all origins; conflicts are omitted. Complete finite scores, final negative decisions, bounded
+outage fallback, whole-item UTF-8 limits and stage receipts are covered. Unicode boundaries and
+zero output budgets are exercised. Automatic native wiring, safe deadlines/draining and real-service
+selection acceptance remain unfinished; no relevance-quality improvement is claimed.
+[Contract](extensions/modules.md#explicit-module-selection).

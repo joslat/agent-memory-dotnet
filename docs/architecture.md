@@ -2254,3 +2254,11 @@ the frozen descriptor and stamps a metadata binding. Typed item provenance carri
 and source references without granting authority. Explicit bounded candidate projection uses this
 binding; legacy/core rendering and judge activation are unchanged. No framework, gate provider or
 Neo4j dependency is added to the SDK. [Contract](extensions/modules.md#bound-module-candidates-and-provenance).
+
+
+Explicit module selection is framework-independent: the SDK consumes compiler-bound candidates,
+requires host admission/rendering, and optionally calls the existing IMemoryGate abstraction.
+It deduplicates record identities, retains origins, validates complete keyed decisions and applies
+whole-item/exact UTF-8 allowances. Stage receipts distinguish admission and actual judge attempts.
+Core context stays opaque. No native activation or hard deadline is implied; host scope ownership
+and in-flight draining must precede timeout returns. [Contract](extensions/modules.md#explicit-module-selection).

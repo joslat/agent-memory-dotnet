@@ -756,7 +756,7 @@ These objects are transient admission decisions, not persisted trust grants or a
 The existing `RenderAdmittedBlock` still admits and renders directly, with the same bytes and one
 policy evaluation per item. It does not allocate the new two-stage items. Neither new method
 retrieves memories, discovers a judge, calls a model or enables module relevance judging. Automatic
-candidate selection, keyed provenance and shared module budgets remain separate implementation work.
+host selection wiring remains separate implementation work; the explicit SDK selector is described below.
 
 ## Bound module candidates and provenance
 
@@ -785,5 +785,54 @@ identity, stable only within the same ordered section, and gain no fabricated st
 Repeated identical identities can produce equal keys; callers must resolve duplicate records and
 conflicting renderings before offering a unique-key judge batch. The projection itself does not
 judge, deduplicate, perform admission, render, resolve a service or query storage. It is not called
-automatically by the existing rendering path. Gate selection, shared output budgets and deadline
-handling remain separate work; all projected text still requires host admission before any model call.
+automatically by the existing rendering path. The explicit selector below supplies duplicate handling, gate selection and shared output budgets.
+Native wiring and deadline handling remain separate work; all projected text still requires host admission before any model call.
+
+
+## Explicit module selection
+
+`ModuleContextSelection.SelectAsync(envelope, renderer, cancellationToken)` selects only bound module
+sections. The SDK depends on the existing `IMemoryGate` abstraction, not a gate implementation,
+framework or database. Core sections are excluded and core instructions/budget stay with the caller.
+Existing native rendering does not invoke this selector automatically.
+
+Supply an `IModuleCandidateRenderer` backed by the host's effective admission policy. `Admit` runs
+once per unique eligible candidate, before any judge call; refusals and admission failures cannot
+reach the judge or renderer. `Render` must use retained admission decisions and existing escaping,
+include every appended separator/delimiter, and render complete items without repeating admission.
+A renderer failure omits that item while preserving already rendered output.
+
+Candidates are capped per contributor and across the batch before grouping. Repeated versions from
+one contributing module coalesce, retaining all origins and source references. Conflicting text or
+logical keys reject the whole group. Identical text from unrelated modules remains distinct.
+Unbound/invalid projections and mixed metadata fingerprints report failures rather than silently
+pretending a successful empty search. The binding is metadata identity, not a signed runtime identity.
+
+`UseJudge` defaults to false: the gate factory is neither resolved nor called. Explicit on invokes
+the supplied factory only when eligible items remain; registering a gate elsewhere does not activate
+selection. Candidate keys are unique; each candidate's memory type is its module id. The request
+uses the last user turn (or query), preceding bounded user/assistant messages and compilation time.
+A complete decision must contain exactly the offered keys with finite scores in [0,1]. Valid scores
+rank items stably before the final limits; those below `Threshold` are rejected. A valid all-negative
+decision stays empty. Missing/invalid decisions and gate failures use bounded admitted fallback;
+there is no second attempt, similarity floor or confidence/calibration claim. Caller cancellation
+propagates, including when a provider ignores cancellation and returns a result afterwards.
+
+Options bound projected items, per-candidate raw UTF-8 bytes, judge candidate-text bytes, selected
+items and final rendered UTF-8 bytes. Judge bytes exclude conversation and protocol overhead; they
+are not an overall request/token bound. Whole-item output includes escaping and wrappers. An item
+that does not fit is omitted; later smaller items can still fit. With zero output items or bytes,
+there is no admission, renderer or gate call. Contributors have already run at this stage: these
+limits do not bound contributor execution, provenance-list size or arbitrary full-trust module code.
+
+The immutable result contains original compiler omissions, per-contributor offered/projected/capped
+counts and one decision per unique candidate group. Each decision retains all origins, final reason,
+validated score if available, and separate `Admitted` / `OfferedToJudge` flags. The latter records an
+actual attempted invocation even when it fails; an unavailable factory does not count as a call.
+These flags distinguish admission failure from failure after admission. Counts of decisions describe
+unique groups; counts of origins describe original contributions. Results contain private memory
+text/provenance and belong in owner-scoped diagnostics, not unrestricted logs or trace tags.
+
+This API passes and checks cancellation but does not promise a hard deadline or ownership of scoped
+services. Native registration, shared collection deadlines, retained in-flight resources and real
+isolated host acceptance remain required before the module selection phase is complete.
