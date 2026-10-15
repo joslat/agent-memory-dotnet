@@ -62,6 +62,7 @@ public sealed class Neo4jModuleReader : IModuleReader
                 if (readiness.Problems.Count != 0 || readiness.Pending.Count != 0 || readiness.PendingNamespaces.Count != 0 || readiness.PendingBookkeeping.Count != 0)
                     return Refused("Module migrations are pending or inconsistent; apply them explicitly before reads.");
                 var records = new List<ModuleRecord>(); var skip = 0;
+                var targetCache = new Dictionary<(string? Owner, string Relation, string Target), string?>();
                 var parameters = new Dictionary<string, object?> { ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null,
                     ["shared"] = scope.IncludeShared, ["key"] = admitted.Key, ["asOf"] = frozenContext.SystemAsOfUtc?.ToString("O"), ["take"] = 128 };
                 for (var i = 0; i < admitted.Where.Count; i++) parameters["f" + i] = Parameter(admitted.Where[i].Value);
@@ -75,6 +76,8 @@ public sealed class Neo4jModuleReader : IModuleReader
                         var data = row["row"].As<Dictionary<string, object>>();
                         var links = await ReadLinksAsync(transaction, module, type, data, scope, frozenContext.SystemAsOfUtc, cancellationToken).ConfigureAwait(false);
                         if (links is null) continue;
+                        if (!await MatchesLinksAsync(transaction, module, type, admitted.Links, links, Text(data, "owner_id"),
+                            scope, frozenContext.SystemAsOfUtc, targetCache, cancellationToken).ConfigureAwait(false)) continue;
                         records.Add(Record(module.Id, type, data, links));
                         if (records.Count == admitted.Limit) break;
                     }
@@ -85,6 +88,25 @@ public sealed class Neo4jModuleReader : IModuleReader
             }, cancellationToken).ConfigureAwait(false);
         }
         catch (ModuleRecordRefusal refusal) { return Refused(refusal.Message); }
+    }
+
+    private async Task<bool> MatchesLinksAsync(IAsyncQueryRunner runner, ModuleManifest module, ModuleType type,
+        IReadOnlyList<ModuleLinkFilter> filters, IReadOnlyList<ModuleRecordLink> links, string? owner, MemoryScope scope,
+        DateTimeOffset? asOfUtc, Dictionary<(string? Owner, string Relation, string Target), string?> cache, CancellationToken cancellationToken)
+    {
+        foreach (var filter in filters)
+        {
+            var key = (owner, filter.Relation, filter.TargetId);
+            if (!cache.TryGetValue(key, out var target))
+            {
+                var relation = module.Ontology!.Relations.Single(r => r.From == type.Name && r.Name == filter.Relation);
+                target = await ModuleTargetResolver.FollowAsync(runner, _links.TargetLabel(module, relation), filter.TargetId,
+                    owner, !scope.HasOwnerFilter || scope.IncludeShared, asOfUtc, cancellationToken).ConfigureAwait(false);
+                cache.Add(key, target);
+            }
+            if (target is null || !links.Any(l => l.Relation == filter.Relation && l.TargetId == target)) return false;
+        }
+        return true;
     }
 
     private async Task<IReadOnlyList<ModuleRecordLink>?> ReadLinksAsync(IAsyncQueryRunner runner, ModuleManifest module,

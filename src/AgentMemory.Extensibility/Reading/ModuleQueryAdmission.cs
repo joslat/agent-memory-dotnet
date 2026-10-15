@@ -29,11 +29,27 @@ public static class ModuleQueryAdmission
         if (errors.Count != 0) return new() { Status = ModuleReadStatus.Refused, Errors = errors };
         try
         {
+            var links = CaptureLinks(target, query.Type, query.Links);
             var filters = query.Where.Select(f => f with { Value = Resolve(f.Value, context, nowUtc) }).ToList().AsReadOnly();
-            return new() { Status = ModuleReadStatus.Succeeded, Query = query with { Where = filters, OrderBy = query.OrderBy is null ? null : query.OrderBy with { } } };
+            return new() { Status = ModuleReadStatus.Succeeded, Query = query with { Links = links, Where = filters, OrderBy = query.OrderBy is null ? null : query.OrderBy with { } } };
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         { return Refused("Filter cannot be captured: " + exception.Message); }
+    }
+
+    internal static IReadOnlyList<ModuleLinkFilter> CaptureLinks(ModuleManifest module, string type, IReadOnlyList<ModuleLinkFilter> links)
+    {
+        if (links is null || links.Count > 64)
+            throw new ArgumentException("Queries support at most 64 non-null link filters.");
+        var captured = new List<ModuleLinkFilter>();
+        foreach (var link in links)
+        {
+            if (link is null || string.IsNullOrWhiteSpace(link.TargetId) || link.TargetId.Length > 1024
+                || module.Ontology?.Relations.Any(r => r.From == type && r.Name == link.Relation) != true)
+                throw new ArgumentException("Link filters require a declared outgoing relation and a nonempty target identity of at most 1024 characters.");
+            captured.Add(link with { });
+        }
+        return captured.AsReadOnly();
     }
 
     private static JsonElement Resolve(JsonElement value, ModuleReadContext context, DateTimeOffset nowUtc)

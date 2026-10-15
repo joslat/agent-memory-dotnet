@@ -73,13 +73,67 @@ public sealed class ModuleViewsTests
         reader.Query.OrderBy!.Descending.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task RuntimeArgumentsRestrictBeforeReadAndPreserveDeclaredPredicates()
+    {
+        var reader = new Reader(); var resolution = Resolve("{title}");
+        IModuleViews views = new ModuleViews(resolution, reader);
+        var links = new List<ModuleLinkFilter> { new() { Relation = "VIEWS_ABOUT", TargetId = "entity" } };
+        var context = new ModuleReadContext { SessionId = "session" };
+        var result = await views.EvaluateWithArgumentsAsync("items", new() { Key = "commitment", Links = links, Limit = 1 }, context);
+        result.Status.Should().Be(ModuleReadStatus.Succeeded);
+        links.Clear();
+        reader.Query!.Key.Should().Be("commitment"); reader.Query.Limit.Should().Be(1);
+        reader.Query.Links.Single().TargetId.Should().Be("entity");
+        reader.Query.Where.Should().BeEquivalentTo(resolution.Modules.Single().Views.Single().Where);
+        reader.Query.OrderBy!.Descending.Should().BeTrue(); reader.Context.Should().BeSameAs(context);
+    }
+
+    [Fact]
+    public async Task RuntimeArgumentsCannotExpandLimitOrSilentlyDropMalformedRestrictions()
+    {
+        var reader = new Reader(); IModuleViews views = new ModuleViews(Resolve("{title}"), reader);
+        foreach (var arguments in new ModuleViewArguments[] { new() { Limit = 4 }, new() { Limit = 0 }, new() { Key = " " },
+            new() { Links = null! }, new() { Links = [null!] }, new() { Links = [new() { Relation = "VIEWS_UNKNOWN", TargetId = "entity" }] } })
+        {
+            var result = await views.EvaluateWithArgumentsAsync("items", arguments, new());
+            result.Status.Should().Be(ModuleReadStatus.Refused); result.Items.Should().BeEmpty();
+        }
+        reader.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task EmptyArgumentsHaveTheSameQueryAsTheOriginalEntryPoint()
+    {
+        var reader = new Reader(); IModuleViews views = new ModuleViews(Resolve("{title}"), reader);
+        await views.EvaluateAsync("items", new()); var original = reader.Query;
+        await views.EvaluateWithArgumentsAsync("items", new(), new());
+        reader.Query.Should().BeEquivalentTo(original);
+    }
+
+    [Fact]
+    public async Task LegacyViewImplementationsRefuseRuntimeArguments()
+    {
+        IModuleViews views = new LegacyViews();
+        (await views.EvaluateWithArgumentsAsync("items", new() { Key = "required" }, new())).Status.Should().Be(ModuleReadStatus.Refused);
+        using var cts = new CancellationTokenSource(); cts.Cancel();
+        var action = () => views.EvaluateWithArgumentsAsync("items", new(), new(), cts.Token);
+        await action.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    private sealed class LegacyViews : IModuleViews
+    {
+        public Task<ModuleViewResult> EvaluateAsync(string viewId, ModuleReadContext context, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ModuleViewResult { Status = ModuleReadStatus.Succeeded });
+    }
+
     private static ModuleResolution Resolve(string? render) => ModuleResolver.Resolve([new()
     {
         Format = "agentmemory.module/v1alpha1", Id = "com.example.views", Version = ModuleVersion.Parse("1.0.0"), Sdk = ModuleVersionRange.Parse("[0.1,0.2)"),
         Ontology = new() { LabelPrefix = "Views", Types = [new() { Name = "ViewsItem", Render = render, Properties = new Dictionary<string, ModuleProperty>
         { ["title"] = new() { Type = "string", Required = true }, ["count"] = new() { Type = "int" }, ["ratio"] = new() { Type = "float" },
-            ["date"] = new() { Type = "date" }, ["at"] = new() { Type = "datetime" }, ["active"] = new() { Type = "bool" }, ["optional"] = new() { Type = "string" } } }] },
-        Views = [new() { Id = "items", Type = "ViewsItem", Limit = 3, OrderBy = new() { Property = "count", Descending = true } }]
+            ["date"] = new() { Type = "date" }, ["at"] = new() { Type = "datetime" }, ["active"] = new() { Type = "bool" }, ["optional"] = new() { Type = "string" } } }], Relations = [new() { Name = "VIEWS_ABOUT", From = "ViewsItem", To = "core:Entity" }] },
+        Views = [new() { Id = "items", Type = "ViewsItem", Limit = 3, Where = [new() { Property = "active", Operator = "=", Value = JsonSerializer.SerializeToElement(true) }], OrderBy = new() { Property = "count", Descending = true } }]
     }], ModuleVersion.Parse("0.1.0"), new HashSet<string> { "ModuleSchema" });
 
     private sealed class Reader : IModuleReader

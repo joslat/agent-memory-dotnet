@@ -1999,6 +1999,13 @@ These tests establish storage behavior, not coding usefulness. Scoped reads/view
 module writes. [Write contract and limits](extensions/modules.md#transactional-neo4j-module-writes).
 
 
+**Runtime view restrictions - BUILT; real-store acceptance pending.** Typed key, relationship-target
+and reduced-limit arguments use the shared view/reader. Target predicates resolve scoped identities
+before taking results, including across pages; runtime arguments cannot replace declared filters.
+Unit checks cover validation, independent snapshots and refusal by older view implementations.
+New Neo4j cases cover paging, merge-time boundaries and foreign/shared targets; their execution must
+be verified separately. This is not bounded history enumeration or package/runtime acceptance.
+
 **Scoped module reads and shared views - BUILT / MEASURED in isolated integration tests.**
 Explicit bound readers enforce owner/shared scope, direct dependency access, migration readiness,
 current/system-time versions and required anchors before limiting results. Shared view evaluation

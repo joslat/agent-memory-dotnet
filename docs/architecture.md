@@ -2186,6 +2186,12 @@ persisted-turn seam; neither Core nor the base adapter depends on the module SDK
 reuses `IBackgroundExtraction`, captures scalar sources and a fixed factory, and restores application
 and owner in a fresh scope before resolving the pipeline. Registration is off by absence: no callback,
 projection or module pipeline resolution. Static bindings do not implement runtime-set leases.
+Typed runtime view arguments can only narrow a declared view by key, outgoing relationship target
+or result limit. The shared reader validates declared relations and resolves both link and requested
+identity under the same record-owner/shared scope and clock before applying the result limit; no
+application-specific Cypher or post-filtered limited lists are required. Existing view calls retain
+their original query; default hosts still do not activate modules.
+
 Declared-view contributors share `ModuleViews` and preserve resolved scope and typed omission outcomes;
 module text still crosses the existing host admission boundary.
 

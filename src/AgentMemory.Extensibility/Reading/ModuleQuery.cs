@@ -18,6 +18,8 @@ public sealed record ModuleQuery
     public string? Key { get; init; }
     /// <summary>Conjunctive predicates using the same closed language as manifest views.</summary>
     public IReadOnlyList<ModuleViewFilter> Where { get; init; } = [];
+    /// <summary>Conjunctive exact targets of declared outgoing relations, checked before the result limit.</summary>
+    public IReadOnlyList<ModuleLinkFilter> Links { get; init; } = [];
     /// <summary>Optional declared-property sort; ties are resolved by record identity.</summary>
     public ModuleViewOrder? OrderBy { get; init; }
     /// <summary>Positive record limit, at most <see cref="MaximumLimit"/>.</summary>

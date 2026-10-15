@@ -22,13 +22,25 @@ public sealed class ModuleViews : IModuleViews
     }
 
     /// <inheritdoc/>
-    public async Task<ModuleViewResult> EvaluateAsync(string viewId, ModuleReadContext context, CancellationToken cancellationToken = default)
+    public Task<ModuleViewResult> EvaluateAsync(string viewId, ModuleReadContext context, CancellationToken cancellationToken = default) =>
+        EvaluateWithArgumentsAsync(viewId, new(), context, cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task<ModuleViewResult> EvaluateWithArgumentsAsync(string viewId, ModuleViewArguments arguments,
+        ModuleReadContext context, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(context); cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(arguments); ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
         var view = _module.Views.SingleOrDefault(v => v.Id == viewId);
         if (view is null) return new() { Status = ModuleReadStatus.Refused, Errors = ["Unknown view in the bound module."] };
-        var read = await _reader.FindAsync(new() { ModuleId = _module.Id, Type = view.Type,
-            Where = view.Where, OrderBy = view.OrderBy, Limit = view.Limit }, context, cancellationToken).ConfigureAwait(false);
+        if (arguments.Key is not null && string.IsNullOrWhiteSpace(arguments.Key)
+            || arguments.Limit is { } limit && (limit <= 0 || limit > view.Limit))
+            return new() { Status = ModuleReadStatus.Refused, Errors = ["View arguments require a nonempty optional key and a positive limit no greater than the declared limit."] };
+        IReadOnlyList<ModuleLinkFilter> links;
+        try { links = ModuleQueryAdmission.CaptureLinks(_module, view.Type, arguments.Links); }
+        catch (ArgumentException exception) { return new() { Status = ModuleReadStatus.Refused, Errors = [exception.Message] }; }
+        var read = await _reader.FindAsync(new() { ModuleId = _module.Id, Type = view.Type, Key = arguments.Key, Links = links,
+            Where = view.Where, OrderBy = view.OrderBy, Limit = arguments.Limit ?? view.Limit }, context, cancellationToken).ConfigureAwait(false);
         if (read.Status != ModuleReadStatus.Succeeded) return new() { Status = read.Status, Errors = read.Errors };
         var type = _module.Ontology!.Types.Single(t => t.Name == view.Type);
         var items = new List<ModuleViewItem>();

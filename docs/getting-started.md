@@ -775,6 +775,12 @@ be applied; neither invocation nor retrieval applies DDL. Register declared view
 
 `ExtractInBackground` controls queued versus inline module ingestion independently of core
 `AutoExtractOnPersist`. Plain extensibility registration leaves automatic module writes off.
+When a caller selects an entity or logical record key, use the shared view's
+`EvaluateWithArgumentsAsync` with `ModuleViewArguments` rather than filtering its returned items.
+Arguments preserve declared predicates and ordering and can only reduce the declared limit.
+[Typed view arguments](extensions/modules.md#scoped-module-reads-and-shared-views) need no additional
+DI registration; they use the same explicitly granted module reader.
+
 See [module ingestion and views](extensions/modules.md#explicit-agent-framework-module-ingestion-and-views)
 for lifetime, isolation and shutdown requirements. Dynamic loading requires the separate runtime
 lifecycle support; this registration alone does not provide it.

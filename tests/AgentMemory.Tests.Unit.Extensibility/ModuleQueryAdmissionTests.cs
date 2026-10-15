@@ -75,6 +75,28 @@ public sealed class ModuleQueryAdmissionTests
             Admit(query).Status.Should().Be(ModuleReadStatus.Refused);
     }
 
+    [Fact]
+    public void LinkFiltersAreDeclaredBoundedAndIndependentlyCaptured()
+    {
+        var filters = new List<ModuleLinkFilter> { new() { Relation = "DATA_ABOUT", TargetId = "entity-id" } };
+        var admitted = Admit(Query() with { Links = filters });
+        admitted.Status.Should().Be(ModuleReadStatus.Succeeded);
+        filters.Clear();
+        admitted.Query!.Links.Should().ContainSingle().Which.TargetId.Should().Be("entity-id");
+    }
+
+    [Fact]
+    public void InvalidLinkFiltersAreRefusedBeforeStorage()
+    {
+        foreach (var filters in new IReadOnlyList<ModuleLinkFilter>[] { null!, [null!],
+            [new() { Relation = "DATA_ABOUT", TargetId = " " }],
+            [new() { Relation = "DATA_ABOUT", TargetId = new string('x', 1025) }],
+            [new() { Relation = "DATA_OTHER", TargetId = "entity" }],
+            [new() { Relation = "DATA_ABOUT`", TargetId = "entity" }],
+            Enumerable.Range(0, 65).Select(i => new ModuleLinkFilter { Relation = "DATA_ABOUT", TargetId = "id" + i }).ToArray() })
+            Admit(Query() with { Links = filters }).Status.Should().Be(ModuleReadStatus.Refused);
+    }
+
     private static ModuleQueryAdmissionResult Admit(ModuleQuery query, ModuleReadContext? context = null) =>
         ModuleQueryAdmission.Admit(Resolve(), "com.example.data", query, context ?? new(), Now);
     private static ModuleQuery Query() => new() { ModuleId = "com.example.data", Type = "DataItem", Limit = 10 };
@@ -83,7 +105,7 @@ public sealed class ModuleQueryAdmissionTests
         var data = ModuleManifest.Parse("""
             {"format":"agentmemory.module/v1alpha1","id":"com.example.data","version":"0.1.0","sdk":"[0.1,0.2)",
              "ontology":{"labelPrefix":"Data","types":[{"name":"DataItem","properties":{
-               "title":{"type":"string"},"count":{"type":"int"},"active":{"type":"bool"},"at":{"type":"datetime"}}}]}}
+               "title":{"type":"string"},"count":{"type":"int"},"active":{"type":"bool"},"at":{"type":"datetime"}}}],"relations":[{"name":"DATA_ABOUT","from":"DataItem","to":"core:Entity"}]}}
             """);
         var reader = ModuleManifest.Parse("""
             {"format":"agentmemory.module/v1alpha1","id":"com.example.reader","version":"0.1.0","sdk":"[0.1,0.2)",

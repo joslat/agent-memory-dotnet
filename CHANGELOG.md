@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental typed module relationship-target filters and narrowing runtime view arguments.
+  Resolve scoped target identities before result limits, preserve declared filters and ordering, and
+  refuse unsupported arguments in older view implementations. Existing view calls remain unchanged.
+
 - Use the host TimeProvider for coding-evidence deadlines as well as receipt lifetime. The system-clock
   default and configured deadline remain unchanged; timeout tests now control time explicitly.
 

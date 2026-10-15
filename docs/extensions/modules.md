@@ -466,6 +466,31 @@ and rendered text. It does not perform admission or declare rendered text safe f
 The explicitly registered `ViewContributor` uses this same service. Conformance-kit and Workbench
 wiring remain separate work. No existing host automatically activates it.
 
+For a view selected by a specific entity or logical key, call
+`EvaluateWithArgumentsAsync(viewId, ModuleViewArguments, context, cancellationToken)`. Arguments
+can supply an exact `Key`, conjunctive `Links` and a smaller positive `Limit`. They cannot replace
+the declared type, property predicates or ordering, or increase the view's limit. Older implementations
+of `IModuleViews` refuse this new entry point by default; they never silently ignore restrictions.
+The original `EvaluateAsync` entry point keeps the same query and scope behavior.
+
+```csharp
+var result = await views.EvaluateWithArgumentsAsync("open", new ModuleViewArguments
+{
+    Links = [new ModuleLinkFilter { Relation = "COMMITMENT_ABOUT", TargetId = entityId }],
+    Limit = 5
+}, new ModuleReadContext { Scope = MemoryScope.For(ownerId) }, cancellationToken);
+```
+
+The example assumes the `open` view declares a limit of at least five and its source type declares
+`COMMITMENT_ABOUT`. Direct `ModuleQuery` reads accept the same `Links`. Up to 64 link predicates
+are allowed; target IDs must be nonempty and at most 1024 characters. Each relation must belong to
+the queried source type. Predicates are ANDed, captured independently of caller-owned collections,
+and evaluated against resolved outgoing links **before** the result limit, including across storage
+pages. Target IDs are data, not names or Cypher. Both the supplied identity and stored link follow
+the same bounded merge/supersession rules, record-owner/shared scope and system-time pin. A missing,
+foreign or unresolved target yields no matching records; malformed predicates refuse the query.
+This does not expose all historical versions of a key; bounded history enumeration is separate work.
+
 Rendering shares the manifest's placeholder grammar: `{property}`, optional .NET scalar format,
 and escaped `{{`/`}}`. Numeric/date formats use invariant culture; datetimes normalize to UTC. Stored
 braces are data, not recursively expanded templates. Missing optional values render empty; missing
