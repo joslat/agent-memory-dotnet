@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using AgentMemory.Abstractions.Diagnostics;
+using AgentMemory.Extensibility.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
@@ -44,7 +47,7 @@ public sealed class ModuleIngestion : IModuleIngestion
             if (module is null || !seen.Add(descriptor.Id) || descriptor.Trigger is not (IngestionTrigger.EveryTurn or IngestionTrigger.OnRequest))
                 throw new ArgumentException("Providers require distinct owned identities and supported triggers.", nameof(providers));
             if (!stores.TryGetValue(module.Id, out var store)) throw new ArgumentException("Every provider module requires an explicit store binding.", nameof(storesByModule));
-            entries.Add(new(module.Id, descriptor with { }, provider, store));
+            entries.Add(new(module.Id, module.Version.ToString(), descriptor with { }, provider, store));
         }
         _entries = resolution.Modules.SelectMany(m => entries.Where(e => e.ModuleId == m.Id)
             .OrderBy(e => e.Descriptor.Id, StringComparer.Ordinal)).ToList().AsReadOnly();
@@ -65,23 +68,32 @@ public sealed class ModuleIngestion : IModuleIngestion
         foreach (var entry in selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            RecordedProposals batch;
+            using var activity = StartActivity(entry, "ingest");
             try
             {
-                var proposed = await entry.Provider.ProposeAsync(resolved, cancellationToken).ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
-                var proposals = ModuleIngestionSnapshot.Proposals(proposed);
-                batch = new() { Provider = entry.Descriptor, ManifestFingerprint = _resolution.ManifestFingerprint!,
-                    RequestFingerprint = fingerprint, AtUtc = _clock.GetUtcNow().ToUniversalTime(), Proposals = proposals };
-                recorded.Add(batch);
+                RecordedProposals batch;
+                try
+                {
+                    var proposed = await entry.Provider.ProposeAsync(resolved, cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var proposals = ModuleIngestionSnapshot.Proposals(proposed);
+                    batch = new() { Provider = entry.Descriptor, ManifestFingerprint = _resolution.ManifestFingerprint!,
+                        RequestFingerprint = fingerprint, AtUtc = _clock.GetUtcNow().ToUniversalTime(), Proposals = proposals };
+                    recorded.Add(batch);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    _logger.LogWarning(exception, "Module provider {ProviderId} failed before storage.", entry.Descriptor.Id);
+                    outcomes.Add(Observe(activity, Unavailable(entry, "Provider generation or recording failed; no batch was written.", [])));
+                    continue;
+                }
+                outcomes.Add(Observe(activity, await WriteAsync(entry, resolved, batch, cancellationToken).ConfigureAwait(false)));
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (OperationCanceledException)
             {
-                _logger.LogWarning(exception, "Module provider {ProviderId} failed before storage.", entry.Descriptor.Id);
-                outcomes.Add(Unavailable(entry, "Provider generation or recording failed; no batch was written.", []));
-                continue;
+                ObserveCancellation(activity);
+                throw;
             }
-            outcomes.Add(await WriteAsync(entry, resolved, batch, cancellationToken).ConfigureAwait(false));
         }
         return Report(resolved.Owner, recorded, outcomes);
     }
@@ -119,9 +131,52 @@ public sealed class ModuleIngestion : IModuleIngestion
             cancellationToken.ThrowIfCancellationRequested();
             if (!byId.TryGetValue(entry.Descriptor.Id, out var batch)) continue;
             batches.Add(batch);
-            outcomes.Add(await WriteAsync(entry, resolved, batch, cancellationToken).ConfigureAwait(false));
+            using var activity = StartActivity(entry, "replay");
+            try
+            {
+                outcomes.Add(Observe(activity, await WriteAsync(entry, resolved, batch, cancellationToken).ConfigureAwait(false)));
+            }
+            catch (OperationCanceledException)
+            {
+                ObserveCancellation(activity);
+                throw;
+            }
         }
         return Report(resolved.Owner, batches, outcomes);
+    }
+
+    private Activity? StartActivity(Entry entry, string operation)
+    {
+        var activity = AgentMemoryDiagnostics.Source.StartActivity(ModuleTelemetry.Ingest);
+        if (activity is { IsAllDataRequested: true })
+        {
+            activity.SetTag(ModuleTelemetry.ModuleId, entry.ModuleId);
+            activity.SetTag(ModuleTelemetry.ModuleVersion, entry.ModuleVersion);
+            activity.SetTag(ModuleTelemetry.ProviderId, entry.Descriptor.Id);
+            activity.SetTag(ModuleTelemetry.Fingerprint, _resolution.ManifestFingerprint);
+            activity.SetTag(ModuleTelemetry.FingerprintKind, "metadata");
+            activity.SetTag(ModuleTelemetry.Operation, operation);
+        }
+        return activity;
+    }
+
+    private static ProviderIngestionOutcome Observe(Activity? activity, ProviderIngestionOutcome outcome)
+    {
+        if (activity is { IsAllDataRequested: true })
+        {
+            activity.SetTag(ModuleTelemetry.Outcome, outcome.Status.ToString());
+            activity.SetTag(ModuleTelemetry.Items, outcome.Proposals.Count);
+            activity.SetTag(ModuleTelemetry.Refused, outcome.Proposals.Count(p => p.Status == ProposalWriteStatus.Refused));
+            activity.SetStatus(outcome.Status == ProviderIngestionStatus.Unavailable ? ActivityStatusCode.Error : ActivityStatusCode.Ok);
+        }
+        return outcome;
+    }
+
+    private static void ObserveCancellation(Activity? activity)
+    {
+        if (activity is not { IsAllDataRequested: true }) return;
+        activity.SetTag(ModuleTelemetry.Outcome, "Cancelled");
+        activity.SetStatus(ActivityStatusCode.Error);
     }
 
     private IngestionRequest? Resolve(IngestionRequest request)
@@ -196,5 +251,5 @@ public sealed class ModuleIngestion : IModuleIngestion
     private static ProviderIngestionOutcome Unavailable(Entry entry, string detail, List<ProposalOutcome> known) =>
         new() { ProviderId = entry.Descriptor.Id, Status = ProviderIngestionStatus.Unavailable, Detail = detail,
             Proposals = known.OrderBy(o => o.Index).ToList().AsReadOnly() };
-    private sealed record Entry(string ModuleId, IngestionProviderDescriptor Descriptor, IIngestionProvider Provider, IModuleStore Store);
+    private sealed record Entry(string ModuleId, string ModuleVersion, IngestionProviderDescriptor Descriptor, IIngestionProvider Provider, IModuleStore Store);
 }

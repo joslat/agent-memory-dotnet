@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using AgentMemory.Abstractions.Diagnostics;
 using System.Text.Json;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
@@ -270,6 +272,163 @@ public sealed class ModuleIngestionTests
         report.Providers.Single().Status.Should().Be(ProviderIngestionStatus.Unavailable);
         report.Providers.Single().Proposals.Should().BeEmpty();
         report.Recorded.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task IngestionTraceUsesResolvedModuleIdentityAndNestsStoreWorkWithoutPrivateContent()
+    {
+        using var trace = new ModuleTraceCapture();
+        var stopped = trace.Stopped;
+        var store = Store(batch =>
+        {
+            using var database = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx");
+            return Success(batch);
+        });
+        var report = await Engine([Provider("com.example.first:writer")], stores: new() { ["com.example.first"] = store })
+            .IngestAsync(Request());
+        report.Providers.Single().Status.Should().Be(ProviderIngestionStatus.Succeeded);
+        var ingest = stopped.Where(a => a.OperationName == "memory.module.ingest").Should().ContainSingle().Subject;
+        ingest.ParentSpanId.Should().Be(trace.ParentSpanId);
+        ingest.GetTagItem("memory.module.id").Should().Be("com.example.first");
+        ingest.GetTagItem("memory.module.version").Should().Be("0.1.0");
+        ingest.GetTagItem("memory.module.fingerprint").Should().Be(Resolution().ManifestFingerprint);
+        ingest.GetTagItem("memory.module.items").Should().Be(1);
+        ingest.GetTagItem("memory.module.refused").Should().Be(0);
+        stopped.Single(a => a.OperationName == "memory.db.tx").ParentSpanId.Should().Be(ingest.SpanId);
+        var telemetry = string.Join("|", stopped.SelectMany(a => a.TagObjects.Select(t => t.Value?.ToString())
+            .Concat(a.Events.SelectMany(e => e.Tags.Select(t => t.Value?.ToString())))));
+        telemetry.Should().NotContain("claimed").And.NotContain("lesson").And.NotContain("m1");
+    }
+
+    [Fact]
+    public async Task ReplayTraceIsDistinctAndDoesNotInvokeProviderAgain()
+    {
+        using var trace = new ModuleTraceCapture();
+        var provider = Provider("com.example.first:writer");
+        var store = Store(); var engine = Engine([provider], stores: new() { ["com.example.first"] = store });
+        var first = await engine.IngestAsync(Request());
+        await engine.ReplayAsync(Request(), first.Recorded);
+        provider.Calls.Should().Be(1); store.Calls.Should().Be(2);
+        trace.Stopped.Select(a => a.GetTagItem("memory.module.operation")).Should().Equal("ingest", "replay");
+        trace.Stopped.Should().OnlyContain(a => a.GetTagItem("memory.module.id")!.Equals("com.example.first")
+            && a.GetTagItem("memory.module.fingerprint.kind")!.Equals("metadata"));
+    }
+
+    [Theory]
+    [InlineData("refused", "Refused", 1, 1)]
+    [InlineData("partial", "Partial", 2, 1)]
+    [InlineData("provider-failure", "Unavailable", 0, 0)]
+    [InlineData("store-failure", "Unavailable", 1, 1)]
+    public async Task TraceReportsKnownOutcomesWithoutInventingUncertainWritesOrLeakingContent(
+        string scenario, string expectedOutcome, int known, int refused)
+    {
+        using var trace = new ModuleTraceCapture();
+        var provider = Provider("com.example.first:writer", _ => scenario switch
+        {
+            "provider-failure" => throw new InvalidOperationException("private-provider-detail"),
+            "refused" => Task.FromResult<IReadOnlyList<ModuleProposal>>([Proposal() with { Type = "Entity" }]),
+            _ => Task.FromResult<IReadOnlyList<ModuleProposal>>([Proposal(), Proposal() with { Type = "Entity" }])
+        });
+        var store = Store(batch => scenario == "store-failure" ? throw new InvalidOperationException("private-store-detail") : Success(batch));
+        var report = await Engine([provider], stores: new() { ["com.example.first"] = store }).IngestAsync(Request());
+        report.Providers.Single().Status.ToString().Should().Be(expectedOutcome);
+        var activity = trace.Stopped.Should().ContainSingle().Subject;
+        activity.GetTagItem("memory.module.outcome").Should().Be(expectedOutcome);
+        activity.GetTagItem("memory.module.items").Should().Be(known);
+        activity.GetTagItem("memory.module.refused").Should().Be(refused);
+        activity.Status.Should().Be(expectedOutcome == "Unavailable" ? ActivityStatusCode.Error : ActivityStatusCode.Ok);
+        string.Join("|", activity.TagObjects.Select(t => t.Value?.ToString())).Should().NotContain("private-")
+            .And.NotContain("claimed").And.NotContain("lesson");
+        activity.StatusDescription.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelledIngestionTraceClosesAndDoesNotStartLaterProvider(bool atStore)
+    {
+        using var trace = new ModuleTraceCapture(); using var stop = new CancellationTokenSource();
+        var first = Provider("com.example.first:writer", _ =>
+        {
+            if (!atStore) { stop.Cancel(); throw new OperationCanceledException("private-cancel", stop.Token); }
+            return Task.FromResult<IReadOnlyList<ModuleProposal>>([Proposal()]);
+        });
+        var second = Provider("com.example.second:writer");
+        var store = Store(_ => { stop.Cancel(); throw new OperationCanceledException("private-cancel", stop.Token); });
+        var engine = Engine([first, second], stores: new() { ["com.example.first"] = store, ["com.example.second"] = store });
+        await ((Func<Task>)(() => engine.IngestAsync(Request(), stop.Token))).Should().ThrowAsync<OperationCanceledException>();
+        second.Calls.Should().Be(0);
+        var activity = trace.Stopped.Should().ContainSingle().Subject;
+        activity.GetTagItem("memory.module.outcome").Should().Be("Cancelled");
+        activity.GetTagItem("memory.module.items").Should().BeNull("unfinished writes have no inferred item count");
+        activity.StatusDescription.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task EmptyDeniedUnselectedAndInvalidReplayPathsDoNotStartModuleSpans()
+    {
+        using var trace = new ModuleTraceCapture();
+        await Engine([]).IngestAsync(Request());
+        var policy = Policy();
+        policy.ResolveWriteOwner(Arg.Any<string?>(), "module.ingest", MemoryOperationAccess.Tenant)
+            .Returns(_ => throw new MemoryOwnerScopeRequiredException("private-owner"));
+        var provider = Provider("com.example.first:writer");
+        await Engine([provider], policy).IngestAsync(Request());
+        await Engine([Provider("com.example.first:manual", trigger: IngestionTrigger.OnRequest)]).IngestAsync(Request());
+        trace.Stopped.Should().BeEmpty(); provider.Calls.Should().Be(0);
+        var engine = Engine([provider]); var first = await engine.IngestAsync(Request());
+        trace.Stopped.Clear();
+        await ((Func<Task>)(() => engine.ReplayAsync(Request(), [first.Recorded[0] with { ManifestFingerprint = "wrong" }])))
+            .Should().ThrowAsync<ArgumentException>();
+        trace.Stopped.Should().BeEmpty(); provider.Calls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SamplingNothingPreservesIngestionAndEmitsNoStoppedActivity()
+    {
+        using var trace = new ModuleTraceCapture(ActivitySamplingResult.None);
+        var provider = Provider("com.example.first:writer"); var store = Store();
+        var report = await Engine([provider], stores: new() { ["com.example.first"] = store }).IngestAsync(Request());
+        report.Providers.Single().Status.Should().Be(ProviderIngestionStatus.Succeeded);
+        provider.Calls.Should().Be(1); store.Calls.Should().Be(1); trace.Stopped.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TraceUsesFrozenProviderBindingDespiteLaterDescriptorMutation()
+    {
+        using var trace = new ModuleTraceCapture();
+        var descriptor = new IngestionProviderDescriptor { Id = "com.example.first:writer", Trigger = IngestionTrigger.EveryTurn };
+        var provider = Substitute.For<IIngestionProvider>();
+        provider.Descriptor.Returns(_ => descriptor);
+        provider.ProposeAsync(Arg.Any<IngestionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ModuleProposal>>([Proposal()]));
+        var engine = new ModuleIngestion(Resolution(), [provider], new Dictionary<string, IModuleStore> { ["com.example.first"] = Store() },
+            Policy(), new CountingClock(), NullLogger<ModuleIngestion>.Instance);
+        descriptor = descriptor with { Id = "com.example.second:pretender" };
+        await engine.IngestAsync(Request());
+        var activity = trace.Stopped.Should().ContainSingle().Subject;
+        activity.GetTagItem("memory.module.id").Should().Be("com.example.first");
+        activity.GetTagItem("memory.provider.id").Should().Be("com.example.first:writer");
+    }
+
+    private sealed class ModuleTraceCapture : IDisposable
+    {
+        private readonly Activity _root = new Activity("module-ingestion-telemetry-test").Start();
+        private readonly ActivityListener _listener;
+        public List<Activity> Stopped { get; } = [];
+        public ActivitySpanId ParentSpanId => _root.SpanId;
+        public ModuleTraceCapture(ActivitySamplingResult sample = ActivitySamplingResult.AllDataAndRecorded)
+        {
+            _listener = new ActivityListener
+            {
+                ShouldListenTo = source => source.Name == AgentMemoryDiagnostics.SourceName,
+                Sample = (ref ActivityCreationOptions<ActivityContext> options) => options.Parent.TraceId == _root.TraceId
+                    ? sample : ActivitySamplingResult.None,
+                ActivityStopped = activity => { if (activity.TraceId == _root.TraceId) Stopped.Add(activity); }
+            };
+            ActivitySource.AddActivityListener(_listener);
+        }
+        public void Dispose() { _listener.Dispose(); _root.Dispose(); }
     }
 
     private static ModuleIngestion Engine(IReadOnlyList<TestProvider> providers, IMemoryIsolationPolicy? policy = null,

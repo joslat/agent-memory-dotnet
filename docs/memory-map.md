@@ -2050,3 +2050,11 @@ compilation alone does not prove their service outcomes. Signed load/reload/unlo
 into module compilation. Contract tests cover actual provider invocation, identity preservation,
 clearing, serialization and malformed-state refusal. This does not time-pin core recall, backdate writes,
 or prove model effectiveness. [Contract](extensions/modules.md#native-session-read-times).
+
+
+**Experimental module ingestion telemetry ? BUILT / WIRED; listener-unit verification.** Explicit
+module ingestion and replay emit module/provider-bound activities on the shared AgentMemory source,
+with known outcome counts, cancellation and nested store activity. Unit checks cover identity freezing,
+privacy, replay, partial/uncertain outcomes and disabled paths/sampling. This is instrumentation proof,
+not a memory-effectiveness result or completed native trace acceptance. Compiler/contributor, migration
+and signed runtime lifecycle tracing remain separate. [Contract](extensions/modules.md#module-ingestion-telemetry).

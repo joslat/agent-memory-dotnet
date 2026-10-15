@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental module ingestion/replay activities on the shared AgentMemory diagnostics source,
+  with frozen module/provider identity, metadata fingerprint and known outcomes. Preserve cancellation,
+  opt-outs and replay behavior; exclude memory/source content and raw exception text from tags.
+
+
 - Experimental Agent Framework modules: preserve explicit session read times through native context
   compilation with `WithModuleReadTime`; refuse malformed saved selections instead of retrieving
   current module data. Core recall and writes remain unchanged.

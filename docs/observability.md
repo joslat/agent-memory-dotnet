@@ -93,3 +93,16 @@ and owner or application ids are never attributes. Exceptions are recorded by ty
 
 Measured: about 0.7 µs per sampled span and about 17 ns per span with no listener; a full agent turn with
 every source enabled adds roughly 0.1 ms.
+
+## Experimental module ingestion
+
+Hosts using the explicit module pipeline can observe `memory.module.ingest` on the same `AgentMemory`
+source. One activity covers a selected provider's generation/admission/write, or a recorded replay.
+It carries frozen module/version/provider identity, a metadata-labelled resolution fingerprint,
+operation and existing outcome counts. Nested database activities inherit its parent context.
+No additional exporter or per-module source is registered.
+
+Owner IDs, source messages, memory text and raw exception details are excluded. Known outcomes do not
+claim uncertain writes succeeded; cancellation propagates. Empty/denied/unselected paths have no span.
+See [module tags and limits](extensions/modules.md#module-ingestion-telemetry). Compiler/contributor,
+migration and runtime lifecycle trace coverage are not implied by the ingestion activity.

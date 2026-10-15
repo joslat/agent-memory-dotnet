@@ -2219,3 +2219,14 @@ explicit system/valid-time selections; `ExtensibleMemoryContextProvider` maps th
 compiler request after restoring owner/store scope. It neither adds owner authority nor changes core
 recall or write clocks. Invalid serialized state refuses module compilation, and the no-module path
 returns before reading those keys. [Contract](extensions/modules.md#native-session-read-times).
+
+
+### Experimental module ingestion diagnostics
+
+`ModuleIngestion` owns ingestion/replay activities on the existing Abstractions diagnostics source.
+It snapshots the resolved manifest version with each provider binding and tags existing outcomes;
+it does not recalculate admission or introduce a second write policy. Replay never invokes providers.
+Empty/denied/unselected paths perform no trace work; no-data sampling avoids telemetry-only counts.
+The SDK depends on no observability exporter and installs no source or listener. Identity is metadata,
+not publisher trust or a live-set lease. [Span fields and limits](extensions/modules.md#module-ingestion-telemetry).
+Compiler/contributor and migration instrumentation remain separate work.

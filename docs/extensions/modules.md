@@ -656,3 +656,32 @@ captures the inputs sent by the framework; it is not an inference provider or a 
 runner requires a hash-pinned external world and disables recent/relevant core conversation recall.
 Its primary-world results remain distinct from negative-fork, upgrade and signed lifecycle acceptance.
 See [native consumer setup](../../eng/module-consumers/README.md#native-service-consumer).
+
+## Module ingestion telemetry
+
+Explicit `ModuleIngestion` emits one `memory.module.ingest` activity for each selected provider
+attempt, on the existing `AgentMemoryDiagnostics.Source` (`AgentMemory`). The host chooses listeners
+and exporters. The SDK adds neither a source per module nor a telemetry provider. Experimental span
+and tag constants are in `AgentMemory.Extensibility.Diagnostics.ModuleTelemetry`.
+
+Identity comes from the frozen resolution/provider binding: `memory.module.id`, `memory.module.version`
+and `memory.provider.id`. `memory.module.fingerprint` is explicitly labelled with
+`memory.module.fingerprint.kind=metadata`; it is not a signature or an activated runtime-set identity.
+`memory.module.operation` distinguishes `ingest` and `replay`. Replay does not invoke providers again.
+Store/database activities nest through Activity.Current under the selected provider's activity.
+
+`memory.module.outcome` uses the existing provider outcome: Succeeded, Partial, Refused or Unavailable.
+`memory.module.items` counts **known proposal outcomes** and `memory.module.refused` counts the refused
+subset. Unavailable storage may have fewer known outcomes than attempted writes; these counters never
+infer whether uncertain writes committed. Cancellation propagates with outcome Cancelled and no invented
+item count. Unavailable/cancelled spans have Error status; policy refusals remain completed operations.
+
+Tags contain no owner, source-message identity, excerpt, memory text, request fingerprint, refusal
+content or raw exception text. Descriptor changes after binding cannot relabel the activity. Empty,
+denied and unselected paths emit no ingestion span; invalid replay is rejected before any write/span.
+No listener means no activity; when sampling requests no data, diagnostic counters are not computed.
+Normal reports and exceptions remain authoritative even when telemetry is disabled.
+
+Compiler/contributor and migration tracing are separate pending implementation; constants alone do
+not establish those spans. Native trace acceptance and signed runtime load/unload also remain separate
+from these listener unit checks.
