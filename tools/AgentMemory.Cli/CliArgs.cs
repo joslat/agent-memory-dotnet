@@ -92,6 +92,11 @@ public static class CliHelp
                                      --host-features History,Reminders declares target requirements,
                                      not a probe of host availability. JSON report; exit 2 on refusal.
                                      Connection options below select this one store's database.
+              packs keygen --private <file> --public <file>
+              packs sign <folder> --key <private key file> [--id <id> --version <v>]
+              packs verify <folder> [--developer-key <file>[,<file>]] [--pin <digest>]
+                                     Experimental. Sign a bundle (a files list with every file's sha256 and an
+                                     ECDSA P-256 signature) and verify it as a host does. Offline; exit 2 on refusal.
               bootstrap              Create schema constraints and indexes.
               schema-check           Verify the LIVE database has every constraint/index the bootstrap
                                      creates (runtime conformance). Exit 1 listing any missing objects.

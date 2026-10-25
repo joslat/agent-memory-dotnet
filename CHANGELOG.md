@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental signed bundles (`AgentMemory.Extensibility.Bundles`): a files list naming every file with its
+  length and sha256, signed with ECDSA P-256. `BundleVerifier` refuses a bundle before anything in it is used when the
+  key is not trusted or is revoked, the signature fails, the digest is revoked or differs from a pin, or any file is
+  missing, extra or changed. Hosts trust the official key (compiled in) and developer keys from their own
+  configuration only; there is no "allow unsigned" switch. The CLI adds `packs keygen`, `packs sign` and `packs verify`.
+
 - Give the experimental 0.x packages (Extensibility, Extensibility.AgentFramework, Extensibility.Neo4j, Validation)
   their own release line: `preview-v0.x.y-<prerelease>` tags pack only them, at the tag's version through
   `-p:PreviewVersion`, so their core dependencies keep the core version; the core release must be on NuGet first.

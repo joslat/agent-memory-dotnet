@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -34,6 +34,12 @@ if (string.Equals(cli.Command, "routing-score", StringComparison.OrdinalIgnoreCa
 {
     return new AgentMemory.Cli.Commands.RoutingScoreCommand(Console.Out)
         .Execute(cli.Get("set"), cli.Get("split"), cli.Get("policy"), cli.HasFlag("misses"));
+}
+
+// packs signs and verifies bundles offline: no store, no model, no network (Extensibility 0.13 §K6).
+if (string.Equals(cli.Command, "packs", StringComparison.OrdinalIgnoreCase))
+{
+    return new AgentMemory.Cli.Commands.PacksCommand(Console.Out).Execute(cli);
 }
 
 // schema-parity is pure static analysis of embedded snapshots — no Neo4j connection or host needed.
