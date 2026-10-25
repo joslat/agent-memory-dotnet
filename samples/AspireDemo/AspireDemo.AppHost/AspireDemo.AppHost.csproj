@@ -15,7 +15,7 @@
   <ItemGroup>
     <!-- 29.1. Transitive via Aspire, and vulnerable at 2.5.192 (five advisories, one high).
          Pinned explicitly rather than suppressed. -->
-    <PackageReference Include="MessagePack" Version="3.1.8" />
+    <PackageReference Include="MessagePack" Version="3.1.9" />
   </ItemGroup>
 
 
