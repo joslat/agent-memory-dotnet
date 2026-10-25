@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add the experimental conformance kit to validation packs: a pack's `modules` part teaches recorded
+  module proposals through the real ingestion pipeline (admission, closings at the core writer's
+  threshold, transactions) and checks module records, views, time pins and owner isolation one by one.
+  The host composes the modules through `ValidationPackRunner.Modules`.
+
 - Add store-aware experimental module writes. A provider can see its module's existing records through a
   declared view (`IngestionProviderDescriptor.ExistingView`) and name the records its new one replaces
   (`ModuleProposal.Replaces`). The new public `IMemoryClosingApprover` decides each replacement with the

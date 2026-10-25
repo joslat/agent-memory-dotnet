@@ -17,6 +17,8 @@ public static class ValidationPackReader
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        // Module proposals carry their kind and link targets by name (Assert, Invalidate, Identity, EntityName).
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
     private static readonly HashSet<string> Precisions = new(StringComparer.OrdinalIgnoreCase) { "day", "month", "year" };
@@ -137,7 +139,64 @@ public static class ValidationPackReader
                     Problem($"question '{question.Id}': '{item.Relationship}' is not 'Source -[TYPE]-> Target'");
             }
         }
+        if (pack.Modules is { } modules) CheckModules(pack, modules, owners, Problem);
         return problems;
+    }
+
+    private static readonly HashSet<string> RecordStates = new(StringComparer.Ordinal) { "live", "closed", "absent" };
+    private static readonly HashSet<string> WriteStatuses = new(StringComparer.Ordinal) { "Stored", "NoOp", "Invalidated", "Refused" };
+
+    /// <summary>The module part (40.26): known modules, owners and sessions, distinct ids, known states and outcomes.</summary>
+    private static void CheckModules(ValidationPack pack, PackModules modules, HashSet<string> owners, Action<string> problem)
+    {
+        var required = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var module in modules.Require)
+        {
+            if (!required.Add(module.Id)) problem($"module '{module.Id}' is required twice");
+            try { _ = AgentMemory.Extensibility.Modules.ModuleVersionRange.Parse(module.Version); }
+            catch (Exception exception) when (exception is FormatException or ArgumentException)
+            { problem($"module '{module.Id}': '{module.Version}' is not a version range"); }
+        }
+        if (required.Count == 0) problem("a module part requires at least one module");
+        bool Owned(string id) => required.Any(m => AgentMemory.Extensibility.Modules.ModuleIdentity.IsOwnedId(m, id));
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        void Unique(string id, string what) { if (!ids.Add(id)) problem($"{what} id '{id}' is used twice"); }
+        foreach (var step in modules.Teach)
+        {
+            Unique(step.Id, "teach");
+            var session = pack.Sessions.FirstOrDefault(s => s.Id == step.Session);
+            if (session is null) problem($"teach '{step.Id}' names unknown session '{step.Session}'");
+            if (!Owned(step.Provider)) problem($"teach '{step.Id}': provider '{step.Provider}' is not owned by a required module");
+            if (step.Trigger is not ("EveryTurn" or "OnRequest")) problem($"teach '{step.Id}': trigger '{step.Trigger}' is not EveryTurn or OnRequest");
+            if (step.Proposals.Count == 0) problem($"teach '{step.Id}' submits no proposals");
+            foreach (var source in step.Proposals.SelectMany(p => p.Source?.MessageIds ?? []))
+                if (!source.StartsWith('#') || !int.TryParse(source[1..], out var index) || session is null || index < 0 || index >= session.Messages.Count)
+                    problem($"teach '{step.Id}': source '{source}' is not '#n' for a message of session '{step.Session}'");
+            foreach (var expect in step.Expect)
+            {
+                if (expect.Proposal < 0 || expect.Proposal >= step.Proposals.Count) problem($"teach '{step.Id}': expect names proposal {expect.Proposal}");
+                if (!WriteStatuses.Contains(expect.Status)) problem($"teach '{step.Id}': status '{expect.Status}' is not Stored, NoOp, Invalidated or Refused");
+            }
+            foreach (var closing in step.Closings)
+                if (closing.Proposal < 0 || closing.Proposal >= step.Proposals.Count || !step.Proposals[closing.Proposal].Replaces.Contains(closing.Key)
+                    || !double.IsFinite(closing.Probability) || closing.Probability is < 0 or > 1)
+                    problem($"teach '{step.Id}': closing of '{closing.Key}' must answer a replacement proposal {closing.Proposal} names, with a probability in [0, 1]");
+        }
+        foreach (var record in modules.Records)
+        {
+            Unique(record.Id, "record");
+            if (!owners.Contains(record.Owner)) problem($"record '{record.Id}' names undeclared owner '{record.Owner}'");
+            if (!required.Contains(record.Module)) problem($"record '{record.Id}' names module '{record.Module}', which the pack does not require");
+            if (!RecordStates.Contains(record.State)) problem($"record '{record.Id}': state '{record.State}' is not live, closed or absent");
+            if (record.Properties.Count > 0 && record.State != "live") problem($"record '{record.Id}': properties go with state live");
+        }
+        foreach (var view in modules.Views)
+        {
+            Unique(view.Id, "view");
+            if (!owners.Contains(view.Owner)) problem($"view '{view.Id}' names undeclared owner '{view.Owner}'");
+            if (!required.Contains(view.Module)) problem($"view '{view.Id}' names module '{view.Module}', which the pack does not require");
+        }
+        if (modules.Records.Count + modules.Views.Count == 0) problem("a module part checks no records and no views");
     }
 
     /// <summary>Splits <c>"subject | predicate | object"</c>.</summary>

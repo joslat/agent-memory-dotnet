@@ -980,3 +980,32 @@ hash of its bound configuration, and the trust mode (`static-reference`: NuGet's
 referenced packages). Configuration values enter only as a hash; keep secrets in host services rather
 than module options. Static composition binds one module store; signed runtime loading, reload and
 leases come after 2.0.
+
+## Conformance kit: module packs
+
+A module pack is a validation pack (`agentmemory-pack/1`, `AgentMemory.Validation`, held) with a `modules`
+part: the modules it needs (id and version range), teach steps, the module records the store must then
+hold, and the views that must return them. The pack plays the model: each teach step carries recorded
+proposals, and for each replacement a proposal names, the judge's recorded probability. The host
+composes the modules exactly as it does in production, through `ValidationPackRunner.Modules`
+(`modules => modules.Add<TModule>()`); the runner binds them to the pack's Neo4j store, applies their
+migrations and checks the pack against the real pipeline.
+
+- **Teach.** A step names a pack session (its owner writes; `#n` in a proposal's source ids is the
+  session's nth message), a provider identity in a required module, and optionally `existingView`. The
+  proposals go through `ModuleIngestion` with that store, the host's isolation policy, the view and
+  Core's closing approver, so admission, closings at the core writer's threshold, transactions and
+  versions are the shipped ones. Each `expect` names a proposal's outcome and the keys it must close.
+- **Records.** For an owner, module, type and key: `live` (and the values it must carry), `closed` or
+  `absent`, and optionally how many versions.
+- **Views.** A declared view for an owner, optionally narrowed by arguments or pinned to a transaction
+  time: the keys it must return and no others, text that must and must not be rendered, and an
+  isolation check that no other pack owner's record comes back.
+
+Every expectation is its own check in the run result, so a wrong record, a missing closing or another
+owner's record never disappears into a total. A pack whose modules the host did not compose, or that
+do not activate, fails its composition check. The integration tests run a fixture module pack and six
+mutation controls (a wrong expected key, a missing teach step, a judge that declines, rendered excluded
+text, a wrong value, no composition); each must fail the check that names it. Module packs run in
+library tests and hosts today; a standalone conformance command needs runtime module loading and comes
+with signed loading after 2.0.

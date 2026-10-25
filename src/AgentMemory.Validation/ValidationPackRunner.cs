@@ -24,7 +24,7 @@ namespace AgentMemory.Validation;
 /// Where each pack's stack logs (41.08: a failure inside a pack, an embedding that could not be made, must reach the
 /// caller's output, not a logger nobody reads). Null: no provider, as before.
 /// </param>
-public sealed class ValidationPackRunner(
+public sealed partial class ValidationPackRunner(
     Action<Neo4jOptions> configureNeo4j,
     Func<IServiceProvider, IEmbeddingGenerator<string, Embedding<float>>>? embeddings = null,
     Action<ILoggingBuilder>? logging = null)
@@ -110,6 +110,9 @@ public sealed class ValidationPackRunner(
                     : $"{question.Id}: another owner's items recalled: {string.Join("; ", foreign.Take(5))}"));
             routes.Add(new(question.Id, question.Kinds, [.. foundIn]));
         }
+
+        // The module part (40.26): composition, every teach outcome, record and view, each its own check.
+        if (pack.Modules is not null) await ModuleChecksAsync(pack, store, checks, cancellationToken).ConfigureAwait(false);
         return Result();
     }
 
@@ -162,6 +165,8 @@ public sealed class ValidationPackRunner(
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp => embeddings is not null
             ? new BorrowedEmbeddingGenerator(embeddings(sp))
             : new StubEmbeddingGenerator(sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(), neo4j.EmbeddingDimensions));
+        var judge = new PackClosingJudge();
+        var withModules = ComposeModules(pack, services, judge);
         var provider = services.BuildServiceProvider(validateScopes: true);
         var store = new PackStore(provider, prefix, clock, options);
         try
@@ -169,6 +174,7 @@ public sealed class ValidationPackRunner(
             await provider.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(cancellationToken).ConfigureAwait(false);
             await provider.GetRequiredService<INeo4jTransactionRunner>().WriteAsync(async runner =>
                 await runner.RunAsync("CALL db.awaitIndexes(60)").ConfigureAwait(false)).ConfigureAwait(false);
+            if (withModules) await PrepareModulesAsync(store, cancellationToken).ConfigureAwait(false);
 
             // Ingestion: each message stored and extracted at its own time.
             foreach (var session in pack.Sessions)
@@ -186,6 +192,7 @@ public sealed class ValidationPackRunner(
                     clock.Now = said.At;
                     var messageId = $"{sessionId}-m{script.Count}";
                     script.Add(messageId, said);
+                    store.Remember(session.Id, new(messageId, said.Role, said.Text));
                     var message = await shortTerm.AddMessageAsync(new Message
                     {
                         MessageId = messageId,
@@ -217,6 +224,8 @@ public sealed class ValidationPackRunner(
                     }
                 }
             }
+            // The module part's teach steps, after every core session is in (their sources are those sessions' messages).
+            if (withModules) await TeachAsync(pack, store, judge, cancellationToken).ConfigureAwait(false);
             return store;
         }
         catch
@@ -332,6 +341,28 @@ public sealed class PackStore : IAsyncDisposable
         Options = options;
     }
 
+    private readonly Dictionary<string, List<PackStoredMessage>> _messages = new(StringComparer.Ordinal);
+
+    internal ReplayClock Clock => _clock;
+
+    /// <summary>Each pack session's stored messages, in order: a teach step's <c>#n</c> sources.</summary>
+    internal IReadOnlyDictionary<string, List<PackStoredMessage>> Messages => _messages;
+
+    /// <summary>Why the composed modules did not activate; null when they did, or when there are none.</summary>
+    internal IReadOnlyList<string>? ModuleProblems { get; set; }
+
+    /// <summary>Each teach step's ingestion report, by step id.</summary>
+    internal Dictionary<string, Extensibility.Ingestion.IngestionReport> Taught { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Why a teach step did not run, by step id.</summary>
+    internal Dictionary<string, string> TeachFailures { get; } = new(StringComparer.Ordinal);
+
+    internal void Remember(string session, PackStoredMessage message)
+    {
+        if (!_messages.TryGetValue(session, out var list)) _messages[session] = list = [];
+        list.Add(message);
+    }
+
     /// <summary>The stack.</summary>
     public ServiceProvider Provider { get; }
 
@@ -384,3 +415,6 @@ public sealed class PackStore : IAsyncDisposable
     /// <inheritdoc />
     public ValueTask DisposeAsync() => Provider.DisposeAsync();
 }
+
+/// <summary>A pack message as stored: its id, role and text.</summary>
+internal sealed record PackStoredMessage(string Id, string Role, string Text);

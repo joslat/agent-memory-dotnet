@@ -38,6 +38,10 @@ public sealed record ValidationPack
 
     /// <summary>The questions, asked after every session is in.</summary>
     public IReadOnlyList<PackQuestion> Questions { get; init; } = [];
+
+    /// <summary>The module part, for a pack that checks a module (the conformance kit); null for a core pack.</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("AMEXT001")]
+    public PackModules? Modules { get; init; }
 }
 
 /// <summary>The memory kinds a pack covers and a question's answer lives in.</summary>

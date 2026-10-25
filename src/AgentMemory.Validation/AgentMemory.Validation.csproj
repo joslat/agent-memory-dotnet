@@ -8,11 +8,13 @@
     <Description>Validation packs for AgentMemory for .NET: a schema, conversations with what extraction yields for each message, the storage they must leave and the questions they must answer, run deterministically against a live store.</Description>
     <PackageTags>agent-memory;ai;memory;validation;testing</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Module packs use the experimental module SDK; their public types carry AMEXT001 themselves. -->
+    <NoWarn>$(NoWarn);AMEXT001</NoWarn>
   </PropertyGroup>
 
   <!-- HELD (eng/release-packages.txt): the pack format is not settled enough to SemVer-lock on the 1.x line.
        Its consumers today are the CLI (`evaluate pack`), the integration tests and a host workbench; module packs
-       (the extensibility spec's conformance fixtures) come later. -->
+       (the extensibility spec's conformance fixtures, 40.26) add a module part to the same format. -->
   <PropertyGroup>
     <Version>0.1.0</Version>
   </PropertyGroup>
@@ -20,6 +22,8 @@
   <ItemGroup>
     <!-- The meta package: a pack runs on the real stack, built the way a host builds it. -->
     <ProjectReference Include="..\AgentMemory\AgentMemory.csproj" />
+    <!-- Module packs (40.26): the host's static module composition, module records and views in the same Neo4j store. -->
+    <ProjectReference Include="..\AgentMemory.Extensibility.Neo4j\AgentMemory.Extensibility.Neo4j.csproj" />
   </ItemGroup>
 
   <ItemGroup>
