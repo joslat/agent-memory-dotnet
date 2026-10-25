@@ -20,7 +20,8 @@ internal static class ModuleManifestSnapshot
             OrderBy = view.OrderBy is null ? null : view.OrderBy with { },
             Search = view.Search is null ? null : view.Search with { Properties = List(view.Search.Properties, value => value) }
         }),
-        Seed = m.Seed is null ? null : List(m.Seed, value => value)
+        Seed = m.Seed is null ? null : List(m.Seed, value => value),
+        Display = m.Display is null ? null : m.Display with { }
     };
 
     // Preserve malformed nulls for the local validator, rather than silently repairing input.

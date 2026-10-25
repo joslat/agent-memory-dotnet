@@ -17,7 +17,7 @@ internal static class ModuleManifestReader
 
     private static ModuleManifest Read(JsonElement root)
     {
-        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views", "seed");
+        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views", "seed", "display");
         var format = Text(root, "format", "$");
         if (format != "agentmemory.module/v1alpha1") throw Error("$.format", "unsupported module format");
         var id = Text(root, "id", "$");
@@ -51,7 +51,18 @@ internal static class ModuleManifestReader
             Sdk = Range(Text(root, "sdk", "$"), "$.sdk"), Modules = modules.AsReadOnly(), Host = host,
             Ontology = root.TryGetProperty("ontology", out var ontology) ? Ontology(ontology, "$.ontology") : null,
             Views = Array(root, "views", "$", View),
-            Seed = root.TryGetProperty("seed", out var seed) ? Strings(seed, "$.seed") : null
+            Seed = root.TryGetProperty("seed", out var seed) ? Strings(seed, "$.seed") : null,
+            Display = root.TryGetProperty("display", out var display) ? Display(display, "$.display") : null
+        };
+    }
+
+    private static ModuleDisplay Display(JsonElement value, string path)
+    {
+        Object(value, path, "title", "description", "icon", "color");
+        return new ModuleDisplay
+        {
+            Title = OptionalText(value, "title", path), Description = OptionalText(value, "description", path),
+            Icon = OptionalText(value, "icon", path), Color = OptionalText(value, "color", path)
         };
     }
 

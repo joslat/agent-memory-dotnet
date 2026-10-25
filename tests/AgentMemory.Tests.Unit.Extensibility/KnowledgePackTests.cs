@@ -111,6 +111,17 @@ public sealed class KnowledgePackTests
         Problems(() => KnowledgePack.Open(Signed(manifest: module.ToJsonString()), Trust())).Should().Contain(p => p.Contains("not a knowledge pack", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(null, "is missing")]
+    [InlineData("not a png", "is not a PNG")]
+    public void AnIconMustBeAPngInTheBundle(string? content, string problem)
+    {
+        var manifest = JsonNode.Parse(KnowledgePackManifestTests.Pack)!;
+        manifest["display"] = new JsonObject { ["title"] = "Dojo", ["icon"] = "icon.png" };
+        var bundle = Signed(manifest: manifest.ToJsonString(), change: c => { if (content is not null) c["icon.png"] = Encoding.UTF8.GetBytes(content); });
+        Problems(() => KnowledgePack.Open(bundle, Trust())).Should().Contain(p => p.Contains(problem, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void APackOpensFromTheBundleFolderOfANuGetPackage()
     {

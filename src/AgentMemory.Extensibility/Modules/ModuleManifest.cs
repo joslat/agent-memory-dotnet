@@ -34,6 +34,9 @@ public sealed record ModuleManifest
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Seed { get; init; }
+    /// <summary>How a host shows the module or pack: title, description, icon and colour (Extensibility 0.13 §D). Optional.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleDisplay? Display { get; init; }
     /// <summary>Whether this manifest declares a knowledge pack (it has seed files).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsKnowledgePack => Seed is not null;

@@ -26,8 +26,14 @@ public sealed class KnowledgePack
     /// <summary>At most this many UTF-8 bytes a seed line holds.</summary>
     public const int MaximumLineBytes = 64 * 1024;
 
-    private KnowledgePack(ModuleManifest manifest, VerifiedBundle bundle, IReadOnlyList<ModuleProposal> proposals)
-    { Manifest = manifest; Bundle = bundle; Proposals = proposals; }
+    /// <summary>At most this many bytes an icon holds.</summary>
+    public const int MaximumIconBytes = 64 * 1024;
+
+    private KnowledgePack(ModuleManifest manifest, VerifiedBundle bundle, IReadOnlyList<ModuleProposal> proposals, ReadOnlyMemory<byte>? icon)
+    { Manifest = manifest; Bundle = bundle; Proposals = proposals; Icon = icon; }
+
+    /// <summary>The pack's verified PNG icon, when its manifest names one (Extensibility 0.13 §D).</summary>
+    public ReadOnlyMemory<byte>? Icon { get; }
 
     /// <summary>The pack's manifest.</summary>
     public ModuleManifest Manifest { get; }
@@ -120,8 +126,16 @@ public sealed class KnowledgePack
         if (problems.Count > 0) throw new KnowledgePackException(problems);
         _ = ResolutionOf(manifest);
         var seed = manifest.Seed!;
-        foreach (var extra in bundle.Files.Keys.Where(f => f != ManifestFile && !seed.Contains(f, StringComparer.Ordinal)).Order(StringComparer.Ordinal))
-            problems.Add($"'{extra}' is neither the manifest nor a seed file.");
+        var iconPath = manifest.Display?.Icon;
+        foreach (var extra in bundle.Files.Keys.Where(f => f != ManifestFile && f != iconPath && !seed.Contains(f, StringComparer.Ordinal)).Order(StringComparer.Ordinal))
+            problems.Add($"'{extra}' is neither the manifest, its icon nor a seed file.");
+        ReadOnlyMemory<byte>? icon = null;
+        if (iconPath is not null)
+        {
+            if (!bundle.Files.TryGetValue(iconPath, out var image)) problems.Add($"The icon '{iconPath}' is missing.");
+            else if (IconProblem(image.Span) is { } problem) problems.Add($"The icon '{iconPath}' {problem}.");
+            else icon = image;
+        }
 
         var records = new List<ModuleProposal>();
         var keys = new HashSet<(string Type, string Key)>();
@@ -156,7 +170,18 @@ public sealed class KnowledgePack
                     problems.Add($"{record.Source.Pack!.File}:{record.Source.Pack.Line}: links {link.Relation} to {relation.To} '{link.Target}', which the pack does not hold.");
             }
         if (problems.Count > 0) throw new KnowledgePackException(problems);
-        return new KnowledgePack(manifest, bundle, Ordered(manifest, records));
+        return new KnowledgePack(manifest, bundle, Ordered(manifest, records), icon);
+    }
+
+    // A PNG by its signature and header, small enough to show anywhere; the bytes are never decoded here.
+    private static string? IconProblem(ReadOnlySpan<byte> image)
+    {
+        if (image.Length > MaximumIconBytes) return $"is larger than {MaximumIconBytes / 1024} KiB";
+        ReadOnlySpan<byte> signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        if (image.Length < 24 || !image[..8].SequenceEqual(signature) || !image.Slice(12, 4).SequenceEqual("IHDR"u8)) return "is not a PNG";
+        var width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(image.Slice(16, 4));
+        var height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(image.Slice(20, 4));
+        return width is >= 16 and <= 512 && height is >= 16 and <= 512 ? null : "is not 16 to 512 pixels a side";
     }
 
     private static ModuleProposal? Record(string line, string at, PackSource source, List<string> problems)

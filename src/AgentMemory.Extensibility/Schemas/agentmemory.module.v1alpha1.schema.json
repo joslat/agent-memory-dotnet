@@ -84,6 +84,31 @@
         "type": "string",
         "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,99}/){0,7}[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\.jsonl(?![\\s\\S])"
       }
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How a host shows the module or pack: shown to people, never to a model. An icon is allowed only in a knowledge pack bundle.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "icon": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,99}/){0,7}[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\.png(?![\\s\\S])"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}(?![\\s\\S])"
+        }
+      }
     }
   },
   "required": [

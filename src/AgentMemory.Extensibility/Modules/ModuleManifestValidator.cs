@@ -110,7 +110,26 @@ internal sealed class ModuleManifestValidator
             if (ModuleReservedNames.SchemaObjects.Contains(shape.Name)) Error("$.views", $"reserved schema object '{shape.Name}'");
         }
         if (manifest.Seed is { } seed) ValidateKnowledgePack(manifest, seed, host, modules);
+        if (manifest.Display is { } display) ValidateDisplay(manifest, display);
         return _errors.ToList().AsReadOnly();
+    }
+
+    private static readonly Regex HexColor = Pattern(@"\A#[0-9A-Fa-f]{6}\z");
+
+    // Extensibility 0.13 §D: what a person sees of a module or pack; bounded, and an icon only where a signed bundle holds it.
+    private void ValidateDisplay(ModuleManifest manifest, ModuleDisplay display)
+    {
+        if (display.Title is { } title && (string.IsNullOrWhiteSpace(title) || title.Length > 60 || title.Any(char.IsControl)))
+            Error("$.display.title", "a title is 1 to 60 characters without control characters");
+        if (display.Description is { } description && (string.IsNullOrWhiteSpace(description) || description.Length > 300))
+            Error("$.display.description", "a description is 1 to 300 characters");
+        if (display.Color is { } color && !HexColor.IsMatch(color)) Error("$.display.color", "a colour is #RRGGBB");
+        if (display.Icon is { } icon)
+        {
+            if (!manifest.IsKnowledgePack) Error("$.display.icon", "only a knowledge pack's signed bundle can carry an icon");
+            if (!icon.EndsWith(".png", StringComparison.Ordinal) || !Bundles.BundleSigning.IsSafePath(icon) || (manifest.Seed?.Contains(icon) ?? false))
+                Error("$.display.icon", "an icon is a safe relative .png path in the bundle");
+        }
     }
 
     // Extensibility 0.13 §K4: a search view returns the best matches for a request's text, so it has its own order and bound.

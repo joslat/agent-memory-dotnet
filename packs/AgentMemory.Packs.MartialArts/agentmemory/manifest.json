@@ -9,6 +9,12 @@
     "seed/techniques.jsonl",
     "seed/kata.jsonl"
   ],
+  "display": {
+    "title": "Martial arts",
+    "description": "Grades, techniques and kata of Shotokan karate, ITF Taekwon-Do and Judo, each from a named syllabus. Your dojo’s syllabus wins.",
+    "icon": "icon.png",
+    "color": "#BE123C"
+  },
   "ontology": {
     "labelPrefix": "MartialArts",
     "types": [

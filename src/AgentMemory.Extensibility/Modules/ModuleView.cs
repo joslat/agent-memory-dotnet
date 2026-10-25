@@ -28,6 +28,23 @@ public sealed record ModuleView
     public ModuleViewSearch? Search { get; init; }
 }
 
+/// <summary>
+/// How a host shows a module or pack (Extensibility 0.13 §D): DemoBrain's memory chips use it. Shown to people only; it never
+/// reaches a model's context.
+/// </summary>
+[Experimental("AMEXT001")]
+public sealed record ModuleDisplay
+{
+    /// <summary>A short name, 1 to 60 characters.</summary>
+    public string? Title { get; init; }
+    /// <summary>One or two sentences, at most 300 characters.</summary>
+    public string? Description { get; init; }
+    /// <summary>A knowledge pack's icon: a PNG in its signed bundle, at most 64 KiB and 512 pixels a side.</summary>
+    public string? Icon { get; init; }
+    /// <summary>The colour that stands for it, <c>#RRGGBB</c>; a host may let its user override it.</summary>
+    public string? Color { get; init; }
+}
+
 /// <summary>The properties a search view matches; the migrator derives one full-text index over them.</summary>
 [Experimental("AMEXT001")]
 public sealed record ModuleViewSearch

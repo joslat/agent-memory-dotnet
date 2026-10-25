@@ -60,6 +60,39 @@ public sealed class KnowledgePackManifestTests
     }
 
     [Theory]
+    [InlineData("display-color")]
+    [InlineData("display-title")]
+    [InlineData("display-icon-path")]
+    [InlineData("display-unknown")]
+    public void EditorAndRuntimeAgreeOnDisplayMetadata(string mutation)
+    {
+        var good = JsonNode.Parse(Pack)!;
+        good["display"] = new JsonObject { ["title"] = "Dojo", ["description"] = "Kata and ranks.", ["icon"] = "icon.png", ["color"] = "#1E6B4F" };
+        EditorAccepts(good.ToJsonString()).Should().BeTrue();
+        RuntimeProblems(good.ToJsonString()).Should().BeEmpty();
+        var display = good["display"]!;
+        switch (mutation)
+        {
+            case "display-color": display["color"] = "crimson"; break;
+            case "display-title": display["title"] = new string('t', 61); break;
+            case "display-icon-path": display["icon"] = "../icon.png"; break;
+            case "display-unknown": display["emoji"] = "x"; break;
+        }
+        EditorAccepts(good.ToJsonString()).Should().BeFalse(mutation);
+        RuntimeProblems(good.ToJsonString()).Should().NotBeEmpty(mutation);
+    }
+
+    [Fact]
+    public void OnlyAKnowledgePackCanCarryAnIcon()
+    {
+        var module = JsonNode.Parse(Pack)!.AsObject();
+        module.Remove("seed");
+        foreach (var type in module["ontology"]!["types"]!.AsArray()) type!["scope"] = "owner";
+        module["display"] = new JsonObject { ["title"] = "Dojo", ["icon"] = "icon.png" };
+        RuntimeProblems(module.ToJsonString()).Should().Contain(p => p.Contains("only a knowledge pack", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("owner-type", "knowledge pack types are shared")]
     [InlineData("host-feature", "requires no host features")]
     [InlineData("dependency", "depends on no module")]

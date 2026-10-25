@@ -34,6 +34,15 @@ public sealed class MartialArtsPackTests
     }
 
     [Fact]
+    public void ThePackCarriesWhatAHostShowsForIt()
+    {
+        var pack = Open();
+        pack.Manifest.Display!.Title.Should().Be("Martial arts");
+        pack.Manifest.Display.Color.Should().Be("#BE123C");
+        pack.Icon!.Value.Span[..4].ToArray().Should().Equal(0x89, 0x50, 0x4E, 0x47);
+    }
+
+    [Fact]
     public void EachRankNamesItsNextGradeSoAFreshQuestionCanAnswerWhatComesNext()
     {
         var six = Open().Proposals.Single(p => p.Key == "shotokan/6-kyu");
