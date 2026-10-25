@@ -39,15 +39,24 @@ internal sealed class ChatModelMemoryGate(IChatClient chat, IReadOnlyDictionary<
         ArgumentNullException.ThrowIfNull(request);
         if (request.Candidates.Count == 0) return new MemoryGateDecision(new Dictionary<string, double>(StringComparer.Ordinal), "chat");
         var shortKeys = request.Candidates.Select((_, i) => "m" + (i + 1).ToString(CultureInfo.InvariantCulture)).ToList();
-        var options = new ChatOptions { Temperature = 0, MaxOutputTokens = Math.Min(8000, 600 + 24 * request.Candidates.Count) };
+        var options = new ChatOptions { Temperature = 0, MaxOutputTokens = OutputBudget(request.Candidates.Count) };
         // Sent only when chosen, so the default request leaves reasoning to the provider.
         if (effort is { } chosen) options.Reasoning = new ReasoningOptions { Effort = chosen };
         var response = await chat.GetResponseAsync(Messages(request, shortKeys, meanings), options, cancellationToken).ConfigureAwait(false);
+        if (response.FinishReason == ChatFinishReason.Length)
+            throw new InvalidOperationException($"The chat gate's reply was cut off at its output limit ({options.MaxOutputTokens} tokens).");
         var scores = Parse(response.Text, shortKeys);
         var probabilities = new Dictionary<string, double>(StringComparer.Ordinal);
         for (var i = 0; i < shortKeys.Count; i++) probabilities[request.Candidates[i].Key] = scores[shortKeys[i]];
         return new MemoryGateDecision(probabilities, "chat:" + (response.ModelId ?? "model"));
     }
+
+    /// <summary>
+    /// The reply's token budget. A reasoning model spends part of it thinking before it writes the answer, so the budget
+    /// holds room for that besides about 24 tokens a memory; R-chat-judge's first training set lost 37% of its turns to a
+    /// budget without that room.
+    /// </summary>
+    internal static int OutputBudget(int candidates) => Math.Min(16_000, 4_000 + 24 * candidates);
 
     /// <summary>The system instructions and the turn, with each memory under its short key, grouped by type in order.</summary>
     internal static IReadOnlyList<ChatMessage> Messages(MemoryGateRequest request, IReadOnlyList<string> shortKeys,

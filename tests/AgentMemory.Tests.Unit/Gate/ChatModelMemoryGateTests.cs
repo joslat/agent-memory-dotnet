@@ -9,7 +9,7 @@ namespace AgentMemory.Tests.Unit.Gate;
 /// <summary>The chat-model gate (R-chat-judge): one call, the gate's question, a whole decision or none.</summary>
 public sealed class ChatModelMemoryGateTests
 {
-    private sealed class ScriptedChat(string reply, string? modelId = "glm") : IChatClient
+    private sealed class ScriptedChat(string reply, string? modelId = "glm", ChatFinishReason? finish = null) : IChatClient
     {
         public List<(List<ChatMessage> Messages, ChatOptions? Options)> Requests { get; } = [];
 
@@ -17,7 +17,7 @@ public sealed class ChatModelMemoryGateTests
             CancellationToken cancellationToken = default)
         {
             Requests.Add((messages.ToList(), options));
-            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, reply)) { ModelId = modelId });
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, reply)) { ModelId = modelId, FinishReason = finish });
         }
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
@@ -103,4 +103,19 @@ public sealed class ChatModelMemoryGateTests
         decision.Probabilities.Should().BeEmpty();
         chat.Requests.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task AReplyCutOffAtItsOutputLimitIsReportedAsSuch()
+    {
+        var chat = new ScriptedChat("{\"m1\": 90, \"m2\":", finish: ChatFinishReason.Length);
+        var act = () => new ChatModelMemoryGate(chat).DecideAsync(Request);
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*cut off at its output limit (4072 tokens)*");
+    }
+
+    [Theory]
+    [InlineData(1, 4_024)]
+    [InlineData(120, 6_880)]
+    [InlineData(1_000, 16_000)]
+    public void TheOutputBudgetLeavesRoomToReasonBeforeTheAnswer(int candidates, int budget) =>
+        ChatModelMemoryGate.OutputBudget(candidates).Should().Be(budget);
 }

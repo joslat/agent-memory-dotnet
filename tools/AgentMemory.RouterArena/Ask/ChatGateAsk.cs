@@ -114,9 +114,18 @@ internal sealed class ChatGateAsk(TextWriter output)
             {
                 JsonObject? answer = null;
                 string? error = null;
-                for (var attempt = 0; attempt < 3 && answer is null; attempt++)
+                // One meter for the turn: every attempt is paid for, the failed ones too. A re-asked turn keeps what its
+                // earlier failed runs cost, so the spend in the file stays whole.
+                JsonNode? before;
+                lock (save) before = answers[item.Id];
+                var earlier = Math.Round(((double?)before?["cost"] ?? 0) + ((double?)before?["costEarlier"] ?? 0), 6);
+                var metered = new MeteredChat(chat);
+                var all = Stopwatch.StartNew();
+                var attempts = 0;
+                double Cost() => Math.Round((metered.In * InPrice + metered.Out * OutPrice) / 1e6, 6);
+                for (var retry = true; retry && attempts < 3; )
                 {
-                    var metered = new MeteredChat(chat);
+                    attempts++;
                     var watch = Stopwatch.StartNew();
                     try
                     {
@@ -125,19 +134,27 @@ internal sealed class ChatGateAsk(TextWriter output)
                         foreach (var (key, p) in decision.Probabilities) yes[key] = Math.Round(p, 4);
                         answer = new JsonObject
                         {
-                            ["yes"] = yes, ["calls"] = 1, ["attempts"] = attempt + 1,
-                            ["seconds"] = Math.Round(watch.Elapsed.TotalSeconds, 3), ["secondsAll"] = Math.Round(watch.Elapsed.TotalSeconds, 3),
-                            ["tokensIn"] = metered.In, ["tokensOut"] = metered.Out,
-                            ["cost"] = Math.Round((metered.In * InPrice + metered.Out * OutPrice) / 1e6, 6), ["model"] = decision.AnsweredBy,
+                            ["yes"] = yes, ["calls"] = attempts, ["attempts"] = attempts,
+                            ["seconds"] = Math.Round(watch.Elapsed.TotalSeconds, 3), ["secondsAll"] = Math.Round(all.Elapsed.TotalSeconds, 3),
+                            ["tokensIn"] = metered.In, ["tokensOut"] = metered.Out, ["cost"] = Cost(), ["model"] = decision.AnsweredBy,
                         };
+                        retry = false;
                     }
                     catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException)
                     {
                         if (cancellationToken.IsCancellationRequested) throw;
                         error = $"{ex.GetType().Name}: {ex.Message}";
+                        // A refused reply at temperature 0 comes back the same: only transport failures are worth a retry.
+                        retry = ex is not InvalidOperationException;
                     }
                 }
-                lock (save) answers[item.Id] = answer ?? new JsonObject { ["error"] = error };
+                answer ??= new JsonObject
+                {
+                    ["error"] = error, ["attempts"] = attempts, ["secondsAll"] = Math.Round(all.Elapsed.TotalSeconds, 3),
+                    ["tokensIn"] = metered.In, ["tokensOut"] = metered.Out, ["cost"] = Cost(),
+                };
+                if (earlier > 0) answer["costEarlier"] = earlier;
+                lock (save) answers[item.Id] = answer;
             }
             finally
             {
@@ -157,7 +174,8 @@ internal sealed class ChatGateAsk(TextWriter output)
         var seconds = answered.Select(a => (double)a!["seconds"]!).Order().ToList();
         string At(double q) => seconds.Count == 0 ? "0" : seconds[Math.Min(seconds.Count - 1, (int)(q * seconds.Count))].ToString("0.##", CultureInfo.InvariantCulture);
         output.WriteLine($"ask-chat: {answered.Count} turns answered, {failed} failed; tokens in {answered.Sum(a => (long?)a!["tokensIn"] ?? 0):N0}, "
-            + $"out {answered.Sum(a => (long?)a!["tokensOut"] ?? 0):N0}; cost {answered.Sum(a => (double?)a!["cost"] ?? 0):0.####} USD; "
+            + $"out {answered.Sum(a => (long?)a!["tokensOut"] ?? 0):N0}; cost {answers.Sum(a => ((double?)a.Value?["cost"] ?? 0) + ((double?)a.Value?["costEarlier"] ?? 0)):0.####} USD "
+            + "(failed turns included); "
             + $"{At(0.5)} s a turn at the median, {At(0.95)} s at p95");
         return failed > 0 ? 2 : 0;
     }
