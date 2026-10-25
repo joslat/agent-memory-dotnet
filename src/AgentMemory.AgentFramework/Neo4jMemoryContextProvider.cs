@@ -212,13 +212,34 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
         return RecalledTurns.Place(merged, GetType().FullName!, _agentOptions.RecalledMemoryBeforeQuestion);
     }
 
-    protected override async ValueTask<AIContext> ProvideAIContextAsync(
+    protected override ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => ProvideCoreContextAsync(context, companions: null, cancellationToken);
+
+    /// <summary>
+    /// The core block, with <paramref name="companions"/> judged in the core gate's one call; the gate's decisions about
+    /// them arrive on <paramref name="companions"/> when this returns (Extensibility 0.12, R1).
+    /// </summary>
+    /// <remarks>
+    /// The same path as the ordinary hook: identical output for core memories, and with a gate that does not judge (none,
+    /// the similarity floor, a failure) the companions are simply not decided and <see cref="CompanionRecall.Decisions"/>
+    /// stays null for the caller's own fallback.
+    /// </remarks>
+    protected ValueTask<AIContext> ProvideAIContextAsync(
+        InvokingContext context, CompanionRecall companions, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(companions);
+        return ProvideCoreContextAsync(context, companions, cancellationToken);
+    }
+
+    private async ValueTask<AIContext> ProvideCoreContextAsync(
+        InvokingContext context, CompanionRecall? companions, CancellationToken cancellationToken)
     {
         var messages = context.AIContext?.Messages ?? Enumerable.Empty<ChatMessage>();
         // Before anything stores it: the caller's message gets the one id both providers will store it
-        // under (MafTypeMapper.EnsureProviderMessageId), so extraction's provenance resolves.
+        // under (MafTypeMapper.EnsureProviderMessageId), so extraction's provenance resolves. Keep this
+        // before the first await: the extensible provider starts module views once this call has returned
+        // its task, and they read the same messages.
         foreach (var message in messages)
         {
             if (message.Role == ChatRole.User && !string.IsNullOrWhiteSpace(message.Text))
@@ -238,7 +259,7 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
                 hook?.SetTag("memory.recall.waited_for_extraction_ms", Math.Round(waited.TotalMilliseconds, 1));
             var result = await BuildContextAsync(
                     messages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId,
-                    ReadDeltaCheckpoint(context.Session), context.Session)
+                    ReadDeltaCheckpoint(context.Session), context.Session, companions)
                 .ConfigureAwait(false);
             hook?.SetTag(MemoryTelemetry.ContextItems, result.Messages?.Count() ?? 0);
             return result;
@@ -401,18 +422,19 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
         CancellationToken cancellationToken,
         string? userId = null,
         DateTimeOffset? deltaCheckpoint = null,
-        AgentSession? session = null)
+        AgentSession? session = null,
+        CompanionRecall? companions = null)
     {
         var pending = PendingTurnContext.Snapshot(_backgroundExtraction, _agentOptions,
             _storeContext?.ApplicationId, userId, sessionId);
         if (pending.Count == 0)
             return await BuildRecalledContextAsync(messages, sessionId, conversationId, cancellationToken,
-                userId, deltaCheckpoint, session).ConfigureAwait(false);
+                userId, deltaCheckpoint, session, companions).ConfigureAwait(false);
 
         var liveThread = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         using var ownerScope = _ownerContext?.BeginOwnerScope(userId);
         var result = await BuildRecalledContextAsync(liveThread, sessionId, conversationId, cancellationToken,
-            userId, deltaCheckpoint, session).ConfigureAwait(false);
+            userId, deltaCheckpoint, session, companions).ConfigureAwait(false);
         return new AIContext
         {
             Instructions = result.Instructions,
@@ -429,7 +451,8 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
         CancellationToken cancellationToken,
         string? userId = null,
         DateTimeOffset? deltaCheckpoint = null,
-        AgentSession? session = null)
+        AgentSession? session = null,
+        CompanionRecall? companions = null)
     {
         // Set the ambient owner BEFORE recall so the LLM-invokable facade tools the agent calls mid-turn
         // (search_memory / remember_* etc.) scope to this owner instead of running unscoped. Scoped (not a
@@ -537,7 +560,8 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
                 // answered. Read only when MemoryOptions.Routing is on.
                 Question = QuestionOf(liveThread),
                 QueryEmbedding = queryEmbedding,
-                Options = effectiveOptions
+                Options = effectiveOptions,
+                Companions = companions?.Request,
             };
 
             RecallResult recallResult;
@@ -546,6 +570,7 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
                 recallResult = await _memoryService
                     .RecallAsync(recallRequest, cancellationToken)
                     .ConfigureAwait(false);
+                companions?.Report(recallResult.Context);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

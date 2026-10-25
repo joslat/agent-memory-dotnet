@@ -241,4 +241,11 @@ public sealed record MemoryContext
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =
         new Dictionary<string, object>();
+
+    /// <summary>
+    /// The gate's probability, by key, for every companion it judged with core memories (<see cref="RecallRequest.Companions"/>),
+    /// or null when no gate judged them: no companions, no judging gate, the similarity floor, or a gate failure or timeout.
+    /// The caller applies its own threshold and bounds; core memories here were kept by the gate's own rule as before.
+    /// </summary>
+    public IReadOnlyDictionary<string, double>? CompanionDecisions { get; init; }
 }

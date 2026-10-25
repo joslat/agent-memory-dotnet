@@ -191,21 +191,23 @@ public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContext
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        // THE CORE BLOCK, FROM THE CODE THAT ALREADY RENDERS IT, unmodified.
+        // NOTHING TO COMPILE WITHOUT MODULES. The core block is delegated, so the compiler here only
+        // ever runs module contributors; with none registered there is no work, no identity to
+        // resolve, and no opportunity to diverge from the composed provider.
         //
         // `base.`, not a composed instance's public InvokingAsync: that wrapper stamps attribution
         // and merges the turn, so composing applied it twice and the result was measurably not
         // byte-identical. One instance, one stamp.
+        if (!_hasModuleContributors) return await base.ProvideAIContextAsync(context, cancellationToken).ConfigureAwait(false);
+
+        // ONE GATE CALL FOR CORE AND MODULE MEMORIES (Extensibility 0.12, R1): module views gather while
+        // core recall searches, and the core gate judges both. Core text is still rendered by the base.
+        if (_moduleTurnSelection is not null)
+            return await ProvideWithCorePoolAsync(context, cancellationToken).ConfigureAwait(false);
+
+        // THE CORE BLOCK, FROM THE CODE THAT ALREADY RENDERS IT, unmodified.
         var coreContext = await base.ProvideAIContextAsync(context, cancellationToken).ConfigureAwait(false);
-
-        // NOTHING TO COMPILE WITHOUT MODULES. The core block is delegated, so the compiler here only
-        // ever runs module contributors; with none registered there is no work, no identity to
-        // resolve, and no opportunity to diverge from the composed provider.
-        if (!_hasModuleContributors) return coreContext;
-
         var envelope = await CompileModulesAsync(context, cancellationToken).ConfigureAwait(false);
-        if (_moduleTurnSelection is not null && envelope is not null)
-            return await SelectModuleContextAsync(coreContext, envelope, context, cancellationToken).ConfigureAwait(false);
 
         // THE BASE'S EFFECTIVE POLICY, not the constructor argument. They differ precisely when no
         // policy was supplied: the base substitutes a default and this class used to keep the null,

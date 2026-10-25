@@ -88,10 +88,14 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
         var candidates = GateCandidates.Of(wide);
         if (o.Mode == MemoryGateMode.Everything)
             return Mark(wide, o, span, "everything", null, [.. candidates.Select(c => Item(c, null, kept: true))], "", 0);
-        if (candidates.Count == 0)
+        // Companions get their own wait, bounded like the judge: a slow module search costs its own items, never the core
+        // judgement (sharing the judge's timeout would have sent core memories to the floor).
+        var companions = await CompanionsAsync(request, candidates, o.Timeout, cancellationToken).ConfigureAwait(false);
+        if (candidates.Count == 0 && companions.Count == 0)
             return Mark(wide, o, span, "judge", null, [], "", 0);
 
         string reason;
+        var companionsSent = 0;
         var watch = Stopwatch.StartNew();
         try
         {
@@ -99,7 +103,8 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
             timeout.CancelAfter(o.Timeout);
             var gateRequest = new MemoryGateRequest(
                 request.Query, Conversation(wide, request.Query), _clock?.UtcNow ?? DateTimeOffset.UtcNow,
-                [.. candidates.Select(c => c.Candidate)]);
+                [.. candidates.Select(c => c.Candidate), .. companions]);
+            companionsSent = companions.Count;
             var baseline = _gate.DecideAsync(gateRequest, timeout.Token);
             var decision = o.CompoundQuestions
                 ? await baseline.WaitAsync(timeout.Token).ConfigureAwait(false)
@@ -121,7 +126,15 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
             _logger.LogInformation("Memory gate: kept {Kept} of {Offered} memories at P >= {Threshold} (judged by {Judges} in {Ms} ms).",
                 items.Count(i => i.Kept), items.Count, o.Threshold, decision.AnsweredBy, watch.ElapsedMilliseconds);
             var result = Mark(GateCandidates.Keep(wide, kept), o, span, "judge", null, items, decision.AnsweredBy, watch.ElapsedMilliseconds,
-                ("gate.judgedBy", decision.AnsweredBy), ("gate.ms", (int)watch.ElapsedMilliseconds));
+                (RecallCompanions.JudgedByMetadataKey, decision.AnsweredBy), ("gate.ms", (int)watch.ElapsedMilliseconds));
+            if (companions.Count > 0)
+            {
+                // The caller owns companions: their scores go back whole, and it applies its own threshold and bounds.
+                var decided = companions.Where(c => decision.Probabilities.ContainsKey(c.Key))
+                    .ToDictionary(c => c.Key, c => decision.Probabilities[c.Key], StringComparer.Ordinal);
+                span?.SetTag(MemoryGateTelemetry.CompanionsJudged, decided.Count);
+                result = WithCompanionsOffered(result with { CompanionDecisions = decided }, companions.Count);
+            }
             return compound is null ? result : result with
             {
                 Metadata = new Dictionary<string, object>(result.Metadata, StringComparer.Ordinal)
@@ -150,7 +163,45 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
             _logger.LogWarning(ex, "The memory gate failed; recall falls back to the similarity floor.");
         }
         var floor = await _inner.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
-        return Floor(floor, o, span, "floor (fallback)", reason, watch.ElapsedMilliseconds);
+        var fallback = Floor(floor, o, span, "floor (fallback)", reason, watch.ElapsedMilliseconds);
+        // Companions the failed call carried were offered to a judge, though none decided them.
+        return companionsSent > 0 ? WithCompanionsOffered(fallback, companionsSent) : fallback;
+    }
+
+    private static MemoryContext WithCompanionsOffered(MemoryContext context, int count) => context with
+    {
+        Metadata = new Dictionary<string, object>(context.Metadata, StringComparer.Ordinal) { [RecallCompanions.OfferedMetadataKey] = count },
+    };
+
+    /// <summary>
+    /// The request's companions, awaited after the gate's own search for at most the gate's timeout, minus any whose key is
+    /// empty, repeated or a core memory's. A companion task that fails or is late costs the companions only: core memories
+    /// are judged alone, exactly as without them.
+    /// </summary>
+    private async Task<IReadOnlyList<MemoryGateCandidate>> CompanionsAsync(RecallRequest request,
+        IReadOnlyList<GateCandidates.Entry> core, TimeSpan wait, CancellationToken caller)
+    {
+        if (request.Companions is not { } companions) return [];
+        IReadOnlyList<MemoryGateCandidate> offered;
+        try
+        {
+            offered = await companions.Candidates.WaitAsync(wait, caller).ConfigureAwait(false) ?? [];
+        }
+        catch (OperationCanceledException) when (caller.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Memory gate: companions were not ready ({Reason}); core memories are judged alone.",
+                ex is TimeoutException ? "timeout" : ex.GetType().Name);
+            return [];
+        }
+        var taken = core.Select(c => c.Candidate.Key).ToHashSet(StringComparer.Ordinal);
+        var kept = new List<MemoryGateCandidate>(offered.Count);
+        foreach (var candidate in offered)
+            if (candidate is { Key.Length: > 0, Text: not null } && taken.Add(candidate.Key)) kept.Add(candidate);
+        if (kept.Count < offered.Count)
+            _logger.LogWarning("Memory gate: {Dropped} of {Offered} companions had an empty or repeated key and were not judged.",
+                offered.Count - kept.Count, offered.Count);
+        return kept;
     }
 
     /// <inheritdoc />

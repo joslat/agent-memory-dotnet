@@ -74,4 +74,7 @@ public static class MemoryGateTelemetry
 
     /// <summary>Why recall fell back to the floor: <c>timeout</c>, <c>no-judge</c>, or the failure's exception type.</summary>
     public const string Fallback = "memory.gate.fallback";
+
+    /// <summary>How many companions (<c>RecallRequest.Companions</c>, such as module items) were judged with core memories.</summary>
+    public const string CompanionsJudged = "memory.gate.companions_judged";
 }

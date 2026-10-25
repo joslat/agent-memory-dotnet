@@ -230,6 +230,64 @@ public sealed class ModuleSelectionTests
         await action.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    // ---- Extensibility 0.12, R1: candidates judged in the core gate's call ----
+
+    [Fact]
+    public async Task APooledSelectionOffersAdmittedBoundedCandidatesAndAppliesTheCoreGatesDecisions()
+    {
+        var renderer = new Renderer { Admission = c => c.Text != "blocked" };
+        var gateCalls = 0;
+        var selection = new ModuleContextSelection(new() { UseJudge = true, Threshold = 0.5 }, () => { gateCalls++; return null; });
+        var turn = selection.PrepareForCorePool(await Envelope(new Spec(Module, "items",
+            [new("one", "keep me"), new("two", "drop me"), new("three", "blocked")])), renderer);
+        turn.Companions.Select(c => c.Text).Should().Equal("keep me", "drop me");
+        turn.Companions.Should().OnlyContain(c => c.MemoryType == Module);
+        var scores = turn.Companions.ToDictionary(c => c.Key, c => c.Text == "keep me" ? 0.9 : 0.1);
+        scores["semantic:core-fact"] = 0.99;  // the core gate's answer also covers core memories
+        var result = turn.Complete(scores, "jev", offeredToJudge: true);
+        result.RenderedText.Should().Be("[keep me]");
+        result.JudgeOutcome.Should().Be(ModuleJudgeOutcome.Applied);
+        result.AnsweredBy.Should().Be("jev");
+        result.Decisions.Single(d => d.Candidate.Text == "drop me").Disposition.Should().Be(ModuleCandidateDisposition.JudgeRejected);
+        result.Decisions.Single(d => d.Candidate.Text == "blocked").Disposition.Should().Be(ModuleCandidateDisposition.Denied);
+        gateCalls.Should().Be(0, "in a pooled selection the core gate judges; the module's own gate is never resolved");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WithoutCoreDecisionsAPooledSelectionKeepsItsBoundedFallback(bool offeredToJudge)
+    {
+        var turn = new ModuleContextSelection(new() { UseJudge = true, MaxItems = 1 })
+            .PrepareForCorePool(await Envelope(new Spec(Module, "items", [new("one", "first"), new("two", "second")])), new Renderer());
+        var result = turn.Complete(null, offeredToJudge: offeredToJudge);
+        result.JudgeOutcome.Should().Be(ModuleJudgeOutcome.Unavailable);
+        result.RenderedText.Should().Be("[first]");
+        result.Decisions.Should().OnlyContain(d => d.OfferedToJudge == offeredToJudge && d.Score == null);
+    }
+
+    [Fact]
+    public async Task AnIncompleteCoreDecisionIsInvalidAndATurnCompletesOnce()
+    {
+        var turn = new ModuleContextSelection(new() { UseJudge = true })
+            .PrepareForCorePool(await Envelope(new Spec(Module, "items", [new("one", "first"), new("two", "second")])), new Renderer());
+        var result = turn.Complete(new Dictionary<string, double> { [turn.Companions[0].Key] = 0.9 });
+        result.JudgeOutcome.Should().Be(ModuleJudgeOutcome.InvalidDecision);
+        result.RenderedText.Should().Be("[first|second]", "an invalid decision keeps the bounded admitted items");
+        FluentActions.Invoking(() => turn.Complete(null)).Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task APooledSelectionWithJudgingOffOffersNothing()
+    {
+        var turn = new ModuleContextSelection(new()).PrepareForCorePool(
+            await Envelope(new Spec(Module, "items", [new("one", "first")])), new Renderer());
+        turn.Companions.Should().BeEmpty();
+        var result = turn.Complete(new Dictionary<string, double>());
+        result.JudgeOutcome.Should().Be(ModuleJudgeOutcome.Disabled);
+        result.RenderedText.Should().Be("[first]");
+    }
+
     private static ContextItem Stored(string id, string text, string source) => new(id, text)
     {
         Provenance = new() { RecordModuleId = Module, RecordType = "Item", RecordVersionId = id, RecordKey = "key",

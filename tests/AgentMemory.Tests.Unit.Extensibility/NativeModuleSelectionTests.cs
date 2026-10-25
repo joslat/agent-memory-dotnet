@@ -206,8 +206,9 @@ public sealed class NativeModuleSelectionTests
         public Host(ModuleSelectionOptions? selection, IReadOnlyList<ContextItem> items,
             IMemoryContextAdmissionPolicy? admission = null, Action<IServiceCollection>? configure = null)
         {
-            Memory.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(new RecallResult
-            { Context = new() { SessionId = "s-1", AssembledAtUtc = DateTimeOffset.UnixEpoch, GraphRagContext = "core-only-marker" } });
+            // Core recall as the gated assembler runs it for companions: awaited after the search, judged in one call
+            // with core memories (this fixture has none of its own to judge), decisions back on the context.
+            Memory.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(call => Recall(call.Arg<RecallRequest>()));
             var isolation = Substitute.For<IMemoryIsolationPolicy>();
             isolation.ResolveReadScope(Arg.Any<MemoryScope?>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<MemoryOperationAccess>())
                 .Returns(MemoryScope.For("owner"));
@@ -230,6 +231,22 @@ public sealed class NativeModuleSelectionTests
             _root = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
             _scope = _root.CreateScope();
         }
+        private async Task<RecallResult> Recall(RecallRequest request)
+        {
+            var context = new MemoryContext { SessionId = "s-1", AssembledAtUtc = DateTimeOffset.UnixEpoch, GraphRagContext = "core-only-marker" };
+            var companions = request.Companions is { } c ? await c.Candidates : [];
+            if (companions.Count == 0) return new RecallResult { Context = context };
+            var metadata = new Dictionary<string, object> { [RecallCompanions.OfferedMetadataKey] = companions.Count };
+            try
+            {
+                var decision = await Gate.DecideAsync(new MemoryGateRequest(request.Query, [], DateTimeOffset.UnixEpoch, companions));
+                metadata[RecallCompanions.JudgedByMetadataKey] = decision.AnsweredBy;
+                context = context with { CompanionDecisions = decision.Probabilities };
+            }
+            catch (InvalidOperationException) { }
+            return new RecallResult { Context = context with { Metadata = metadata } };
+        }
+
         public ValueTask<AIContext> InvokeAsync() => _scope.ServiceProvider.GetRequiredService<Neo4jMemoryContextProvider>().InvokingAsync(
             new AIContextProvider.InvokingContext(Substitute.For<AIAgent>(), Substitute.For<AgentSession>().WithMemoryIdentity("owner", "fresh", "conversation", "application-a"),
                 new AIContext { Messages = [new ChatMessage(ChatRole.User, "What is due?")] }), CancellationToken.None);

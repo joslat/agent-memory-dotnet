@@ -78,4 +78,12 @@ public sealed record RecallRequest
     /// </para>
     /// </remarks>
     public IReadOnlyList<RecallSubQuery>? SubQueries { get; init; }
+
+    /// <summary>
+    /// Memories from outside core recall that a judging gate decides about in the same call as core memories, or null
+    /// (the default: nothing else is judged, and recall is exactly as before). See <see cref="RecallCompanions"/>.
+    /// </summary>
+    /// <remarks>Never serialized: it carries a running task, and a request with it is meaningful only in-process.</remarks>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public RecallCompanions? Companions { get; init; }
 }

@@ -36,6 +36,27 @@ public sealed class ModuleTurnSelection
         CancellationToken cancellationToken = default)
     {
         var result = await _selection.SelectAsync(envelope, renderer, cancellationToken).ConfigureAwait(false);
+        await ObserveAsync(envelope, result, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>Prepares a selection whose candidates the core gate judges with core memories (Extensibility 0.12, R1).</summary>
+    public ModuleSelectionTurn PrepareForCorePool(ContextEnvelope envelope, IModuleCandidateRenderer renderer,
+        CancellationToken cancellationToken = default) => _selection.PrepareForCorePool(envelope, renderer, cancellationToken);
+
+    /// <summary>Completes a pooled selection with the core gate's decisions and reports it to the optional observer.</summary>
+    public async Task<ModuleSelectionResult> CompleteAsync(ContextEnvelope envelope, ModuleSelectionTurn turn,
+        IReadOnlyDictionary<string, double>? decisions, string? answeredBy, bool offeredToJudge = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(turn);
+        var result = turn.Complete(decisions, answeredBy, offeredToJudge, cancellationToken);
+        await ObserveAsync(envelope, result, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private async Task ObserveAsync(ContextEnvelope envelope, ModuleSelectionResult result, CancellationToken cancellationToken)
+    {
         if (_observerFactory is not null)
         {
             try
@@ -51,6 +72,5 @@ public sealed class ModuleTurnSelection
                 _logger.LogWarning("Module selection observation failed; selected context is unaffected.");
             }
         }
-        return result;
     }
 }
