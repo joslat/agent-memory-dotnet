@@ -47,6 +47,7 @@ public static class ModuleProposalAdmission
         if (!ValidIdentity(proposal.Key)) errors.Add("key: must be nonempty and contain no control characters.");
         if (proposal.Kind is not (ProposalKind.Assert or ProposalKind.Invalidate)) errors.Add("kind: unknown proposal operation.");
         ValidateSource(proposal.Source, messages, errors);
+        ValidateReplaces(proposal, errors);
         ValidateProperties(proposal, type, errors);
         ValidateLinks(proposal, module, errors);
         if (errors.Count != 0) return new(null, errors.ToList().AsReadOnly());
@@ -55,6 +56,21 @@ public static class ModuleProposalAdmission
     }
 
     private static bool ValidIdentity(string? value) => !string.IsNullOrWhiteSpace(value) && !value.Any(char.IsControl);
+
+    /// <summary>At most this many replacements a proposal; each one is a judged pair.</summary>
+    internal const int MaximumReplaces = 8;
+
+    private static void ValidateReplaces(ModuleProposal proposal, SortedSet<string> errors)
+    {
+        if (proposal.Replaces is null) { errors.Add("replaces: collection cannot be null."); return; }
+        if (proposal.Replaces.Count == 0) return;
+        if (proposal.Kind != ProposalKind.Assert) errors.Add("replaces: only an assertion can replace records.");
+        if (proposal.Replaces.Count > MaximumReplaces) errors.Add($"replaces: at most {MaximumReplaces} records.");
+        if (proposal.Replaces.Any(key => !ValidIdentity(key)) || proposal.Replaces.Distinct(StringComparer.Ordinal).Count() != proposal.Replaces.Count)
+            errors.Add("replaces: keys must be distinct, nonempty and contain no control characters.");
+        if (proposal.Replaces.Contains(proposal.Key, StringComparer.Ordinal))
+            errors.Add("replaces: a record's own key is a new version, not a replacement.");
+    }
 
     private static void ValidateSource(ProposalSource? source, HashSet<string> messages, SortedSet<string> errors)
     {

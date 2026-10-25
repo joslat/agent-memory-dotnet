@@ -106,8 +106,15 @@ public static class ServiceCollectionExtensions
             var stores = new Dictionary<string, IModuleStore>(StringComparer.Ordinal);
             if (set.Store is not null)
                 foreach (var module in set.ModulesWithProviders) stores[module] = sp.GetRequiredService<IModuleStore>();
+            // Store-aware writing (W3): providers see their existing records through their module's views, and the replacements
+            // they name are decided by the host's closing approver (Core registers one over its own closing policy).
+            var services = new ModuleIngestionServices
+            {
+                Views = set.Store is null ? null : module => new Reading.ModuleViews(set.Resolution, set.CreateReader(sp, module)),
+                Closings = sp.GetService<IMemoryClosingApprover>(),
+            };
             return new ModuleIngestion(set.Resolution, providers, stores, sp.GetRequiredService<IMemoryIsolationPolicy>(),
-                sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<ModuleIngestion>>());
+                sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<ModuleIngestion>>(), services);
         }));
         return services.AddResolvedCompiler(sp => sp.GetRequiredService<ModuleSet>().Resolution);
     }

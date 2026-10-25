@@ -40,6 +40,13 @@ public sealed record ModuleProposal
     public required ProposalSource Source { get; init; }
     /// <summary>Assert by default. Invalidate carries no properties or links.</summary>
     public ProposalKind Kind { get; init; }
+    /// <summary>
+    /// Logical keys of records of the same type that this new record replaces (an Assert only; never its own key, which is an
+    /// ordinary new version). A replacement is a judged closing: the host's closing approver decides each one when the batch is
+    /// written, and only records the provider was shown in <see cref="IngestionRequest.Existing"/> can be closed. An approved
+    /// closing invalidates the replaced record non-destructively, in the same transaction as this record.
+    /// </summary>
+    public IReadOnlyList<string> Replaces { get; init; } = [];
 }
 
 /// <summary>Outgoing relationship; its target type is fixed by the declaring module's ontology.</summary>

@@ -465,6 +465,8 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource, Tiers.DreamingTierSource>());
         services.TryAddSingleton<IMemoryTiers, Tiers.MemoryTierReport>();
         services.TryAddScoped<IPersistenceStage, PersistenceStage>();
+        // The same closing policy for anything else that closes memories (module ingestion, Extensibility 0.12 W3).
+        services.TryAddScoped<IMemoryClosingApprover, MemoryClosingApprover>();
 
         // Streaming (chunked) extraction (R4). The extractor is a pure text→chunks→entities helper; it
         // does NOT persist, so it carries no owner context itself — owner stamping (R1) happens when its

@@ -28,6 +28,13 @@ public sealed record IngestionRequest
     public IngestionTrigger Trigger { get; init; }
     /// <summary>Exact moduleId:local provider identities explicitly selected by an OnRequest host.</summary>
     public IReadOnlyList<string> ProviderIds { get; init; } = [];
+    /// <summary>
+    /// The provider's own module records its <see cref="IngestionProviderDescriptor.ExistingView"/> returns for the resolved
+    /// owner, bounded by its limits. Filled by the ingestion engine for each provider; a caller's value is ignored, and it is
+    /// not part of the request's fingerprint.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<Reading.ModuleViewItem> Existing { get; init; } = [];
 }
 
 /// <summary>A persisted user or assistant message, identified using the host's storage identity.</summary>

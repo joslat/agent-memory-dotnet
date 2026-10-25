@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add store-aware experimental module writes. A provider can see its module's existing records through a
+  declared view (`IngestionProviderDescriptor.ExistingView`) and name the records its new one replaces
+  (`ModuleProposal.Replaces`). The new public `IMemoryClosingApprover` decides each replacement with the
+  core writer's own closing policy. An approved closing invalidates the replaced record in the same
+  transaction; decisions are recorded so replay asks no judge.
+
 - Add experimental static module activation: `AddAgentMemoryModules` composes modules once per process
   through `IAgentMemoryModule` entries or manifests with a configuration delegate. Activation resolves
   against the host's actual registrations, binds and validates each module's options, refuses identities

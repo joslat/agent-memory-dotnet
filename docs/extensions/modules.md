@@ -397,6 +397,32 @@ an empty result. Raw exception text is logged through the host logger, not copie
 Orchestration tests use controlled providers/stores to prove execution behavior. Separate fresh-Neo4j
 tests exercise actual write invariants. Explicit framework persistence callbacks, scoped reads and shared views are available below. Neither suite is a coding-memory effectiveness benchmark.
 
+## Store-aware module writes and shared closings
+
+A provider can update what its module already holds instead of duplicating it (Extensibility 0.12, W3).
+Its descriptor names `ExistingView`, a declared view of its own module; before the provider runs, the
+engine evaluates that view for the resolved owner and session and passes the records as
+`IngestionRequest.Existing`, at most `MaxExisting` records and `MaxExistingUtf8Bytes` bytes of text. A
+view that fails or refuses leaves the list empty and the provider still runs. `Existing` is filled per
+provider, ignores a caller's value and is not part of the request fingerprint. Construct the engine with
+`ModuleIngestionServices.Views`; static composition supplies them through the bound store.
+
+A keyed record is updated by proposing its own key again, as before. A proposal may also name, in
+`Replaces`, keys of records of the same type that the new record replaces: a judged closing for records
+whose identity is not a shared key, such as free-text lessons. Only an assertion can replace, never its
+own key, at most eight records. The engine asks `IMemoryClosingApprover` once per provider batch, as a
+named closing, with the user's words, the new record and each replaced record rendered by the type's
+template. Core registers the approver over the core writer's own closing policy: the same update judge,
+host chat-model fallback (`IMemoryUpdateJudgeFallback`), judge cool-down, `NamedClosingThreshold` and
+negative verdicts. A record the provider was not shown is never asked about (`NotShown`); no approver, no
+available judge, a failure or a missing answer closes nothing (`Unjudged`); a valid answer below the
+threshold is `Declined`.
+
+An approved closing is written as a non-destructive invalidation of the replaced key in the same store
+call, and so the same transaction, as the replacing record, and only when that record is admitted. Its
+outcome lists the invalidated keys in `ProposalOutcome.Closed`. Every decision is recorded in
+`RecordedProposals.Closings`, so `ReplayAsync` applies the approved ones without asking a judge again.
+
 ## Transactional Neo4j module writes
 
 `AgentMemory.Extensibility.Neo4j.Storage.Neo4jModuleStore` binds a public transaction runner, frozen

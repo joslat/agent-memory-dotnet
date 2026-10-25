@@ -28,6 +28,8 @@ public sealed record ProposalOutcome
     public string? RecordId { get; init; }
     /// <summary>Concrete refusal reasons; empty on success.</summary>
     public IReadOnlyList<string> Errors { get; init; } = [];
+    /// <summary>Keys of the records this proposal's approved replacements invalidated in its transaction.</summary>
+    public IReadOnlyList<string> Closed { get; init; } = [];
 }
 
 /// <summary>Outcome for one selected provider, independently of other provider transactions.</summary>
@@ -72,6 +74,37 @@ public sealed record RecordedProposals
     public required DateTimeOffset AtUtc { get; init; }
     /// <summary>Frozen original output, before shape refusals are removed from the write batch.</summary>
     public IReadOnlyList<ModuleProposal> Proposals { get; init; } = [];
+    /// <summary>The closing approver's decision on every replacement the proposals named. Replay applies the approved ones
+    /// without asking a judge again.</summary>
+    public IReadOnlyList<RecordedClosing> Closings { get; init; } = [];
+}
+
+/// <summary>How a named replacement was decided.</summary>
+[Experimental("AMEXT001")]
+public enum ClosingDecision
+{
+    /// <summary>The approver approved it: the replaced record is invalidated with the new one.</summary>
+    Approved,
+    /// <summary>The approver answered and declined.</summary>
+    Declined,
+    /// <summary>The provider named a record it was not shown; nothing was asked.</summary>
+    NotShown,
+    /// <summary>No approver or judge was available, or it failed; nothing is closed.</summary>
+    Unjudged
+}
+
+/// <summary>One replacement a proposal named, and its decision.</summary>
+[Experimental("AMEXT001")]
+public sealed record RecordedClosing
+{
+    /// <summary>Position of the replacing proposal in <see cref="RecordedProposals.Proposals"/>.</summary>
+    public required int ProposalIndex { get; init; }
+    /// <summary>Logical key of the replaced record, of the replacing proposal's type.</summary>
+    public required string Key { get; init; }
+    /// <summary>The decision.</summary>
+    public required ClosingDecision Decision { get; init; }
+    /// <summary>The judge's probability, when one answered.</summary>
+    public double? Probability { get; init; }
 }
 
 /// <summary>One ingestion/replay attempt; different providers are never claimed to be one transaction.</summary>

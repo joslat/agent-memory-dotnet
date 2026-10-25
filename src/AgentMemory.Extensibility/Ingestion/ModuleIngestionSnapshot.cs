@@ -48,6 +48,7 @@ internal static class ModuleIngestionSnapshot
             .ToDictionary(p => p.Key, p => p.Value.Clone(), StringComparer.Ordinal).AsReadOnly()!,
         Links = proposal.Links?.Select(link => link is null ? null! : link with { }).ToList().AsReadOnly()!,
         Source = proposal.Source is null ? null! : proposal.Source with
-        { MessageIds = proposal.Source.MessageIds?.ToList().AsReadOnly()! }
+        { MessageIds = proposal.Source.MessageIds?.ToList().AsReadOnly()! },
+        Replaces = proposal.Replaces?.ToList().AsReadOnly()!
     };
 }
