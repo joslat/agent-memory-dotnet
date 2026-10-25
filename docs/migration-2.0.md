@@ -124,8 +124,18 @@ an upgrade, and validate your actual providers and host configuration in an isol
 
 ## Experimental module adapters
 
-The Extensibility SDK remains on its independent experimental release line and is held out of the
-core release inventory. Its framework adapter now calls protected `RenderAdmittedBlock` and
+The Extensibility SDK and validation packs are on their own experimental 0.x release line, published by
+`preview-v0.x.y-<prerelease>` tags after the core release they depend on, never at the core's version. Modules
+compose statically for the process lifetime (`AddAgentMemoryModules`), judge their items in the core gate's one call
+and write through the core writer's closing policy. For that, 2.0 core adds members a host without modules never
+touches; recall and context are byte-identical without them:
+- `RecallRequest.Companions` and `MemoryContext.CompanionDecisions` (the shared gate pool);
+- `MemoryGateCandidate.Companion`: a companion-only type that no judge answers no longer fails the decision;
+- `IMemoryClosingApprover` (Abstractions, implemented by Core);
+- `PersistedMemoryTurn.CoreWrite`;
+- a protected companion overload of `Neo4jMemoryContextProvider.ProvideAIContextAsync`.
+
+Its framework adapter now calls protected `RenderAdmittedBlock` and
 `StoredMessageId` methods instead of relying on `InternalsVisibleTo` access to framework internals.
 An older adapter binary compiled against those internals is not compatible with the removed friend
 grant. Use a matching rebuilt SDK adapter; do not assume an old preview supports the 2.0 framework
