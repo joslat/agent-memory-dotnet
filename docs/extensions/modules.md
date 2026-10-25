@@ -423,6 +423,13 @@ call, and so the same transaction, as the replacing record, and only when that r
 outcome lists the invalidated keys in `ProposalOutcome.Closed`. Every decision is recorded in
 `RecordedProposals.Closings`, so `ReplayAsync` applies the approved ones without asking a judge again.
 
+`IngestionRequest.CoreOutcome` tells a provider what the core writer stored and closed for the same turn
+(ids, kinds and readable keys), so a module links to core records instead of restating them. The Agent
+Framework path fills it from the turn's core extraction (`PersistedMemoryTurn.CoreWrite`) when the module
+work runs: on the background queue that is after core's work for the same owner, inline after the core
+write. It is never waited for; with no core extraction, or a failed one, it is null. When present it is
+part of the request fingerprint.
+
 ## Transactional Neo4j module writes
 
 `AgentMemory.Extensibility.Neo4j.Storage.Neo4jModuleStore` binds a public transaction runner, frozen

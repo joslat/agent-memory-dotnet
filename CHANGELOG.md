@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   core writer's own closing policy. An approved closing invalidates the replaced record in the same
   transaction; decisions are recorded so replay asks no judge. A module that declares host feature
   `Inference` receives the chat model the host grants (`ModuleSetBuilder.GrantChatClient`), and only then.
+  `IngestionRequest.CoreOutcome` carries what the core writer stored and closed for the same turn; on the
+  Agent Framework path it comes from `PersistedMemoryTurn.CoreWrite`.
 
 - Add experimental static module activation: `AddAgentMemoryModules` composes modules once per process
   through `IAgentMemoryModule` entries or manifests with a configuration delegate. Activation resolves

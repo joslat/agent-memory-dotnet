@@ -18,6 +18,14 @@ public sealed record PersistedMemoryTurn
     public required DateTimeOffset AtUtc { get; init; }
     /// <summary>Persisted messages in request/response order, before core extraction role filtering.</summary>
     public IReadOnlyList<PersistedTurnMessage> Messages { get; init; } = [];
+    /// <summary>
+    /// This turn's core extraction: completes with its result when it finishes (inline, or later on the background queue),
+    /// or with null when there was none or it failed. Work queued after core's on the same owner key sees it completed.
+    /// </summary>
+    public Task<Abstractions.Domain.ExtractionResult?> CoreWrite { get; init; } = NoCoreWrite;
+
+    // One shared completed task, so two turns that differ in nothing else stay equal.
+    private static readonly Task<Abstractions.Domain.ExtractionResult?> NoCoreWrite = Task.FromResult<Abstractions.Domain.ExtractionResult?>(null);
 }
 
 /// <summary>Stored source identity and text without mutable embeddings, metadata or provider message objects.</summary>

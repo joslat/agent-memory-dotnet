@@ -105,6 +105,67 @@ public sealed class ModuleTurnIngestionTests
         order.Should().Equal("core", "module");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ModuleProvidersSeeWhatTheCoreWriterStoredAndClosedForTheTurn(bool background)
+    {
+        var services = Services(background); var seen = new List<IngestionRequest>();
+        services.Configure<AgentFrameworkOptions>(o => o.AutoExtractOnPersist = true);
+        services.AddAgentMemoryFrameworkModuleIngestion(_ => new Pipeline(seen.Add));
+        await using var root = services.BuildServiceProvider(validateScopes: true);
+        root.GetRequiredService<IMemoryService>().ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ExtractionResult
+            {
+                SourceMessageIds = [],
+                Outcomes =
+                [
+                    new() { Kind = MemoryItemKind.Fact, Stage = IngestionStage.Persistence, Status = IngestionItemStatus.Succeeded,
+                        SourceKey = "Marta uses the retry helper", PersistedId = "fact-2", Closed = ["fact-1"] },
+                    new() { Kind = MemoryItemKind.Fact, Stage = IngestionStage.Embedding, Status = IngestionItemStatus.Succeeded, PersistedId = "fact-2" },
+                    new() { Kind = MemoryItemKind.Preference, Stage = IngestionStage.Persistence, Status = IngestionItemStatus.Failed, SourceKey = "x" },
+                ],
+            });
+        using (var scope = root.CreateScope()) await Invoke(scope.ServiceProvider, "core outcome");
+        await root.GetRequiredService<IBackgroundExtraction>().WhenIdleAsync().WaitAsync(TimeSpan.FromSeconds(15));
+
+        var outcome = seen.Single().CoreOutcome!;
+        outcome.Stored.Should().ContainSingle().Which.Should().Be(new CoreWrittenMemory { Id = "fact-2", Kind = "Fact", Text = "Marta uses the retry helper" });
+        outcome.Closed.Should().Equal("fact-1");
+    }
+
+    [Fact]
+    public async Task WithoutCoreExtractionTheCoreOutcomeIsUnknown()
+    {
+        var services = Services(false); var seen = new List<IngestionRequest>();
+        services.AddAgentMemoryFrameworkModuleIngestion(_ => new Pipeline(seen.Add));
+        await using var root = services.BuildServiceProvider(validateScopes: true);
+        using (var scope = root.CreateScope()) await Invoke(scope.ServiceProvider, "no core");
+        seen.Single().CoreOutcome.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task AFailedCoreWriteLeavesTheOutcomeUnknownAndModulesStillRun()
+    {
+        var services = Services(true); var seen = new List<IngestionRequest>();
+        services.Configure<AgentFrameworkOptions>(o => o.AutoExtractOnPersist = true);
+        services.AddAgentMemoryFrameworkModuleIngestion(_ => new Pipeline(seen.Add));
+        await using var root = services.BuildServiceProvider(validateScopes: true);
+        root.GetRequiredService<IMemoryService>().ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns<ExtractionResult>(_ => throw new InvalidOperationException("extractor down"));
+        using (var scope = root.CreateScope()) await Invoke(scope.ServiceProvider, "core fails");
+        await root.GetRequiredService<IBackgroundExtraction>().WhenIdleAsync().WaitAsync(TimeSpan.FromSeconds(15));
+        seen.Single().CoreOutcome.Should().BeNull();
+    }
+
+    [Fact]
+    public void TheCoreOutcomeIsPartOfTheRequestFingerprintOnlyWhenKnown()
+    {
+        var plain = new IngestionRequest { SessionId = "s" };
+        System.Text.Json.JsonSerializer.Serialize(plain).Should().NotContain("CoreOutcome");
+        System.Text.Json.JsonSerializer.Serialize(plain with { CoreOutcome = new() { Closed = ["f1"] } }).Should().Contain("CoreOutcome");
+    }
+
     private static ServiceCollection Services(bool background)
     {
         var services = new ServiceCollection(); services.AddLogging();

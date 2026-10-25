@@ -861,10 +861,13 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
             // so provenance resolves; the reply too unless ExtractFromUserMessagesOnly.
             var turnMessages = storedRequestMessages.Concat(storedMessages).ToList();
             PersistedMemoryTurn? persisted = null;
+            TaskCompletionSource<ExtractionResult?>? coreWrite = null;
             if (turnMessages.Count > 0 && ObservesPersistedTurns)
             {
+                coreWrite = new TaskCompletionSource<ExtractionResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 persisted = new PersistedMemoryTurn
                 {
+                    CoreWrite = coreWrite.Task,
                     SessionId = sessionId, ConversationId = conversationId, Owner = userId,
                     ApplicationId = _storeContext?.ApplicationId, AtUtc = _clock.UtcNow,
                     Messages = turnMessages.Select(m => new PersistedTurnMessage
@@ -881,8 +884,10 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
                         SessionId = sessionId,
                         UserId = userId
                     }, _agentOptions, _backgroundExtraction, _logger, cancellationToken,
-                    _storeContext?.ApplicationId).ConfigureAwait(false);
+                    _storeContext?.ApplicationId, coreWrite).ConfigureAwait(false);
             }
+            // No core extraction for this turn: its observers learn that now, not never.
+            if (!_agentOptions.AutoExtractOnPersist) coreWrite?.TrySetResult(null);
             if (persisted is not null)
             {
                 try

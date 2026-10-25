@@ -54,16 +54,24 @@ public sealed class ModuleTurnIngestion
             var binding = _binding;
             var logger = _logger;
             var applicationId = turn.ApplicationId;
-            if (_queue.TryEnqueue(key, token => RunInFreshScopeAsync(factory, binding, logger, request, applicationId, token)))
+            var coreWrite = turn.CoreWrite;
+            if (_queue.TryEnqueue(key, token => RunInFreshScopeAsync(factory, binding, logger, WithCore(request, coreWrite), applicationId, token)))
                 return;
             // Rejection during shutdown must not let this turn overtake already accepted work.
             await _queue.WhenIdleAsync(key, cancellationToken).ConfigureAwait(false);
         }
-        await RunAsync(_services, _binding, _logger, request, turn.ApplicationId, cancellationToken).ConfigureAwait(false);
+        await RunAsync(_services, _binding, _logger, WithCore(request, turn.CoreWrite), turn.ApplicationId, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// The request with the turn's core outcome, read when the module work runs: queued after core's work on the same key,
+    /// or after an inline core write, it has finished. It is never waited for; an unfinished one is unknown (null).
+    /// </summary>
+    private static Func<IngestionRequest> WithCore(IngestionRequest request, Task<Abstractions.Domain.ExtractionResult?> coreWrite) => () =>
+        coreWrite is { IsCompletedSuccessfully: true, Result: { } result } ? request with { CoreOutcome = CoreWriteOutcome.From(result) } : request;
+
     private static async Task RunInFreshScopeAsync(IServiceScopeFactory factory, ModuleTurnIngestionBinding binding,
-        ILogger<ModuleTurnIngestion> logger, IngestionRequest request, string? applicationId, CancellationToken cancellationToken)
+        ILogger<ModuleTurnIngestion> logger, Func<IngestionRequest> request, string? applicationId, CancellationToken cancellationToken)
     {
         var scope = factory.CreateAsyncScope();
         await using (scope.ConfigureAwait(false))
@@ -73,9 +81,10 @@ public sealed class ModuleTurnIngestion
     }
 
     private static async Task RunAsync(IServiceProvider services, ModuleTurnIngestionBinding binding,
-        ILogger<ModuleTurnIngestion> logger, IngestionRequest request, string? applicationId, CancellationToken cancellationToken)
+        ILogger<ModuleTurnIngestion> logger, Func<IngestionRequest> requestAtRun, string? applicationId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var request = requestAtRun();
         var store = services.GetService<IMemoryStoreContext>();
         var writableStore = store as IWritableMemoryStoreContext ?? services.GetService<IWritableMemoryStoreContext>();
         using var storeScope = writableStore?.BeginStoreScope(applicationId);
