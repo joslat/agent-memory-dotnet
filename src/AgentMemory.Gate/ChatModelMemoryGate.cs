@@ -21,7 +21,8 @@ namespace AgentMemory.Gate;
 /// 0 to 100, is refused, and the caller takes the similarity floor (<see cref="GatedMemoryContextAssembler"/>).
 /// </para>
 /// </remarks>
-internal sealed class ChatModelMemoryGate(IChatClient chat, IReadOnlyDictionary<string, string>? meanings = null) : IMemoryGate
+internal sealed class ChatModelMemoryGate(IChatClient chat, IReadOnlyDictionary<string, string>? meanings = null,
+    ReasoningEffort? effort = null) : IMemoryGate
 {
     // Built from GatePrompt.Question so the two wordings cannot drift apart.
     internal static readonly string Instructions =
@@ -39,6 +40,8 @@ internal sealed class ChatModelMemoryGate(IChatClient chat, IReadOnlyDictionary<
         if (request.Candidates.Count == 0) return new MemoryGateDecision(new Dictionary<string, double>(StringComparer.Ordinal), "chat");
         var shortKeys = request.Candidates.Select((_, i) => "m" + (i + 1).ToString(CultureInfo.InvariantCulture)).ToList();
         var options = new ChatOptions { Temperature = 0, MaxOutputTokens = Math.Min(8000, 600 + 24 * request.Candidates.Count) };
+        // Sent only when chosen, so the default request leaves reasoning to the provider.
+        if (effort is { } chosen) options.Reasoning = new ReasoningOptions { Effort = chosen };
         var response = await chat.GetResponseAsync(Messages(request, shortKeys, meanings), options, cancellationToken).ConfigureAwait(false);
         var scores = Parse(response.Text, shortKeys);
         var probabilities = new Dictionary<string, double>(StringComparer.Ordinal);

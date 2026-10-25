@@ -102,8 +102,11 @@ switch (args.FirstOrDefault())
             Console.WriteLine($"error: ask-chat: no recording beside {pairs}; pass --now");
             return 1;
         }
-        return await new ChatGateAsk(Console.Out).RunAsync(pairs, Get("out") ?? Path.Combine(folder, "jev-chat-glm.json"), now,
-            dryRun, Limit(), int.Parse(Get("workers") ?? "4", CultureInfo.InvariantCulture), Get("model"));
+        Microsoft.Extensions.AI.ReasoningEffort? effort = Get("effort") is { } e
+            ? Enum.Parse<Microsoft.Extensions.AI.ReasoningEffort>(e, ignoreCase: true) : null;
+        var defaultOut = effort is null ? "jev-chat-glm.json" : $"jev-chat-glm-{effort.ToString()!.ToLowerInvariant()}.json";
+        return await new ChatGateAsk(Console.Out).RunAsync(pairs, Get("out") ?? Path.Combine(folder, defaultOut), now,
+            dryRun, Limit(), int.Parse(Get("workers") ?? "4", CultureInfo.InvariantCulture), Get("model"), effort);
     }
     case "ask-jev":
     {

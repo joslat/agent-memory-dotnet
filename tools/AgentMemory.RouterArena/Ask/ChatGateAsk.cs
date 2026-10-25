@@ -57,7 +57,7 @@ internal sealed class ChatGateAsk(TextWriter output)
         Doors.All.ToDictionary(Doors.Name, Doors.Meaning, StringComparer.Ordinal);
 
     public async Task<int> RunAsync(string pairsPath, string outPath, DateTimeOffset now, bool dryRun, int? limit, int workers,
-        string? model, CancellationToken cancellationToken = default)
+        string? model, ReasoningEffort? effort = null, CancellationToken cancellationToken = default)
     {
         var requests = Requests(pairsPath, now);
         var cache = File.Exists(outPath)
@@ -66,8 +66,14 @@ internal sealed class ChatGateAsk(TextWriter output)
             {
                 ["format"] = "jev-answers/1", ["mode"] = "items", ["judge"] = "chat-model gate (AgentMemory.Gate.ChatModelMemoryGate)",
                 ["pairs"] = Path.GetFileName(pairsPath), ["pairsSha256"] = Sha256(pairsPath), ["now"] = now.ToString("O"),
-                ["context"] = true, ["examples"] = 0, ["single"] = false, ["answers"] = new JsonObject(),
+                ["context"] = true, ["examples"] = 0, ["single"] = false, ["effort"] = effort?.ToString() ?? "provider default",
+                ["answers"] = new JsonObject(),
             };
+        if (((string?)cache["effort"] ?? "provider default") != (effort?.ToString() ?? "provider default"))
+        {
+            output.WriteLine($"error: ask-chat: {outPath} holds answers at effort '{cache["effort"]}'; use another --out");
+            return 1;
+        }
         var answers = cache["answers"]!.AsObject();
         var todo = requests.Where(r => answers[r.Id]?["yes"] is null).ToList();
         if (limit is { } n) todo = [.. todo.Take(n)];
@@ -114,7 +120,7 @@ internal sealed class ChatGateAsk(TextWriter output)
                     var watch = Stopwatch.StartNew();
                     try
                     {
-                        var decision = await new ChatModelMemoryGate(metered, meanings).DecideAsync(item.Request, cancellationToken).ConfigureAwait(false);
+                        var decision = await new ChatModelMemoryGate(metered, meanings, effort).DecideAsync(item.Request, cancellationToken).ConfigureAwait(false);
                         var yes = new JsonObject();
                         foreach (var (key, p) in decision.Probabilities) yes[key] = Math.Round(p, 4);
                         answer = new JsonObject

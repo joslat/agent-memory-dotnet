@@ -85,6 +85,17 @@ public sealed class ChatModelMemoryGateTests
     }
 
     [Fact]
+    public async Task AReasoningEffortIsSentOnlyWhenChosen()
+    {
+        var plain = new ScriptedChat("{\"m1\": 1, \"m2\": 2, \"m3\": 3}");
+        await new ChatModelMemoryGate(plain).DecideAsync(Request);
+        plain.Requests[0].Options!.Reasoning.Should().BeNull();
+        var low = new ScriptedChat("{\"m1\": 1, \"m2\": 2, \"m3\": 3}");
+        await new ChatModelMemoryGate(low, effort: ReasoningEffort.Low).DecideAsync(Request);
+        low.Requests[0].Options!.Reasoning!.Effort.Should().Be(ReasoningEffort.Low);
+    }
+
+    [Fact]
     public async Task NoCandidatesMakesNoCall()
     {
         var chat = new ScriptedChat("{}");
