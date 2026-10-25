@@ -1,10 +1,11 @@
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Gate;
+using AgentMemory.RouterArena.Ask;
 using FluentAssertions;
 using Microsoft.Extensions.AI;
 using Xunit;
 
-namespace AgentMemory.Tests.Unit.Gate;
+namespace AgentMemory.Tests.Unit.RouterArena;
 
 /// <summary>The chat-model gate (R-chat-judge): one call, the gate's question, a whole decision or none.</summary>
 public sealed class ChatModelMemoryGateTests

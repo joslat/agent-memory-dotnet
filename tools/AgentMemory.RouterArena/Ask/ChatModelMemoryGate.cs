@@ -2,15 +2,21 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Gate;
 using Microsoft.Extensions.AI;
 
-namespace AgentMemory.Gate;
+namespace AgentMemory.RouterArena.Ask;
 
 /// <summary>
 /// The retrieval gate on the host's chat model, for a host with no System One judge (R-chat-judge): every memory a
 /// recall found, judged in one call with the gate's own question.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Arena-only since 25 Oct 2026: R-chat-judge failed its registered rule (too many replies left a memory out: 6.3% and 15.5%
+/// of held-out turns against a 5% bound), so the class left the shipped Gate library, as registered. Its served and clutter
+/// passed by a wide margin (strategy/memoryrouter/R-chat-judge-result-2026-10-25.md); a fix is measured here, on a fresh world.
+/// </para>
 /// <para>
 /// A candidate under measurement, registered by no preset. The question and its two answers are
 /// <see cref="GatePrompt.Question"/>'s, word for word, and the memory types read as <see cref="GatePrompt.Meanings"/>
