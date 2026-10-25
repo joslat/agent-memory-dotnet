@@ -66,6 +66,8 @@ public static class ModuleResolver
                 foreach (var shape in ModuleSchemaObjects.ForType(type))
                     Claim("schema object", shape.Name, module.Id, claims, errors);
             }
+            foreach (var shape in ModuleSchemaObjects.ForSearch(module))
+                Claim("schema object", shape.Name, module.Id, claims, errors);
             foreach (var relation in ontology.Relations)
             {
                 Claim("relationship", relation.Name, module.Id, claims, errors);

@@ -100,8 +100,50 @@ internal sealed class ModuleManifestValidator
                 Error(path + ".orderBy", "sort must name a declared property");
             foreach (var filter in List(view.Where, path + ".where"))
                 ValidateFilter(filter, props, path + ".where");
+            if (view.Search is { } search) ValidateSearch(view, search, props, path + ".search");
         }
+        var searchNames = new HashSet<string>(StringComparer.Ordinal);
+        var typeShapes = types.Values.SelectMany(ModuleSchemaObjects.ForType).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var shape in ModuleSchemaObjects.ForSearch(manifest))
+        {
+            if (!searchNames.Add(shape.Name) || typeShapes.Contains(shape.Name)) Error("$.views", $"generated schema object '{shape.Name}' collides");
+            if (ModuleReservedNames.SchemaObjects.Contains(shape.Name)) Error("$.views", $"reserved schema object '{shape.Name}'");
+        }
+        if (manifest.Seed is { } seed) ValidateKnowledgePack(manifest, seed, host, modules);
         return _errors.ToList().AsReadOnly();
+    }
+
+    // Extensibility 0.13 §K4: a search view returns the best matches for a request's text, so it has its own order and bound.
+    private void ValidateSearch(ModuleView view, ModuleViewSearch search, IReadOnlyDictionary<string, ModuleProperty> props, string path)
+    {
+        var properties = List(search.Properties, path + ".properties");
+        if (properties.Count is 0 or > 8) Error(path + ".properties", "search requires 1 to 8 properties");
+        if (properties.Distinct(StringComparer.Ordinal).Count() != properties.Count) Error(path + ".properties", "duplicate search property");
+        foreach (var name in properties)
+            if (!props.TryGetValue(name ?? "", out var declared) || declared?.Type != "string")
+                Error(path + ".properties", "search properties must be declared string properties");
+        if (view.Selection != ModuleRecordSelection.Snapshot) Error(path, "search reads current records only");
+        if (view.OrderBy is not null) Error(path, "search results are ordered by score");
+        if (view.Limit > ModuleViewSearch.MaximumLimit) Error(path, $"search returns at most {ModuleViewSearch.MaximumLimit} records");
+    }
+
+    // Extensibility 0.13 §K1: a knowledge pack is data only. Its records are shared, imported by the host, never written
+    // by a turn, so it declares no host features and depends on no module.
+    private void ValidateKnowledgePack(ModuleManifest manifest, IReadOnlyList<string> seed, IReadOnlyList<string> host,
+        IReadOnlyDictionary<string, ModuleVersionRange> modules)
+    {
+        var files = List(seed, "$.seed");
+        if (files.Count is 0 or > 16) Error("$.seed", "a knowledge pack names 1 to 16 seed files");
+        if (files.Distinct(StringComparer.Ordinal).Count() != files.Count) Error("$.seed", "duplicate seed file");
+        foreach (var file in files)
+            if (file is null || !file.EndsWith(".jsonl", StringComparison.Ordinal) || !Bundles.BundleSigning.IsSafePath(file))
+                Error("$.seed", "seed files are safe relative .jsonl paths");
+        if (manifest.Ontology is not { } ontology || ontology.Types is not { Count: > 0 })
+            Error("$.ontology", "a knowledge pack declares the types of its records");
+        else foreach (var type in ontology.Types.Where(t => t is not null && t.Scope != "shared"))
+            Error("$.ontology.types." + type.Name + ".scope", "knowledge pack types are shared");
+        if (host.Count != 0) Error("$.requires.host", "a knowledge pack requires no host features");
+        if (modules.Count != 0) Error("$.requires.modules", "a knowledge pack depends on no module");
     }
 
     internal IReadOnlyList<string> ValidateReferences(ModuleManifest manifest, IReadOnlyList<string> labels,

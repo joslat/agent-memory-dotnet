@@ -1,9 +1,10 @@
 using System.Text.RegularExpressions;
 
-namespace AgentMemory.Neo4j.Retrieval.Internal;
+namespace AgentMemory.Shared;
 
 /// <summary>
-/// Common English stop words for fulltext search query filtering.
+/// Common English stop words for fulltext search query filtering. Shared source: core full-text recall and module search
+/// views (Extensibility 0.13 §K4) tokenize a question the same way.
 /// </summary>
 internal static partial class StopWordFilter
 {

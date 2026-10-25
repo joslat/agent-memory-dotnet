@@ -73,6 +73,17 @@
       "items": {
         "$ref": "#/$defs/view"
       }
+    },
+    "seed": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "description": "Knowledge pack seed record files (.jsonl), relative to the bundle root. A manifest with seed files declares only shared types, no host features and no dependencies.",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,99}/){0,7}[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\.jsonl(?![\\s\\S])"
+      }
     }
   },
   "required": [
@@ -444,6 +455,25 @@
           ],
           "default": "snapshot",
           "description": "History requires an exact runtime key and uses fixed newest-version-first order."
+        },
+        "search": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "properties"
+          ],
+          "description": "Full-text search over declared string properties: results are ordered by score, current records only, at most 24.",
+          "properties": {
+            "properties": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/propertyName"
+              }
+            }
+          }
         }
       },
       "required": [
@@ -467,6 +497,44 @@
             "not": {
               "required": [
                 "orderBy"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "search"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "orderBy"
+                  ]
+                },
+                {
+                  "properties": {
+                    "selection": {
+                      "const": "history"
+                    }
+                  },
+                  "required": [
+                    "selection"
+                  ]
+                },
+                {
+                  "properties": {
+                    "limit": {
+                      "minimum": 25
+                    }
+                  },
+                  "required": [
+                    "limit"
+                  ]
+                }
               ]
             }
           }

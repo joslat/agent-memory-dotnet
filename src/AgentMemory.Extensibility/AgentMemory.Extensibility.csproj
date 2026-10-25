@@ -64,5 +64,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../../shared/ManagedEmbeddedResources.cs" Link="Shared/ManagedEmbeddedResources.cs" />
+    <Compile Include="../../shared/StopWordFilter.cs" Link="Shared/StopWordFilter.cs" />
   </ItemGroup>
 </Project>

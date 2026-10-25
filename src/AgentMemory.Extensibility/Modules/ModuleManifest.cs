@@ -28,6 +28,15 @@ public sealed record ModuleManifest
     public ModuleOntology? Ontology { get; init; }
     /// <summary>Declarative reads, whose local IDs belong to this module.</summary>
     public IReadOnlyList<ModuleView> Views { get; init; } = [];
+    /// <summary>
+    /// The seed record files of a knowledge pack, relative to its bundle root (Extensibility 0.13 §K1); null for a module.
+    /// A manifest with seed files is data only: shared types, no host features, no dependencies.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Seed { get; init; }
+    /// <summary>Whether this manifest declares a knowledge pack (it has seed files).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsKnowledgePack => Seed is not null;
 
     /// <summary>Reads strict bounded JSON without executing code or accessing a database.</summary>
     /// <remarks>Validates wire shape and scalar syntax. Whole-ontology/set validation is a separate

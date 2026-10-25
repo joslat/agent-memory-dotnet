@@ -25,7 +25,7 @@ public sealed class ModuleEditorSchemaTests
         """;
     private static readonly ConcurrentDictionary<string, Lazy<JsonSchema>> Schemas = new(StringComparer.Ordinal);
 
-    private static bool EditorAccepts(string kind, string json)
+    internal static bool EditorAccepts(string kind, string json)
     {
         var file = Path.Combine(AppContext.BaseDirectory,"ModuleSchemas", $"agentmemory.{kind}.v1alpha1.schema.json");
         var schema = Schemas.GetOrAdd(kind, _ => new Lazy<JsonSchema>(() => JsonSchema.FromText(File.ReadAllText(file)))).Value;

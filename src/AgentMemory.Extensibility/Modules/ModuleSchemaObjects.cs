@@ -14,8 +14,23 @@ public static class ModuleSchemaObjects
         ArgumentNullException.ThrowIfNull(manifest);
         var errors = manifest.Validate();
         if (errors.Count != 0) throw new FormatException(string.Join(Environment.NewLine, errors));
-        return (manifest.Ontology?.Types ?? []).SelectMany(ForType)
+        return (manifest.Ontology?.Types ?? []).SelectMany(ForType).Concat(ForSearch(manifest))
             .OrderBy(shape => shape.Name, StringComparer.Ordinal).ToList().AsReadOnly();
+    }
+
+    /// <summary>One full-text index per search view (Extensibility 0.13 §K4), named after its type and view.</summary>
+    internal static IEnumerable<ModuleSchemaObject> ForSearch(ModuleManifest manifest)
+    {
+        foreach (var view in (manifest.Views ?? []).Where(v => v?.Search is not null).OrderBy(v => v.Id, StringComparer.Ordinal))
+        {
+            var properties = view.Search!.Properties ?? [];
+            yield return new()
+            {
+                Name = ModuleManifestValidator.SchemaName(view.Type ?? "") + "_" + ModuleManifestValidator.SchemaName(view.Id ?? "") + "_search",
+                Label = view.Type ?? "", Property = properties.FirstOrDefault() ?? "", Properties = properties,
+                Kind = ModuleSchemaObjectKind.FullTextIndex
+            };
+        }
     }
 
     internal static IEnumerable<ModuleSchemaObject> ForType(ModuleType type)
@@ -31,7 +46,7 @@ public static class ModuleSchemaObjects
     }
 
     private static ModuleSchemaObject Shape(string name, string label, string property, ModuleSchemaObjectKind kind) =>
-        new() { Name = name, Label = label, Property = property, Kind = kind };
+        new() { Name = name, Label = label, Property = property, Properties = [property], Kind = kind };
 }
 
 /// <summary>A derived module schema object; it carries no executable Cypher.</summary>
@@ -42,8 +57,10 @@ public sealed record ModuleSchemaObject
     public required string Name { get; init; }
     /// <summary>Owned node label.</summary>
     public required string Label { get; init; }
-    /// <summary>Exact property identity; normalization applies to Name only.</summary>
+    /// <summary>Exact property identity; normalization applies to Name only. For a full-text index, its first property.</summary>
     public required string Property { get; init; }
+    /// <summary>Every indexed property in order: one for a constraint or range index, the searched ones for full text.</summary>
+    public IReadOnlyList<string> Properties { get; init; } = [];
     /// <summary>Requested uniqueness or range-index shape.</summary>
     public required ModuleSchemaObjectKind Kind { get; init; }
 }
@@ -55,5 +72,7 @@ public enum ModuleSchemaObjectKind
     /// <summary>Unique node property constraint.</summary>
     UniqueConstraint,
     /// <summary>Node property range index.</summary>
-    RangeIndex
+    RangeIndex,
+    /// <summary>Full-text index over a search view's properties (Extensibility 0.13 §K4).</summary>
+    FullTextIndex
 }

@@ -1,3 +1,4 @@
+using AgentMemory.Shared;
 using Neo4j.Driver;
 
 namespace AgentMemory.Neo4j.Retrieval.Internal;

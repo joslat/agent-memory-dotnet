@@ -10,7 +10,10 @@ internal static class ModuleSchemaQueries
     private const string RangeIndex = "CREATE INDEX `{0}` IF NOT EXISTS FOR (n:`{1}`) ON (n.`{2}`);";
 
     // Callers use descriptors from validated, frozen metadata, never arbitrary schema identifiers.
-    internal static string Create(ModuleSchemaObject shape) => string.Format(
+    internal static string Create(ModuleSchemaObject shape) => shape.Kind == ModuleSchemaObjectKind.FullTextIndex
+        ? "CREATE FULLTEXT INDEX `" + shape.Name + "` IF NOT EXISTS FOR (n:`" + shape.Label + "`) ON EACH ["
+            + string.Join(", ", shape.Properties.Select(p => "n.`" + p + "`")) + "];"
+        : string.Format(
         System.Globalization.CultureInfo.InvariantCulture,
         shape.Kind switch
         {

@@ -20,6 +20,22 @@ public sealed record ModuleView
     public ModuleViewOrder? OrderBy { get; init; }
     /// <summary>Maximum records requested by this view; host budgets can reduce it.</summary>
     public required int Limit { get; init; }
+    /// <summary>
+    /// A full-text search over declared string properties (Extensibility 0.13 §K4): the view returns the best matches for a
+    /// request's search text, ordered by score. Null for a list view.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleViewSearch? Search { get; init; }
+}
+
+/// <summary>The properties a search view matches; the migrator derives one full-text index over them.</summary>
+[Experimental("AMEXT001")]
+public sealed record ModuleViewSearch
+{
+    /// <summary>At most this many records a search view returns.</summary>
+    public const int MaximumLimit = 24;
+    /// <summary>Declared string properties, in index order.</summary>
+    public required IReadOnlyList<string> Properties { get; init; }
 }
 
 /// <summary>One closed-language predicate; values are data, never executable query fragments.</summary>

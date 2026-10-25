@@ -1,5 +1,5 @@
 using FluentAssertions;
-using AgentMemory.Neo4j.Retrieval.Internal;
+using AgentMemory.Shared;
 
 namespace AgentMemory.Tests.Unit.GraphRagAdapter;
 

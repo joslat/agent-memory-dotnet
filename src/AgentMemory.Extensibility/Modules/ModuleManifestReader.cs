@@ -17,7 +17,7 @@ internal static class ModuleManifestReader
 
     private static ModuleManifest Read(JsonElement root)
     {
-        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views");
+        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views", "seed");
         var format = Text(root, "format", "$");
         if (format != "agentmemory.module/v1alpha1") throw Error("$.format", "unsupported module format");
         var id = Text(root, "id", "$");
@@ -50,7 +50,8 @@ internal static class ModuleManifestReader
             Format = format, Id = id, Version = Version(Text(root, "version", "$"), "$.version"),
             Sdk = Range(Text(root, "sdk", "$"), "$.sdk"), Modules = modules.AsReadOnly(), Host = host,
             Ontology = root.TryGetProperty("ontology", out var ontology) ? Ontology(ontology, "$.ontology") : null,
-            Views = Array(root, "views", "$", View)
+            Views = Array(root, "views", "$", View),
+            Seed = root.TryGetProperty("seed", out var seed) ? Strings(seed, "$.seed") : null
         };
     }
 
@@ -118,7 +119,7 @@ internal static class ModuleManifestReader
 
     private static ModuleView View(JsonElement value, string path)
     {
-        Object(value, path, "id", "type", "where", "orderBy", "limit", "selection");
+        Object(value, path, "id", "type", "where", "orderBy", "limit", "selection", "search");
         var id = Text(value, "id", path);
         if (!ModuleIdentity.IsValidLocalId(id)) throw Error(path + ".id", "expected local view identifier");
         return new ModuleView
@@ -131,8 +132,16 @@ internal static class ModuleManifestReader
                 "history" => ModuleRecordSelection.History,
                 _ => throw Error(path + ".selection", "expected snapshot or history")
             } : ModuleRecordSelection.Snapshot,
-            Limit = PositiveInteger(value, "limit", path) ?? throw Error(path + ".limit", "required field missing")
+            Limit = PositiveInteger(value, "limit", path) ?? throw Error(path + ".limit", "required field missing"),
+            Search = value.TryGetProperty("search", out var search) ? Search(search, path + ".search") : null
         };
+    }
+
+    private static ModuleViewSearch Search(JsonElement value, string path)
+    {
+        Object(value, path, "properties");
+        if (!value.TryGetProperty("properties", out var properties)) throw Error(path + ".properties", "required field missing");
+        return new ModuleViewSearch { Properties = Strings(properties, path + ".properties") };
     }
 
     private static ModuleViewOrder Order(JsonElement value, string path)
