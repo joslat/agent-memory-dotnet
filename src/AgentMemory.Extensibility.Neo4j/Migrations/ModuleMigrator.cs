@@ -94,8 +94,8 @@ public sealed partial class ModuleMigrator
                 ObservePlan(activity, initial, "NoOp");
                 return initial;
             }
-            await ExecuteAsync(ModuleLedgerQueries.CreateLedger, null, cancellationToken).ConfigureAwait(false);
-            await ExecuteAsync(ModuleLedgerQueries.CreateKeys, null, cancellationToken).ConfigureAwait(false);
+            await CreateBookkeepingAsync(ModuleLedgerQueries.CreateLedger, ModuleBookkeepingSchema.ConstraintName, cancellationToken).ConfigureAwait(false);
+            await CreateBookkeepingAsync(ModuleLedgerQueries.CreateKeys, ModuleBookkeepingSchema.KeyConstraintName, cancellationToken).ConfigureAwait(false);
             var reserved = await _runner.WriteAsync(async r =>
             {
                 await ExecuteInAsync(r, ModuleLedgerQueries.Lock, new { sdkId = ModuleBookkeepingSchema.NamespaceLedgerId,
@@ -152,6 +152,23 @@ public sealed partial class ModuleMigrator
         if (plan.Problems.Count == 0) return;
         ObserveMigrationOutcome(activity, "Refused");
         throw new InvalidOperationException(string.Join(Environment.NewLine, plan.Problems));
+    }
+
+    // Two first-time migrators race on the shared bookkeeping constraints exactly as on module DDL; the reserved
+    // lock and the assessment inside it still refuse anything foreign afterwards.
+    private async Task CreateBookkeepingAsync(string statement, string name, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ExecuteAsync(statement, null, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ClientException e) when (e.Code == ModuleMigrationExecutor.EquivalentSchemaRule)
+        {
+            var present = await _runner.ReadAsync(async r => ModuleMigrationAssessment.IsBookkeepingConstraintPresent(
+                await ModuleDatabaseSnapshot.ReadAsync(r, _readParameters, cancellationToken).ConfigureAwait(false), name),
+                cancellationToken).ConfigureAwait(false);
+            if (!present) throw;
+        }
     }
 
     private Task ExecuteAsync(string statement, object? parameters, CancellationToken cancellationToken) =>

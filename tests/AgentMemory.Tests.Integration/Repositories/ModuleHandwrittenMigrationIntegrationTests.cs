@@ -136,6 +136,50 @@ public sealed class ModuleHandwrittenMigrationIntegrationTests(Neo4jIntegrationF
     }
 
     [Fact]
+    public async Task AModuleRuleCommittedByAConcurrentMatchingMigratorIsAccepted()
+    {
+        var resolution = await Prepare("HandTwin", "handtwin");
+        var racing = new SchemaRace(fixture.TransactionRunner, resolution.Modules[0].Id,
+            "CREATE INDEX hand_twin_due IF NOT EXISTS FOR (n:HandTwinItem) ON (n.owner_id, n.next_review)");
+        var migrator = new ModuleMigrator(racing, resolution, [Script(resolution, Mixed("HandTwin", "hand_twin_due"))], null);
+        (await migrator.ApplyAsync("slower")).Problems.Should().BeEmpty();
+        racing.Raced.Should().BeTrue();
+        (await Count("HandTwin")).Should().Be(1);
+        var row = await Ledger(resolution);
+        row["state"].Should().Be("applied");
+        ((long)row["completed_statements"]).Should().Be(3);
+    }
+
+    [Theory]
+    [InlineData("HandOther", "CREATE INDEX hand_other_elsewhere FOR (n:HandOtherItem) ON (n.owner_id, n.next_review)")]
+    [InlineData("HandWrong", "CREATE INDEX hand_wrong_due FOR (n:HandWrongItem) ON (n.note)")]
+    public async Task AConcurrentRuleThatIsNotTheDeclaredObjectKeepsTheRefusal(string prefix, string concurrent)
+    {
+        var resolution = await Prepare(prefix, prefix.ToLowerInvariant());
+        var index = prefix == "HandOther" ? "hand_other_due" : "hand_wrong_due";
+        var racing = new SchemaRace(fixture.TransactionRunner, resolution.Modules[0].Id, concurrent);
+        var migrator = new ModuleMigrator(racing, resolution, [Script(resolution, Mixed(prefix, index))], null);
+        (await FluentActions.Awaiting(() => migrator.ApplyAsync("slower")).Should().ThrowAsync<ClientException>())
+            .Which.Code.Should().Be(SchemaRace.Equivalent);
+        racing.Raced.Should().BeTrue();
+        (await Count(prefix)).Should().Be(0);
+        var row = await Ledger(resolution);
+        row["state"].Should().Be("applying");
+        ((long)row["completed_statements"]).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ABookkeepingConstraintCommittedByAConcurrentMigratorIsAccepted()
+    {
+        var resolution = await Prepare("HandBook", "handbook");
+        var racing = new FirstWriteRefused(fixture.TransactionRunner);
+        var script = Script(resolution, "MATCH (n:HandBookItem) SET n.count = n.count + 1");
+        (await new ModuleMigrator(racing, resolution, [script], null).ApplyAsync("slower")).Problems.Should().BeEmpty();
+        racing.Refused.Should().BeTrue();
+        (await Count("HandBook")).Should().Be(1);
+    }
+
+    [Fact]
     public async Task AChangedSourceOrMissingProgressCannotReplayAnInterruptedBackfill()
     {
         var resolution = await Prepare("HandTamper", "handtamper");
@@ -191,6 +235,63 @@ public sealed class ModuleHandwrittenMigrationIntegrationTests(Neo4jIntegrationF
         (await new ModuleMigrator(fixture.TransactionRunner, resolution).ApplyAsync("legacy-reader")).Problems.Should().BeEmpty();
         (await Read("MATCH (m:ModuleMigration {module_id:'com.example.handlegacy'}) RETURN properties(m) AS row ORDER BY m.key"))
             .Select(r => r["row"]).Should().BeEquivalentTo(before.Select(r => r["row"]));
+    }
+
+    // Two migrators can both pass IF NOT EXISTS; Neo4j then refuses the slower commit. This commits the faster
+    // one's statement just before the migrator's own first DDL and returns that refusal, deterministically.
+    private sealed class SchemaRace(INeo4jTransactionRunner inner, string module, string concurrentStatement) : INeo4jTransactionRunner
+    {
+        internal const string Equivalent = "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists";
+        internal bool Raced { get; private set; }
+        public Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) => inner.ReadAsync(work, cancellationToken);
+        public Task ReadAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default) => inner.ReadAsync(work, cancellationToken);
+        private async Task RaceAsync(CancellationToken cancellationToken)
+        {
+            if (Raced) return;
+            // The first write after the intent is reserved, before any statement progress, is the schema statement.
+            var reserved = await inner.ReadAsync(async r => (await (await r.RunAsync(
+                "MATCH (m:ModuleMigration {module_id:$module,key:'0001_update',state:'applying',completed_statements:0}) RETURN m",
+                new { module })).ToListAsync()).Count == 1, cancellationToken);
+            if (!reserved) return;
+            Raced = true;
+            await inner.WriteAsync(async r => { await (await r.RunAsync(concurrentStatement)).ConsumeAsync(); }, cancellationToken);
+            throw new ClientException(Equivalent, "An equivalent schema rule was committed by another transaction.");
+        }
+        public async Task<T> WriteAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default)
+        {
+            await RaceAsync(cancellationToken);
+            return await inner.WriteAsync(work, cancellationToken);
+        }
+        public async Task WriteAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default)
+        {
+            await RaceAsync(cancellationToken);
+            await inner.WriteAsync(work, cancellationToken);
+        }
+    }
+
+    // ApplyAsync's first write creates the shared ledger constraint, which a concurrent first-time migrator may
+    // already have committed (it exists here from Prepare): refuse that one write as Neo4j would.
+    private sealed class FirstWriteRefused(INeo4jTransactionRunner inner) : INeo4jTransactionRunner
+    {
+        internal bool Refused { get; private set; }
+        public Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) => inner.ReadAsync(work, cancellationToken);
+        public Task ReadAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default) => inner.ReadAsync(work, cancellationToken);
+        private void Refuse()
+        {
+            if (Refused) return;
+            Refused = true;
+            throw new ClientException(SchemaRace.Equivalent, "An equivalent schema rule was committed by another transaction.");
+        }
+        public Task<T> WriteAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default)
+        {
+            Refuse();
+            return inner.WriteAsync(work, cancellationToken);
+        }
+        public Task WriteAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default)
+        {
+            Refuse();
+            return inner.WriteAsync(work, cancellationToken);
+        }
     }
 
     private sealed class ProgressFailure(INeo4jTransactionRunner inner, string module, int completed, bool beforeCommit, string? schemaName = null) : INeo4jTransactionRunner

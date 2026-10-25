@@ -31,17 +31,11 @@ internal static class ModuleMigrationAssessment
         var missing = BaseConstraints.Except(snapshot.Objects.Where(o => o.IsConstraint).Select(o => o.Name), StringComparer.Ordinal).ToArray();
         if (missing.Length != 0) problems.Add("Bootstrap the base schema first; missing constraints: " + string.Join(", ", missing));
         foreach (var obj in snapshot.Objects.Where(o => o.Name == ModuleBookkeepingSchema.ConstraintName))
-        {
-            if (obj.EntityType != "NODE" || !obj.Labels.SequenceEqual([ModuleBookkeepingSchema.Label])
-                || !obj.Properties.SequenceEqual(["module_id", "key"])
-                || (obj.IsConstraint ? obj.Kind != "UNIQUENESS" : obj.OwningConstraint != ModuleBookkeepingSchema.ConstraintName))
+            if (!IsBookkeepingObject(obj, ModuleBookkeepingSchema.ConstraintName))
                 problems.Add("Foreign or incompatible module ledger constraint: " + obj.Name);
-        }
         var keyObjects = snapshot.Objects.Where(o => o.Name == ModuleBookkeepingSchema.KeyConstraintName).ToArray();
         foreach (var obj in keyObjects)
-            if (obj.EntityType != "NODE" || !obj.Labels.SequenceEqual([ModuleBookkeepingSchema.KeyLabel])
-                || !obj.Properties.SequenceEqual(["id"])
-                || (obj.IsConstraint ? obj.Kind != "UNIQUENESS" : obj.OwningConstraint != ModuleBookkeepingSchema.KeyConstraintName))
+            if (!IsBookkeepingObject(obj, ModuleBookkeepingSchema.KeyConstraintName))
                 problems.Add("Foreign or incompatible module key constraint: " + obj.Name);
         if (snapshot.Objects.Any(o => o.Name != ModuleBookkeepingSchema.KeyConstraintName && o.EntityType == "NODE"
             && o.Labels.SequenceEqual([ModuleBookkeepingSchema.KeyLabel]) && o.Properties.SequenceEqual(["id"])
@@ -105,6 +99,33 @@ internal static class ModuleMigrationAssessment
                 && e.State == "applied" && !keys.Contains((e.ModuleId, e.Key)))
                 .Select(e => e.ModuleId + "/" + e.Key).OrderBy(k => k, StringComparer.Ordinal).ToList().AsReadOnly()
         };
+    }
+
+    // IF NOT EXISTS is checked before commit, so two compliant migrators can both pass it and Neo4j refuses the
+    // slower commit. That refusal counts as success only for the exact declared object: present under its own
+    // name with the declared shape, not failed, and with no equivalent object under another name.
+    internal static bool IsDeclaredObjectPresent(ModuleDatabaseSnapshot snapshot, ModuleMigrationSchemaObject shape)
+    {
+        var actual = snapshot.Objects.Where(o => o.Name == shape.Name).ToArray();
+        return actual.Any(o => Matches(o, shape)) && actual.All(o => Matches(o, shape) || IsBackingIndex(o, shape))
+            && actual.All(o => o.State != "FAILED")
+            && !snapshot.Objects.Any(o => o.Name != shape.Name && Conflicts(o, shape));
+    }
+
+    // The same refusal on the shared bookkeeping constraints counts only when the named constraint is exactly ours.
+    internal static bool IsBookkeepingConstraintPresent(ModuleDatabaseSnapshot snapshot, string name)
+    {
+        var objects = snapshot.Objects.Where(o => o.Name == name).ToArray();
+        return objects.Any(o => o.IsConstraint) && objects.All(o => IsBookkeepingObject(o, name));
+    }
+
+    private static bool IsBookkeepingObject(ModuleDatabaseObject obj, string name)
+    {
+        var (label, properties) = name == ModuleBookkeepingSchema.ConstraintName
+            ? (ModuleBookkeepingSchema.Label, new[] { "module_id", "key" })
+            : (ModuleBookkeepingSchema.KeyLabel, new[] { "id" });
+        return obj.EntityType == "NODE" && obj.Labels.SequenceEqual([label]) && obj.Properties.SequenceEqual(properties)
+            && (obj.IsConstraint ? obj.Kind == "UNIQUENESS" : obj.OwningConstraint == name);
     }
 
     private static bool Matches(ModuleDatabaseObject actual, ModuleMigrationSchemaObject shape) =>

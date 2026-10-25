@@ -11,6 +11,9 @@ namespace AgentMemory.Extensibility.Neo4j.Migrations;
 [Experimental("AMEXT001")]
 internal sealed class ModuleMigrationExecutor(INeo4jTransactionRunner runner, TimeProvider clock)
 {
+    /// <summary>Neo4j's refusal of the slower of two commits that both passed IF NOT EXISTS.</summary>
+    internal const string EquivalentSchemaRule = "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists";
+
     internal async Task ApplyAsync(ModuleCompiledMigration migration, string actor, CancellationToken cancellationToken)
     {
         for (var index = 0; index < migration.Operations.Count; index++)
@@ -22,7 +25,14 @@ internal sealed class ModuleMigrationExecutor(INeo4jTransactionRunner runner, Ti
                 var completed = ModuleMigrationProgress.Completed(migration, entry);
                 if (completed > index) continue;
                 RequirePrevious(completed, index);
-                await runner.WriteAsync(r => ExecuteAsync(r, operation.Text, null, cancellationToken), cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await runner.WriteAsync(r => ExecuteAsync(r, operation.Text, null, cancellationToken), cancellationToken).ConfigureAwait(false);
+                }
+                catch (ClientException e) when (e.Code == EquivalentSchemaRule)
+                {
+                    if (!await CreatedConcurrentlyAsync(migration, operation.Shape!, cancellationToken).ConfigureAwait(false)) throw;
+                }
             }
             await runner.WriteAsync(async r =>
             {
@@ -47,6 +57,21 @@ internal sealed class ModuleMigrationExecutor(INeo4jTransactionRunner runner, Ti
             await ChangeAsync(r, ModuleLedgerQueries.Applied, Parameters(migration, actor), cancellationToken).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
     }
+
+    // Another compliant migrator committed this statement first. Accept only the exact declared object with this
+    // migration's reserved intent unchanged; the locked progress step below then advances the counter once.
+    private Task<bool> CreatedConcurrentlyAsync(ModuleCompiledMigration migration, ModuleMigrationSchemaObject shape,
+        CancellationToken cancellationToken) => runner.ReadAsync(async r =>
+        {
+            var definition = migration.Definition;
+            var snapshot = await ModuleDatabaseSnapshot.ReadAsync(r, new { moduleIds = new[] { definition.ModuleId },
+                sdkId = ModuleBookkeepingSchema.NamespaceLedgerId }, cancellationToken).ConfigureAwait(false);
+            var entries = snapshot.Entries.Where(e => e.ModuleId == definition.ModuleId && e.Key == definition.Key).ToArray();
+            if (entries.Length != 1) return false;
+            try { ModuleMigrationProgress.Completed(migration, entries[0]); }
+            catch (InvalidOperationException) { return false; }
+            return ModuleMigrationAssessment.IsDeclaredObjectPresent(snapshot, shape);
+        }, cancellationToken);
 
     private Task LockAsync(IAsyncQueryRunner transaction, string actor, CancellationToken cancellationToken) =>
         ExecuteAsync(transaction, ModuleLedgerQueries.Lock,
