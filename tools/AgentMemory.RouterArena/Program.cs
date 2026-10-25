@@ -87,6 +87,24 @@ switch (args.FirstOrDefault())
         return await new ModelAsk(Console.Out).RunAsync(Matrix.Read(paths.Matrix), Get("out") ?? Path.Combine(runs, "model-lane-v2.json"),
             dryRun, Limit(), int.Parse(Get("workers") ?? "4", CultureInfo.InvariantCulture));
     }
+    case "ask-chat":
+    {
+        // R-chat-judge: the library's chat-model gate on a set's recorded gate pairs, one call a turn; the date is the
+        // recording's, as JEV was told.
+        var pairs = Get("pairs") ?? Path.Combine(runs, "gate-pairs-all.jsonl");
+        var folder = Path.GetDirectoryName(Path.GetFullPath(pairs))!;
+        DateTimeOffset now;
+        if (Get("now") is { } given) now = DateTimeOffset.Parse(given, CultureInfo.InvariantCulture);
+        else if (new[] { "recording-fresh.json", "recording-v4.json" }.Select(f => Path.Combine(folder, f)).FirstOrDefault(File.Exists) is { } recording)
+            now = (DateTimeOffset)System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(recording))!["askedAt"]!;
+        else
+        {
+            Console.WriteLine($"error: ask-chat: no recording beside {pairs}; pass --now");
+            return 1;
+        }
+        return await new ChatGateAsk(Console.Out).RunAsync(pairs, Get("out") ?? Path.Combine(folder, "jev-chat-glm.json"), now,
+            dryRun, Limit(), int.Parse(Get("workers") ?? "4", CultureInfo.InvariantCulture), Get("model"));
+    }
     case "ask-jev":
     {
         var paths = Paths();
