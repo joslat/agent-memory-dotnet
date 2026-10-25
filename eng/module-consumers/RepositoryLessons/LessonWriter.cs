@@ -23,6 +23,9 @@ public sealed partial class LessonWriter(IChatClient chat, RepositoryLessonsOpti
         MaxExisting = 30, MaxExistingUtf8Bytes = 12_000,
     };
 
+    /// <summary>The reply's token budget, room to reason included.</summary>
+    public const int OutputBudget = 16_000;
+
     /// <summary>The retention policy the model follows.</summary>
     public const string Instructions =
         "You keep a software repository's lessons: what a future task in this repository needs to know and cannot easily "
@@ -46,8 +49,10 @@ public sealed partial class LessonWriter(IChatClient chat, RepositoryLessonsOpti
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!request.Messages.Any(m => m.Role == "user")) return [];
+        // A reasoning model spends most of the budget thinking before it writes the lessons: at 6,000 tokens three of the coding
+        // pilot's eight digests were cut off and kept nothing (EXT-measure M1).
         var response = await chat.GetResponseAsync(Prompt(request, _options.Repository),
-            new ChatOptions { Temperature = 0, MaxOutputTokens = 6_000 }, cancellationToken).ConfigureAwait(false);
+            new ChatOptions { Temperature = 0, MaxOutputTokens = OutputBudget }, cancellationToken).ConfigureAwait(false);
         if (response.FinishReason == ChatFinishReason.Length)
             throw new InvalidOperationException("The lesson writer's reply was cut off at its output limit.");
         return Parse(response.Text, request, _options);

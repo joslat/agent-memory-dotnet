@@ -21,7 +21,7 @@ namespace AgentMemory.RouterArena.Ask;
 internal sealed class ChatGateAsk(TextWriter output)
 {
     /// <summary>Bitdeer's listed GLM-5.3-Flash price (USD per million tokens), as recorded in the strategy runs.</summary>
-    private const double InPrice = 0.07, OutPrice = 0.25;
+    private const double InPrice = MeteredChatClient.InPrice, OutPrice = MeteredChatClient.OutPrice;
 
     private sealed record Turn(string Id, string Text, IReadOnlyList<MemoryGateTurn> Prior, IReadOnlyList<MemoryGateCandidate> Candidates);
 
@@ -119,7 +119,7 @@ internal sealed class ChatGateAsk(TextWriter output)
                 JsonNode? before;
                 lock (save) before = answers[item.Id];
                 var earlier = Math.Round(((double?)before?["cost"] ?? 0) + ((double?)before?["costEarlier"] ?? 0), 6);
-                var metered = new MeteredChat(chat);
+                var metered = new MeteredChatClient(chat);
                 var all = Stopwatch.StartNew();
                 var attempts = 0;
                 double Cost() => Math.Round((metered.In * InPrice + metered.Out * OutPrice) / 1e6, 6);
@@ -184,23 +184,5 @@ internal sealed class ChatGateAsk(TextWriter output)
     {
         using var stream = File.OpenRead(path);
         return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream));
-    }
-
-    /// <summary>Counts the tokens of the one call it carries.</summary>
-    private sealed class MeteredChat(IChatClient inner) : DelegatingChatClient(inner)
-    {
-        public long In { get; private set; }
-        public long Out { get; private set; }
-
-        public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
-            CancellationToken cancellationToken = default)
-        {
-            var response = await base.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
-            In += response.Usage?.InputTokenCount ?? 0;
-            Out += response.Usage?.OutputTokenCount ?? 0;
-            return response;
-        }
-
-        protected override void Dispose(bool disposing) { }
     }
 }
