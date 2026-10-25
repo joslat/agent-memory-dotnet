@@ -58,7 +58,7 @@ internal sealed record ModuleCommandInput
             if (string.IsNullOrWhiteSpace(args.Get("host-features"))) throw new FormatException("--host-features requires a comma-separated list.");
             foreach (var feature in args.Get("host-features")!.Split(',', StringSplitOptions.TrimEntries))
             {
-                if (feature is not ("History" or "Reminders" or "ModuleSchema"))
+                if (!ModuleHostFeatures.Known.Contains(feature))
                     throw new FormatException("Unknown target host feature: " + feature);
                 features.Add(feature);
             }

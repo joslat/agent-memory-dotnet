@@ -959,6 +959,12 @@ module's validator and any host-registered `IValidateOptions<T>`, and freezes th
 throws `ModuleActivationException` listing all of them. Resolve `ModuleSet` at startup to fail there.
 Options are bound once; configuration changes need a restart.
 
+A module that needs a model declares host feature `Inference` in its manifest (`requires.host`), and the
+host grants one explicitly with `GrantChatClient(sp => ...)`; model access is composition, never ambient
+discovery. Without a grant such a module does not activate, and `ModuleActivationContext.ChatClient` refuses
+a module that does not declare the feature. The CLI and resolvers accept `Inference` as a target-host
+feature; one list (`ModuleHostFeatures`) defines every feature they know.
+
 Every identity a module adds must be in its own namespace: a contributor, each of its section types and
 an ingestion provider must be `<moduleId>:<local>`. The compiler already refused identities outside every
 resolved module; activation also refuses one module speaking for another. `ModuleSet.Fingerprint` hashes

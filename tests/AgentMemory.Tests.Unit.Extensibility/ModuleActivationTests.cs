@@ -253,6 +253,44 @@ public sealed class ModuleActivationTests
         }))).Should().Throw<InvalidOperationException>().WithMessage("*already configures*");
     }
 
+    private const string Inference = ""","requires":{"host":["Inference"]}""";
+
+    [Fact]
+    public void AModuleThatNeedsAModelGetsOnlyTheOneTheHostGranted()
+    {
+        var granted = Substitute.For<Microsoft.Extensions.AI.IChatClient>();
+        Microsoft.Extensions.AI.IChatClient? seen = null;
+        var services = Services();
+        services.AddAgentMemoryModules(m => m.GrantChatClient(_ => granted).Add(Manifest(Reviews, extra: Inference), b =>
+            b.AddContextContributor(c => { seen = c.ChatClient; return new Contributor(Reviews + ":open"); })));
+        using var provider = Build(services);
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetServices<IContextContributor>().Should().ContainSingle();
+        seen.Should().BeSameAs(granted);
+    }
+
+    [Fact]
+    public void WithoutAGrantAModuleThatNeedsAModelDoesNotActivate()
+    {
+        var services = Services();
+        services.AddAgentMemoryModules(m => m.Add(Manifest(Reviews, extra: Inference), _ => { }));
+        using var provider = Build(services);
+        FluentActions.Invoking(() => provider.GetRequiredService<ModuleSet>()).Should().Throw<ModuleActivationException>()
+            .Which.Errors.Should().Contain(e => e.Contains("No chat model is granted", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AModuleThatDoesNotDeclareInferenceNeverReceivesTheGrant()
+    {
+        var services = Services();
+        services.AddAgentMemoryModules(m => m.GrantChatClient(_ => Substitute.For<Microsoft.Extensions.AI.IChatClient>())
+            .Add(Manifest(Reviews), b => b.AddContextContributor(c => { _ = c.ChatClient; return new Contributor(Reviews + ":open"); })));
+        using var provider = Build(services);
+        using var scope = provider.CreateScope();
+        FluentActions.Invoking(() => scope.ServiceProvider.GetServices<IContextContributor>().ToList())
+            .Should().Throw<InvalidOperationException>().WithMessage("*does not declare host feature Inference*");
+    }
+
     [Fact]
     public void AValueTheBinderCannotConvertIsAListedProblem()
     {

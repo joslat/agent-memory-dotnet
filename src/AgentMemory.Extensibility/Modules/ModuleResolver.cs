@@ -22,7 +22,7 @@ public static class ModuleResolver
         var errors = new SortedSet<string>(StringComparer.Ordinal);
         var features = availableFeatures.ToHashSet(StringComparer.Ordinal);
         foreach (var feature in features)
-            if (feature is not ("History" or "Reminders" or "ModuleSchema")) errors.Add($"Unknown available host feature '{feature}'.");
+            if (!ModuleHostFeatures.Known.Contains(feature)) errors.Add($"Unknown available host feature '{feature}'.");
         var frozen = new List<ModuleManifest>();
         var identityCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var manifest in manifests)

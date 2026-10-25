@@ -30,7 +30,7 @@ public static class ModuleHostProfileResolver
         // All known features here permit structural validation only. Every actual requirement is
         // checked below against its own bound store before this result can escape.
         var metadata = ModuleProfileResolver.Resolve(profile, registrations, sdkVersion,
-            new HashSet<string> { "History", "Reminders", "ModuleSchema" },
+            ModuleHostFeatures.Known.ToHashSet(StringComparer.Ordinal),
             bindings.ToDictionary(p => p.Key, p => p.Value.Provider, StringComparer.Ordinal));
         if (!metadata.Succeeded) return metadata;
 
@@ -79,6 +79,9 @@ public static class ModuleHostProfileResolver
                 {
                     return ["Effective MemoryOptions failed host validation."];
                 }
+            case ModuleHostFeatures.Inference:
+                return store.ChatClient is not null ? []
+                    : ["No chat model is granted to modules (ModuleSetBuilder.GrantChatClient)."];
             case "ModuleSchema":
                 var problems = new List<string>();
                 if (!Registered(typeof(IModuleStore)))

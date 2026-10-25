@@ -28,6 +28,7 @@ public sealed class ModuleSetBuilder
     internal ModuleCompositionProfile? Profile { get; private set; }
     internal IModuleStoreAdapter? Store { get; private set; }
     internal IConfiguration? Configuration { get; private set; }
+    internal Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient>? ChatClient { get; private set; }
 
     /// <summary>Adds a module from its assembly: the embedded manifest and its <see cref="IAgentMemoryModule"/>.</summary>
     public ModuleSetBuilder Add<TModule>() where TModule : IAgentMemoryModule, new() =>
@@ -59,6 +60,17 @@ public sealed class ModuleSetBuilder
     public ModuleSetBuilder UseStore(IModuleStoreAdapter adapter)
     {
         Store = adapter ?? throw new ArgumentNullException(nameof(adapter));
+        return this;
+    }
+
+    /// <summary>
+    /// Grants a chat model to the modules whose manifest declares host feature <see cref="ModuleHostFeatures.Inference"/>,
+    /// resolved per scope. Model access is composition: without a grant such a module does not activate, and a module that
+    /// does not declare the feature never receives it.
+    /// </summary>
+    public ModuleSetBuilder GrantChatClient(Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient> chatClient)
+    {
+        ChatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         return this;
     }
 

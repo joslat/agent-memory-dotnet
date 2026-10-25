@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declared view (`IngestionProviderDescriptor.ExistingView`) and name the records its new one replaces
   (`ModuleProposal.Replaces`). The new public `IMemoryClosingApprover` decides each replacement with the
   core writer's own closing policy. An approved closing invalidates the replaced record in the same
-  transaction; decisions are recorded so replay asks no judge.
+  transaction; decisions are recorded so replay asks no judge. A module that declares host feature
+  `Inference` receives the chat model the host grants (`ModuleSetBuilder.GrantChatClient`), and only then.
 
 - Add experimental static module activation: `AddAgentMemoryModules` composes modules once per process
   through `IAgentMemoryModule` entries or manifests with a configuration delegate. Activation resolves

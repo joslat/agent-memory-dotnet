@@ -30,7 +30,7 @@ internal sealed class ModuleManifestValidator
         var host = List(manifest.Host, "$.requires.host");
         if (host.Distinct(StringComparer.Ordinal).Count() != host.Count) Error("$.requires.host", "duplicate host feature");
         foreach (var feature in host)
-            if (feature is not ("History" or "Reminders")) Error("$.requires.host", "unknown or derived host feature");
+            if (!ModuleHostFeatures.Declarable.Contains(feature)) Error("$.requires.host", "unknown or derived host feature");
         var views = List(manifest.Views, "$.views");
         var types = new Dictionary<string, ModuleType>(StringComparer.Ordinal);
         if (manifest.Ontology is { } ontology)

@@ -16,6 +16,8 @@ public sealed record ModuleHostStore
     public string? ServiceKey { get; init; }
     /// <summary>Trusted storage adapter probe; absence cannot grant ModuleSchema.</summary>
     public IModuleSchemaCapabilityProbe? SchemaProbe { get; init; }
+    /// <summary>The chat model the host grants to modules that declare <see cref="ModuleHostFeatures.Inference"/>; null grants none.</summary>
+    public Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient>? ChatClient { get; init; }
 }
 
 /// <summary>Storage adapter inspection used before module construction or migration.</summary>

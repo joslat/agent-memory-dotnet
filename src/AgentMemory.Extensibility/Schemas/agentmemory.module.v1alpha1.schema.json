@@ -36,7 +36,8 @@
           "items": {
             "enum": [
               "History",
-              "Reminders"
+              "Reminders",
+              "Inference"
             ]
           },
           "uniqueItems": true

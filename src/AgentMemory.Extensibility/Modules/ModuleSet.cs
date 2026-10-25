@@ -46,6 +46,8 @@ public sealed class ModuleSet
 
     internal IModuleStoreAdapter? Store { get; }
 
+    internal Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient>? ChatClient { get; private init; }
+
     /// <summary>The SDK version modules are resolved against: this assembly's.</summary>
     internal static ModuleVersion SdkVersion { get; } = Sdk();
 
@@ -61,7 +63,7 @@ public sealed class ModuleSet
         var composition = ModuleHostProfileResolver.Resolve(profile, [.. registrations.Select(r => r.Manifest)], SdkVersion,
             new Dictionary<string, ModuleHostStore>(StringComparer.Ordinal)
             {
-                [alias] = new() { Provider = provider, Services = services, SchemaProbe = store },
+                [alias] = new() { Provider = provider, Services = services, SchemaProbe = store, ChatClient = builder.ChatClient },
             });
         if (!composition.Succeeded) throw new ModuleActivationException(composition.Errors);
 
@@ -115,7 +117,7 @@ public sealed class ModuleSet
             }),
         }))).ToLowerInvariant();
         var set = new ModuleSet(resolution, modules.AsReadOnly(), composition.CompositionFingerprint!, fingerprint, store,
-            registrations);
+            registrations) { ChatClient = builder.ChatClient };
         services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>().LogInformation(
             "Module set {Fingerprint} active: {Modules}.", fingerprint,
             string.Join(", ", modules.Select(m => m.Manifest.Id + "@" + m.Manifest.Version)));
@@ -255,4 +257,10 @@ public sealed class ModuleActivationContext
 
     /// <summary>This module's bound, validated options.</summary>
     public TOptions GetOptions<TOptions>() where TOptions : class => Module.GetOptions<TOptions>();
+
+    /// <summary>The chat model the host granted, for a module that declares host feature <see cref="ModuleHostFeatures.Inference"/>.</summary>
+    /// <exception cref="InvalidOperationException">The module does not declare the feature.</exception>
+    public Microsoft.Extensions.AI.IChatClient ChatClient => Module.Manifest.Host.Contains(ModuleHostFeatures.Inference, StringComparer.Ordinal)
+        ? (ModuleSet.ChatClient ?? throw new InvalidOperationException("No chat model is granted to modules."))(Services)
+        : throw new InvalidOperationException($"Module '{Module.Manifest.Id}' does not declare host feature Inference; it gets no chat model.");
 }

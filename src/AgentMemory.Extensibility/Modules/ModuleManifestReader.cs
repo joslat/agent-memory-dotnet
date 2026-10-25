@@ -41,8 +41,8 @@ internal static class ModuleManifestReader
             {
                 host = Strings(features, "$.requires.host");
                 foreach (var feature in host)
-                    if (feature is not ("History" or "Reminders"))
-                        throw Error("$.requires.host", $"unknown or derived feature '{feature}'; code may require History or Reminders");
+                    if (!ModuleHostFeatures.Declarable.Contains(feature))
+                        throw Error("$.requires.host", $"unknown or derived feature '{feature}'; code may require History, Reminders or Inference");
             }
         }
         return new ModuleManifest
