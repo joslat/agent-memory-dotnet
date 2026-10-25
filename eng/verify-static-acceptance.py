@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', required=True, help='New evidence directory under artifacts; existing directories are refused.')
 parser.add_argument('--sdk-version', default='0.1.0', help='The preview line version to pack (PreviewVersion).')
 parser.add_argument('--build-only', action='store_true', help='Compile the consumer without service access; not acceptance.')
+parser.add_argument('--live', action='store_true', help='Also run part C with the real lessons writer and JEV (EXT-live-e2e; spends).')
 args = parser.parse_args()
 if not args.build_only:
     uri = urlparse(os.environ.get('NEO4J_URI', ''))
@@ -70,7 +71,7 @@ def chain(projects):
 
 core_version = re.search(r'<Version>([^<]+)</Version>', (ROOT / 'Directory.Build.props').read_text(encoding='utf-8')).group(1)
 preview = ['AgentMemory.Extensibility', 'AgentMemory.Extensibility.AgentFramework', 'AgentMemory.Extensibility.Neo4j', 'AgentMemory.Validation']
-projects = chain(preview + ['AgentMemory.Gate'])
+projects = chain(preview + ['AgentMemory.Gate', 'AgentMemory.Inference'])
 version_property = '-p:PreviewVersion=' + args.sdk_version
 for project in projects:
     run('build-' + project, ['dotnet', 'build', f'src/{project}/{project}.csproj', '-c', 'Release', version_property])
@@ -111,7 +112,8 @@ report = {'createdAtUtc': datetime.now(timezone.utc).isoformat(),
 if args.build_only:
     print(json.dumps({'status': 'build_only', 'packages': len(report['packages']), 'loadedDlls': len(loaded)}))
     sys.exit(0)
-result = run('acceptance', ['dotnet', str(binaries / 'StaticAcceptance.dll'), '--output', str(out / 'primary')], allow_failure=True)
+result = run('acceptance', ['dotnet', str(binaries / 'StaticAcceptance.dll'), '--output', str(out / 'primary'), *(['--live'] if args.live else [])],
+             allow_failure=True)
 receipt = out / 'primary/report.json'
 report['serviceExecuted'] = True
 if receipt.exists():

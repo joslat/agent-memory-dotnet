@@ -17,6 +17,7 @@ using AgentMemory.Extensibility.Neo4j.Migrations;
 using AgentMemory.Extensibility.Neo4j.Storage;
 using AgentMemory.Extensibility.Reading;
 using AgentMemory.Gate;
+using AgentMemory.Inference;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Validation;
 using Microsoft.Agents.AI;
@@ -133,16 +134,72 @@ await using (var parityCore = await HostAsync(modules: false, maxItems: 8))
 Require("host:parity", withModules == withoutModules, "with modules composed and nothing of theirs to say, the model input is byte-identical to a host without modules");
 Require("host:neutrality", lessonsModel.Calls == moduleCalls, "a host without modules runs no module code");
 
+// ---- Part C (--live, EXT-live-e2e): the same host with the real lessons writer (GLM-5.3-Flash on Bitdeer) and the real
+// System One judges (JEV) for retrieval and closings. Pass criteria fixed before the run in the strategy ledger; what the
+// models chose is reported beside them.
+object? live = null;
+if (args.Contains("--live"))
+{
+    var resolved = InferenceProviderEnvironment.Resolve();
+    if (resolved.Settings is not { } settings || !InferenceClientFactory.TryCreateChatClient(settings, "lesson writer", out var glm, out var why, generousTimeout: true))
+        throw new InvalidOperationException("--live needs a chat model: " + resolved.Diagnostic);
+    if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TYPESAFE_API_KEY")))
+        throw new InvalidOperationException("--live needs TYPESAFE_API_KEY for the JEV judges.");
+    var writer = new MeteredModel(glm);
+    var judged = new RecordingGate();
+    await using var liveHost = await HostAsync(modules: true, maxItems: 8, lessons: writer, liveJudges: judged);
+    await liveHost.EntityAsync("atlas-live", "Atlas", "lea");
+    await liveHost.TurnAsync("lea", "l1", """{"format":"agentmemory.commitment/v1","key":"atlas-draft","title":"Send Atlas draft","detail":"Promised to the board","status":"open","priority":2,"due_at":"2026-10-23T16:00:00Z","about":{"kind":"name","target":"Atlas"}}""");
+    await liveHost.TurnAsync("lea", "l2", "In agent-memory-dotnet the integration build failed with MSB3021 'Unable to copy file ... being used by another process': "
+        + "the router arena process still held the DLLs in bin. Building with --artifacts-path artifacts/alt-build avoided the lock, and the build passed.");
+    var stored = await liveHost.LessonsAsync("lea");
+    Require("live:writer-stored", stored.Count >= 1, $"the live writer stored {stored.Count} lesson(s): " + string.Join(" | ", stored.Select(l => l.Key + ": " + l.Text)));
+
+    liveHost.Clock.UtcNow = DateTimeOffset.Parse("2026-10-24T09:00:00Z");
+    var before = judged.Calls.Count;
+    var recall = await liveHost.TurnAsync("lea", "l3", "What is due, and how do I get past locked DLLs when I build?");
+    var pooled = judged.Calls.Skip(before).ToList();
+    Require("live:recall:commitment", recall.Contains("Send Atlas draft", StringComparison.Ordinal), "the due commitment reached the model in a fresh session");
+    var recalledLessons = stored.Where(l => recall.Contains(l.Text, StringComparison.Ordinal)).Select(l => l.Key).ToList();
+    Require("live:recall:lesson", recalledLessons.Count >= 1, "lesson(s) that reached the model: " + string.Join(", ", recalledLessons));
+    Require("live:pool:one-call", pooled.Count == 1 && pooled[0].Request.Candidates.Count(c => c.Companion) >= 2,
+        $"{pooled.Count} gate call(s); companions in it: {pooled.SelectMany(c => c.Request.Candidates).Count(c => c.Companion)}");
+    Require("live:pool:jev-answered", pooled.Count == 1 && pooled[0].AnsweredBy?.Contains("jev", StringComparison.Ordinal) == true,
+        "answered by " + (pooled.Count == 1 ? pooled[0].AnsweredBy ?? "nobody (the floor)" : $"{pooled.Count} calls"));
+    var other = await liveHost.TurnAsync("ned", "l4", "What is due, and how do I get past locked DLLs when I build?");
+    Require("live:isolation", !other.Contains("Send Atlas draft", StringComparison.Ordinal) && stored.All(l => !other.Contains(l.Text, StringComparison.Ordinal)),
+        "another owner's fresh session received none of lea's module memories");
+
+    // Reported, not required: whether the live writer names the old lesson and the live update judge closes it.
+    await liveHost.TurnAsync("lea", "l5", "Correction for agent-memory-dotnet: artifacts/alt-build collides with the CI cache. "
+        + "Use --artifacts-path artifacts/build2 instead; that build passed.");
+    var afterCorrection = await liveHost.LessonsAsync("lea");
+    var closed = stored.Where(l => afterCorrection.All(a => a.Key != l.Key)).Select(l => l.Key).ToList();
+    var after = await liveHost.TurnAsync("lea", "l6", "How do I get past locked DLLs when I build?");
+    var companionVerdicts = pooled.SelectMany(c => c.Request.Candidates.Where(x => x.Companion)
+        .Select(x => new { x.MemoryType, x.Text, probability = c.Probabilities.TryGetValue(x.Key, out var v) ? v : (double?)null })).ToList();
+    live = new
+    {
+        writer = new { calls = writer.Calls, tokensIn = writer.In, tokensOut = writer.Out, costUsd = Math.Round((writer.In * 0.07 + writer.Out * 0.25) / 1e6, 5) },
+        jev = new { calls = judged.Calls.Count, decisions = judged.Calls.Sum(c => c.Request.Candidates.Count), answeredBy = judged.Calls.Select(c => c.AnsweredBy).Distinct() },
+        lessonsAfterTeach = stored.Select(l => new { key = l.Key, text = l.Text }),
+        lessonsAfterCorrection = afterCorrection.Select(l => new { key = l.Key, text = l.Text }), closedByCorrection = closed,
+        correctionRecalled = afterCorrection.Where(l => after.Contains(l.Text, StringComparison.Ordinal)).Select(l => l.Key),
+        companionVerdicts,
+    };
+    Console.WriteLine("live: " + JsonSerializer.Serialize(live));
+}
+
 File.WriteAllText(Path.Combine(output, "report.json"), JsonSerializer.Serialize(new
 {
-    format = "ext-static-acceptance/1", packs, passed = checks.Count - failed, failed, checks,
+    format = "ext-static-acceptance/1", packs, passed = checks.Count - failed, failed, checks, live,
     sdk = typeof(ModuleSet).Assembly.Location, commitments = typeof(CommitmentsModule).Assembly.Location,
     lessons = typeof(RepositoryLessonsModule).Assembly.Location,
 }, new JsonSerializerOptions { WriteIndented = true }));
 Console.WriteLine($"ext-static-acceptance: {checks.Count - failed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;
 
-async Task<AcceptanceHost> HostAsync(bool modules, int maxItems)
+async Task<AcceptanceHost> HostAsync(bool modules, int maxItems, IChatClient? lessons = null, RecordingGate? liveJudges = null)
 {
     var clock = new AcceptanceClock { UtcNow = DateTimeOffset.Parse("2026-10-20T09:00:00Z") };
     var options = new MemoryOptions { Recall = RecallOptions.Default with { MaxRecentMessages = 0, MaxRelevantMessages = 0 } };
@@ -154,16 +211,32 @@ async Task<AcceptanceHost> HostAsync(bool modules, int maxItems)
     services.AddSingleton<IClock>(clock);
     services.AddSingleton<TimeProvider>(clock);
     services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp => new StubEmbeddingGenerator(sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(), 4));
-    // The deterministic judges, registered before the gate so its TryAdd defaults keep them.
-    services.AddSingleton<IMemoryGate>(gate);
-    services.AddSingleton<IMemoryUpdateJudge>(new ApprovingUpdateJudge());
-    services.AddAgentMemoryGate(o => o.Mode = MemoryGateMode.Judge);
+    if (liveJudges is null)
+    {
+        // The deterministic judges, registered before the gate so its TryAdd defaults keep them.
+        services.AddSingleton<IMemoryGate>(gate);
+        services.AddSingleton<IMemoryUpdateJudge>(new ApprovingUpdateJudge());
+        services.AddAgentMemoryGate(o => o.Mode = MemoryGateMode.Judge);
+    }
+    else
+    {
+        // The shipped System One judges: JEV for retrieval and for closings, as a host configures them.
+        services.AddAgentMemoryGate(o =>
+        {
+            o.Mode = MemoryGateMode.Judge;
+            o.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY", Weight = 1 });
+            o.UpdateJudge = true;
+        });
+        var shipped = services.Last(d => d.ServiceType == typeof(IMemoryGate));
+        services.Remove(shipped);
+        services.AddSingleton<IMemoryGate>(sp => liveJudges.Over((IMemoryGate)shipped.ImplementationFactory!(sp)));
+    }
     services.AddAgentMemoryFramework(o => { o.AutoExtractOnPersist = false; o.ExtractInBackground = false; });
     if (modules)
     {
         services.AddAgentMemoryModules(m => m
             .UseNeo4jStore()
-            .GrantChatClient(_ => lessonsModel)
+            .GrantChatClient(_ => lessons ?? lessonsModel)
             .Add<RepositoryLessonsModule>()
             .Add(CommitmentsModule.Manifest, b =>
             {
@@ -213,6 +286,19 @@ sealed class AcceptanceHost(ServiceProvider services, AcceptanceClock clock) : I
         var agentSession = (await agent.CreateSessionAsync()).WithMemoryIdentity(owner, session, session);
         await agent.RunAsync([new ChatMessage(ChatRole.User, text) { MessageId = $"m{++_messages}-{session}" }], agentSession);
         return model.Seen;
+    }
+
+    /// <summary>An owner's live lessons, as the module's view renders them.</summary>
+    public async Task<IReadOnlyList<(string Key, string Text)>> LessonsAsync(string owner)
+    {
+        using var scope = services.CreateScope();
+        var sp = scope.ServiceProvider;
+        var set = sp.GetRequiredService<ModuleSet>();
+        var reader = new Neo4jModuleReader(sp.GetRequiredService<INeo4jTransactionRunner>(), set.Resolution, RepositoryLessonsModule.Id,
+            sp.GetRequiredService<IMemoryIsolationPolicy>(), Clock);
+        var result = await new ModuleViews(set.Resolution, reader).EvaluateAsync(RepositoryLessonsModule.CurrentView,
+            new ModuleReadContext { Scope = MemoryScope.For(owner) });
+        return [.. result.Items.Select(i => (i.Record.Key, i.Text))];
     }
 
     public Task<int> CountAsync(string label, string owner) => services.GetRequiredService<INeo4jTransactionRunner>().ReadAsync(async tx =>
@@ -279,4 +365,45 @@ sealed class ApprovingUpdateJudge : IMemoryUpdateJudge
     public bool IsEnabled => true;
     public Task<IReadOnlyDictionary<string, double>> JudgeAsync(MemoryUpdateRequest request, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyDictionary<string, double>>(request.Pairs.ToDictionary(p => p.Key, _ => 0.9));
+}
+
+/// <summary>Counts the live writer's tokens.</summary>
+sealed class MeteredModel(IChatClient inner) : DelegatingChatClient(inner)
+{
+    public int Calls { get; private set; }
+    public long In { get; private set; }
+    public long Out { get; private set; }
+    public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await base.GetResponseAsync(messages, options, cancellationToken);
+        Calls++; In += response.Usage?.InputTokenCount ?? 0; Out += response.Usage?.OutputTokenCount ?? 0;
+        return response;
+    }
+}
+
+/// <summary>Records every call the shipped gate answers: the request, its probabilities and who answered.</summary>
+sealed class RecordingGate
+{
+    public List<(MemoryGateRequest Request, IReadOnlyDictionary<string, double> Probabilities, string? AnsweredBy)> Calls { get; } = [];
+
+    public IMemoryGate Over(IMemoryGate inner) => new Recorder(inner, this);
+
+    private sealed class Recorder(IMemoryGate inner, RecordingGate log) : IMemoryGate
+    {
+        public async Task<MemoryGateDecision> DecideAsync(MemoryGateRequest request, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var decision = await inner.DecideAsync(request, cancellationToken);
+                lock (log.Calls) log.Calls.Add((request, decision.Probabilities, decision.AnsweredBy));
+                return decision;
+            }
+            catch
+            {
+                lock (log.Calls) log.Calls.Add((request, new Dictionary<string, double>(), null));
+                throw;
+            }
+        }
+    }
 }
