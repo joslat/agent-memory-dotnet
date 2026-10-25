@@ -76,6 +76,13 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Enables automatic module ingestion through the statically composed module set
+    /// (<c>AddAgentMemoryModules</c>), whose <see cref="Ingestion.IModuleIngestion"/> this resolves per scope.
+    /// </summary>
+    public static IServiceCollection AddAgentMemoryFrameworkModuleIngestion(this IServiceCollection services) =>
+        services.AddAgentMemoryFrameworkModuleIngestion(sp => sp.GetRequiredService<Ingestion.IModuleIngestion>());
+
     /// <summary>Explicitly enables bounded native module selection, with optional judging.</summary>
     /// <remarks>Without this registration the provider retains direct rendering: no candidate projection,
     /// selector or observer resolution. UseJudge defaults off and never resolves IMemoryGate while off.

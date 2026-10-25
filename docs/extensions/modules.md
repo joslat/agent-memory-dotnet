@@ -856,8 +856,9 @@ services.AddAgentMemoryFrameworkModuleSelection(new ModuleSelectionOptions
 Without this registration, the provider retains its existing direct rendering and performs no
 candidate projection, selector or observer resolution. Registration snapshots contributor limits;
 it does not install a gate implementation. With `UseJudge = false` (the default), even a registered
-throwing IMemoryGate factory remains untouched. With explicit on, only eligible admitted candidates
-cause lazy resolution of the scoped configured gate. No credentials or alternate judge are discovered.
+throwing IMemoryGate factory remains untouched. With explicit on, module candidates are judged in the core
+gate's own call (next section); the provider never resolves a second, module-only judge. No credentials or
+alternate judge are discovered.
 The compiler must be bound to the intended `ModuleResolution`; unbound contributions are rejected
 by projection with an observable reason, not assigned invented module identities.
 
@@ -871,7 +872,7 @@ retained for compiled consumers. Contributor reads keep the existing owner/store
 
 An optional scoped `IModuleSelectionObserver` receives the compiled envelope and exact selection
 result, including source references, omitted items and actual judge attempts. The host lazily resolves
-both gate and observer inside the turn's application and compiler-resolved owner scope, then restores
+the observer inside the turn's application and compiler-resolved owner scope, then restores
 the prior ambient values. Store diagnostic receipts under that scope; do not use a singleton mutable
 last-result property or expose raw result data as unrestricted trace tags. Observer construction/callback
 failure is logged without private exception text and does not discard selected context; caller
@@ -880,5 +881,63 @@ cancellation still propagates. Empty module compositions do not compile, judge o
 Tests exercise actual provider DI, strict/default and stateful custom admission, provenance, negative
 judgments, outages, exact UTF-8 boundaries, opt-outs, observer failure and owner/application restoration
 using deterministic substitutes. This is native wiring proof, not real Neo4j selection acceptance or a
-model-quality measurement. No shared deadline, owned draining lease or dynamic unload is added by this
-registration; these remain explicit unfinished acceptance work.
+model-quality measurement. A statically composed process never reloads modules, so no draining lease is
+needed; dynamic loading and unloading come after 2.0.
+
+## Module candidates in the core gate's call
+
+With selection and `UseJudge` on, the extensible provider compiles and admits module views while core
+recall searches, and hands the admitted, bounded candidates to core recall as `RecallRequest.Companions`.
+`GatedMemoryContextAssembler` awaits them after its own wide search, for at most the gate's timeout, and
+then gives the judge its own full timeout: one call judges core and module memories together. Companion
+keys that are empty, repeated or equal to a core key are dropped. The gate keeps core memories by its own
+rule, exactly as without companions, and returns the companions' probabilities on
+`MemoryContext.CompanionDecisions`; the module selection applies its own threshold, item and byte limits
+and receipts to them.
+
+A companion task that fails or misses its wait costs the companions only: core is judged alone. A judge
+failure or timeout sends core to the similarity floor as before and leaves the companions undecided but
+recorded as offered (`gate.companionsOffered`), so receipts show `OfferedToJudge` for an attempted call.
+Without a judging gate (none registered, `Floor`, `Everything`, or as-of recall), `CompanionDecisions`
+stays null and module items keep their bounded admitted fallback with `ModuleJudgeOutcome.Unavailable`.
+A host with no module contributors sends no companions: its recall and context are byte-identical to
+before. `Neo4jMemoryContextProvider` exposes the hand-off as a protected `ProvideAIContextAsync` overload
+taking a `CompanionRecall`; companions are never serialized with a request.
+
+## Static module activation
+
+`AddAgentMemoryModules` composes modules for the process lifetime in one call. A module assembly carries
+its manifest and one public, parameterless `IAgentMemoryModule`; a host can also add a manifest with a
+configuration delegate. `Configure` runs at registration and only declares: one options type, context
+contributors and ingestion providers, whose factories run once per scope after activation.
+
+```csharp
+services.AddAgentMemoryModules(modules => modules
+    .UseNeo4jStore()                       // AgentMemory.Extensibility.Neo4j
+    .Add<TopicsModule>()                   // a module package: embedded manifest + IAgentMemoryModule
+    .Add(reviewsManifest, m =>
+    {
+        m.Configure<ReviewOptions>(new ReviewOptionsValidator());
+        m.AddContextContributor(c => new ViewContributor(c.Resolution, c.Reader, "open", 100, _ => new()));
+    }));
+services.AddAgentMemoryFrameworkExtensibility();
+services.AddAgentMemoryFrameworkModuleIngestion(); // writes through the set's IModuleIngestion
+```
+
+Activation is lazy and fails closed. The first resolve of `ModuleSet`, or of anything built on it (the
+compiler, contributors, `IModuleIngestion`, `IModuleStore`), resolves the composition against the host's
+actual registrations with the same `ModuleHostProfileResolver` the CLI uses: without `UseProfile`, an
+implicit one-store profile pins each added module's exact version. It then binds each module's options
+from its profile `configuration` section, or `AgentMemory:Modules:<moduleId>`, validates them with the
+module's validator and any host-registered `IValidateOptions<T>`, and freezes the set. Any problem
+throws `ModuleActivationException` listing all of them. Resolve `ModuleSet` at startup to fail there.
+Options are bound once; configuration changes need a restart.
+
+Every identity a module adds must be in its own namespace: a contributor, each of its section types and
+an ingestion provider must be `<moduleId>:<local>`. The compiler already refused identities outside every
+resolved module; activation also refuses one module speaking for another. `ModuleSet.Fingerprint` hashes
+the composition fingerprint, the store resolution, each module's implementation assembly and build id, a
+hash of its bound configuration, and the trust mode (`static-reference`: NuGet's restore-time trust in
+referenced packages). Configuration values enter only as a hash; keep secrets in host services rather
+than module options. Static composition binds one module store; signed runtime loading, reload and
+leases come after 2.0.

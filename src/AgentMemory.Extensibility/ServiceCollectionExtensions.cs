@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extensibility.Capabilities;
 using AgentMemory.Extensibility.Context;
+using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Modules;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,9 +56,67 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(resolution);
         if (!resolution.Succeeded) throw new ArgumentException("Successful metadata resolution is required.", nameof(resolution));
+        return services.AddResolvedCompiler(_ => resolution);
+    }
+
+    /// <summary>
+    /// Composes modules statically for the process lifetime (Extensibility 0.12): one call adds each module's
+    /// contributors, ingestion providers and options, and the compiler over them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Activation is lazy and fails closed.</b> The first resolve of <see cref="ModuleSet"/> (or of anything built on it:
+    /// the compiler, contributors, <see cref="IModuleIngestion"/>) resolves the composition against this host's actual
+    /// registrations, binds and validates every module's options, and freezes the set. Any problem throws
+    /// <see cref="ModuleActivationException"/> listing all of them; nothing is half-active. Resolve <see cref="ModuleSet"/> at
+    /// startup to fail there.
+    /// </para>
+    /// <para>
+    /// <b>Owned identities.</b> A contributor, its sections and an ingestion provider must be in the namespace of the module
+    /// that added them; a module cannot speak for another.
+    /// </para>
+    /// <para>
+    /// On the Agent Framework path, add <c>AddAgentMemoryFrameworkExtensibility</c> (and module ingestion or selection) as
+    /// before; they use what this registers.
+    /// </para>
+    /// </remarks>
+    public static IServiceCollection AddAgentMemoryModules(this IServiceCollection services, Action<ModuleSetBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+        if (services.Any(d => d.ServiceType == typeof(ModuleSet)))
+            throw new InvalidOperationException("A process composes one module set; AddAgentMemoryModules was already called.");
+        var builder = new ModuleSetBuilder();
+        configure(builder);
+
+        services.AddSingleton(sp => ModuleSet.Activate(builder, sp));
+        services.AddScoped<ModuleSetScope>();
+        // One registration per contributor, so hosts and the extensible provider see them as ordinary contributors.
+        for (var index = 0; index < ModuleSet.CountContributors(builder); index++)
+        {
+            var position = index;
+            services.AddScoped<IContextContributor>(sp => sp.GetRequiredService<ModuleSetScope>().Contributor(position));
+        }
+        if (builder.Store is { } store)
+            services.Replace(ServiceDescriptor.Scoped<IModuleStore>(sp => store.CreateStore(sp, sp.GetRequiredService<ModuleSet>().Resolution)));
+        services.Replace(ServiceDescriptor.Scoped<IModuleIngestion>(sp =>
+        {
+            var set = sp.GetRequiredService<ModuleSet>();
+            var providers = sp.GetRequiredService<ModuleSetScope>().Providers;
+            var stores = new Dictionary<string, IModuleStore>(StringComparer.Ordinal);
+            if (set.Store is not null)
+                foreach (var module in set.ModulesWithProviders) stores[module] = sp.GetRequiredService<IModuleStore>();
+            return new ModuleIngestion(set.Resolution, providers, stores, sp.GetRequiredService<IMemoryIsolationPolicy>(),
+                sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<ModuleIngestion>>());
+        }));
+        return services.AddResolvedCompiler(sp => sp.GetRequiredService<ModuleSet>().Resolution);
+    }
+
+    private static IServiceCollection AddResolvedCompiler(this IServiceCollection services, Func<IServiceProvider, ModuleResolution> resolution)
+    {
         services.AddAgentMemoryExtensibility();
         services.Replace(ServiceDescriptor.Scoped<IContextCompiler>(sp => new ContextCompiler(
-            resolution, sp.GetServices<IContextContributor>(), sp.GetRequiredService<IMemoryIsolationPolicy>(),
+            resolution(sp), sp.GetServices<IContextContributor>(), sp.GetRequiredService<IMemoryIsolationPolicy>(),
             sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<ContextCompiler>>())));
         return services;
     }

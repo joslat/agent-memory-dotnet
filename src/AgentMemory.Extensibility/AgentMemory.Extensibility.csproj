@@ -42,6 +42,8 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
     <!-- Host capability checks read the effective options; no configuration provider is installed. -->
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
+    <!-- Static activation binds each module's own options section. Binder only: the host owns the providers. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>

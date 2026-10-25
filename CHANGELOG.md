@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental static module activation: `AddAgentMemoryModules` composes modules once per process
+  through `IAgentMemoryModule` entries or manifests with a configuration delegate. Activation resolves
+  against the host's actual registrations, binds and validates each module's options, refuses identities
+  outside the adding module's namespace and fingerprints the set; it fails closed and never reloads.
+  `UseNeo4jStore` binds module records to the host's Neo4j database. Existing explicit wiring is unchanged.
+
+- Judge module candidates in the core retrieval gate's one call. `RecallRequest.Companions` carries them,
+  `MemoryContext.CompanionDecisions` returns their probabilities, and native module selection applies its
+  own limits to them instead of calling a separate module judge. Core memories are kept exactly as before;
+  without module contributors recall and context are byte-identical.
+
 - Wire experimental native module selection through explicit registration. Reuse the provider's
   effective admission/escaping, preserve core messages/tools, and expose scoped result observation.
   Judge and observer resolution run under the compiled owner/application scope. Existing constructors
