@@ -57,6 +57,21 @@ public sealed class KnowledgePack
     public static KnowledgePack OpenDirectory(string path, BundleTrust trust, string? pin = null) =>
         Open(BundleFiles.ReadDirectory(path), trust, pin);
 
+    /// <summary>The folder a referenced pack package copies its bundle to, under the host's output.</summary>
+    public const string ReferencedFolder = "agentmemory-packs";
+
+    /// <summary>
+    /// Opens a pack the host references as a NuGet package: its <c>buildTransitive</c> props copy the bundle to
+    /// <c>agentmemory-packs/&lt;id&gt;/</c> in the output. Verified like any other bundle.
+    /// </summary>
+    public static KnowledgePack OpenReferenced(string id, BundleTrust trust, string? pin = null)
+    {
+        if (!ModuleIdentity.IsValidModuleId(id)) throw new ArgumentException("Expected a pack id.", nameof(id));
+        var pack = OpenDirectory(Path.Combine(AppContext.BaseDirectory, ReferencedFolder, id), trust, pin);
+        if (pack.Id != id) throw new KnowledgePackException([$"The bundle in {ReferencedFolder}/{id} is the pack {pack.Id}."]);
+        return pack;
+    }
+
     /// <summary>Reads, verifies and checks the <c>agentmemory/</c> bundle inside a NuGet package, in memory.</summary>
     public static KnowledgePack OpenPackage(Stream package, BundleTrust trust, string? pin = null)
     {

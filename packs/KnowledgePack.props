@@ -1,0 +1,12 @@
+<Project>
+  <!-- Packed as buildTransitive/<PackageId>.props in every knowledge pack: copies the signed bundle to the referencing host's
+       output, agentmemory-packs/<pack id>/, where KnowledgePack.OpenReferenced(id, trust) opens and verifies it. -->
+  <PropertyGroup>
+    <_AgentMemoryPackBundle>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\agentmemory'))</_AgentMemoryPackBundle>
+    <_AgentMemoryPackId>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(_AgentMemoryPackBundle)\manifest.json')), '"id"\s*:\s*"([^"]+)"').Groups[1].Value)</_AgentMemoryPackId>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(_AgentMemoryPackBundle)\**\*" Link="agentmemory-packs\$(_AgentMemoryPackId)\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" Visible="false" Pack="false" />
+  </ItemGroup>
+</Project>

@@ -93,6 +93,7 @@ public static class CliHelp
                                      not a probe of host availability. JSON report; exit 2 on refusal.
                                      Connection options below select this one store's database.
               packs keygen --private <file> --public <file>
+              packs public-key --key <private key file> --out <file>
               packs sign <folder> --key <private key file> [--id <id> --version <v>]
               packs verify <folder> [--developer-key <file>[,<file>]] [--pin <digest>]
                                      Experimental. Sign a bundle (a files list with every file's sha256 and an

@@ -19,9 +19,10 @@ internal sealed class PacksCommand(TextWriter output)
             return cli.Subcommand?.ToLowerInvariant() switch
             {
                 "keygen" => KeyGen(cli.Get("private"), cli.Get("public")),
+                "public-key" => PublicKey(cli.Get("key"), cli.Get("out")),
                 "sign" => Sign(cli.Positionals.ElementAtOrDefault(1), cli.Get("key"), cli.Get("id"), cli.Get("version")),
                 "verify" => Verify(cli.Positionals.ElementAtOrDefault(1), cli.Get("developer-key"), cli.Get("pin")),
-                _ => Usage("packs needs keygen, sign or verify."),
+                _ => Usage("packs needs keygen, public-key, sign or verify."),
             };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException or JsonException
@@ -40,6 +41,16 @@ internal sealed class PacksCommand(TextWriter output)
         File.WriteAllText(privatePath, key.PrivateKeyPem);
         File.WriteAllText(publicPath, key.PublicKeyPem);
         output.WriteLine($"packs keygen: key id {key.KeyId}. Keep {privatePath} out of source control; hosts trust {publicPath}.");
+        return 0;
+    }
+
+    private int PublicKey(string? keyPath, string? outPath)
+    {
+        if (keyPath is null || outPath is null) return Usage("packs public-key needs --key <private key file> and --out <file>.");
+        if (File.Exists(outPath)) return Usage("packs public-key never overwrites a file.");
+        var publicPem = PublicPemOf(File.ReadAllText(keyPath));
+        File.WriteAllText(outPath, publicPem);
+        output.WriteLine($"packs public-key: key id {BundleSigning.KeyIdOf(publicPem)}.");
         return 0;
     }
 

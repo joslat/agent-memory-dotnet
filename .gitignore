@@ -435,3 +435,7 @@ FodyWeavers.xsd
 
 # DemoBrain: Avalonia brain visualization prototype - local-only for now (not part of the published repo)
 /demobrain/
+
+# Knowledge pack signatures are written at pack time (eng/pack-knowledge-packs.py), never committed.
+packs/**/agentmemory/agentmemory.module.files.json
+packs/**/agentmemory/agentmemory.module.sig
