@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
@@ -17,12 +18,14 @@ internal sealed class ContextResource
      Description("Returns assembled memory context for a given session, including recent messages, relevant entities, facts, and preferences.")]
     public static async Task<string> GetContext(
         IMemoryContextAssembler contextAssembler,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Session identifier")] string session_id,
         [Description("Query text to match relevant context")] string? query = null,
         [Description("Maximum number of recent messages to include")] int maxRecentMessages = 20,
         [Description("Owner/user identifier (optional). When set, the recalled entities/facts/preferences are confined to that owner's plus shared (un-owned) memory; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        userId = McpOwnerPin.ForResource(options.Value, userId);
         // R1: scope the recall to the owner so a multi-tenant client can't read other owners' memory
         // content via the context resource. null userId ⇒ unscoped (admin/single-tenant).
         var request = new RecallRequest

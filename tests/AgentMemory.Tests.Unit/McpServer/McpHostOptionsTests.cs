@@ -53,6 +53,51 @@ public sealed class McpHostOptionsTests
     private static McpHostOptions Parse(string[] args, Func<string, string?> environment) =>
         McpHostOptions.Parse(args, environment);
 
+    // ── owner pin, HTTP exposure, extraction ─────────────────────────────
+
+    [Fact]
+    public void TheOwnerComesFromTheFlagOverTheEnvironmentAndIsUnsetByDefault()
+    {
+        Parse([], Env()).OwnerId.Should().BeNull("without a pin the caller's userId is used, as before");
+        Parse([], Env(("AGENT_MEMORY_MCP_OWNER", " alice "))).OwnerId.Should().Be("alice");
+        Parse(["--owner", "bob"], Env(("AGENT_MEMORY_MCP_OWNER", "alice"))).OwnerId.Should().Be("bob");
+        Parse([], Env(("AGENT_MEMORY_MCP_OWNER", "  "))).OwnerId.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("http://localhost:5233", false)]
+    [InlineData("http://127.0.0.1:5233", false)]
+    [InlineData("http://[::1]:5233", false)]
+    [InlineData("http://0.0.0.0:5233", true)]
+    [InlineData("http://memory.example.org:5233", true)]
+    public void OnlyAnHttpServerOffLoopbackIsExposed(string url, bool exposed)
+    {
+        Parse(["--transport", "http", "--url", url], Env()).HttpIsExposed.Should().Be(exposed);
+        Parse(["--url", url], Env()).HttpIsExposed.Should().BeFalse("stdio has no listener");
+    }
+
+    [Fact]
+    public void WithAChatModelTheExtractionToolsUseTheWriter()
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        McpHostProgram.ConfigureExtraction(services, Parse([], Env()), out var diagnostic).Should().BeTrue();
+        diagnostic.Should().BeNull();
+        services.Should().Contain(d => d.ServiceType == typeof(Microsoft.Extensions.AI.IChatClient));
+        services.Should().Contain(d => d.ServiceType == typeof(AgentMemory.Abstractions.Services.IMemoryWriter),
+            "the Recommended extraction preset writes with the store-aware writer");
+    }
+
+    [Fact]
+    public void WithoutAChatModelExtractionIsOffAndSaysWhy()
+    {
+        var options = Parse([], Env());
+        options = options with { Inference = options.Inference with { Model = "", ExtractionModel = null } };
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        McpHostProgram.ConfigureExtraction(services, options, out var diagnostic).Should().BeFalse();
+        diagnostic.Should().Contain("extraction");
+        services.Should().NotContain(d => d.ServiceType == typeof(Microsoft.Extensions.AI.IChatClient));
+    }
+
     // ── defaults ──────────────────────────────────────────────────────────
 
     [Fact]

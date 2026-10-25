@@ -16,10 +16,34 @@ public sealed class AgentMemoryMcpOptions
     public string ServerVersion { get; set; } = "1.0.0";
 
     /// <summary>
-    /// Whether to enable the graph_query tool (allows arbitrary Cypher execution).
-    /// Disabled by default for security.
+    /// Whether to list the graph tools (<see cref="McpToolAccess.GraphTools"/>): <c>graph_query</c>, which runs arbitrary
+    /// Cypher, and the whole-graph export and duplicate scan. Disabled by default for security; when disabled the tools
+    /// are not listed at all.
     /// </summary>
     public bool EnableGraphQuery { get; set; }
+
+    /// <summary>
+    /// Whether to list the extraction tools (<see cref="McpToolAccess.ExtractionTools"/>). On by default. A host with no
+    /// extraction model sets it false: with only the stub extractors the tools would report success and store nothing.
+    /// </summary>
+    public bool EnableExtraction { get; set; } = true;
+
+    /// <summary>
+    /// Pins every call to one owner. Null (the default) keeps the caller-supplied <c>userId</c>, where an omitted one
+    /// means shared memory.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// When set, <c>userId</c> disappears from the listed tool schemas, every tool that takes it runs as this owner,
+    /// a call that names another owner is refused, and the list resources read this owner's memory. The graph tools
+    /// are not listed, because none of them can be confined to one owner.
+    /// </para>
+    /// <para>
+    /// Tools that address data by a handle (a trace or step id) or by a session id are not owner-scoped and stay
+    /// as they are; give each owner's sessions their own ids.
+    /// </para>
+    /// </remarks>
+    public string? OwnerId { get; set; }
 
     /// <summary>
     /// Default session ID to use when none is provided by the client.

@@ -13,6 +13,8 @@ COPY Directory.Build.props ./
 COPY global.json ./
 COPY README.md ./
 COPY resources/ ./resources/
+# Source files the projects link from outside src/ (module bookkeeping, migration lint).
+COPY shared/ ./shared/
 COPY src/ ./src/
 COPY tools/AgentMemory.McpHost/ ./tools/AgentMemory.McpHost/
 

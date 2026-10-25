@@ -6,6 +6,8 @@
 !README.md
 !resources/
 !resources/**
+!shared/
+!shared/**
 !src/
 !src/**
 !tools/

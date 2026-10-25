@@ -21,6 +21,10 @@ public sealed class MemoryResourcesTests
     private static readonly IMemoryIsolationPolicy IsolationPolicy =
         new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance);
 
+    // No owner pinned: the caller's userId reaches the query as before.
+    private static readonly IOptions<AgentMemory.McpServer.AgentMemoryMcpOptions> NoPin =
+        Options.Create(new AgentMemory.McpServer.AgentMemoryMcpOptions());
+
     // ═══════════════════════════════
     //  MemoryStatusResource
     // ═══════════════════════════════
@@ -88,7 +92,7 @@ public sealed class MemoryResourcesTests
             CreateEntityRow("e2", "Bob", "PERSON", 0)
         });
 
-        var result = await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy);
+        var result = await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, NoPin);
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Object);
@@ -102,7 +106,7 @@ public sealed class MemoryResourcesTests
             CreateEntityRow("e1", "Alice", "PERSON", 2)
         });
 
-        var result = await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy);
+        var result = await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, NoPin);
 
         var doc = JsonDocument.Parse(result);
         var entities = doc.RootElement.GetProperty("entities");
@@ -118,7 +122,7 @@ public sealed class MemoryResourcesTests
     {
         SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, limit: 10, offset: 5);
+        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, NoPin, limit: 10, offset: 5);
 
         var doc = await CaptureEntityListResult(10, 5);
         doc.RootElement.GetProperty("limit").GetInt32().Should().Be(10);
@@ -130,7 +134,7 @@ public sealed class MemoryResourcesTests
     {
         SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        var result = await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy);
+        var result = await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, NoPin);
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("entities").GetArrayLength().Should().Be(0);
@@ -141,7 +145,7 @@ public sealed class MemoryResourcesTests
     {
         SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, userId: "alice");
+        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, NoPin, userId: "alice");
 
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Is<string>(q => q.Contains("(e.owner_id = $ownerId OR e.owner_id IS NULL)")),
@@ -150,11 +154,35 @@ public sealed class MemoryResourcesTests
     }
 
     [Fact]
+    public async Task EntityList_OnAPinnedServer_IsScopedToThePinnedOwnerWithoutAUserId()
+    {
+        // No URI variable carries userId to a resource, so before the pin a client always read every owner.
+        SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
+        var pinned = Options.Create(new AgentMemory.McpServer.AgentMemoryMcpOptions { OwnerId = "alice" });
+
+        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, pinned);
+
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => q.Contains("(e.owner_id = $ownerId OR e.owner_id IS NULL)")),
+            Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && (string?)p["ownerId"] == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EntityList_OnAPinnedServer_RefusesAnotherOwner()
+    {
+        var pinned = Options.Create(new AgentMemory.McpServer.AgentMemoryMcpOptions { OwnerId = "alice" });
+        var act = () => EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, pinned, userId: "bob");
+        await act.Should().ThrowAsync<ModelContextProtocol.McpException>();
+        await _graphQueryService.DidNotReceiveWithAnyArgs().QueryAsync(default!, default, default);
+    }
+
+    [Fact]
     public async Task EntityList_WithoutUserId_IsNotOwnerScoped()
     {
         SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy);
+        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, NoPin);
 
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Is<string>(q => !q.Contains("owner_id")),
@@ -171,7 +199,7 @@ public sealed class MemoryResourcesTests
     {
         SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        await PreferenceListResource.GetPreferences(_graphQueryService, IsolationPolicy, userId: "alice");
+        await PreferenceListResource.GetPreferences(_graphQueryService, IsolationPolicy, NoPin, userId: "alice");
 
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Is<string>(q => q.Contains("(p.owner_id = $ownerId OR p.owner_id IS NULL)")),
@@ -184,7 +212,7 @@ public sealed class MemoryResourcesTests
     {
         SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        await PreferenceListResource.GetPreferences(_graphQueryService, IsolationPolicy);
+        await PreferenceListResource.GetPreferences(_graphQueryService, IsolationPolicy, NoPin);
 
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Is<string>(q => !q.Contains("owner_id")),
@@ -205,7 +233,7 @@ public sealed class MemoryResourcesTests
                 }
             });
 
-        var result = await PreferenceListResource.GetPreferences(_graphQueryService, IsolationPolicy);
+        var result = await PreferenceListResource.GetPreferences(_graphQueryService, IsolationPolicy, NoPin);
 
         var doc = JsonDocument.Parse(result);
         var prefs = doc.RootElement.GetProperty("preferences");
@@ -226,7 +254,7 @@ public sealed class MemoryResourcesTests
             CreateConversationRow("c1", "sess-1", "2025-01-15T10:00:00Z", 5)
         });
 
-        var result = await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy);
+        var result = await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy, NoPin);
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Object);
@@ -240,7 +268,7 @@ public sealed class MemoryResourcesTests
             CreateConversationRow("c1", "sess-1", "2025-01-15T10:00:00Z", 5)
         });
 
-        var result = await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy);
+        var result = await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy, NoPin);
 
         var doc = JsonDocument.Parse(result);
         var convs = doc.RootElement.GetProperty("conversations");
@@ -255,7 +283,7 @@ public sealed class MemoryResourcesTests
     {
         SetupConversationQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        var result = await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy, limit: 5);
+        var result = await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy, NoPin, limit: 5);
 
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Any<string>(),
@@ -268,7 +296,7 @@ public sealed class MemoryResourcesTests
     {
         SetupConversationQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy, userId: "alice");
+        await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy, NoPin, userId: "alice");
 
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Is<string>(q => q.Contains("(c.user_id = $userId OR c.user_id IS NULL)")),
@@ -281,7 +309,7 @@ public sealed class MemoryResourcesTests
     {
         SetupConversationQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy);
+        await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy, NoPin);
 
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Is<string>(q => !q.Contains("user_id")),
@@ -300,7 +328,7 @@ public sealed class MemoryResourcesTests
         assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(new MemoryContext { SessionId = "s1", AssembledAtUtc = new DateTimeOffset(2025, 6, 1, 0, 0, 0, TimeSpan.Zero) });
 
-        await ContextResource.GetContext(assembler, "s1", query: "hello", userId: "alice");
+        await ContextResource.GetContext(assembler, NoPin, "s1", query: "hello", userId: "alice");
 
         await assembler.Received(1).AssembleContextAsync(
             Arg.Is<RecallRequest>(r => r.UserId == "alice" && r.SessionId == "s1"),
@@ -314,7 +342,7 @@ public sealed class MemoryResourcesTests
         assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(new MemoryContext { SessionId = "s1", AssembledAtUtc = new DateTimeOffset(2025, 6, 1, 0, 0, 0, TimeSpan.Zero) });
 
-        await ContextResource.GetContext(assembler, "s1", query: "hello");
+        await ContextResource.GetContext(assembler, NoPin, "s1", query: "hello");
 
         await assembler.Received(1).AssembleContextAsync(
             Arg.Is<RecallRequest>(r => r.UserId == null),
@@ -328,7 +356,7 @@ public sealed class MemoryResourcesTests
     {
         SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, type: "PERSON", userId: "alice");
+        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, NoPin, type: "PERSON", userId: "alice");
 
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Is<string>(q => q.Contains("e.type = $type")
@@ -343,7 +371,7 @@ public sealed class MemoryResourcesTests
     {
         SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, userId: "");
+        await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, NoPin, userId: "");
 
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Is<string>(q => !q.Contains("owner_id")),
@@ -356,7 +384,7 @@ public sealed class MemoryResourcesTests
     {
         SetupConversationQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
 
-        var result = await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy);
+        var result = await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy, NoPin);
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("conversations").GetArrayLength().Should().Be(0);
@@ -470,7 +498,7 @@ public sealed class MemoryResourcesTests
 
     private async Task<JsonDocument> CaptureEntityListResult(int limit, int offset)
     {
-        var result = await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, limit: limit, offset: offset);
+        var result = await EntityListResource.GetEntities(_graphQueryService, IsolationPolicy, NoPin, limit: limit, offset: offset);
         return JsonDocument.Parse(result);
     }
 

@@ -57,6 +57,18 @@ internal sealed record McpHostOptions
     internal bool Bootstrap { get; init; } = true;
     internal LogLevel LogLevel { get; init; } = LogLevel.Information;
 
+    /// <summary>The owner every call runs as, or null for the caller's <c>userId</c> (omitted = shared).</summary>
+    internal string? OwnerId { get; init; }
+
+    /// <summary>
+    /// Whether an HTTP server on <see cref="HttpUrl"/> can be reached from other machines. HTTP has no authentication.
+    /// </summary>
+    internal bool HttpIsExposed => Transport == McpHostTransport.Http && !IsLoopback(HttpUrl);
+
+    internal static bool IsLoopback(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && (uri.IsLoopback || string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase));
+
     /// <summary>
     /// Memory behaviour for this server (25.4). Defaults are <see cref="MemoryOptions"/>'s own.
     /// </summary>
@@ -78,7 +90,7 @@ internal sealed record McpHostOptions
     private static readonly string[] Known =
     [
         "--transport", "--url", "--server-name", "--read-only", "--enable-graph-query",
-        "--no-bootstrap", "--log-level", "--help", "-h", "/?",
+        "--no-bootstrap", "--log-level", "--owner", "--help", "-h", "/?",
     ];
 
     internal static McpHostOptions Parse(string[] args, Func<string, string?> environment)
@@ -158,6 +170,7 @@ internal sealed record McpHostOptions
                 || Boolean(environment("AGENT_MEMORY_MCP_ENABLE_GRAPH_QUERY")),
             Bootstrap = !Flag("--no-bootstrap") && !Boolean(environment("AGENT_MEMORY_MCP_NO_BOOTSTRAP")),
             LogLevel = ParseLogLevel(Value("--log-level") ?? environment("AGENT_MEMORY_MCP_LOG_LEVEL")),
+            OwnerId = FirstNonEmpty(Value("--owner"), environment("AGENT_MEMORY_MCP_OWNER"))?.Trim(),
             Memory = ParseMemory(environment),
         };
     }
@@ -250,7 +263,7 @@ internal sealed record McpHostOptions
 
           agent-memory-mcp [--transport stdio|http] [--url http://localhost:5233]
                            [--read-only] [--enable-graph-query] [--no-bootstrap]
-                           [--server-name agent-memory] [--log-level information]
+                           [--owner <id>] [--server-name agent-memory] [--log-level information]
           agent-memory-mcp --coding-config <private.json>
           agent-memory-mcp --coding-hook <private-client.json>  (configured client hook JSON on stdin)
 
@@ -292,6 +305,7 @@ internal sealed record McpHostOptions
           AGENT_MEMORY_MCP_ENABLE_GRAPH_QUERY unset
           AGENT_MEMORY_MCP_NO_BOOTSTRAP      unset
           AGENT_MEMORY_MCP_LOG_LEVEL         information
+          AGENT_MEMORY_MCP_OWNER             unset (the caller's userId; omitted = shared)
 
         Memory tuning (environment only; defaults are the library's):
           AGENT_MEMORY_MCP_RECALL_FACTS      10
@@ -305,19 +319,31 @@ internal sealed record McpHostOptions
 
         --read-only removes every tool that writes from the server's tool list entirely, rather than
         refusing them when called: a tool a client can see is one a model will try. {0} of the {1}
-        tools remain.
+        tools remain ({2} with --enable-graph-query).
 
-        --enable-graph-query exposes graph_query, which runs arbitrary Cypher. It is off by default and
-        is withheld under --read-only regardless, because a mode guaranteeing "nothing changes" must
-        not rest on a query parser.
+        --enable-graph-query lists graph_query, which runs arbitrary Cypher, and the whole-graph
+        memory_export_graph and memory_find_duplicates. They are off by default and not listed at all;
+        graph_query is withheld under --read-only regardless, because a mode guaranteeing "nothing
+        changes" must not rest on a query parser.
+
+        --owner pins every call to one owner: userId leaves the tool schemas, a call naming another
+        owner is refused, the list resources read that owner's memory, and the graph tools are not
+        listed. Without it the model chooses userId, and an omitted one means shared memory.
+
+        extract_and_persist and memory_extract_session use the store-aware writer when the provider
+        has a chat model, and are not listed when it has none.
+
+        HTTP has no authentication. Off localhost the server warns at startup; publish the port on
+        localhost only, or put it behind an authenticating proxy.
 
         Schema migrations run at startup unless --no-bootstrap. A missing vector index returns no rows
         rather than an error, so a server started without them looks healthy and answers nothing.
 
         Logs go to stderr on both transports; stdout is the JSON-RPC stream on stdio.
         """,
-        McpToolAccess.ReadTools.Count,
-        McpToolAccess.ReadTools.Count + McpToolAccess.WriteTools.Count);
+        McpToolAccess.ReadTools.Except(McpToolAccess.GraphTools).Count(),
+        McpToolAccess.ReadTools.Count + McpToolAccess.WriteTools.Count,
+        McpToolAccess.ReadTools.Count);
 }
 
 /// <summary>The version this build reports in the MCP handshake.</summary>

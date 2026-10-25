@@ -32,6 +32,10 @@ namespace AgentMemory.Tests.Integration.McpServer;
 [Trait("Category", "Integration")]
 public class McpResourceIsolationIntegrationTests : IAsyncLifetime
 {
+    // No owner pinned: the caller's userId reaches the query as before.
+    private static readonly IOptions<AgentMemory.McpServer.AgentMemoryMcpOptions> NoPin =
+        Options.Create(new AgentMemory.McpServer.AgentMemoryMcpOptions());
+
     private readonly Neo4jIntegrationFixture _fixture;
     private readonly Neo4jGraphQueryService _graph;
     private readonly Neo4jEntityRepository _entities;
@@ -88,7 +92,7 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "BobCo", Type = "Organization", OwnerId = "bob", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
         await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "SharedCo", Type = "Organization", OwnerId = null, Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
 
-        var names = NamesFrom(await EntityListResource.GetEntities(_graph, CreatePolicy(), userId: "alice"), "entities", "name");
+        var names = NamesFrom(await EntityListResource.GetEntities(_graph, CreatePolicy(), NoPin, userId: "alice"), "entities", "name");
 
         names.Should().Contain("AliceCo").And.Contain("SharedCo").And.NotContain("BobCo");
     }
@@ -99,7 +103,7 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "AliceCo", Type = "Organization", OwnerId = "alice", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
         await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "BobCo", Type = "Organization", OwnerId = "bob", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
 
-        var names = NamesFrom(await EntityListResource.GetEntities(_graph, CreatePolicy()), "entities", "name");
+        var names = NamesFrom(await EntityListResource.GetEntities(_graph, CreatePolicy(), NoPin), "entities", "name");
 
         names.Should().Contain("AliceCo").And.Contain("BobCo");
     }
@@ -111,7 +115,7 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         // assert via zero rows created/read is not meaningful for a read, so instead assert the graph
         // query service is never invoked at all (a spy would be needed to prove that precisely); here we
         // assert the throw itself, which is the externally-observable contract the issue asks for.
-        var act = () => EntityListResource.GetEntities(_graph, CreatePolicy(MemoryIsolationMode.StrictMultiTenant));
+        var act = () => EntityListResource.GetEntities(_graph, CreatePolicy(MemoryIsolationMode.StrictMultiTenant), NoPin);
 
         await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
     }
@@ -123,7 +127,7 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         await _prefs.UpsertAsync(new Preference { PreferenceId = $"p-{Guid.NewGuid():N}", Category = "style", PreferenceText = "bob light mode", OwnerId = "bob", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
         await _prefs.UpsertAsync(new Preference { PreferenceId = $"p-{Guid.NewGuid():N}", Category = "style", PreferenceText = "shared palette", OwnerId = null, Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
 
-        var texts = NamesFrom(await PreferenceListResource.GetPreferences(_graph, CreatePolicy(), userId: "alice"), "preferences", "preference");
+        var texts = NamesFrom(await PreferenceListResource.GetPreferences(_graph, CreatePolicy(), NoPin, userId: "alice"), "preferences", "preference");
 
         texts.Should().Contain("alice dark mode").And.Contain("shared palette").And.NotContain("bob light mode");
     }
@@ -131,7 +135,7 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task PreferenceListResource_StrictMultiTenant_Unscoped_ThrowsBeforeTouchingNeo4j()
     {
-        var act = () => PreferenceListResource.GetPreferences(_graph, CreatePolicy(MemoryIsolationMode.StrictMultiTenant));
+        var act = () => PreferenceListResource.GetPreferences(_graph, CreatePolicy(MemoryIsolationMode.StrictMultiTenant), NoPin);
 
         await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
     }
@@ -143,7 +147,7 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         await SeedConversationAsync("conv-bob", "bob");
         await SeedConversationAsync("conv-shared", null);
 
-        var ids = NamesFrom(await ConversationListResource.GetConversations(_graph, CreatePolicy(), userId: "alice"), "conversations", "id");
+        var ids = NamesFrom(await ConversationListResource.GetConversations(_graph, CreatePolicy(), NoPin, userId: "alice"), "conversations", "id");
 
         ids.Should().Contain("conv-alice").And.Contain("conv-shared").And.NotContain("conv-bob");
     }
@@ -151,7 +155,7 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task ConversationListResource_StrictMultiTenant_Unscoped_ThrowsBeforeTouchingNeo4j()
     {
-        var act = () => ConversationListResource.GetConversations(_graph, CreatePolicy(MemoryIsolationMode.StrictMultiTenant));
+        var act = () => ConversationListResource.GetConversations(_graph, CreatePolicy(MemoryIsolationMode.StrictMultiTenant), NoPin);
 
         await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
     }
@@ -223,7 +227,7 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         using var scope = _provider.CreateScope();
         var assembler = scope.ServiceProvider.GetRequiredService<IMemoryContextAssembler>();
 
-        var json = await ContextResource.GetContext(assembler, session_id: "ctx-session", query: EmbeddingMarker, userId: userId);
+        var json = await ContextResource.GetContext(assembler, NoPin, session_id: "ctx-session", query: EmbeddingMarker, userId: userId);
         return NamesFrom(json, "entities", "name");
     }
 

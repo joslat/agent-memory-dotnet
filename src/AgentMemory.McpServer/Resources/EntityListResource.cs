@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
@@ -17,12 +18,14 @@ internal sealed class EntityListResource
     public static async Task<string> GetEntities(
         IGraphQueryService graphQueryService,
         IMemoryIsolationPolicy isolationPolicy,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Maximum number of entities to return")] int limit = 50,
         [Description("Number of entities to skip")] int offset = 0,
         [Description("Filter by entity type (e.g., PERSON, LOCATION)")] string? type = null,
         [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) entities; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads (R1). The host, not the model or client, must be the source of this value.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        userId = McpOwnerPin.ForResource(options.Value, userId);
         // Clamp pagination: a negative SKIP/LIMIT is a Neo4j error and a huge limit is a resource-exhaustion
         // vector. Clamping is friendlier than throwing for a list endpoint.
         limit = Math.Clamp(limit, 1, 1000);

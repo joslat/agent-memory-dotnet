@@ -69,6 +69,30 @@ public static class McpToolAccess
         "memory_lineage",
     };
 
+    /// <summary>Tools that read the whole graph regardless of owner.</summary>
+    /// <remarks>
+    /// Listed only when <see cref="AgentMemoryMcpOptions.EnableGraphQuery"/> is set, and never on a server pinned to
+    /// one owner (<see cref="AgentMemoryMcpOptions.OwnerId"/>), because none of them can be confined to that owner.
+    /// They used to be listed always and refuse every call unless graph query was enabled.
+    /// </remarks>
+    public static IReadOnlySet<string> GraphTools { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "graph_query",
+        "memory_export_graph",
+        "memory_find_duplicates",
+    };
+
+    /// <summary>Tools that run the extraction model.</summary>
+    /// <remarks>
+    /// Withheld when <see cref="AgentMemoryMcpOptions.EnableExtraction"/> is false: a host with no extraction model
+    /// has only the stub extractors, and these tools would answer successfully while storing nothing.
+    /// </remarks>
+    public static IReadOnlySet<string> ExtractionTools { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "extract_and_persist",
+        "memory_extract_session",
+    };
+
     /// <summary>Whether <paramref name="toolName"/> may run on a read-only server.</summary>
     /// <remarks>
     /// An unrecognised name is treated as a write. A tool this class has never heard of is a tool

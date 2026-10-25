@@ -1,6 +1,7 @@
 ﻿using AgentMemory.Abstractions.Services;
 using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
+using AgentMemory.Extraction.Llm;
 using AgentMemory.Gate;
 using AgentMemory.McpServer;
 using AgentMemory.Neo4j.Infrastructure;
@@ -17,7 +18,7 @@ namespace AgentMemory.McpHost;
 
 
 /// <summary>
-/// The turnkey MCP server: 27 memory tools over stdio or HTTP, configured entirely by environment.
+/// The turnkey MCP server: the memory tools over stdio or HTTP, configured entirely by environment.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -38,6 +39,20 @@ internal static class McpHostProgram
     {
         var section = configuration.GetSection(GateServiceCollectionExtensions.SectionName);
         if (section.Exists()) services.AddAgentMemoryGate(section);
+    }
+
+    /// <summary>
+    /// Registers the provider's chat model and the store-aware writer for the extraction tools, when there is a model.
+    /// </summary>
+    /// <returns>Whether extraction is available; when false, <paramref name="diagnostic"/> says why.</returns>
+    internal static bool ConfigureExtraction(IServiceCollection services, McpHostOptions options, out string? diagnostic)
+    {
+        if (!AgentMemory.Inference.InferenceClientFactory.TryCreateChatClient(options.Inference, "extraction",
+                out var chat, out diagnostic, model: options.Inference.EffectiveExtractionModel))
+            return false;
+        services.AddSingleton<IChatClient>(chat);
+        services.AddLlmExtraction(o => o.ApplyRecommended());
+        return true;
     }
 
     internal static async Task<int> RunAsync(string[] args)
@@ -101,6 +116,11 @@ internal static class McpHostProgram
                 ? embeddingGenerator
                 : throw new InvalidOperationException(embeddingDiagnostic));
 
+        // The extraction tools used to run on the stub extractors here, because nothing registered a model:
+        // they reported success and stored nothing. With a chat model they use the store-aware writer, as the
+        // other hosts do; without one they are not listed.
+        var extraction = ConfigureExtraction(builder.Services, options, out var extractionDiagnostic);
+
         var mcp = builder.Services.AddMcpServer();
         if (options.Transport == McpHostTransport.Http) mcp.WithHttpTransport();
         else mcp.WithStdioServerTransport();
@@ -111,6 +131,8 @@ internal static class McpHostProgram
                 mcpOptions.ServerVersion = ThisAssembly.Version;
                 mcpOptions.EnableGraphQuery = options.EnableGraphQuery;
                 mcpOptions.ReadOnly = options.ReadOnly;
+                mcpOptions.EnableExtraction = extraction;
+                mcpOptions.OwnerId = options.OwnerId;
             })
             .AddAgentMemoryMcpPrompts()
             .AddAgentMemoryMcpResources();
@@ -123,8 +145,15 @@ internal static class McpHostProgram
         Console.Error.WriteLine(
             $"agent-memory-mcp {ThisAssembly.Version}: {options.Transport.ToString().ToLowerInvariant()} transport, "
             + $"{(options.ReadOnly ? "READ-ONLY" : "read-write")}, "
-            + $"graph_query {(options.EnableGraphQuery ? "enabled" : "disabled")}, "
+            + $"graph tools {(options.EnableGraphQuery && options.OwnerId is null ? "enabled" : "disabled")}, "
+            + $"extraction {(extraction ? "writer" : "off (" + extractionDiagnostic + ")")}, "
+            + $"owner {(options.OwnerId is null ? "from each call" : "pinned")}, "
             + $"neo4j {options.Neo4jUri}/{options.Neo4jDatabase}.");
+        if (options.HttpIsExposed)
+            Console.Error.WriteLine(
+                $"agent-memory-mcp: warning: HTTP on {options.HttpUrl} has no authentication. Anyone who can reach this "
+                + "port can read and change this memory. Publish it on localhost only (the bundled docker-compose.yml "
+                + "does), or put it behind an authenticating proxy.");
 
         if (options.Transport == McpHostTransport.Http)
         {

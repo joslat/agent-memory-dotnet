@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
@@ -17,10 +18,12 @@ internal sealed class ConversationListResource
     public static async Task<string> GetConversations(
         IGraphQueryService graphQueryService,
         IMemoryIsolationPolicy isolationPolicy,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Maximum number of conversations to return")] int limit = 20,
         [Description("Owner/user identifier (optional). When set, returns only that user's (plus un-attributed) conversations; null = all users (unscoped/admin). Set it in multi-tenant deployments to avoid leaking other users' session ids (R1). The host, not the model or client, must be the source of this value.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        userId = McpOwnerPin.ForResource(options.Value, userId);
         limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
 
         // Conversations carry user_id (not owner_id). Scope to the user's own + un-attributed rows.

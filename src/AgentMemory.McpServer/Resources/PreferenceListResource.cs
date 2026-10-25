@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
@@ -17,11 +18,13 @@ internal sealed class PreferenceListResource
     public static async Task<string> GetPreferences(
         IGraphQueryService graphQueryService,
         IMemoryIsolationPolicy isolationPolicy,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Filter by category (optional)")] string? category = null,
         [Description("Maximum number of preferences to return")] int limit = 50,
         [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) preferences; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads of preference text (R1). The host, not the model or client, must be the source of this value.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        userId = McpOwnerPin.ForResource(options.Value, userId);
         limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
 
         // R1: owner-scope the listing so a multi-tenant client can't read other owners' preferences
