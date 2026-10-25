@@ -67,6 +67,12 @@ public sealed class Neo4jModuleReader : IModuleReader
                     ["shared"] = scope.IncludeShared, ["key"] = admitted.Key, ["asOf"] = frozenContext.SystemAsOfUtc?.ToString("O"), ["take"] = 128 };
                 for (var i = 0; i < admitted.Where.Count; i++) parameters["f" + i] = Parameter(admitted.Where[i].Value);
                 var statement = ModuleReadQueries.Records(admitted, type);
+                if (admitted.Search is { } search)
+                {
+                    parameters["index"] = ModuleSchemaObjects.SearchIndexName(type.Name, search.ViewId);
+                    parameters["search"] = string.Join(" ", search.Terms);
+                    statement = ModuleReadQueries.Search(admitted, type);
+                }
                 while (records.Count < admitted.Limit)
                 {
                     parameters["skip"] = skip;

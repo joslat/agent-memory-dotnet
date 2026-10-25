@@ -24,16 +24,27 @@ public static class ModuleQueryAdmission
             return Refused("Query requires a positive bounded limit, nonempty optional key and at most 64 non-null filters.");
         if (query.Selection == ModuleRecordSelection.History && query.Key is null)
             return Refused("History queries require one exact logical key.");
+        ModuleViewSearch? search = null;
+        if (query.Search is { } wanted)
+        {
+            var view = target.Views.SingleOrDefault(v => v.Id == wanted.ViewId);
+            if (view?.Search is null || view.Type != query.Type)
+                return Refused("Search requires a declared search view of the queried type.");
+            if (wanted.Terms is not { Count: > 0 and <= ModuleSearch.MaximumTerms } || !wanted.Terms.All(ModuleSearch.IsTerm))
+                return Refused($"Search requires 1 to {ModuleSearch.MaximumTerms} lowercase word terms.");
+            search = view.Search;
+        }
         // Reuse the manifest's typed view grammar. Frozen metadata is already valid; replacing its
         // views validates exactly the caller's query without creating a second operator/type policy.
         var errors = (target with { Views = [new() { Id = "query", Type = query.Type, Selection = query.Selection,
-            Where = query.Where, OrderBy = query.OrderBy, Limit = query.Limit }] }).Validate();
+            Where = query.Where, OrderBy = query.OrderBy, Limit = query.Limit, Search = search }] }).Validate();
         if (errors.Count != 0) return new() { Status = ModuleReadStatus.Refused, Errors = errors };
         try
         {
             var links = CaptureLinks(target, query.Type, query.Links);
             var filters = query.Where.Select(f => f with { Value = Resolve(f.Value, context, nowUtc) }).ToList().AsReadOnly();
-            return new() { Status = ModuleReadStatus.Succeeded, Query = query with { Links = links, Where = filters, OrderBy = query.OrderBy is null ? null : query.OrderBy with { } } };
+            return new() { Status = ModuleReadStatus.Succeeded, Query = query with { Links = links, Where = filters, OrderBy = query.OrderBy is null ? null : query.OrderBy with { },
+                Search = query.Search is null ? null : query.Search with { Terms = query.Search.Terms.ToList().AsReadOnly() } } };
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         { return Refused("Filter cannot be captured: " + exception.Message); }

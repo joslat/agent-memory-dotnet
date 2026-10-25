@@ -26,12 +26,16 @@ public static class ModuleSchemaObjects
             var properties = view.Search!.Properties ?? [];
             yield return new()
             {
-                Name = ModuleManifestValidator.SchemaName(view.Type ?? "") + "_" + ModuleManifestValidator.SchemaName(view.Id ?? "") + "_search",
+                Name = SearchIndexName(view.Type ?? "", view.Id ?? ""),
                 Label = view.Type ?? "", Property = properties.FirstOrDefault() ?? "", Properties = properties,
                 Kind = ModuleSchemaObjectKind.FullTextIndex
             };
         }
     }
+
+    /// <summary>The full-text index name of a search view: its type's and view's schema names, then <c>_search</c>.</summary>
+    public static string SearchIndexName(string type, string viewId) =>
+        ModuleManifestValidator.SchemaName(type) + "_" + ModuleManifestValidator.SchemaName(viewId) + "_search";
 
     internal static IEnumerable<ModuleSchemaObject> ForType(ModuleType type)
     {

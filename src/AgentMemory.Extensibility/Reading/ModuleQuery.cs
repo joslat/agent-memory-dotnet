@@ -27,6 +27,29 @@ public sealed record ModuleQuery
     public ModuleViewOrder? OrderBy { get; init; }
     /// <summary>Positive record limit, at most <see cref="MaximumLimit"/>.</summary>
     public required int Limit { get; init; }
+    /// <summary>A full-text match through a declared search view's index; results are ordered by score. Null for a list read.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleSearch? Search { get; init; }
+}
+
+/// <summary>Search terms for a declared search view (Extensibility 0.13 §K4); never query syntax.</summary>
+[Experimental("AMEXT001")]
+public sealed record ModuleSearch
+{
+    /// <summary>At most this many terms a search matches.</summary>
+    public const int MaximumTerms = 32;
+    /// <summary>The search view whose full-text index is used; it must query the same type.</summary>
+    public required string ViewId { get; init; }
+    /// <summary>Lowercase word terms (letters, digits, underscore), any of which may match.</summary>
+    public required IReadOnlyList<string> Terms { get; init; }
+
+    /// <summary>The terms of a free text: lowercase words of 2 to 64 characters, English stop words removed, first 32 distinct.</summary>
+    public static IReadOnlyList<string> TermsOf(string? text) => string.IsNullOrWhiteSpace(text) ? [] :
+        [.. Shared.StopWordFilter.ExtractKeywords(text).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => t.Length <= 64).Distinct(StringComparer.Ordinal).Take(MaximumTerms)];
+
+    internal static bool IsTerm(string? term) =>
+        term is { Length: >= 2 and <= 64 } && term.All(c => char.IsLetterOrDigit(c) || c == '_') && term == term.ToLowerInvariant();
 }
 
 /// <summary>Host-supplied owner, session and time context; no administrative isolation bypass.</summary>

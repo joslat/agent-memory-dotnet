@@ -15,6 +15,7 @@ public sealed class ViewContributor : IContextContributor
     private readonly IModuleViews _views;
     private readonly string _viewId;
     private readonly Func<ContextRequest, ModuleViewArguments?>? _arguments;
+    private readonly bool _search;
     /// <inheritdoc/>
     public ContextContributorDescriptor Descriptor { get; }
 
@@ -26,6 +27,7 @@ public sealed class ViewContributor : IContextContributor
         if (!resolution.Modules.Single(m => m.Id == reader.CallerModuleId).Views.Any(v => v.Id == viewId))
             throw new ArgumentException("View must belong to the bound reader's module.", nameof(viewId));
         _viewId = viewId;
+        _search = resolution.Modules.Single(m => m.Id == reader.CallerModuleId).Views.Single(v => v.Id == viewId).Search is not null;
         var id = ModuleIdentity.OwnedId(reader.CallerModuleId, viewId);
         Descriptor = new(id, new[] { id }.ToFrozenSet(StringComparer.Ordinal), priority);
     }
@@ -59,6 +61,13 @@ public sealed class ViewContributor : IContextContributor
         var arguments = _arguments?.Invoke(request);
         if (_arguments is not null && arguments is null)
             return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "No view arguments selected for this request." };
+        // A search view searches with the turn's question unless a selector chose its own text (Extensibility 0.13 §K4).
+        if (_search && arguments?.Search is null)
+        {
+            if (string.IsNullOrWhiteSpace(request.Query))
+                return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "No question to search with." };
+            arguments = (arguments ?? new()) with { Search = request.Query };
+        }
         var context = new ModuleReadContext
         {
             Scope = request.ResolvedScope ?? (request.Owner is null ? null : MemoryScope.For(request.Owner)),

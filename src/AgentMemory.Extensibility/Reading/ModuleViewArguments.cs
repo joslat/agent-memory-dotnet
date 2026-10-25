@@ -12,4 +12,6 @@ public sealed record ModuleViewArguments
     public IReadOnlyList<ModuleLinkFilter> Links { get; init; } = [];
     /// <summary>Optional positive limit no greater than the declared view's limit.</summary>
     public int? Limit { get; init; }
+    /// <summary>The text a search view matches (Extensibility 0.13 §K4); required by search views, refused by list views.</summary>
+    public string? Search { get; init; }
 }
