@@ -37,11 +37,31 @@ public sealed class ModuleSetBuilder
     /// <summary>Adds a module from its manifest and a configuration delegate, the same path as a module entry.</summary>
     public ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure)
     {
-        ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(configure);
+        return Add(manifest, configure, Identity(configure.Method.Module.Assembly));
+    }
+
+    /// <summary>
+    /// Adds a verified knowledge pack (Extensibility 0.13 §K5): its manifest, and a contributor for each of its search views,
+    /// which searches with the turn's question. The pack runs no code; the fingerprint names its bundle digest and signer.
+    /// Its records are imported separately, with <see cref="Packs.KnowledgePackImporter"/>.
+    /// </summary>
+    public ModuleSetBuilder AddKnowledgePack(Packs.KnowledgePack pack)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        return Add(pack.Manifest, builder =>
+        {
+            foreach (var view in pack.Manifest.Views.Where(v => v.Search is not null))
+                builder.AddContextContributor(c => new Contributors.ViewContributor(c.Resolution, c.Reader, view.Id));
+        }, "knowledge-pack; digest=" + pack.Digest + "; signer=" + pack.Bundle.Signer.ToString().ToLowerInvariant());
+    }
+
+    private ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure, string implementation)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
         if (_modules.Any(m => string.Equals(m.Manifest.Id, manifest.Id, StringComparison.Ordinal)))
             throw new ArgumentException($"Module '{manifest.Id}' is already added.", nameof(manifest));
-        var registration = new ModuleRegistration(manifest, Identity(configure.Method.Module.Assembly));
+        var registration = new ModuleRegistration(manifest, implementation);
         configure(registration);
         registration.Freeze();
         _modules.Add(registration);

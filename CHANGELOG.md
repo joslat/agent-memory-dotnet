@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental knowledge packs (`AgentMemory.Extensibility.Packs`): data-only memory packages that ship seed records.
+  A pack is a module manifest with `seed` files and only shared types, signed as a bundle. `KnowledgePack` verifies the
+  bundle first, then checks every record against the manifest, and opens from a folder or from the `agentmemory/` folder
+  of a NuGet package. `KnowledgePackImporter` imports a pack in one transaction: new keys are created, changed records
+  get a new version, equal ones are no-ops, records a newer version drops are closed, and a downgrade is refused unless
+  asked for. Removal closes every record and keeps history. Records carry pack provenance (`ProposalSource.Pack`: pack,
+  version, digest, seed line), which only the importer can write. `ModuleSetBuilder.AddKnowledgePack` composes a pack;
+  the Neo4j adapter adds `AddNeo4jKnowledgePacks`.
+- Add experimental search views: a view may declare `search` over its declared string properties. The migrator derives
+  a full-text index, and the view returns the best matches for a request's text, ordered by score. A view contributor
+  searches with the turn's question.
+
 - Add experimental signed bundles (`AgentMemory.Extensibility.Bundles`): a files list naming every file with its
   length and sha256, signed with ECDSA P-256. `BundleVerifier` refuses a bundle before anything in it is used when the
   key is not trusted or is revoked, the signature fails, the digest is revoked or differs from a pin, or any file is

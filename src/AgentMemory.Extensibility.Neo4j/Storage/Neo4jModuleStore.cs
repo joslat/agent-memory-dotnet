@@ -6,6 +6,7 @@ using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Extensibility.Neo4j.Migrations;
 using AgentMemory.Extensibility.Neo4j.Queries;
+using AgentMemory.Extensibility.Packs;
 using AgentMemory.Neo4j.Infrastructure;
 using Neo4j.Driver;
 using static AgentMemory.Extensibility.Neo4j.Storage.ModuleRecordTransaction;
@@ -87,6 +88,94 @@ public sealed class Neo4jModuleStore : IModuleStore
         return outcomes.OrderBy(p => p.Index).ToList().AsReadOnly();
     }
 
+    /// <summary>
+    /// Writes a knowledge pack in one transaction (Extensibility 0.13 §K3): every key is locked in order, records are written
+    /// targets first, and live records of the pack this version no longer holds are closed. A refusal rolls back all of it.
+    /// </summary>
+    internal async Task<KnowledgePackImportResult> ImportPackAsync(KnowledgePack pack, DateTimeOffset atUtc, CancellationToken cancellationToken)
+    {
+        var module = _resolution.Modules.Single(m => m.Id == pack.Id);
+        var request = PackRequest(pack.Id, atUtc);
+        try
+        {
+            return await _runner.WriteAsync(async transaction =>
+            {
+                await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
+                var live = await PackLiveAsync(transaction, module, cancellationToken).ConfigureAwait(false);
+                var seeded = pack.Proposals.Select(p => (p.Type, p.Key)).ToHashSet();
+                var gone = live.Keys.Where(k => !seeded.Contains(k)).Order().ToArray();
+                foreach (var (type, key) in seeded.Concat(gone).Select(k => (Type: module.Ontology!.Types.Single(t => t.Name == k.Type), k.Key))
+                    .OrderBy(k => KeyId(module.Id, k.Type.Name, null, k.Key), StringComparer.Ordinal))
+                    await LockAsync(transaction, module.Id, type, key, null, cancellationToken).ConfigureAwait(false);
+                int created = 0, changed = 0, unchanged = 0, closed = 0;
+                for (var index = 0; index < pack.Proposals.Count; index++)
+                {
+                    var proposal = pack.Proposals[index];
+                    var outcome = await WriteOneAsync(transaction, module, request, new() { Index = index, Proposal = proposal }, atUtc, cancellationToken).ConfigureAwait(false);
+                    if (outcome.Status == ProposalWriteStatus.NoOp) unchanged++;
+                    else if (live.ContainsKey((proposal.Type, proposal.Key))) changed++;
+                    else created++;
+                }
+                foreach (var key in gone)
+                    if (await CloseAsync(transaction, module, request, key, atUtc, cancellationToken).ConfigureAwait(false)) closed++;
+                return new KnowledgePackImportResult { PackId = pack.Id, Version = pack.Version, Digest = pack.Digest,
+                    Created = created, Changed = changed, Unchanged = unchanged, Closed = closed };
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ModuleRecordRefusal refusal) { throw new KnowledgePackException([refusal.Message]); }
+    }
+
+    /// <summary>Closes every live record of a pack in one transaction; history stays.</summary>
+    internal async Task<KnowledgePackImportResult> RemovePackAsync(string packId, DateTimeOffset atUtc, CancellationToken cancellationToken)
+    {
+        var module = _resolution.Modules.Single(m => m.Id == packId);
+        var request = PackRequest(packId, atUtc);
+        try
+        {
+            return await _runner.WriteAsync(async transaction =>
+            {
+                await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
+                var live = await PackLiveAsync(transaction, module, cancellationToken).ConfigureAwait(false);
+                var closed = 0;
+                foreach (var key in live.Keys.OrderBy(k => KeyId(module.Id, k.Type, null, k.Key), StringComparer.Ordinal))
+                    if (await CloseAsync(transaction, module, request, key, atUtc, cancellationToken).ConfigureAwait(false)) closed++;
+                return new KnowledgePackImportResult { PackId = packId, Closed = closed };
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ModuleRecordRefusal refusal) { throw new KnowledgePackException([refusal.Message]); }
+    }
+
+    /// <summary>The live records of a pack, by type and key, with the version that wrote each.</summary>
+    internal async Task<IReadOnlyDictionary<(string Type, string Key), string?>> PackLiveAsync(IAsyncQueryRunner runner, ModuleManifest module,
+        CancellationToken cancellationToken)
+    {
+        var live = new Dictionary<(string Type, string Key), string?>();
+        foreach (var type in module.Ontology!.Types)
+            foreach (var row in await RowsAsync(runner, ModuleRecordQueries.PackLive(type.Name), new { pack = module.Id }, cancellationToken).ConfigureAwait(false))
+                live[(type.Name, row["key"].As<string>())] = row["version"]?.As<string>();
+        return live;
+    }
+
+    private async Task<bool> CloseAsync(IAsyncQueryRunner runner, ModuleManifest module, IngestionRequest request, (string Type, string Key) key,
+        DateTimeOffset atUtc, CancellationToken cancellationToken)
+    {
+        var proposal = new ModuleProposal { Type = key.Type, Key = key.Key, Kind = ProposalKind.Invalidate,
+            Source = new() { Excerpt = "closed by the knowledge pack importer" } };
+        var outcome = await WriteOneAsync(runner, module, request, new() { Index = 0, Proposal = proposal }, atUtc, cancellationToken).ConfigureAwait(false);
+        return outcome.Status == ProposalWriteStatus.Invalidated;
+    }
+
+    private async Task ReadyAsync(IAsyncQueryRunner transaction, CancellationToken cancellationToken)
+    {
+        var readiness = await _migrator.PlanInAsync(transaction, cancellationToken).ConfigureAwait(false);
+        if (readiness.Problems.Count != 0 || readiness.Pending.Count != 0 || readiness.PendingNamespaces.Count != 0 || readiness.PendingBookkeeping.Count != 0)
+            throw new ModuleRecordRefusal("Module migrations are pending or inconsistent; apply them explicitly before writes.");
+    }
+
+    // A pack writes shared records, owned by no one, under a session id that names the pack.
+    private static IngestionRequest PackRequest(string packId, DateTimeOffset atUtc) =>
+        new() { SessionId = "pack:" + packId, Owner = null, AtUtc = atUtc, Trigger = IngestionTrigger.OnRequest };
+
     private static async Task VerifySourcesAsync(IAsyncQueryRunner runner, IngestionRequest request,
         IReadOnlyList<AdmittedModuleProposal> proposals, CancellationToken cancellationToken)
     {
@@ -148,8 +237,10 @@ public sealed class Neo4jModuleStore : IModuleStore
         if (live && old!["equal"].As<bool>() && !links.Changed) return Outcome(input.Index, ProposalWriteStatus.NoOp, previousId);
         if (old is not null && old["newer"].As<bool>()) throw new ModuleRecordRefusal("Write clock precedes the last version.");
         var nextVersion = checked(version + 1); var id = keyId + ":" + nextVersion.ToString(CultureInfo.InvariantCulture);
+        var pack = proposal.Source.Pack;
         await OneAsync(runner, ModuleRecordQueries.Create(type), new { id, keyId, key = proposal.Key, owner,
-            now = atUtc.ToString("O"), session = request.SessionId, sources = proposal.Source.MessageIds.ToArray(), excerpt = proposal.Source.Excerpt, properties }, cancellationToken).ConfigureAwait(false);
+            now = atUtc.ToString("O"), session = request.SessionId, sources = proposal.Source.MessageIds.ToArray(), excerpt = proposal.Source.Excerpt,
+            pack = pack?.Id, packVersion = pack?.Version, packDigest = pack?.Digest, packFile = pack?.File, packLine = pack?.Line, properties }, cancellationToken).ConfigureAwait(false);
         foreach (var link in links.Links)
             await OneAsync(runner, ModuleRecordQueries.Link(type.Name, link.Relation, link.TargetLabel), new { id, target = link.TargetId, owner }, cancellationToken).ConfigureAwait(false);
         if (previousId is not null)

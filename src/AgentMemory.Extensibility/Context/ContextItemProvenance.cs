@@ -40,4 +40,6 @@ public sealed record ContextItemProvenance
     public required string SourceSessionId { get; init; }
     /// <summary>Copied source message identities; no excerpt or owner authority is implied.</summary>
     public IReadOnlyList<string> SourceMessageIds { get; init; } = [];
+    /// <summary>For a knowledge pack record, the pack, version, digest and seed line it came from; null otherwise.</summary>
+    public Ingestion.PackSource? SourcePack { get; init; }
 }

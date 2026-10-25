@@ -91,7 +91,8 @@ public sealed class ViewContributor : IContextContributor
                     RecordVersionId = i.Record.Id, RecordKey = i.Record.Key,
                     CreatedAtUtc = i.Record.CreatedAtUtc, InvalidatedAtUtc = i.Record.InvalidatedAtUtc,
                     SourceSessionId = i.Record.SourceSessionId,
-                    SourceMessageIds = Array.AsReadOnly(i.Record.Source.MessageIds.ToArray())
+                    SourceMessageIds = Array.AsReadOnly(i.Record.Source.MessageIds.ToArray()),
+                    SourcePack = i.Record.Source.Pack
                 }
             }).ToList().AsReadOnly(), result) };
     }

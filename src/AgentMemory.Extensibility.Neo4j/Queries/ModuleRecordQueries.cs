@@ -30,9 +30,13 @@ internal static class ModuleRecordQueries
         + " AS equal, coalesce(coalesce(n.invalidated_at,n.created_at) > datetime($now),false) AS newer";
     internal static string Create(ModuleType type) => "CREATE (n:`" + type.Name + "`) SET n=$properties "
         + "SET n.id=$id, n.key_id=$keyId, n.key=$key, n.owner_id=$owner, n.created_at=datetime($now), "
-        + "n.source_session_id=$session, n.source_message_ids=$sources, n.source_excerpt=$excerpt "
+        + "n.source_session_id=$session, n.source_message_ids=$sources, n.source_excerpt=$excerpt, "
+        + "n.source_pack=$pack, n.source_pack_version=$packVersion, n.source_pack_digest=$packDigest, n.source_pack_file=$packFile, n.source_pack_line=$packLine "
         + string.Join(" ", type.Properties.Where(p => p.Value.Type is "date" or "datetime").Select(p => "SET n.`" + p.Key + "`=" + Value(p.Key, p.Value.Type)))
         + " RETURN n.id AS id";
+    // A knowledge pack's live records (Extensibility 0.13 §K3): what an import may close, and what its state reports.
+    internal static string PackLive(string label) => "MATCH (n:`" + label + "`) WHERE n.source_pack=$pack AND n.invalidated_at IS NULL "
+        + "RETURN n.key AS key, n.source_pack_version AS version";
     internal static string Invalidate(string label) => "MATCH (n:`" + label + "` {id:$id}) SET n.invalidated_at=datetime($now) "
         + "WITH n MATCH (k:ModuleKey {id:$keyId}) SET k.current_id=null RETURN n.id AS id";
     internal static string Supersede(string label) => "MATCH (old:`" + label + "` {id:$previous}), (n:`" + label + "` {id:$id}) "

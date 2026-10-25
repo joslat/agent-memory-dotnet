@@ -142,6 +142,9 @@ internal sealed class ModuleManifestValidator
             Error("$.ontology", "a knowledge pack declares the types of its records");
         else foreach (var type in ontology.Types.Where(t => t is not null && t.Scope != "shared"))
             Error("$.ontology.types." + type.Name + ".scope", "knowledge pack types are shared");
+        foreach (var relation in manifest.Ontology?.Relations ?? [])
+            if (relation is not null && (relation.From == relation.To || manifest.Ontology!.Types.All(t => t?.Name != relation.To)))
+                Error("$.ontology.relations." + relation.Name, "knowledge pack relations link two different types of the pack");
         if (host.Count != 0) Error("$.requires.host", "a knowledge pack requires no host features");
         if (modules.Count != 0) Error("$.requires.modules", "a knowledge pack depends on no module");
     }

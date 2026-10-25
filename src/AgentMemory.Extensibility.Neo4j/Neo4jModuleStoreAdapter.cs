@@ -32,6 +32,21 @@ public sealed class Neo4jModuleStoreAdapter : IModuleStoreAdapter
             services.GetRequiredService<IMemoryIsolationPolicy>(), services.GetService<TimeProvider>());
 }
 
+/// <summary>Knowledge packs in the host's Neo4j database (Extensibility 0.13 §K3).</summary>
+[Experimental("AMEXT001")]
+public static class Neo4jKnowledgePackServiceCollectionExtensions
+{
+    /// <summary>Registers <see cref="Packs.IKnowledgePackStore"/> on the host's Neo4j database and the <see cref="Packs.KnowledgePackImporter"/>.</summary>
+    public static IServiceCollection AddNeo4jKnowledgePacks(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddSingleton<Packs.IKnowledgePackStore>(sp =>
+            new Neo4jKnowledgePackStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>()));
+        services.AddSingleton(sp => new Packs.KnowledgePackImporter(sp.GetRequiredService<Packs.IKnowledgePackStore>(), sp.GetService<TimeProvider>()));
+        return services;
+    }
+}
+
 /// <summary>Neo4j binding for <see cref="ModuleSetBuilder"/>.</summary>
 [Experimental("AMEXT001")]
 public static class Neo4jModuleSetBuilderExtensions

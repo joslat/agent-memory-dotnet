@@ -69,4 +69,26 @@ public sealed record ProposalSource
     public IReadOnlyList<string> MessageIds { get; init; } = [];
     /// <summary>Nonempty copied excerpt of at most 500 UTF-16 code units; it is not a trusted instruction.</summary>
     public required string Excerpt { get; init; }
+    /// <summary>
+    /// For a knowledge pack record, the pack it came from (Extensibility 0.13 §K2); null for a record a turn wrote. Only the
+    /// pack importer writes it, and such a record cites no messages.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public PackSource? Pack { get; init; }
+}
+
+/// <summary>Where a knowledge pack record came from: the pack, its version and bundle digest, and the seed line.</summary>
+[Experimental("AMEXT001")]
+public sealed record PackSource
+{
+    /// <summary>The pack id.</summary>
+    public required string Id { get; init; }
+    /// <summary>The pack version that wrote this record version.</summary>
+    public required string Version { get; init; }
+    /// <summary>The signed bundle digest of that version.</summary>
+    public required string Digest { get; init; }
+    /// <summary>The seed file.</summary>
+    public required string File { get; init; }
+    /// <summary>The 1-based line in the seed file.</summary>
+    public required int Line { get; init; }
 }

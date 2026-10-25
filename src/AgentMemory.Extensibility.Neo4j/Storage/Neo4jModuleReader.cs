@@ -145,7 +145,15 @@ public sealed class Neo4jModuleReader : IModuleReader
         CreatedAtUtc = Timestamp(row, "created_at") ?? throw new ModuleRecordRefusal("Stored record has no creation time."),
         InvalidatedAtUtc = Timestamp(row, "invalidated_at"), Links = links,
         SourceSessionId = Text(row, "source_session_id") ?? throw new ModuleRecordRefusal("Stored record has no source session."),
-        Source = new() { MessageIds = row.TryGetValue("source_message_ids", out var ids) ? ids.As<List<string>>().AsReadOnly() : [], Excerpt = Text(row, "source_excerpt") ?? "" },
+        Source = new()
+        {
+            MessageIds = row.TryGetValue("source_message_ids", out var ids) ? ids.As<List<string>>().AsReadOnly() : [], Excerpt = Text(row, "source_excerpt") ?? "",
+            Pack = Text(row, "source_pack") is { } pack ? new()
+            {
+                Id = pack, Version = Text(row, "source_pack_version") ?? "", Digest = Text(row, "source_pack_digest") ?? "",
+                File = Text(row, "source_pack_file") ?? "", Line = row.TryGetValue("source_pack_line", out var line) ? (int)line.As<long>() : 0
+            } : null
+        },
         Properties = type.Properties.Keys.Where(row.ContainsKey).ToDictionary(key => key, key => JsonSerializer.SerializeToElement(Value(row[key])), StringComparer.Ordinal).AsReadOnly()
     };
     private static DateTimeOffset? Timestamp(IReadOnlyDictionary<string, object> row, string key) =>

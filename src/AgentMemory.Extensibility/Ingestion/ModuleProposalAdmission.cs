@@ -46,6 +46,7 @@ public static class ModuleProposalAdmission
             errors.Add("type.scope: shared writes require an explicit OnRequest provider selection.");
         if (!ValidIdentity(proposal.Key)) errors.Add("key: must be nonempty and contain no control characters.");
         if (proposal.Kind is not (ProposalKind.Assert or ProposalKind.Invalidate)) errors.Add("kind: unknown proposal operation.");
+        if (proposal.Source?.Pack is not null) errors.Add("source.pack: only the knowledge pack importer writes pack sources.");
         ValidateSource(proposal.Source, messages, errors);
         ValidateReplaces(proposal, errors);
         ValidateProperties(proposal, type, errors);
@@ -53,6 +54,25 @@ public static class ModuleProposalAdmission
         if (errors.Count != 0) return new(null, errors.ToList().AsReadOnly());
         var frozen = ModuleIngestionSnapshot.Proposal(proposal);
         return new(frozen, []);
+    }
+
+    /// <summary>
+    /// A knowledge pack seed record (Extensibility 0.13 §K2): a shared assertion with pack provenance and no messages, checked
+    /// with the same property and link rules as any proposal. Returns the problems; empty when admitted.
+    /// </summary>
+    internal static IReadOnlyList<string> AdmitSeed(ModuleManifest pack, ModuleProposal proposal)
+    {
+        var errors = new SortedSet<string>(StringComparer.Ordinal);
+        var type = pack.Ontology?.Types.FirstOrDefault(t => t.Name == proposal.Type);
+        if (type is null) errors.Add("type: must name a type the pack declares.");
+        else if (type.Scope != "shared") errors.Add("type.scope: knowledge pack records are shared.");
+        if (!ValidIdentity(proposal.Key) || proposal.Key.Length > 200) errors.Add("key: must be 1-200 characters without control characters.");
+        if (proposal.Kind != ProposalKind.Assert || proposal.Replaces is not { Count: 0 }) errors.Add("kind: a seed record is a plain assertion.");
+        if (proposal.Source is not { Pack: not null, MessageIds.Count: 0 } || string.IsNullOrWhiteSpace(proposal.Source.Excerpt))
+            errors.Add("source: a seed record carries pack provenance and no messages.");
+        ValidateProperties(proposal, type, errors);
+        ValidateLinks(proposal, pack, errors);
+        return errors.ToList().AsReadOnly();
     }
 
     private static bool ValidIdentity(string? value) => !string.IsNullOrWhiteSpace(value) && !value.Any(char.IsControl);
