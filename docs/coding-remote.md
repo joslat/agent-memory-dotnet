@@ -1,5 +1,8 @@
 # Remote coding memory over HTTPS/OAuth
 
+> **Experimental.** Coding mode ships for evaluation only; see the note in
+> [coding service](coding-service.md).
+
 The coding host can act as a personal MCP resource server. It uses the same scoped memory operations,
 writer and pre-provisioned project databases as [local coding mode](coding-service.md). The remote
 transport has been validated in an isolated local Docker deployment against a real Keycloak 26.8.0

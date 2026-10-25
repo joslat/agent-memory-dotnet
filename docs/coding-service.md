@@ -1,5 +1,10 @@
 # Local coding memory service
 
+> **Experimental.** Coding mode ships for evaluation only, not as a measured improvement: in a
+> SWE-ContextBench pilot of 12 tasks, the solver passed 8 with this memory and 8 without it. It needs a
+> multi-database Neo4j (Enterprise or Aura), because each project gets its own `coding-<project>`
+> database. Its configuration, tools and storage may change in any release.
+
 The opt-in coding mode gives native coding clients one project-bound HTTP/MCP service. Run it with
 `agent-memory-mcp --coding-config <private.json>` (or the equivalent `dotnet run --project
 tools/AgentMemory.McpHost -- --coding-config <private.json>`). The ordinary MCP host is unchanged.

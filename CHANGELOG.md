@@ -120,6 +120,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP owner pin**: `AgentMemoryMcpOptions.OwnerId` (host: `--owner`, `AGENT_MEMORY_MCP_OWNER`) runs every
+  call as one owner. `userId` leaves the listed tool schemas, tools that take it run as that owner, a call
+  naming another owner is refused, and the list resources read that owner's memory. Off by default.
+- **MCP extraction option**: `AgentMemoryMcpOptions.EnableExtraction` (default on) and
+  `McpToolAccess.GraphTools` / `McpToolAccess.ExtractionTools` name the tools each setting lists.
+- `agent-memory-mcp` warns at startup when its unauthenticated HTTP listener is off localhost.
+
 - Optional module-ledger schema ownership declaration, off by default with no core migration scripts.
 
 - Held experimental Neo4j module adapter with deterministic derived migration definitions, stable
@@ -298,6 +305,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **MCP tool listing**: `graph_query`, `memory_export_graph` and `memory_find_duplicates` are listed only
+  when `EnableGraphQuery` is set, and never on a server pinned to one owner. They used to be listed always
+  and refuse every call unless graph query was enabled. A read-only server lists 9 tools by default (11 with
+  graph query).
+- **Coding mode is an experiment**: `agent-memory-mcp --coding-config` ships for evaluation only. Its pilot
+  showed no coding-task gain (SWE-ContextBench: 8 of 12 with and without memory); see
+  [coding service](docs/coding-service.md).
+
 - Graduate the selected writer, Recommended composition and ordinary retrieval/update-judge APIs
   for the 2.0 candidate. `AMWRITE001` and `AMREC001` suppression is no longer required.
   `AMGATE001` remains on compound-question planning and its opt-in configuration/constructor.
@@ -314,6 +329,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attribution remain unchanged. No new judge policy, provider call or public option is introduced.
 
 ### Fixed
+
+- **MCP extraction stored nothing**: `agent-memory-mcp` never registered an extraction model, so
+  `extract_and_persist` and `memory_extract_session` ran the stub extractors and reported success. With a
+  chat model they now use the store-aware writer; without one they are not listed.
+- **MCP Docker stack**: the compose file no longer requires `AZURE_OPENAI_*`, passes the provider variables
+  you set (one variable for Bitdeer) and publishes every port on localhost only. The image build includes
+  the `shared/` sources the projects link, which it was missing.
+- **Module migrations**: when two migrators create the same schema rule at once, Neo4j refuses the slower
+  commit (`EquivalentSchemaRuleAlreadyExists`). That refusal is now accepted only when the declared object
+  exists exactly as declared and the migration's reserved intent is unchanged; any other case still fails.
+  The shared bookkeeping constraints get the same treatment.
+- Bump MessagePack to 3.1.9 in the Aspire sample (GHSA-qhrr-8q5h-9q3h).
 
 - Honor `--history off` in the HaluMem and LongMemEval measurement harnesses even when
   Recommended enables supersession notes. Record the effective history setting in HaluMem output.

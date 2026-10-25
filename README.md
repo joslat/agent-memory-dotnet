@@ -6,6 +6,7 @@
 > verified against its compatibility kit.*
 
 > Independent community project. Not affiliated with, endorsed by, or supported by Neo4j, Inc.
+> Not related to the similarly named `agentmemory` package on npm.
 
 Give your .NET agents a memory that actually lasts. Agent Memory for .NET is a persistent,
 **graph-native** memory engine for AI agents, backed by Neo4j — so what your agent learns in one

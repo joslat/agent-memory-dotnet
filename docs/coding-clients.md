@@ -1,5 +1,8 @@
 # Coding client compatibility
 
+> **Experimental.** Coding mode ships for evaluation only; see the note in
+> [coding service](coding-service.md).
+
 The coding service and a coding client are separate integrations. A successful model reply does not
 prove that the client ran memory hooks or connected its MCP tools. Check both paths before using
 project memory. These observations were checked on 13 October 2026.

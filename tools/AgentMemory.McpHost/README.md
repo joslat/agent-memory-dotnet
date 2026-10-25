@@ -103,7 +103,7 @@ tool escapes classification altogether.
 ## Docker
 
 The image targets .NET 10 and builds with the repository SDK pin. Its dedicated `.dockerignore`
-includes only public build inputs. For the optional authenticated coding mode, use the separate
+includes only public build inputs. For the optional, experimental coding mode, use the separate
 [remote coding guide](../../docs/coding-remote.md#container-preparation) and template; that mode
 needs pre-provisioned project databases and does not use the Community stack below.
 

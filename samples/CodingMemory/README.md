@@ -1,5 +1,8 @@
 # Claude Code with local project memory
 
+> **Experimental.** Coding mode ships for evaluation only; see the note in
+> [coding service](../../docs/coding-service.md).
+
 For Copilot CLI or VS Code Local, use the separate [client guide](copilot.md) and templates.
 For Codex, use the [paired-hook and disabled MCP templates](codex.md); review its model/provider path first.
 For an authenticated remote MCP connector, see the [HTTPS/OAuth guide](../../docs/coding-remote.md)

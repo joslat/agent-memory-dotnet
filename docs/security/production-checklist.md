@@ -37,7 +37,8 @@ items below are how you actually achieve that today.
       (closes TT-02).
 - [ ] MCP resources/tools that accept a `userId` parameter are either not exposed to untrusted MCP
       clients, or the host overrides/validates that parameter server-side before the request reaches
-      AgentMemory (closes TT-02).
+      AgentMemory (closes TT-02). For a server that serves one person, `AgentMemoryMcpOptions.OwnerId`
+      (`agent-memory-mcp --owner`) does this: every call runs as that owner and another is refused.
 - [ ] `AgentMemoryMcpOptions.EnableGraphQuery` is **off** unless the caller is fully trusted (e.g. an
       internal admin tool) — it executes arbitrary caller-supplied Cypher with no scoping or limits
       (closes TT-08).

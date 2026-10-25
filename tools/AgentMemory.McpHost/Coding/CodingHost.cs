@@ -132,8 +132,8 @@ internal static class CodingHost
             await PrepareAsync(app, configuration, startup.Token).ConfigureAwait(false);
             CodingTransport.Map(app);
             var notice = configuration.Options.Remote is null
-                ? "agent-memory-mcp: coding mode, loopback only; input filtering is heuristic; jobs are not durable."
-                : "agent-memory-mcp: coding mode, HTTPS/OAuth; input filtering is heuristic; jobs are not durable.";
+                ? "agent-memory-mcp: coding mode (experimental), loopback only; input filtering is heuristic; jobs are not durable."
+                : "agent-memory-mcp: coding mode (experimental), HTTPS/OAuth; input filtering is heuristic; jobs are not durable.";
             Console.Error.WriteLine(configuration.Options.WriteJournal is null ? notice :
                 notice.Replace("jobs are not durable.", "bounded durable receipts enabled; uncertain attempts are not replayed.", StringComparison.Ordinal));
             await app.RunAsync().ConfigureAwait(false);
