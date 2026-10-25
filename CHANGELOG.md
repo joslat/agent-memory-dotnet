@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outside the adding module's namespace and fingerprints the set; it fails closed and never reloads.
   `UseNeo4jStore` binds module records to the host's Neo4j database. Existing explicit wiring is unchanged.
 
+- The System One gate no longer fails a whole decision when only a module's memory type goes unanswered: companions are
+  marked (`MemoryGateCandidate.Companion`), a companion-only type that no judge answers stays unanswered, and core memories
+  are judged as without modules (their calls are byte-identical).
+
 - Judge module candidates in the core retrieval gate's one call. `RecallRequest.Companions` carries them,
   `MemoryContext.CompanionDecisions` returns their probabilities, and native module selection applies its
   own limits to them instead of calling a separate module judge. Core memories are kept exactly as before;

@@ -65,6 +65,9 @@ public sealed class SystemOneMemoryGate : IMemoryGate
         foreach (var type in calls.GroupBy(c => c.Type, StringComparer.Ordinal))
         {
             var answers = type.Where(c => c.Answer.Result is not null).ToList();
+            // A memory type made only of companions (module items) that no judge answered stays unanswered: the caller keeps
+            // those items within their own bounds, and core memories are judged as without them.
+            if (answers.Count == 0 && type.First().Memories.All(m => m.Candidate.Companion)) continue;
             if (answers.Count == 0)
                 throw cooling.Count == judges.Count
                     ? new JudgeCoolingDownException(string.Join("+", cooling.Keys.Order(StringComparer.Ordinal)), cooling.Values.Min())
@@ -74,6 +77,9 @@ public sealed class SystemOneMemoryGate : IMemoryGate
                 probabilities[candidate.Key] = answers.Sum(a => a.Judge.Weight * a.Answer.Result![key]) / weight;
             answered.UnionWith(answers.Select(a => a.Judge.Name));
         }
+        // Companions alone, and none answered: no decision at all, as before (the caller takes its fallback).
+        if (answered.Count == 0 && request.Candidates.Count > 0)
+            throw new InvalidOperationException("No judge answered for any memory type.");
         return new MemoryGateDecision(probabilities, string.Join("+", answered.Order(StringComparer.Ordinal)));
     }
 

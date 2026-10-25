@@ -178,4 +178,81 @@ public sealed class GateCompanionTests
         var json = System.Text.Json.JsonSerializer.Serialize(Request(Task.FromResult<IReadOnlyList<MemoryGateCandidate>>(Modules)));
         json.Should().NotContain("Companions").And.NotContain("Friday appointment");
     }
+
+    // ---- the shipped System One gate (EXT-measure M2): per-type calls, so companions never change a core call ----
+
+    private sealed class JudgeServer(Func<string, bool> fails) : HttpMessageHandler
+    {
+        public List<string> Bodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            lock (Bodies) Bodies.Add(body);
+            if (fails(body)) return new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable);
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            var answers = doc.RootElement.GetProperty("questions").EnumerateObject().ToDictionary(q => q.Name, _ => new { noul = 0.7 });
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(new { answers }), System.Text.Encoding.UTF8, "application/json") };
+        }
+    }
+
+    private static SystemOneMemoryGate SystemOne(JudgeServer server) => new(new SystemOneClient(new HttpClient(server)),
+        Options.Create(new MemoryGateOptions { Judges = [new() { Name = "jev", Endpoint = new("https://jev.test/v1/systemone"), Weight = 1 }] }),
+        NullLogger<SystemOneMemoryGate>.Instance);
+
+    private static readonly MemoryGateCandidate[] Core =
+    [
+        new("semantic|f1", "semantic", "Marta | likes | jazz"), new("preference|p1", "preference", "Prefers trains to planes"),
+    ];
+
+    private static MemoryGateRequest Turn(params MemoryGateCandidate[] candidates) =>
+        new("what is on this week?", [], DateTimeOffset.UnixEpoch, candidates);
+
+    [Fact]
+    public async Task CompanionsAddTheirOwnCallsAndLeaveEveryCoreCallByteForByte()
+    {
+        var alone = new JudgeServer(_ => false);
+        await SystemOne(alone).DecideAsync(Turn(Core));
+        var pooled = new JudgeServer(_ => false);
+        var decision = await SystemOne(pooled).DecideAsync(Turn([.. Core, .. Modules.Select(m => m with { Companion = true })]));
+
+        pooled.Bodies.Should().HaveCount(alone.Bodies.Count + 1, "one more call, for the module's own type");
+        pooled.Bodies.Should().Contain(alone.Bodies, "core calls are the same requests as without companions");
+        decision.Probabilities.Keys.Should().Contain(["semantic|f1", "preference|p1", "module:commitments:c1", "module:commitments:c2"]);
+    }
+
+    [Fact]
+    public async Task AModuleTypeNoJudgeAnswersLeavesCoreJudgedAndTheCompanionsUnanswered()
+    {
+        var server = new JudgeServer(body => body.Contains("com.example.commitments", StringComparison.Ordinal));
+        var decision = await SystemOne(server).DecideAsync(Turn([.. Core, .. Modules.Select(m => m with { Companion = true })]));
+
+        decision.Probabilities.Keys.Should().BeEquivalentTo(["semantic|f1", "preference|p1"]);
+    }
+
+    [Fact]
+    public async Task ACoreTypeNoJudgeAnswersStillFailsTheWholeDecision()
+    {
+        var server = new JudgeServer(body => body.Contains("\"memoryType\":\"semantic\"", StringComparison.Ordinal));
+        var act = () => SystemOne(server).DecideAsync(Turn([.. Core, .. Modules.Select(m => m with { Companion = true })]));
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*semantic*");
+    }
+
+    [Fact]
+    public async Task CompanionsAloneThatNoJudgeAnswersAreNoDecision()
+    {
+        var server = new JudgeServer(_ => true);
+        var act = () => SystemOne(server).DecideAsync(Turn([.. Modules.Select(m => m with { Companion = true })]));
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*any memory type*");
+    }
+
+    [Fact]
+    public async Task TheGateMarksTheCompanionsItSends()
+    {
+        var judge = new Judge();
+        await Sut(judge).AssembleContextAsync(Request(Task.FromResult<IReadOnlyList<MemoryGateCandidate>>(Modules)));
+        judge.Seen.Single().Candidates.Where(c => c.MemoryType == "com.example.commitments").Should().OnlyContain(c => c.Companion);
+        judge.Seen.Single().Candidates.Where(c => c.MemoryType == "semantic").Should().OnlyContain(c => !c.Companion);
+    }
 }

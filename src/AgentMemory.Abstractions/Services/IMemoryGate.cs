@@ -34,7 +34,15 @@ public interface IMemoryGate
 /// </param>
 /// <param name="Text">The memory as the gate reads it, with its dates and what it is.</param>
 
-public sealed record MemoryGateCandidate(string Key, string MemoryType, string Text);
+public sealed record MemoryGateCandidate(string Key, string MemoryType, string Text)
+{
+    /// <summary>
+    /// A candidate from outside core recall (a module item, <see cref="AgentMemory.Abstractions.Domain.RecallCompanions"/>),
+    /// set by the gate when it sends companions. A judge that gets no answer for a memory type made only of companions leaves
+    /// those keys unanswered instead of failing the whole decision: a module's call never sends core memories to the floor.
+    /// </summary>
+    public bool Companion { get; init; }
+}
 
 /// <summary>An earlier turn of the conversation the gate is shown.</summary>
 

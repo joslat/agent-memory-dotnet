@@ -197,7 +197,7 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
         var taken = core.Select(c => c.Candidate.Key).ToHashSet(StringComparer.Ordinal);
         var kept = new List<MemoryGateCandidate>(offered.Count);
         foreach (var candidate in offered)
-            if (candidate is { Key.Length: > 0, Text: not null } && taken.Add(candidate.Key)) kept.Add(candidate);
+            if (candidate is { Key.Length: > 0, Text: not null } && taken.Add(candidate.Key)) kept.Add(candidate with { Companion = true });
         if (kept.Count < offered.Count)
             _logger.LogWarning("Memory gate: {Dropped} of {Offered} companions had an empty or repeated key and were not judged.",
                 offered.Count - kept.Count, offered.Count);
