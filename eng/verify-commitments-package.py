@@ -11,6 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', required=True, help='New evidence directory under artifacts; existing directories are refused.')
+parser.add_argument('--sdk-version', default='0.1.0', help="The SDK version to pack and consume: the preview line's release version (40.27).")
 args = parser.parse_args()
 out = (ROOT / args.output).resolve()
 if not out.is_relative_to((ROOT / 'artifacts').resolve()):
@@ -36,9 +37,12 @@ def run(name, command):
     return process.stdout
 
 def sha(data): return hashlib.sha256(data).hexdigest()
-run('build-sdk', ['dotnet', 'build', 'src/AgentMemory.Extensibility/AgentMemory.Extensibility.csproj', '-c', 'Release'])
+sdk_version = args.sdk_version
+# PreviewVersion, never Version: the core project the SDK references keeps its own version, so the SDK's dependency is real.
+run('build-sdk', ['dotnet', 'build', 'src/AgentMemory.Extensibility/AgentMemory.Extensibility.csproj', '-c', 'Release', '-p:PreviewVersion=' + sdk_version])
 for project in ('AgentMemory.Abstractions', 'AgentMemory.Extensibility'):
-    run('pack-' + project, ['dotnet', 'pack', f'src/{project}/{project}.csproj', '-c', 'Release', '--no-build', '--no-restore', '-o', str(feed)])
+    run('pack-' + project, ['dotnet', 'pack', f'src/{project}/{project}.csproj', '-c', 'Release', '--no-build', '--no-restore', '-o', str(feed),
+                            '-p:PreviewVersion=' + sdk_version])
 results = []
 
 
@@ -57,7 +61,7 @@ def consume(name, package, checks, package_id, version, props):
         result['package'] = package_id
         result['tfm'] = tfm
         result['loadedHashes'] = {}
-        for loaded_id, loaded_version, output_key in [(package_id, version, 'assembly'), ('AgentMemory.Extensibility', '0.1.0', 'sdk')]:
+        for loaded_id, loaded_version, output_key in [(package_id, version, 'assembly'), ('AgentMemory.Extensibility', sdk_version, 'sdk')]:
             with zipfile.ZipFile(feed / f'{loaded_id}.{loaded_version}.nupkg') as archive:
                 expected = archive.read(f'lib/{tfm}/{loaded_id}.dll')
             actual = Path(result[output_key]).read_bytes()
@@ -72,9 +76,9 @@ consumers = ROOT / 'eng/module-consumers'
 for version in ('1.0.0', '2.0.0'):
     consume(version, consumers / 'Commitments/Commitments.csproj', consumers / 'Commitments.Checks/Commitments.Checks.csproj',
             'AgentMemory.Examples.Commitments', version,
-            ['-p:ModuleSdkVersion=0.1.0', '-p:CommitmentsPackageVersion=' + version, '-p:RestoreConfigFile=' + str(out / 'NuGet.Config')])
+            ['-p:ModuleSdkVersion=' + sdk_version, '-p:CommitmentsPackageVersion=' + version, '-p:RestoreConfigFile=' + str(out / 'NuGet.Config')])
 consume('lessons-1.0.0', consumers / 'RepositoryLessons/RepositoryLessons.csproj', consumers / 'RepositoryLessons.Checks/RepositoryLessons.Checks.csproj',
-        'AgentMemory.Examples.RepositoryLessons', '1.0.0', ['-p:ModuleSdkVersion=0.1.0', '-p:RestoreConfigFile=' + str(out / 'NuGet.Config')])
+        'AgentMemory.Examples.RepositoryLessons', '1.0.0', ['-p:ModuleSdkVersion=' + sdk_version, '-p:RestoreConfigFile=' + str(out / 'NuGet.Config')])
 packages = {p.name: {'sha256': sha(p.read_bytes()), 'bytes': p.stat().st_size} for p in sorted(feed.glob('*.nupkg'))}
 source = {p.relative_to(ROOT).as_posix(): sha(p.read_bytes()) for p in (ROOT / 'eng/module-consumers').rglob('*')
           if p.is_file() and 'bin' not in p.parts and 'obj' not in p.parts}

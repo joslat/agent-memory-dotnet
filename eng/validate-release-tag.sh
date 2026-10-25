@@ -10,11 +10,22 @@
 set -euo pipefail
 
 TAG="${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}"
-VERSION="${TAG#v}"
 
 echo "Validating release tag $TAG"
 
-if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+# Two lines: the core (v<semver>) and the 0.x preview line (preview-v0.x.y-<prerelease>, always a prerelease, 40.27).
+if [[ "$TAG" =~ ^preview-v0\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]]; then
+  VERSION="${TAG#preview-v}"
+  # The preview packages depend on the core version this commit carries; that release must be on NuGet first, or
+  # nobody could restore them.
+  core="$(grep -oPm1 '(?<=<Version>)[^<]+' Directory.Build.props)"
+  if ! curl -fsS "https://api.nuget.org/v3-flatcontainer/agentmemory.abstractions/index.json" | grep -q "\"${core,,}\""; then
+    echo "::error::The preview line depends on core $core, which is not on NuGet yet. Release core first."
+    exit 1
+  fi
+elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+  VERSION="${TAG#v}"
+else
   echo "::error::Invalid release tag: $TAG"
   exit 1
 fi

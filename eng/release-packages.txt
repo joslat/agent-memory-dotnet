@@ -3,8 +3,10 @@
 # Adding a project under src/ does NOT publish it — it must be listed here first.
 #
 # A project may instead be declared HELD:<PackageId> to say it exists under src/ and is deliberately
-# NOT published on this release line. The consistency check accounts for it either way, so a new
-# project can never be forgotten — only listed, or held on purpose with a reason.
+# NOT published on any line, or PREVIEW:<PackageId>|<ProjectPath> to put it on the 0.x preview line,
+# released only by its own preview-v<0.x.y-prerelease> tags. The consistency check
+# (eng/check-release-manifest.sh) accounts for every src/ project, so a new one can never be forgotten.
+# eng/release-lines.sh is the one reader of this grammar.
 #
 # Why that is needed at all: the release packs every listed project with -p:Version=<tag>, which
 # overrides the project's own <Version>. A package on a different version line cannot ride this
@@ -34,15 +36,16 @@ AgentMemory.Observability|src/AgentMemory.Observability/AgentMemory.Observabilit
 AgentMemory.Gate|src/AgentMemory.Gate/AgentMemory.Gate.csproj
 AgentMemory.SemanticKernel|src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj
 
-# ── Held back from the core release line ──────────────────────────────────────
+# ── The 0.x preview line (40.27) ───────────────────────────────────────────────
 # The extensibility SDK ships 0.x with [Experimental("AMEXT001")] while its contracts settle
 # (spec decision 5: the attribute comes off when a second independent module passes conformance).
 # Packing it at the core's version would freeze it at 1.x, and publishing an experimental SDK
-# automatically with every core release is the wrong cadence besides. It gets its own release when
-# there is something to release.
-HELD:AgentMemory.Extensibility
-HELD:AgentMemory.Extensibility.AgentFramework
-HELD:AgentMemory.Extensibility.Neo4j
-# Validation packs (root PLAN 40.57): a pack format still settling, consumed by the CLI, the integration tests and
-# hosts that run packs; modules ship packs later as conformance fixtures. Held until the format is settled.
-HELD:AgentMemory.Validation
+# automatically with every core release is the wrong cadence besides. So it has its own tags,
+# preview-v0.x.y-<prerelease>, which pack only these projects at the tag's version through
+# -p:PreviewVersion (never -p:Version, which would restamp the core projects they depend on), after
+# the core release they depend on is on NuGet. Validation packs (40.57, 40.26) ride the same line:
+# the pack format is still settling, and module packs are the conformance kit.
+PREVIEW:AgentMemory.Extensibility|src/AgentMemory.Extensibility/AgentMemory.Extensibility.csproj
+PREVIEW:AgentMemory.Extensibility.AgentFramework|src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj
+PREVIEW:AgentMemory.Extensibility.Neo4j|src/AgentMemory.Extensibility.Neo4j/AgentMemory.Extensibility.Neo4j.csproj
+PREVIEW:AgentMemory.Validation|src/AgentMemory.Validation/AgentMemory.Validation.csproj

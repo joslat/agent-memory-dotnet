@@ -5,22 +5,23 @@
 set -euo pipefail
 
 TAG="${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}"
-VERSION="${TAG#v}"
+case "$TAG" in
+  preview-v*) LINE=preview; VERSION="${TAG#preview-v}" ;;
+  *) LINE=core; VERSION="${TAG#v}" ;;
+esac
 ARTIFACTS="${1:-artifacts}"
 MANIFEST="eng/release-packages.txt"
 
-echo "Validating package inventory for $VERSION against $MANIFEST"
+echo "Validating the $LINE line's package inventory for $VERSION against $MANIFEST"
 
 # Construct the exact expected package filenames from the manifest.
 expected="$(mktemp)"
 actual="$(mktemp)"
 
-while IFS='|' read -r package_id project; do
-  # A CRLF blank line otherwise becomes a phantom package named carriage return.
-  package_id="${package_id%$'\r'}"
-  [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
+bash eng/release-lines.sh "$LINE" | while IFS='|' read -r package_id project; do
+  [[ -z "$package_id" ]] && continue
   printf '%s.%s.nupkg\n' "$package_id" "$VERSION"
-done < "$MANIFEST" | sort > "$expected"
+done | sort > "$expected"
 
 find "$ARTIFACTS" -maxdepth 1 -type f -name '*.nupkg' \
   ! -name '*.symbols.nupkg' \

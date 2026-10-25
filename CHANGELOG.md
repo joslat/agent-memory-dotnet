@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Give the experimental 0.x packages (Extensibility, Extensibility.AgentFramework, Extensibility.Neo4j, Validation)
+  their own release line: `preview-v0.x.y-<prerelease>` tags pack only them, at the tag's version through
+  `-p:PreviewVersion`, so their core dependencies keep the core version; the core release must be on NuGet first.
+  `eng/release-lines.sh` is now the one reader of `eng/release-packages.txt`, and `eng/check-release-manifest.sh` its
+  one consistency check, for CI and the release workflow alike.
+
 - Add the experimental conformance kit to validation packs: a pack's `modules` part teaches recorded
   module proposals through the real ingestion pipeline (admission, closings at the core writer's
   threshold, transactions) and checks module records, views, time pins and owner isolation one by one.

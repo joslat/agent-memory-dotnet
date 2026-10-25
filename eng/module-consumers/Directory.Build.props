@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NoWarn>$(NoWarn);AMEXT001</NoWarn>
+    <!-- The example packages are fixtures, never published: against the preview line's prerelease SDK their stable
+         versions depend on a prerelease (NU5104), which is the point of the check, not a defect. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU5104</WarningsNotAsErrors>
     <IsPackable>false</IsPackable>
     <ConsumerIsInert Condition="'$(ModuleSdkVersion)' == ''">true</ConsumerIsInert>
   </PropertyGroup>

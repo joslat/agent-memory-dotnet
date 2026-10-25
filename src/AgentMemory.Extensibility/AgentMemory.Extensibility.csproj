@@ -22,6 +22,9 @@
        not on a date. -->
   <PropertyGroup>
     <Version>0.1.0</Version>
+    <!-- The preview line's release version (40.27): a preview-v tag passes it, so the core projects this one references
+         keep their own version and the package's dependencies stay real. -->
+    <Version Condition="'$(PreviewVersion)' != ''">$(PreviewVersion)</Version>
   </PropertyGroup>
 
   <ItemGroup>

@@ -6,6 +6,9 @@ name: Release
 # Trigger by pushing a SemVer tag, e.g. git tag v1.1.0 && git push origin v1.1.0
 # (or a prerelease tag, e.g. v1.1.0-rc.1). The package version is taken from the tag (the 'v'
 # prefix is stripped), overriding the default Version in Directory.Build.props.
+# The 0.x preview line (eng/release-packages.txt PREVIEW: entries, 40.27) has its own tags,
+# preview-v0.x.y-<prerelease>: they pack only that line, at the tag's version through -p:PreviewVersion,
+# after the core release its packages depend on is on NuGet.
 #
 # Requires a NUGET_API_KEY repo secret (a nuget.org API key scoped to push the AgentMemory.* packages).
 
@@ -14,6 +17,7 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-*"
+      - "preview-v0.[0-9]+.[0-9]+-*"
 
 permissions:
   contents: read
@@ -38,9 +42,20 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
 
-      - name: Derive version from tag
+      - name: Derive version and release line from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          case "$GITHUB_REF_NAME" in
+            preview-v*)
+              echo "version=${GITHUB_REF_NAME#preview-v}" >> "$GITHUB_OUTPUT"
+              echo "line=preview" >> "$GITHUB_OUTPUT"
+              # The core keeps the version it carries; only the preview projects read PreviewVersion.
+              echo "versionProperty=-p:PreviewVersion=${GITHUB_REF_NAME#preview-v}" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+              echo "line=core" >> "$GITHUB_OUTPUT"
+              echo "versionProperty=-p:Version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       # Fail fast on a malformed tag, a tag on a commit not merged to main, or a missing
       # CHANGELOG entry — before spending time on the full build/test suite below.
@@ -51,40 +66,10 @@ jobs:
         run: dotnet restore AgentMemory.slnx
 
       - name: Build
-        run: dotnet build AgentMemory.slnx -c Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+        run: dotnet build AgentMemory.slnx -c Release --no-restore ${{ steps.version.outputs.versionProperty }}
 
       - name: Repository consistency checks
-        run: |
-          missing=0
-
-          while IFS='|' read -r package_id project; do
-            [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
-            if [[ ! -f "$project" ]]; then
-              echo "::error::eng/release-packages.txt references a missing project: $project"
-              missing=1
-            fi
-          done < eng/release-packages.txt
-
-          published_ids="$(grep -v '^#' eng/release-packages.txt | grep -v '^$' | grep -v '^HELD:' | cut -d'|' -f1 | sort)"
-          held_ids="$(grep '^HELD:' eng/release-packages.txt | cut -d':' -f2 | sort)"
-          accounted_ids="$(printf '%s\n%s\n' "$published_ids" "$held_ids" | grep -v '^$' | sort -u)"
-          actual_ids="$(find src -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"
-          unlisted="$(comm -23 <(echo "$actual_ids") <(echo "$accounted_ids"))"
-          if [[ -n "$unlisted" ]]; then
-            echo "::error::src/ project(s) neither listed nor HELD in eng/release-packages.txt:"
-            echo "$unlisted"
-            missing=1
-          fi
-
-          orphan_held="$(comm -23 <(echo "$held_ids" | grep -v '^$') <(echo "$actual_ids"))"
-          if [[ -n "$orphan_held" ]]; then
-            echo "::error::HELD entries with no project under src/:"
-            echo "$orphan_held"
-            missing=1
-          fi
-
-          [[ "$missing" -eq 0 ]] || exit 1
-          echo "eng/release-packages.txt accounts for every src/*/ project."
+        run: bash eng/check-release-manifest.sh
 
       - name: Unit + SemanticKernel tests
         run: >
@@ -139,24 +124,23 @@ jobs:
 
       - name: Pack explicit packages
         run: |
+          # eng/release-lines.sh refuses a line with no project path: an empty path packs the whole solution.
+          lines="$(bash eng/release-lines.sh ${{ steps.version.outputs.line }})"
           while IFS='|' read -r package_id project; do
-            [[ -z "$package_id" || "$package_id" == \#* || "$package_id" == HELD:* ]] && continue
-            # Same guard as CI's dry run: an empty path packs the whole solution and succeeds, which
-            # at release time would publish artifacts nobody listed.
-            if [[ -z "$project" ]]; then
-              echo "::error::eng/release-packages.txt line for '$package_id' has no project path."
-              exit 1
-            fi
-            dotnet pack "$project" -c Release --no-build \
-              -p:Version=${{ steps.version.outputs.version }} \
-              -o artifacts
-          done < eng/release-packages.txt
+            dotnet pack "$project" -c Release --no-build ${{ steps.version.outputs.versionProperty }} -o artifacts
+          done <<< "$lines"
 
       - name: Validate package inventory
         run: bash eng/validate-release.sh artifacts
 
       - name: Install packages into clean consumers
+        if: steps.version.outputs.line == 'core'
         run: bash eng/verify-packages-install.sh ${{ steps.version.outputs.version }} artifacts
+
+      # The preview line's consumers: the module packages, built against the SDK packed at the tag's version.
+      - name: Module package consumers (preview line)
+        if: steps.version.outputs.line == 'preview'
+        run: python eng/verify-commitments-package.py --output artifacts-preview-consumers --sdk-version ${{ steps.version.outputs.version }}
 
       # upload-artifact v4+ artifacts are immutable once uploaded (can't be overwritten within a run).
       - name: Upload packages as immutable artifact
