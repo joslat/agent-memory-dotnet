@@ -152,7 +152,7 @@ public sealed record PackModuleView
     /// <summary>A transaction-time pin: the view as the store held it then.</summary>
     public DateTimeOffset? SystemAsOf { get; init; }
 
-    /// <summary>The keys it must return, in any order, and no others.</summary>
+    /// <summary>The keys it must return, in any order, and no others (each once: a history view returns a key's versions).</summary>
     public IReadOnlyList<string> ExpectKeys { get; init; } = [];
 
     /// <summary>Text the rendered items must contain.</summary>

@@ -1,0 +1,52 @@
+{
+  "format": "agentmemory-pack/1",
+  "id": "module.lessons.static",
+  "title": "Repository Lessons through the real pipeline: a judged replacement closes the old lesson, time pins and owners hold",
+  "owners": ["dev", "ops"],
+  "sessions": [
+    { "owner": "dev", "id": "dev-1", "messages": [
+      { "at": "2026-10-20T09:00:00Z", "text": "Builds fail with MSB3021: a running process locks the DLLs. Building into artifacts/alt-build fixed it." }] },
+    { "owner": "dev", "id": "dev-2", "messages": [
+      { "at": "2026-10-22T09:00:00Z", "text": "Use --artifacts-path artifacts/build2 instead; alt-build collides with the CI cache." }] },
+    { "owner": "ops", "id": "ops-1", "messages": [
+      { "at": "2026-10-20T10:00:00Z", "text": "Our deploys need the Docker daemon running first." }] }
+  ],
+  "modules": {
+    "require": [{ "id": "io.agentmemory.examples.lessons", "version": "[1.0.0]" }],
+    "teach": [
+      { "id": "t1", "session": "dev-1", "provider": "io.agentmemory.examples.lessons:writer", "proposals": [
+        { "type": "LessonItem", "key": "locked-dlls",
+          "properties": { "lesson": "When MSB3021 says a process locks the DLLs, build into artifacts/alt-build", "repository": "agent-memory-dotnet",
+            "failure": "MSB3021 Unable to copy file", "fix": "dotnet build --artifacts-path artifacts/alt-build", "verified": true },
+          "source": { "messageIds": ["#0"], "excerpt": "Building into artifacts/alt-build fixed it." } }],
+        "expect": [{ "proposal": 0, "status": "Stored" }] },
+      { "id": "t2", "session": "dev-2", "provider": "io.agentmemory.examples.lessons:writer", "existingView": "current", "proposals": [
+        { "type": "LessonItem", "key": "locked-dlls-ci", "replaces": ["locked-dlls"],
+          "properties": { "lesson": "When MSB3021 locks the DLLs, build into artifacts/build2; alt-build collides with the CI cache",
+            "repository": "agent-memory-dotnet", "fix": "dotnet build --artifacts-path artifacts/build2", "verified": false },
+          "source": { "messageIds": ["#0"], "excerpt": "Use --artifacts-path artifacts/build2 instead" } }],
+        "closings": [{ "proposal": 0, "key": "locked-dlls", "probability": 0.92 }],
+        "expect": [{ "proposal": 0, "status": "Stored", "closed": ["locked-dlls"] }] },
+      { "id": "t3", "session": "ops-1", "provider": "io.agentmemory.examples.lessons:writer", "proposals": [
+        { "type": "LessonItem", "key": "locked-dlls",
+          "properties": { "lesson": "Start the Docker daemon before deploying", "repository": "ops-scripts", "verified": false },
+          "source": { "messageIds": ["#0"], "excerpt": "Our deploys need the Docker daemon running first." } }],
+        "expect": [{ "proposal": 0, "status": "Stored" }] }
+    ],
+    "records": [
+      { "id": "dev-old", "owner": "dev", "module": "io.agentmemory.examples.lessons", "type": "LessonItem", "key": "locked-dlls", "state": "closed" },
+      { "id": "dev-new", "owner": "dev", "module": "io.agentmemory.examples.lessons", "type": "LessonItem", "key": "locked-dlls-ci",
+        "state": "live", "versions": 1, "properties": { "repository": "agent-memory-dotnet" } },
+      { "id": "ops-own", "owner": "ops", "module": "io.agentmemory.examples.lessons", "type": "LessonItem", "key": "locked-dlls", "state": "live" },
+      { "id": "ops-absent", "owner": "ops", "module": "io.agentmemory.examples.lessons", "type": "LessonItem", "key": "locked-dlls-ci", "state": "absent" }
+    ],
+    "views": [
+      { "id": "dev-now", "owner": "dev", "module": "io.agentmemory.examples.lessons", "view": "current", "expectKeys": ["locked-dlls-ci"],
+        "requiredText": ["build2"], "excludedText": ["Docker", "into artifacts/alt-build ("] },
+      { "id": "dev-before", "owner": "dev", "module": "io.agentmemory.examples.lessons", "view": "current", "systemAsOf": "2026-10-21T00:00:00Z",
+        "expectKeys": ["locked-dlls"], "requiredText": ["alt-build"], "excludedText": ["build2"] },
+      { "id": "ops-now", "owner": "ops", "module": "io.agentmemory.examples.lessons", "view": "current", "expectKeys": ["locked-dlls"],
+        "requiredText": ["Docker"], "excludedText": ["MSB3021"] }
+    ]
+  }
+}

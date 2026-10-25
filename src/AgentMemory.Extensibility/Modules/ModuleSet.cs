@@ -67,7 +67,9 @@ public sealed class ModuleSet
             });
         if (!composition.Succeeded) throw new ModuleActivationException(composition.Errors);
 
-        var configuration = builder.Configuration ?? services.GetService<IConfiguration>();
+        // A host without configuration (a console host, a test, the pack runner) gets each module's defaults, validated
+        // like any bound values: the defaults are the module's own choice, and its validator still decides.
+        var configuration = builder.Configuration ?? services.GetService<IConfiguration>() ?? new ConfigurationBuilder().Build();
         var errors = new SortedSet<string>(StringComparer.Ordinal);
         var modules = new List<ActiveModule>();
         foreach (var composed in composition.Modules)
@@ -77,11 +79,6 @@ public sealed class ModuleSet
             string? configurationHash = null;
             if (registration.Options is { } binding)
             {
-                if (configuration is null)
-                {
-                    errors.Add($"Module '{composed.Manifest.Id}' has options but no IConfiguration is registered or supplied.");
-                    continue;
-                }
                 var section = configuration.GetSection(composed.ConfigurationSection);
                 var where = $"Module '{composed.Manifest.Id}' configuration '{composed.ConfigurationSection}'";
                 try

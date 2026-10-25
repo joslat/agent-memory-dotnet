@@ -312,13 +312,19 @@ public sealed class ModuleActivationTests
     }
 
     [Fact]
-    public void OptionsWithoutAnyConfigurationFailActivation()
+    public void WithoutAnyConfigurationOptionsBindTheirDefaultsAndAreStillValidated()
     {
-        var services = Services();
-        services.AddAgentMemoryModules(m => m.Add(Manifest(Reviews), b => b.Configure<ReviewOptions>()));
-        using var provider = Build(services);
-        FluentActions.Invoking(() => provider.GetRequiredService<ModuleSet>()).Should().Throw<ModuleActivationException>()
-            .Which.Errors.Should().ContainSingle().Which.Should().Contain("no IConfiguration");
+        var plain = Services();
+        plain.AddAgentMemoryModules(m => m.Add(Manifest(Reviews), b => b.Configure(new PositiveLimit())));
+        using (var provider = Build(plain))
+            provider.GetRequiredService<ModuleSet>().Modules[0].GetOptions<ReviewOptions>().Limit.Should().Be(3, "the module's own default");
+
+        var strict = Services();
+        strict.AddSingleton<IValidateOptions<ReviewOptions>>(new ValidateOptions<ReviewOptions>(null, o => o.Tone is not null, "Tone is required."));
+        strict.AddAgentMemoryModules(m => m.Add(Manifest(Reviews), b => b.Configure<ReviewOptions>()));
+        using var refused = Build(strict);
+        FluentActions.Invoking(() => refused.GetRequiredService<ModuleSet>()).Should().Throw<ModuleActivationException>()
+            .Which.Errors.Should().ContainSingle().Which.Should().Contain("Tone is required.");
     }
 
     [Fact]

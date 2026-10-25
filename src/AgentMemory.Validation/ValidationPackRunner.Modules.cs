@@ -194,8 +194,9 @@ public sealed partial class ValidationPackRunner
                 checks.Add(new($"views:{view.Id}", "views", false, $"{view.Id}: the view returned {result.Status} ({string.Join("; ", result.Errors)})"));
                 continue;
             }
-            var keys = result.Items.Select(i => i.Record.Key).Order(StringComparer.Ordinal).ToList();
-            var keysOk = keys.SequenceEqual(view.ExpectKeys.Order(StringComparer.Ordinal));
+            // Distinct keys: a history view returns every version of its key.
+            var keys = result.Items.Select(i => i.Record.Key).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            var keysOk = keys.SequenceEqual(view.ExpectKeys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
             checks.Add(new($"views:{view.Id}:keys", "views", keysOk,
                 $"{view.Id}: returned [{string.Join(", ", keys)}]" + (keysOk ? "" : $", expected [{string.Join(", ", view.ExpectKeys.Order(StringComparer.Ordinal))}]")));
             var texts = result.Items.Select(i => i.Text).ToList();

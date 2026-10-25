@@ -1,0 +1,61 @@
+{
+  "format": "agentmemory-pack/1",
+  "id": "module.commitments.static",
+  "title": "Commitments through the real pipeline: a correction and a completion keep history, another owner's similar promise never meets",
+  "owners": ["alex", "sam"],
+  "schema": { "entityTypes": ["PROJECT"], "predicates": [] },
+  "sessions": [
+    { "owner": "alex", "id": "alex-1", "messages": [
+      { "at": "2026-10-19T09:00:00Z", "text": "I'll send the Atlas draft on Friday.", "entities": [{ "name": "Atlas", "type": "PROJECT" }] }] },
+    { "owner": "alex", "id": "alex-2", "messages": [{ "at": "2026-10-21T09:00:00Z", "text": "Move the Atlas draft to Monday." }] },
+    { "owner": "alex", "id": "alex-3", "messages": [{ "at": "2026-10-27T09:00:00Z", "text": "The Atlas draft is sent." }] },
+    { "owner": "sam", "id": "sam-1", "messages": [
+      { "at": "2026-10-19T10:00:00Z", "text": "I'll send the Atlas budget on Friday.", "entities": [{ "name": "Atlas", "type": "PROJECT" }] }] }
+  ],
+  "modules": {
+    "require": [{ "id": "io.agentmemory.examples.commitments", "version": "[1.0.0]" }],
+    "teach": [
+      { "id": "t1", "session": "alex-1", "provider": "io.agentmemory.examples.commitments:teach", "proposals": [
+        { "type": "CommitmentItem", "key": "atlas-draft",
+          "properties": { "title": "Send Atlas draft", "status": "open", "priority": 2, "due_at": "2026-10-23T16:00:00Z" },
+          "links": [{ "relation": "COMMITMENT_ABOUT", "target": "Atlas", "targetKind": "EntityName" }],
+          "source": { "messageIds": ["#0"], "excerpt": "I'll send the Atlas draft on Friday." } }],
+        "expect": [{ "proposal": 0, "status": "Stored" }] },
+      { "id": "t2", "session": "alex-2", "provider": "io.agentmemory.examples.commitments:teach", "proposals": [
+        { "type": "CommitmentItem", "key": "atlas-draft",
+          "properties": { "title": "Send Atlas draft", "status": "open", "priority": 2, "due_at": "2026-10-26T16:00:00Z" },
+          "links": [{ "relation": "COMMITMENT_ABOUT", "target": "Atlas", "targetKind": "EntityName" }],
+          "source": { "messageIds": ["#0"], "excerpt": "Move the Atlas draft to Monday." } }],
+        "expect": [{ "proposal": 0, "status": "Stored" }] },
+      { "id": "t3", "session": "alex-3", "provider": "io.agentmemory.examples.commitments:teach", "proposals": [
+        { "type": "CommitmentItem", "key": "atlas-draft",
+          "properties": { "title": "Send Atlas draft", "status": "completed", "priority": 2, "due_at": "2026-10-26T16:00:00Z" },
+          "links": [{ "relation": "COMMITMENT_ABOUT", "target": "Atlas", "targetKind": "EntityName" }],
+          "source": { "messageIds": ["#0"], "excerpt": "The Atlas draft is sent." } }],
+        "expect": [{ "proposal": 0, "status": "Stored" }] },
+      { "id": "t4", "session": "sam-1", "provider": "io.agentmemory.examples.commitments:teach", "proposals": [
+        { "type": "CommitmentItem", "key": "atlas-draft",
+          "properties": { "title": "Send Atlas budget", "status": "open", "priority": 1, "due_at": "2026-10-23T16:00:00Z" },
+          "links": [{ "relation": "COMMITMENT_ABOUT", "target": "Atlas", "targetKind": "EntityName" }],
+          "source": { "messageIds": ["#0"], "excerpt": "I'll send the Atlas budget on Friday." } }],
+        "expect": [{ "proposal": 0, "status": "Stored" }] }
+    ],
+    "records": [
+      { "id": "alex-draft", "owner": "alex", "module": "io.agentmemory.examples.commitments", "type": "CommitmentItem",
+        "key": "atlas-draft", "state": "live", "versions": 3, "properties": { "status": "completed" } },
+      { "id": "sam-draft", "owner": "sam", "module": "io.agentmemory.examples.commitments", "type": "CommitmentItem",
+        "key": "atlas-draft", "state": "live", "versions": 1, "properties": { "title": "Send Atlas budget" } }
+    ],
+    "views": [
+      { "id": "alex-history", "owner": "alex", "module": "io.agentmemory.examples.commitments", "view": "history",
+        "arguments": { "key": "atlas-draft" }, "expectKeys": ["atlas-draft"],
+        "requiredText": ["completed", "2026-10-26", "2026-10-23"], "excludedText": ["budget"] },
+      { "id": "alex-before-correction", "owner": "alex", "module": "io.agentmemory.examples.commitments", "view": "history",
+        "arguments": { "key": "atlas-draft" }, "systemAsOf": "2026-10-20T12:00:00Z", "expectKeys": ["atlas-draft"],
+        "requiredText": ["2026-10-23"], "excludedText": ["2026-10-26", "completed"] },
+      { "id": "sam-history", "owner": "sam", "module": "io.agentmemory.examples.commitments", "view": "history",
+        "arguments": { "key": "atlas-draft" }, "expectKeys": ["atlas-draft"], "requiredText": ["Send Atlas budget"],
+        "excludedText": ["Send Atlas draft"] }
+    ]
+  }
+}

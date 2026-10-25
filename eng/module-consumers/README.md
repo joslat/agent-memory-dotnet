@@ -108,3 +108,23 @@ cases never select a retrieval view, so their contributions must be `NotApplicab
 no database descendants. Primary, upgrade, and the five retrieval negative cases still
 require actual contribution database traces. All cases require ingestion and migration
 traces; this distinction adds no query and changes no world or semantic expectation.
+
+## Static composition acceptance (EXT-static-acceptance)
+
+`StaticAcceptance` proves both validation modules end to end on static composition, from NuGet packages only.
+`eng/verify-static-acceptance.py` packs the whole chain (the core packages the preview line references, the four preview
+packages at `--sdk-version`, Commitments and Repository Lessons) into a fresh mapped feed, refuses ProjectReference assets,
+checks every loaded AgentMemory DLL against its nupkg, and runs the consumer:
+
+```sh
+python eng/verify-static-acceptance.py --output artifacts/static-build-001 --build-only
+AGENTMEMORY_DISPOSABLE_NEO4J=1 NEO4J_URI=bolt://127.0.0.1:<port> NEO4J_PASSWORD=<disposable> \
+  python eng/verify-static-acceptance.py --output artifacts/static-run-001
+```
+
+Part A runs each module's frozen pack (`StaticAcceptance/Packs`) through the conformance kit, plus a mutation control.
+Part B composes an Agent Framework host with both modules through `AddAgentMemoryModules` and drives the real agent loop:
+the two modules write, a fresh session recalls both through one shared gate call, another owner sees nothing of them, a
+named replacement closes the old lesson through the host's closing approver, `MaxItems` bounds what reaches the model, a
+host with modules and nothing of theirs to say gives the model byte-identical input to a host without modules, and that
+host runs no module code. A scripted lessons model, a keyword gate and an approving update judge stand in for the models.
