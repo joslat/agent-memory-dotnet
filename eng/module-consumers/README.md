@@ -18,6 +18,12 @@ module and SDK DLL bytes against their nupkgs. The report records package/source
 versions, commands and failures. Existing evidence is never overwritten. No database or model runs,
 Docker operations or publishing occur. Failed logs remain in the selected output directory.
 
+The same run packs [Repository Lessons](RepositoryLessons/README.md), the model-backed example, and runs
+its checks on all three frameworks: the writer's prompt and parsing, admission of its proposals, and one
+turn through static composition (`AddAgentMemoryModules`) with a granted scripted chat client, existing
+lessons and an approving closing approver, ending in one write that stores the new lesson and closes the
+replaced one. No model is called.
+
 The checks use deterministic structured input and a clearly named ProbeReader test double for view
 composition. They prove authoring/packaged API contracts, not graph persistence, native host wiring,
 migration or signed runtime lifecycle. Those need the isolated real-service acceptance world.

@@ -1,0 +1,57 @@
+{
+  "format": "agentmemory.module/v1alpha1",
+  "id": "io.agentmemory.examples.lessons",
+  "version": "1.0.0",
+  "sdk": "[0.1,0.2)",
+  "requires": {
+    "host": [
+      "Inference"
+    ]
+  },
+  "ontology": {
+    "labelPrefix": "Lesson",
+    "types": [
+      {
+        "name": "LessonItem",
+        "scope": "owner",
+        "render": "{lesson} ({repository})",
+        "properties": {
+          "lesson": {
+            "type": "string",
+            "required": true,
+            "maxLength": 400
+          },
+          "repository": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200,
+            "indexed": true
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "failure": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "fix": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "verified": {
+            "type": "bool",
+            "required": true
+          }
+        }
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "current",
+      "type": "LessonItem",
+      "limit": 50
+    }
+  ]
+}

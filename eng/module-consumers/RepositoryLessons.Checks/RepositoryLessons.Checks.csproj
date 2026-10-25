@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup Condition="'$(ConsumerIsInert)' != 'true'"><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup Condition="'$(ConsumerIsInert)' != 'true'">
+    <PackageReference Include="AgentMemory.Examples.RepositoryLessons" Version="1.0.0" />
+    <PackageReference Include="AgentMemory.Extensibility" Version="$(ModuleSdkVersion)" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
+  </ItemGroup>
+</Project>

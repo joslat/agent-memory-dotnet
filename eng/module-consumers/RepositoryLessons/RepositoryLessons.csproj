@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <AssemblyName>AgentMemory.Examples.RepositoryLessons</AssemblyName>
+    <RootNamespace>AgentMemory.Examples.RepositoryLessons</RootNamespace>
+    <PackageId>AgentMemory.Examples.RepositoryLessons</PackageId>
+    <Authors>AgentMemory contributors</Authors>
+    <Description>Experimental repository-lessons memory package; a model-backed writer through the store-aware module write lane.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsPackable Condition="'$(ConsumerIsInert)' != 'true'">true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ConsumerIsInert)' != 'true'">
+    <PackageReference Include="AgentMemory.Extensibility" Version="$(ModuleSdkVersion)" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <EmbeddedResource Include="manifest.json" LogicalName="RepositoryLessons.agentmemory-module.json" />
+  </ItemGroup>
+</Project>
