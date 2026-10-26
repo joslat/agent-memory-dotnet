@@ -78,11 +78,16 @@ public sealed class AmpackCommandLineTests : IDisposable
 
         // init, lint, build with a signature, verify with the ledger, inspect.
         Done("init", "notes", "--id", "io.example.notes");
+        Directory.CreateDirectory(At("notes", "evals"));
+        File.WriteAllText(At("notes", "evals", "tests.json"),
+            """{"format":"agentmemory.pack.tests/1.2","tests":[{"name":"the note","view":"notes","search":"first note","expect":["note-1"]}]}""");
         Done("lint", "notes");
         Done("build", "notes", "--out", "notes.ampack", "--key", At("keys", "publisher.key.pem")).Should().Contain("sha256:");
         Done("verify", "notes.ampack", "--policy", "trust.json", "--ledger", "ledger.json", "--record")
             .Should().Contain("Verified io.example.notes 0.1.0").And.Contain("kind    knowledge").And.Contain("ledger  recorded");
         Done("inspect", "notes.ampack").Should().Contain("io.example.notes 0.1.0").And.Contain("envelope  META/signatures/");
+        // test: loaded as a host loads it, held in memory, its own tests run.
+        Done("test", "notes.ampack", "--policy", "trust.json").Should().Contain("PASS  io.example.notes: the note").And.Contain("1 of 1 passed");
 
         // sign: a second signature in another role; both verify.
         Done("sign", "notes", "--key", At("keys", "publisher.key.pem"), "--role", "curator");

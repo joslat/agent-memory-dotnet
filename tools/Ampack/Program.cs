@@ -34,6 +34,10 @@ internal static class Program
                                  a composite pack for a composite manifest (then: ampack lock, ampack build)
           set <out.ampack> <member.ampack>... --id <id> --version <v> --key <private.pem>
                                  one archive carrying complete packs side by side, signed as a whole
+          test <pack.ampack>... --policy <trust.json>
+                                 load the packs as a host does (every record checked), hold them in memory, and run
+                                 each pack's own tests (evals/tests.json): views, searches and walks, offline;
+                                 give a snapshot's definition pack beside it
         """;
 
     internal static int Main(string[] args)
@@ -54,6 +58,7 @@ internal static class Program
                 "lock" => Lock(options),
                 "migrate" => Migrate(options),
                 "set" => Set(options),
+                "test" => Test(options),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}", 2),
             };
         }
@@ -299,6 +304,61 @@ internal static class Program
         File.WriteAllBytes(output, PackBuilder.Pack(files, compress: !o.Flag("stored")));
         Console.WriteLine($"Set {id} {version}: {members.Count} members\n  digest  {FilesList.DigestOf(files[PackPaths.FilesList])}\n  wrote   {output}");
         return 0;
+    }
+
+    // PACK-toolset: a pack's own tests, on the packs loaded as a host loads them and held in memory.
+    private static int Test(Options o)
+    {
+        var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
+        var paths = o.PositionalFrom(0).ToList();
+        if (paths.Count == 0) throw new UsageException("test needs at least one pack.");
+        var loaded = new List<AgentMemory.Extensibility.Ampack.LoadedPack>();
+        try
+        {
+            foreach (var path in paths)
+            {
+                var bytes = File.ReadAllBytes(path);
+                switch (AgentMemory.Extensibility.Ampack.PackLoader.Peek(bytes).Kind)
+                {
+                    case "set":
+                        var set = AgentMemory.Extensibility.Ampack.PackFamilies.LoadSet(bytes, trust);
+                        loaded.AddRange(set.Families.SelectMany(f => f.Members).Concat(set.Packs));
+                        break;
+                    case "composite":
+                        throw new UsageException($"{path} is a composite: test the set that carries it with its members.");
+                    default:
+                        loaded.Add(AgentMemory.Extensibility.Ampack.PackLoader.Load(bytes, trust));
+                        break;
+                }
+            }
+            var definitions = loaded.Where(p => p.Kind == "definition").ToDictionary(p => p.Id, p => p.Manifest, StringComparer.Ordinal);
+            var snapshots = new List<AgentMemory.Extensibility.Packs.ModuleSnapshot>();
+            foreach (var shot in loaded.Where(p => p.Kind == "snapshot"))
+            {
+                var of = shot.Manifest.Modules.Keys.Single();
+                if (!definitions.TryGetValue(of, out var definition)) return Report([$"{shot.Id} is a snapshot of {of}: give that definition pack beside it."], "");
+                var dependencies = definition.Modules.Keys.Where(definitions.ContainsKey).Select(d => definitions[d]).ToList();
+                snapshots.Add(AgentMemory.Extensibility.Ampack.PackLoader.ToSnapshot(shot, definition, dependencies));
+            }
+            var memory = AgentMemory.Extensibility.Ampack.PackMemory.From(loaded.Select(p => p.Knowledge).OfType<AgentMemory.Extensibility.Packs.KnowledgePack>(), snapshots);
+            Console.WriteLine($"Loaded {loaded.Count} pack(s), {memory.Count:N0} records in memory.");
+            var failed = 0; var ran = 0;
+            foreach (var pack in loaded)
+            {
+                var results = AgentMemory.Extensibility.Ampack.PackTests.RunAsync(pack, memory).GetAwaiter().GetResult();
+                if (results.Count == 0) { Console.WriteLine($"  {pack.Id}: no tests (evals/tests.json)"); continue; }
+                foreach (var result in results)
+                {
+                    ran++;
+                    if (!result.Passed) failed++;
+                    Console.WriteLine($"  {(result.Passed ? "PASS" : "FAIL")}  {pack.Id}: {result.Name}: {result.Detail}");
+                }
+            }
+            Console.WriteLine(ran == 0 ? "No tests to run." : $"{ran - failed} of {ran} passed.");
+            return failed == 0 ? 0 : 1;
+        }
+        catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
+        catch (AgentMemory.Extensibility.Packs.KnowledgePackException e) { return Report(e.Problems, ""); }
     }
 
     /// <summary>SOURCE_DATE_EPOCH when set (reproducible builds), otherwise now, to the second.</summary>

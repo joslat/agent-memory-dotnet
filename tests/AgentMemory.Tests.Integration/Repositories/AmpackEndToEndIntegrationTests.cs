@@ -179,6 +179,66 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     }
 
     [Fact]
+    public async Task PackMemoryReadsWhatTheStoreReadsForTheSameRecords()
+    {
+        // The real martial arts pack in Neo4j and in memory: list order, key reads and the best search hit agree.
+        var pack = PackLoader.Load(PackAuthoring.Build(PackAuthoring.FromModuleBundle(RealBundle("MartialArts")), AmpackKey.PrivateKeyPem), AmpackTrust());
+        var importer = new KnowledgePackImporter(new Neo4jKnowledgePackStore(fixture.TransactionRunner));
+        await importer.ImportAsync(pack.Knowledge!);
+        var memory = PackMemory.From([pack.Knowledge!]);
+        using var services = Policies();
+        var stored = new ModuleViews(pack.Knowledge!.Resolution,
+            new Neo4jModuleReader(fixture.TransactionRunner, pack.Knowledge.Resolution, pack.Id, services.GetRequiredService<IMemoryIsolationPolicy>()));
+        var held = new ModuleViews(memory.Resolution, memory.ReaderFor(pack.Id));
+        var lea = new ModuleReadContext { Scope = MemoryScope.For("lea") };
+        async Task<List<string>> Keys(ModuleViews views, string view, ModuleViewArguments arguments) =>
+            [.. (await views.EvaluateWithArgumentsAsync(view, arguments, lea)).Items.Select(i => i.Record.Key)];
+
+        // Ranks of two arts share steps; within a step the stores break ties by their own record ids, so compare step by step.
+        async Task<List<string>> Ladder(ModuleViews views) =>
+            [.. (await views.EvaluateWithArgumentsAsync("ladder", new(), lea)).Items.GroupBy(i => i.Record.Properties["step"].GetInt32())
+                .Select(g => g.Key + ":" + string.Join(",", g.Select(i => i.Record.Key).Order(StringComparer.Ordinal)))];
+        (await Ladder(held)).Should().Equal(await Ladder(stored));
+        (await Keys(held, "ladder", new() { Key = "itf-taekwondo/9-gup" })).Should().Equal(await Keys(stored, "ladder", new() { Key = "itf-taekwondo/9-gup" }))
+            .And.ContainSingle();
+        foreach (var question in new[] { "Heian Shodan", "Which kata do I need for 6th kyu?", "What is a front kick called?", "judo throws" })
+            (await Keys(held, "kata", new() { Search = question })).FirstOrDefault()
+                .Should().Be((await Keys(stored, "kata", new() { Search = question })).FirstOrDefault(), question);
+        (await importer.RemoveAsync(pack.Manifest)).Closed.Should().Be(93);
+
+        // A code map in Neo4j and in memory: every step of the walk from a file to its tests reads the same records and degrees.
+        var store = new Neo4jModuleSnapshotStore(fixture.TransactionRunner);
+        var at = DateTimeOffset.UtcNow.AddMinutes(16);
+        await store.ImportAsync(NoCodeMap("git:clear"), at.AddSeconds(-1));
+        var map = MapSnapshot("git:same", "Close Remove", withOther: true);
+        await store.ImportAsync(map, at);
+        var inStore = new Neo4jModuleTraversalReader(fixture.TransactionRunner, KnowledgePack.ResolutionOf(CodeMapPack.Manifest),
+            services.GetRequiredService<IMemoryIsolationPolicy>());
+        var inMemory = PackMemory.From([], [map]);
+        async Task<(List<string> Keys, ModuleRecord First)> Match(IModuleTraversalReader reader)
+        {
+            var found = await reader.MatchAsync(new() { ModuleId = CodeMapPack.Id, Type = CodeMapPack.FileType, Property = "path",
+                Match = ModuleAnchorMatch.Exact, Values = ["src/Map/MapStore.cs"] }, lea);
+            return ([.. found.Records.Select(r => r.Key)], found.Records[0]);
+        }
+        async Task<List<(string Key, int Degree)>> Expand(IModuleTraversalReader reader, string relation, ModuleTraversalDirection direction, string from, params string[] words) =>
+            [.. (await reader.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = relation, Direction = direction, FromIds = [from], Words = words }, lea))
+                .Edges.Select(e => (e.To.Key, e.Degree))];
+        var (storedFiles, storedFile) = await Match(inStore);
+        var (heldFiles, heldFile) = await Match(inMemory);
+        heldFiles.Should().Equal(storedFiles);
+        var storedTypes = await Expand(inStore, "CODEMAP_DEFINES", ModuleTraversalDirection.Out, storedFile.Id);
+        (await Expand(inMemory, "CODEMAP_DEFINES", ModuleTraversalDirection.Out, heldFile.Id)).Should().Equal(storedTypes);
+        var storedSymbol = (await inStore.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_DEFINES", Direction = ModuleTraversalDirection.Out,
+            FromIds = [storedFile.Id] }, lea)).Edges.Single().To.Id;
+        var heldSymbol = (await inMemory.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_DEFINES", Direction = ModuleTraversalDirection.Out,
+            FromIds = [heldFile.Id] }, lea)).Edges.Single().To.Id;
+        (await Expand(inMemory, "CODEMAP_TESTS", ModuleTraversalDirection.In, heldSymbol, "other"))
+            .Should().Equal(await Expand(inStore, "CODEMAP_TESTS", ModuleTraversalDirection.In, storedSymbol, "other"));
+        await store.ImportAsync(NoCodeMap("git:clear"), at.AddSeconds(1));
+    }
+
+    [Fact]
     public async Task AnAmpackThatWasChangedOrComesFromAnUntrustedKeyIsRefusedAndNothingIsWritten()
     {
         var manifest = PackManifest.Replace("io.example.packdojo", "io.example.refused", StringComparison.Ordinal).Replace("VERSION", "1.0.0", StringComparison.Ordinal);

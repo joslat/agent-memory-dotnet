@@ -54,6 +54,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
     <InternalsVisibleTo Include="AgentMemory.Extensibility.AgentFramework" />
+    <InternalsVisibleTo Include="AgentMemory.Extensibility.Ampack" />
   </ItemGroup>
 
   <ItemGroup>

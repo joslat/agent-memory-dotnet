@@ -95,6 +95,8 @@ public sealed record LoadedPack
     /// <c>pack:</c> and its version; otherwise null.
     /// </summary>
     public string? SnapshotSource { get; init; }
+    /// <summary>The pack's own tests (<c>evals/tests.json</c>), verified with it; null when it has none. Run with <see cref="PackTests"/>.</summary>
+    public ReadOnlyMemory<byte>? Tests { get; init; }
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
 }
@@ -207,6 +209,7 @@ public static class PackLoader
         {
             Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Kind = pack.Manifest.Kind, Manifest = manifest,
             Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles,
+            Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? tests : null,
         };
     }
 

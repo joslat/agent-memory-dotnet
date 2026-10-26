@@ -1,17 +1,21 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- `ampack`: build, sign, verify and inspect memory packs (strategy PACK-tool). Published as a NativeAOT single binary
-       for Windows, Linux and macOS, so a pack author needs no .NET; `dotnet run` works for development. -->
+  <!-- `ampack`: build, sign, verify, inspect and test memory packs (strategy PACK-tool, PACK-toolset). Published as one
+       self-contained file per platform (dotnet publish with a runtime identifier, self-contained, PublishSingleFile), so a pack author
+       needs no .NET. Not NativeAOT: `ampack test` runs packs on the SDK's in-memory engine, which uses reflection-based JSON;
+       NativeAOT returns when the SDK is AOT-compatible. `dotnet run` works for development. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>Ampack</AssemblyName>
     <RootNamespace>Ampack</RootNamespace>
-    <PublishAot>true</PublishAot>
+    <!-- The tool is first-party: it uses the preview pack host API (AMEXT001) on purpose. -->
+    <NoWarn>$(NoWarn);AMEXT001</NoWarn>
     <InvariantGlobalization>true</InvariantGlobalization>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Format\AgentMemory.Packs.Format.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Extensibility.Ampack\AgentMemory.Extensibility.Ampack.csproj" />
   </ItemGroup>
 </Project>
