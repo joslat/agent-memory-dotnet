@@ -181,6 +181,56 @@ public sealed class GateCompanionTests
 
     // ---- the shipped System One gate (EXT-measure M2): per-type calls, so companions never change a core call ----
 
+    [Fact]
+    public async Task AJudgingGateOffersCoreCandidatesBeforeItWaitsForCompanionsSoTheyCanSearchWithThem()
+    {
+        // Extensibility 0.13 §K4, S2: a companion search that waits for core's candidates is answered before the gate waits
+        // for it, so the search can use what core memory found and still make the one gate call.
+        RecallCompanions? companions = null;
+        var search = Task.Run<IReadOnlyList<MemoryGateCandidate>>(async () =>
+        {
+            var core = await companions!.CoreCandidates;
+            return [new("module:dojo:k1", "io.example.dojo", "searched with: " + string.Join(" | ", core))];
+        });
+        companions = new RecallCompanions(search);
+        var judge = new Judge();
+
+        await Sut(judge).AssembleContextAsync(Request() with { Companions = companions });
+
+        var offered = judge.Seen.Single().Candidates.Single(c => c.Companion);
+        offered.Text.Should().Contain("jazz").And.Contain("tea").And.Contain("hiking");
+    }
+
+    [Theory]
+    [InlineData(MemoryGateMode.Floor)]
+    [InlineData(MemoryGateMode.Everything)]
+    public async Task WithoutAJudgeCoreCandidatesCompleteEmptyAtOnce(MemoryGateMode mode)
+    {
+        var companions = new RecallCompanions(Task.FromResult<IReadOnlyList<MemoryGateCandidate>>(Modules));
+        await Sut(new Judge(), mode).AssembleContextAsync(Request() with { Companions = companions });
+        companions.CoreCandidates.IsCompleted.Should().BeTrue();
+        (await companions.CoreCandidates).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AFailedRecallStillReleasesAWaitingCompanionSearch()
+    {
+        var companions = new RecallCompanions(Task.FromResult<IReadOnlyList<MemoryGateCandidate>>(Modules));
+        var failing = new GatedMemoryContextAssembler(new Failing(), new Judge(),
+            Options.Create(new MemoryGateOptions { Mode = MemoryGateMode.Judge }), NullLogger<GatedMemoryContextAssembler>.Instance);
+        await FluentActions.Awaiting(() => failing.AssembleContextAsync(Request() with { Companions = companions })).Should().ThrowAsync<IOException>();
+        companions.CoreCandidates.IsCompleted.Should().BeTrue();
+    }
+
+    private sealed class Failing : IMemoryContextAssembler
+    {
+        public Task<MemoryContext> AssembleContextAsync(RecallRequest request, CancellationToken cancellationToken = default) =>
+            throw new IOException("store unavailable");
+
+        public Task<MemoryContext> AssembleContextAsOfAsync(RecallRequest request, DateTimeOffset asOf, DateTimeOffset? systemAsOf = null,
+            CancellationToken cancellationToken = default) => throw new IOException("store unavailable");
+    }
+
     private sealed class JudgeServer(Func<string, bool> fails) : HttpMessageHandler
     {
         public List<string> Bodies { get; } = [];

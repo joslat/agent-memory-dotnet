@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Let a module search use what core memory found. `RecallCompanions.CoreCandidates` gives the texts of the core memories a
+  judging gate found for the turn: the gate offers them right after its search, before it waits for companions, and offers an
+  empty list on every other path. A search view adds them after the question, so "what do I need for my next belt?" can find
+  the grade that the person's own memory names. Experimental `ContextRequest.CoreCandidates` carries them to contributors.
+- Add experimental display metadata to module manifests (`display`: title, description, a `#RRGGBB` colour and, for a
+  knowledge pack, a PNG icon in its signed bundle), for hosts that show modules to people, such as DemoBrain. It never reaches
+  a model.
+
 - Add experimental knowledge packs (`AgentMemory.Extensibility.Packs`): data-only memory packages that ship seed records.
   A pack is a module manifest with `seed` files and only shared types, signed as a bundle. `KnowledgePack` verifies the
   bundle first, then checks every record against the manifest, and opens from a folder or from the `agentmemory/` folder

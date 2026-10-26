@@ -16,6 +16,9 @@ public sealed class ViewContributor : IContextContributor
     private readonly string _viewId;
     private readonly Func<ContextRequest, ModuleViewArguments?>? _arguments;
     private readonly bool _search;
+
+    /// <summary>How long a search view waits for core's candidates before it searches with the question alone.</summary>
+    internal static readonly TimeSpan CoreCandidatesWait = TimeSpan.FromSeconds(2);
     /// <inheritdoc/>
     public ContextContributorDescriptor Descriptor { get; }
 
@@ -41,6 +44,17 @@ public sealed class ViewContributor : IContextContributor
         ArgumentNullException.ThrowIfNull(arguments); _arguments = arguments;
     }
 
+    private static async Task<string> CoreTextAsync(ContextRequest request, CancellationToken cancellationToken)
+    {
+        if (request.CoreCandidates is not { } core) return "";
+        try
+        {
+            var texts = await core.WaitAsync(CoreCandidatesWait, cancellationToken).ConfigureAwait(false);
+            return texts.Count == 0 ? "" : " " + string.Join(" ", texts);
+        }
+        catch (TimeoutException) { return ""; }
+    }
+
     /// <inheritdoc/>
     public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken)
     {
@@ -61,12 +75,13 @@ public sealed class ViewContributor : IContextContributor
         var arguments = _arguments?.Invoke(request);
         if (_arguments is not null && arguments is null)
             return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "No view arguments selected for this request." };
-        // A search view searches with the turn's question unless a selector chose its own text (Extensibility 0.13 §K4).
+        // A search view searches with the turn's question unless a selector chose its own text (Extensibility 0.13 §K4), and
+        // adds what core memory found for the turn after it (S2): the question's words come first within the term budget.
         if (_search && arguments?.Search is null)
         {
             if (string.IsNullOrWhiteSpace(request.Query))
                 return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "No question to search with." };
-            arguments = (arguments ?? new()) with { Search = request.Query };
+            arguments = (arguments ?? new()) with { Search = request.Query + await CoreTextAsync(request, cancellationToken).ConfigureAwait(false) };
         }
         var context = new ModuleReadContext
         {

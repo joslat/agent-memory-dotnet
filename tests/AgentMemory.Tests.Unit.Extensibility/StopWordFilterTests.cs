@@ -1,7 +1,8 @@
 using FluentAssertions;
 using AgentMemory.Shared;
+using Xunit;
 
-namespace AgentMemory.Tests.Unit.GraphRagAdapter;
+namespace AgentMemory.Tests.Unit.Extensibility;
 
 public sealed class StopWordFilterTests
 {

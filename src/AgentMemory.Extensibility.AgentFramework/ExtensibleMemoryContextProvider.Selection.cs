@@ -24,7 +24,7 @@ public sealed partial class ExtensibleMemoryContextProvider
         // ORDER MATTERS. The base call runs its synchronous start first (it gives the turn's user messages their
         // provider ids); only then do module views read the same messages.
         var core = base.ProvideAIContextAsync(context, companions, cancellationToken).AsTask();
-        var preparation = PrepareModulesAsync(context, renderer, cancellationToken);
+        var preparation = PrepareModulesAsync(context, renderer, companions.CoreCandidates, cancellationToken);
         _ = preparation.ContinueWith(t => pending.TrySetResult(
                 t.Status == TaskStatus.RanToCompletion && t.Result is { } prepared ? prepared.Turn.Companions : []),
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -67,9 +67,9 @@ public sealed partial class ExtensibleMemoryContextProvider
 
     /// <summary>Compiles the module views and prepares their candidates; null when there is nothing to add.</summary>
     private async Task<PreparedSelection?> PrepareModulesAsync(InvokingContext context, SelectionRenderer renderer,
-        CancellationToken cancellationToken)
+        Task<IReadOnlyList<string>> coreCandidates, CancellationToken cancellationToken)
     {
-        var envelope = await CompileModulesAsync(context, cancellationToken).ConfigureAwait(false);
+        var envelope = await CompileModulesAsync(context, cancellationToken, coreCandidates).ConfigureAwait(false);
         if (envelope is null) return null;
         try
         {

@@ -175,14 +175,14 @@ await using (var dojo = await HostAsync(modules: true, maxItems: 12, knowledge: 
     Require("pack:recall:personal-and-shared", hasRank && hasNext,
         $"fresh session, 'What kata do I need for my next belt?': Lea's rank {(hasRank ? "present" : "missing")}, the next grade's kata {(hasNext ? "present" : "missing")} (E5)");
 
-    // Reported, not required (it decides S2, design 0.13 §K4): the same need without the word "kata", so only Lea's stored
-    // rank could steer the search toward Shotokan's 6th kyu.
+    // E5b, required from S2 on (design 0.13 §K4; it failed under S1, where search used the question alone): the same need
+    // without the word "kata", so only Lea's stored rank can steer the search toward Shotokan's 6th kyu.
     calls = knowledgeGate.Requests.Count;
     var plain = await dojo.TurnAsync("lea", "k2b", "What do I need for my next belt?");
     var plainOffered = knowledgeGate.Requests.Skip(calls).SelectMany(r => r.Candidates).Where(c => c.Companion).Select(c => c.Text).ToList();
     var plainNext = plain.Contains("Heian Yondan", StringComparison.Ordinal);
-    Console.WriteLine($"report pack:recall:plain-next-belt: the next grade's kata {(plainNext ? "present" : "missing")}; pack candidates: "
-        + string.Join(" | ", plainOffered.Select(t => t[..Math.Min(48, t.Length)])));
+    Require("pack:recall:plain-next-belt", plainNext, $"'What do I need for my next belt?': the next grade's kata {(plainNext ? "present" : "missing")}; pack candidates: "
+        + string.Join(" | ", plainOffered.Select(t => t[..Math.Min(48, t.Length)])) + " (E5b)");
 
     var nedKata = await dojo.TurnAsync("ned", "k3", "Which techniques are in Heian Shodan?");
     var nedNext = await dojo.TurnAsync("ned", "k4", "What kata do I need for my next belt?");

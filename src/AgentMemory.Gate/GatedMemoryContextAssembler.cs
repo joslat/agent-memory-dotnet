@@ -70,7 +70,23 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
     public async Task<MemoryContext> AssembleContextAsync(RecallRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        try
+        {
+            return await AssembleGatedAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Whatever path recall took, a companion search waiting for core's candidates is released.
+            request.Companions?.OfferCoreCandidates([]);
+        }
+    }
+
+    private async Task<MemoryContext> AssembleGatedAsync(RecallRequest request, CancellationToken cancellationToken)
+    {
         var o = _options.Value;
+        // Only a judging gate offers core's candidates; on the other paths companion searches start at once, without them.
+        if (o.Mode != MemoryGateMode.Judge || _gate is SystemOneMemoryGate && !SystemOneMemoryGate.UsableJudges(o).Any())
+            request.Companions?.OfferCoreCandidates([]);
         using var span = AgentMemoryDiagnostics.Source.StartActivity(MemoryGateTelemetry.Span);
         span?.SetTag(MemoryGateTelemetry.Mode, Name(o.Mode));
         if (o.Mode == MemoryGateMode.Floor)
@@ -88,6 +104,8 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
         var candidates = GateCandidates.Of(wide);
         if (o.Mode == MemoryGateMode.Everything)
             return Mark(wide, o, span, "everything", null, [.. candidates.Select(c => Item(c, null, kept: true))], "", 0);
+        // What core found, for companion searches that look with it (Extensibility 0.13 §K4, S2), before they are awaited.
+        request.Companions?.OfferCoreCandidates([.. candidates.Select(c => c.Candidate.Text)]);
         // Companions get their own wait, bounded like the judge: a slow module search costs its own items, never the core
         // judgement (sharing the judge's timeout would have sent core memories to the floor).
         var companions = await CompanionsAsync(request, candidates, o.Timeout, cancellationToken).ConfigureAwait(false);

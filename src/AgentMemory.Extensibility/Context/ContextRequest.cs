@@ -48,4 +48,11 @@ public sealed record ContextRequest
 
     /// <summary>Transaction-time pin: what was BELIEVED then. Null for a live read.</summary>
     public DateTimeOffset? SystemAsOf { get; init; }
+
+    /// <summary>
+    /// What core memory found for this turn before judging (Extensibility 0.13 §K4, S2). A search view adds these texts after
+    /// the question, so "what do I need for my next belt?" can find the grade the person's own memory names. Null when the
+    /// host has none; it completes empty when no judging gate searched.
+    /// </summary>
+    public Task<IReadOnlyList<string>>? CoreCandidates { get; init; }
 }

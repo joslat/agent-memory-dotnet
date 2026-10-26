@@ -245,7 +245,7 @@ public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContext
     }
 
     private async Task<ContextEnvelope?> CompileModulesAsync(
-        InvokingContext context, CancellationToken cancellationToken)
+        InvokingContext context, CancellationToken cancellationToken, Task<IReadOnlyList<string>>? coreCandidates = null)
     {
         try
         {
@@ -280,6 +280,7 @@ public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContext
                 Query = QuestionOf(turn),
                 SystemAsOf = times.SystemAsOf,
                 AsOf = times.AsOf,
+                CoreCandidates = coreCandidates,
             };
 
             // CORE IS EXCLUDED BECAUSE IT WAS ALREADY RENDERED, by `base` at the top of the turn.

@@ -23,12 +23,25 @@ namespace AgentMemory.Abstractions.Domain;
 /// </remarks>
 public sealed class RecallCompanions
 {
+    private readonly TaskCompletionSource<IReadOnlyList<string>> _core = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     /// <summary>Wraps the companions, gathered or still being gathered.</summary>
     public RecallCompanions(Task<IReadOnlyList<MemoryGateCandidate>> candidates) =>
         Candidates = candidates ?? throw new ArgumentNullException(nameof(candidates));
 
     /// <summary>The companion candidates, possibly still being gathered.</summary>
     public Task<IReadOnlyList<MemoryGateCandidate>> Candidates { get; }
+
+    /// <summary>
+    /// The texts of the core memories a judging gate found for this turn, offered right after its search and before it
+    /// waits for the companions, so a companion search can use what core memory knows about the person (Extensibility 0.13
+    /// §K4, S2). Completes empty on every other path: no judging gate, recall skipped, or a failure.
+    /// </summary>
+    /// <remarks>The texts stay in the process: a search reads them, nothing stores them.</remarks>
+    public Task<IReadOnlyList<string>> CoreCandidates => _core.Task;
+
+    /// <summary>Offers the core candidates' texts; the first offer wins, later ones are ignored.</summary>
+    public void OfferCoreCandidates(IReadOnlyList<string> texts) => _core.TrySetResult(texts ?? []);
 
     /// <summary><see cref="MemoryContext.Metadata"/> key: how many companions a gate call carried, decided or not.</summary>
     public const string OfferedMetadataKey = "gate.companionsOffered";

@@ -100,6 +100,31 @@ public sealed class ModuleSearchTests
         none.Omissions.Single().Reason.Should().Be(ContextOmissionReason.NotApplicable);
     }
 
+    [Fact]
+    public async Task TheContributorAddsWhatCoreFoundAfterTheQuestion()
+    {
+        // Extensibility 0.13 §K4, S2: "my next belt" names no art; the person's own memory does.
+        var reader = new Reader();
+        await Compiler(reader).CompileAsync(new()
+        {
+            SessionId = "s", Owner = "lea", Query = "What do I need for my next belt?",
+            CoreCandidates = Task.FromResult<IReadOnlyList<string>>(["Lea holds rank 6th kyu in Shotokan karate"]),
+        });
+        reader.Query!.Search!.Terms.Should().Equal("need", "next", "belt", "lea", "holds", "rank", "6th", "kyu", "shotokan", "karate");
+    }
+
+    [Fact]
+    public async Task WhenCoreNeverAnswersTheContributorSearchesWithTheQuestionAlone()
+    {
+        var reader = new Reader();
+        await Compiler(reader).CompileAsync(new()
+        {
+            SessionId = "s", Owner = "lea", Query = "What do I need for my next belt?",
+            CoreCandidates = new TaskCompletionSource<IReadOnlyList<string>>().Task,
+        });
+        reader.Query!.Search!.Terms.Should().Equal("need", "next", "belt");
+    }
+
     private static ModuleViews Views(Reader reader) => new(Resolution(), reader);
     private static ModuleReadContext Context() => new() { Scope = MemoryScope.For("lea") };
 
