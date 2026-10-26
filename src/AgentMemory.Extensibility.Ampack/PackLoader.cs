@@ -123,6 +123,23 @@ public static class PackLoader
     /// <summary>The file extension of the single-file form.</summary>
     public const string Extension = ".ampack";
 
+    /// <summary>
+    /// An archive's id, version and kind as its <c>pack.json</c> states them, <b>unverified</b>: to choose how to load it
+    /// (<see cref="Load(byte[], PackTrust, PackInstallLedger?, bool)"/>, <see cref="PackFamilies.LoadSet(byte[], PackTrust, PackInstallLedger?)"/>
+    /// or <see cref="PackFamilies.LoadComposite"/>), never to trust it. The chosen path verifies everything.
+    /// </summary>
+    /// <exception cref="PackLoadException">The archive is not readable under the strict profile, or has no valid pack.json.</exception>
+    public static (string Id, string Version, string Kind) Peek(byte[] archive)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
+        PackContent content;
+        try { content = PackReader.ReadArchive(archive, "archive"); }
+        catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
+        if (!content.Files.TryGetValue(PackManifest.FileName, out var bytes)) throw new PackLoadException([$"There is no {PackManifest.FileName}."]);
+        var (manifest, problem) = PackManifest.Parse(bytes);
+        return manifest is null ? throw new PackLoadException([problem!]) : (manifest.Id, manifest.Version, manifest.Kind);
+    }
+
     /// <summary>Loads a pack folder or an <c>.ampack</c> file.</summary>
     /// <exception cref="PackLoadException">The pack is refused; every reason is listed.</exception>
     public static LoadedPack Load(string path, PackTrust trust, PackInstallLedger? ledger = null, bool allowDowngrade = false)
