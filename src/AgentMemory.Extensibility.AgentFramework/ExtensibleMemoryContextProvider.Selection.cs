@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AgentMemory.Extensibility.AgentFramework;
 
-public sealed partial class ExtensibleMemoryContextProvider
+public partial class ExtensibleMemoryContextProvider
 {
     private sealed record PreparedSelection(ContextEnvelope Envelope, ModuleSelectionTurn Turn);
 
