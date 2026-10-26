@@ -114,9 +114,10 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     private static PackTrialMeasurement Grep(string repo, IReadOnlyList<HistoryTask> tasks)
     {
         var root = Path.GetFullPath(repo);
-        var tests = Directory.EnumerateFiles(Path.Combine(root, "tests"), "*.cs", SearchOption.AllDirectories)
+        var tests = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/'))
-            .Where(f => !f.Contains("/obj/", StringComparison.Ordinal) && !f.Contains("/bin/", StringComparison.Ordinal))
+            .Where(f => IsTest(f) && !f.Contains("/obj/", StringComparison.Ordinal) && !f.Contains("/bin/", StringComparison.Ordinal)
+                && !f.StartsWith(".git/", StringComparison.Ordinal))
             .Order(StringComparer.Ordinal).ToList();
         var texts = new Dictionary<string, string>(StringComparer.Ordinal);
         string Text(string path) => texts.TryGetValue(path, out var t) ? t : texts[path] = File.ReadAllText(Path.Combine(root, path));
@@ -194,9 +195,25 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
 
     private sealed record HistoryTask(string Commit, string Subject, IReadOnlyList<string> Anchors, IReadOnlyList<string> Tests);
 
+    /// <summary>A test file: a folder on its path names tests, or the file name ends in Tests.cs or Test.cs; any repository layout.</summary>
+    private static bool IsTest(string path)
+    {
+        var lower = path.ToLowerInvariant();
+        return lower.Split('/')[..^1].Any(s => s.Contains("test", StringComparison.Ordinal))
+            || lower.EndsWith("tests.cs", StringComparison.Ordinal) || lower.EndsWith("test.cs", StringComparison.Ordinal);
+    }
+
+    /// <summary>Code a change is about: C# outside tests, build output, samples and benchmarks.</summary>
+    private static bool IsCode(string path)
+    {
+        var lower = path.ToLowerInvariant();
+        return !IsTest(path) && !lower.Split('/')[..^1].Any(s => s is "obj" or "bin" || s.Contains("sample", StringComparison.Ordinal)
+            || s.Contains("benchmark", StringComparison.Ordinal) || s.Contains("example", StringComparison.Ordinal));
+    }
+
     /// <summary>
-    /// The most recent commits that changed both code under src/ (1 to 8 C# files, the anchors) and tests (the truth), with
-    /// every file still present, so the store's code map can answer for them.
+    /// The most recent commits that changed both code (1 to 8 C# files, the anchors) and tests (the truth), with every file
+    /// still present, so the store's code map can answer for them. Any layout: tests are found by <see cref="IsTest"/>.
     /// </summary>
     private static List<HistoryTask> HistoryTasks(string repo, int count)
     {
@@ -206,7 +223,6 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var log = git.StandardOutput.ReadToEnd();
         git.WaitForExit();
         if (git.ExitCode != 0) throw new InvalidOperationException($"git log failed in {repo}.");
-        static bool IsTest(string f) => f.StartsWith("tests/", StringComparison.Ordinal) || f.Contains(".Tests", StringComparison.Ordinal);
         var tasks = new List<HistoryTask>();
         foreach (var entry in log.Split('\x1e', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -214,7 +230,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             var head = lines[0].Split('\x1f');
             var files = lines.Skip(1).Where(f => f.EndsWith(".cs", StringComparison.Ordinal) && File.Exists(Path.Combine(repo, f))).ToList();
             var tests = files.Where(IsTest).ToList();
-            var code = files.Where(f => !IsTest(f) && f.StartsWith("src/", StringComparison.Ordinal)).ToList();
+            var code = files.Where(IsCode).ToList();
             if (tests.Count == 0 || code.Count is 0 or > 8) continue;
             tasks.Add(new HistoryTask(head[0][..10], head.Length > 1 ? head[1] : "", code, tests));
             if (tasks.Count == count) break;
