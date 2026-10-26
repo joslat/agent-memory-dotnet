@@ -142,20 +142,10 @@ public sealed class KnowledgePack
         foreach (var file in seed)
         {
             if (!bundle.Files.TryGetValue(file, out var bytes)) { problems.Add($"The seed file '{file}' is missing."); continue; }
-            var text = Utf8(bytes, file);
-            var lines = text.Split('\n');
-            for (var index = 0; index < lines.Length; index++)
+            foreach (var proposal in Lines(file, bytes,
+                line => new PackSource { Id = manifest.Id, Version = manifest.Version.Value, Digest = bundle.Digest, File = file, Line = line }, problems))
             {
-                var line = lines[index].TrimEnd('\r');
-                var at = file + ":" + (index + 1);
-                if (line.Length == 0)
-                {
-                    if (index != lines.Length - 1) problems.Add(at + ": blank line.");
-                    continue;
-                }
-                if (Encoding.UTF8.GetByteCount(line) > MaximumLineBytes) { problems.Add(at + $": longer than {MaximumLineBytes} bytes."); continue; }
-                var proposal = Record(line, at, new PackSource { Id = manifest.Id, Version = manifest.Version.Value, Digest = bundle.Digest, File = file, Line = index + 1 }, problems);
-                if (proposal is null) continue;
+                var at = proposal.Source.Excerpt!;
                 foreach (var error in ModuleProposalAdmission.AdmitSeed(manifest, proposal)) problems.Add(at + ": " + error);
                 if (!keys.Add((proposal.Type, proposal.Key))) problems.Add(at + $": repeats {proposal.Type} '{proposal.Key}'.");
                 records.Add(proposal);
@@ -182,6 +172,29 @@ public sealed class KnowledgePack
         var width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(image.Slice(16, 4));
         var height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(image.Slice(20, 4));
         return width is >= 16 and <= 512 && height is >= 16 and <= 512 ? null : "is not 16 to 512 pixels a side";
+    }
+
+    /// <summary>
+    /// The records of one file in the pack line format: one JSON object per line, <c>{"type","key","properties","links"}</c>,
+    /// no blank line before the end, each line at most <see cref="MaximumLineBytes"/>. Every malformed line adds a problem.
+    /// </summary>
+    internal static List<ModuleProposal> Lines(string file, ReadOnlyMemory<byte> bytes, Func<int, PackSource> source, List<string> problems)
+    {
+        var records = new List<ModuleProposal>();
+        var lines = Utf8(bytes, file).Split('\n');
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var line = lines[index].TrimEnd('\r');
+            var at = file + ":" + (index + 1);
+            if (line.Length == 0)
+            {
+                if (index != lines.Length - 1) problems.Add(at + ": blank line.");
+                continue;
+            }
+            if (Encoding.UTF8.GetByteCount(line) > MaximumLineBytes) { problems.Add(at + $": longer than {MaximumLineBytes} bytes."); continue; }
+            if (Record(line, at, source(index + 1), problems) is { } proposal) records.Add(proposal);
+        }
+        return records;
     }
 
     private static ModuleProposal? Record(string line, string at, PackSource source, List<string> problems)

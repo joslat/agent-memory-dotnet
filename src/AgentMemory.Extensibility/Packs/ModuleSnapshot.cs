@@ -38,6 +38,29 @@ public sealed record ModuleSnapshot
     public string Digest => _digest ??= ComputeDigest();
     private string? _digest;
 
+    /// <summary>
+    /// A snapshot from record files in the pack line format (<c>{"type","key","properties","links"}</c> per line), as a snapshot
+    /// pack carries them (pack format v1.2 §3). Each record keeps its file and line. Every problem, of the lines and of the
+    /// snapshot, refuses it before anything reaches a store.
+    /// </summary>
+    /// <exception cref="KnowledgePackException">The records do not form a valid snapshot of <paramref name="module"/>.</exception>
+    public static ModuleSnapshot FromRecordFiles(ModuleManifest module, IReadOnlyList<ModuleManifest> dependencies, string source,
+        IEnumerable<KeyValuePair<string, ReadOnlyMemory<byte>>> files)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        ArgumentNullException.ThrowIfNull(dependencies);
+        ArgumentNullException.ThrowIfNull(files);
+        var problems = new List<string>();
+        var records = new List<ModuleProposal>();
+        foreach (var (file, bytes) in files)
+            records.AddRange(KnowledgePack.Lines(file, bytes,
+                line => new PackSource { Id = module.Id, Version = source, Digest = "", File = file, Line = line }, problems));
+        if (problems.Count > 0) throw new KnowledgePackException(problems.Count > 100 ? [.. problems.Take(100), $"... and {problems.Count - 100} more."] : problems);
+        var snapshot = new ModuleSnapshot { Module = module, Dependencies = dependencies, Source = source, Records = records };
+        if (snapshot.Problems() is { Count: > 0 } invalid) throw new KnowledgePackException(invalid);
+        return snapshot;
+    }
+
     /// <summary>The problems that stop an import, without touching a store: shape, types, properties, links, duplicates.</summary>
     public IReadOnlyList<string> Problems()
     {
@@ -56,8 +79,8 @@ public sealed record ModuleSnapshot
         var keys = new HashSet<(string, string)>();
         foreach (var record in Stamped())
         {
-            foreach (var error in ModuleProposalAdmission.AdmitSeed(Module, record)) problems.Add($"{record.Type} '{record.Key}': {error}");
-            if (!keys.Add((record.Type, record.Key))) problems.Add($"{record.Type} '{record.Key}' appears twice.");
+            foreach (var error in ModuleProposalAdmission.AdmitSeed(Module, record)) problems.Add($"{At(record)}{record.Type} '{record.Key}': {error}");
+            if (!keys.Add((record.Type, record.Key))) problems.Add($"{At(record)}{record.Type} '{record.Key}' appears twice.");
         }
         foreach (var record in Records)
             foreach (var link in record.Links)
@@ -65,7 +88,7 @@ public sealed record ModuleSnapshot
                 var relation = Module.Ontology!.Relations.SingleOrDefault(r => r.Name == link.Relation && r.From == record.Type);
                 // A link into a dependency's records is resolved by the store, which leaves it out when the target is not there.
                 if (relation is not null && !IsForeign(relation) && !keys.Contains((relation.To, link.Target)))
-                    problems.Add($"{record.Type} '{record.Key}' links {link.Relation} to {relation.To} '{link.Target}', which the snapshot does not hold.");
+                    problems.Add($"{At(record)}{record.Type} '{record.Key}' links {link.Relation} to {relation.To} '{link.Target}', which the snapshot does not hold.");
             }
         return problems.Count > 100 ? [.. problems.Take(100), $"... and {problems.Count - 100} more."] : problems;
     }
@@ -78,6 +101,9 @@ public sealed record ModuleSnapshot
         if (!resolution.Succeeded) throw new KnowledgePackException(resolution.Errors);
         return resolution;
     }
+
+    // Where a record came from, when it names a file: a snapshot pack's record file and line.
+    private static string At(ModuleProposal record) => record.Source.Pack is { File.Length: > 0 } at ? $"{at.File}:{at.Line}: " : "";
 
     // A relation to a dependency's type ("module:Type"); core entities stay out of snapshots as before.
     internal static bool IsForeign(ModuleRelation relation) =>

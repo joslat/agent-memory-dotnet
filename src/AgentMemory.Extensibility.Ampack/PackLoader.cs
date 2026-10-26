@@ -67,6 +67,13 @@ public sealed record LoadedPack
     public KnowledgePack? Knowledge { get; init; }
     /// <summary>Who signed it: role and key id, each verified against the host's trust.</summary>
     public IReadOnlyList<string> Signers { get; init; } = [];
+    /// <summary>
+    /// For a snapshot pack, what its records were taken from: <c>git:</c> and the commit its <c>pack.json</c> names, otherwise
+    /// <c>pack:</c> and its version; otherwise null.
+    /// </summary>
+    public string? SnapshotSource { get; init; }
+    /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
+    internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
 }
 
 /// <summary>A pack that cannot be loaded, with every reason.</summary>
@@ -144,13 +151,21 @@ public static class PackLoader
             try { knowledge = KnowledgePack.Open(bundle); }
             catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
         }
-        else if (pack.Manifest.Kind == "snapshot")
-            throw new PackLoadException(["Snapshot packs load through their definition's importer; that path is not built yet (PACK-migrate)."]);
+        string? snapshotSource = null;
+        var recordFiles = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+        if (pack.Manifest.Kind == "snapshot")
+        {
+            // A snapshot's records are checked against its definition's ontology in ToSnapshot, before any import.
+            if (manifest.Modules.Count != 1)
+                throw new PackLoadException([$"A snapshot pack requires exactly the one definition its records belong to; {pack.Id} requires {manifest.Modules.Count}."]);
+            snapshotSource = pack.Manifest.Source?.Commit is { } commit ? "git:" + commit : "pack:" + pack.Version;
+            foreach (var file in PackLayout.RecordFiles(pack.Files.Keys)) recordFiles[file] = pack.Files[file];
+        }
 
         return new LoadedPack
         {
             Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Kind = pack.Manifest.Kind, Manifest = manifest,
-            Knowledge = knowledge, Signers = signers,
+            Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles,
         };
     }
 
@@ -163,6 +178,30 @@ public static class PackLoader
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(pack);
+        if (pack.Kind == "snapshot")
+            throw new PackLoadException([$"{pack.Id} is a snapshot pack: compose its definition, and import the snapshot with ToSnapshot."]);
         return pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority) : builder.Add(pack.Manifest, _ => { });
+    }
+
+    /// <summary>
+    /// The records of a snapshot pack as a snapshot of <paramref name="definition"/>, for the snapshot import (v1.2 §3): the
+    /// pack must require that definition in a range that holds the host's version of it, and every record is checked against
+    /// the definition's ontology. Nothing is written here.
+    /// </summary>
+    /// <param name="pack">A loaded snapshot pack.</param>
+    /// <param name="definition">The definition its records belong to: a loaded definition pack's manifest, or the host's own.</param>
+    /// <param name="dependencies">The definition's own dependencies, as <see cref="ModuleSnapshot.Dependencies"/>.</param>
+    /// <exception cref="PackLoadException">The pack is not a snapshot of this definition, or a record is refused; every reason is listed.</exception>
+    public static ModuleSnapshot ToSnapshot(this LoadedPack pack, ModuleManifest definition, IReadOnlyList<ModuleManifest>? dependencies = null)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        ArgumentNullException.ThrowIfNull(definition);
+        if (pack.Kind != "snapshot") throw new PackLoadException([$"{pack.Id} is a {pack.Kind} pack, not a snapshot."]);
+        if (!pack.Manifest.Modules.TryGetValue(definition.Id, out var range))
+            throw new PackLoadException([$"{pack.Id} is a snapshot of {string.Join(", ", pack.Manifest.Modules.Keys)}, not of {definition.Id}."]);
+        if (!range.Contains(definition.Version))
+            throw new PackLoadException([$"{pack.Id} needs {definition.Id} {range.Value}; the host has {definition.Version.Value}."]);
+        try { return ModuleSnapshot.FromRecordFiles(definition, dependencies ?? [], pack.SnapshotSource!, pack.RecordFiles); }
+        catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
     }
 }

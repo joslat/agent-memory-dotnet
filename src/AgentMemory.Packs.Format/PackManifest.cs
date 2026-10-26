@@ -33,6 +33,8 @@ internal sealed partial record PackManifest
     internal string Protection { get; init; } = "open";
     /// <summary>The highest code tier the pack uses (v1.2 §9).</summary>
     internal string Code { get; init; } = "E0";
+    /// <summary>Where the content came from (v1.2 §2, §11): repository, commit, built at; a snapshot names its commit here.</summary>
+    internal PackOrigin? Source { get; init; }
 
     /// <summary>Reverse-DNS: at least two lowercase segments of letters, digits and inner hyphens.</summary>
     internal static bool IsValidId(string id) => id.Length <= 200 && IdPattern().IsMatch(id);
@@ -74,13 +76,37 @@ internal sealed partial record PackManifest
                 return (null, $"{FileName} has a validUntil that is not a date and time.");
             validUntil = parsed;
         }
+        PackOrigin? origin = null;
+        if (root.TryGetProperty("source", out var source))
+        {
+            if (source.ValueKind != JsonValueKind.Object || source.EnumerateObject().Any(p => p.Name is not ("repository" or "commit" or "builtAt")
+                    || p.Value.ValueKind != JsonValueKind.String || p.Value.GetString()!.Length is 0 or > 200))
+                return (null, $"{FileName} has a malformed 'source': an object of repository, commit and builtAt, each a string of 1 to 200 characters.");
+            string? Field(string name) => source.TryGetProperty(name, out var value) ? value.GetString() : null;
+            DateTimeOffset? builtAt = null;
+            if (Field("builtAt") is { } built)
+            {
+                if (!DateTimeOffset.TryParse(built, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at))
+                    return (null, $"{FileName} has a source.builtAt that is not a date and time.");
+                builtAt = at;
+            }
+            if (Field("commit") is { } commit && !CommitPattern().IsMatch(commit))
+                return (null, $"{FileName} has a source.commit that is not 7 to 64 hexadecimal characters.");
+            origin = new PackOrigin(Field("repository"), Field("commit"), builtAt);
+        }
         return (new PackManifest
         {
             Id = id, Version = version, Kind = kind, Tier = tier, Licence = Text("licence"), Contains = contains, ContainableBy = containable,
-            ValidUntil = validUntil, Protection = protection, Code = code,
+            ValidUntil = validUntil, Protection = protection, Code = code, Source = origin,
         }, null);
     }
 
     [GeneratedRegex("^[a-z0-9]+(?:-[a-z0-9]+)*(?:\\.[a-z0-9]+(?:-[a-z0-9]+)*)+$", RegexOptions.CultureInvariant)]
     private static partial Regex IdPattern();
+
+    [GeneratedRegex("^[0-9a-f]{7,64}$", RegexOptions.CultureInvariant)]
+    private static partial Regex CommitPattern();
 }
+
+/// <summary>Where a pack's content came from: the repository, the commit, and when it was built; each optional.</summary>
+internal sealed record PackOrigin(string? Repository, string? Commit, DateTimeOffset? BuiltAt);

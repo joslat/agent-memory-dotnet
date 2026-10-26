@@ -146,6 +146,9 @@ public static class PackFamilies
         }
         foreach (var extra in byId.Keys.Where(id => composite.Lock.All(p => p.Id != id)).Order(StringComparer.Ordinal))
             problems.Add($"{extra} is not a member of {composite.Pack.Id}.");
+        // A composite contains modules; a snapshot is records for one of them and travels beside it in a set.
+        foreach (var snapshot in members.Where(m => m.Kind == "snapshot"))
+            problems.Add($"{snapshot.Id} is a snapshot pack; a composite contains modules, so carry it beside {composite.Pack.Id} in a pack set.");
         if (problems.Count > 0) throw new PackLoadException(problems);
         return new LoadedFamily
         {
