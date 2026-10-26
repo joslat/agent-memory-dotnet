@@ -23,6 +23,10 @@ public enum CodeMapSymbolKind
     Enum,
     /// <summary>A delegate.</summary>
     Delegate,
+    /// <summary>A function at the top of its module (Python, Go, JavaScript), read from a SCIP index.</summary>
+    Function,
+    /// <summary>Another kind of type: a type alias, a union, or one whose indexer does not say.</summary>
+    Type,
 }
 
 /// <summary>

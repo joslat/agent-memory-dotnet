@@ -44,7 +44,7 @@ if (string.Equals(cli.Command, "codemap", StringComparison.OrdinalIgnoreCase) &&
         Console.Error.WriteLine("error: codemap needs scan or import.");
         return 2;
     }
-    return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"), cli.Get("output"));
+    return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"), cli.Get("output"), cli.Get("scip"));
 }
 
 // decisions scan reads ADR files and Squad's log offline; decisions import goes through the host below (CMP-3).
@@ -257,7 +257,7 @@ try
         "decisions" => await new AgentMemory.Cli.Commands.DecisionsCommand(output)
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
         "codemap" => await new AgentMemory.Cli.Commands.CodeMapCommand(output)
-            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source"), cli.Get("scip")),
         "modules" => await new ModulesCommand(
             sp.GetRequiredService<INeo4jTransactionRunner>(), output).ExecuteAsync(moduleInput!),
         "migrate" => await new MigrateCommand(

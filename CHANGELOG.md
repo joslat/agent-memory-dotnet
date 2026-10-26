@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Directory.Build.props` enables them, `<Using>` items, and `InternalsVisibleTo`; without them, calls whose signatures
   name `IEnumerable<T>` or `Task`, or internal members, did not bind. The pack declares traversal, so the file or symbol in hand leads to the tests that exercise it. CLI:
   `codemap scan --root <repo> [--output map.jsonl]` (offline) and `codemap import --root <repo> [--source git:<sha>]`.
+- Code map from SCIP indexes (CMP-2b): `ScipCodeMapReader` reads an `index.scip` (scip-typescript, scip-python, scip-java,
+  scip-go, rust-analyzer, scip-clang and others) into the same records the Roslyn reader writes, so one map can hold C# and
+  other languages. It records types and top-level functions (new kinds `function` and `type`), files in a project per
+  package, and tests: functions named `test...` and methods of `...Test`/`...Tests`/`...Spec` classes in test files, each
+  linked to what its body refers to; a test file with no such functions (JavaScript's `it(...)`) is one test. Keys are SCIP
+  symbols with the version emptied, so they survive releases. No protobuf dependency: the reader parses only the fields it
+  uses, both range encodings included. CLI: `codemap scan|import [--root <repo>] [--scip <index.scip>[,...]]`.
 - Traversal ranks by the question (CMP-4): when a type leads to more records than the fan-out, the reader keeps first those
   whose text (`ModuleType.TextProperties()`, the render template's string properties) holds the question's words
   (`ModuleExpandQuery.Words`), then the most specific (`ModuleTraversalEdge.Degree`: fewest records sharing the link); the

@@ -127,9 +127,10 @@ public static class CliHelp
               evaluate --traversal <fixture> [--rounds <n>] [--warmup <pass|one>] [--output <path>]
                                      The traversal trial: compile each fixture task with its anchors and
                                      with its question alone; report tests and decisions offered, latency.
-              codemap scan --root <repo> [--output <map.jsonl>]
-                                     Read a C# repository's code map with Roslyn (offline); report counts.
-              codemap import --root <repo> [--source git:<sha>]
+              codemap scan [--root <repo>] [--scip <index.scip>[,...]] [--output <map.jsonl>]
+                                     Read a code map: C# with Roslyn, other languages from SCIP indexes
+                                     (offline); report counts.
+              codemap import [--root <repo>] [--scip <index.scip>[,...]] [--source git:<sha>]
                                      Write the code map into the store: only what changed since the last.
               decisions scan|import --root <repo> [--source git:<sha>]
                                      Read ADRs and Squad's decision log; import writes what changed.

@@ -73,7 +73,9 @@
               "struct",
               "interface",
               "enum",
-              "delegate"
+              "delegate",
+              "function",
+              "type"
             ]
           },
           "file": {

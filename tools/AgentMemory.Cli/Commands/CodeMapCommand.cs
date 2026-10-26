@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using AgentMemory.Extensibility.Neo4j.Storage;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Packs.CodeMap;
 using AgentMemory.Packs.CodeMap.Roslyn;
+using AgentMemory.Packs.CodeMap.Scip;
 
 namespace AgentMemory.Cli.Commands;
 
@@ -12,17 +14,19 @@ namespace AgentMemory.Cli.Commands;
 /// found, offline. <c>codemap import --root &lt;repo&gt; [--source git:&lt;sha&gt;]</c> writes the snapshot into the configured store:
 /// only what changed since the last import, closing what is gone. The source defaults to the repository's HEAD commit.
 /// <c>codemap scan --output map.jsonl</c> also writes the records, one per line, for reading the map without a store.
+/// <c>--scip index.scip[,other.scip]</c> adds SCIP indexes (CMP-2b: TypeScript, Python, Java, Go, Rust...) to the same map; without
+/// <c>--root</c> the map is the indexes alone, and import needs <c>--source</c>.
 /// </summary>
 internal sealed class CodeMapCommand(TextWriter output)
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public int Scan(string? root, string? outputPath = null)
+    public int Scan(string? root, string? outputPath = null, string? scip = null)
     {
-        if (root is null) return Usage("codemap scan needs --root <repository>.");
+        if (root is null && scip is null) return Usage("codemap scan needs --root <repository>, --scip <index.scip>, or both.");
         var watch = Stopwatch.StartNew();
-        var builder = RoslynCodeMapReader.Read(Path.GetFullPath(root));
-        var snapshot = builder.Build(Head(root) ?? "scan");
+        var builder = Read(root, scip);
+        var snapshot = builder.Build((root is null ? null : Head(root)) ?? "scan");
         var (projects, files, symbols, tests) = builder.Counts;
         var problems = snapshot.Problems();
         if (outputPath is not null)
@@ -39,12 +43,12 @@ internal sealed class CodeMapCommand(TextWriter output)
         return problems.Count == 0 ? 0 : 1;
     }
 
-    public async Task<int> ImportAsync(INeo4jTransactionRunner runner, string? root, string? source)
+    public async Task<int> ImportAsync(INeo4jTransactionRunner runner, string? root, string? source, string? scip = null)
     {
-        if (root is null) return Usage("codemap import needs --root <repository>.");
+        if (root is null && scip is null) return Usage("codemap import needs --root <repository>, --scip <index.scip>, or both.");
         var watch = Stopwatch.StartNew();
-        var snapshot = RoslynCodeMapReader.Read(Path.GetFullPath(root)).Build(source ?? Head(root) ?? throw new InvalidOperationException(
-            "codemap import needs --source when the root is not a Git repository."));
+        var snapshot = Read(root, scip).Build(source ?? (root is null ? null : Head(root)) ?? throw new InvalidOperationException(
+            "codemap import needs --source when there is no Git repository to take the commit from."));
         var read = watch.Elapsed;
         var result = await new Neo4jModuleSnapshotStore(runner).ImportAsync(snapshot, DateTimeOffset.UtcNow).ConfigureAwait(false);
         output.WriteLine(JsonSerializer.Serialize(new
@@ -53,6 +57,15 @@ internal sealed class CodeMapCommand(TextWriter output)
             digest = snapshot.Digest, readSeconds = Math.Round(read.TotalSeconds, 1), importSeconds = Math.Round((watch.Elapsed - read).TotalSeconds, 1),
         }, Json));
         return 0;
+    }
+
+    // C# from the repository with Roslyn, then each SCIP index into the same map.
+    private static CodeMapBuilder Read(string? root, string? scip)
+    {
+        var builder = root is null ? new CodeMapBuilder() : RoslynCodeMapReader.Read(Path.GetFullPath(root));
+        foreach (var index in (scip ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            ScipCodeMapReader.Read(index, builder);
+        return builder;
     }
 
     private static string? Head(string root)
