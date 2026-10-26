@@ -59,6 +59,20 @@ public sealed class CodeMapTests : IDisposable
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
 
+    [Fact]
+    public void A_repository_whose_index_lists_nothing_is_read_from_its_folder()
+    {
+        // A checkout that failed part-way leaves Git's index empty while the files are on disk (PACK-external, Humanizer).
+        var start = new System.Diagnostics.ProcessStartInfo("git") { UseShellExecute = false, CreateNoWindow = true };
+        foreach (var argument in new[] { "-C", _root, "init", "-q" }) start.ArgumentList.Add(argument);
+        using (var git = System.Diagnostics.Process.Start(start)!) git.WaitForExit();
+
+        var files = RoslynCodeMapReader.TrackedFiles(_root);
+
+        files.Should().Contain(["src/Store/ModuleStore.cs", "tests/Store.Tests/StoreTests.cs", "src/Store/Store.csproj"]);
+        files.Should().NotContain(f => f.Contains("/obj/", StringComparison.Ordinal));
+    }
+
     private const string Store = "scip-dotnet nuget Acme.Store . Acme/Store/ModuleStore#";
     private const string Ledger = "scip-dotnet nuget Acme.Store . Acme/Store/Ledger#";
 

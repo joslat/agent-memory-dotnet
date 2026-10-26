@@ -295,7 +295,15 @@ public static class RoslynCodeMapReader
         return seen.Order(StringComparer.Ordinal);
     }
 
-    /// <summary>The .csproj and .cs files Git tracks under <paramref name="root"/>; outside a Git repository, every such file not under bin or obj.</summary>
+    /// <summary>
+    /// The .csproj and .cs files Git tracks under <paramref name="root"/>; outside a Git repository, or when Git tracks none of
+    /// them, every such file not under bin or obj.
+    /// </summary>
+    /// <remarks>
+    /// A checkout that failed part-way (on Windows, a path past the 260-character limit) leaves Git's index empty while the
+    /// files are on disk; trusting Git then produced an empty map without a word (PACK-external, Humanizer). An empty answer
+    /// from Git is therefore not taken as "no code".
+    /// </remarks>
     public static IReadOnlyList<string> TrackedFiles(string root)
     {
         try
@@ -305,7 +313,8 @@ public static class RoslynCodeMapReader
             using var process = Process.Start(start)!;
             var output = process.StandardOutput.ReadToEnd();
             process.WaitForExit();
-            if (process.ExitCode == 0) return [.. output.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(f => File.Exists(Path.Combine(root, f)))];
+            if (process.ExitCode == 0 && output.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(f => File.Exists(Path.Combine(root, f))).ToList() is { Count: > 0 } tracked)
+                return tracked;
         }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
         return [.. Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories)
