@@ -61,16 +61,24 @@ internal static class ModuleManifestReader
 
     private static ModuleTrial Trial(JsonElement value, string path)
     {
-        Object(value, path, "measure", "tasks", "targets");
+        Object(value, path, "measure", "tasks", "baseline", "confidence", "targets");
         if (!value.TryGetProperty("targets", out var targets)) throw Error(path + ".targets", "a trial needs targets");
-        Object(targets, path + ".targets", "hitRate", "precision", "lift", "addedP95Ms");
+        Object(targets, path + ".targets", "hitRate", "precision", "lift", "precisionLift", "addedP95Ms");
         double? Number(string name) => targets.TryGetProperty(name, out var n)
             ? n.ValueKind == JsonValueKind.Number ? n.GetDouble() : throw Error(path + ".targets." + name, "expected a number")
+            : null;
+        double? confidence = value.TryGetProperty("confidence", out var c)
+            ? c.ValueKind == JsonValueKind.Number ? c.GetDouble() : throw Error(path + ".confidence", "expected a number")
             : null;
         return new ModuleTrial
         {
             Measure = Text(value, "measure", path), Tasks = PositiveInteger(value, "tasks", path) ?? 40,
-            Targets = new ModuleTrialTargets { HitRate = Number("hitRate"), Precision = Number("precision"), Lift = Number("lift"), AddedP95Ms = Number("addedP95Ms") },
+            Baseline = OptionalText(value, "baseline", path) ?? "none", Confidence = confidence,
+            Targets = new ModuleTrialTargets
+            {
+                HitRate = Number("hitRate"), Precision = Number("precision"), Lift = Number("lift"), PrecisionLift = Number("precisionLift"),
+                AddedP95Ms = Number("addedP95Ms"),
+            },
         };
     }
 

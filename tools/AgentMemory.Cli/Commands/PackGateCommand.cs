@@ -22,8 +22,11 @@ namespace AgentMemory.Cli.Commands;
 /// are the anchors, the tests it changed are the truth, its subject is the question. The host compiles every task with the
 /// pack and without it, checks every target the pack declares, writes the signed decision, and then composes again with
 /// trials required, to show which packs are on and why the others are off. Deterministic: no model runs.
-/// <c>evaluate --gate io.agentmemory.packs.codemap --repo . --host-key host.key.pem --activations folder [--variant weak] [--output report.json]</c>.
-/// <c>--variant weak</c> trials a deliberately weakened code map (one hop, fan-out 1) under its own digest.
+/// <c>evaluate --gate io.agentmemory.packs.codemap --repo . --host-key host.key.pem --activations folder [--variant mediocre|weak] [--output report.json]</c>.
+/// <c>--variant mediocre</c> trials the code map with two hops and every fan-out halved; <c>weak</c> with one hop and
+/// fan-out 1; each under its own digest. With <c>"baseline": "host"</c>, "without the pack" is what this host already has
+/// for code: a grep for the types the changed files declare, its top 3 test files by mentions (the P6 baseline). Both arms
+/// are scored per file: a hit when an offered test file is among the changed tests.
 /// </summary>
 internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4j, TextWriter output)
 {
@@ -41,12 +44,12 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             output.WriteLine("error: evaluate --gate needs --host-key <private.pem> (ampack keygen --name host) and --activations <folder>.");
             return 2;
         }
-        if (variant is not (null or "weak"))
+        if (variant is not (null or "mediocre" or "weak"))
         {
-            output.WriteLine("error: --variant is weak or absent.");
+            output.WriteLine("error: --variant is mediocre, weak or absent.");
             return 2;
         }
-        var manifest = variant == "weak" ? Weaken(CodeMapPack.Manifest) : CodeMapPack.Manifest;
+        var manifest = variant switch { "weak" => Weaken(CodeMapPack.Manifest, 1, _ => 1), "mediocre" => Weaken(CodeMapPack.Manifest, 2, f => Math.Max(1, f / 2)), _ => CodeMapPack.Manifest };
         var trial = manifest.Trial!;
         var tasks = HistoryTasks(repo ?? ".", trial.Tasks);
         output.WriteLine($"{manifest.Id} {manifest.Version}{(variant is null ? "" : " (" + variant + ")")}: {tasks.Count} tasks from this repository's history");
@@ -55,7 +58,9 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         await using var without = await ProviderAsync(m => m.UseNeo4jStore()).ConfigureAwait(false);
         foreach (var task in tasks) { await CompileAsync(with, task).ConfigureAwait(false); await CompileAsync(without, task).ConfigureAwait(false); }
         var (withArm, details) = await MeasureAsync(with, tasks).ConfigureAwait(false);
-        var (withoutArm, _) = await MeasureAsync(without, tasks).ConfigureAwait(false);
+        var (emptyArm, _) = await MeasureAsync(without, tasks).ConfigureAwait(false);
+        // Without the pack: the host's own retrieval when the trial names it, timed like the host without the pack.
+        var withoutArm = trial.Baseline == "host" ? Grep(repo ?? ".", tasks) with { P95Ms = emptyArm.P95Ms } : emptyArm;
 
         var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow);
         using var hostKey = ECDsa.Create();
@@ -71,9 +76,9 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         })).ConfigureAwait(false);
 
         output.WriteLine($"  with     hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered}), p95 {withArm.P95Ms:0.0} ms");
-        output.WriteLine($"  without  hit {withoutArm.HitRate:0.000}, p95 {withoutArm.P95Ms:0.0} ms");
+        output.WriteLine($"  without  {(trial.Baseline == "host" ? "grep" : "nothing")}: hit {withoutArm.HitRate:0.000} ({withoutArm.Hits}/{withoutArm.Tasks}), precision {withoutArm.Precision:0.000} ({withoutArm.Correct}/{withoutArm.Offered}), p95 {withoutArm.P95Ms:0.0} ms");
         foreach (var check in decision.Checks)
-            output.WriteLine($"  {(check.Met ? "met " : "MISS")}  {check.Target} {check.Observed} (target {(check.Target == "addedP95Ms" ? "≤" : "≥")} {check.Required})");
+            output.WriteLine($"  {(check.Met ? "met " : "MISS")}  {check.Target} {check.Observed}{(check.Estimate is { } e ? $" (lower bound; estimate {e})" : "")} (target {(check.Target == "addedP95Ms" ? "≤" : "≥")} {check.Required})");
         output.WriteLine($"  decision {(decision.Active ? "ON" : "OFF")}: {decision.Reason}");
         output.WriteLine($"  signed   {record}");
 
@@ -96,11 +101,43 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         return 0;
     }
 
-    /// <summary>The code map with one hop and fan-out 1: a pack that is valid, signed and much weaker.</summary>
-    private static ModuleManifest Weaken(ModuleManifest manifest) => manifest with
+    /// <summary>The code map with fewer hops and narrower fan-outs: a pack that is valid, signed and weaker.</summary>
+    private static ModuleManifest Weaken(ModuleManifest manifest, int hops, Func<int, int> fanOut) => manifest with
     {
-        Traversal = manifest.Traversal! with { Hops = 1, Relations = [.. manifest.Traversal.Relations.Select(r => r with { FanOut = 1 })] },
+        Traversal = manifest.Traversal! with { Hops = hops, Relations = [.. manifest.Traversal.Relations.Select(r => r with { FanOut = fanOut(r.FanOut) })] },
     };
+
+    /// <summary>
+    /// The host's own retrieval for code, as the P6 analysis defined it: the types the changed files declare, their
+    /// whole-word mentions counted in every test file, the top 3 files by count (ties by path).
+    /// </summary>
+    private static PackTrialMeasurement Grep(string repo, IReadOnlyList<HistoryTask> tasks)
+    {
+        var root = Path.GetFullPath(repo);
+        var tests = Directory.EnumerateFiles(Path.Combine(root, "tests"), "*.cs", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/'))
+            .Where(f => !f.Contains("/obj/", StringComparison.Ordinal) && !f.Contains("/bin/", StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal).ToList();
+        var texts = new Dictionary<string, string>(StringComparer.Ordinal);
+        string Text(string path) => texts.TryGetValue(path, out var t) ? t : texts[path] = File.ReadAllText(Path.Combine(root, path));
+        int hits = 0, offered = 0, correct = 0;
+        foreach (var task in tasks)
+        {
+            var types = task.Anchors.SelectMany(a => Declared().Matches(Text(a)).Select(m => m.Groups[1].Value)).ToHashSet(StringComparer.Ordinal);
+            if (types.Count == 0) continue;
+            var mention = new Regex(@"\b(" + string.Join("|", types.Order(StringComparer.Ordinal).Select(Regex.Escape)) + @")\b");
+            var top = tests.Select(t => (File: t, Count: mention.Matches(Text(t)).Count)).Where(x => x.Count > 0)
+                .OrderByDescending(x => x.Count).ThenBy(x => x.File, StringComparer.Ordinal).Take(3).Select(x => x.File).ToList();
+            var right = top.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase));
+            offered += top.Count;
+            correct += right;
+            if (right > 0) hits++;
+        }
+        return new PackTrialMeasurement { Tasks = tasks.Count, Hits = hits, Offered = offered, Correct = correct, P95Ms = 0 };
+    }
+
+    [GeneratedRegex(@"\b(?:class|record|struct|interface|enum)\s+(?:struct\s+|class\s+)?([A-Z]\w*)")]
+    private static partial Regex Declared();
 
     private async Task<ServiceProvider> ProviderAsync(Action<ModuleSetBuilder> modules)
     {
@@ -130,7 +167,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             times.Add(ms);
             var files = envelope.Sections.SelectMany(s => s.Items)
                 .Where(i => i.Provenance?.RecordModuleId == CodeMapPack.Id && i.Provenance.RecordType == CodeMapPack.TestType)
-                .Select(i => TestFile().Match(i.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value).ToList();
+                .Select(i => TestFile().Match(i.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var right = files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase));
             offered += files.Count;
             correct += right;

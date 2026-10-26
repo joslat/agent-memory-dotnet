@@ -26,9 +26,12 @@ public sealed record PackTrialMeasurement
     public double Precision => Offered == 0 ? 0 : (double)Correct / Offered;
 }
 
-/// <summary>One target checked: what was required, what was observed, and whether it held.</summary>
+/// <summary>
+/// One target checked: what was required, what the decision used (a confidence lower bound when the trial asks for one),
+/// whether it held, and the plain estimate beside a bound.
+/// </summary>
 [Experimental("AMEXT001")]
-public sealed record PackTrialCheck(string Target, double Required, double Observed, bool Met);
+public sealed record PackTrialCheck(string Target, double Required, double Observed, bool Met, double? Estimate = null);
 
 /// <summary>
 /// A host's decision about one pack, from its trial (pack format v1.1 §4, claim 2): on or off, the reason, and every check.
@@ -73,6 +76,23 @@ public sealed record SwitchedOffModule(string ModuleId, string Version, string R
 [Experimental("AMEXT001")]
 public static class PackTrialGate
 {
+    /// <summary>The one-sided normal quantiles the trial's confidence may name.</summary>
+    internal static readonly IReadOnlyDictionary<double, double> Confidences = new Dictionary<double, double>
+    {
+        [0.9] = 1.2815516, [0.95] = 1.6448536, [0.975] = 1.9599640, [0.99] = 2.3263479,
+    };
+
+    /// <summary>The Wilson score lower bound of <paramref name="successes"/> out of <paramref name="trials"/> at quantile <paramref name="z"/>.</summary>
+    public static double WilsonLower(int successes, int trials, double z)
+    {
+        if (trials <= 0) return 0;
+        var p = (double)successes / trials;
+        var z2 = z * z;
+        var centre = p + z2 / (2.0 * trials);
+        var margin = z * Math.Sqrt(p * (1 - p) / trials + z2 / (4.0 * trials * trials));
+        return Math.Max(0, (centre - margin) / (1 + z2 / trials));
+    }
+
     /// <summary>The SHA-256 of a manifest as this SDK serializes it: what an activation record binds to.</summary>
     public static string DigestOf(ModuleManifest manifest)
     {
@@ -87,9 +107,20 @@ public static class PackTrialGate
         var trial = manifest.Trial ?? throw new ArgumentException($"Module '{manifest.Id}' declares no trial.", nameof(manifest));
         var checks = new List<PackTrialCheck>();
         var t = trial.Targets;
-        if (t.HitRate is { } hit) checks.Add(new("hitRate", hit, Math.Round(with.HitRate, 3), with.HitRate >= hit));
-        if (t.Precision is { } precision) checks.Add(new("precision", precision, Math.Round(with.Precision, 3), with.Precision >= precision));
+        double? z = trial.Confidence is { } c ? Confidences[c] : null;
+        // A rate target meets its bound when the trial asks for confidence, its estimate otherwise.
+        PackTrialCheck Rate(string name, double required, int successes, int trials)
+        {
+            var estimate = trials == 0 ? 0 : (double)successes / trials;
+            if (z is not { } quantile) return new(name, required, Math.Round(estimate, 3), estimate >= required);
+            var bound = WilsonLower(successes, trials, quantile);
+            return new(name, required, Math.Round(bound, 3), bound >= required, Math.Round(estimate, 3));
+        }
+        if (t.HitRate is { } hit) checks.Add(Rate("hitRate", hit, with.Hits, with.Tasks));
+        if (t.Precision is { } precision) checks.Add(Rate("precision", precision, with.Correct, with.Offered));
         if (t.Lift is { } lift) checks.Add(new("lift", lift, Math.Round(with.HitRate - without.HitRate, 3), with.HitRate - without.HitRate >= lift));
+        if (t.PrecisionLift is { } precisionLift)
+            checks.Add(new("precisionLift", precisionLift, Math.Round(with.Precision - without.Precision, 3), with.Precision - without.Precision >= precisionLift));
         if (t.AddedP95Ms is { } added) checks.Add(new("addedP95Ms", added, Math.Round(with.P95Ms - without.P95Ms, 1), with.P95Ms - without.P95Ms <= added));
         var enough = with.Tasks >= ModuleTrial.MinimumTasks;
         var failed = checks.Where(c => !c.Met).ToList();

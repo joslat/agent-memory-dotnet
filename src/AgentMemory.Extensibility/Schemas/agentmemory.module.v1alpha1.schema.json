@@ -124,6 +124,8 @@
       "properties": {
         "measure": { "enum": ["test-impact"] },
         "tasks": { "type": "integer", "minimum": 10, "maximum": 200 },
+        "baseline": { "enum": ["host", "none"] },
+        "confidence": { "enum": [0.9, 0.95, 0.975, 0.99] },
         "targets": {
           "type": "object",
           "additionalProperties": false,
@@ -132,6 +134,7 @@
             "hitRate": { "type": "number", "minimum": 0, "maximum": 1 },
             "precision": { "type": "number", "minimum": 0, "maximum": 1 },
             "lift": { "type": "number", "minimum": -1, "maximum": 1 },
+            "precisionLift": { "type": "number", "minimum": -1, "maximum": 1 },
             "addedP95Ms": { "type": "number", "exclusiveMinimum": 0, "maximum": 60000 }
           }
         }

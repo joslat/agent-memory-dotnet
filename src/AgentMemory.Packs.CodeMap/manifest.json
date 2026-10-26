@@ -213,6 +213,8 @@
   "trial": {
     "measure": "test-impact",
     "tasks": 40,
-    "targets": { "hitRate": 0.5, "precision": 0.25, "lift": 0.25, "addedP95Ms": 250 }
+    "baseline": "host",
+    "confidence": 0.95,
+    "targets": { "hitRate": 0.35, "precision": 0.25, "lift": -0.05, "precisionLift": 0.05, "addedP95Ms": 250 }
   }
 }

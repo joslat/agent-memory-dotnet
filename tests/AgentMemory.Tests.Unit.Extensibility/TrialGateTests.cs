@@ -50,6 +50,40 @@ public sealed class TrialGateTests : IDisposable
     }
 
     [Fact]
+    public void With_confidence_a_rate_target_is_met_only_by_its_lower_bound()
+    {
+        var careful = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","confidence":0.95,"targets":{"hitRate":0.5,"precisionLift":0.05}}""");
+        careful.Validate().Should().BeEmpty();
+
+        // 22 of 40 is 0.55, but its one-sided 95% Wilson lower bound is about 0.42: not enough for 0.5.
+        var lucky = PackTrialGate.Decide(careful, Arm(22, 40, 100, 60), Arm(20, 20, 100, 30), Now);
+        lucky.Active.Should().BeFalse();
+        var hit = lucky.Checks.Single(c => c.Target == "hitRate");
+        hit.Estimate.Should().Be(0.55);
+        hit.Observed.Should().BeApproximately(0.422, 0.001);
+        // Precision 0.40 against the baseline's 0.20: lift 0.20, met.
+        lucky.Checks.Single(c => c.Target == "precisionLift").Met.Should().BeTrue();
+
+        var solid = PackTrialGate.Decide(careful, Arm(34, 40, 100, 60), Arm(20, 20, 100, 30), Now);
+        solid.Active.Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_Wilson_bound_matches_its_formula()
+    {
+        PackTrialGate.WilsonLower(0, 10, 1.6448536).Should().Be(0);
+        PackTrialGate.WilsonLower(30, 40, 1.6448536).Should().BeApproximately(0.6240, 0.001);
+        PackTrialGate.WilsonLower(40, 40, 1.6448536).Should().BeApproximately(0.9366, 0.001);
+    }
+
+    [Fact]
+    public void A_trial_names_a_known_baseline_and_confidence()
+    {
+        Manifest(Base, ""","trial":{"measure":"test-impact","baseline":"vibes","targets":{"hitRate":0.5}}""").Validate().Should().Contain(p => p.Contains("$.trial.baseline"));
+        Manifest(Base, ""","trial":{"measure":"test-impact","confidence":0.5,"targets":{"hitRate":0.5}}""").Validate().Should().Contain(p => p.Contains("$.trial.confidence"));
+    }
+
+    [Fact]
     public void A_trial_with_too_few_tasks_decides_nothing()
     {
         var thin = PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60) with { Tasks = 5, Hits = 5 }, Arm(0, 0, 0, 30), Now);

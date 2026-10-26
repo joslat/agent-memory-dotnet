@@ -23,6 +23,16 @@ public sealed record ModuleTrial
     public required string Measure { get; init; }
     /// <summary>How many tasks the host draws from its own history, the most recent first.</summary>
     public int Tasks { get; init; } = 40;
+    /// <summary>
+    /// What "without the pack" means: <c>host</c>, the retrieval the host already has (for code, a grep for the types the
+    /// changed files declare); or <c>none</c>, nothing. Lift is measured against it.
+    /// </summary>
+    public string Baseline { get; init; } = "none";
+    /// <summary>
+    /// When set (0.9, 0.95, 0.975 or 0.99), a rate target is met only when the one-sided Wilson lower bound of the rate at this
+    /// confidence reaches it, so a small trial cannot pass by luck.
+    /// </summary>
+    public double? Confidence { get; init; }
     /// <summary>The targets; every one given must be met.</summary>
     public required ModuleTrialTargets Targets { get; init; }
 }
@@ -35,8 +45,10 @@ public sealed record ModuleTrialTargets
     public double? HitRate { get; init; }
     /// <summary>The least share of what the pack offers that is in the truth, 0 to 1.</summary>
     public double? Precision { get; init; }
-    /// <summary>The least improvement in hit rate over the host without the pack, -1 to 1.</summary>
+    /// <summary>The least improvement in hit rate over the baseline, -1 to 1.</summary>
     public double? Lift { get; init; }
+    /// <summary>The least improvement in precision over the baseline, -1 to 1.</summary>
+    public double? PrecisionLift { get; init; }
     /// <summary>The most p95 latency the pack may add to a compile, in milliseconds.</summary>
     public double? AddedP95Ms { get; init; }
 }
