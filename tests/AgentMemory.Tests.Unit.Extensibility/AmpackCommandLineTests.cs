@@ -159,4 +159,71 @@ public sealed class AmpackCommandLineTests : IDisposable
         var compiled = new ModuleSetBuilder().AddComposite<CodingPack>();
         fromTool.Modules.Select(m => PackTrialGate.DigestOf(m.Manifest)).Should().Equal(compiled.Modules.Select(m => PackTrialGate.DigestOf(m.Manifest)));
     }
+
+    [Fact]
+    public async Task Serve_answers_an_MCP_client_over_standard_input_and_output()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory");
+        File.WriteAllText(At("trust.json"), PackAuthoring.TrustPolicy(File.ReadAllText(At("keys", "publisher.pub.pem")), "io.agentmemory"));
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "martialarts");
+        Done("build", "martialarts", "--out", "martialarts.ampack", "--key", At("keys", "publisher.key.pem"));
+
+        var start = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            WorkingDirectory = _root,
+        };
+        foreach (var arg in new[] { Tool, "serve", "martialarts.ampack", "--policy", "trust.json" }) start.ArgumentList.Add(arg);
+        using var server = Process.Start(start)!;
+        var errors = server.StandardError.ReadToEndAsync();
+        try
+        {
+            async Task<JsonNode> Call(int id, string method, JsonNode? parameters)
+            {
+                var request = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = method };
+                if (parameters is not null) request["params"] = parameters;
+                await server.StandardInput.WriteLineAsync(request.ToJsonString());
+                await server.StandardInput.FlushAsync();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                while (true)
+                {
+                    var line = await server.StandardOutput.ReadLineAsync(timeout.Token) ?? throw new InvalidOperationException("ampack serve closed its output.");
+                    if (JsonNode.Parse(line) is JsonObject message && message["id"]?.GetValue<int>() == id) return message;
+                }
+            }
+            string Text(JsonNode response) => response["result"]!["content"]![0]!["text"]!.GetValue<string>();
+
+            var hello = await Call(1, "initialize", new JsonObject
+            {
+                ["protocolVersion"] = "2025-06-18", ["capabilities"] = new JsonObject(),
+                ["clientInfo"] = new JsonObject { ["name"] = "test", ["version"] = "1" },
+            });
+            hello["result"]!["serverInfo"]!["name"]!.GetValue<string>().Should().Be("ampack");
+            await server.StandardInput.WriteLineAsync("""{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+
+            var tools = await Call(2, "tools/list", null);
+            tools["result"]!["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Should().BeEquivalentTo(["pack_list", "pack_ask", "pack_walk"]);
+
+            var listed = JsonNode.Parse(Text(await Call(3, "tools/call", new JsonObject { ["name"] = "pack_list", ["arguments"] = new JsonObject() })))!.AsArray();
+            listed.Single()!["id"]!.GetValue<string>().Should().Be("io.agentmemory.packs.martialarts");
+
+            var asked = JsonNode.Parse(Text(await Call(4, "tools/call", new JsonObject
+            {
+                ["name"] = "pack_ask",
+                ["arguments"] = new JsonObject { ["pack"] = "io.agentmemory.packs.martialarts", ["view"] = "kata", ["text"] = "Which kata for 8th kyu? Heian Shodan" },
+            })))!.AsArray();
+            asked[0]!["key"]!.GetValue<string>().Should().Be("shotokan/heian-shodan");
+            asked[0]!["source"]!["digest"]!.GetValue<string>().Should().Be(listed.Single()!["digest"]!.GetValue<string>());
+            asked[0]!["source"]!["file"]!.GetValue<string>().Should().Be("records/kata.jsonl");
+
+            var nowhere = JsonNode.Parse(Text(await Call(5, "tools/call", new JsonObject { ["name"] = "pack_walk", ["arguments"] = new JsonObject() })))!;
+            nowhere["error"]!.GetValue<string>().Should().Contain("at least one path or symbol");
+        }
+        finally
+        {
+            if (!server.HasExited) server.Kill(entireProcessTree: true);
+            await server.WaitForExitAsync();
+        }
+        (await errors).Should().Contain("ampack serve: 1 pack(s), 93 records");
+    }
 }

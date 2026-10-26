@@ -15,6 +15,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Format\AgentMemory.Packs.Format.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility.Ampack\AgentMemory.Extensibility.Ampack.csproj" />
   </ItemGroup>

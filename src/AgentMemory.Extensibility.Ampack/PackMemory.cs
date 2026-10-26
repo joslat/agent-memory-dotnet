@@ -3,12 +3,22 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AgentMemory.Abstractions.Options;
+using AgentMemory.Extensibility.Context;
+using AgentMemory.Extensibility.Context.Traversal;
 using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Extensibility.Packs;
 using AgentMemory.Extensibility.Reading;
 
 namespace AgentMemory.Extensibility.Ampack;
+
+/// <summary>A record a pack read returned: what it is, its text as its type renders it, how the walk reached it, and its pack provenance.</summary>
+[Experimental("AMEXT001")]
+public sealed record PackHit(string Module, string Type, string Key, string Text, string? Via, PackSource? Pack);
+
+/// <summary>Packs mounted together: every pack as loaded and verified, and the records held in memory.</summary>
+[Experimental("AMEXT001")]
+public sealed record PackMount(IReadOnlyList<LoadedPack> Packs, PackMemory Memory);
 
 /// <summary>
 /// Verified packs held in memory and read like a store (PACK-engine), with no database: a knowledge pack's records and a
@@ -102,6 +112,78 @@ public sealed partial class PackMemory : IModuleTraversalReader
             }
         }
         return memory;
+    }
+
+    /// <summary>
+    /// Loads and verifies <c>.ampack</c> archives as a host does (single packs and pack sets; a composite only inside its set),
+    /// imports each snapshot into the definition beside it, and holds every knowledge pack and snapshot in memory.
+    /// </summary>
+    /// <exception cref="PackLoadException">A pack is refused, a composite comes alone, or a snapshot's definition is missing.</exception>
+    public static PackMount Mount(IEnumerable<byte[]> archives, PackTrust trust)
+    {
+        ArgumentNullException.ThrowIfNull(archives);
+        ArgumentNullException.ThrowIfNull(trust);
+        var loaded = new List<LoadedPack>();
+        foreach (var archive in archives)
+            switch (PackLoader.Peek(archive).Kind)
+            {
+                case "set":
+                    var set = PackFamilies.LoadSet(archive, trust);
+                    loaded.AddRange(set.Families.SelectMany(f => f.Members).Concat(set.Packs));
+                    break;
+                case "composite":
+                    throw new PackLoadException(["A composite pins its members but does not carry them: mount the pack set that carries both."]);
+                default:
+                    loaded.Add(PackLoader.Load(archive, trust));
+                    break;
+            }
+        var definitions = loaded.Where(p => p.Kind == "definition").ToDictionary(p => p.Id, p => p.Manifest, StringComparer.Ordinal);
+        var snapshots = new List<ModuleSnapshot>();
+        foreach (var shot in loaded.Where(p => p.Kind == "snapshot"))
+        {
+            var of = shot.Manifest.Modules.Keys.Single();
+            if (!definitions.TryGetValue(of, out var definition))
+                throw new PackLoadException([$"{shot.Id} is a snapshot of {of}: mount that definition pack beside it."]);
+            snapshots.Add(shot.ToSnapshot(definition, [.. definition.Modules.Keys.Where(definitions.ContainsKey).Select(d => definitions[d])]));
+        }
+        try { return new PackMount(loaded, From(loaded.Select(p => p.Knowledge).OfType<KnowledgePack>(), snapshots)); }
+        catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
+    }
+
+    /// <summary>
+    /// Asks one of a module's views: a search view with <paramref name="text"/>, any view with a <paramref name="key"/>.
+    /// Read as a host reads, in the shared scope.
+    /// </summary>
+    /// <exception cref="PackLoadException">The module or view is unknown, or the view refuses the read.</exception>
+    public async Task<IReadOnlyList<PackHit>> AskAsync(string moduleId, string viewId, string? text = null, string? key = null, int? limit = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (Resolution.Modules.All(m => m.Id != moduleId)) throw new PackLoadException([$"{moduleId} is not mounted."]);
+        var result = await new ModuleViews(Resolution, ReaderFor(moduleId))
+            .EvaluateWithArgumentsAsync(viewId, new() { Search = text, Key = key, Limit = limit }, Shared, cancellationToken).ConfigureAwait(false);
+        if (result.Status != ModuleReadStatus.Succeeded && result.Status != ModuleReadStatus.NotApplicable)
+            throw new PackLoadException([.. result.Errors.DefaultIfEmpty($"The view {viewId} refused the read.")]);
+        return [.. result.Items.Select(i => Hit(i.Record, null))];
+    }
+
+    /// <summary>
+    /// Walks from the work in hand, as traversal context does: records whose anchor properties match the anchors, then the
+    /// declared relations, within the host's budgets, ranked by path and the question's words; each hit with its reason path.
+    /// </summary>
+    public async Task<IReadOnlyList<PackHit>> WalkAsync(IReadOnlyList<ContextAnchor> anchors, string? question = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(anchors);
+        var walk = await TraversalWalk.RunAsync(Resolution, this,
+            new ContextRequest { SessionId = "pack", Owner = "pack", Query = question ?? "", Anchors = anchors }, cancellationToken).ConfigureAwait(false);
+        return [.. walk.Items.Select(i => Hit(i.Record, i.Via))];
+    }
+
+    private static readonly ModuleReadContext Shared = new() { Scope = MemoryScope.For("pack") };
+
+    private PackHit Hit(ModuleRecord record, string? via)
+    {
+        var type = Resolution.Modules.Single(m => m.Id == record.ModuleId).Ontology!.Types.Single(t => t.Name == record.Type);
+        return new PackHit(record.ModuleId, record.Type, record.Key, ModuleRenderTemplate.Render(type, record.Properties), via, record.Source.Pack);
     }
 
     /// <summary>A reader bound to one calling module, as a host grants it: its own types and its dependencies'.</summary>
