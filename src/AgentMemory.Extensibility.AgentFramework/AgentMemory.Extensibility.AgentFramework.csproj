@@ -1,4 +1,6 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<!-- TreatAsLocalProperty: a host that bundles this project (the coding tool) is packed with -p:Version=<core>; the
+     global property must not restamp this line's own version, or the SDK and module versions would no longer match. -->
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="Version">
 
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>

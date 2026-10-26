@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add opt-in memory packs to coding mode (`modules` in the coding configuration):
+  - the repository-experience pack writes lessons bound to each turn's commit after the core write;
+  - signed knowledge packs are verified at startup and imported into every project's database;
+  - recall responses gain a `modules` section, judged in the same gate call as core memories.
+  Without `modules`, nothing changes. The preview projects and memory packs keep their own version when a bundling host
+  is packed with `-p:Version` (`TreatAsLocalProperty`); the release manifest check enforces it.
+
 - Add the experimental repository-experience memory pack (`src/AgentMemory.Packs.Repository`, held: it ships inside the
   coding host). A model writes lessons a coding agent would otherwise rediscover, each with a kind: failure-fix, command,
   convention, pitfall or environment. The host stamps the commit a lesson was seen at through the new

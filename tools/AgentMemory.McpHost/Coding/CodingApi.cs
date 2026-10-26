@@ -40,16 +40,24 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
                 case "recall":
                     var recall = Read<RecallInput>(arguments);
                     var started = receipts is null ? 0L : Stopwatch.GetTimestamp();
-                    var result = await memory.RecallAsync(identity, recall.Session, recall.Query, cancellationToken).ConfigureAwait(false);
+                    var recalled = await memory.RecallWithModulesAsync(identity, recall.Session, recall.Query, cancellationToken).ConfigureAwait(false);
+                    var result = recalled.Result;
                     if (receipts is not null)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         var receipt = receipts.Record(identity, recall.Session, result, Stopwatch.GetElapsedTime(started));
-                        return new(200, new { result.TotalItemsRetrieved, result.Truncated, result.EstimatedTokenCount,
-                            context = McpMemoryProjection.Context(result.Context), recallId = receipt.RecallId });
+                        return recalled.Modules is { } withReceipt
+                            ? new(200, new { result.TotalItemsRetrieved, result.Truncated, result.EstimatedTokenCount,
+                                context = McpMemoryProjection.Context(result.Context), modules = withReceipt, recallId = receipt.RecallId })
+                            : new(200, new { result.TotalItemsRetrieved, result.Truncated, result.EstimatedTokenCount,
+                                context = McpMemoryProjection.Context(result.Context), recallId = receipt.RecallId });
                     }
-                    return new(200, new { result.TotalItemsRetrieved, result.Truncated, result.EstimatedTokenCount,
-                        context = McpMemoryProjection.Context(result.Context) });
+                    // Without modules the response keeps its exact former shape.
+                    return recalled.Modules is { } items
+                        ? new(200, new { result.TotalItemsRetrieved, result.Truncated, result.EstimatedTokenCount,
+                            context = McpMemoryProjection.Context(result.Context), modules = items })
+                        : new(200, new { result.TotalItemsRetrieved, result.Truncated, result.EstimatedTokenCount,
+                            context = McpMemoryProjection.Context(result.Context) });
                 case "recall_status" when receipts is not null:
                     var lookup = Read<RecallStatusInput>(arguments);
                     var observation = receipts.Get(identity, lookup.Session, lookup.RecallId);

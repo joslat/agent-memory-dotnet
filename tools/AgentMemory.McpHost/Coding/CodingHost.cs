@@ -6,12 +6,19 @@ using AgentMemory.Core.Stubs;
 using AgentMemory.Extraction.Llm;
 using AgentMemory.Inference;
 using AgentMemory.Gate;
+using AgentMemory.Extensibility;
+using AgentMemory.Extensibility.Context;
+using AgentMemory.Extensibility.Neo4j;
+using AgentMemory.Extensibility.Neo4j.Migrations;
+using AgentMemory.Extensibility.Packs;
+using AgentMemory.Packs.Repository;
 using Microsoft.Extensions.AI;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
 
 #pragma warning disable AMGATE001
+#pragma warning disable AMEXT001 // Opt-in memory packs (Extensibility 0.13 §M).
 
 namespace AgentMemory.McpHost.Coding;
 
@@ -73,6 +80,7 @@ internal static class CodingHost
                     KeyVariable = j.KeyVariable, Weight = j.Weight,
                 }).ToList();
             });
+        if (configuration.Options.Modules is { } modules) AddModules(services, configuration.Options, modules);
         services.AddSingleton(configuration.Options).AddSingleton(configuration.Access).AddSingleton(configuration.Content);
         if (configuration.Options.RecallDiagnostics is { } diagnostics)
             services.AddSingleton(sp => new CodingRecallReceipts(diagnostics, configuration.Content));
@@ -97,6 +105,27 @@ internal static class CodingHost
         if (configuration.Options.Remote is not null) CodingRemoteAuthentication.AddServices(services, configuration.Options);
     }
 
+    /// <summary>
+    /// Memory packs for every project (Extensibility 0.13 §M): the repository pack writes lessons through the coding writer's
+    /// model; knowledge packs are verified now, so a bad pack stops startup before any project is touched.
+    /// </summary>
+    private static void AddModules(IServiceCollection services, CodingServiceOptions options, CodingModulesOptions modules)
+    {
+        var packs = modules.OpenPacks();
+        services.AddSingleton(new CodingPacks(packs));
+        services.AddAgentMemoryModules(m =>
+        {
+            m.UseNeo4jStore().GrantChatClient(sp => sp.GetRequiredService<IChatClient>());
+            if (modules.Repository) m.Add<RepositoryPack>();
+            foreach (var pack in packs) m.AddKnowledgePack(pack);
+        });
+        services.AddNeo4jKnowledgePacks();
+        services.AddSingleton(sp => new ModuleContextSelection(new ModuleSelectionOptions
+        {
+            UseJudge = options.UseRetrievalGate && options.Judges.Count > 0, MaxItems = modules.MaxItems,
+        }, () => sp.GetService<IMemoryGate>()));
+    }
+
     public static async Task PrepareAsync(WebApplication app, CodingConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
@@ -105,6 +134,18 @@ internal static class CodingHost
             await scopes.RunAsync(new(configuration.Options.OwnerId, project), async (services, ct) =>
             {
                 await services.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(ct).ConfigureAwait(false);
+                if (configuration.Options.Modules is not null)
+                {
+                    // Each project's database gets the modules' schema, then each pack's records; the same version again writes nothing.
+                    var set = services.GetRequiredService<AgentMemory.Extensibility.Modules.ModuleSet>();
+                    var migration = await new ModuleMigrator(services.GetRequiredService<INeo4jTransactionRunner>(), set.Resolution)
+                        .ApplyAsync("agent-memory-mcp coding", ct).ConfigureAwait(false);
+                    if (migration.Problems.Count != 0)
+                        throw new InvalidOperationException("Module migrations failed: " + string.Join("; ", migration.Problems));
+                    var importer = services.GetRequiredService<KnowledgePackImporter>();
+                    foreach (var pack in services.GetRequiredService<CodingPacks>().Packs)
+                        await importer.ImportAsync(pack, cancellationToken: ct).ConfigureAwait(false);
+                }
                 return true;
             }, cancellationToken).ConfigureAwait(false);
     }

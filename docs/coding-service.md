@@ -300,6 +300,32 @@ Host-model **closing-judge** fallback is separate and remains enabled by the Rec
 When the configured update judge is absent or fails, the writer can ask its chat model to judge
 named closings. A negative closing verdict is not an outage to bypass with another judge.
 
+### Optional memory packs (experimental)
+
+`modules` composes memory packs for every project. Without it, coding mode composes none, and every response keeps its
+exact former shape.
+
+```json
+"modules": {
+  "repository": true,
+  "packs": ["C:/packs/agentmemory.packs.example.1.0.0.nupkg"],
+  "developerKeys": ["C:/keys/dev.public.pem"],
+  "maxItems": 8
+}
+```
+
+- `repository` adds the repository-experience pack. After each remembered turn, after the core write, the coding writer's
+  model records lessons: a failure and its fix, a command, a convention, a pitfall or an environment constraint. The host
+  stamps each lesson with the turn's `commit` and the project; the model never sets them.
+- `packs` names signed knowledge packs, as bundle folders or `.nupkg` files (at most 8). Each is verified at startup, and a
+  pack that is unsigned, changed or signed by an untrusted key stops startup. On startup every project's database gets
+  the pack's schema and records; importing the same version again writes nothing.
+- `developerKeys` are public keys trusted besides the official key (at most 4). There is no way to load an unsigned pack.
+- `recall` responses gain `modules`: the pack items that matched, with `module`, `type`, `key`, `text`, the gate's
+  `probability` when a judge decided, and `pack` (id@version) for knowledge pack records. Packs search with the question
+  plus what core memory found, and their items are judged in the same gate call as core memories.
+- Lessons live in their project's database only. A knowledge pack is imported into each project's database separately.
+
 ## Optional retrieval and update judges
 
 Add a `judges` array to enable the retrieval gate. Set `"closingJudgeName": "jev"` alongside it to

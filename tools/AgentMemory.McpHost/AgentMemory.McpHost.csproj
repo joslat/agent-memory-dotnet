@@ -45,4 +45,12 @@
     <ProjectReference Include="..\..\src\AgentMemory.Inference\AgentMemory.Inference.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Opt-in memory packs for coding mode (Extensibility 0.13 §M). Bundled in the tool package, so no NuGet dependency on the
+         preview line; those projects keep their own version even when the release passes -p:Version (TreatAsLocalProperty). -->
+    <ProjectReference Include="..\..\src\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Extensibility.Neo4j\AgentMemory.Extensibility.Neo4j.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Repository\AgentMemory.Packs.Repository.csproj" />
+  </ItemGroup>
+
 </Project>

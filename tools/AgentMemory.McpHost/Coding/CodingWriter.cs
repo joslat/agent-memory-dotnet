@@ -6,6 +6,8 @@ using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 
+#pragma warning disable AMEXT001 // Opt-in memory packs (Extensibility 0.13 §M).
+
 namespace AgentMemory.McpHost.Coding;
 
 internal sealed record CodingWriteResult
@@ -76,6 +78,17 @@ internal sealed class CodingWriter(CodingOperationScope scopes, CodingContentPol
                 UserId = identity.OwnerId, SessionId = session, Messages = targets, ContextMessages = context,
                 InputMode = ExtractionInputMode.ConversationTurn, TrustLevel = MemoryTrustLevel.Untrusted,
             }, ct).ConfigureAwait(false);
+            // Opt-in memory packs (Extensibility 0.13 §M): after core, with what core stored and the turn's commit. A module
+            // failure is reported in the log and never undoes or fails the core write.
+            if (services.GetService<AgentMemory.Extensibility.Ingestion.IModuleIngestion>() is { } modules)
+            {
+                var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
+                var report = await modules.IngestAsync(CodingModuleRecall.Request(identity, session, targets, request, result, clock.GetUtcNow()), ct)
+                    .ConfigureAwait(false);
+                if (report.Denied || report.Providers.Any(p => p.Status != AgentMemory.Extensibility.Ingestion.ProviderIngestionStatus.Succeeded))
+                    services.GetService<Microsoft.Extensions.Logging.ILogger<CodingWriter>>()?.LogWarning(
+                        "Coding module ingestion did not fully succeed; the core write stands.");
+            }
             return new CodingWriteResult { SourceMessageId = sourceId, Status = result.Status, ExtractionPath = result.Path };
         }, cancellationToken);
     }
