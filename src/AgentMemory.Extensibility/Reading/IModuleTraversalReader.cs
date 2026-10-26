@@ -59,6 +59,12 @@ public sealed record ModuleExpandQuery
     /// <summary>Most question words one expansion ranks by.</summary>
     public const int MaximumWords = 16;
     /// <summary>
+    /// Most neighbours of one starting record the store reads and ranks (red-team M3): beyond it, in id order, a hub's other
+    /// neighbours are not read at all, so its degree no longer sets a hop's cost. Far above any fan-out, so ranking is unchanged
+    /// for every record with fewer neighbours.
+    /// </summary>
+    public const int MaximumScan = 1024;
+    /// <summary>
     /// The question's words, lower case (CMP-4). When a starting record leads to more than the fan-out, the reader keeps first the
     /// records whose text (<see cref="Modules.ModuleType.TextProperties"/>) holds most of them, then the most specific: those
     /// fewest records share the link with. Empty keeps the most specific first.

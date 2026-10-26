@@ -110,6 +110,33 @@
         }
       }
     },
+    "containableBy": {
+      "type": "array",
+      "description": "The modules allowed to walk into this one's records through their own links, by module id or parent namespace. Empty or absent: none may.",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "uniqueItems": true
+    },
+    "trial": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The trial a host runs on its own history before switching this pack on: the tasks it draws, and targets every one of which must be met. Enforced only by a host that requires trials.",
+      "required": ["measure", "targets"],
+      "properties": {
+        "measure": { "enum": ["test-impact"] },
+        "tasks": { "type": "integer", "minimum": 10, "maximum": 200 },
+        "targets": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "hitRate": { "type": "number", "minimum": 0, "maximum": 1 },
+            "precision": { "type": "number", "minimum": 0, "maximum": 1 },
+            "lift": { "type": "number", "minimum": -1, "maximum": 1 },
+            "addedP95Ms": { "type": "number", "exclusiveMinimum": 0, "maximum": 60000 }
+          }
+        }
+      }
+    },
     "traversal": {
       "type": "object",
       "additionalProperties": false,

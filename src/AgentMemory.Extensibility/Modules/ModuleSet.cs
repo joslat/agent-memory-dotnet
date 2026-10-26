@@ -29,11 +29,14 @@ public sealed class ModuleSet
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<IServiceProvider, Context.Traversal.TraversalService> _traversal = new();
 
     private ModuleSet(ModuleResolution resolution, IReadOnlyList<ActiveModule> modules, string compositionFingerprint,
-        string fingerprint, IModuleStoreAdapter? store, IReadOnlyList<ModuleRegistration> registrations)
+        string fingerprint, IModuleStoreAdapter? store, IReadOnlyList<ModuleRegistration> registrations, IReadOnlyList<SwitchedOffModule> switchedOff)
     {
         Resolution = resolution; Modules = modules; CompositionFingerprint = compositionFingerprint;
-        Fingerprint = fingerprint; Store = store; _registrations = registrations;
+        Fingerprint = fingerprint; Store = store; _registrations = registrations; SwitchedOff = switchedOff;
     }
+
+    /// <summary>The added modules a trial left off (<see cref="ModuleSetBuilder.RequireTrials"/>), and why. Empty when trials are not required.</summary>
+    public IReadOnlyList<SwitchedOffModule> SwitchedOff { get; }
 
     /// <summary>The validated metadata of the active modules, in dependency order, for the bound store.</summary>
     public ModuleResolution Resolution { get; }
@@ -56,7 +59,7 @@ public sealed class ModuleSet
 
     internal static ModuleSet Activate(ModuleSetBuilder builder, IServiceProvider services)
     {
-        var registrations = builder.Modules;
+        var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations);
         var store = builder.Store;
         var provider = store?.Provider ?? "none";
         var profile = builder.Profile ?? ImplicitProfile(registrations, provider);
@@ -101,7 +104,8 @@ public sealed class ModuleSet
             modules.Add(new ActiveModule(composed.Manifest, composed.ConfigurationSection, configurationHash,
                 registration.Implementation, options));
         }
-        foreach (var prioritized in builder.Priorities.Keys.Where(id => modules.All(m => m.Manifest.Id != id)).Order(StringComparer.Ordinal))
+        foreach (var prioritized in builder.Priorities.Keys.Where(id => modules.All(m => m.Manifest.Id != id) && switchedOff.All(o => o.ModuleId != id))
+                     .Order(StringComparer.Ordinal))
             errors.Add($"Priority set for module '{prioritized}', which is not added.");
         if (errors.Count != 0) throw new ModuleActivationException([.. errors]);
 
@@ -123,10 +127,11 @@ public sealed class ModuleSet
         if (priorities.Count != 0) canonical = [.. canonical, .. JsonSerializer.SerializeToUtf8Bytes(new { priorities })];
         var fingerprint = Convert.ToHexString(SHA256.HashData(canonical)).ToLowerInvariant();
         var set = new ModuleSet(resolution, modules.AsReadOnly(), composition.CompositionFingerprint!, fingerprint, store,
-            registrations) { ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly() };
-        services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>().LogInformation(
-            "Module set {Fingerprint} active: {Modules}.", fingerprint,
+            registrations, switchedOff) { ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly() };
+        var log = services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>();
+        log?.LogInformation("Module set {Fingerprint} active: {Modules}.", fingerprint,
             string.Join(", ", modules.Select(m => m.Manifest.Id + "@" + m.Manifest.Version)));
+        foreach (var off in switchedOff) log?.LogInformation("Module {Module}@{Version} is off: {Reason}.", off.ModuleId, off.Version, off.Reason);
         return set;
     }
 

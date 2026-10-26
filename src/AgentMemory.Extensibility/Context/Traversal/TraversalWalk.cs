@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -18,9 +19,16 @@ internal sealed record TraversalItem(ModuleRecord Record, double Score, string V
     internal double Rank => Score * (1 + Matches);
 }
 
-/// <summary>What one walk reached, best first, and the reads it could not make.</summary>
+/// <summary>
+/// What one walk spent against its budgets (red-team M3): store reads, records visited, time, and which budget stopped it, if
+/// one did. Reported with every walk, so a host can see that a pack's declared bounds held.
+/// </summary>
 [Experimental("AMEXT001")]
-internal sealed record TraversalResult(IReadOnlyList<TraversalItem> Items, IReadOnlyList<string> Problems)
+internal sealed record TraversalSpend(int Reads, int Visited, TimeSpan Elapsed, string? StoppedBy);
+
+/// <summary>What one walk reached, best first, the reads it could not make, and what it spent.</summary>
+[Experimental("AMEXT001")]
+internal sealed record TraversalResult(IReadOnlyList<TraversalItem> Items, IReadOnlyList<string> Problems, TraversalSpend? Spent = null)
 {
     internal static readonly TraversalResult Empty = new([], []);
 }
@@ -31,6 +39,15 @@ internal sealed record TraversalResult(IReadOnlyList<TraversalItem> Items, IRead
 /// times the weights along the path) and that path. Bounded in hops, fan-out, visited records and a score floor, so a hub
 /// cannot flood the gate.
 /// </summary>
+/// <remarks>
+/// <b>Budgets bound the work, not only the result (red-team M3).</b> A walk stops at <see cref="MaximumVisited"/> records, at
+/// <see cref="MaximumReads"/> store reads, or after <see cref="TimeBudget"/>, whichever comes first, and it stops everywhere, not
+/// only in the relation it was expanding. One pack holds at most <see cref="MaximumVisitedPerModule"/> of the visited records, so a
+/// pack earlier in dependency order cannot fill the budget at its first hop and starve the others' later hops. The store caps how
+/// many neighbours it ranks per record (<see cref="ModuleExpandQuery.MaximumScan"/>), so a hub's degree no longer sets the cost.
+/// <b>Reasons are built from relation verbs and record names, paths or keys</b> in a strict character set (red-team M6): a
+/// record's free text never enters its reason.
+/// </remarks>
 /// <remarks>
 /// <b>The question orders what the anchors reach (CMP-4).</b> A type can have hundreds of tests, all one link from it and all with
 /// the same score; which few reach the gate was decided by record id. Now an expansion keeps first the records whose text holds
@@ -43,6 +60,9 @@ internal static class TraversalWalk
 {
     internal const int MaximumHops = ModuleTraversal.MaximumHops;
     internal const int MaximumVisited = 256;
+    internal const int MaximumVisitedPerModule = 192;
+    internal const int MaximumReads = 128;
+    internal static readonly TimeSpan TimeBudget = TimeSpan.FromSeconds(5);
     internal const double MinimumScore = 0.1;
 
     internal static async Task<TraversalResult> RunAsync(ModuleResolution resolution, IModuleTraversalReader reader, ContextRequest request,
@@ -59,7 +79,30 @@ internal static class TraversalWalk
         };
         var modules = resolution.Modules.Where(m => m.Traversal is not null && m.Ontology is not null).ToList();
         var best = new Dictionary<string, TraversalItem>(StringComparer.Ordinal);
+        var perModule = new Dictionary<string, int>(StringComparer.Ordinal);
         var problems = new List<string>();
+        var clock = Stopwatch.StartNew();
+        var reads = 0;
+        string? stoppedBy = null;
+        bool Spent()
+        {
+            stoppedBy ??= best.Count >= MaximumVisited ? "visited" : reads >= MaximumReads ? "reads" : clock.Elapsed > TimeBudget ? "time" : null;
+            return stoppedBy is not null;
+        }
+        bool Offer(TraversalItem item)
+        {
+            if (best.TryGetValue(item.Record.Id, out var known))
+            {
+                if (known.Score >= item.Score) return false;
+                best[item.Record.Id] = item;
+                return true;
+            }
+            var held = perModule.GetValueOrDefault(item.Record.ModuleId);
+            if (held >= MaximumVisitedPerModule || best.Count >= MaximumVisited) return false;
+            perModule[item.Record.ModuleId] = held + 1;
+            best[item.Record.Id] = item;
+            return true;
+        }
         var words = TraversalWords.Of(request.Query);
         var texts = new Dictionary<(string, string), IReadOnlyList<string>>();
         int Matches(ModuleRecord record)
@@ -79,6 +122,8 @@ internal static class TraversalWalk
             {
                 var values = anchors.Where(a => a.Kind == declared.Kind).Select(a => a.Value).ToList();
                 if (values.Count == 0) continue;
+                if (Spent()) break;
+                reads++;
                 var found = await reader.MatchAsync(new ModuleAnchorQuery
                 {
                     ModuleId = module.Id, Type = declared.Type, Property = declared.Property, Match = declared.Match, Values = values
@@ -90,26 +135,33 @@ internal static class TraversalWalk
                     var (quality, anchor, pattern) = AnchorMatcher.Best(declared.Match, value, values);
                     if (quality <= 0) continue;
                     var via = Short(anchor!) + (string.Equals(pattern, anchor, StringComparison.OrdinalIgnoreCase)
-                        ? "" : " matches " + declared.Property + " " + pattern);
-                    Offer(best, new TraversalItem(record, quality, via, 0, Matches(record)));
+                        ? "" : " matches " + declared.Property + " " + Strict(pattern!));
+                    Offer(new TraversalItem(record, quality, via, 0, Matches(record)));
                 }
             }
 
         // Hops: owned links, in their declared direction, from what the last hop reached.
         var frontier = best.Values.ToList();
         var hops = modules.Count == 0 ? 0 : Math.Min(MaximumHops, modules.Max(m => m.Traversal!.Hops));
-        for (var hop = 1; hop <= hops && frontier.Count > 0 && best.Count < MaximumVisited; hop++)
+        for (var hop = 1; hop <= hops && frontier.Count > 0 && !Spent(); hop++)
         {
             var next = new List<TraversalItem>();
             foreach (var module in modules.Where(m => hop <= m.Traversal!.Hops))
                 foreach (var declared in module.Traversal!.Relations)
                 {
+                    if (Spent()) break;
                     var relation = module.Ontology!.Relations.Single(r => r.Name == declared.Name);
+                    if (Consent(resolution, module, relation) is { } refusal)
+                    {
+                        if (hop == 1) problems.Add(refusal);
+                        continue;
+                    }
                     var start = declared.Direction == ModuleTraversalDirection.Out ? (module.Id, relation.From) : Target(module, relation);
                     if (start is not { } from) continue;
                     var starting = frontier.Where(i => i.Record.ModuleId == from.Module && i.Record.Type == from.Type)
                         .GroupBy(i => i.Record.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.MaxBy(i => i.Score)!, StringComparer.Ordinal);
                     if (starting.Count == 0) continue;
+                    reads++;
                     var step = await reader.ExpandAsync(new ModuleExpandQuery
                     {
                         ModuleId = module.Id, Relation = declared.Name, Direction = declared.Direction,
@@ -125,21 +177,28 @@ internal static class TraversalWalk
                         var via = parent.Via + " → " + (declared.Direction == ModuleTraversalDirection.Out
                             ? verb + " " + Label(edge.To) : Label(edge.To) + " " + verb + " it");
                         var item = new TraversalItem(edge.To, score, via, hop, Matches(edge.To), 1.0 / Math.Max(1, edge.Degree));
-                        if (Offer(best, item)) next.Add(item);
+                        if (Offer(item)) next.Add(item);
                         if (best.Count >= MaximumVisited) break;
                     }
                 }
             frontier = next;
         }
+        Spent(); // a stop is reported in the spend, not as a problem: it denies nothing
         return new([.. best.Values.OrderByDescending(i => i.Rank).ThenByDescending(i => i.Specificity).ThenBy(i => i.Hops)
-            .ThenBy(i => i.Record.Id, StringComparer.Ordinal)], problems.AsReadOnly());
+            .ThenBy(i => i.Record.Id, StringComparer.Ordinal)], problems.AsReadOnly(), new TraversalSpend(reads, best.Count, clock.Elapsed, stoppedBy));
     }
 
-    private static bool Offer(Dictionary<string, TraversalItem> best, TraversalItem item)
+    /// <summary>
+    /// Why a walk may not follow <paramref name="relation"/>, or null when it may: a link into another module needs that
+    /// module's consent, its <see cref="ModuleManifest.ContainableBy"/> naming this one (red-team M4).
+    /// </summary>
+    internal static string? Consent(ModuleResolution resolution, ModuleManifest module, ModuleRelation relation)
     {
-        if (best.TryGetValue(item.Record.Id, out var known) && known.Score >= item.Score) return false;
-        best[item.Record.Id] = item;
-        return true;
+        var parts = relation.To.Split(':');
+        if (parts.Length != 2 || parts[0] == "core" || parts[0] == module.Id) return null;
+        var other = resolution.Modules.FirstOrDefault(m => m.Id == parts[0]);
+        var consents = other?.ContainableBy?.Any(c => module.Id == c || module.Id.StartsWith(c + ".", StringComparison.Ordinal)) == true;
+        return consents ? null : $"{module.Id}: {relation.Name} reaches into {parts[0]}, which does not list it in containableBy.";
     }
 
     private static (string Module, string Type)? Target(ModuleManifest module, ModuleRelation relation)
@@ -157,10 +216,11 @@ internal static class TraversalWalk
         return name.Replace('_', ' ').ToLowerInvariant();
     }
 
-    // A record's name for a reason: its title, name or path when it has one, else its key, shortened.
+    // A record's name for a reason: its name or path when it has one, else its key, shortened and kept to a strict character
+    // set. Never its title or other free text: a signed pack is not a safe one, and the reason reaches the model (red-team M6).
     private static string Label(ModuleRecord record)
     {
-        foreach (var property in (string[])["title", "name", "path"])
+        foreach (var property in (string[])["name", "path"])
             if (record.Properties.TryGetValue(property, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text)
                 return Short(text);
         return Short(record.Key);
@@ -173,8 +233,19 @@ internal static class TraversalWalk
             return AnchorMatcher.SimpleName(text) is { Length: > 0 } simple ? simple : text;
         var slash = text.LastIndexOf('/');
         text = slash >= 0 && slash < text.Length - 1 ? text[(slash + 1)..] : text;
+        text = Strict(text);
         return text.Length <= 80 ? text : text[..77] + "...";
     }
+
+    /// <summary>Letters, digits and the punctuation of paths, symbols and globs; anything else becomes '_'.</summary>
+    internal static string Strict(string text) =>
+        string.Create(text.Length, text, static (span, source) =>
+        {
+            for (var i = 0; i < source.Length; i++)
+                span[i] = char.IsAsciiLetterOrDigit(source[i]) || StrictPunctuation.Contains(source[i]) ? source[i] : '_';
+        });
+
+    private const string StrictPunctuation = "._-/:#*()<>,+@ ";
 }
 
 /// <summary>One walk per request, shared by every module's traversal contributor in it (CMP-1).</summary>

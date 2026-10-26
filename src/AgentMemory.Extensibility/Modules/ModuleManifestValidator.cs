@@ -111,6 +111,9 @@ internal sealed class ModuleManifestValidator
         }
         if (manifest.Seed is { } seed) ValidateKnowledgePack(manifest, seed, host, modules);
         if (manifest.Traversal is { } traversal) ValidateTraversal(traversal, manifest.Ontology, types);
+        if (manifest.Trial is { } trial) ValidateTrial(trial);
+        foreach (var container in manifest.ContainableBy ?? [])
+            if (!ModuleIdentity.IsValidModuleId(container)) Error("$.containableBy", $"'{container}' is not a dotted module identity or namespace");
         if (manifest.Display is { } display) ValidateDisplay(manifest, display);
         return _errors.ToList().AsReadOnly();
     }
@@ -215,6 +218,19 @@ internal sealed class ModuleManifestValidator
     }
 
     // CMP-1: a module declares how walks reach its own records and follow its own links, never another module's.
+    private void ValidateTrial(ModuleTrial trial)
+    {
+        const string path = "$.trial";
+        if (trial.Measure != "test-impact") Error(path + ".measure", "expected test-impact");
+        if (trial.Tasks is < ModuleTrial.MinimumTasks or > ModuleTrial.MaximumTasks) Error(path + ".tasks", "expected 10 to 200");
+        var t = trial.Targets;
+        if (t is null || (t.HitRate, t.Precision, t.Lift, t.AddedP95Ms) == (null, null, null, null)) { Error(path + ".targets", "a trial needs at least one target"); return; }
+        if (t.HitRate is < 0 or > 1) Error(path + ".targets.hitRate", "expected 0 to 1");
+        if (t.Precision is < 0 or > 1) Error(path + ".targets.precision", "expected 0 to 1");
+        if (t.Lift is < -1 or > 1) Error(path + ".targets.lift", "expected -1 to 1");
+        if (t.AddedP95Ms is <= 0 or > 60_000) Error(path + ".targets.addedP95Ms", "expected more than 0 and at most 60000");
+    }
+
     private void ValidateTraversal(ModuleTraversal traversal, ModuleOntology? ontology, IReadOnlyDictionary<string, ModuleType> types)
     {
         const string path = "$.traversal";
@@ -224,6 +240,8 @@ internal sealed class ModuleManifestValidator
         if (anchors.Count == 0 && relations.Count == 0) Error(path, "traversal must declare anchors or relations");
         if (traversal.MaxItems is < 1 or > ModuleTraversal.MaximumOffered) Error(path + ".maxItems", "expected 1 to 16");
         if (traversal.Hops is < 1 or > ModuleTraversal.MaximumHops) Error(path + ".hops", "expected 1 to 3");
+        if (anchors.Count > ModuleTraversal.MaximumAnchors) Error(path + ".anchors", "at most 16 anchor declarations");
+        if (relations.Count > ModuleTraversal.MaximumRelations) Error(path + ".relations", "at most 16 relations");
         var seenAnchors = new HashSet<(string?, string?)>();
         foreach (var anchor in anchors)
         {

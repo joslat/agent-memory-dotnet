@@ -208,5 +208,11 @@
       "CodemapSymbol"
     ],
     "maxItems": 3
+  },
+  "containableBy": [ "io.agentmemory.packs.work" ],
+  "trial": {
+    "measure": "test-impact",
+    "tasks": 40,
+    "targets": { "hitRate": 0.5, "precision": 0.25, "lift": 0.25, "addedP95Ms": 250 }
   }
 }

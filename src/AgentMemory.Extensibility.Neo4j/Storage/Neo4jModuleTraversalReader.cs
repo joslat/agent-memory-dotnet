@@ -105,7 +105,8 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared,
                     ["ids"] = query.FromIds.Distinct(StringComparer.Ordinal).ToArray(),
                     ["fanOut"] = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut)),
-                    ["words"] = Words(query.Words), ["text"] = reached.Type.TextProperties().ToArray()
+                    ["words"] = Words(query.Words), ["text"] = reached.Type.TextProperties().ToArray(),
+                    ["scan"] = ModuleExpandQuery.MaximumScan
                 }, cancellationToken).ConfigureAwait(false);
                 return new ModuleTraversalStep
                 {

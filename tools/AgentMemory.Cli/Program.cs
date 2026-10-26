@@ -329,6 +329,16 @@ try
         // 40.57: validation packs build their own stack per pack (its options, its extraction, a replayed clock),
         // against the same store this host is configured for.
         // CMP-4: the traversal-context trial composes the Coding packs over the same store and compiles each fixture task.
+        // Pack format v1.1 §4: trial-gated activation, on this host's own history; the decision is signed with the host key.
+        "evaluate" when cli.Get("gate") is not null => await new PackGateCommand(o =>
+            {
+                o.Uri = uri;
+                o.Username = user;
+                o.Password = password;
+                o.Database = database;
+                o.EmbeddingDimensions = dims;
+            }, output)
+            .ExecuteAsync(cli.Get("gate"), cli.Get("repo"), cli.Get("host-key"), cli.Get("activations"), cli.Get("variant"), cli.Get("output")),
         "evaluate" when cli.Get("traversal") is not null => await new TraversalTrialCommand(o =>
             {
                 o.Uri = uri;

@@ -17,7 +17,7 @@ internal static class ModuleManifestReader
 
     private static ModuleManifest Read(JsonElement root)
     {
-        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views", "seed", "display", "traversal");
+        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views", "seed", "display", "traversal", "trial", "containableBy");
         var format = Text(root, "format", "$");
         if (format != "agentmemory.module/v1alpha1") throw Error("$.format", "unsupported module format");
         var id = Text(root, "id", "$");
@@ -53,7 +53,24 @@ internal static class ModuleManifestReader
             Views = Array(root, "views", "$", View),
             Seed = root.TryGetProperty("seed", out var seed) ? Strings(seed, "$.seed") : null,
             Display = root.TryGetProperty("display", out var display) ? Display(display, "$.display") : null,
-            Traversal = root.TryGetProperty("traversal", out var traversal) ? Traversal(traversal, "$.traversal") : null
+            Traversal = root.TryGetProperty("traversal", out var traversal) ? Traversal(traversal, "$.traversal") : null,
+            Trial = root.TryGetProperty("trial", out var trial) ? Trial(trial, "$.trial") : null,
+            ContainableBy = root.TryGetProperty("containableBy", out var containable) ? Strings(containable, "$.containableBy") : null
+        };
+    }
+
+    private static ModuleTrial Trial(JsonElement value, string path)
+    {
+        Object(value, path, "measure", "tasks", "targets");
+        if (!value.TryGetProperty("targets", out var targets)) throw Error(path + ".targets", "a trial needs targets");
+        Object(targets, path + ".targets", "hitRate", "precision", "lift", "addedP95Ms");
+        double? Number(string name) => targets.TryGetProperty(name, out var n)
+            ? n.ValueKind == JsonValueKind.Number ? n.GetDouble() : throw Error(path + ".targets." + name, "expected a number")
+            : null;
+        return new ModuleTrial
+        {
+            Measure = Text(value, "measure", path), Tasks = PositiveInteger(value, "tasks", path) ?? 40,
+            Targets = new ModuleTrialTargets { HitRate = Number("hitRate"), Precision = Number("precision"), Lift = Number("lift"), AddedP95Ms = Number("addedP95Ms") },
         };
     }
 

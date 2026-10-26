@@ -1,0 +1,197 @@
+{
+ "format": "agentmemory.pack.conformance/1.1",
+ "vectors": [
+  {
+   "vector": "valid-python-built",
+   "expected": "verified",
+   "dotnet": "verified",
+   "python": "verified",
+   "agree": true,
+   "dotnetSays": "Verified io.example.notes 1.0.0",
+   "pythonSays": "verified io.example.notes 1.0.0 sha256:fa9fba65bb0aa4232961612baa6f15d8e475607596455ccaec2cf03400a6a9f4",
+   "sha256": "52710648f40ed0ccf629098ad980567848dba9d27ed72726fd1f0e97762997f5"
+  },
+  {
+   "vector": "valid-python-stored-from-dotnet",
+   "expected": "verified",
+   "dotnet": "verified",
+   "python": "verified",
+   "agree": true,
+   "dotnetSays": "Verified io.example.notes 1.0.0",
+   "pythonSays": "verified io.example.notes 1.0.0 sha256:fa9fba65bb0aa4232961612baa6f15d8e475607596455ccaec2cf03400a6a9f4",
+   "sha256": "42a51f4ca5a75f56a6a7f6d7310d2f79b899068b09b4520f394fd37ad50f7a92"
+  },
+  {
+   "vector": "tampered-record",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: 'records/note.jsonl' does not match META/files.json.",
+   "pythonSays": "refused: 'records/note.jsonl' does not match META/files.json",
+   "sha256": "6fa7f81aaee857e1d01e0d61c4fb4ffd90ec95b59841581c039c7703a01f390f"
+  },
+  {
+   "vector": "extra-file",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: 'records/extra.jsonl' is not in META/files.json.",
+   "pythonSays": "refused: the pack does not hold exactly the listed files",
+   "sha256": "3f02eaab6dc04a0348ae0ea863dca2e2cf17570dddbb59d5ed5a7bc5d32064d5"
+  },
+  {
+   "vector": "missing-file",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: 'ontology.json' is listed but missing.",
+   "pythonSays": "refused: the pack does not hold exactly the listed files",
+   "sha256": "64f0d6989dddb0afaff7f9d67dc21c8b1ed16b035c5b6d93bb951f19e61ca87a"
+  },
+  {
+   "vector": "relisted-with-old-signature",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: META/signatures/publisher-3fc827b779ff03f5.dsse.json signs another META/files.json than this pack's.",
+   "pythonSays": "refused: no valid signature in role publisher",
+   "sha256": "09aa1930556a180141209425ca00a75ecd1a330340e8d223001435ff6580af1a"
+  },
+  {
+   "vector": "non-canonical-list",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: META/files.json is not in RFC 8785 canonical form.",
+   "pythonSays": "refused: META/files.json is not canonical",
+   "sha256": "4bba1243da6bf22b853f90295a6ca4033122b68195e52ee9e0c5404b69b4b144"
+  },
+  {
+   "vector": "key-scoped-elsewhere",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: META/signatures/publisher-3fc827b779ff03f5.dsse.json: key 3fc827b779ff03f5 may not sign for 'io.example.notes'.",
+   "pythonSays": "refused: no valid signature in role publisher",
+   "sha256": "42a51f4ca5a75f56a6a7f6d7310d2f79b899068b09b4520f394fd37ad50f7a92"
+  },
+  {
+   "vector": "crlf-record",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: 'records/note.jsonl' line 1 contains a carriage return (LF only).",
+   "pythonSays": "refused: a JSON file has a BOM or a carriage return",
+   "sha256": "f7d6ecdc9c308ea2ef832c3ac9299b4bfe389c12dab85203d5f1e75c4f3f800b"
+  },
+  {
+   "vector": "bom-manifest",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: 'pack.json' starts with a byte order mark.",
+   "pythonSays": "refused: a JSON file has a BOM or a carriage return",
+   "sha256": "61bf65950b72394946cbe89e466dbbc2aec57f0c6f6a4f741fec26d9c8be902b"
+  },
+  {
+   "vector": "duplicate-key-record",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: 'records/note.jsonl' line 1 repeats the key 'key' at $.",
+   "pythonSays": "refused: a JSON object repeats a key",
+   "sha256": "c868abcb8fb91d0e576f4d54a3c3d584c8ddf999df3835c2939e20d3ad0d42a8"
+  },
+  {
+   "vector": "device-name-path",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "The archive entry 'records/CON.jsonl' is not a safe pack path.",
+   "pythonSays": "refused: entry 'records/CON.jsonl' is not in the profile",
+   "sha256": "1dc18c1fa92945f9339b5f2bd8eaffea84e17059457457aabfe975ec5ad85c4d"
+  },
+  {
+   "vector": "pack-json-names-other-id",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "refused: pack.json names io.example.notes 1.0.0, but META/files.json names io.example.other 1.0.0.",
+   "pythonSays": "refused: pack.json does not name the same pack as META/files.json",
+   "sha256": "bfd6067b3aac26d3ad7698605d6ea1b0b7e834cd342b52c1edb26377b344c0ac"
+  },
+  {
+   "vector": "prefix-bytes",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "The archive has bytes between the central directory and the end record.",
+   "pythonSays": "refused: the central directory is not where the end record says",
+   "sha256": "3bdfd24224b43702d02646a274214dbff17ad00d1289916c35f30531597f2fed"
+  },
+  {
+   "vector": "trailing-bytes",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "The archive does not end with the end-of-central-directory record (a comment or trailing bytes).",
+   "pythonSays": "refused: the archive does not end with the end record",
+   "sha256": "2ab5c31b757a12cd6c6c05a0a88e88b26a60f568004c9c6191ed0f9d6e0efb56"
+  },
+  {
+   "vector": "archive-comment",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "The archive does not end with the end-of-central-directory record (a comment or trailing bytes).",
+   "pythonSays": "refused: the archive does not end with the end record",
+   "sha256": "84313e856386a287c9190633a9e2341f492aa9f684b6d0332bfcb23b0ccce0f6"
+  },
+  {
+   "vector": "unsorted-entries",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "The archive entry 'pack.json' is out of order or repeated.",
+   "pythonSays": "refused: entry 'pack.json' is out of order, repeated or not contiguous",
+   "sha256": "d1cfac4ff2055176a8049b37dc44e3579845c35910d183cec93b62251a8a0fb4"
+  },
+  {
+   "vector": "data-descriptor-flag",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "The archive entry 'META/files.json' sets flags 0008 (data descriptors, encryption and options are refused).",
+   "pythonSays": "refused: entry 'META/files.json' is not in the profile",
+   "sha256": "96da4f6d840790d2b6b8342f33618bb3ccdc399d70a98e69d2c3e39d28b40d28"
+  },
+  {
+   "vector": "local-name-differs",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "The archive entry 'META/files.json' has a local header that differs from its central-directory entry.",
+   "pythonSays": "refused: entry 'META/files.json' has a local header that differs from the central directory",
+   "sha256": "d15b4b919908c23e516a6a6e720ef131f18fc611bb815aa3c5bb417429ec9384"
+  }
+ ],
+ "agreed": 19,
+ "total": 19
+}

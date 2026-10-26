@@ -26,13 +26,14 @@ internal static class ModuleTraversalQueries
     /// <summary>
     /// Out: each live source's link targets, as their live versions (a link may point at an older version of its target; the
     /// live one shares its key identity, <c>key_id</c>). At most <c>$fanOut</c> per source, ranked (see <see cref="Ranked"/>);
-    /// a target's degree is how many live sources in scope link to it.
+    /// a target's degree is how many live sources in scope link to it. At most <c>$scan</c> targets per source are read at all.
     /// </summary>
     internal static string Out(string source, string relation, string target) =>
         "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE s.invalidated_at IS NULL "
         + "MATCH (s)-[:`" + relation + "`]->(old:`" + target + "`) "
         + "MATCH (t:`" + target + "` {key_id:old.key_id}) WHERE t.invalidated_at IS NULL AND " + In("t") + " "
-        + "WITH DISTINCT fid, t "
+        + "WITH DISTINCT fid, t ORDER BY t.id "
+        + "WITH fid, collect(t)[..$scan] AS reached UNWIND reached AS t "
         + "CALL { WITH t MATCH (:`" + target + "` {key_id:t.key_id})<-[:`" + relation + "`]-(o:`" + source + "`) "
         + "WHERE o.invalidated_at IS NULL AND " + In("o") + " RETURN count(DISTINCT o) AS degree } "
         + Ranked("t");
@@ -42,13 +43,14 @@ internal static class ModuleTraversalQueries
     /// still count (every version shares its key identity, <c>key_id</c>, which is indexed). At most <c>$fanOut</c> per target,
     /// ranked (see <see cref="Ranked"/>); a source's degree is how many links of the relation it has (a version links each target
     /// once), counted without reading the targets: under a type with hundreds of tests, reading each test's targets was most of
-    /// a cold read.
+    /// a cold read. At most <c>$scan</c> sources per target are read at all.
     /// </summary>
     internal static string In(string source, string relation, string target) =>
         "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE x.invalidated_at IS NULL "
         + "MATCH (v:`" + target + "` {key_id:x.key_id}) "
         + "MATCH (s:`" + source + "`)-[:`" + relation + "`]->(v) WHERE s.invalidated_at IS NULL AND " + In("s") + " "
-        + "WITH DISTINCT fid, s "
+        + "WITH DISTINCT fid, s ORDER BY s.id "
+        + "WITH fid, collect(s)[..$scan] AS reached UNWIND reached AS s "
         + "CALL { WITH s MATCH (s)-[:`" + relation + "`]->() RETURN count(*) AS degree } "
         + Ranked("s");
 

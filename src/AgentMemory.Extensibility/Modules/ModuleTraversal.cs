@@ -19,6 +19,10 @@ public sealed record ModuleTraversal
     public const int MaximumOffered = 16;
     /// <summary>Most links a walk follows from an anchor.</summary>
     public const int MaximumHops = 3;
+    /// <summary>Most relations one module declares traversable, so one pack cannot multiply a walk's reads (red-team M3).</summary>
+    public const int MaximumRelations = 16;
+    /// <summary>Most anchor declarations one module makes.</summary>
+    public const int MaximumAnchors = 16;
 
     /// <summary>Properties whose values anchors are matched against.</summary>
     public IReadOnlyList<ModuleTraversalAnchor> Anchors { get; init; } = [];

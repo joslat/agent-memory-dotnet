@@ -143,7 +143,8 @@ public sealed class PackHierarchyTests
     private const string Code = """
         {"format":"agentmemory.module/v1alpha1","id":"com.example.code","version":"1.0.0","sdk":"[0.1,0.2)",
          "ontology":{"labelPrefix":"Code","types":[{"name":"CodeFile","scope":"shared","render":"{path}","properties":{"path":{"type":"string","required":true}}}]},
-         "traversal":{"anchors":[{"type":"CodeFile","property":"path","match":"exact"}],"hubs":["CodeFile"],"maxItems":3}}
+         "traversal":{"anchors":[{"type":"CodeFile","property":"path","match":"exact"}],"hubs":["CodeFile"],"maxItems":3},
+         "containableBy":["com.example.work"]}
         """;
     private const string Work = """
         {"format":"agentmemory.module/v1alpha1","id":"com.example.work","version":"1.0.0","sdk":"[0.1,0.2)",
@@ -190,6 +191,32 @@ public sealed class PackHierarchyTests
     };
 
     [Fact]
+    public async Task A_pack_cannot_walk_into_another_that_does_not_consent()
+    {
+        // The same two packs, but the code pack names no container: the work pack's link no longer attaches it to code anchors.
+        var unconsenting = System.Text.RegularExpressions.Regex.Replace(Code, @",\s*""containableBy"":\[[^\]]*\]", "");
+        unconsenting.Should().NotContain("containableBy");
+        var resolution = ModuleResolver.Resolve([ModuleManifest.Parse(unconsenting), ModuleManifest.Parse(Work)], ModuleVersion.Parse("0.1.0"), ModuleHostFeatures.Known);
+        resolution.Succeeded.Should().BeTrue(string.Join("; ", resolution.Errors));
+        var reader = new TwoPackReader(
+            [
+                Record("com.example.code", "CodeFile", "file-store", ("path", "src/Store.cs")),
+                Record("com.example.work", "WorkItem", "work-a1", ("item", "A-1"), ("title", "Make the store exact")),
+            ],
+            [("work-a1", "WORK_CHANGED", "file-store")]);
+        var work = new TraversalContributor(resolution.Modules.Single(m => m.Id == "com.example.work"), new TraversalService(resolution, reader));
+
+        var result = await work.ContributeResultAsync(new ContextRequest
+        {
+            SessionId = "s", Owner = "lea", Query = "why is the store exact", Anchors = [ContextAnchor.Path("src/Store.cs")],
+        });
+
+        result.Section.Should().BeNull();
+        result.Detail.Should().Contain("does not list it in containableBy");
+        reader.Calls.Should().NotContain(c => c.StartsWith("expand com.example.work", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task From_the_file_in_hand_the_walk_climbs_to_the_work_that_changed_it()
     {
         var resolution = ModuleResolver.Resolve([ModuleManifest.Parse(Code), ModuleManifest.Parse(Work)], ModuleVersion.Parse("0.1.0"), ModuleHostFeatures.Known);
@@ -209,7 +236,8 @@ public sealed class PackHierarchyTests
         });
 
         result.Section!.Items.Select(i => i.Id).Should().Equal("work-a1");
-        result.Section.Items[0].Text.Should().Be("Work item A-1: Make the store exact (reached from the work in hand: Store.cs → Make the store exact changed it)");
+        // The record renders its title; its reason names it by key only, never by free text (red-team M6).
+        result.Section.Items[0].Text.Should().Be("Work item A-1: Make the store exact (reached from the work in hand: Store.cs → work-a1 changed it)");
         reader.Calls.Should().Contain("expand com.example.work WORK_CHANGED In");
     }
 }

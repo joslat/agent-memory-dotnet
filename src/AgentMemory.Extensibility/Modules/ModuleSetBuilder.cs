@@ -31,6 +31,7 @@ public sealed class ModuleSetBuilder
     internal IModuleStoreAdapter? Store { get; private set; }
     internal IConfiguration? Configuration { get; private set; }
     internal Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient>? ChatClient { get; private set; }
+    internal IPackActivations? Activations { get; private set; }
 
     /// <summary>Adds a module from its assembly: the embedded manifest and its <see cref="IAgentMemoryModule"/>.</summary>
     public ModuleSetBuilder Add<TModule>() where TModule : IAgentMemoryModule, new() =>
@@ -130,6 +131,17 @@ public sealed class ModuleSetBuilder
     public ModuleSetBuilder GrantChatClient(Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient> chatClient)
     {
         ChatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
+        return this;
+    }
+
+    /// <summary>
+    /// Switches a pack on only when it passed its trial on this host (pack format v1.1 §4, trial-gated activation): a module
+    /// whose manifest declares a <see cref="ModuleManifest.Trial"/> composes only with a passing decision for exactly its
+    /// manifest, and a module that needs one left off is left off too. <see cref="ModuleSet.SwitchedOff"/> says which and why.
+    /// </summary>
+    public ModuleSetBuilder RequireTrials(IPackActivations activations)
+    {
+        Activations = activations ?? throw new ArgumentNullException(nameof(activations));
         return this;
     }
 
