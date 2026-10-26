@@ -21,7 +21,7 @@ internal sealed class SamplePack
 
     internal Dictionary<string, byte[]> Source(string? extraRecord = null) => new(StringComparer.Ordinal)
     {
-        ["pack.json"] = Utf8($$"""{"format":"agentmemory.pack/1.1","id":"{{Id}}","version":"{{Version}}","kind":"knowledge","tier":"open","licence":"MIT"}"""),
+        ["pack.json"] = Utf8($$"""{"format":"agentmemory.pack/1.2","id":"{{Id}}","version":"{{Version}}","kind":"knowledge","sdk":"[0.1,0.2)","tier":"open","licence":"MIT"}"""),
         ["ontology.json"] = Utf8("""{"types":[{"name":"Note","properties":["title","text"]}]}"""),
         ["records/note.jsonl"] = Utf8("{\"key\":\"n1\",\"title\":\"First\",\"text\":\"Hello\"}\n" + (extraRecord ?? "")),
     };

@@ -36,6 +36,7 @@ internal static class PackVerifier
 
         var digest = FilesList.DigestOf(listBytes!);
         if (policy.RevokedDigests.Contains(digest)) problems.Add($"The pack {digest} is revoked.");
+        if (manifest!.ValidUntil is { } until && until < now) problems.Add($"The pack was valid until {until:u}.");
         if (policy.RevocationsExpire is { } expires && expires < now) problems.Add($"The host's revocation list expired at {expires:u}; refresh it before verifying.");
 
         var signatures = new List<PackSignature>();
@@ -93,9 +94,37 @@ internal static class PackVerifier
             if (manifest is null) problems.Add(manifestProblem!);
             else if (manifest.Id != list.Id || manifest.Version != list.Version)
                 problems.Add($"{PackManifest.FileName} names {manifest.Id} {manifest.Version}, but {PackPaths.FilesList} names {list.Id} {list.Version}.");
-            else if (problems.Count == 0) return (problems, list, listBytes, manifest);
+            else
+            {
+                problems.AddRange(KindProblems(manifest, content.Files.Keys));
+                if (problems.Count == 0) return (problems, list, listBytes, manifest);
+            }
         }
         return (problems, null, null, null);
+    }
+
+    /// <summary>What each kind must and must not hold (v1.2 §3).</summary>
+    private static IEnumerable<string> KindProblems(PackManifest manifest, IEnumerable<string> paths)
+    {
+        var records = PackLayout.RecordFiles(paths).Count;
+        var all = paths.ToList();
+        switch (manifest.Kind)
+        {
+            case "knowledge" or "snapshot" when records == 0:
+                yield return $"A {manifest.Kind} pack holds records under {PackLayout.Records}; this one holds none.";
+                break;
+            case "definition" when records > 0:
+                yield return $"A definition pack declares only; its records come from the host's importer, not from {PackLayout.Records}.";
+                break;
+            case "composite" when !all.Contains(PackPaths.LockFile) || manifest.Contains.Count == 0:
+                yield return $"A composite names what it contains and pins it in {PackPaths.LockFile}.";
+                break;
+            case "set" when !all.Any(p => p.StartsWith("packs/", StringComparison.Ordinal)):
+                yield return "A pack set carries its members under packs/.";
+                break;
+        }
+        if (manifest.Protection != "open" && !all.Contains("META/seal.json"))
+            yield return $"A pack marked {manifest.Protection} must carry META/seal.json.";
     }
 
     /// <summary>The usual reasons a checked-out pack stops matching its list.</summary>

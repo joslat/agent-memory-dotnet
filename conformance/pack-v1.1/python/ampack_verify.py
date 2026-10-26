@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 FILES = "META/files.json"
 SIGNATURES = "META/signatures/"
 FILES_FORMAT = "agentmemory.pack.files/1.1"
-PACK_FORMAT = "agentmemory.pack/1.1"
+PACK_FORMAT = "agentmemory.pack/1.2"
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 STATEMENT = "https://in-toto.io/Statement/v1"
 ROLES = {"publisher", "curator", "assurer"}

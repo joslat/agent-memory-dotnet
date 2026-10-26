@@ -18,5 +18,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit.PackFormat" />
     <InternalsVisibleTo Include="Ampack" />
+    <InternalsVisibleTo Include="AgentMemory.Extensibility.Ampack" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
   </ItemGroup>
 </Project>

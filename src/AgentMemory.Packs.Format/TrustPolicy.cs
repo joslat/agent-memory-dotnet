@@ -44,11 +44,16 @@ internal sealed record TrustPolicy
         return null;
     }
 
-    /// <summary>Reads a policy file, checking that every key id is the SHA-256 of its key.</summary>
-    internal static TrustPolicy Parse(ReadOnlySpan<byte> bytes)
+    /// <summary>
+    /// Reads a policy file, checking that every key id is the SHA-256 of its key. A policy is host configuration that people
+    /// edit, so a byte order mark and CRLF line ends are accepted here; everything else in the JSON profile holds.
+    /// </summary>
+    internal static TrustPolicy Parse(ReadOnlySpan<byte> raw)
     {
+        var text = System.Text.Encoding.UTF8.GetString(raw).TrimStart('\uFEFF').Replace("\r\n", "\n", StringComparison.Ordinal);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
         if (PackJson.Check(bytes) is { } problem) throw new InvalidDataException($"The trust policy {problem}.");
-        using var document = JsonDocument.Parse(bytes.ToArray());
+        using var document = JsonDocument.Parse(bytes);
         var root = document.RootElement;
         if (!root.TryGetProperty("format", out var format) || format.GetString() != Format)
             throw new InvalidDataException($"The trust policy must name format '{Format}'.");

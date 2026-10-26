@@ -38,6 +38,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Decisions\AgentMemory.Packs.Decisions.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Coding\AgentMemory.Packs.Coding.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Work\AgentMemory.Packs.Work.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Extensibility.Ampack\AgentMemory.Extensibility.Ampack.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -54,5 +55,10 @@
     <None Include="../../packs/AgentMemory.Packs.MartialArts/agentmemory/manifest.json" Link="Packs/MartialArts/manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../packs/AgentMemory.Packs.MartialArts/agentmemory/icon.png" Link="Packs/MartialArts/icon.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../packs/AgentMemory.Packs.MartialArts/agentmemory/seed/*.jsonl" Link="Packs/MartialArts/seed/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The code map's manifest as a file, for the definition-pack round trip (pack format v1.2). -->
+    <None Include="../../src/AgentMemory.Packs.CodeMap/manifest.json" Link="Packs/CodeMap/manifest.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/AgentMemory.Packs.Decisions/manifest.json" Link="Packs/Decisions/manifest.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/AgentMemory.Packs.Work/manifest.json" Link="Packs/Work/manifest.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/AgentMemory.Packs.Repository/manifest.json" Link="Packs/Repository/manifest.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

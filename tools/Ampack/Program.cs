@@ -27,6 +27,9 @@ internal static class Program
                                  a P-256 key pair and a trust-policy entry for it
           lock <composite-folder> <member.ampack>...
                                  pin every member's id, version and digest in META/lock.json
+          migrate <bundle-folder|manifest.json> --out <folder>
+                                 turn a module bundle (manifest.json, seed files, icon) into a v1.2 pack folder:
+                                 a knowledge pack when it seeds records, a definition pack when it only declares
         """;
 
     internal static int Main(string[] args)
@@ -45,6 +48,7 @@ internal static class Program
                 "inspect" => Inspect(options),
                 "keygen" => Keygen(options),
                 "lock" => Lock(options),
+                "migrate" => Migrate(options),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}", 2),
             };
         }
@@ -62,17 +66,65 @@ internal static class Program
         if (!PackManifest.IsValidId(id)) throw new UsageException($"'{id}' is not a reverse-DNS id (for example io.example.notes).");
         var version = o.Value("version") ?? "0.1.0";
         if (Directory.Exists(folder) && Directory.EnumerateFileSystemEntries(folder).Any()) throw new UsageException($"{folder} is not empty.");
+        // The label prefix every type and relation carries: the id's last segment, letters only, capitalised.
+        var last = new string([.. id[(id.LastIndexOf('.') + 1)..].Where(char.IsAsciiLetter)]);
+        var prefix = last.Length == 0 ? "Pack" : char.ToUpperInvariant(last[0]) + last[1..];
         var manifest = new JsonObject
         {
-            ["format"] = PackManifest.Format, ["id"] = id, ["version"] = version, ["kind"] = o.Value("kind") ?? "knowledge",
-            ["tier"] = "open", ["licence"] = "CC-BY-4.0", ["contains"] = new JsonArray(), ["containableBy"] = new JsonArray(),
+            ["format"] = PackManifest.Format, ["id"] = id, ["version"] = version, ["kind"] = "knowledge", ["sdk"] = "[0.1,0.2)",
+            ["display"] = new JsonObject { ["title"] = prefix, ["description"] = "Describe what this pack knows." },
+            ["tier"] = "open", ["licence"] = "CC-BY-4.0", ["protection"] = "open", ["code"] = "E0",
         };
-        var ontology = JsonNode.Parse("""{"types":[{"name":"Note","properties":["title","text"],"key":"key"}],"relations":[]}""")!;
+        static JsonObject Text(int maxLength) => new() { ["type"] = "string", ["required"] = true, ["maxLength"] = maxLength };
+        var ontology = new JsonObject
+        {
+            ["labelPrefix"] = prefix,
+            ["types"] = new JsonArray((JsonNode)new JsonObject
+            {
+                ["name"] = prefix + "Note", ["scope"] = "shared", ["render"] = "{title}: {text}",
+                ["properties"] = new JsonObject { ["title"] = Text(200), ["text"] = Text(2000) },
+            }),
+        };
+        var views = new JsonArray((JsonNode)new JsonObject
+        {
+            ["id"] = "notes", ["type"] = prefix + "Note", ["limit"] = 3,
+            ["search"] = new JsonObject { ["properties"] = new JsonArray((JsonNode)"title", (JsonNode)"text") },
+        });
+        var record = new JsonObject
+        {
+            ["type"] = prefix + "Note", ["key"] = "note-1",
+            ["properties"] = new JsonObject { ["title"] = "First note", ["text"] = "Replace me." },
+        };
         Write(folder, PackManifest.FileName, Pretty(manifest));
-        Write(folder, "ontology.json", Pretty(ontology));
-        Write(folder, "records/note.jsonl", "{\"key\":\"note-1\",\"title\":\"First note\",\"text\":\"Replace me.\"}\n");
+        Write(folder, PackLayout.Ontology, Pretty(ontology));
+        Write(folder, PackLayout.Views, Pretty(views));
+        Write(folder, "records/note.jsonl", record.ToJsonString() + "\n");
         Write(folder, ".gitattributes", PackBuilder.GitAttributes);
         Console.WriteLine($"Started {id} {version} in {folder}. Next: ampack build {folder}");
+        return 0;
+    }
+
+    private static int Migrate(Options o)
+    {
+        var source = o.Positional(0, "bundle folder or manifest.json");
+        var output = o.Required("out");
+        if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new UsageException($"{output} is not empty.");
+        IReadOnlyDictionary<string, byte[]> bundle;
+        if (File.Exists(source))
+            bundle = new Dictionary<string, byte[]>(StringComparer.Ordinal) { [PackLayout.ModuleManifestFile] = File.ReadAllBytes(source) };
+        else
+        {
+            var root = new DirectoryInfo(source);
+            if (!root.Exists) throw new UsageException($"No bundle at {source}.");
+            bundle = root.EnumerateFiles("*", SearchOption.AllDirectories)
+                .Where(f => !f.Name.StartsWith("agentmemory.module.", StringComparison.Ordinal))
+                .ToDictionary(f => Path.GetRelativePath(root.FullName, f.FullName).Replace(Path.DirectorySeparatorChar, '/'), f => File.ReadAllBytes(f.FullName), StringComparer.Ordinal);
+        }
+        var files = PackLayout.FromModule(bundle);
+        foreach (var (path, bytes) in files) Write(output, path, bytes);
+        Write(output, ".gitattributes", PackBuilder.GitAttributes);
+        var pack = JsonNode.Parse(files[PackManifest.FileName])!;
+        Console.WriteLine($"Migrated {pack["id"]} {pack["version"]} as a {pack["kind"]} pack: {files.Count} files in {output}. Next: ampack build {output} --key <key>");
         return 0;
     }
 
