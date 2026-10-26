@@ -17,6 +17,7 @@
     <ProjectReference Include="../AgentMemory.Extensibility/AgentMemory.Extensibility.csproj" />
     <ProjectReference Include="../AgentMemory.Neo4j/AgentMemory.Neo4j.csproj" />
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../../shared/AdditiveMigrationLint.cs" Link="Shared/AdditiveMigrationLint.cs" />
