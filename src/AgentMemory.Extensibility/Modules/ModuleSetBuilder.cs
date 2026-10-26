@@ -21,10 +21,12 @@ namespace AgentMemory.Extensibility.Modules;
 public sealed class ModuleSetBuilder
 {
     private readonly List<ModuleRegistration> _modules = [];
+    private readonly Dictionary<string, int> _priorities = new(StringComparer.Ordinal);
 
     internal ModuleSetBuilder() { }
 
     internal IReadOnlyList<ModuleRegistration> Modules => _modules;
+    internal IReadOnlyDictionary<string, int> Priorities => _priorities;
     internal ModuleCompositionProfile? Profile { get; private set; }
     internal IModuleStoreAdapter? Store { get; private set; }
     internal IConfiguration? Configuration { get; private set; }
@@ -46,14 +48,30 @@ public sealed class ModuleSetBuilder
     /// which searches with the turn's question. The pack runs no code; the fingerprint names its bundle digest and signer.
     /// Its records are imported separately, with <see cref="Packs.KnowledgePackImporter"/>.
     /// </summary>
-    public ModuleSetBuilder AddKnowledgePack(Packs.KnowledgePack pack)
+    /// <param name="pack">The verified pack.</param>
+    /// <param name="priority">Its search contributors' priority: lower comes first in the candidate budget and wins ties.</param>
+    public ModuleSetBuilder AddKnowledgePack(Packs.KnowledgePack pack, int priority = 100)
     {
         ArgumentNullException.ThrowIfNull(pack);
         return Add(pack.Manifest, builder =>
         {
             foreach (var view in pack.Manifest.Views.Where(v => v.Search is not null))
-                builder.AddContextContributor(c => new Contributors.ViewContributor(c.Resolution, c.Reader, view.Id));
+                builder.AddContextContributor(c => new Contributors.ViewContributor(c.Resolution, c.Reader, view.Id, priority));
         }, "knowledge-pack; digest=" + pack.Digest + "; signer=" + pack.Bundle.Signer.ToString().ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// Sets the priority of every contributor a module adds, whatever the module chose (Extensibility 0.13 §D): a host such as
+    /// DemoBrain orders its memory packs, and the order becomes priority. Lower comes first in the candidate budget and wins
+    /// ties between equal scores; every contributor still runs. 0 to 10,000; the module must be added by activation.
+    /// </summary>
+    public ModuleSetBuilder Prioritize(string moduleId, int priority)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(moduleId);
+        ArgumentOutOfRangeException.ThrowIfNegative(priority);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(priority, 10_000);
+        _priorities[moduleId] = priority;
+        return this;
     }
 
     private ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure, string implementation)

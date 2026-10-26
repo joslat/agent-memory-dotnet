@@ -106,6 +106,47 @@ public sealed class ModuleActivationTests
     }
 
     [Fact]
+    public async Task AHostSetPriorityReordersAModulesContributorsAndJoinsTheFingerprint()
+    {
+        // Extensibility 0.13 §D: DemoBrain's stack order becomes priority, whatever priority the module chose.
+        ServiceProvider Compose(bool prioritize)
+        {
+            var services = Services();
+            services.AddAgentMemoryModules(m =>
+            {
+                m.Add(Manifest(Reviews), b => b.AddContextContributor(_ => new Contributor(Reviews + ":open") { Text = "review" }))
+                 .Add(Manifest(Topics), b => b.AddContextContributor(_ => new Contributor(Topics + ":open") { Text = "topic" }));
+                if (prioritize) m.Prioritize(Topics, 10);
+            });
+            return Build(services);
+        }
+        using var plain = Compose(prioritize: false);
+        using var ordered = Compose(prioritize: true);
+        async Task<IReadOnlyList<string>> Order(ServiceProvider provider)
+        {
+            using var scope = provider.CreateScope();
+            var envelope = await scope.ServiceProvider.GetRequiredService<IContextCompiler>()
+                .CompileAsync(new ContextRequest { SessionId = "s", Owner = "owner", Query = "q" });
+            return [.. envelope.Sections.Select(s => s.Binding!.ModuleId)];
+        }
+        (await Order(plain)).Should().Equal(Reviews, Topics);
+        (await Order(ordered)).Should().Equal(Topics, Reviews);
+        using (var scope = ordered.CreateScope())
+            scope.ServiceProvider.GetServices<IContextContributor>().Single(c => c.Descriptor.Id == Topics + ":open").Descriptor.Priority.Should().Be(10);
+        ordered.GetRequiredService<ModuleSet>().Fingerprint.Should().NotBe(plain.GetRequiredService<ModuleSet>().Fingerprint);
+    }
+
+    [Fact]
+    public void APriorityForAModuleThatIsNotAddedIsRefused()
+    {
+        var services = Services();
+        services.AddAgentMemoryModules(m => m.Add(Manifest(Reviews), _ => { }).Prioritize(Topics, 5));
+        using var provider = Build(services);
+        FluentActions.Invoking(() => provider.GetRequiredService<ModuleSet>()).Should().Throw<ModuleActivationException>()
+            .Which.Errors.Should().Contain(e => e.Contains(Topics, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void OptionsBindFromTheModulesOwnSectionAndAreFrozen()
     {
         var configuration = Configuration(("AgentMemory:Modules:" + Reviews + ":Limit", "7"), ("AgentMemory:Modules:" + Reviews + ":Tone", "brief"));

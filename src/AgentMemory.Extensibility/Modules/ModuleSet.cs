@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text.Json;
 using AgentMemory.Extensibility.Capabilities;
+using AgentMemory.Extensibility.Context;
 using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Reading;
 using Microsoft.Extensions.Configuration;
@@ -98,10 +99,12 @@ public sealed class ModuleSet
             modules.Add(new ActiveModule(composed.Manifest, composed.ConfigurationSection, configurationHash,
                 registration.Implementation, options));
         }
+        foreach (var prioritized in builder.Priorities.Keys.Where(id => modules.All(m => m.Manifest.Id != id)).Order(StringComparer.Ordinal))
+            errors.Add($"Priority set for module '{prioritized}', which is not added.");
         if (errors.Count != 0) throw new ModuleActivationException([.. errors]);
 
         var resolution = composition.ForStore(alias);
-        var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+        var canonical = JsonSerializer.SerializeToUtf8Bytes(new
         {
             format = "agentmemory.module-set/v1alpha1",
             composition = composition.CompositionFingerprint,
@@ -112,9 +115,13 @@ public sealed class ModuleSet
                 id = m.Manifest.Id, version = m.Manifest.Version.ToString(), implementation = m.Implementation,
                 configuration = m.ConfigurationSha256,
             }),
-        }))).ToLowerInvariant();
+        });
+        // Host-set priorities change the order contributors run in, so they join the fingerprint; without any, it is unchanged.
+        var priorities = builder.Priorities.OrderBy(p => p.Key, StringComparer.Ordinal).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        if (priorities.Count != 0) canonical = [.. canonical, .. JsonSerializer.SerializeToUtf8Bytes(new { priorities })];
+        var fingerprint = Convert.ToHexString(SHA256.HashData(canonical)).ToLowerInvariant();
         var set = new ModuleSet(resolution, modules.AsReadOnly(), composition.CompositionFingerprint!, fingerprint, store,
-            registrations) { ChatClient = builder.ChatClient };
+            registrations) { ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly() };
         services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>().LogInformation(
             "Module set {Fingerprint} active: {Modules}.", fingerprint,
             string.Join(", ", modules.Select(m => m.Manifest.Id + "@" + m.Manifest.Version)));
@@ -123,13 +130,27 @@ public sealed class ModuleSet
 
     /// <summary>Creates every module's contributors for one scope, refusing any identity outside its own module.</summary>
     internal IReadOnlyList<IContextContributor> CreateContributors(IServiceProvider services) =>
-        Create(services, r => r.Contributors, (module, contributor) =>
+        [.. Create(services, r => r.Contributors, (module, contributor) =>
         {
             var descriptor = contributor.Descriptor
                 ?? throw new InvalidOperationException($"Module '{module}' added a contributor without a descriptor.");
             Owned(module, "contributor", descriptor.Id);
             foreach (var section in descriptor.SectionTypes) Owned(module, "section", section);
-        });
+        }).Select(c => Priorities.FirstOrDefault(p => ModuleIdentity.IsOwnedId(p.Key, c.Descriptor.Id)) is { Key: not null } p
+            ? new PrioritizedContributor(c, p.Value) : c)];
+
+    /// <summary>Host-set contributor priorities by module (<see cref="ModuleSetBuilder.Prioritize"/>).</summary>
+    internal IReadOnlyDictionary<string, int> Priorities { get; init; } = new Dictionary<string, int>().AsReadOnly();
+
+    /// <summary>A module's contributor at the priority its host set; everything else is the module's own.</summary>
+    private sealed class PrioritizedContributor(IContextContributor inner, int priority) : IContextContributor
+    {
+        public ContextContributorDescriptor Descriptor { get; } = inner.Descriptor with { Priority = priority };
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => inner.AppliesAsync(request, cancellationToken);
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) => inner.ContributeAsync(request, cancellationToken);
+        public Task<ContextContributionResult> ContributeResultAsync(ContextRequest request, CancellationToken cancellationToken = default) =>
+            inner.ContributeResultAsync(request, cancellationToken);
+    }
 
     /// <summary>Creates every module's ingestion providers for one scope, refusing any identity outside its own module.</summary>
     internal IReadOnlyList<IIngestionProvider> CreateProviders(IServiceProvider services) =>
