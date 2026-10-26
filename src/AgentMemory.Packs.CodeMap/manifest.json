@@ -153,6 +153,12 @@
         "name": "CODEMAP_PROJECT_REFERENCES",
         "from": "CodemapProject",
         "to": "CodemapProject"
+      },
+      {
+        "name": "CODEMAP_USES",
+        "from": "CodemapSymbol",
+        "to": "CodemapSymbol",
+        "max": 16
       }
     ]
   },

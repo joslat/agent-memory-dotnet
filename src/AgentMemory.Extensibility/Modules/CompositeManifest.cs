@@ -13,6 +13,13 @@ namespace AgentMemory.Extensibility.Modules;
 /// views or code of its own. Members stay whole modules: separately versioned, signed where they are bundles, and switchable.
 /// One level only: a composite's members are modules, never composites.
 /// </summary>
+/// <remarks>
+/// <b>A family is a hierarchy (CODING-hierarchy).</b> A member may say which other members it contains: decisions contain the
+/// work done under them and the code they govern, work contains the code it changed. Containment is many-to-many (one work
+/// item serves two decisions), never a cycle, and it is what lets packs link across: a member may depend on, and so link to
+/// the types of, only the members it contains. The composite stays the unit a host installs; the hierarchy says what the
+/// members mean to each other, and a walk that follows such a link moves down it or back up.
+/// </remarks>
 [Experimental("AMEXT001")]
 public sealed record CompositeManifest
 {
@@ -62,7 +69,24 @@ public sealed record CompositeManifest
         return Parse(reader.ReadToEnd());
     }
 
-    /// <summary>Every problem, in order: identity, version, members (identity, range, priority, duplicates, count).</summary>
+    /// <summary>The members no other member contains, in member order: the top of the hierarchy.</summary>
+    public IReadOnlyList<string> Roots => [.. Members.Where(m => Members.All(o => !o.Contains.Contains(m.Id, StringComparer.Ordinal))).Select(m => m.Id)];
+
+    /// <summary>The members a member contains, as it lists them.</summary>
+    public IReadOnlyList<string> Children(string memberId) => Members.FirstOrDefault(m => m.Id == memberId)?.Contains ?? [];
+
+    /// <summary>The members that contain a member, in member order.</summary>
+    public IReadOnlyList<string> Parents(string memberId) =>
+        [.. Members.Where(m => m.Contains.Contains(memberId, StringComparer.Ordinal)).Select(m => m.Id)];
+
+    /// <summary>How far a member sits below the top: 0 for a root, else one more than its deepest parent.</summary>
+    public int Depth(string memberId)
+    {
+        var parents = Parents(memberId);
+        return parents.Count == 0 ? 0 : 1 + parents.Max(Depth);
+    }
+
+    /// <summary>Every problem, in order: identity, version, members (identity, range, priority, duplicates, count, hierarchy).</summary>
     public IReadOnlyList<string> Validate()
     {
         var problems = new List<string>();
@@ -78,18 +102,46 @@ public sealed record CompositeManifest
             if (!ids.Add(member.Id)) problems.Add(at + ": named twice.");
             if (member.Priority is < 0 or > 10_000) problems.Add(at + ".priority: expected 0 to 10,000.");
         }
+        foreach (var member in Members)
+            foreach (var child in member.Contains)
+            {
+                if (child == member.Id) problems.Add($"$.members.{member.Id}.contains: a member cannot contain itself.");
+                else if (Members.All(m => m.Id != child)) problems.Add($"$.members.{member.Id}.contains: '{child}' is not a member.");
+            }
+        if (Cycle() is { } cycle) problems.Add("$.members: the hierarchy has a cycle: " + string.Join(" > ", cycle) + ".");
         return problems;
+    }
+
+    // The first containment cycle found, members in order and the first repeated at the end; null when there is none.
+    private IReadOnlyList<string>? Cycle()
+    {
+        var state = new Dictionary<string, int>(StringComparer.Ordinal);
+        var path = new List<string>();
+        IReadOnlyList<string>? Visit(string id)
+        {
+            if (state.GetValueOrDefault(id) == 2) return null;
+            if (state.GetValueOrDefault(id) == 1) return [.. path.Skip(path.IndexOf(id)), id];
+            state[id] = 1; path.Add(id);
+            foreach (var child in Children(id).Where(c => c != id && Members.Any(m => m.Id == c)))
+                if (Visit(child) is { } found) return found;
+            path.RemoveAt(path.Count - 1); state[id] = 2;
+            return null;
+        }
+        foreach (var id in Members.Select(m => m.Id).Distinct(StringComparer.Ordinal))
+            if (Visit(id) is { } cycle) return cycle;
+        return null;
     }
 
     private static CompositeMember Member(JsonElement value, string path)
     {
-        Object(value, path, "id", "version", "priority", "enabled");
+        Object(value, path, "id", "version", "priority", "enabled", "contains");
         return new CompositeMember
         {
             Id = Text(value, "id", path), Version = Range(Text(value, "version", path), path + ".version"),
             Priority = value.TryGetProperty("priority", out var priority) && priority.ValueKind == JsonValueKind.Number && priority.TryGetInt32(out var p)
                 ? p : value.TryGetProperty("priority", out _) ? throw Error(path + ".priority", "expected an integer") : 100,
             Enabled = !value.TryGetProperty("enabled", out _) || Boolean(value, "enabled", path),
+            Contains = value.TryGetProperty("contains", out var contains) ? Strings(contains, path + ".contains") : [],
         };
     }
 
@@ -116,6 +168,11 @@ public sealed record CompositeMember
     public int Priority { get; init; } = 100;
     /// <summary>Whether the member starts on; a host may switch any member either way.</summary>
     public bool Enabled { get; init; } = true;
+    /// <summary>
+    /// The members this one contains in the family's hierarchy (CODING-hierarchy): it may depend on them and link to their
+    /// types; no other member of the composite. Empty for a member at the bottom.
+    /// </summary>
+    public IReadOnlyList<string> Contains { get; init; } = [];
 }
 
 /// <summary>A composite's entry point: it adds its member modules (KP-composite). Lives in the composite's assembly with its manifest.</summary>
@@ -158,6 +215,7 @@ public sealed class CompositeMembers
     private readonly CompositeManifest _composite;
     private readonly CompositeOptions _options;
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (ModuleManifest Manifest, bool Enabled)> _added = new(StringComparer.Ordinal);
 
     internal CompositeMembers(ModuleSetBuilder builder, CompositeManifest composite, CompositeOptions options)
     {
@@ -189,6 +247,7 @@ public sealed class CompositeMembers
             throw new InvalidOperationException($"Composite '{_composite.Id}' accepts {member.Id} {member.Version}, not {manifest.Version}.");
         _seen.Add(member.Id);
         var enabled = _options.Switches.TryGetValue(member.Id, out var on) ? on : member.Enabled;
+        _added[member.Id] = (manifest, enabled);
         return enabled ? (_options.Priorities.TryGetValue(member.Id, out var p) ? p : member.Priority) : null;
     }
 
@@ -198,5 +257,14 @@ public sealed class CompositeMembers
         if (missing.Count != 0) throw new InvalidOperationException($"Composite '{_composite.Id}' did not add {string.Join(", ", missing)}.");
         var unknown = _options.Switches.Keys.Concat(_options.Priorities.Keys).Where(id => _composite.Members.All(m => m.Id != id)).Distinct().ToList();
         if (unknown.Count != 0) throw new InvalidOperationException($"Composite '{_composite.Id}' has no member {string.Join(", ", unknown)}.");
+        // A member depends on (and links to) only what it contains, and what it needs is composed with it.
+        foreach (var (id, (manifest, enabled)) in _added.Where(a => a.Value.Enabled))
+            foreach (var dependency in manifest.Modules.Keys.Where(_added.ContainsKey))
+            {
+                if (!_composite.Children(id).Contains(dependency, StringComparer.Ordinal))
+                    throw new InvalidOperationException($"Composite '{_composite.Id}': {id} depends on {dependency}, which it does not contain.");
+                if (!_added[dependency].Enabled)
+                    throw new InvalidOperationException($"Composite '{_composite.Id}': {id} needs {dependency}, which is switched off.");
+            }
     }
 }

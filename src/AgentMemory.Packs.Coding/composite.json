@@ -4,24 +4,32 @@
   "version": "0.1.0-preview.1",
   "display": {
     "title": "Coding",
-    "description": "What governs the code you change: decisions, what the repository taught past sessions, and the code map that links files and types to their tests.",
+    "description": "What governs the code you change, as a hierarchy: decisions over the work done under them, work over the code it changed, what the repository taught past sessions, and the code map that links files and types to their tests.",
     "color": "#2747A6"
   },
   "members": [
     {
       "id": "io.agentmemory.packs.decisions",
       "version": "[0.1.0-preview.1,0.2)",
-      "priority": 10
+      "priority": 10,
+      "contains": ["io.agentmemory.packs.work", "io.agentmemory.packs.codemap"]
     },
     {
       "id": "io.agentmemory.packs.repository",
       "version": "[0.1.0-preview.1,0.2)",
-      "priority": 20
+      "priority": 20,
+      "contains": ["io.agentmemory.packs.codemap"]
     },
     {
       "id": "io.agentmemory.packs.codemap",
       "version": "[0.1.0-preview.1,0.2)",
       "priority": 30
+    },
+    {
+      "id": "io.agentmemory.packs.work",
+      "version": "[0.1.0-preview.1,0.2)",
+      "priority": 40,
+      "contains": ["io.agentmemory.packs.codemap"]
     }
   ]
 }

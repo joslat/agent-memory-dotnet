@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -56,6 +56,17 @@ if (string.Equals(cli.Command, "decisions", StringComparison.OrdinalIgnoreCase) 
         return 2;
     }
     return new AgentMemory.Cli.Commands.DecisionsCommand(Console.Out).Scan(cli.Get("root"));
+}
+
+// work scan reads a task ledger and the repository's commits offline; work import goes through the host below (CODING-hierarchy).
+if (string.Equals(cli.Command, "work", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
+{
+    if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("error: work needs scan or import.");
+        return 2;
+    }
+    return new AgentMemory.Cli.Commands.WorkCommand(Console.Out).Scan(cli.Get("ledger"), cli.Get("root"));
 }
 
 // packs signs and verifies bundles offline: no store, no model, no network (Extensibility 0.13 §K6).
@@ -256,6 +267,8 @@ try
     {
         "decisions" => await new AgentMemory.Cli.Commands.DecisionsCommand(output)
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
+        "work" => await new AgentMemory.Cli.Commands.WorkCommand(output)
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("ledger"), cli.Get("root"), cli.Get("source")),
         "codemap" => await new AgentMemory.Cli.Commands.CodeMapCommand(output)
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source"), cli.Get("scip")),
         "modules" => await new ModulesCommand(

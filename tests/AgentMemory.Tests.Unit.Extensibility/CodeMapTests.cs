@@ -156,6 +156,74 @@ public sealed class CodeMapTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// CMP-2d: a test whose call goes through a NuGet package's type (an extension on a builder) links to the code it calls once
+    /// the reader has the package's compile assembly, read from the obj/project.assets.json a restore leaves.
+    /// </summary>
+    [Fact]
+    public void A_call_through_a_package_type_links_once_the_restore_s_assets_name_the_package()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "codemap-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            // The "package": an assembly in a package folder, as a restore lays it out.
+            var dll = Path.Combine(root, "packages", "acme.dep", "1.0.0", "lib", "net10.0", "Acme.Dep.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(dll)!);
+            var runtime = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
+                .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(p));
+            using (var stream = File.Create(dll))
+            {
+                Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create("Acme.Dep",
+                        [Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText("namespace Acme.Dep; public interface IBuilder { } public sealed class Builder : IBuilder { }")],
+                        runtime, new(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary))
+                    .Emit(stream).Success.Should().BeTrue();
+            }
+            var empty = new Dictionary<string, object>();
+            var assets = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                ["version"] = 3,
+                ["targets"] = new Dictionary<string, object> { ["net10.0"] = new Dictionary<string, object>
+                {
+                    ["Acme.Dep/1.0.0"] = new Dictionary<string, object>
+                    {
+                        ["type"] = "package", ["compile"] = new Dictionary<string, object> { ["lib/net10.0/Acme.Dep.dll"] = empty },
+                    },
+                } },
+                ["libraries"] = new Dictionary<string, object>
+                {
+                    ["Acme.Dep/1.0.0"] = new Dictionary<string, object> { ["type"] = "package", ["path"] = "acme.dep/1.0.0" },
+                },
+                ["packageFolders"] = new Dictionary<string, object> { [Path.Combine(root, "packages") + Path.DirectorySeparatorChar] = empty },
+            });
+            foreach (var (path, text) in new[]
+            {
+                ("src/Lib/Lib.csproj", """<Project Sdk="Microsoft.NET.Sdk"></Project>"""),
+                ("src/Lib/obj/project.assets.json", assets),
+                ("src/Lib/BuilderExtensions.cs", "namespace Lib; public static class BuilderExtensions { public static Acme.Dep.IBuilder AddLib(this Acme.Dep.IBuilder b) => b; }"),
+                ("tests/Lib.Tests/Lib.Tests.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../../src/Lib/Lib.csproj" /></ItemGroup></Project>"""),
+                ("tests/Lib.Tests/obj/project.assets.json", assets),
+                ("tests/Lib.Tests/LibTests.cs", "using Lib; namespace Lib.Tests; public sealed class LibTests { [Fact] public void Adds() { new Acme.Dep.Builder().AddLib(); } }"),
+            })
+            {
+                var full = Path.Combine(root, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, text);
+            }
+            // TrackedFiles leaves bin and obj out; the assets file is read beside each project.
+            string[] Links() => [.. RoslynCodeMapReader.Read(root, RoslynCodeMapReader.TrackedFiles(root)).Build("git:one").Records
+                .Single(r => r.Type == CodeMapPack.TestType).Links.Where(l => l.Relation == "CODEMAP_TESTS").Select(l => l.Target)];
+
+            Links().Should().Equal("scip-dotnet nuget Lib . Lib/BuilderExtensions#");
+
+            File.Delete(Path.Combine(root, "tests", "Lib.Tests", "obj", "project.assets.json"));
+            Links().Should().BeEmpty("without the package the call does not bind");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void A_long_scip_identity_keeps_a_readable_key_with_a_hash()
     {
@@ -177,5 +245,26 @@ public sealed class CodeMapTests : IDisposable
         manifest.Id.Should().Be(CodeMapPack.Id);
         manifest.Traversal!.Hubs.Should().BeEquivalentTo([CodeMapPack.ProjectType, CodeMapPack.FileType, CodeMapPack.SymbolType]);
         manifest.Traversal.Relations.Select(r => (r.Name, r.Direction)).Should().Contain(("CODEMAP_TESTS", ModuleTraversalDirection.In));
+    }
+
+    /// <summary>CMP-2c: types that use each other link in a cycle; a snapshot import orders them targets first where it can.</summary>
+    [Fact]
+    public void Types_that_use_each_other_import_in_an_order_a_snapshot_allows_and_a_seed_refuses()
+    {
+        var builder = new CodeMapBuilder();
+        builder.AddFile("src/Use.cs", null);
+        foreach (var name in new[] { "A", "B", "C", "D" })
+            builder.AddSymbol("scip-dotnet nuget Acme . Acme/" + name + "#", name, "Acme." + name, CodeMapSymbolKind.Class, "Acme", "src/Use.cs", 1);
+        builder.AddUses("scip-dotnet nuget Acme . Acme/A#", ["scip-dotnet nuget Acme . Acme/B#", "scip-dotnet nuget Acme . Acme/A#", "unknown#"]);
+        builder.AddUses("scip-dotnet nuget Acme . Acme/B#", ["scip-dotnet nuget Acme . Acme/A#"]);
+        builder.AddUses("scip-dotnet nuget Acme . Acme/C#", ["scip-dotnet nuget Acme . Acme/D#"]);
+        var snapshot = builder.Build("git:one");
+
+        snapshot.Records.Single(r => r.Key.EndsWith("/A#", StringComparison.Ordinal)).Links.Select(l => (l.Relation, l.Target))
+            .Should().Equal([("CODEMAP_USES", "scip-dotnet nuget Acme . Acme/B#")], "itself and what the map does not hold are dropped");
+        ((Action)(() => snapshot.ImportOrder())).Should().Throw<InvalidOperationException>().WithMessage("*cycle*");
+        // Ready records first (D, then C, which uses it); A and B wait on each other, so the first by key breaks the cycle.
+        snapshot.ImportOrder(selfCycles: true).Where(r => r.Type == CodeMapPack.SymbolType).Select(r => r.Key[^2..])
+            .Should().Equal("D#", "C#", "A#", "B#");
     }
 }

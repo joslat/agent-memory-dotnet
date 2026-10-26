@@ -340,4 +340,19 @@ public sealed class TraversalTests
             .Should().Equal("name", "file");
         new ModuleType { Name = "CodemapTest", Properties = properties }.TextProperties().Should().Equal("file", "framework", "name");
     }
+
+    [Fact]
+    public async Task A_module_s_walk_follows_only_the_hops_it_declares()
+    {
+        var resolution = ModuleResolver.Resolve([ModuleManifest.Parse(Manifest.Replace("\"maxItems\":3", "\"maxItems\":3,\"hops\":1", StringComparison.Ordinal))],
+            ModuleVersion.Parse("0.1.0"), ModuleHostFeatures.Known);
+        var contributor = new TraversalContributor(resolution.Modules.Single(), new TraversalService(resolution, Store()));
+
+        var result = await contributor.ContributeResultAsync(Request(ContextAnchor.Path(StoreFile)));
+
+        // One hop reaches the symbol the file defines (a hub, never offered), not the tests one hop further.
+        result.Section!.Items.Select(i => i.Id).Should().Equal("decision-close");
+        ModuleManifest.Parse(Manifest.Replace("\"maxItems\":3", "\"maxItems\":3,\"hops\":4", StringComparison.Ordinal)).Validate()
+            .Should().Contain(e => e.Contains("hops"));
+    }
 }

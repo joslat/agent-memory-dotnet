@@ -43,11 +43,14 @@ public sealed class CodeMapBuilder
     public const int MaximumMembersLength = 2000;
     /// <summary>Most symbols one test links to: the ones it touches most.</summary>
     public const int MaximumTestedSymbols = 12;
+    /// <summary>Most symbols one symbol links to as using them: the ones its members mention most.</summary>
+    public const int MaximumUsedSymbols = 16;
 
     private readonly SortedDictionary<string, (string Name, SortedSet<string> References)> _projects = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, (string? Project, string Language)> _files = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, Symbol> _symbols = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, Test> _tests = new(StringComparer.Ordinal);
+    private readonly SortedDictionary<string, IReadOnlyList<string>> _uses = new(StringComparer.Ordinal);
 
     private sealed record Symbol(string Name, string FullName, CodeMapSymbolKind Kind, string Project, SortedSet<string> Files, string? File, int Line, string Members);
     private sealed record Test(string Name, string File, int Line, string Framework, IReadOnlyList<string> Tested);
@@ -82,6 +85,12 @@ public sealed class CodeMapBuilder
         _symbols[scip] = new Symbol(name, fullName, kind, project, new SortedSet<string>([path], StringComparer.Ordinal), path, line, text.ToString());
     }
 
+    /// <summary>
+    /// The symbols a symbol's members use, most used first (CMP-2c): a change to one reaches the tests of the code that uses it.
+    /// </summary>
+    public void AddUses(string scip, IEnumerable<string> used) =>
+        _uses[scip] = [.. used.Distinct(StringComparer.Ordinal).Where(s => s != scip)];
+
     /// <summary>A test method and the symbols it touches, most touched first.</summary>
     public void AddTest(string scip, string name, string file, int line, string framework, IEnumerable<string> tested) =>
         _tests[scip] = new Test(name, Path(file), line, framework, [.. tested.Distinct(StringComparer.Ordinal).Where(s => s != scip)]);
@@ -109,7 +118,9 @@ public sealed class CodeMapBuilder
             };
             if (symbol.File is { } file) properties["file"] = file;
             if (symbol.Members.Length > 0) properties["members"] = symbol.Members;
-            records.Add(Record(CodeMapPack.SymbolType, Key(scip), symbol.File ?? "", symbol.Line, properties, []));
+            var uses = _uses.TryGetValue(scip, out var used)
+                ? used.Where(_symbols.ContainsKey).Take(MaximumUsedSymbols).Select(s => ("CODEMAP_USES", Key(s))) : [];
+            records.Add(Record(CodeMapPack.SymbolType, Key(scip), symbol.File ?? "", symbol.Line, properties, uses));
         }
         foreach (var (scip, test) in _tests)
         {

@@ -202,6 +202,12 @@
           "minimum": 1,
           "maximum": 16,
           "description": "Most records offered for one turn; 4 when omitted."
+        },
+        "hops": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "Most links followed from an anchor; 2 when omitted."
         }
       }
     }

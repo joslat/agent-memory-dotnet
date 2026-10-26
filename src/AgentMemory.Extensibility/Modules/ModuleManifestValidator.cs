@@ -223,6 +223,7 @@ internal sealed class ModuleManifestValidator
         var relations = List(traversal.Relations, path + ".relations");
         if (anchors.Count == 0 && relations.Count == 0) Error(path, "traversal must declare anchors or relations");
         if (traversal.MaxItems is < 1 or > ModuleTraversal.MaximumOffered) Error(path + ".maxItems", "expected 1 to 16");
+        if (traversal.Hops is < 1 or > ModuleTraversal.MaximumHops) Error(path + ".hops", "expected 1 to 3");
         var seenAnchors = new HashSet<(string?, string?)>();
         foreach (var anchor in anchors)
         {

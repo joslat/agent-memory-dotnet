@@ -51,6 +51,14 @@ internal static class ModuleRecordQueries
     internal static string Target(string label, bool name, bool key) => "MATCH (n:`" + label + "`) WHERE "
         + (name ? "(n.name=$target OR $target IN coalesce(n.aliases,[]))" : key ? "n.key=$target AND n.invalidated_at IS NULL" : "n.id=$target")
         + " AND (n.owner_id IS NULL OR ($owner IS NOT NULL AND n.owner_id=$owner)) RETURN properties(n) AS row LIMIT 65";
+    /// <summary>
+    /// Links live records by key identity (CMP-2c): a snapshot's link to a record written later in the same import, added to the
+    /// version that import wrote. Returns how many of <c>$links</c> it linked.
+    /// </summary>
+    internal static string LinkLive(string source, string relation, string target) =>
+        "UNWIND $links AS l MATCH (n:`" + source + "` {key_id:l.source}) WHERE n.invalidated_at IS NULL AND n.superseded_by IS NULL "
+        + "MATCH (t:`" + target + "` {key_id:l.target}) WHERE t.invalidated_at IS NULL AND t.merged_into IS NULL AND t.superseded_by IS NULL "
+        + "MERGE (n)-[:`" + relation + "`]->(t) RETURN count(*) AS linked";
     internal static string Link(string source, string relation, string target) => "MATCH (n:`" + source + "` {id:$id}), (t:`" + target + "` {id:$target}) "
         + "WHERE t.invalidated_at IS NULL AND t.merged_into IS NULL AND t.superseded_by IS NULL "
         + "AND (t.owner_id IS NULL OR ($owner IS NOT NULL AND t.owner_id=$owner)) "

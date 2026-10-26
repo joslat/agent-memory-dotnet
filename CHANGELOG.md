@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Pack families as hierarchies (CODING-hierarchy): a composite member may name the members it `contains`
+  (`CompositeMember.Contains`; `CompositeManifest.Roots`, `Children`, `Parents`, `Depth`). Containment is many-to-many and
+  never a cycle; a member may depend on, and so link to the types of, only the members it contains, and a host cannot switch
+  off a member another one needs. The Coding composite is now decisions over work over the code map, with repository
+  experience beside them. A snapshot may depend on other modules (`ModuleSnapshot.Dependencies`, `ModuleSnapshot.Resolve()`)
+  and link into their records; the store resolves those links and leaves out, and counts, one whose target it does not hold
+  (`ModuleSnapshotResult.LinksLeftOut`), while a turn's write still refuses it. A walk follows such a link like any other,
+  so from the file in hand it climbs to the work that changed it.
+- Add the experimental work memory pack (`src/AgentMemory.Packs.Work`, held): a project's work items from its task ledger
+  (`tasks` with `id`, `task`, `status` and optional `phase`, `notes`, `remaining`, `actual`, `checkpoint`), each linked to
+  the code map files its commits changed (`WORK_CHANGED`; a commit belongs to the ids its subject names before the first
+  colon). CLI: `work scan|import --ledger <tasks.json> --root <repo>`; import the code map first.
+- Snapshot and pack imports replace a record's links exactly: a link the last version had and the new one does not is
+  dropped (before, it was kept, and the next import of the same snapshot never settled). A snapshot's records may link in
+  cycles within a type (types that use each other): targets are written first where they can be, and the remaining links
+  are added once their targets exist.
+- Traversal hops per module (`traversal.hops`, 1 to 3, two by default).
+- Code map: `CODEMAP_USES` (a type to the in-repo types its members use, most used first, at most 16) is recorded in the
+  map, from Roslyn and from SCIP enclosing ranges, but not walked: on a mutation sample it reached the right tests for
+  2 of 6 untested types against a target of 3.
+- The Roslyn code map reader compiles each project with its NuGet compile assemblies, read from the restore's
+  `obj/project.assets.json`, so calls through package types (`IServiceCollection` extensions, builders) bind and their
+  tests link to the code they call.
+- `evaluate --traversal` applies every composed member's schema before it reads.
+
 - Add experimental composite packs: a pack made of packs (`composite.json`, format `agentmemory.composite/v1alpha1`,
   `IAgentMemoryComposite`, `ModuleSetBuilder.AddComposite<T>()`). A composite names its members with version ranges, the
   priority each takes and whether it starts on; it holds nothing of its own, and one level only. The SDK refuses a member the

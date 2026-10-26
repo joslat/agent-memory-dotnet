@@ -61,6 +61,20 @@ internal sealed class TraversalTrialCommand(Action<Neo4jOptions> configureNeo4j,
         services.AddAgentMemoryModules(m => m.UseNeo4jStore().AddComposite<CodingPack>(o => o.Disable(RepositoryPack.Id)));
         await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
 
+        // Every composed member's schema before any read, as a host applies it: a member the trial imports nothing into (work,
+        // without a ledger) would otherwise leave migrations pending, and traversal reads refuse while any are.
+        await using (var migrations = provider.CreateAsyncScope())
+        {
+            var set = migrations.ServiceProvider.GetRequiredService<AgentMemory.Extensibility.Modules.ModuleSet>();
+            var applied = await new AgentMemory.Extensibility.Neo4j.Migrations.ModuleMigrator(
+                migrations.ServiceProvider.GetRequiredService<INeo4jTransactionRunner>(), set.Resolution).ApplyAsync("traversal trial").ConfigureAwait(false);
+            if (applied.Problems.Count != 0)
+            {
+                output.WriteLine("error: module migrations failed: " + string.Join("; ", applied.Problems));
+                return 1;
+            }
+        }
+
         // Warm-up: connections, the module schema check, query plans; with "pass", the store's own warm-up after a start too.
         foreach (var task in warmup == "one" ? fixture.Tasks.Take(1) : fixture.Tasks)
             foreach (var anchored in new[] { true, false })

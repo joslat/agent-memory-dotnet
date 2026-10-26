@@ -86,6 +86,16 @@ public static class ScipCodeMapReader
                 symbol.Package, document.RelativePath, definition.Range.StartLine + 1, members.TryGetValue(text, out var names) ? names : null);
         }
 
+        // What each record uses (CMP-2c): the records its body refers to, when the indexer gives the body's range.
+        foreach (var (text, record) in recorded)
+        {
+            if (record.Definition.Enclosing is not { } body) continue;
+            builder.AddUses(text, record.Document.Occurrences
+                .Where(o => !o.IsDefinition && o.Range.StartLine >= body.StartLine && o.Range.StartLine <= body.EndLine)
+                .Select(o => symbols.Owner(o.Symbol, recorded)).OfType<string>().Where(o => o != text).GroupBy(o => o, StringComparer.Ordinal)
+                .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Key));
+        }
+
         foreach (var document in documents.Where(d => tests.Contains(d.RelativePath))) AddTests(builder, document, information, recorded, symbols);
         return builder;
     }

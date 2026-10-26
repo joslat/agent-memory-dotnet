@@ -17,6 +17,8 @@ public sealed record ModuleTraversal
 {
     /// <summary>Most records this module offers to the gate for one turn, 1 to 16.</summary>
     public const int MaximumOffered = 16;
+    /// <summary>Most links a walk follows from an anchor.</summary>
+    public const int MaximumHops = 3;
 
     /// <summary>Properties whose values anchors are matched against.</summary>
     public IReadOnlyList<ModuleTraversalAnchor> Anchors { get; init; } = [];
@@ -26,6 +28,11 @@ public sealed record ModuleTraversal
     public IReadOnlyList<string> Hubs { get; init; } = [];
     /// <summary>Most records this module offers for one turn, highest score first.</summary>
     public int MaxItems { get; init; } = 4;
+    /// <summary>
+    /// How many links this module's walk follows from an anchor, 1 to 3. Two by default; a code map takes three to reach, from a
+    /// changed type, the tests of the types that use it.
+    /// </summary>
+    public int Hops { get; init; } = 2;
 }
 
 /// <summary>An owned string property that anchors are matched against.</summary>

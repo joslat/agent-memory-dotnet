@@ -31,6 +31,14 @@ public static class RoslynCodeMapReader
             .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))]);
 
+    // The runtime's own assembly names: a package that ships one of them (System.Text.Json, say) defers to the runtime's copy,
+    // or every type in it would be defined twice and nothing that names one would bind.
+    private static readonly Lazy<HashSet<string>> RuntimeNames = new(() =>
+        [.. ((AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string) ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => Path.GetFileName(p).ToLowerInvariant())]);
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, MetadataReference> PackageReferences = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Reads the repository at <paramref name="root"/>: the files Git tracks there, or every file outside bin/obj when it is not a Git repository.</summary>
     public static CodeMapBuilder Read(string root, CancellationToken cancellationToken = default) =>
         Read(root, TrackedFiles(root), cancellationToken);
@@ -72,7 +80,9 @@ public static class RoslynCodeMapReader
                     string.Concat(project.GlobalUsings.Select(u => "global using " + u + ";\n"))
                     + string.Concat(project.VisibleTo.Select(a => "[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(\"" + a + "\")]\n"))),
                     CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview), GeneratedFile, cancellationToken));
-            var references = Runtime.Value.Concat(Closure(project, projects).Where(compilations.ContainsKey).Select(r => (MetadataReference)compilations[r].ToMetadataReference()));
+            var references = Runtime.Value
+                .Concat(project.Packages.Select(p => PackageReferences.GetOrAdd(p, path => MetadataReference.CreateFromFile(path))))
+                .Concat(Closure(project, projects).Where(compilations.ContainsKey).Select(r => (MetadataReference)compilations[r].ToMetadataReference()));
             var compilation = CSharpCompilation.Create(project.Name, trees, references,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable, allowUnsafe: true));
             compilations[project.Path] = compilation;
@@ -93,6 +103,7 @@ public static class RoslynCodeMapReader
         }
 
         // Pass 2: tests, with the in-repo types they touch outside their own project, the method's own first.
+        var testProjects = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (path, compilation) in compilations)
             foreach (var tree in compilation.SyntaxTrees)
             {
@@ -109,11 +120,34 @@ public static class RoslynCodeMapReader
                     if (touched.Count == 0 && method.Parent is TypeDeclarationSyntax owner) touched = [.. Touched(model, owner, declared, path, cancellationToken)];
                     var tested = touched.GroupBy(s => s.Scip).Select(g => (g.Key, Weight: g.Sum(x => x.Weight)))
                         .OrderByDescending(g => g.Weight).ThenBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Key);
+                    testProjects.Add(path);
                     builder.AddTest(Scip(compilation.AssemblyName!, symbol.ContainingType) + symbol.Name + "().",
                         symbol.ContainingType.Name + "." + symbol.Name, tree.FilePath, method.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
                         Framework(attribute), tested);
                 }
             }
+
+        // Pass 3 (CMP-2c): what each type of the code under test uses, its own project included (a repository uses the query
+        // class beside it), so a change reaches the tests of the code that uses it. Test projects are left out: nothing tests them.
+        foreach (var (path, compilation) in compilations.Where(c => !testProjects.Contains(c.Key)))
+        {
+            var used = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+            foreach (var tree in compilation.SyntaxTrees)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var model = compilation.GetSemanticModel(tree);
+                foreach (var node in tree.GetRoot(cancellationToken).DescendantNodes().OfType<BaseTypeDeclarationSyntax>())
+                {
+                    if (model.GetDeclaredSymbol(node, cancellationToken) is not INamedTypeSymbol type
+                        || !declared.TryGetValue(Identity(type), out var self)) continue;
+                    var counts = used.TryGetValue(self.Scip, out var known) ? known : used[self.Scip] = new(StringComparer.Ordinal);
+                    foreach (var (scip, weight) in Touched(model, node, declared, project: "", cancellationToken))
+                        counts[scip] = counts.GetValueOrDefault(scip) + weight;
+                }
+            }
+            foreach (var (scip, counts) in used)
+                builder.AddUses(scip, counts.OrderByDescending(c => c.Value).ThenBy(c => c.Key, StringComparer.Ordinal).Select(c => c.Key));
+        }
         return builder;
     }
 
@@ -289,7 +323,7 @@ public static class RoslynCodeMapReader
     private static readonly string[] WebUsings = ["System.Net.Http.Json", "Microsoft.AspNetCore.Builder", "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Http", "Microsoft.AspNetCore.Routing"];
 
     private sealed record Project(string Path, string Folder, string Name, IReadOnlyList<string> References, IReadOnlyList<string> GlobalUsings,
-        IReadOnlyList<string> VisibleTo)
+        IReadOnlyList<string> VisibleTo, IReadOnlyList<string> Packages)
     {
         public static Project Load(string root, string path)
         {
@@ -304,7 +338,44 @@ public static class RoslynCodeMapReader
             var visibleTo = document.Descendants().Where(e => e.Name.LocalName == "InternalsVisibleTo")
                 .Select(e => e.Attribute("Include")?.Value).OfType<string>().Where(a => a.Length > 0 && !a.Contains('$') && !a.Contains('"'))
                 .Select(a => a.Replace("$(AssemblyName)", name, StringComparison.Ordinal)).Distinct(StringComparer.Ordinal).ToList();
-            return new Project(path, folder, name, references, Usings(root, folder, document), visibleTo);
+            return new Project(path, folder, name, references, Usings(root, folder, document), visibleTo, PackageAssemblies(root, folder));
+        }
+
+        // The compile assemblies of the project's NuGet packages, from the assets file a restore leaves in obj/ (no MSBuild, no
+        // build): without them, a call whose receiver or arguments come from a package (an MCP builder, a Neo4j driver) does not
+        // bind, and a test of such code links to nothing. A project never restored reads without them. The target is net10.0
+        // when the project has it, else the last it lists.
+        private static List<string> PackageAssemblies(string root, string folder)
+        {
+            var assets = System.IO.Path.Combine(root, folder, "obj", "project.assets.json");
+            if (!File.Exists(assets)) return [];
+            try
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(assets));
+                var json = document.RootElement;
+                if (!json.TryGetProperty("targets", out var targets) || !json.TryGetProperty("libraries", out var libraries)) return [];
+                var all = targets.EnumerateObject().ToList();
+                if (all.Count == 0) return [];
+                var target = all.FirstOrDefault(t => t.Name == "net10.0");
+                if (target.Value.ValueKind != System.Text.Json.JsonValueKind.Object) target = all[^1];
+                var folders = json.TryGetProperty("packageFolders", out var f) ? f.EnumerateObject().Select(p => p.Name).ToList() : [];
+                var found = new List<string>();
+                foreach (var package in target.Value.EnumerateObject())
+                {
+                    if (!package.Value.TryGetProperty("type", out var type) || type.GetString() != "package"
+                        || !package.Value.TryGetProperty("compile", out var compile)
+                        || !libraries.TryGetProperty(package.Name, out var library) || !library.TryGetProperty("path", out var libraryPath)) continue;
+                    foreach (var asset in compile.EnumerateObject())
+                    {
+                        if (!asset.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                            || RuntimeNames.Value.Contains(System.IO.Path.GetFileName(asset.Name).ToLowerInvariant())) continue;
+                        var dll = folders.Select(p => System.IO.Path.Combine(p, libraryPath.GetString()!, asset.Name)).FirstOrDefault(File.Exists);
+                        if (dll is not null) found.Add(dll);
+                    }
+                }
+                return found;
+            }
+            catch (Exception e) when (e is System.Text.Json.JsonException or IOException or UnauthorizedAccessException) { return []; }
         }
 
         // Implicit usings when the project or the nearest Directory.Build.props that says so enables them, then the <Using> items

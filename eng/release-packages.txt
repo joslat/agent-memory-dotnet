@@ -61,3 +61,4 @@ HELD:AgentMemory.Packs.CodeMap
 HELD:AgentMemory.Packs.CodeMap.Roslyn
 HELD:AgentMemory.Packs.Decisions
 HELD:AgentMemory.Packs.Coding
+HELD:AgentMemory.Packs.Work

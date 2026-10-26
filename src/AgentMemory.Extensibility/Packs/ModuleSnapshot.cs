@@ -19,8 +19,13 @@ public sealed record ModuleSnapshot
     /// <summary>Most records one snapshot holds.</summary>
     public const int MaximumRecords = 250_000;
 
-    /// <summary>The module: shared types only, no seed, no dependencies.</summary>
+    /// <summary>The module: shared types only, no seed.</summary>
     public required ModuleManifest Module { get; init; }
+    /// <summary>
+    /// The manifests of the modules this one depends on (CODING-hierarchy): a work item links to the code map's files, which the
+    /// code map's own import wrote. Exactly the module's declared dependencies; their records are not part of this snapshot.
+    /// </summary>
+    public IReadOnlyList<ModuleManifest> Dependencies { get; init; } = [];
     /// <summary>What the snapshot was taken from, such as <c>git:</c> and a commit; recorded on every record it writes.</summary>
     public required string Source { get; init; }
     /// <summary>
@@ -39,7 +44,11 @@ public sealed record ModuleSnapshot
         var problems = Module.Validate().ToList();
         if (Module.Ontology is null) problems.Add("A snapshot's module declares no ontology.");
         if (Module.IsKnowledgePack) problems.Add("A snapshot's module declares seed files; import a knowledge pack instead.");
-        if (Module.Modules.Count != 0) problems.Add("A snapshot's module may not depend on other modules.");
+        foreach (var (id, range) in Module.Modules)
+            if (Dependencies.SingleOrDefault(d => d.Id == id) is not { } dependency) problems.Add($"A snapshot's module needs {id}; give its manifest in Dependencies.");
+            else if (!range.Contains(dependency.Version)) problems.Add($"A snapshot's module needs {id} {range}; Dependencies gives {dependency.Version}.");
+        foreach (var extra in Dependencies.Where(d => !Module.Modules.ContainsKey(d.Id)))
+            problems.Add($"Dependencies names {extra.Id}, which the module does not depend on.");
         if (Module.Ontology?.Types.Any(t => t.Scope != "shared") == true) problems.Add("A snapshot writes shared types only.");
         if (string.IsNullOrWhiteSpace(Source) || Source.Length > 128) problems.Add("A snapshot's source is 1 to 128 characters.");
         if (Records.Count > MaximumRecords) problems.Add($"A snapshot holds at most {MaximumRecords} records; this one has {Records.Count}.");
@@ -54,11 +63,25 @@ public sealed record ModuleSnapshot
             foreach (var link in record.Links)
             {
                 var relation = Module.Ontology!.Relations.SingleOrDefault(r => r.Name == link.Relation && r.From == record.Type);
-                if (relation is not null && !keys.Contains((relation.To, link.Target)))
+                // A link into a dependency's records is resolved by the store, which leaves it out when the target is not there.
+                if (relation is not null && !IsForeign(relation) && !keys.Contains((relation.To, link.Target)))
                     problems.Add($"{record.Type} '{record.Key}' links {link.Relation} to {relation.To} '{link.Target}', which the snapshot does not hold.");
             }
         return problems.Count > 100 ? [.. problems.Take(100), $"... and {problems.Count - 100} more."] : problems;
     }
+
+    /// <summary>The module resolved with its dependencies against the running SDK, as a store imports it; refused with its errors.</summary>
+    public ModuleResolution Resolve()
+    {
+        if (Dependencies.Count == 0) return KnowledgePack.ResolutionOf(Module);
+        var resolution = ModuleResolver.Resolve([Module, .. Dependencies], ModuleSet.SdkVersion, ModuleHostFeatures.Known);
+        if (!resolution.Succeeded) throw new KnowledgePackException(resolution.Errors);
+        return resolution;
+    }
+
+    // A relation to a dependency's type ("module:Type"); core entities stay out of snapshots as before.
+    internal static bool IsForeign(ModuleRelation relation) =>
+        relation.To.Contains(':', StringComparison.Ordinal) && !relation.To.StartsWith("core:", StringComparison.Ordinal);
 
     /// <summary>Every record with this snapshot's provenance: the module, the source, the digest, and its own file and line.</summary>
     internal IEnumerable<ModuleProposal> Stamped() => Records.Select(r => r with
@@ -87,12 +110,17 @@ public sealed record ModuleSnapshot
     /// The records as a store writes them: stamped with this snapshot's provenance, targets before sources (types in dependency
     /// order, and within a type that links to itself, each record after the records it links to).
     /// </summary>
-    public IReadOnlyList<ModuleProposal> ImportOrder()
+    /// <param name="selfCycles">
+    /// Allow the records of a self-linked type to link in a cycle, as a code map's types use each other (CMP-2c): they come targets
+    /// first where they can, and the first by key breaks a cycle; a link to a record later in the order is the importer's to defer.
+    /// Without it, a cycle is refused.
+    /// </param>
+    public IReadOnlyList<ModuleProposal> ImportOrder(bool selfCycles = false)
     {
         var ontology = Module.Ontology!;
         var types = ontology.Types.ToDictionary(t => t.Name, StringComparer.Ordinal);
         var order = DependencyOrder.Resolve(types, types.Keys.Order(StringComparer.Ordinal),
-            t => ontology.Relations.Where(r => r.From == t.Name && r.To != t.Name).Select(r => r.To).Distinct(StringComparer.Ordinal),
+            t => ontology.Relations.Where(r => r.From == t.Name && r.To != t.Name && !IsForeign(r)).Select(r => r.To).Distinct(StringComparer.Ordinal),
             (parent, id) => new InvalidOperationException($"{parent} links to unknown type {id}."),
             cycle => new InvalidOperationException("The module's relations form a cycle: " + string.Join(", ", cycle) + "."));
         var result = new List<ModuleProposal>(Records.Count);
@@ -102,12 +130,37 @@ public sealed record ModuleSnapshot
             var mine = stamped.Where(r => r.Type == type.Name).ToDictionary(r => r.Key, StringComparer.Ordinal);
             var self = ontology.Relations.Where(r => r.From == type.Name && r.To == type.Name).Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
             if (self.Count == 0) { result.AddRange(mine.Values.OrderBy(r => r.Key, StringComparer.Ordinal)); continue; }
+            if (selfCycles) { result.AddRange(TargetsFirst(mine, self)); continue; }
             result.AddRange(DependencyOrder.Resolve(mine, mine.Keys.Order(StringComparer.Ordinal),
                 r => r.Links.Where(l => self.Contains(l.Relation) && mine.ContainsKey(l.Target)).Select(l => l.Target),
                 (parent, id) => new InvalidOperationException($"{parent} links to unknown record {id}."),
                 cycle => new InvalidOperationException($"{type.Name} records link in a cycle: " + string.Join(", ", cycle) + ".")));
         }
         return result.AsReadOnly();
+    }
+
+    // Targets first, by key among those ready; when a cycle leaves none ready, the first remaining by key goes next.
+    private static List<ModuleProposal> TargetsFirst(Dictionary<string, ModuleProposal> records, HashSet<string> self)
+    {
+        var waiting = records.ToDictionary(r => r.Key, r => r.Value.Links
+            .Where(l => self.Contains(l.Relation) && l.Target != r.Key && records.ContainsKey(l.Target)).Select(l => l.Target)
+            .ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
+        var users = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (key, targets) in waiting)
+            foreach (var target in targets) (users.TryGetValue(target, out var list) ? list : users[target] = []).Add(key);
+        var remaining = new SortedSet<string>(records.Keys, StringComparer.Ordinal);
+        var ready = new SortedSet<string>(remaining.Where(k => waiting[k].Count == 0), StringComparer.Ordinal);
+        var ordered = new List<ModuleProposal>(records.Count);
+        while (remaining.Count > 0)
+        {
+            var next = ready.Count > 0 ? ready.Min! : remaining.Min!;
+            ready.Remove(next);
+            remaining.Remove(next);
+            ordered.Add(records[next]);
+            foreach (var user in users.GetValueOrDefault(next) ?? [])
+                if (remaining.Contains(user) && waiting[user].Remove(next) && waiting[user].Count == 0) ready.Add(user);
+        }
+        return ordered;
     }
 }
 
@@ -127,6 +180,8 @@ public sealed record ModuleSnapshotResult
     public int Unchanged { get; init; }
     /// <summary>Records the snapshot no longer holds, closed with their history kept.</summary>
     public int Closed { get; init; }
+    /// <summary>Links into a dependency's records that were left out because the target is not in the store (CODING-hierarchy).</summary>
+    public int LinksLeftOut { get; init; }
 }
 
 /// <summary>Writes host-generated snapshots into a store (CMP-2a).</summary>

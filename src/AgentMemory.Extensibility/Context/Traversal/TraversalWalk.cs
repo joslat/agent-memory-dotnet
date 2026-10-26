@@ -27,8 +27,9 @@ internal sealed record TraversalResult(IReadOnlyList<TraversalItem> Items, IRead
 
 /// <summary>
 /// The traversal walk (CMP-1): anchors match records through declared anchor properties; declared links are followed for at
-/// most two hops; each reached record keeps its best score (anchor quality times the weights along the path) and that path.
-/// Bounded in hops, fan-out, visited records and a score floor, so a hub cannot flood the gate.
+/// most the hops each module declares (two by default, three at most); each reached record keeps its best score (anchor quality
+/// times the weights along the path) and that path. Bounded in hops, fan-out, visited records and a score floor, so a hub
+/// cannot flood the gate.
 /// </summary>
 /// <remarks>
 /// <b>The question orders what the anchors reach (CMP-4).</b> A type can have hundreds of tests, all one link from it and all with
@@ -40,7 +41,7 @@ internal sealed record TraversalResult(IReadOnlyList<TraversalItem> Items, IRead
 [Experimental("AMEXT001")]
 internal static class TraversalWalk
 {
-    internal const int MaximumHops = 2;
+    internal const int MaximumHops = ModuleTraversal.MaximumHops;
     internal const int MaximumVisited = 256;
     internal const double MinimumScore = 0.1;
 
@@ -96,10 +97,11 @@ internal static class TraversalWalk
 
         // Hops: owned links, in their declared direction, from what the last hop reached.
         var frontier = best.Values.ToList();
-        for (var hop = 1; hop <= MaximumHops && frontier.Count > 0 && best.Count < MaximumVisited; hop++)
+        var hops = modules.Count == 0 ? 0 : Math.Min(MaximumHops, modules.Max(m => m.Traversal!.Hops));
+        for (var hop = 1; hop <= hops && frontier.Count > 0 && best.Count < MaximumVisited; hop++)
         {
             var next = new List<TraversalItem>();
-            foreach (var module in modules)
+            foreach (var module in modules.Where(m => hop <= m.Traversal!.Hops))
                 foreach (var declared in module.Traversal!.Relations)
                 {
                     var relation = module.Ontology!.Relations.Single(r => r.Name == declared.Name);

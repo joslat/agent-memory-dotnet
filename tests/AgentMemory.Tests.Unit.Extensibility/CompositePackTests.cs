@@ -3,6 +3,7 @@ using AgentMemory.Packs.CodeMap;
 using AgentMemory.Packs.Coding;
 using AgentMemory.Packs.Decisions;
 using AgentMemory.Packs.Repository;
+using AgentMemory.Packs.Work;
 using FluentAssertions;
 using Xunit;
 
@@ -15,16 +16,16 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 public sealed class CompositePackTests
 {
     [Fact]
-    public void The_coding_composite_adds_decisions_repository_and_code_map_with_their_priorities()
+    public void The_coding_composite_adds_decisions_repository_code_map_and_work_with_their_priorities()
     {
         var builder = new ModuleSetBuilder();
 
         builder.AddComposite<CodingPack>();
 
-        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, RepositoryPack.Id, CodeMapPack.Id);
+        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, RepositoryPack.Id, CodeMapPack.Id, WorkPack.Id);
         builder.Priorities.Should().BeEquivalentTo(new Dictionary<string, int>
         {
-            [DecisionsPack.Id] = 10, [RepositoryPack.Id] = 20, [CodeMapPack.Id] = 30,
+            [DecisionsPack.Id] = 10, [RepositoryPack.Id] = 20, [CodeMapPack.Id] = 30, [WorkPack.Id] = 40,
         });
         CodingPack.Manifest.Validate().Should().BeEmpty();
         CodingPack.Manifest.Display!.Title.Should().Be("Coding");
@@ -36,7 +37,7 @@ public sealed class CompositePackTests
         var builder = new ModuleSetBuilder();
         builder.AddComposite<CodingPack>(o => o.Disable(RepositoryPack.Id).Prioritize(CodeMapPack.Id, 5));
 
-        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, CodeMapPack.Id);
+        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, CodeMapPack.Id, WorkPack.Id);
         builder.Priorities[CodeMapPack.Id].Should().Be(5);
 
         FluentActions.Invoking(() => new ModuleSetBuilder().AddComposite<CodingPack>(o => o.Disable("io.example.nothing")))

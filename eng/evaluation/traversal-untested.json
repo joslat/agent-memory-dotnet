@@ -1,0 +1,142 @@
+{
+  "format": "agentmemory.traversal-fixture/v1",
+  "built": "mutant-fixture.py (CMP-2c)",
+  "testImpact": {
+    "rule": "untested types killed by at least one unit test under a runtime-guarded mutant",
+    "count": 6
+  },
+  "tasks": [
+    {
+      "id": "mut-03",
+      "kind": "test-impact",
+      "question": "Change EdgeEnding",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Extraction/EdgeEnding.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/AgentFramework/GoldenPathDocumentationTests.cs",
+          "tests/AgentMemory.Tests.Unit/AgentFramework/ReviewRound4Tests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/BitemporalChangesTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/CanonicalFactSubjectTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/ChangesOfMindTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/DeclinedFactClosingTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/FactEntityLinkingTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/MemoryWriterTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PerItemProvenanceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PerMessageTrustTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageBatchFailureTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageBatchTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageEmbeddingBatchTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageFactBatchSemanticsTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageFusedBatchTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageProvenanceCapabilityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageTransactionCoalescingTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageUpdateJudgeTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageWorkingMemoryTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/SamePersistOrderTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/UserNameResolutionTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/WithinExtractionCurrentValueTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/WithinExtractionDedupTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/WriteEffectsTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/WriteTimeSupersessionTests.cs",
+          "tests/AgentMemory.Tests.Unit/Services/DeltaRecallReachabilityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Services/RelationshipsInRecallTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.Core . AgentMemory/Core/Extraction/EdgeEnding#"
+    },
+    {
+      "id": "mut-07",
+      "kind": "test-impact",
+      "question": "Change LongMemEvalExtractionCompareProgram",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "tools/AgentMemory.LongMemEval/LongMemEvalExtractionCompareProgram.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.LongMemEval/ExtractionCompareCommandLineTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.LongMemEval . AgentMemory/LongMemEval/LongMemEvalExtractionCompareProgram#"
+    },
+    {
+      "id": "mut-08",
+      "kind": "test-impact",
+      "question": "Change Parser",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extensibility.Neo4j/Migrations/ModuleBackfillStatement.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleMigrationAssessmentTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleMigrationCompilationTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleMigrationOperationTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.Extensibility.Neo4j . AgentMemory/Extensibility/Neo4j/Migrations/ModuleBackfillStatement#Parser#"
+    },
+    {
+      "id": "mut-10",
+      "kind": "test-impact",
+      "question": "Change Neo4jModuleSetBuilderExtensions",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extensibility.Neo4j/Neo4jModuleStoreAdapter.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleActivationTests.cs",
+          "tests/AgentMemory.Tests.Unit/McpServer/CodingModulesTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.Extensibility.Neo4j . AgentMemory/Extensibility/Neo4j/Neo4jModuleSetBuilderExtensions#"
+    },
+    {
+      "id": "mut-13",
+      "kind": "test-impact",
+      "question": "Change NamsMcpServiceCollectionExtensions",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.McpServer.Nams/NamsMcpServiceCollectionExtensions.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/McpServer/NamsMcpServiceCollectionExtensionsTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.McpServer.Nams . AgentMemory/McpServer/Nams/NamsMcpServiceCollectionExtensions#"
+    },
+    {
+      "id": "mut-14",
+      "kind": "test-impact",
+      "question": "Change ClosingEvaluationSession",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "tools/AgentMemory.RouterArena/Ask/ClosingEvaluationSession.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Gate/ClosingEvaluationTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget router-arena . AgentMemory/RouterArena/Ask/ClosingEvaluationSession#"
+    }
+  ]
+}

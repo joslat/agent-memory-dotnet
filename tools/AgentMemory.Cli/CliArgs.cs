@@ -134,6 +134,9 @@ public static class CliHelp
                                      Write the code map into the store: only what changed since the last.
               decisions scan|import --root <repo> [--source git:<sha>]
                                      Read ADRs and Squad's decision log; import writes what changed.
+              work scan|import --ledger <tasks.json> --root <repo> [--source <text>]
+                                     Read a task ledger and the repository's commits: work items linked to
+                                     the code map files their commits changed (import the code map first).
               owner <export|import|erase> --owner <id> [--file <path>] [--confirm]
                                      An owner's data as a whole: export to a JSON file, import a file under
                                      an owner (fresh ids), or erase everything of theirs (needs --confirm).

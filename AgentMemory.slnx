@@ -39,6 +39,7 @@
     <Project Path="src/AgentMemory.Packs.CodeMap.Roslyn/AgentMemory.Packs.CodeMap.Roslyn.csproj" />
     <Project Path="src/AgentMemory.Packs.Decisions/AgentMemory.Packs.Decisions.csproj" />
     <Project Path="src/AgentMemory.Packs.Coding/AgentMemory.Packs.Coding.csproj" />
+    <Project Path="src/AgentMemory.Packs.Work/AgentMemory.Packs.Work.csproj" />
     <Project Path="src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.Nams.csproj" />
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
     <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />

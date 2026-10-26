@@ -37,6 +37,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Packs.CodeMap.Roslyn\AgentMemory.Packs.CodeMap.Roslyn.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Decisions\AgentMemory.Packs.Decisions.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Coding\AgentMemory.Packs.Coding.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Work\AgentMemory.Packs.Work.csproj" />
   </ItemGroup>
 
   <ItemGroup>

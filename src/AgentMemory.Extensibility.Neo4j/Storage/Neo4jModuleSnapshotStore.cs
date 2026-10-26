@@ -7,7 +7,8 @@ namespace AgentMemory.Extensibility.Neo4j.Storage;
 
 /// <summary>
 /// Host-generated module snapshots in the host's Neo4j database (coding packs CMP-2a): the module's schema first, then the
-/// records in batches, writing only what changed and closing what disappeared.
+/// records in batches, writing only what changed and closing what disappeared. A snapshot may link into the records of the
+/// modules it depends on (CODING-hierarchy); a link whose target is not in the store is left out and counted.
 /// </summary>
 [Experimental("AMEXT001")]
 public sealed class Neo4jModuleSnapshotStore(INeo4jTransactionRunner runner, TimeProvider? clock = null) : IModuleSnapshotStore
@@ -18,7 +19,8 @@ public sealed class Neo4jModuleSnapshotStore(INeo4jTransactionRunner runner, Tim
         ArgumentNullException.ThrowIfNull(snapshot);
         var problems = snapshot.Problems();
         if (problems.Count != 0) throw new KnowledgePackException(problems);
-        var resolution = KnowledgePack.ResolutionOf(snapshot.Module);
+        // With its dependencies (CODING-hierarchy), so its links into their records resolve; their schema is applied too, if pending.
+        var resolution = snapshot.Resolve();
         var migration = await new ModuleMigrator(runner, resolution, clock).ApplyAsync("module-snapshot:" + snapshot.Module.Id, cancellationToken).ConfigureAwait(false);
         if (migration.Problems.Count != 0) throw new KnowledgePackException(migration.Problems);
         return await new Neo4jModuleStore(runner, resolution).ImportSnapshotAsync(snapshot, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);

@@ -111,7 +111,8 @@ public sealed class Neo4jModuleStore : IModuleStore
                 for (var index = 0; index < pack.Proposals.Count; index++)
                 {
                     var proposal = pack.Proposals[index];
-                    var outcome = await WriteOneAsync(transaction, module, request, new() { Index = index, Proposal = proposal }, atUtc, cancellationToken).ConfigureAwait(false);
+                    var outcome = await WriteOneAsync(transaction, module, request, new() { Index = index, Proposal = proposal }, atUtc, cancellationToken,
+                        exact: true).ConfigureAwait(false);
                     if (outcome.Status == ProposalWriteStatus.NoOp) unchanged++;
                     else if (live.ContainsKey((proposal.Type, proposal.Key))) changed++;
                     else created++;
@@ -133,11 +134,16 @@ public sealed class Neo4jModuleStore : IModuleStore
     /// is equal stays as it was (links included), and what the snapshot no longer holds is closed, history kept. A failed batch
     /// leaves the earlier ones written; importing the same snapshot again completes it.
     /// </summary>
+    // Links into dependencies' records left out by the snapshot import running on this store (CODING-hierarchy).
+    private int _linksLeftOut;
+
     internal async Task<ModuleSnapshotResult> ImportSnapshotAsync(ModuleSnapshot snapshot, DateTimeOffset atUtc, CancellationToken cancellationToken)
     {
+        Interlocked.Exchange(ref _linksLeftOut, 0);
         var module = _resolution.Modules.Single(m => m.Id == snapshot.Module.Id);
         var request = PackRequest(module.Id, atUtc);
-        var records = snapshot.ImportOrder();
+        var records = snapshot.ImportOrder(selfCycles: true);
+        var selfRelations = module.Ontology!.Relations.Where(r => r.From == r.To).Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
         try
         {
             var (live, state) = await _runner.ReadAsync(async transaction =>
@@ -150,17 +156,37 @@ public sealed class Neo4jModuleStore : IModuleStore
             // without a write (the per-record path would reach the same no-op, a dozen queries later).
             var pending = records.Where(r => !Same(module, r, state)).ToList();
             int created = 0, changed = 0, unchanged = records.Count - pending.Count, closed = 0;
+            // A self link to a record this import has not written yet (types that use each other link in cycles) is written
+            // once that record exists: added to the version this import wrote, or, for a record that was otherwise unchanged,
+            // by writing it again whole, a new version, since gaining a link is a change.
+            var written = live.Keys.ToHashSet();
+            var deferred = new List<(ModuleProposal Proposal, IReadOnlyList<ProposedLink> Links, bool Stored)>();
             foreach (var batch in pending.Chunk(SnapshotBatch))
                 await _runner.WriteAsync(async transaction =>
                 {
                     for (var index = 0; index < batch.Length; index++)
                     {
-                        var outcome = await WriteOneAsync(transaction, module, request, new() { Index = index, Proposal = batch[index] }, atUtc, cancellationToken)
-                            .ConfigureAwait(false);
+                        var proposal = batch[index];
+                        var forward = proposal.Links.Where(l => selfRelations.Contains(l.Relation) && !written.Contains((proposal.Type, l.Target))).ToList();
+                        var now = forward.Count == 0 ? proposal : proposal with { Links = proposal.Links.Except(forward).ToList().AsReadOnly() };
+                        var outcome = await WriteOneAsync(transaction, module, request, new() { Index = index, Proposal = now }, atUtc, cancellationToken,
+                            exact: true).ConfigureAwait(false);
+                        written.Add((proposal.Type, proposal.Key));
+                        if (forward.Count != 0) deferred.Add((proposal, forward, outcome.Status == ProposalWriteStatus.Stored));
                         if (outcome.Status == ProposalWriteStatus.NoOp) unchanged++;
-                        else if (live.ContainsKey((batch[index].Type, batch[index].Key))) changed++;
+                        else if (live.ContainsKey((proposal.Type, proposal.Key))) changed++;
                         else created++;
                     }
+                    return batch.Length;
+                }, cancellationToken).ConfigureAwait(false);
+            await LinkDeferredAsync(module, deferred.Where(d => d.Stored).SelectMany(d => d.Links.Select(l => (d.Proposal.Type, d.Proposal.Key, l.Relation, l.Target))),
+                cancellationToken).ConfigureAwait(false);
+            foreach (var batch in deferred.Where(d => !d.Stored).Select(d => d.Proposal).Chunk(SnapshotBatch))
+                await _runner.WriteAsync(async transaction =>
+                {
+                    for (var index = 0; index < batch.Length; index++)
+                        if ((await WriteOneAsync(transaction, module, request, new() { Index = index, Proposal = batch[index] }, atUtc, cancellationToken,
+                                exact: true).ConfigureAwait(false)).Status == ProposalWriteStatus.Stored) { unchanged--; changed++; }
                     return batch.Length;
                 }, cancellationToken).ConfigureAwait(false);
             var held = records.Select(r => (r.Type, r.Key)).ToHashSet();
@@ -172,9 +198,36 @@ public sealed class Neo4jModuleStore : IModuleStore
                         if (await CloseAsync(transaction, module, request, key, atUtc, cancellationToken).ConfigureAwait(false)) count++;
                     return count;
                 }, cancellationToken).ConfigureAwait(false);
-            return new ModuleSnapshotResult { ModuleId = module.Id, Source = snapshot.Source, Created = created, Changed = changed, Unchanged = unchanged, Closed = closed };
+            return new ModuleSnapshotResult
+            {
+                ModuleId = module.Id, Source = snapshot.Source, Created = created, Changed = changed, Unchanged = unchanged, Closed = closed,
+                LinksLeftOut = Volatile.Read(ref _linksLeftOut),
+            };
         }
         catch (ModuleRecordRefusal refusal) { throw new KnowledgePackException([refusal.Message]); }
+    }
+
+    // Self links between live records by key identity, in batches per relation; every one must land.
+    private async Task LinkDeferredAsync(ModuleManifest module, IEnumerable<(string Type, string Key, string Relation, string Target)> links,
+        CancellationToken cancellationToken)
+    {
+        foreach (var group in links.GroupBy(l => (l.Type, l.Relation)))
+            foreach (var batch in group.Chunk(SnapshotBatch))
+            {
+                var linked = await _runner.WriteAsync(async transaction =>
+                {
+                    var rows = await RowsAsync(transaction, ModuleRecordQueries.LinkLive(group.Key.Type, group.Key.Relation, group.Key.Type), new
+                    {
+                        links = batch.Select(l => new Dictionary<string, object>
+                        {
+                            ["source"] = KeyId(module.Id, l.Type, null, l.Key), ["target"] = KeyId(module.Id, l.Type, null, l.Target),
+                        }).ToArray(),
+                    }, cancellationToken).ConfigureAwait(false);
+                    return rows.Single()["linked"].As<long>();
+                }, cancellationToken).ConfigureAwait(false);
+                if (linked != batch.Length)
+                    throw new ModuleRecordRefusal($"{batch.Length - linked} {group.Key.Relation} links reach no live record after the import.");
+            }
     }
 
     /// <summary>Every live record a snapshot wrote, by type and key: its stored properties and its links as (relation, target key).</summary>
@@ -291,7 +344,7 @@ public sealed class Neo4jModuleStore : IModuleStore
     }
 
     private async Task<ProposalOutcome> WriteOneAsync(IAsyncQueryRunner runner, ModuleManifest module,
-        IngestionRequest request, AdmittedModuleProposal input, DateTimeOffset atUtc, CancellationToken cancellationToken)
+        IngestionRequest request, AdmittedModuleProposal input, DateTimeOffset atUtc, CancellationToken cancellationToken, bool exact = false)
     {
         var proposal = input.Proposal; var type = module.Ontology!.Types.Single(t => t.Name == proposal.Type);
         var owner = type.Scope == "shared" ? null : request.Owner;
@@ -320,7 +373,8 @@ public sealed class Neo4jModuleStore : IModuleStore
             await OneAsync(runner, ModuleRecordQueries.Invalidate(type.Name), new { id = previousId, keyId, now = atUtc.ToString("O") }, cancellationToken).ConfigureAwait(false);
             return Outcome(input.Index, ProposalWriteStatus.Invalidated, previousId);
         }
-        var links = await _links.ResolveAsync(runner, module, proposal, previousId, owner, cancellationToken).ConfigureAwait(false);
+        var links = await _links.ResolveAsync(runner, module, proposal, previousId, owner, cancellationToken, exact).ConfigureAwait(false);
+        if (links.LeftOut != 0) Interlocked.Add(ref _linksLeftOut, links.LeftOut);
         if (live && old!["equal"].As<bool>() && !links.Changed) return Outcome(input.Index, ProposalWriteStatus.NoOp, previousId);
         if (old is not null && old["newer"].As<bool>()) throw new ModuleRecordRefusal("Write clock precedes the last version.");
         var nextVersion = checked(version + 1); var id = keyId + ":" + nextVersion.ToString(CultureInfo.InvariantCulture);

@@ -59,12 +59,13 @@ internal static class ModuleManifestReader
 
     private static ModuleTraversal Traversal(JsonElement value, string path)
     {
-        Object(value, path, "anchors", "relations", "hubs", "maxItems");
+        Object(value, path, "anchors", "relations", "hubs", "maxItems", "hops");
         return new ModuleTraversal
         {
             Anchors = Array(value, "anchors", path, TraversalAnchor), Relations = Array(value, "relations", path, TraversalRelation),
             Hubs = value.TryGetProperty("hubs", out var hubs) ? Strings(hubs, path + ".hubs") : [],
-            MaxItems = PositiveInteger(value, "maxItems", path) ?? 4
+            MaxItems = PositiveInteger(value, "maxItems", path) ?? 4,
+            Hops = PositiveInteger(value, "hops", path) ?? 2
         };
     }
 
