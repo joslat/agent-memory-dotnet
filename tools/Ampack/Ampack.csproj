@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- `ampack`: build, sign, verify and inspect memory packs (strategy PACK-tool). Published as a NativeAOT single binary
+       for Windows, Linux and macOS, so a pack author needs no .NET; `dotnet run` works for development. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Ampack</AssemblyName>
+    <RootNamespace>Ampack</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Format\AgentMemory.Packs.Format.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,91 @@
+using System.Globalization;
+using System.Text.Json;
+
+namespace AgentMemory.Packs.Format;
+
+/// <summary>One trusted key, scoped (v1.1 H3): the pack ids it may sign for, the roles it may sign in, and when.</summary>
+internal sealed record TrustedKey(string KeyId, string PublicKeyPem, IReadOnlyList<string> IdPrefixes, IReadOnlyList<string> Roles,
+    DateTimeOffset? NotBefore, DateTimeOffset? NotAfter);
+
+/// <summary>A revoked key. With <see cref="CompromisedAt"/>, signatures from before that moment may still count once a timestamp proves them.</summary>
+internal sealed record RevokedKey(string KeyId, DateTimeOffset? CompromisedAt);
+
+/// <summary>
+/// The host's trust policy: scoped keys, revocations, and the roles a pack must be signed in. Set by the host's operator,
+/// never by a pack, a request, an MCP tool or a model. There is no "allow unsigned" setting.
+/// </summary>
+internal sealed record TrustPolicy
+{
+    internal const string Format = "agentmemory.pack.trust/1.1";
+
+    internal IReadOnlyList<TrustedKey> Keys { get; init; } = [];
+    internal IReadOnlyList<string> RevokedDigests { get; init; } = [];
+    internal IReadOnlyList<RevokedKey> RevokedKeys { get; init; } = [];
+    /// <summary>When the revocation information goes stale; after it, nothing verifies until the host refreshes it.</summary>
+    internal DateTimeOffset? RevocationsExpire { get; init; }
+    internal IReadOnlyList<string> RequiredRoles { get; init; } = ["publisher"];
+
+    internal TrustedKey? Find(string keyId) => Keys.FirstOrDefault(k => k.KeyId == keyId);
+
+    /// <summary>Why a signature by <paramref name="key"/> does not count, or null when it does.</summary>
+    internal string? Refusal(TrustedKey key, string role, string id, DateTimeOffset signedAt, DateTimeOffset now)
+    {
+        var shortId = Dsse.Short(key.KeyId);
+        if (!key.Roles.Contains(role)) return $"key {shortId} may not sign as {role}.";
+        if (!key.IdPrefixes.Any(p => PackManifest.Covers(p, id))) return $"key {shortId} may not sign for '{id}'.";
+        if (key.NotBefore is { } from && signedAt < from) return $"key {shortId} was not yet valid at the signing time.";
+        if (key.NotAfter is { } until && signedAt > until) return $"key {shortId} had expired at the signing time.";
+        if (signedAt > now.AddMinutes(5)) return $"the signature by {shortId} claims a time in the future.";
+        if (RevokedKeys.FirstOrDefault(r => r.KeyId == key.KeyId) is { } revoked)
+            // A timestamp authority's token is the only proof a signature predates a compromise; until the token is checked, refuse.
+            return revoked.CompromisedAt is { } at
+                ? $"key {shortId} was compromised at {at:u}; a signature counts only with a timestamp token proving it is older."
+                : $"key {shortId} is revoked.";
+        return null;
+    }
+
+    /// <summary>Reads a policy file, checking that every key id is the SHA-256 of its key.</summary>
+    internal static TrustPolicy Parse(ReadOnlySpan<byte> bytes)
+    {
+        if (PackJson.Check(bytes) is { } problem) throw new InvalidDataException($"The trust policy {problem}.");
+        using var document = JsonDocument.Parse(bytes.ToArray());
+        var root = document.RootElement;
+        if (!root.TryGetProperty("format", out var format) || format.GetString() != Format)
+            throw new InvalidDataException($"The trust policy must name format '{Format}'.");
+        var keys = new List<TrustedKey>();
+        if (root.TryGetProperty("keys", out var keyArray))
+            foreach (var k in keyArray.EnumerateArray())
+            {
+                var pem = k.GetProperty("publicKey").GetString()!;
+                var keyId = k.GetProperty("keyId").GetString()!;
+                if (PackKey.KeyIdOf(pem) != keyId) throw new InvalidDataException($"Key {Dsse.Short(keyId)}: the id is not the SHA-256 of its public key.");
+                var prefixes = Strings(k, "idPrefixes");
+                if (prefixes.Count == 0) throw new InvalidDataException($"Key {Dsse.Short(keyId)} names no pack id prefixes: a key that may sign anything is refused.");
+                var roles = Strings(k, "roles");
+                if (roles.Count == 0 || roles.Any(r => !Dsse.Roles.Contains(r))) throw new InvalidDataException($"Key {Dsse.Short(keyId)} needs known roles.");
+                keys.Add(new TrustedKey(keyId, pem, prefixes, roles, Time(k, "notBefore"), Time(k, "notAfter")));
+            }
+        var revokedDigests = new List<string>();
+        var revokedKeys = new List<RevokedKey>();
+        DateTimeOffset? expires = null;
+        if (root.TryGetProperty("revoked", out var revoked))
+        {
+            revokedDigests.AddRange(Strings(revoked, "digests"));
+            if (revoked.TryGetProperty("keys", out var rk))
+                foreach (var r in rk.EnumerateArray()) revokedKeys.Add(new RevokedKey(r.GetProperty("keyId").GetString()!, Time(r, "compromisedAt")));
+            expires = Time(revoked, "expires");
+        }
+        var required = root.TryGetProperty("requireRoles", out _) ? Strings(root, "requireRoles") : ["publisher"];
+        if (required.Count == 0 || required.Any(r => !Dsse.Roles.Contains(r))) throw new InvalidDataException("requireRoles must name known roles.");
+        return new TrustPolicy { Keys = keys, RevokedDigests = revokedDigests, RevokedKeys = revokedKeys, RevocationsExpire = expires, RequiredRoles = required };
+    }
+
+    private static IReadOnlyList<string> Strings(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
+            ? [.. value.EnumerateArray().Select(v => v.GetString()!)] : [];
+
+    private static DateTimeOffset? Time(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? DateTimeOffset.Parse(value.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal)
+            : null;
+}

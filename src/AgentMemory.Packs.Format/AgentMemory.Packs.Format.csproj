@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The memory pack format, v1.1 (strategy design PACK-format, PACK-redteam): read, check, build and sign `.ampack`
+       files and pack folders. Base class library only, so any host and the `ampack` tool can carry it, and so the
+       format stays implementable from its spec in any language: ZIP stored/deflate, JSON, SHA-256, ECDSA P-256. -->
+  <PropertyGroup>
+    <RootNamespace>AgentMemory.Packs.Format</RootNamespace>
+    <AssemblyName>AgentMemory.Packs.Format</AssemblyName>
+    <Description>The memory pack format for AgentMemory: a signed, content-addressed, language-neutral pack of agent memory, as a folder or a single .ampack file.</Description>
+    <PackageTags>agent-memory;ai;memory;packs;signing;supply-chain</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.1.0</Version>
+    <IsPackable>false</IsPackable>
+    <!-- The ampack tool ships as a NativeAOT binary; the analyzers keep this library free of reflection. -->
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.PackFormat" />
+    <InternalsVisibleTo Include="Ampack" />
+  </ItemGroup>
+</Project>

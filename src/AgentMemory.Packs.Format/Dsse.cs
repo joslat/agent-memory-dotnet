@@ -1,0 +1,156 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace AgentMemory.Packs.Format;
+
+/// <summary>A signing key pair, PEM encoded, and its id: the lowercase hex SHA-256 of the SubjectPublicKeyInfo (v1.1 H3).</summary>
+internal sealed record PackKey(string PrivateKeyPem, string PublicKeyPem, string KeyId)
+{
+    internal static PackKey Create()
+    {
+        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        return new PackKey(ecdsa.ExportPkcs8PrivateKeyPem(), ecdsa.ExportSubjectPublicKeyInfoPem(), KeyIdOf(ecdsa));
+    }
+
+    internal static string KeyIdOf(ECDsa key) => FilesList.Hex(key.ExportSubjectPublicKeyInfo());
+
+    internal static string KeyIdOf(string publicKeyPem)
+    {
+        using var ecdsa = ECDsa.Create();
+        ecdsa.ImportFromPem(publicKeyPem);
+        return KeyIdOf(ecdsa);
+    }
+}
+
+/// <summary>What a valid signature says: who signed which pack, in which role, and when (by its own claim).</summary>
+internal sealed record PackSignature(string Role, string KeyId, string Id, string Version, DateTimeOffset SignedAt, string File);
+
+/// <summary>
+/// Signatures (v1.1 §3): a DSSE envelope whose payload is an in-toto Statement v1. Its subject is <c>META/files.json</c> with
+/// its SHA-256; its predicate type names the role; its predicate carries the pack id, version and signing time. The role and
+/// the id are inside what is signed, never in a file name. ECDSA P-256 with SHA-256, DER signatures.
+/// </summary>
+internal static class Dsse
+{
+    internal const string PayloadType = "application/vnd.in-toto+json";
+    internal const string StatementType = "https://in-toto.io/Statement/v1";
+    internal static readonly IReadOnlySet<string> Roles = new HashSet<string>(StringComparer.Ordinal) { "publisher", "curator", "assurer" };
+
+    internal static string PredicateType(string role) => $"urn:agentmemory:pack:{role}:v1";
+
+    /// <summary>DSSE pre-authentication encoding: "DSSEv1 LEN(type) type LEN(body) body".</summary>
+    internal static byte[] Pae(string payloadType, ReadOnlySpan<byte> payload)
+    {
+        var type = Encoding.UTF8.GetBytes(payloadType);
+        var head = Encoding.ASCII.GetBytes($"DSSEv1 {type.Length} ");
+        var middle = Encoding.ASCII.GetBytes($" {payload.Length.ToString(CultureInfo.InvariantCulture)} ");
+        return [.. head, .. type, .. middle, .. payload];
+    }
+
+    /// <summary>The envelope file's path for a role and key.</summary>
+    internal static string PathFor(string role, string keyId) => $"{PackPaths.SignaturesFolder}{role}-{keyId[..16]}.dsse.json";
+
+    /// <summary>Signs the list's exact bytes as <paramref name="role"/>, and returns the envelope file's bytes.</summary>
+    internal static byte[] Sign(byte[] filesList, string id, string version, string role, DateTimeOffset signedAt, string privateKeyPem)
+    {
+        if (!Roles.Contains(role)) throw new ArgumentException($"Unknown role '{role}'.", nameof(role));
+        using var ecdsa = ECDsa.Create();
+        ecdsa.ImportFromPem(privateKeyPem);
+        if (ecdsa.KeySize != 256) throw new ArgumentException("The key must be a P-256 key.", nameof(privateKeyPem));
+        var statement = new JsonObject
+        {
+            ["_type"] = StatementType,
+            ["subject"] = new JsonArray(new JsonObject { ["name"] = PackPaths.FilesList, ["digest"] = new JsonObject { ["sha256"] = FilesList.Hex(filesList) } }),
+            ["predicateType"] = PredicateType(role),
+            ["predicate"] = new JsonObject { ["id"] = id, ["version"] = version, ["role"] = role, ["signedAt"] = signedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) },
+        };
+        var payload = Jcs.Canonical(statement);
+        var signature = ecdsa.SignData(Pae(PayloadType, payload), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        var envelope = new JsonObject
+        {
+            ["payloadType"] = PayloadType,
+            ["payload"] = Convert.ToBase64String(payload),
+            ["signatures"] = new JsonArray(new JsonObject { ["keyid"] = PackKey.KeyIdOf(ecdsa), ["sig"] = Convert.ToBase64String(signature) }),
+        };
+        return Jcs.Canonical(envelope);
+    }
+
+    /// <summary>
+    /// Checks one envelope against the list and the trust policy. Returns the valid signatures in it, and the problems with
+    /// the ones that are not.
+    /// </summary>
+    internal static (List<PackSignature> Valid, List<string> Problems) Verify(string file, ReadOnlySpan<byte> envelopeBytes,
+        ReadOnlySpan<byte> filesList, FilesList list, TrustPolicy policy, DateTimeOffset now)
+    {
+        var valid = new List<PackSignature>();
+        var problems = new List<string>();
+        if (PackJson.Check(envelopeBytes) is { } malformed) { problems.Add($"{file} {malformed}."); return (valid, problems); }
+        using var document = JsonDocument.Parse(envelopeBytes.ToArray());
+        var envelope = document.RootElement;
+        if (envelope.ValueKind != JsonValueKind.Object
+            || !envelope.TryGetProperty("payloadType", out var type) || type.GetString() != PayloadType
+            || !envelope.TryGetProperty("payload", out var payloadText) || payloadText.ValueKind != JsonValueKind.String
+            || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array)
+        { problems.Add($"{file} is not a DSSE envelope of an in-toto statement."); return (valid, problems); }
+
+        byte[] payload;
+        try { payload = Convert.FromBase64String(payloadText.GetString()!); }
+        catch (FormatException) { problems.Add($"{file} has a payload that is not base64."); return (valid, problems); }
+        var (claim, claimProblem) = ReadStatement(payload, filesList, list);
+        if (claim is null) { problems.Add($"{file} {claimProblem}"); return (valid, problems); }
+
+        var pae = Pae(PayloadType, payload);
+        foreach (var entry in signatures.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("keyid", out var keyIdElement) || keyIdElement.ValueKind != JsonValueKind.String
+                || !entry.TryGetProperty("sig", out var sigElement) || sigElement.ValueKind != JsonValueKind.String)
+            { problems.Add($"{file} has a malformed signature entry."); continue; }
+            var keyId = keyIdElement.GetString()!;
+            if (policy.Find(keyId) is not { } key) { problems.Add($"{file}: key {Short(keyId)} is not in the trust policy."); continue; }
+            byte[] sig;
+            try { sig = Convert.FromBase64String(sigElement.GetString()!); }
+            catch (FormatException) { problems.Add($"{file}: the signature is not base64."); continue; }
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportFromPem(key.PublicKeyPem);
+            if (!ecdsa.VerifyData(pae, sig, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
+            { problems.Add($"{file}: the signature by {Short(keyId)} does not verify."); continue; }
+            if (policy.Refusal(key, claim.Role, claim.Id, claim.SignedAt, now) is { } refusal)
+            { problems.Add($"{file}: {refusal}"); continue; }
+            valid.Add(claim with { KeyId = keyId, File = file });
+        }
+        return (valid, problems);
+    }
+
+    private static (PackSignature? Claim, string? Problem) ReadStatement(byte[] payload, ReadOnlySpan<byte> filesList, FilesList list)
+    {
+        if (PackJson.Check(payload) is { } malformed) return (null, $"has a statement that {malformed}.");
+        using var document = JsonDocument.Parse(payload);
+        var statement = document.RootElement;
+        if (statement.ValueKind != JsonValueKind.Object || !statement.TryGetProperty("_type", out var type) || type.GetString() != StatementType)
+            return (null, "does not carry an in-toto Statement v1.");
+        if (!statement.TryGetProperty("subject", out var subjects) || subjects.ValueKind != JsonValueKind.Array || subjects.GetArrayLength() != 1)
+            return (null, "must name exactly one subject.");
+        var subject = subjects[0];
+        if (subject.ValueKind != JsonValueKind.Object || !subject.TryGetProperty("name", out var name) || name.GetString() != PackPaths.FilesList
+            || !subject.TryGetProperty("digest", out var digest) || digest.ValueKind != JsonValueKind.Object
+            || !digest.TryGetProperty("sha256", out var sha) || sha.GetString() != FilesList.Hex(filesList))
+            return (null, $"signs another {PackPaths.FilesList} than this pack's.");
+        if (!statement.TryGetProperty("predicate", out var predicate) || predicate.ValueKind != JsonValueKind.Object
+            || !predicate.TryGetProperty("role", out var role) || role.GetString() is not { } roleName || !Roles.Contains(roleName))
+            return (null, "names no known role.");
+        if (!statement.TryGetProperty("predicateType", out var predicateType) || predicateType.GetString() != PredicateType(roleName))
+            return (null, "has a predicate type that does not match its role.");
+        if (!predicate.TryGetProperty("id", out var id) || id.GetString() != list.Id
+            || !predicate.TryGetProperty("version", out var version) || version.GetString() != list.Version)
+            return (null, "was made for another pack id or version.");
+        if (!predicate.TryGetProperty("signedAt", out var signedAtElement) || signedAtElement.GetString() is not { } signedAtText
+            || !DateTimeOffset.TryParseExact(signedAtText, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var signedAt))
+            return (null, "has no signing time in UTC (yyyy-MM-ddTHH:mm:ssZ).");
+        return (new PackSignature(roleName, "", list.Id, list.Version, signedAt, ""), null);
+    }
+
+    internal static string Short(string keyId) => keyId.Length > 16 ? keyId[..16] : keyId;
+}
