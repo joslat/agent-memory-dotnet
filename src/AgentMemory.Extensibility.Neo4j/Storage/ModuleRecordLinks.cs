@@ -18,15 +18,21 @@ internal sealed class ModuleRecordLinks(ModuleResolution resolution)
         var relations = module.Ontology!.Relations.Where(r => r.From == proposal.Type).ToDictionary(r => r.Name, StringComparer.Ordinal);
         var original = previousId is null ? [] : await RowsAsync(runner, ModuleRecordQueries.Links(proposal.Type),
             new { id = previousId, relations = relations.Keys.ToArray() }, cancellationToken).ConfigureAwait(false);
-        var originalKeys = original.Select(r => (r["relation"].As<string>(), r["target"].As<string>())).ToHashSet();
+        // A link is the same link while it reaches the same live target: a target that only gained a version is not a change
+        // to this record (CMP-2a: a code map commit would otherwise re-version every test of a changed type). A target that
+        // closed, or a link added or dropped, still is.
+        var reached = new HashSet<(string, string)>();
+        var unreachable = 0;
         var final = new Dictionary<(string, string), ResolvedModuleLink>();
         foreach (var row in original)
         {
             var relation = relations[row["relation"].As<string>()];
-            if (relation.Max == 1 && proposal.Links.Any(l => l.Relation == relation.Name)) continue;
             var label = TargetLabel(module, relation);
             var id = await FollowAsync(runner, label, row["target"].As<string>(), owner, cancellationToken).ConfigureAwait(false);
-            if (id is not null) final[(relation.Name, id)] = new(relation.Name, id, label);
+            if (id is null) { unreachable++; continue; }
+            reached.Add((relation.Name, id));
+            if (relation.Max == 1 && proposal.Links.Any(l => l.Relation == relation.Name)) continue;
+            final[(relation.Name, id)] = new(relation.Name, id, label);
         }
         foreach (var link in proposal.Links)
         {
@@ -51,7 +57,7 @@ internal sealed class ModuleRecordLinks(ModuleResolution resolution)
             if (relation.Max is { } max && count > max) throw new ModuleRecordRefusal("Final link cardinality exceeds the declared maximum: " + relation.Name);
         }
         return (final.Values.OrderBy(l => l.Relation, StringComparer.Ordinal).ThenBy(l => l.TargetId, StringComparer.Ordinal).ToList().AsReadOnly(),
-            !originalKeys.SetEquals(final.Keys));
+            unreachable != 0 || !reached.SetEquals(final.Keys));
     }
 
     internal string TargetLabel(ModuleManifest module, ModuleRelation relation)

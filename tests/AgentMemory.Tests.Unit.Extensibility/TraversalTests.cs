@@ -208,6 +208,7 @@ public sealed class TraversalTests
     [InlineData(ModuleAnchorMatch.Name, "scip-dotnet nuget Pkg . App/Store/ModuleStore#RemovePackAsync().", "RemovePackAsync", 0.9)]
     [InlineData(ModuleAnchorMatch.Name, "ModuleStore", "ModuleStore", 1.0)]
     [InlineData(ModuleAnchorMatch.Name, "ModuleStore", "modulestore", 0.0)]
+    [InlineData(ModuleAnchorMatch.Name, "Ledger, ModuleStore; Gate", "ModuleStore", 1.0)]
     public void Anchors_match_by_path_glob_folder_or_symbol_name(ModuleAnchorMatch match, string value, string anchor, double quality) =>
         AnchorMatcher.Best(match, value, [anchor]).Quality.Should().BeApproximately(quality, 0.0001);
 

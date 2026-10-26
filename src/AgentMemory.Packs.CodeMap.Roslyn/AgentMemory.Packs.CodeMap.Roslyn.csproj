@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="Version">
+
+  <PropertyGroup>
+    <RootNamespace>AgentMemory.Packs.CodeMap.Roslyn</RootNamespace>
+    <AssemblyName>AgentMemory.Packs.CodeMap.Roslyn</AssemblyName>
+    <Description>Experimental C# reader for the AgentMemory code map memory pack: reads a repository with the Roslyn compiler (no MSBuild, no build) into projects, files, types and tests keyed by SCIP symbols.</Description>
+    <PackageTags>agent-memory;memory-pack;coding;code-map;roslyn;scip</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.1.0-preview.1</Version>
+    <NoWarn>$(NoWarn);AMEXT001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentMemory.Packs.CodeMap\AgentMemory.Packs.CodeMap.csproj" />
+    <!-- The compiler only: no MSBuild workspace, so reading never loads or builds the projects it reads. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+  </ItemGroup>
+
+</Project>

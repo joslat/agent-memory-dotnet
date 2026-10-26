@@ -1,0 +1,27 @@
+{
+  "format": "agentmemory.composite/v1alpha1",
+  "id": "io.agentmemory.packs.coding",
+  "version": "0.1.0-preview.1",
+  "display": {
+    "title": "Coding",
+    "description": "What governs the code you change: decisions, what the repository taught past sessions, and the code map that links files and types to their tests.",
+    "color": "#2747A6"
+  },
+  "members": [
+    {
+      "id": "io.agentmemory.packs.decisions",
+      "version": "[0.1.0-preview.1,0.2)",
+      "priority": 10
+    },
+    {
+      "id": "io.agentmemory.packs.repository",
+      "version": "[0.1.0-preview.1,0.2)",
+      "priority": 20
+    },
+    {
+      "id": "io.agentmemory.packs.codemap",
+      "version": "[0.1.0-preview.1,0.2)",
+      "priority": 30
+    }
+  ]
+}

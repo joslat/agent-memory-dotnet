@@ -23,6 +23,9 @@
     <ProjectReference Include="..\..\src\AgentMemory.Validation\AgentMemory.Validation.csproj" />
     <!-- Explicit operator migrations only; held SDK dependencies never enter the published core. -->
     <ProjectReference Include="../../src/AgentMemory.Extensibility.Neo4j/AgentMemory.Extensibility.Neo4j.csproj" />
+    <!-- CMP-2a: codemap scan/import; the code map pack and its reader are held packages that ship inside this tool. -->
+    <ProjectReference Include="../../src/AgentMemory.Packs.CodeMap.Roslyn/AgentMemory.Packs.CodeMap.Roslyn.csproj" />
+    <ProjectReference Include="../../src/AgentMemory.Packs.Decisions/AgentMemory.Packs.Decisions.csproj" />
     <!-- NOT in the meta-package, and `perf` measures the MAF turn (ProvideAIContext/StoreAIContext),
          which is the whole point of turn-level measurement. -->
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />

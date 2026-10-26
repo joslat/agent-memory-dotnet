@@ -116,7 +116,9 @@ internal static class CodingHost
         services.AddAgentMemoryModules(m =>
         {
             m.UseNeo4jStore().GrantChatClient(sp => sp.GetRequiredService<IChatClient>());
-            if (modules.Repository) m.Add<RepositoryPack>();
+            // The Coding composite includes the repository pack; adding both would add it twice.
+            if (modules.Coding) m.AddComposite<AgentMemory.Packs.Coding.CodingPack>();
+            else if (modules.Repository) m.Add<RepositoryPack>();
             foreach (var pack in packs) m.AddKnowledgePack(pack);
         });
         services.AddNeo4jKnowledgePacks();

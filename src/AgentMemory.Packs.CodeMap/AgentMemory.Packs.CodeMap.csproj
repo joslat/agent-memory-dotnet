@@ -1,0 +1,24 @@
+<!-- TreatAsLocalProperty: a host that bundles this project is packed with -p:Version=<core>; the global property must not
+     restamp this line's own version, or the SDK and module versions would no longer match. -->
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="Version">
+
+  <PropertyGroup>
+    <RootNamespace>AgentMemory.Packs.CodeMap</RootNamespace>
+    <AssemblyName>AgentMemory.Packs.CodeMap</AssemblyName>
+    <Description>Experimental code map memory pack for AgentMemory for .NET: a repository's projects, files, types and tests at a commit, keyed by SCIP symbols, so traversal context can find what governs the code in hand. The records come from a reader (AgentMemory.Packs.CodeMap.Roslyn for C#).</Description>
+    <PackageTags>agent-memory;memory-pack;coding;code-map;scip</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The module's own version: the embedded manifest names the same, and ModuleManifest.Load refuses a mismatch. -->
+    <Version>0.1.0-preview.1</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="manifest.json" LogicalName="AgentMemory.Packs.CodeMap.agentmemory-module.json" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+  </ItemGroup>
+
+</Project>

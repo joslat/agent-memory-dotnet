@@ -1,0 +1,204 @@
+{
+  "format": "agentmemory.module/v1alpha1",
+  "id": "io.agentmemory.packs.codemap",
+  "version": "0.1.0-preview.1",
+  "sdk": "[0.1,0.2)",
+  "display": {
+    "title": "Code map",
+    "description": "This repository's projects, files, types and tests at a commit, read by the compiler. It lets memory find what governs the code in hand.",
+    "color": "#2F6B4F"
+  },
+  "ontology": {
+    "labelPrefix": "Codemap",
+    "types": [
+      {
+        "name": "CodemapProject",
+        "scope": "shared",
+        "description": "A project: one .csproj, or one SCIP package.",
+        "render": "Project {name} ({path})",
+        "properties": {
+          "name": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          },
+          "path": {
+            "type": "string",
+            "required": true,
+            "maxLength": 512
+          }
+        }
+      },
+      {
+        "name": "CodemapFile",
+        "scope": "shared",
+        "description": "A source file, by its repository-relative path.",
+        "render": "{path}",
+        "properties": {
+          "path": {
+            "type": "string",
+            "required": true,
+            "maxLength": 512,
+            "indexed": true
+          },
+          "language": {
+            "type": "string",
+            "maxLength": 32
+          }
+        }
+      },
+      {
+        "name": "CodemapSymbol",
+        "scope": "shared",
+        "description": "A type: class, record, struct, interface, enum or delegate.",
+        "render": "{kind} {fullName} ({file})",
+        "properties": {
+          "name": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200,
+            "indexed": true
+          },
+          "fullName": {
+            "type": "string",
+            "required": true,
+            "maxLength": 512
+          },
+          "kind": {
+            "type": "string",
+            "required": true,
+            "values": [
+              "class",
+              "record",
+              "struct",
+              "interface",
+              "enum",
+              "delegate"
+            ]
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "project": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "scip": {
+            "type": "string",
+            "required": true,
+            "maxLength": 600
+          },
+          "members": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Its public members' names, space-separated"
+          }
+        }
+      },
+      {
+        "name": "CodemapTest",
+        "scope": "shared",
+        "description": "A test method.",
+        "render": "Test {name} ({file})",
+        "properties": {
+          "name": {
+            "type": "string",
+            "required": true,
+            "maxLength": 400
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "framework": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "scip": {
+            "type": "string",
+            "required": true,
+            "maxLength": 600
+          }
+        }
+      }
+    ],
+    "relations": [
+      {
+        "name": "CODEMAP_IN_PROJECT",
+        "from": "CodemapFile",
+        "to": "CodemapProject",
+        "max": 1
+      },
+      {
+        "name": "CODEMAP_DEFINES",
+        "from": "CodemapFile",
+        "to": "CodemapSymbol"
+      },
+      {
+        "name": "CODEMAP_TESTS",
+        "from": "CodemapTest",
+        "to": "CodemapSymbol",
+        "max": 12
+      },
+      {
+        "name": "CODEMAP_DECLARED_IN",
+        "from": "CodemapTest",
+        "to": "CodemapFile",
+        "max": 1
+      },
+      {
+        "name": "CODEMAP_PROJECT_REFERENCES",
+        "from": "CodemapProject",
+        "to": "CodemapProject"
+      }
+    ]
+  },
+  "traversal": {
+    "anchors": [
+      {
+        "type": "CodemapFile",
+        "property": "path",
+        "match": "exact"
+      },
+      {
+        "type": "CodemapSymbol",
+        "property": "name",
+        "match": "exact",
+        "kind": "symbol"
+      },
+      {
+        "type": "CodemapSymbol",
+        "property": "scip",
+        "match": "exact",
+        "kind": "symbol"
+      }
+    ],
+    "relations": [
+      {
+        "name": "CODEMAP_DEFINES",
+        "direction": "out",
+        "weight": 0.9,
+        "fanOut": 16
+      },
+      {
+        "name": "CODEMAP_TESTS",
+        "direction": "in",
+        "weight": 0.8,
+        "fanOut": 6
+      },
+      {
+        "name": "CODEMAP_DECLARED_IN",
+        "direction": "in",
+        "weight": 0.85,
+        "fanOut": 6
+      }
+    ],
+    "hubs": [
+      "CodemapProject",
+      "CodemapFile",
+      "CodemapSymbol"
+    ],
+    "maxItems": 3
+  }
+}

@@ -125,6 +125,93 @@ public sealed class Neo4jModuleStore : IModuleStore
         catch (ModuleRecordRefusal refusal) { throw new KnowledgePackException([refusal.Message]); }
     }
 
+    /// <summary>Records one snapshot transaction writes; a first code map is far larger than one transaction should hold.</summary>
+    internal const int SnapshotBatch = 400;
+
+    /// <summary>
+    /// A host-generated snapshot (CMP-2a), in batches of <see cref="SnapshotBatch"/>, targets first: what changed is written, what
+    /// is equal stays as it was (links included), and what the snapshot no longer holds is closed, history kept. A failed batch
+    /// leaves the earlier ones written; importing the same snapshot again completes it.
+    /// </summary>
+    internal async Task<ModuleSnapshotResult> ImportSnapshotAsync(ModuleSnapshot snapshot, DateTimeOffset atUtc, CancellationToken cancellationToken)
+    {
+        var module = _resolution.Modules.Single(m => m.Id == snapshot.Module.Id);
+        var request = PackRequest(module.Id, atUtc);
+        var records = snapshot.ImportOrder();
+        try
+        {
+            var (live, state) = await _runner.ReadAsync(async transaction =>
+            {
+                await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
+                return (await PackLiveAsync(transaction, module, cancellationToken).ConfigureAwait(false),
+                    await SnapshotStateAsync(transaction, module, cancellationToken).ConfigureAwait(false));
+            }, cancellationToken).ConfigureAwait(false);
+            // A commit changes a few records of thousands: those whose properties and link targets are already stored are left
+            // without a write (the per-record path would reach the same no-op, a dozen queries later).
+            var pending = records.Where(r => !Same(module, r, state)).ToList();
+            int created = 0, changed = 0, unchanged = records.Count - pending.Count, closed = 0;
+            foreach (var batch in pending.Chunk(SnapshotBatch))
+                await _runner.WriteAsync(async transaction =>
+                {
+                    for (var index = 0; index < batch.Length; index++)
+                    {
+                        var outcome = await WriteOneAsync(transaction, module, request, new() { Index = index, Proposal = batch[index] }, atUtc, cancellationToken)
+                            .ConfigureAwait(false);
+                        if (outcome.Status == ProposalWriteStatus.NoOp) unchanged++;
+                        else if (live.ContainsKey((batch[index].Type, batch[index].Key))) changed++;
+                        else created++;
+                    }
+                    return batch.Length;
+                }, cancellationToken).ConfigureAwait(false);
+            var held = records.Select(r => (r.Type, r.Key)).ToHashSet();
+            foreach (var batch in live.Keys.Where(k => !held.Contains(k)).OrderBy(k => KeyId(module.Id, k.Type, null, k.Key), StringComparer.Ordinal).Chunk(SnapshotBatch))
+                closed += await _runner.WriteAsync(async transaction =>
+                {
+                    var count = 0;
+                    foreach (var key in batch)
+                        if (await CloseAsync(transaction, module, request, key, atUtc, cancellationToken).ConfigureAwait(false)) count++;
+                    return count;
+                }, cancellationToken).ConfigureAwait(false);
+            return new ModuleSnapshotResult { ModuleId = module.Id, Source = snapshot.Source, Created = created, Changed = changed, Unchanged = unchanged, Closed = closed };
+        }
+        catch (ModuleRecordRefusal refusal) { throw new KnowledgePackException([refusal.Message]); }
+    }
+
+    /// <summary>Every live record a snapshot wrote, by type and key: its stored properties and its links as (relation, target key).</summary>
+    private static async Task<Dictionary<(string Type, string Key), (Dictionary<string, object> Row, HashSet<(string, string)> Links)>> SnapshotStateAsync(
+        IAsyncQueryRunner runner, ModuleManifest module, CancellationToken cancellationToken)
+    {
+        var state = new Dictionary<(string, string), (Dictionary<string, object>, HashSet<(string, string)>)>();
+        foreach (var type in module.Ontology!.Types)
+        {
+            var relations = module.Ontology.Relations.Where(r => r.From == type.Name).Select(r => r.Name).ToArray();
+            foreach (var row in await RowsAsync(runner, ModuleRecordQueries.SnapshotState(type.Name), new { pack = module.Id, relations }, cancellationToken).ConfigureAwait(false))
+            {
+                var links = row["links"].As<List<object>>().OfType<List<object>>().Select(l => (l[0].As<string>(), l[1].As<string>())).ToHashSet();
+                state[(type.Name, row["key"].As<string>())] = (row["row"].As<Dictionary<string, object>>(), links);
+            }
+        }
+        return state;
+    }
+
+    // Equal to what is stored: every declared property (absent on both sides counts as equal) and the same links by target key.
+    // Date and time properties go through the per-record path, which compares them as the store does.
+    private static bool Same(ModuleManifest module, ModuleProposal proposal,
+        Dictionary<(string Type, string Key), (Dictionary<string, object> Row, HashSet<(string, string)> Links)> state)
+    {
+        if (!state.TryGetValue((proposal.Type, proposal.Key), out var stored)) return false;
+        var type = module.Ontology!.Types.Single(t => t.Name == proposal.Type);
+        foreach (var (name, property) in type.Properties)
+        {
+            if (property.Type is "date" or "datetime") return false;
+            var has = proposal.Properties.TryGetValue(name, out var value) && value.ValueKind != JsonValueKind.Null;
+            var kept = stored.Row.TryGetValue(name, out var current) && current is not null;
+            if (has != kept) return false;
+            if (has && !Equals(Scalar(value), current)) return false;
+        }
+        return stored.Links.SetEquals(proposal.Links.Select(l => (l.Relation, l.Target)));
+    }
+
     /// <summary>Closes every live record of a pack in one transaction; history stays.</summary>
     internal async Task<KnowledgePackImportResult> RemovePackAsync(string packId, DateTimeOffset atUtc, CancellationToken cancellationToken)
     {

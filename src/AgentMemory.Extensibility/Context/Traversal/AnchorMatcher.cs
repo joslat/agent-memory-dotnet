@@ -19,14 +19,19 @@ internal static class AnchorMatcher
     internal const double PrefixBase = 0.5;
 
     private static readonly char[] Separators = [' ', '\t', '\r', '\n', ',', ';'];
+    private static readonly char[] NameSeparators = ['\r', '\n', ',', ';'];
 
     /// <summary>The best match of one stored value against the anchors: its quality (0 for none), the anchor and the pattern.</summary>
     internal static (double Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors)
     {
         if (string.IsNullOrWhiteSpace(value)) return (0, null, null);
-        var patterns = match is ModuleAnchorMatch.Glob or ModuleAnchorMatch.Prefix
-            ? value.Split(Separators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            : [value.Trim()];
+        // Paths split on whitespace too; names do not, because a SCIP identity holds spaces.
+        var patterns = match switch
+        {
+            ModuleAnchorMatch.Glob or ModuleAnchorMatch.Prefix => value.Split(Separators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            ModuleAnchorMatch.Name => value.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            _ => [value.Trim()],
+        };
         (double Quality, string? Anchor, string? Pattern) best = (0, null, null);
         foreach (var anchor in anchors)
             foreach (var pattern in patterns)

@@ -88,27 +88,16 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             FromIds = [symbol.Id], FanOut = 2 }, lea);
         tests.Edges.Should().HaveCount(2).And.OnlyContain(e => e.To.Type == "TraceTest" && e.FromId == symbol.Id);
 
-        // The symbol changes in 1.1.0. The importer re-versions every record linked to it (the file and three tests), so the
-        // hops land on live versions.
+        // The symbol changes in 1.1.0; the file and the tests do not, so they are not re-versioned and their links still point
+        // at the symbol's first version. The out hop lands on the live symbol, and the in hop still finds every test.
         var v11 = TracePack("1.1.0", TraceSeed("Writes and closes module records"));
-        (await importer.ImportAsync(v11)).Changed.Should().Be(5);
-        var currentFile = (await reader.MatchAsync(new() { ModuleId = module, Type = "TraceFile", Property = "path", Match = ModuleAnchorMatch.Exact,
-            Values = ["src/Store/ModuleStore.cs"] }, lea)).Records.Single();
+        var upgrade = await importer.ImportAsync(v11);
+        upgrade.Changed.Should().Be(1);
+        upgrade.Unchanged.Should().Be(6);
         var live = (await reader.ExpandAsync(new() { ModuleId = module, Relation = "TRACE_DEFINES", Direction = ModuleTraversalDirection.Out,
-            FromIds = [currentFile.Id] }, lea)).Edges.Should().ContainSingle().Subject.To;
+            FromIds = [file.Id] }, lea)).Edges.Should().ContainSingle().Subject.To;
         live.Id.Should().NotBe(symbol.Id);
         live.Properties["summary"].GetString().Should().Be("Writes and closes module records");
-
-        // A writer that does not re-link leaves a live test pointing at the symbol's first version; the in hop still finds it,
-        // because it matches the target by key. (Set up directly: no SDK write path leaves such a link today.)
-        await fixture.TransactionRunner.WriteAsync(async runner =>
-        {
-            await runner.RunAsync("""
-                MATCH (t:TraceTest {key:'t-removal'}) WHERE t.invalidated_at IS NULL
-                MATCH (t)-[r:TRACE_TESTS]->() DELETE r
-                WITH t MATCH (old:TraceSymbol {id:$old}) CREATE (t)-[:TRACE_TESTS]->(old)
-                """, new { old = symbol.Id });
-        });
         (await reader.ExpandAsync(new() { ModuleId = module, Relation = "TRACE_TESTS", Direction = ModuleTraversalDirection.In,
             FromIds = [live.Id], FanOut = 8 }, lea)).Edges.Select(e => e.To.Key).Should().BeEquivalentTo(["t-removal", "t-downgrade", "t-upgrade"]);
 

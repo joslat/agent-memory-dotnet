@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="Version">
+
+  <PropertyGroup>
+    <RootNamespace>AgentMemory.Packs.Coding</RootNamespace>
+    <AssemblyName>AgentMemory.Packs.Coding</AssemblyName>
+    <Description>Experimental composite memory pack for AgentMemory for .NET: one pack made of the decisions, repository-experience and code map packs, with their priorities, so a coding host adds what governs the code in one call.</Description>
+    <PackageTags>agent-memory;memory-pack;coding;composite</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.1.0-preview.1</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentMemory.Packs.Decisions\AgentMemory.Packs.Decisions.csproj" />
+    <ProjectReference Include="..\AgentMemory.Packs.Repository\AgentMemory.Packs.Repository.csproj" />
+    <ProjectReference Include="..\AgentMemory.Packs.CodeMap\AgentMemory.Packs.CodeMap.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="composite.json" LogicalName="AgentMemory.Packs.Coding.agentmemory-composite.json" />
+  </ItemGroup>
+
+</Project>

@@ -54,3 +54,10 @@ PREVIEW:AgentMemory.Validation|src/AgentMemory.Validation/AgentMemory.Validation
 # package: a module carries its own version in its embedded manifest, and the preview line would restamp it at each
 # preview release. Publishing it waits for a module release line (the owner decides).
 HELD:AgentMemory.Packs.Repository
+
+# The code map memory pack and its C# reader (coding packs CMP-2a): held like the repository pack, until their trial on this
+# repository passes (owner decision 26 Oct: packs held until their trial passes).
+HELD:AgentMemory.Packs.CodeMap
+HELD:AgentMemory.Packs.CodeMap.Roslyn
+HELD:AgentMemory.Packs.Decisions
+HELD:AgentMemory.Packs.Coding

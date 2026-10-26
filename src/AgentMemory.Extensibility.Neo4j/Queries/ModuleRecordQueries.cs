@@ -37,6 +37,10 @@ internal static class ModuleRecordQueries
     // A knowledge pack's live records (Extensibility 0.13 §K3): what an import may close, and what its state reports.
     internal static string PackLive(string label) => "MATCH (n:`" + label + "`) WHERE n.source_pack=$pack AND n.invalidated_at IS NULL "
         + "RETURN n.key AS key, n.source_pack_version AS version";
+    // A snapshot's live records with their properties and links by target key (CMP-2a: one read instead of one per record).
+    internal static string SnapshotState(string label) => "MATCH (n:`" + label + "`) WHERE n.source_pack=$pack AND n.invalidated_at IS NULL "
+        + "OPTIONAL MATCH (n)-[r]->(t) WHERE type(r) IN $relations "
+        + "RETURN n.key AS key, properties(n) AS row, collect(CASE WHEN r IS NULL THEN null ELSE [type(r), t.key] END) AS links";
     internal static string Invalidate(string label) => "MATCH (n:`" + label + "` {id:$id}) SET n.invalidated_at=datetime($now) "
         + "WITH n MATCH (k:ModuleKey {id:$keyId}) SET k.current_id=null RETURN n.id AS id";
     internal static string Supersede(string label) => "MATCH (old:`" + label + "` {id:$previous}), (n:`" + label + "` {id:$id}) "

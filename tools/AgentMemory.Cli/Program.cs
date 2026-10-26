@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -34,6 +34,28 @@ if (string.Equals(cli.Command, "routing-score", StringComparison.OrdinalIgnoreCa
 {
     return new AgentMemory.Cli.Commands.RoutingScoreCommand(Console.Out)
         .Execute(cli.Get("set"), cli.Get("split"), cli.Get("policy"), cli.HasFlag("misses"));
+}
+
+// codemap scan reads a repository with Roslyn offline; codemap import goes through the host below (CMP-2a).
+if (string.Equals(cli.Command, "codemap", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
+{
+    if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("error: codemap needs scan or import.");
+        return 2;
+    }
+    return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"));
+}
+
+// decisions scan reads ADR files and Squad's log offline; decisions import goes through the host below (CMP-3).
+if (string.Equals(cli.Command, "decisions", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
+{
+    if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("error: decisions needs scan or import.");
+        return 2;
+    }
+    return new AgentMemory.Cli.Commands.DecisionsCommand(Console.Out).Scan(cli.Get("root"));
 }
 
 // packs signs and verifies bundles offline: no store, no model, no network (Extensibility 0.13 §K6).
@@ -232,6 +254,10 @@ try
 
     return cli.Command.ToLowerInvariant() switch
     {
+        "decisions" => await new AgentMemory.Cli.Commands.DecisionsCommand(output)
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
+        "codemap" => await new AgentMemory.Cli.Commands.CodeMapCommand(output)
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
         "modules" => await new ModulesCommand(
             sp.GetRequiredService<INeo4jTransactionRunner>(), output).ExecuteAsync(moduleInput!),
         "migrate" => await new MigrateCommand(

@@ -17,6 +17,11 @@ internal sealed record CodingModulesOptions
 {
     /// <summary>Compose the repository-experience pack: a model writes lessons after each remembered turn.</summary>
     public bool Repository { get; init; }
+    /// <summary>
+    /// Compose the Coding composite (KP-composite): decisions, repository experience and the code map, decisions first. It
+    /// includes the repository pack. Code map and decision records come from <c>codemap import</c> and <c>decisions import</c>.
+    /// </summary>
+    public bool Coding { get; init; }
     /// <summary>Signed knowledge packs to import into every project and search: bundle folders or .nupkg files, at most 8.</summary>
     public IReadOnlyList<string> Packs { get; init; } = [];
     /// <summary>Developer public keys (PEM files) trusted for packs besides the official key; at most 4.</summary>
@@ -28,8 +33,8 @@ internal sealed record CodingModulesOptions
     {
         if (Packs is not { Count: <= 8 } || DeveloperKeys is not { Count: <= 4 } || MaxItems is < 1 or > 32
             || Packs.Concat(DeveloperKeys).Any(p => string.IsNullOrWhiteSpace(p) || p.Length > 1024 || p.Any(char.IsControl))
-            || (!Repository && Packs.Count == 0))
-            throw new ArgumentException("Coding modules need the repository pack or 1-8 pack paths, at most 4 developer keys and 1-32 items.");
+            || (!Repository && !Coding && Packs.Count == 0))
+            throw new ArgumentException("Coding modules need the coding or repository pack or 1-8 pack paths, at most 4 developer keys and 1-32 items.");
     }
 
     /// <summary>Opens and verifies every configured pack; a pack that is unsigned, changed or untrusted stops startup.</summary>

@@ -51,6 +51,8 @@
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility.Neo4j\AgentMemory.Extensibility.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Repository\AgentMemory.Packs.Repository.csproj" />
+    <!-- KP-composite: the Coding composite (decisions, repository, code map); held packages that ship inside this tool. -->
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Coding\AgentMemory.Packs.Coding.csproj" />
   </ItemGroup>
 
 </Project>

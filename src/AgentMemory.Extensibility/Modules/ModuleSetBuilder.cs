@@ -36,6 +36,24 @@ public sealed class ModuleSetBuilder
     public ModuleSetBuilder Add<TModule>() where TModule : IAgentMemoryModule, new() =>
         Add(ModuleManifest.Load(typeof(TModule).Assembly), new TModule().Configure);
 
+    /// <summary>
+    /// Adds a composite pack (KP-composite): every member its manifest names, each with its priority, the ones switched off
+    /// left out. <paramref name="configure"/> lets the host switch members and move them in the stack.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The composite adds a module it does not name, a version outside its range,
+    /// or leaves a named member out; or the host names a member it does not have.</exception>
+    public ModuleSetBuilder AddComposite<TComposite>(Action<CompositeOptions>? configure = null) where TComposite : IAgentMemoryComposite, new()
+    {
+        var manifest = CompositeManifest.Load(typeof(TComposite).Assembly);
+        if (manifest.Validate() is { Count: > 0 } problems) throw new InvalidOperationException(string.Join(" ", problems));
+        var options = new CompositeOptions();
+        configure?.Invoke(options);
+        var members = new CompositeMembers(this, manifest, options);
+        new TComposite().AddMembers(members);
+        members.Complete();
+        return this;
+    }
+
     /// <summary>Adds a module from its manifest and a configuration delegate, the same path as a module entry.</summary>
     public ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure)
     {

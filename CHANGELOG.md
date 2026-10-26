@@ -6,6 +6,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental composite packs: a pack made of packs (`composite.json`, format `agentmemory.composite/v1alpha1`,
+  `IAgentMemoryComposite`, `ModuleSetBuilder.AddComposite<T>()`). A composite names its members with version ranges, the
+  priority each takes and whether it starts on; it holds nothing of its own, and one level only. The SDK refuses a member the
+  manifest does not name, a version outside its range, or a named member left out; a host can switch members and move them.
+  First composite: `AgentMemory.Packs.Coding` (held): decisions, repository experience and the code map. Coding mode:
+  `"modules": { "coding": true }`.
+- Add the experimental decisions memory pack (`src/AgentMemory.Packs.Decisions`, held): decisions read deterministically
+  from ADR and MADR files and Squad's `.squad/decisions.md` (dated, D-numbered or directive entries; reviews skipped). Each
+  decision applies to the files and types its text mentions (`appliesTo`, `mentions`), found with a code index, so traversal
+  brings it up with that code; a superseded decision applies to nothing. A search view finds decisions by the question.
+  CLI: `decisions scan` and `decisions import`.
+
+- Add the experimental code map memory pack (`src/AgentMemory.Packs.CodeMap`, held) and its C# reader
+  (`src/AgentMemory.Packs.CodeMap.Roslyn`, held): a repository's projects, files, types and test methods at a commit,
+  keyed by SCIP symbols (`scip-dotnet nuget Assembly . Ns/Type#`, version slot empty so keys survive releases). The reader
+  uses the Roslyn compiler without MSBuild or a build: one compilation per project against the runtime's reference
+  assemblies, so in-repo types resolve exactly; each test links to the in-repo types its method touches outside its own
+  project. The pack declares traversal, so the file or symbol in hand leads to the tests that exercise it. CLI:
+  `codemap scan --root <repo>` (offline) and `codemap import --root <repo> [--source git:<sha>]`.
+- Add experimental module snapshots (`ModuleSnapshot`, `IModuleSnapshotStore`, Neo4j `Neo4jModuleSnapshotStore`): a
+  host-generated, complete set of a data module's records at one source version. Import writes only what changed, closes
+  what disappeared (history kept), in batches; records carry the source and the snapshot digest as provenance. One read
+  per type first finds the records already stored as they are: on this repository (12,328 records) a first import takes
+  about 3.5 minutes and an unchanged commit about 2 seconds.
+- Change: a module record whose link target only gained a new version is no longer re-versioned itself. A link counts as
+  changed when its live target changes, the target closes, or the link is added or dropped. Readers already followed a
+  link to its target's live version. (A knowledge pack upgrade no longer churns every record linked to a changed one.)
+
 - Add experimental traversal context: from the files and symbols of the work in hand to the records that govern them.
   A request carries `Anchors` (repository paths or symbols); a module manifest may declare `traversal`: anchor properties
   (matched exactly, by folder prefix, by glob, or by symbol name), owned links a walk may follow in or out with a weight
