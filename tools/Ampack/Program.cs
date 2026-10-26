@@ -29,7 +29,10 @@ internal static class Program
                                  pin every member's id, version and digest in META/lock.json
           migrate <bundle-folder|manifest.json> --out <folder>
                                  turn a module bundle (manifest.json, seed files, icon) into a v1.2 pack folder:
-                                 a knowledge pack when it seeds records, a definition pack when it only declares
+                                 a knowledge pack when it seeds records, a definition pack when it only declares,
+                                 a composite pack for a composite manifest (then: ampack lock, ampack build)
+          set <out.ampack> <member.ampack>... --id <id> --version <v> --key <private.pem>
+                                 one archive carrying complete packs side by side, signed as a whole
         """;
 
     internal static int Main(string[] args)
@@ -49,6 +52,7 @@ internal static class Program
                 "keygen" => Keygen(options),
                 "lock" => Lock(options),
                 "migrate" => Migrate(options),
+                "set" => Set(options),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}", 2),
             };
         }
@@ -182,9 +186,21 @@ internal static class Program
         var policy = TrustPolicy.Parse(File.ReadAllBytes(o.Required("policy")));
         var ledgerPath = o.Value("ledger");
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
-        var result = PackVerifier.Verify(PackReader.Read(target), policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"));
+        var content = PackReader.Read(target);
+        var result = PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"));
         if (!result.IsVerified) return Report(result.Problems, "");
         var pack = result.Pack!;
+        if (pack.Manifest.Kind == "set")
+        {
+            // A set verifies as a whole and member by member: each keeps its own list and signatures.
+            var (_, members) = PackVerifier.VerifySet(content, policy, DateTimeOffset.UtcNow);
+            var refused = members.Where(m => !m.Value.IsVerified).SelectMany(m => m.Value.Problems.Select(p => $"packs/{m.Key}/: {p}")).ToList();
+            if (refused.Count > 0) return Report(refused, "");
+            Console.WriteLine($"Verified set {pack.Id} {pack.Version}\n  digest  {pack.Digest}");
+            foreach (var (id, member) in members.OrderBy(m => m.Key, StringComparer.Ordinal))
+                Console.WriteLine($"  member  {id} {member.Pack!.Version} ({member.Pack.Manifest.Kind}) {member.Pack.Digest}");
+            return 0;
+        }
         Console.WriteLine($"Verified {pack.Id} {pack.Version}\n  digest  {pack.Digest}\n  kind    {pack.Manifest.Kind}, tier {pack.Manifest.Tier}");
         foreach (var s in pack.Signatures) Console.WriteLine($"  signed  {s.Role} by {Dsse.Short(s.KeyId)} at {s.SignedAt:u}");
         if (o.Flag("record") && ledger is not null && ledgerPath is not null)
@@ -248,6 +264,29 @@ internal static class Program
         var sorted = new JsonArray([.. members.OrderBy(m => m!["id"]!.GetValue<string>(), StringComparer.Ordinal).Select(m => m!.DeepClone())]);
         Write(folder, PackPaths.LockFile, Encoding.UTF8.GetString(Jcs.Canonical(new JsonObject { ["format"] = "agentmemory.pack.lock/1.1", ["members"] = sorted })));
         Console.WriteLine($"Locked {sorted.Count} members in {Path.Combine(folder, PackPaths.LockFile)}. Rebuild and sign the composite.");
+        return 0;
+    }
+
+    private static int Set(Options o)
+    {
+        var output = o.Positional(0, "output .ampack");
+        var id = o.Required("id");
+        if (!PackManifest.IsValidId(id)) throw new UsageException($"'{id}' is not a reverse-DNS id.");
+        var version = o.Value("version") ?? "0.1.0";
+        var members = new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal);
+        foreach (var path in o.PositionalFrom(1))
+        {
+            var content = PackReader.Read(path);
+            var integrity = PackVerifier.CheckIntegrity(content);
+            if (integrity.Problems.Count > 0) return Report(integrity.Problems.Select(p => $"{path}: {p}"), "");
+            if (!content.Files.Keys.Any(PackPaths.IsSignature)) return Report([$"{path}: a set carries signed members only."], "");
+            if (!members.TryAdd(integrity.List!.Id, content.Files)) return Report([$"{integrity.List.Id} is given twice."], "");
+        }
+        if (members.Count == 0) throw new UsageException("A set carries at least one member.");
+        var (files, _) = PackBuilder.Build(PackSets.Source(id, version, members));
+        PackBuilder.Sign(files, File.ReadAllText(o.Required("key")), o.Value("role") ?? "publisher", SigningTime());
+        File.WriteAllBytes(output, PackBuilder.Pack(files, compress: !o.Flag("stored")));
+        Console.WriteLine($"Set {id} {version}: {members.Count} members\n  digest  {FilesList.DigestOf(files[PackPaths.FilesList])}\n  wrote   {output}");
         return 0;
     }
 

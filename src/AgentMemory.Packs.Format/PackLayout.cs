@@ -23,7 +23,9 @@ internal static class PackLayout
     internal const string Tests = "evals/tests.json";
     internal const string Records = "records/";
     internal const string Assets = "assets/";
+    internal const string Members = "members.json";
     internal const string ModuleFormat = "agentmemory.module/v1alpha1";
+    internal const string CompositeFormat = "agentmemory.composite/v1alpha1";
     internal const string ModuleManifestFile = "manifest.json";
 
     private static readonly JsonWriterOptions Pretty = new() { Indented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
@@ -65,7 +67,8 @@ internal static class PackLayout
     internal static Dictionary<string, byte[]> FromModule(IReadOnlyDictionary<string, byte[]> bundle)
     {
         var module = Object(bundle, ModuleManifestFile) ?? throw new InvalidDataException($"There is no {ModuleManifestFile}.");
-        if (module["format"]?.GetValue<string>() != ModuleFormat) throw new InvalidDataException($"{ModuleManifestFile} is not a {ModuleFormat} manifest.");
+        if (module["format"]?.GetValue<string>() == CompositeFormat) return FromComposite(module);
+        if (module["format"]?.GetValue<string>() != ModuleFormat) throw new InvalidDataException($"{ModuleManifestFile} is not a {ModuleFormat} or {CompositeFormat} manifest.");
         var seedFiles = module["seed"] is JsonArray seed ? seed.Select(s => s!.GetValue<string>()).ToList() : null;
         var pack = new JsonObject
         {
@@ -106,6 +109,45 @@ internal static class PackLayout
         if (iconFrom is not null)
             files[iconTo!] = bundle.TryGetValue(iconFrom, out var image) ? image : throw new InvalidDataException($"The icon '{iconFrom}' is missing.");
         return files;
+    }
+
+    /// <summary>A composite manifest as a v1.2 composite pack: <c>pack.json</c> (kind composite) and <c>members.json</c>; the lock comes from its members.</summary>
+    private static Dictionary<string, byte[]> FromComposite(JsonObject composite)
+    {
+        var members = composite["members"] as JsonArray ?? throw new InvalidDataException("A composite names its members.");
+        var pack = new JsonObject
+        {
+            ["format"] = PackManifest.Format,
+            ["id"] = composite["id"]!.GetValue<string>(),
+            ["version"] = composite["version"]!.GetValue<string>(),
+            ["kind"] = "composite",
+            ["contains"] = new JsonArray([.. members.Select(m => (JsonNode)m!["id"]!.GetValue<string>())]),
+        };
+        if (composite["display"] is { } display) pack["display"] = display.DeepClone();
+        pack["tier"] = "open";
+        pack["protection"] = "open";
+        pack["code"] = "E0";
+        return new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            [PackManifest.FileName] = Write(pack),
+            [Members] = Write(new JsonObject { ["members"] = members.DeepClone() }),
+        };
+    }
+
+    /// <summary>The host's composite manifest for a verified composite pack.</summary>
+    internal static byte[] ToComposite(IReadOnlyDictionary<string, byte[]> files)
+    {
+        var pack = Object(files, PackManifest.FileName) ?? throw new InvalidDataException($"There is no {PackManifest.FileName}.");
+        var members = Object(files, Members) ?? throw new InvalidDataException($"A composite pack carries {Members}.");
+        var composite = new JsonObject
+        {
+            ["format"] = CompositeFormat,
+            ["id"] = pack["id"]!.GetValue<string>(),
+            ["version"] = pack["version"]!.GetValue<string>(),
+        };
+        if (pack["display"] is { } display) composite["display"] = display.DeepClone();
+        composite["members"] = members["members"]?.DeepClone() ?? throw new InvalidDataException($"{Members} names no members.");
+        return Write(composite);
     }
 
     /// <summary>JSON Lines as the profile wants them: no byte order mark, LF only, a final LF, no blank lines.</summary>

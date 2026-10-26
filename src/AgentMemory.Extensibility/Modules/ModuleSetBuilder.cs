@@ -43,14 +43,23 @@ public sealed class ModuleSetBuilder
     /// </summary>
     /// <exception cref="InvalidOperationException">The composite adds a module it does not name, a version outside its range,
     /// or leaves a named member out; or the host names a member it does not have.</exception>
-    public ModuleSetBuilder AddComposite<TComposite>(Action<CompositeOptions>? configure = null) where TComposite : IAgentMemoryComposite, new()
+    public ModuleSetBuilder AddComposite<TComposite>(Action<CompositeOptions>? configure = null) where TComposite : IAgentMemoryComposite, new() =>
+        AddComposite(CompositeManifest.Load(typeof(TComposite).Assembly), members => new TComposite().AddMembers(members), configure);
+
+    /// <summary>
+    /// Adds a composite from its manifest and a delegate that adds its members: the same checks as a composite assembly, for a
+    /// composite that arrives as data, such as a v1.2 composite memory pack whose members are packs.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">As <see cref="AddComposite{TComposite}"/>.</exception>
+    public ModuleSetBuilder AddComposite(CompositeManifest manifest, Action<CompositeMembers> addMembers, Action<CompositeOptions>? configure = null)
     {
-        var manifest = CompositeManifest.Load(typeof(TComposite).Assembly);
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(addMembers);
         if (manifest.Validate() is { Count: > 0 } problems) throw new InvalidOperationException(string.Join(" ", problems));
         var options = new CompositeOptions();
         configure?.Invoke(options);
         var members = new CompositeMembers(this, manifest, options);
-        new TComposite().AddMembers(members);
+        addMembers(members);
         members.Complete();
         return this;
     }

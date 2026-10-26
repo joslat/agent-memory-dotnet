@@ -60,5 +60,6 @@
     <None Include="../../src/AgentMemory.Packs.Decisions/manifest.json" Link="Packs/Decisions/manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../src/AgentMemory.Packs.Work/manifest.json" Link="Packs/Work/manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../src/AgentMemory.Packs.Repository/manifest.json" Link="Packs/Repository/manifest.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/AgentMemory.Packs.Coding/composite.json" Link="Packs/Coding/composite.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

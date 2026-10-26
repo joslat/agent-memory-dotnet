@@ -96,7 +96,7 @@ internal static class PackVerifier
                 problems.Add($"{PackManifest.FileName} names {manifest.Id} {manifest.Version}, but {PackPaths.FilesList} names {list.Id} {list.Version}.");
             else
             {
-                problems.AddRange(KindProblems(manifest, content.Files.Keys));
+                problems.AddRange(KindProblems(manifest, content.Files));
                 if (problems.Count == 0) return (problems, list, listBytes, manifest);
             }
         }
@@ -104,10 +104,10 @@ internal static class PackVerifier
     }
 
     /// <summary>What each kind must and must not hold (v1.2 §3).</summary>
-    private static IEnumerable<string> KindProblems(PackManifest manifest, IEnumerable<string> paths)
+    private static IEnumerable<string> KindProblems(PackManifest manifest, IReadOnlyDictionary<string, byte[]> files)
     {
-        var records = PackLayout.RecordFiles(paths).Count;
-        var all = paths.ToList();
+        var records = PackLayout.RecordFiles(files.Keys).Count;
+        var all = files.Keys.ToList();
         switch (manifest.Kind)
         {
             case "knowledge" or "snapshot" when records == 0:
@@ -123,8 +123,59 @@ internal static class PackVerifier
                 yield return "A pack set carries its members under packs/.";
                 break;
         }
+        if (manifest.Kind == "composite" && all.Contains(PackPaths.LockFile))
+            foreach (var problem in CompositeProblems(manifest, files)) yield return problem;
         if (manifest.Protection != "open" && !all.Contains("META/seal.json"))
             yield return $"A pack marked {manifest.Protection} must carry META/seal.json.";
+    }
+
+    /// <summary>A composite names the same members in pack.json, members.json and its lock (v1.2 §5).</summary>
+    private static IEnumerable<string> CompositeProblems(PackManifest manifest, IReadOnlyDictionary<string, byte[]> files)
+    {
+        var (entries, lockProblem) = PackLock.Parse(files[PackPaths.LockFile]);
+        if (entries is null) { yield return lockProblem!; yield break; }
+        if (!files.TryGetValue(PackLayout.Members, out var membersBytes)) { yield return $"A composite pack carries {PackLayout.Members}."; yield break; }
+        if (MemberIds(membersBytes) is not { } named) { yield return $"{PackLayout.Members} is malformed."; yield break; }
+        var contains = manifest.Contains.Order(StringComparer.Ordinal).ToList();
+        if (!named.Order(StringComparer.Ordinal).SequenceEqual(contains))
+            yield return $"{PackLayout.Members} and {PackManifest.FileName} name different members.";
+        if (!entries.Select(e => e.Id).Order(StringComparer.Ordinal).SequenceEqual(contains))
+            yield return $"{PackPaths.LockFile} pins other members than the composite contains.";
+    }
+
+    private static string[]? MemberIds(byte[] membersBytes)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(membersBytes);
+            return [.. document.RootElement.GetProperty("members").EnumerateArray().Select(m => m.GetProperty("id").GetString()!)];
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException) { return null; }
+    }
+
+    /// <summary>
+    /// A pack set and each of its members, verified independently: the set's own signature binds the members together, and
+    /// each member keeps its own list and signatures (v1.2 §5).
+    /// </summary>
+    internal static (PackVerification Set, IReadOnlyDictionary<string, PackVerification> Members) VerifySet(PackContent content, TrustPolicy policy,
+        DateTimeOffset now, HostLedger? ledger = null)
+    {
+        var set = Verify(content, policy, now);
+        var members = new Dictionary<string, PackVerification>(StringComparer.Ordinal);
+        if (set.Pack is not { } outer) return (set, members);
+        if (outer.Manifest.Kind != "set") return (new PackVerification(null, [$"{outer.Id} is a {outer.Manifest.Kind} pack, not a set."]), members);
+        Dictionary<string, Dictionary<string, byte[]>> split;
+        try { split = PackSets.Members(content.Files); }
+        catch (InvalidDataException e) { return (new PackVerification(null, [e.Message]), members); }
+        if (!split.Keys.Order(StringComparer.Ordinal).SequenceEqual(outer.Manifest.Contains.Order(StringComparer.Ordinal)))
+            return (new PackVerification(null, ["The set's pack.json names other members than it carries."]), members);
+        foreach (var (id, files) in split)
+        {
+            var member = Verify(new PackContent(files, content.Source + "#" + id), policy, now, ledger);
+            members[id] = member.Pack is { } verified && verified.Id != id
+                ? new PackVerification(null, [$"The member in packs/{id}/ is {verified.Id}."]) : member;
+        }
+        return (set, members);
     }
 
     /// <summary>The usual reasons a checked-out pack stops matching its list.</summary>

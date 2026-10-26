@@ -230,6 +230,15 @@ public sealed class CompositeMembers
         return this;
     }
 
+    /// <summary>Adds a member from its manifest and a configuration delegate, such as a definition pack, which runs no code.</summary>
+    public CompositeMembers Add(ModuleManifest manifest, Action<IModuleBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(configure);
+        if (Admit(manifest) is { } priority) _builder.Add(manifest, configure).Prioritize(manifest.Id, priority);
+        return this;
+    }
+
     /// <summary>Adds a verified knowledge pack member.</summary>
     public CompositeMembers AddKnowledgePack(Packs.KnowledgePack pack)
     {

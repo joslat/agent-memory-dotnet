@@ -114,7 +114,7 @@ public static class PackLoader
         return Load(content, trust, ledger, allowDowngrade);
     }
 
-    private static LoadedPack Load(PackContent content, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade)
+    internal static LoadedPack Load(PackContent content, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade)
     {
         ArgumentNullException.ThrowIfNull(trust);
         var verification = PackVerifier.Verify(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger, allowDowngrade);
