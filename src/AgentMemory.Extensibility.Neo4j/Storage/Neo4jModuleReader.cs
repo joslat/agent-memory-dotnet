@@ -138,7 +138,7 @@ public sealed class Neo4jModuleReader : IModuleReader
         return links.OrderBy(l => l.Relation, StringComparer.Ordinal).ThenBy(l => l.TargetId, StringComparer.Ordinal).ToList().AsReadOnly();
     }
 
-    private static ModuleRecord Record(string moduleId, ModuleType type, IReadOnlyDictionary<string, object> row, IReadOnlyList<ModuleRecordLink> links) => new()
+    internal static ModuleRecord Record(string moduleId, ModuleType type, IReadOnlyDictionary<string, object> row, IReadOnlyList<ModuleRecordLink> links) => new()
     {
         ModuleId = moduleId, Type = type.Name, Id = Text(row, "id") ?? throw new ModuleRecordRefusal("Stored record has no identity."),
         Key = Text(row, "key") ?? throw new ModuleRecordRefusal("Stored record has no logical key."), OwnerId = Text(row, "owner_id"),

@@ -37,6 +37,9 @@ public sealed record ModuleManifest
     /// <summary>How a host shows the module or pack: title, description, icon and colour (Extensibility 0.13 §D). Optional.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public ModuleDisplay? Display { get; init; }
+    /// <summary>How the module joins traversal context: anchor properties, traversable links, offered records (CMP-1). Optional.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleTraversal? Traversal { get; init; }
     /// <summary>Whether this manifest declares a knowledge pack (it has seed files).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsKnowledgePack => Seed is not null;

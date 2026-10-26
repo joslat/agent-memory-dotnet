@@ -266,7 +266,7 @@ public sealed class CodingTransportTests
         initialized.GetProperty("result").GetProperty("protocolVersion").GetString().Should().Be("2025-06-18");
         var tools = await fixture.Rpc("tools/list", new { });
         tools.GetProperty("result").GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString())
-            .Should().BeEquivalentTo("recall", "remember", "forget", "history", "profile", "write_status");
+            .Should().BeEquivalentTo("recall", "governs", "remember", "forget", "history", "profile", "write_status");
         var called = await fixture.Rpc("tools/call", new { name = "profile", arguments = new { } });
         called.GetProperty("result").GetProperty("isError").GetBoolean().Should().BeFalse();
         await fixture.Profile.Received(1).GetAsync("owner", Arg.Any<CancellationToken>());

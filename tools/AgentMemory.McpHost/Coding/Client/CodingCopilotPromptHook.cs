@@ -8,7 +8,7 @@ namespace AgentMemory.McpHost.Coding.Client;
 
 /// <summary>Explicit native Copilot prompt transformation. Reads memory; never captures a turn or opens a transcript.</summary>
 internal sealed class CodingCopilotPromptHook(CodingHookOptions options, CodingContentPolicy policy,
-    HttpClient client, Func<string, CancellationToken, Task<string>> commit)
+    HttpClient client, Func<string, CancellationToken, Task<string>> commit, Func<string, CancellationToken, Task<string>>? status = null)
 {
     public async Task<CodingHookReply> HandleAsync(JsonElement input, CancellationToken cancellationToken = default)
     {
@@ -32,8 +32,10 @@ internal sealed class CodingCopilotPromptHook(CodingHookOptions options, CodingC
         _ = await commit(cwd, cancellationToken).ConfigureAwait(false);
         session = "copilot:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(session)));
         // Only the user query reaches the memory service, never runtime-expanded files or instructions.
+        var anchors = await CodingHookAnchors.FindAsync(prompt, cwd, status, policy, cancellationToken).ConfigureAwait(false);
+        object body = anchors.Count == 0 ? new { session, query = prompt } : new { session, query = prompt, anchors };
         var response = await new CodingHookHttp(options, client)
-            .PostAsync("recall", new { session, query = prompt }, HttpStatusCode.OK, cancellationToken).ConfigureAwait(false);
+            .PostAsync("recall", body, HttpStatusCode.OK, cancellationToken).ConfigureAwait(false);
         var context = CodingHookContext.Render(response, false, policy);
         if (context.Length == 0) return new();
         var reply = new CodingHookReply

@@ -17,7 +17,7 @@ internal static class ModuleManifestReader
 
     private static ModuleManifest Read(JsonElement root)
     {
-        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views", "seed", "display");
+        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views", "seed", "display", "traversal");
         var format = Text(root, "format", "$");
         if (format != "agentmemory.module/v1alpha1") throw Error("$.format", "unsupported module format");
         var id = Text(root, "id", "$");
@@ -52,7 +52,55 @@ internal static class ModuleManifestReader
             Ontology = root.TryGetProperty("ontology", out var ontology) ? Ontology(ontology, "$.ontology") : null,
             Views = Array(root, "views", "$", View),
             Seed = root.TryGetProperty("seed", out var seed) ? Strings(seed, "$.seed") : null,
-            Display = root.TryGetProperty("display", out var display) ? Display(display, "$.display") : null
+            Display = root.TryGetProperty("display", out var display) ? Display(display, "$.display") : null,
+            Traversal = root.TryGetProperty("traversal", out var traversal) ? Traversal(traversal, "$.traversal") : null
+        };
+    }
+
+    private static ModuleTraversal Traversal(JsonElement value, string path)
+    {
+        Object(value, path, "anchors", "relations", "hubs", "maxItems");
+        return new ModuleTraversal
+        {
+            Anchors = Array(value, "anchors", path, TraversalAnchor), Relations = Array(value, "relations", path, TraversalRelation),
+            Hubs = value.TryGetProperty("hubs", out var hubs) ? Strings(hubs, path + ".hubs") : [],
+            MaxItems = PositiveInteger(value, "maxItems", path) ?? 4
+        };
+    }
+
+    private static ModuleTraversalAnchor TraversalAnchor(JsonElement value, string path)
+    {
+        Object(value, path, "type", "property", "match", "kind");
+        return new ModuleTraversalAnchor
+        {
+            Type = Text(value, "type", path), Property = Text(value, "property", path),
+            Match = (OptionalText(value, "match", path) ?? "exact") switch
+            {
+                "exact" => ModuleAnchorMatch.Exact, "prefix" => ModuleAnchorMatch.Prefix,
+                "glob" => ModuleAnchorMatch.Glob, "name" => ModuleAnchorMatch.Name,
+                _ => throw Error(path + ".match", "expected exact, prefix, glob or name")
+            },
+            Kind = (OptionalText(value, "kind", path) ?? "path") switch
+            {
+                "path" => Context.ContextAnchorKind.Path, "symbol" => Context.ContextAnchorKind.Symbol,
+                _ => throw Error(path + ".kind", "expected path or symbol")
+            }
+        };
+    }
+
+    private static ModuleTraversalRelation TraversalRelation(JsonElement value, string path)
+    {
+        Object(value, path, "name", "direction", "weight", "fanOut");
+        var weight = Number(value, "weight", path);
+        return new ModuleTraversalRelation
+        {
+            Name = Text(value, "name", path),
+            Direction = (OptionalText(value, "direction", path) ?? "out") switch
+            {
+                "out" => ModuleTraversalDirection.Out, "in" => ModuleTraversalDirection.In,
+                _ => throw Error(path + ".direction", "expected out or in")
+            },
+            Weight = weight is { } w ? w.GetDouble() : 0.8, FanOut = PositiveInteger(value, "fanOut", path) ?? 8
         };
     }
 

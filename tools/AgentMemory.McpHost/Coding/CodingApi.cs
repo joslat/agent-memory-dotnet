@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AgentMemory.Abstractions.Domain;
+#pragma warning disable AMEXT001 // CMP-1 anchors come from the Extensibility preview.
+using AgentMemory.Extensibility.Context;
 using AgentMemory.McpServer.Tools;
 
 namespace AgentMemory.McpHost.Coding;
@@ -40,7 +42,8 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
                 case "recall":
                     var recall = Read<RecallInput>(arguments);
                     var started = receipts is null ? 0L : Stopwatch.GetTimestamp();
-                    var recalled = await memory.RecallWithModulesAsync(identity, recall.Session, recall.Query, cancellationToken).ConfigureAwait(false);
+                    var recalled = await memory.RecallWithModulesAsync(identity, recall.Session, recall.Query, CodingAnchors.From(recall.Anchors),
+                        cancellationToken).ConfigureAwait(false);
                     var result = recalled.Result;
                     if (receipts is not null)
                     {
@@ -58,6 +61,15 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
                             context = McpMemoryProjection.Context(result.Context), modules = items })
                         : new(200, new { result.TotalItemsRetrieved, result.Truncated, result.EstimatedTokenCount,
                             context = McpMemoryProjection.Context(result.Context) });
+                case "governs":
+                    // CMP-1: recall whose question is the anchors themselves, so the gate weighs what governs them.
+                    var governs = Read<GovernsInput>(arguments);
+                    var anchors = CodingAnchors.From(governs.Anchors);
+                    if (anchors.Count == 0) return Error(400, "invalid_input");
+                    var governed = await memory.RecallWithModulesAsync(identity, governs.Session, CodingAnchors.Question(anchors), anchors,
+                        cancellationToken).ConfigureAwait(false);
+                    return new(200, new { anchors = anchors.Select(a => new { kind = a.Kind == ContextAnchorKind.Path ? "path" : "symbol", value = a.Value }),
+                        modules = governed.Modules ?? [], context = McpMemoryProjection.Context(governed.Result.Context) });
                 case "recall_status" when receipts is not null:
                     var lookup = Read<RecallStatusInput>(arguments);
                     var observation = receipts.Get(identity, lookup.Session, lookup.RecallId);
@@ -99,7 +111,13 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
     private static T Read<T>(JsonElement value) => value.Deserialize<T>(Json) ?? throw new JsonException();
     private static CodingApiResult Error(int status, string code) => new(status, new { error = code });
 
-    private sealed record RecallInput { public required string Session { get; init; } public required string Query { get; init; } }
+    private sealed record RecallInput
+    {
+        public required string Session { get; init; }
+        public required string Query { get; init; }
+        public IReadOnlyList<CodingAnchorInput>? Anchors { get; init; }
+    }
+    private sealed record GovernsInput { public required string Session { get; init; } public required IReadOnlyList<CodingAnchorInput> Anchors { get; init; } }
     private sealed record ForgetInput { public required MemoryHistoryKind Kind { get; init; } public required string Id { get; init; } }
     private sealed record HistoryInput { public string? Id { get; init; } }
     private sealed record StatusInput { public required string JobId { get; init; } }

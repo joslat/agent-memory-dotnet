@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add experimental traversal context: from the files and symbols of the work in hand to the records that govern them.
+  A request carries `Anchors` (repository paths or symbols); a module manifest may declare `traversal`: anchor properties
+  (matched exactly, by folder prefix, by glob, or by symbol name), owned links a walk may follow in or out with a weight
+  and fan-out, hub types it never offers, and how many records it offers. One walk per request (at most two hops)
+  scores each record by anchor quality times the link weights and keeps the path as its reason
+  (`ContextItemProvenance.Via`); every module with `traversal` gets a contributor for its share, judged in the same gate
+  call as everything else. Without anchors nothing is read. The Neo4j adapter adds `Neo4jModuleTraversalReader`
+  (live records only, the host's isolation scope, links to an older version of a target still count); MAF hosts pass
+  anchors with `ContextAnchors.Begin(...)`. Coding mode: `recall` takes optional `anchors`, a new `governs` tool asks
+  what governs given files or symbols, kept module items say how they were reached, and the prompt hooks send the code
+  names and paths a prompt mentions plus the working tree's changed files.
+
 - Add opt-in memory packs to coding mode (`modules` in the coding configuration):
   - the repository-experience pack writes lessons bound to each turn's commit after the core write;
   - signed knowledge packs are verified at startup and imported into every project's database;

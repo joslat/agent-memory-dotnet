@@ -7,8 +7,10 @@ internal static class CodingToolDefinitions
 {
     public static readonly Tool[] All =
     [
-        Define("recall", "Recall relevant memory for this project and session.",
-            ("session", Text(256), true), ("query", Text(8000), true)),
+        Define("recall", "Recall relevant memory for this project and session. Pass the files or symbols in hand as anchors to also get what governs them.",
+            ("session", Text(256), true), ("query", Text(8000), true), ("anchors", Anchors(), false)),
+        Define("governs", "Before changing code: the decisions, tests and lessons that govern these files or symbols, from the memory packs that declare traversal.",
+            ("session", Text(256), true), ("anchors", Anchors(), true)),
         Define("remember", "Queue one bounded user turn or deliberate digest with source provenance. Acceptance is not completion; check write_status.",
             ("session", Text(256), true), ("turnId", Text(256), true), ("userText", Text(8000), true),
             ("assistantText", Text(8000), false), ("commit", Text(64), true), ("source", Text(512), true)),
@@ -62,6 +64,17 @@ internal static class CodingToolDefinitions
     }
 
     private static object Text(int maximum) => new { type = "string", minLength = 1, maxLength = maximum };
+
+    // CMP-1: what the work in hand is about; repository-relative paths with forward slashes, or symbol names / SCIP identities.
+    private static object Anchors() => new
+    {
+        type = "array", minItems = 1, maxItems = CodingAnchors.Maximum,
+        items = new
+        {
+            type = "object", additionalProperties = false, required = new[] { "kind", "value" },
+            properties = new { kind = new { type = "string", @enum = new[] { "path", "symbol" } }, value = Text(CodingAnchors.MaximumLength) },
+        },
+    };
 
     private static Tool Define(string name, string description, params (string Name, object Schema, bool Required)[] fields) => new()
     {

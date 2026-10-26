@@ -55,4 +55,10 @@ public sealed record ContextRequest
     /// host has none; it completes empty when no judging gate searched.
     /// </summary>
     public Task<IReadOnlyList<string>>? CoreCandidates { get; init; }
+
+    /// <summary>
+    /// What the turn is about in the host's world: files being edited, symbols named (coding packs CMP-1). Traversal context
+    /// starts here; empty means no traversal. At most <see cref="ContextAnchor.MaximumPerRequest"/> are used.
+    /// </summary>
+    public IReadOnlyList<ContextAnchor> Anchors { get; init; } = [];
 }

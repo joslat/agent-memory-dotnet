@@ -35,10 +35,10 @@ internal static class CodingHookCommand
             client.DefaultRequestHeaders.Authorization = new("Bearer", token);
             var repository = new CodingRepository(options.RepositoryRoot);
             var reply = transform
-                ? await new CodingCopilotPromptHook(options, policy, client, repository.ReadCommitAsync)
+                ? await new CodingCopilotPromptHook(options, policy, client, repository.ReadCommitAsync, repository.ReadStatusAsync)
                     .HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false)
                 : options.Harness is CodingHookHarness.Claude or CodingHookHarness.Codex
-                ? await new CodingTurnHook(options, policy, new(options), client, repository.ReadCommitAsync)
+                ? await new CodingTurnHook(options, policy, new(options), client, repository.ReadCommitAsync, repository.ReadStatusAsync)
                     .HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false)
                 : await new CodingSessionStartHook(options, policy, client, repository.ReadCommitAsync)
                     .HandleAsync(document.RootElement, deadline.Token).ConfigureAwait(false);

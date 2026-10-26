@@ -59,6 +59,8 @@ internal sealed record CodingModuleItem
     public double? Probability { get; init; }
     /// <summary>For a knowledge pack record, the pack version it came from.</summary>
     public string? Pack { get; init; }
+    /// <summary>For a record traversal context reached, how it was reached from the anchors (CMP-1).</summary>
+    public string? Via { get; init; }
 }
 
 /// <summary>A coding recall: the core result, and the module items when modules are composed.</summary>
@@ -78,7 +80,7 @@ internal static class CodingModuleRecall
     /// while core searches, a search view adds what core found to the question, and the kept items come back as data.
     /// </summary>
     public static async Task<CodingRecall> RecallAsync(IServiceProvider services, ModuleContextSelection selection, RecallRequest request,
-        CancellationToken cancellationToken)
+        IReadOnlyList<ContextAnchor> anchors, CancellationToken cancellationToken)
     {
         var pending = new TaskCompletionSource<IReadOnlyList<MemoryGateCandidate>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var companions = new RecallCompanions(pending.Task);
@@ -88,6 +90,7 @@ internal static class CodingModuleRecall
             var envelope = await services.GetRequiredService<IContextCompiler>().CompileAsync(new ContextRequest
             {
                 SessionId = request.SessionId, Owner = request.UserId, Query = request.Query, CoreCandidates = companions.CoreCandidates,
+                Anchors = anchors,
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
             return (Envelope: envelope, Turn: selection.PrepareForCorePool(envelope, renderer, cancellationToken));
         }, cancellationToken);
@@ -115,7 +118,7 @@ internal static class CodingModuleRecall
         {
             Module = d.Candidate.Binding.ModuleId, Type = d.Candidate.Provenance?.RecordType, Key = d.Candidate.Provenance?.RecordKey,
             Text = d.Candidate.Text, Probability = d.Score,
-            Pack = d.Candidate.Provenance?.SourcePack is { } pack ? pack.Id + "@" + pack.Version : null,
+            Pack = d.Candidate.Provenance?.SourcePack is { } pack ? pack.Id + "@" + pack.Version : null, Via = d.Candidate.Provenance?.Via,
         })]);
     }
 

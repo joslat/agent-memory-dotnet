@@ -286,6 +286,8 @@ public partial class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvide
                 SystemAsOf = times.SystemAsOf,
                 AsOf = times.AsOf,
                 CoreCandidates = coreCandidates,
+                // CMP-1: the files and symbols of the work in hand, when the host opened a ContextAnchors scope.
+                Anchors = ContextAnchors.Current,
             };
 
             // CORE IS EXCLUDED BECAUSE IT WAS ALREADY RENDERED, by `base` at the top of the turn.

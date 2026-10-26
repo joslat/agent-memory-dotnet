@@ -25,6 +25,8 @@ public sealed class ModuleSet
 {
     private const string ImplicitStore = "memory";
     private readonly IReadOnlyList<ModuleRegistration> _registrations;
+    // One walk service per service scope: the store's traversal reader may depend on scoped services (CMP-1).
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<IServiceProvider, Context.Traversal.TraversalService> _traversal = new();
 
     private ModuleSet(ModuleResolution resolution, IReadOnlyList<ActiveModule> modules, string compositionFingerprint,
         string fingerprint, IModuleStoreAdapter? store, IReadOnlyList<ModuleRegistration> registrations)
@@ -160,6 +162,10 @@ public sealed class ModuleSet
     internal IModuleReader CreateReader(IServiceProvider services, string moduleId) =>
         (Store ?? throw new InvalidOperationException($"Module '{moduleId}' reads, but no module store is bound (UseStore)."))
         .CreateReader(services, Resolution, moduleId);
+
+    /// <summary>The traversal walk shared by every module's traversal contributor in one service scope (CMP-1).</summary>
+    internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
+        _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution)));
 
     /// <summary>The modules that add ingestion providers, which need a store binding.</summary>
     internal IEnumerable<string> ModulesWithProviders => _registrations.Where(r => r.Providers.Count > 0).Select(r => r.Manifest.Id);

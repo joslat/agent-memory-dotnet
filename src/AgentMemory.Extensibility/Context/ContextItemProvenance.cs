@@ -36,6 +36,8 @@ public sealed record ContextItemProvenance
     public required DateTimeOffset CreatedAtUtc { get; init; }
     /// <summary>Exclusive stored transaction-time end, when present.</summary>
     public DateTimeOffset? InvalidatedAtUtc { get; init; }
+    /// <summary>How traversal context reached the record, from the turn's anchor (CMP-1); null for an item a view found.</summary>
+    public string? Via { get; init; }
     /// <summary>The original source session.</summary>
     public required string SourceSessionId { get; init; }
     /// <summary>Copied source message identities; no excerpt or owner authority is implied.</summary>

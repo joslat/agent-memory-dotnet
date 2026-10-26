@@ -109,6 +109,101 @@
           "pattern": "^#[0-9A-Fa-f]{6}(?![\\s\\S])"
         }
       }
+    },
+    "traversal": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the module joins traversal context: which of its records a turn's anchors (the file or symbol in hand) match, which of its own links a walk may follow, and how many of the records reached it offers to the gate.",
+      "minProperties": 1,
+      "properties": {
+        "anchors": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "property"
+            ],
+            "properties": {
+              "type": {
+                "$ref": "#/$defs/label"
+              },
+              "property": {
+                "$ref": "#/$defs/propertyName"
+              },
+              "match": {
+                "enum": [
+                  "exact",
+                  "prefix",
+                  "glob",
+                  "name"
+                ],
+                "description": "exact: equals the anchor; prefix: a folder that contains it; glob: patterns (* and **) that match it; name: a symbol's simple name or SCIP identity. Prefix and glob values may hold several, split by whitespace, ',' or ';'."
+              },
+              "kind": {
+                "enum": [
+                  "path",
+                  "symbol"
+                ],
+                "description": "Which anchors the property is compared with; path when omitted."
+              }
+            }
+          }
+        },
+        "relations": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)(?![\\s\\S])",
+                "description": "An owned relationship."
+              },
+              "direction": {
+                "enum": [
+                  "out",
+                  "in"
+                ],
+                "description": "out follows the link from its source; in finds the sources that point at a record."
+              },
+              "weight": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1,
+                "description": "How much of a record's score passes along the link; 0.8 when omitted."
+              },
+              "fanOut": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32,
+                "description": "Most records one record leads to; 8 when omitted."
+              }
+            }
+          }
+        },
+        "hubs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/label"
+          },
+          "description": "Owned types a walk passes through but never offers, such as files."
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "description": "Most records offered for one turn; 4 when omitted."
+        }
+      }
     }
   },
   "required": [

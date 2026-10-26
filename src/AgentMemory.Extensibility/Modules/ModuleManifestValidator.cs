@@ -110,6 +110,7 @@ internal sealed class ModuleManifestValidator
             if (ModuleReservedNames.SchemaObjects.Contains(shape.Name)) Error("$.views", $"reserved schema object '{shape.Name}'");
         }
         if (manifest.Seed is { } seed) ValidateKnowledgePack(manifest, seed, host, modules);
+        if (manifest.Traversal is { } traversal) ValidateTraversal(traversal, manifest.Ontology, types);
         if (manifest.Display is { } display) ValidateDisplay(manifest, display);
         return _errors.ToList().AsReadOnly();
     }
@@ -211,6 +212,45 @@ internal sealed class ModuleManifestValidator
         if (!Relationship.IsMatch(name) || !name.StartsWith(SchemaName(prefix).ToUpperInvariant() + "_", StringComparison.Ordinal))
             Error(path, "relationship must carry its UPPER_SNAKE prefix and suffix");
         if (ModuleReservedNames.Relationships.Contains(name)) Error(path, "reserved relationship type");
+    }
+
+    // CMP-1: a module declares how walks reach its own records and follow its own links, never another module's.
+    private void ValidateTraversal(ModuleTraversal traversal, ModuleOntology? ontology, IReadOnlyDictionary<string, ModuleType> types)
+    {
+        const string path = "$.traversal";
+        if (ontology is null) { Error(path, "traversal requires an owned ontology"); return; }
+        var anchors = List(traversal.Anchors, path + ".anchors");
+        var relations = List(traversal.Relations, path + ".relations");
+        if (anchors.Count == 0 && relations.Count == 0) Error(path, "traversal must declare anchors or relations");
+        if (traversal.MaxItems is < 1 or > ModuleTraversal.MaximumOffered) Error(path + ".maxItems", "expected 1 to 16");
+        var seenAnchors = new HashSet<(string?, string?)>();
+        foreach (var anchor in anchors)
+        {
+            if (anchor is null) { Error(path + ".anchors", "null anchor declaration"); continue; }
+            var at = path + ".anchors." + anchor.Type + "." + anchor.Property;
+            if (!seenAnchors.Add((anchor.Type, anchor.Property))) Error(at, "duplicate anchor property");
+            if (!Enum.IsDefined(anchor.Match)) Error(at + ".match", "unknown anchor match");
+            if (!Enum.IsDefined(anchor.Kind)) Error(at + ".kind", "unknown anchor kind");
+            if (!types.TryGetValue(anchor.Type ?? "", out var type)) { Error(at, "anchor must name an owned type"); continue; }
+            if (!type.Properties.TryGetValue(anchor.Property ?? "", out var property)) Error(at, "anchor must name a declared property");
+            else if (property?.Type != "string") Error(at, "anchor property must be a string");
+        }
+        var owned = ontology.Relations.Where(r => r is not null).Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
+        var seenRelations = new HashSet<(string?, ModuleTraversalDirection)>();
+        foreach (var relation in relations)
+        {
+            if (relation is null) { Error(path + ".relations", "null relation declaration"); continue; }
+            var at = path + ".relations." + relation.Name;
+            if (!owned.Contains(relation.Name ?? "")) Error(at, "traversal may follow owned relations only");
+            if (!Enum.IsDefined(relation.Direction)) Error(at + ".direction", "unknown direction");
+            if (!seenRelations.Add((relation.Name, relation.Direction))) Error(at, "duplicate relation and direction");
+            if (!(relation.Weight > 0 && relation.Weight <= 1)) Error(at + ".weight", "weight must be greater than 0 and at most 1");
+            if (relation.FanOut is < 1 or > ModuleTraversalRelation.MaximumFanOut) Error(at + ".fanOut", "expected 1 to 32");
+        }
+        var hubs = List(traversal.Hubs, path + ".hubs");
+        if (hubs.Distinct(StringComparer.Ordinal).Count() != hubs.Count) Error(path + ".hubs", "duplicate hub type");
+        foreach (var hub in hubs)
+            if (!types.ContainsKey(hub ?? "")) Error(path + ".hubs", "hub must name an owned type");
     }
 
     private void ValidateTarget(string? target, IReadOnlyDictionary<string, ModuleType> types,

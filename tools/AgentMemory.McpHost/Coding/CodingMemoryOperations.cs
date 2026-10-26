@@ -29,12 +29,15 @@ internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptio
 
     /// <summary>Recall with the opt-in memory packs' items beside the core context; without modules, the core result alone.</summary>
     public Task<CodingRecall> RecallWithModulesAsync(CodingIdentity identity, string session, string query,
-        CancellationToken cancellationToken = default)
+        IReadOnlyList<AgentMemory.Extensibility.Context.ContextAnchor>? anchors = null, CancellationToken cancellationToken = default)
     {
         CodingInput.RequireText(session, 256, nameof(session));
         CodingInput.RequireText(query, 8000, nameof(query));
         content.CheckText(session);
         content.CheckText(query);
+        anchors ??= [];
+        if (anchors.Count > CodingAnchors.Maximum) throw new ArgumentException("Too many anchors.", nameof(anchors));
+        foreach (var anchor in anchors) content.CheckText(anchor.Value);
         return scopes.RunAsync(identity, async (services, ct) =>
         {
             var request = new RecallRequest
@@ -45,7 +48,7 @@ internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptio
             };
             if (services.GetService<AgentMemory.Extensibility.Context.ModuleContextSelection>() is not { } selection)
                 return new CodingRecall(await services.GetRequiredService<IMemoryRecall>().RecallAsync(request, ct).ConfigureAwait(false), null);
-            return await CodingModuleRecall.RecallAsync(services, selection, request, ct).ConfigureAwait(false);
+            return await CodingModuleRecall.RecallAsync(services, selection, request, anchors, ct).ConfigureAwait(false);
         }, cancellationToken);
     }
 

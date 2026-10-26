@@ -57,7 +57,7 @@ public sealed class ModuleSetBuilder
         {
             foreach (var view in pack.Manifest.Views.Where(v => v.Search is not null))
                 builder.AddContextContributor(c => new Contributors.ViewContributor(c.Resolution, c.Reader, view.Id, priority));
-        }, "knowledge-pack; digest=" + pack.Digest + "; signer=" + pack.Bundle.Signer.ToString().ToLowerInvariant());
+        }, "knowledge-pack; digest=" + pack.Digest + "; signer=" + pack.Bundle.Signer.ToString().ToLowerInvariant(), priority);
     }
 
     /// <summary>
@@ -74,13 +74,16 @@ public sealed class ModuleSetBuilder
         return this;
     }
 
-    private ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure, string implementation)
+    private ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure, string implementation, int traversalPriority = 100)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         if (_modules.Any(m => string.Equals(m.Manifest.Id, manifest.Id, StringComparison.Ordinal)))
             throw new ArgumentException($"Module '{manifest.Id}' is already added.", nameof(manifest));
         var registration = new ModuleRegistration(manifest, implementation);
         configure(registration);
+        // CMP-1: a module that declares traversal gets its share of the turn's walk, with no code of its own.
+        if (manifest.Traversal is not null)
+            registration.AddContextContributor(c => new Contributors.TraversalContributor(c.Module.Manifest, c.ModuleSet.Traversal(c.Services), traversalPriority));
         registration.Freeze();
         _modules.Add(registration);
         return this;

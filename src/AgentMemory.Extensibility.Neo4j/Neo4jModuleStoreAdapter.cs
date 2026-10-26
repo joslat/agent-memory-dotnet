@@ -30,6 +30,11 @@ public sealed class Neo4jModuleStoreAdapter : IModuleStoreAdapter
     public IModuleReader CreateReader(IServiceProvider services, ModuleResolution resolution, string moduleId) =>
         new Neo4jModuleReader(services.GetRequiredService<INeo4jTransactionRunner>(), resolution, moduleId,
             services.GetRequiredService<IMemoryIsolationPolicy>(), services.GetService<TimeProvider>());
+
+    /// <inheritdoc/>
+    public IModuleTraversalReader? CreateTraversalReader(IServiceProvider services, ModuleResolution resolution) =>
+        new Neo4jModuleTraversalReader(services.GetRequiredService<INeo4jTransactionRunner>(), resolution,
+            services.GetRequiredService<IMemoryIsolationPolicy>());
 }
 
 /// <summary>Knowledge packs in the host's Neo4j database (Extensibility 0.13 §K3).</summary>

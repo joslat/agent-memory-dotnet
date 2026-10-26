@@ -110,7 +110,7 @@ public sealed class CodingRemoteTransportTests
     {
         await using var fixture = await Fixture.Start(allowWrites: false);
         var listed = await fixture.Rpc(fixture.Token("write"), "tools/list", new { });
-        listed.GetProperty("result").GetProperty("tools").GetArrayLength().Should().Be(4);
+        listed.GetProperty("result").GetProperty("tools").GetArrayLength().Should().Be(5);   // the reads, governs included (CMP-1)
         var denied = await fixture.Rpc(fixture.Token("write"), "tools/call", new { name = "forget", arguments = new { } });
         denied.ToString().Should().Contain("insufficient_scope");
     }
@@ -191,7 +191,7 @@ public sealed class CodingRemoteTransportTests
         var token = fixture.Token();
         var listed = await fixture.Rpc(token, "tools/list", new { });
         listed.GetProperty("result").GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString())
-            .Should().BeEquivalentTo("recall", "profile", "history", "write_status");
+            .Should().BeEquivalentTo("recall", "governs", "profile", "history", "write_status");
         var read = await fixture.Rpc(token, "tools/call", new { name = "profile", arguments = new { } });
         read.GetProperty("result").GetProperty("isError").GetBoolean().Should().BeFalse();
         await fixture.Profile.Received(1).GetAsync("owner", Arg.Any<CancellationToken>());
@@ -199,7 +199,7 @@ public sealed class CodingRemoteTransportTests
         denied.GetProperty("result").GetProperty("isError").GetBoolean().Should().BeTrue();
         denied.ToString().Should().Contain("insufficient_scope");
         var writable = await fixture.Rpc(fixture.Token("write"), "tools/list", new { });
-        writable.GetProperty("result").GetProperty("tools").GetArrayLength().Should().Be(6);
+        writable.GetProperty("result").GetProperty("tools").GetArrayLength().Should().Be(7);   // governs joined the reads (CMP-1)
     }
 
     [Theory]
