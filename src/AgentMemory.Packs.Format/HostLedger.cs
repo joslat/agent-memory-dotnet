@@ -36,8 +36,17 @@ internal sealed class HostLedger
 
     internal static HostLedger Load(string path)
     {
+        if (!File.Exists(path)) return new HostLedger();
+        try { return LoadChecked(path); }
+        catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or JsonException)
+        {
+            throw new InvalidDataException($"The ledger at {path} is malformed: {e.Message}", e);
+        }
+    }
+
+    private static HostLedger LoadChecked(string path)
+    {
         var ledger = new HostLedger();
-        if (!File.Exists(path)) return ledger;
         using var document = JsonDocument.Parse(File.ReadAllBytes(path));
         if (!document.RootElement.TryGetProperty("format", out var format) || format.GetString() != Format)
             throw new InvalidDataException($"The ledger at {path} is not a '{Format}' file.");

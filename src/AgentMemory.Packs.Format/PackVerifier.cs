@@ -40,17 +40,20 @@ internal static class PackVerifier
         if (policy.RevocationsExpire is { } expires && expires < now) problems.Add($"The host's revocation list expired at {expires:u}; refresh it before verifying.");
 
         var signatures = new List<PackSignature>();
+        var junk = new List<string>();
         foreach (var file in content.Files.Keys.Where(PackPaths.IsSignature).Order(StringComparer.Ordinal))
         {
-            var (valid, invalid) = Dsse.Verify(file, content.Files[file], listBytes, list!, policy, now);
+            var (valid, invalid, malformed) = Dsse.Verify(file, content.Files[file], listBytes, list!, policy, now);
             signatures.AddRange(valid);
-            problems.AddRange(invalid);
+            (malformed ? junk : problems).AddRange(invalid);
         }
         foreach (var role in policy.RequiredRoles.Where(r => signatures.All(s => s.Role != r)))
             problems.Add($"No valid {role} signature: a pack is refused unless a key the host trusts for '{list!.Id}' signed it as {role}.");
         // Invalid extra envelopes are reported, but they do not refuse a pack whose required signatures hold.
         if (policy.RequiredRoles.All(r => signatures.Any(s => s.Role == r)))
             problems.RemoveAll(p => p.StartsWith(PackPaths.SignaturesFolder, StringComparison.Ordinal));
+        // A file that is not an envelope at all is unlisted content travelling with the pack: refused (PACK-review 1.9).
+        problems.AddRange(junk);
 
         if (ledger?.Refusal(list!.Id, list.Version, digest, allowDowngrade) is { } refusal) problems.Add(refusal);
         return problems.Count > 0
@@ -158,9 +161,9 @@ internal static class PackVerifier
     /// each member keeps its own list and signatures (v1.2 §5).
     /// </summary>
     internal static (PackVerification Set, IReadOnlyDictionary<string, PackVerification> Members) VerifySet(PackContent content, TrustPolicy policy,
-        DateTimeOffset now, HostLedger? ledger = null)
+        DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false)
     {
-        var set = Verify(content, policy, now);
+        var set = Verify(content, policy, now, ledger, allowDowngrade);
         var members = new Dictionary<string, PackVerification>(StringComparer.Ordinal);
         if (set.Pack is not { } outer) return (set, members);
         if (outer.Manifest.Kind != "set") return (new PackVerification(null, [$"{outer.Id} is a {outer.Manifest.Kind} pack, not a set."]), members);
@@ -171,7 +174,7 @@ internal static class PackVerifier
             return (new PackVerification(null, ["The set's pack.json names other members than it carries."]), members);
         foreach (var (id, files) in split)
         {
-            var member = Verify(new PackContent(files, content.Source + "#" + id), policy, now, ledger);
+            var member = Verify(new PackContent(files, content.Source + "#" + id), policy, now, ledger, allowDowngrade);
             members[id] = member.Pack is { } verified && verified.Id != id
                 ? new PackVerification(null, [$"The member in packs/{id}/ is {verified.Id}."]) : member;
         }

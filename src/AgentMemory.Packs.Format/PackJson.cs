@@ -70,6 +70,7 @@ internal static class PackJson
             case JsonValueKind.Number:
                 if (element.TryGetInt64(out var integer))
                     return Math.Abs(integer) <= MaxSafeInteger ? null : $"has an integer beyond ±2^53 at {where}";
+                if (element.GetRawText().AsSpan().IndexOfAny('.', 'e', 'E') < 0) return $"has an integer beyond ±2^53 at {where}";
                 if (integersOnly) return $"has a number that is not an integer at {where}";
                 return element.TryGetDouble(out var real) && double.IsFinite(real) ? null : $"has a number out of range at {where}";
             default:

@@ -155,7 +155,8 @@ public sealed class KnowledgePack
         foreach (var record in records)
             foreach (var link in record.Links)
             {
-                var relation = manifest.Ontology!.Relations.Single(r => r.Name == link.Relation && r.From == record.Type);
+                // An undeclared relation was already reported with its line by the admission check.
+                if (manifest.Ontology!.Relations.SingleOrDefault(r => r.Name == link.Relation && r.From == record.Type) is not { } relation) continue;
                 if (!keys.Contains((relation.To, link.Target)))
                     problems.Add($"{record.Source.Pack!.File}:{record.Source.Pack.Line}: links {link.Relation} to {relation.To} '{link.Target}', which the pack does not hold.");
             }

@@ -28,10 +28,10 @@ PACK_FORMAT = "agentmemory.pack/1.2"
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 STATEMENT = "https://in-toto.io/Statement/v1"
 ROLES = {"publisher", "curator", "assurer"}
-SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 DEVICES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
-ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+$")
-SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")
+ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){2,}")
+SEMVER = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?")
 MAX_FILES, MAX_FILE, MAX_TOTAL, MAX_RATIO = 4096, 64 << 20, 256 << 20, 250
 
 
@@ -43,7 +43,7 @@ def safe_path(path):
     if not 0 < len(path) <= 255:
         return False
     parts = path.split("/")
-    return len(parts) <= 8 and all(SEGMENT.match(p) and not p.endswith(".") and p.split(".")[0].upper() not in DEVICES for p in parts)
+    return len(parts) <= 8 and all(SEGMENT.fullmatch(p) and not p.endswith(".") and p.split(".")[0].upper() not in DEVICES for p in parts)
 
 
 def read_zip(data):
@@ -174,7 +174,7 @@ def verify(files, policy, now):
     if set(listing) != {"format", "id", "version", "files"} or listing["format"] != FILES_FORMAT:
         raise Refused("META/files.json is not a v1.1 files list")
     pid, version = listing["id"], listing["version"]
-    if not ID.match(pid) or not SEMVER.match(version):
+    if not ID.fullmatch(pid) or len(pid) > 64 or not SEMVER.fullmatch(version):
         raise Refused("META/files.json names no valid id or version")
     listed = {}
     for entry in listing["files"]:

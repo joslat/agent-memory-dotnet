@@ -66,6 +66,10 @@ public interface IPackActivations
 {
     /// <summary>The latest decision for this pack id and version, or null when it was never trialled here.</summary>
     PackActivation? Find(string moduleId, ModuleVersion version);
+
+    /// <summary>The latest decision for exactly this content: id, version and manifest digest; null when it was never trialled.</summary>
+    PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest) =>
+        Find(moduleId, version) is { } latest && latest.ManifestDigest == manifestDigest ? latest : null;
 }
 
 /// <summary>A module the host left off, and why.</summary>
@@ -148,10 +152,10 @@ public static class PackTrialGate
         foreach (var registration in registrations.Where(r => r.Manifest.Trial is not null))
         {
             var manifest = registration.Manifest;
-            var decision = activations.Find(manifest.Id, manifest.Version);
-            var reason = decision is null ? "no trial on this host yet"
-                : decision.ManifestDigest != DigestOf(manifest) ? "its trial ran on other content; trial it again"
-                : decision.Active ? null : "its trial failed: " + decision.Reason;
+            var decision = activations.Find(manifest.Id, manifest.Version, DigestOf(manifest));
+            var reason = decision is not null ? (decision.Active ? null : "its trial failed: " + decision.Reason)
+                : activations.Find(manifest.Id, manifest.Version) is not null ? "its trial ran on other content; trial it again"
+                : "no trial on this host yet";
             if (reason is not null) off[manifest.Id] = new SwitchedOffModule(manifest.Id, manifest.Version.ToString(), reason);
         }
         for (var changed = off.Count > 0; changed;)
@@ -180,6 +184,7 @@ public sealed class PackActivationFolder : IPackActivations
     public const string PredicateType = "urn:agentmemory:pack:trial:v1";
     private const string PayloadType = "application/vnd.in-toto+json";
     private readonly Dictionary<(string, string), PackActivation> _latest = [];
+    private readonly Dictionary<(string, string, string), PackActivation> _latestByDigest = [];
 
     /// <summary>Reads every <c>*.dsse.json</c> in <paramref name="folder"/>; files that do not verify are listed in <see cref="Ignored"/>.</summary>
     public PackActivationFolder(string folder, string hostPublicKeyPem)
@@ -196,6 +201,8 @@ public sealed class PackActivationFolder : IPackActivations
                 if (activation is null) { ignored.Add(Path.GetFileName(file)); continue; }
                 var id = (activation.ModuleId, activation.Version);
                 if (!_latest.TryGetValue(id, out var known) || known.DecidedAt < activation.DecidedAt) _latest[id] = activation;
+                var exact = (activation.ModuleId, activation.Version, activation.ManifestDigest);
+                if (!_latestByDigest.TryGetValue(exact, out var same) || same.DecidedAt < activation.DecidedAt) _latestByDigest[exact] = activation;
             }
         Ignored = ignored.AsReadOnly();
     }
@@ -205,6 +212,10 @@ public sealed class PackActivationFolder : IPackActivations
 
     /// <inheritdoc/>
     public PackActivation? Find(string moduleId, ModuleVersion version) => _latest.GetValueOrDefault((moduleId, version.ToString()));
+
+    /// <inheritdoc/>
+    public PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest) =>
+        _latestByDigest.GetValueOrDefault((moduleId, version.ToString(), manifestDigest));
 
     /// <summary>The DSSE pre-authentication encoding of a payload.</summary>
     public static byte[] Pae(ReadOnlySpan<byte> payload)

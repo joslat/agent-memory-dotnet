@@ -82,25 +82,26 @@ internal static class Dsse
     /// Checks one envelope against the list and the trust policy. Returns the valid signatures in it, and the problems with
     /// the ones that are not.
     /// </summary>
-    internal static (List<PackSignature> Valid, List<string> Problems) Verify(string file, ReadOnlySpan<byte> envelopeBytes,
+    /// <returns>The valid signatures; the problems; and whether the file is not a DSSE envelope at all, which refuses the pack.</returns>
+    internal static (List<PackSignature> Valid, List<string> Problems, bool Malformed) Verify(string file, ReadOnlySpan<byte> envelopeBytes,
         ReadOnlySpan<byte> filesList, FilesList list, TrustPolicy policy, DateTimeOffset now)
     {
         var valid = new List<PackSignature>();
         var problems = new List<string>();
-        if (PackJson.Check(envelopeBytes) is { } malformed) { problems.Add($"{file} {malformed}."); return (valid, problems); }
+        if (PackJson.Check(envelopeBytes) is { } malformed) { problems.Add($"{file} {malformed}."); return (valid, problems, true); }
         using var document = JsonDocument.Parse(envelopeBytes.ToArray());
         var envelope = document.RootElement;
         if (envelope.ValueKind != JsonValueKind.Object
-            || !envelope.TryGetProperty("payloadType", out var type) || type.GetString() != PayloadType
+            || !envelope.TryGetProperty("payloadType", out var type) || type.ValueKind != JsonValueKind.String || type.GetString() != PayloadType
             || !envelope.TryGetProperty("payload", out var payloadText) || payloadText.ValueKind != JsonValueKind.String
             || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array)
-        { problems.Add($"{file} is not a DSSE envelope of an in-toto statement."); return (valid, problems); }
+        { problems.Add($"{file} is not a DSSE envelope of an in-toto statement."); return (valid, problems, true); }
 
         byte[] payload;
         try { payload = Convert.FromBase64String(payloadText.GetString()!); }
-        catch (FormatException) { problems.Add($"{file} has a payload that is not base64."); return (valid, problems); }
+        catch (FormatException) { problems.Add($"{file} has a payload that is not base64."); return (valid, problems, true); }
         var (claim, claimProblem) = ReadStatement(payload, filesList, list);
-        if (claim is null) { problems.Add($"{file} {claimProblem}"); return (valid, problems); }
+        if (claim is null) { problems.Add($"{file} {claimProblem}"); return (valid, problems, false); }
 
         var pae = Pae(PayloadType, payload);
         foreach (var entry in signatures.EnumerateArray())
@@ -121,7 +122,7 @@ internal static class Dsse
             { problems.Add($"{file}: {refusal}"); continue; }
             valid.Add(claim with { KeyId = keyId, File = file });
         }
-        return (valid, problems);
+        return (valid, problems, false);
     }
 
     private static (PackSignature? Claim, string? Problem) ReadStatement(byte[] payload, ReadOnlySpan<byte> filesList, FilesList list)

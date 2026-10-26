@@ -47,6 +47,29 @@ public sealed class PackInstallLedger
         Ledger.Record(pack.Id, pack.Version, pack.Digest);
         Ledger.Save(_path);
     }
+
+    /// <summary>Records an installed composite and every member, and saves the ledger.</summary>
+    public void Record(LoadedFamily family)
+    {
+        ArgumentNullException.ThrowIfNull(family);
+        Ledger.Record(family.Id, family.Version, family.Digest);
+        foreach (var member in family.Members) Ledger.Record(member.Id, member.Version, member.Digest);
+        Ledger.Save(_path);
+    }
+
+    /// <summary>Records an installed pack set, its families and its packs, and saves the ledger: an older set is then refused.</summary>
+    public void Record(LoadedSet set)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        Ledger.Record(set.Id, set.Version, set.Digest);
+        foreach (var family in set.Families)
+        {
+            Ledger.Record(family.Id, family.Version, family.Digest);
+            foreach (var member in family.Members) Ledger.Record(member.Id, member.Version, member.Digest);
+        }
+        foreach (var pack in set.Packs) Ledger.Record(pack.Id, pack.Version, pack.Digest);
+        Ledger.Save(_path);
+    }
 }
 
 /// <summary>A verified pack, mapped onto the module model.</summary>
@@ -126,6 +149,7 @@ public static class PackLoader
         ArgumentNullException.ThrowIfNull(trust);
         var verification = PackVerifier.Verify(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger, allowDowngrade);
         if (verification.Pack is not { } pack) throw new PackLoadException(verification.Problems);
+        if (Unenforceable(pack) is { Count: > 0 } unenforceable) throw new PackLoadException(unenforceable);
 
         ModuleImage image;
         try { image = PackLayout.ToModule(pack.Files); }
@@ -167,6 +191,21 @@ public static class PackLoader
             Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Kind = pack.Manifest.Kind, Manifest = manifest,
             Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles,
         };
+    }
+
+    // What a pack declares that this host cannot enforce yet refuses it, rather than loading it as if it were open (PACK-review
+    // 4.8): sealed content, code tiers above E0, and usage policies. Each is accepted once it is enforced.
+    private static List<string> Unenforceable(VerifiedPack pack)
+    {
+        var problems = new List<string>();
+        if (pack.Manifest.Protection != "open")
+            problems.Add($"{pack.Id} is protected as '{pack.Manifest.Protection}'; this host opens 'open' packs only.");
+        if (pack.Manifest.Code != "E0" || pack.Files.Keys.Any(f => f is "queries.json" or "components.json"
+                || f.StartsWith("queries/", StringComparison.Ordinal) || f.StartsWith("components/", StringComparison.Ordinal)))
+            problems.Add($"{pack.Id} carries code (tier {pack.Manifest.Code}); this host runs declarative (E0) packs only.");
+        if (pack.Files.ContainsKey("policy.json"))
+            problems.Add($"{pack.Id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack.");
+        return problems;
     }
 
     /// <summary>

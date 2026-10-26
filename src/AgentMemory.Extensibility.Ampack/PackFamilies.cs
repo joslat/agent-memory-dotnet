@@ -27,6 +27,8 @@ public sealed record LoadedSet
 {
     /// <summary>The set's id.</summary>
     public required string Id { get; init; }
+    /// <summary>Its version.</summary>
+    public required string Version { get; init; }
     /// <summary>Its digest: the set's signature binds every member to it.</summary>
     public required string Digest { get; init; }
     /// <summary>The composites in the set, each with its members from the same set.</summary>
@@ -111,7 +113,7 @@ public static class PackFamilies
         var inFamilies = families.SelectMany(f => f.Members.Select(m => m.Id)).ToHashSet(StringComparer.Ordinal);
         return new LoadedSet
         {
-            Id = outer.Id, Digest = outer.Digest, Families = families,
+            Id = outer.Id, Version = outer.Version, Digest = outer.Digest, Families = families,
             Packs = [.. packs.Values.Where(p => !inFamilies.Contains(p.Id)).OrderBy(p => p.Id, StringComparer.Ordinal)],
         };
     }

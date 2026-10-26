@@ -50,6 +50,15 @@ internal sealed record TrustPolicy
     /// </summary>
     internal static TrustPolicy Parse(ReadOnlySpan<byte> raw)
     {
+        try { return ParseChecked(raw); }
+        catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or FormatException or JsonException)
+        {
+            throw new InvalidDataException($"The trust policy is malformed: {e.Message}", e);
+        }
+    }
+
+    private static TrustPolicy ParseChecked(ReadOnlySpan<byte> raw)
+    {
         var text = System.Text.Encoding.UTF8.GetString(raw).TrimStart('\uFEFF').Replace("\r\n", "\n", StringComparison.Ordinal);
         var bytes = System.Text.Encoding.UTF8.GetBytes(text);
         if (PackJson.Check(bytes) is { } problem) throw new InvalidDataException($"The trust policy {problem}.");

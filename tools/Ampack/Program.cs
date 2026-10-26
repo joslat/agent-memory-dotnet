@@ -15,8 +15,9 @@ internal static class Program
     private const string Usage = """
         ampack <command> [options]
 
-          init <folder> --id <reverse.dns.id> [--kind knowledge] [--version 0.1.0]
-                                 start a pack folder (pack.json, an ontology, one record, .gitattributes)
+          init <folder> --id <reverse.dns.id> [--kind knowledge|definition] [--version 0.1.0]
+                                 start a pack folder (pack.json, an ontology, a view, .gitattributes, and for a
+                                 knowledge pack one record)
           lint <folder|file>     check paths, the JSON profile, pack.json and, once built, the files list
           build <folder> [--out <file.ampack>] [--key <private.pem>] [--role publisher] [--stored]
                                  write META/files.json, optionally sign, and pack; prints the digest
@@ -69,13 +70,16 @@ internal static class Program
         var id = o.Required("id");
         if (!PackManifest.IsValidId(id)) throw new UsageException($"'{id}' is not a reverse-DNS id (for example io.example.notes).");
         var version = o.Value("version") ?? "0.1.0";
+        var kind = o.Value("kind") ?? "knowledge";
+        if (kind is not ("knowledge" or "definition"))
+            throw new UsageException($"init makes a knowledge or a definition pack; a {kind} pack is made with ampack lock, set or codemap pack.");
         if (Directory.Exists(folder) && Directory.EnumerateFileSystemEntries(folder).Any()) throw new UsageException($"{folder} is not empty.");
         // The label prefix every type and relation carries: the id's last segment, letters only, capitalised.
         var last = new string([.. id[(id.LastIndexOf('.') + 1)..].Where(char.IsAsciiLetter)]);
         var prefix = last.Length == 0 ? "Pack" : char.ToUpperInvariant(last[0]) + last[1..];
         var manifest = new JsonObject
         {
-            ["format"] = PackManifest.Format, ["id"] = id, ["version"] = version, ["kind"] = "knowledge", ["sdk"] = "[0.1,0.2)",
+            ["format"] = PackManifest.Format, ["id"] = id, ["version"] = version, ["kind"] = kind, ["sdk"] = "[0.1,0.2)",
             ["display"] = new JsonObject { ["title"] = prefix, ["description"] = "Describe what this pack knows." },
             ["tier"] = "open", ["licence"] = "CC-BY-4.0", ["protection"] = "open", ["code"] = "E0",
         };
@@ -102,7 +106,7 @@ internal static class Program
         Write(folder, PackManifest.FileName, Pretty(manifest));
         Write(folder, PackLayout.Ontology, Pretty(ontology));
         Write(folder, PackLayout.Views, Pretty(views));
-        Write(folder, "records/note.jsonl", record.ToJsonString() + "\n");
+        if (kind == "knowledge") Write(folder, "records/note.jsonl", record.ToJsonString() + "\n");
         Write(folder, ".gitattributes", PackBuilder.GitAttributes);
         Console.WriteLine($"Started {id} {version} in {folder}. Next: ampack build {folder}");
         return 0;
@@ -193,12 +197,19 @@ internal static class Program
         if (pack.Manifest.Kind == "set")
         {
             // A set verifies as a whole and member by member: each keeps its own list and signatures.
-            var (_, members) = PackVerifier.VerifySet(content, policy, DateTimeOffset.UtcNow);
+            var (_, members) = PackVerifier.VerifySet(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"));
             var refused = members.Where(m => !m.Value.IsVerified).SelectMany(m => m.Value.Problems.Select(p => $"packs/{m.Key}/: {p}")).ToList();
             if (refused.Count > 0) return Report(refused, "");
             Console.WriteLine($"Verified set {pack.Id} {pack.Version}\n  digest  {pack.Digest}");
             foreach (var (id, member) in members.OrderBy(m => m.Key, StringComparer.Ordinal))
                 Console.WriteLine($"  member  {id} {member.Pack!.Version} ({member.Pack.Manifest.Kind}) {member.Pack.Digest}");
+            if (o.Flag("record") && ledger is not null && ledgerPath is not null)
+            {
+                ledger.Record(pack.Id, pack.Version, pack.Digest);
+                foreach (var member in members.Values) ledger.Record(member.Pack!.Id, member.Pack.Version, member.Pack.Digest);
+                ledger.Save(ledgerPath);
+                Console.WriteLine($"  ledger  recorded the set and {members.Count} members in {ledgerPath}");
+            }
             return 0;
         }
         Console.WriteLine($"Verified {pack.Id} {pack.Version}\n  digest  {pack.Digest}\n  kind    {pack.Manifest.Kind}, tier {pack.Manifest.Tier}");

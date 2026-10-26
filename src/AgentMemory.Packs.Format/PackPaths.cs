@@ -46,6 +46,6 @@ internal static partial class PackPaths
             yield return $"Paths differ only by case: {string.Join(", ", clash.Order(StringComparer.Ordinal))}.";
     }
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("\\A[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex Segment();
 }

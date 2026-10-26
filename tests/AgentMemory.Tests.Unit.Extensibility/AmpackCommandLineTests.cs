@@ -99,7 +99,14 @@ public sealed class AmpackCommandLineTests : IDisposable
         File.WriteAllText(record, File.ReadAllText(record).Replace("\"", "'", StringComparison.Ordinal));
         Refused("verify", "notes", "--policy", "trust.json").Should().Contain("does not match META/files.json");
 
-        // Usage errors: an unknown command, a missing id.
+        // A definition pack: declarations only, no records.
+        Done("init", "defs", "--id", "io.example.defs", "--kind", "definition");
+        Directory.Exists(At("defs", "records")).Should().BeFalse();
+        Done("build", "defs", "--out", "defs.ampack", "--key", At("keys", "publisher.key.pem"));
+        Done("verify", "defs.ampack", "--policy", "trust.json").Should().Contain("kind    definition");
+
+        // Usage errors: an unknown command, a missing id, a kind init does not make.
+        Ampack("init", "other", "--id", "io.example.other", "--kind", "composite").Exit.Should().Be(2);
         Ampack("frobnicate").Exit.Should().Be(2);
         Ampack("init", "other").Exit.Should().Be(2);
     }
@@ -135,8 +142,8 @@ public sealed class AmpackCommandLineTests : IDisposable
 
         // One set carries the family and the knowledge pack; it verifies member by member.
         Done(["set", "family.ampack", "coding.ampack", .. members, "martialarts.ampack", "--id", "io.example.coding-family", "--version", "1.0.0", "--key", keyPath]);
-        var verified = Done("verify", "family.ampack", "--policy", "trust.json");
-        verified.Should().Contain("Verified set io.example.coding-family 1.0.0");
+        var verified = Done("verify", "family.ampack", "--policy", "trust.json", "--ledger", "ledger.json", "--record");
+        verified.Should().Contain("Verified set io.example.coding-family 1.0.0").And.Contain("recorded the set and 6 members");
         verified.Split('\n').Count(l => l.TrimStart().StartsWith("member", StringComparison.Ordinal)).Should().Be(6);
 
         // The host loads what the tool built: the family composes as the compiled Coding composite, the knowledge pack beside it.

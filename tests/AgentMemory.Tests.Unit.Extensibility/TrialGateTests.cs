@@ -155,6 +155,19 @@ public sealed class TrialGateTests : IDisposable
     }
 
     [Fact]
+    public void A_later_trial_of_other_content_does_not_shadow_the_passing_one()
+    {
+        // The real pack passes; a weakened copy under the same id and version is trialled later into the same folder (PACK-review 1.7).
+        Write(PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now), _host, "real");
+        var weakened = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0.1}}""");
+        Write(PackTrialGate.Decide(weakened, Arm(0, 0, 0, 60), Arm(0, 0, 0, 30), Now.AddMinutes(5)), _host, "weak");
+
+        var set = Activate(new PackActivationFolder(_folder, PublicKey()));
+
+        set.Modules.Select(m => m.Manifest.Id).Should().Contain(Base);
+    }
+
+    [Fact]
     public void A_record_for_other_content_does_not_count()
     {
         var weakened = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0.1}}""");

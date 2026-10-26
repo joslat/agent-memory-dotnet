@@ -36,8 +36,11 @@ internal sealed partial record PackManifest
     /// <summary>Where the content came from (v1.2 §2, §11): repository, commit, built at; a snapshot names its commit here.</summary>
     internal PackOrigin? Source { get; init; }
 
-    /// <summary>Reverse-DNS: at least two lowercase segments of letters, digits and inner hyphens.</summary>
-    internal static bool IsValidId(string id) => id.Length <= 200 && IdPattern().IsMatch(id);
+    /// <summary>
+    /// Reverse-DNS: at least three lowercase segments, each starting with a letter, with inner hyphens, at most 64 characters.
+    /// Every id this accepts is also a valid module id (ModuleIdentity.IsValidModuleId), so a pack that builds also loads.
+    /// </summary>
+    internal static bool IsValidId(string id) => id.Length <= 64 && IdPattern().IsMatch(id);
 
     /// <summary>Whether <paramref name="prefix"/> covers <paramref name="id"/>: the same id, or a parent namespace of it.</summary>
     internal static bool Covers(string prefix, string id) =>
@@ -68,7 +71,7 @@ internal sealed partial record PackManifest
         var code = Text("code") ?? "E0";
         if (!CodeTiers.Contains(code)) return (null, $"{FileName} has an unknown code tier '{code}'.");
         if (Strings("contains") is not { } contains || contains.Any(c => !IsValidId(c))) return (null, $"{FileName} has a malformed 'contains'.");
-        if (Strings("containableBy") is not { } containable || containable.Any(c => !IsValidId(c.TrimEnd('.')))) return (null, $"{FileName} has a malformed 'containableBy'.");
+        if (Strings("containableBy") is not { } containable || containable.Any(c => !IsValidId(c))) return (null, $"{FileName} has a malformed 'containableBy'.");
         DateTimeOffset? validUntil = null;
         if (Text("validUntil") is { } until)
         {
@@ -101,10 +104,10 @@ internal sealed partial record PackManifest
         }, null);
     }
 
-    [GeneratedRegex("^[a-z0-9]+(?:-[a-z0-9]+)*(?:\\.[a-z0-9]+(?:-[a-z0-9]+)*)+$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("\\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){2,}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex IdPattern();
 
-    [GeneratedRegex("^[0-9a-f]{7,64}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("\\A[0-9a-f]{7,64}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex CommitPattern();
 }
 

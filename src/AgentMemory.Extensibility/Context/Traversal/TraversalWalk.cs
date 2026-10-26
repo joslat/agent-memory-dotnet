@@ -226,18 +226,22 @@ internal static class TraversalWalk
         return Short(record.Key);
     }
 
-    private static string Short(string value)
+    // Every path ends in Strict() and the 80-character cap: a symbol's simple name, a path's last segment, or the text itself.
+    internal static string Short(string value)
     {
         var text = value.Trim();
         if (text.Contains(' ') && text.Contains('#') || text.EndsWith('#') || text.EndsWith(')') || text.EndsWith('.'))
-            return AnchorMatcher.SimpleName(text) is { Length: > 0 } simple ? simple : text;
-        var slash = text.LastIndexOf('/');
-        text = slash >= 0 && slash < text.Length - 1 ? text[(slash + 1)..] : text;
+            text = AnchorMatcher.SimpleName(text) is { Length: > 0 } simple ? simple : text;
+        else
+        {
+            var slash = text.LastIndexOf('/');
+            text = slash >= 0 && slash < text.Length - 1 ? text[(slash + 1)..] : text;
+        }
         text = Strict(text);
         return text.Length <= 80 ? text : text[..77] + "...";
     }
 
-    /// <summary>Letters, digits and the punctuation of paths, symbols and globs; anything else becomes '_'.</summary>
+    /// <summary>Letters, digits, spaces and the punctuation of paths, symbols and globs; anything else becomes '_'.</summary>
     internal static string Strict(string text) =>
         string.Create(text.Length, text, static (span, source) =>
         {
