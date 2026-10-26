@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>AgentMemory.Packs.Repository</RootNamespace>
+    <AssemblyName>AgentMemory.Packs.Repository</AssemblyName>
+    <Description>Experimental repository-experience memory pack for AgentMemory for .NET: what a coding agent learns in a repository (failure and fix, commands, conventions, pitfalls, environment), bound to the commit it was seen at. A code module on the Extensibility preview SDK.</Description>
+    <PackageTags>agent-memory;memory-pack;coding;repository;lessons</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The module's own version: the embedded manifest names the same, and ModuleManifest.Load refuses a mismatch. -->
+    <Version>0.1.0-preview.1</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="manifest.json" LogicalName="AgentMemory.Packs.Repository.agentmemory-module.json" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+  </ItemGroup>
+
+</Project>

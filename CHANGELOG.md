@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add the experimental repository-experience memory pack (`src/AgentMemory.Packs.Repository`, held: it ships inside the
+  coding host). A model writes lessons a coding agent would otherwise rediscover, each with a kind: failure-fix, command,
+  convention, pitfall or environment. The host stamps the commit a lesson was seen at through the new
+  `IngestionRequest.HostAttributes`; the model never sets it. Recall uses a search view, so the gate judges the few lessons
+  that match a turn.
+
 - Let a module search use what core memory found. `RecallCompanions.CoreCandidates` gives the texts of the core memories a
   judging gate found for the turn: the gate offers them right after its search, before it waits for companions, and offers an
   empty list on every other path. A search view adds them after the question, so "what do I need for my next belt?" can find

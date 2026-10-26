@@ -49,3 +49,8 @@ PREVIEW:AgentMemory.Extensibility|src/AgentMemory.Extensibility/AgentMemory.Exte
 PREVIEW:AgentMemory.Extensibility.AgentFramework|src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj
 PREVIEW:AgentMemory.Extensibility.Neo4j|src/AgentMemory.Extensibility.Neo4j/AgentMemory.Extensibility.Neo4j.csproj
 PREVIEW:AgentMemory.Validation|src/AgentMemory.Validation/AgentMemory.Validation.csproj
+
+# The repository-experience memory pack (Extensibility 0.13 §C) ships inside the coding host tool for 2.0, not as its own
+# package: a module carries its own version in its embedded manifest, and the preview line would restamp it at each
+# preview release. Publishing it waits for a module release line (the owner decides).
+HELD:AgentMemory.Packs.Repository

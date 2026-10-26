@@ -23,13 +23,21 @@ internal static class ModuleIngestionSnapshot
             || (request.Trigger == IngestionTrigger.EveryTurn && request.ProviderIds.Count != 0)
             || (request.Trigger == IngestionTrigger.OnRequest && request.ProviderIds.Count == 0))
             throw new ArgumentException("Provider selection must be distinct and explicit only for OnRequest.", nameof(request));
+        if (request.HostAttributes is { } attributes && (attributes.Count > 8
+            || attributes.Any(a => !HostAttributeKey(a.Key) || a.Value is null || a.Value.Length > 200 || a.Value.Any(char.IsControl))))
+            throw new ArgumentException("Host attributes are at most 8 entries: lowercase keys of up to 32 characters, values of up to 200 without control characters.", nameof(request));
         return request with
         {
             Owner = owner, AtUtc = request.AtUtc.ToUniversalTime(),
+            HostAttributes = request.HostAttributes?.OrderBy(a => a.Key, StringComparer.Ordinal)
+                .ToDictionary(a => a.Key, a => a.Value, StringComparer.Ordinal).AsReadOnly(),
             Messages = request.Messages.Select(m => m with { }).ToList().AsReadOnly(),
             ProviderIds = request.ProviderIds.Order(StringComparer.Ordinal).ToList().AsReadOnly()
         };
     }
+
+    private static bool HostAttributeKey(string key) =>
+        key is { Length: >= 1 and <= 32 } && char.IsAsciiLetterLower(key[0]) && key.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '_' or '-');
 
     internal static string Fingerprint(IngestionRequest request) =>
         Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request))).ToLowerInvariant();
