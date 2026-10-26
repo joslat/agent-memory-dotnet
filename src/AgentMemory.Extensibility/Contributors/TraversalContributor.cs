@@ -60,7 +60,11 @@ public sealed class TraversalContributor : IContextContributor
                 ? new() { OmissionReason = ContextOmissionReason.SearchedAndEmpty }
                 : new() { OmissionReason = ContextOmissionReason.Denied, Detail = string.Join("; ", walk.Problems) };
         var types = _module.Ontology!.Types.ToDictionary(t => t.Name, StringComparer.Ordinal);
-        return new() { Section = new(Descriptor.Id, Descriptor.Id, 1, mine.Select(i => new ContextItem(i.Record.Id, Text(types, i))
+        // A walk a budget stopped says so with what it found: the result stands, and the host sees what was spent.
+        var detail = walk.Spent is { StoppedBy: { } budget } spent
+            ? $"The walk stopped at its {budget} budget: {spent.Reads} reads, {spent.Visited} records, {spent.Elapsed.TotalMilliseconds:0} ms."
+            : null;
+        return new() { Detail = detail, Section = new(Descriptor.Id, Descriptor.Id, 1, mine.Select(i => new ContextItem(i.Record.Id, Text(types, i))
         {
             Provenance = new()
             {

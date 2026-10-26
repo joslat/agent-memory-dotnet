@@ -15,6 +15,14 @@ public static class ModuleTelemetry
     public const string Ingest = "memory.module.ingest";
     /// <summary>Explicit module migration planning or application.</summary>
     public const string Migrate = "memory.module.migrate";
+    /// <summary>Store reads one traversal walk made, against its budget of 128.</summary>
+    public const string TraversalReads = "memory.traversal.reads";
+    /// <summary>Records one traversal walk visited, against its budget of 256.</summary>
+    public const string TraversalVisited = "memory.traversal.visited";
+    /// <summary>Milliseconds one traversal walk took, against its budget of 5 seconds.</summary>
+    public const string TraversalElapsedMs = "memory.traversal.elapsed_ms";
+    /// <summary>The budget that stopped a traversal walk (<c>visited</c>, <c>reads</c> or <c>time</c>), or <c>none</c>.</summary>
+    public const string TraversalStoppedBy = "memory.traversal.stopped_by";
     /// <summary>Host-bound manifest identity; never an owner or source-message identity.</summary>
     public const string ModuleId = "memory.module.id";
     /// <summary>Frozen resolved manifest version, not a record version.</summary>

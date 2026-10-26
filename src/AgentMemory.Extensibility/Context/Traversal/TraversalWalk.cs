@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AgentMemory.Abstractions.Options;
+using AgentMemory.Extensibility.Diagnostics;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Extensibility.Reading;
 
@@ -65,8 +66,9 @@ internal static class TraversalWalk
     internal static readonly TimeSpan TimeBudget = TimeSpan.FromSeconds(5);
     internal const double MinimumScore = 0.1;
 
+    // timeBudget: TimeBudget unless a test sets a shorter one.
     internal static async Task<TraversalResult> RunAsync(ModuleResolution resolution, IModuleTraversalReader reader, ContextRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, TimeSpan? timeBudget = null)
     {
         var anchors = request.Anchors
             .Where(a => a is not null && !string.IsNullOrWhiteSpace(a.Value) && a.Value.Length <= ContextAnchor.MaximumLength)
@@ -82,12 +84,25 @@ internal static class TraversalWalk
         var perModule = new Dictionary<string, int>(StringComparer.Ordinal);
         var problems = new List<string>();
         var clock = Stopwatch.StartNew();
+        var budget = timeBudget ?? TimeBudget;
+        // The time budget also bounds a read in progress: a slow store stops the walk, not only the next read (PACK-review 1.5).
+        using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timer.CancelAfter(budget);
         var reads = 0;
         string? stoppedBy = null;
         bool Spent()
         {
-            stoppedBy ??= best.Count >= MaximumVisited ? "visited" : reads >= MaximumReads ? "reads" : clock.Elapsed > TimeBudget ? "time" : null;
+            stoppedBy ??= best.Count >= MaximumVisited ? "visited" : reads >= MaximumReads ? "reads" : clock.Elapsed > budget ? "time" : null;
             return stoppedBy is not null;
+        }
+        async Task<T?> Within<T>(Func<CancellationToken, Task<T>> read) where T : class
+        {
+            try { return await read(timer.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                stoppedBy ??= "time";
+                return null;
+            }
         }
         bool Offer(TraversalItem item)
         {
@@ -124,10 +139,11 @@ internal static class TraversalWalk
                 if (values.Count == 0) continue;
                 if (Spent()) break;
                 reads++;
-                var found = await reader.MatchAsync(new ModuleAnchorQuery
+                var found = await Within(token => reader.MatchAsync(new ModuleAnchorQuery
                 {
                     ModuleId = module.Id, Type = declared.Type, Property = declared.Property, Match = declared.Match, Values = values
-                }, context, cancellationToken).ConfigureAwait(false);
+                }, context, token)).ConfigureAwait(false);
+                if (found is null) break;
                 if (found.Status != ModuleReadStatus.Succeeded) { problems.AddRange(found.Errors.Select(e => module.Id + ": " + e)); continue; }
                 foreach (var record in found.Records)
                 {
@@ -162,11 +178,12 @@ internal static class TraversalWalk
                         .GroupBy(i => i.Record.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.MaxBy(i => i.Score)!, StringComparer.Ordinal);
                     if (starting.Count == 0) continue;
                     reads++;
-                    var step = await reader.ExpandAsync(new ModuleExpandQuery
+                    var step = await Within(token => reader.ExpandAsync(new ModuleExpandQuery
                     {
                         ModuleId = module.Id, Relation = declared.Name, Direction = declared.Direction,
                         FromIds = [.. starting.Keys.Order(StringComparer.Ordinal)], FanOut = declared.FanOut, Words = words
-                    }, context, cancellationToken).ConfigureAwait(false);
+                    }, context, token)).ConfigureAwait(false);
+                    if (step is null) break;
                     if (step.Status != ModuleReadStatus.Succeeded) { problems.AddRange(step.Errors.Select(e => module.Id + ": " + e)); continue; }
                     foreach (var edge in step.Edges)
                     {
@@ -184,8 +201,14 @@ internal static class TraversalWalk
             frontier = next;
         }
         Spent(); // a stop is reported in the spend, not as a problem: it denies nothing
+        var spent = new TraversalSpend(reads, best.Count, clock.Elapsed, stoppedBy);
+        // Reported with every walk, on the contribution's activity: a host sees that a pack's declared bounds held.
+        Activity.Current?.SetTag(ModuleTelemetry.TraversalReads, spent.Reads)
+            .SetTag(ModuleTelemetry.TraversalVisited, spent.Visited)
+            .SetTag(ModuleTelemetry.TraversalElapsedMs, Math.Round(spent.Elapsed.TotalMilliseconds, 1))
+            .SetTag(ModuleTelemetry.TraversalStoppedBy, spent.StoppedBy ?? "none");
         return new([.. best.Values.OrderByDescending(i => i.Rank).ThenByDescending(i => i.Specificity).ThenBy(i => i.Hops)
-            .ThenBy(i => i.Record.Id, StringComparer.Ordinal)], problems.AsReadOnly(), new TraversalSpend(reads, best.Count, clock.Elapsed, stoppedBy));
+            .ThenBy(i => i.Record.Id, StringComparer.Ordinal)], problems.AsReadOnly(), spent);
     }
 
     /// <summary>

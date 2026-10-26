@@ -112,6 +112,33 @@ public sealed class TraversalBudgetTests
     }
 
     /// <summary>Seeds every anchor query with <c>seeds[module]</c> records; every expansion reaches <c>growth</c> new records from its first starting record.</summary>
+    [Fact]
+    public async Task A_read_that_outlasts_the_time_budget_stops_the_walk_with_what_it_reached()
+    {
+        var resolution = Resolve(Pack("slow", relations: 1));
+        var slow = new SlowExpandReader(new FloodReader(seeds: new() { ["com.example.slow"] = 3 }));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        var walk = await TraversalWalk.RunAsync(resolution, slow, Request(), CancellationToken.None, TimeSpan.FromMilliseconds(300));
+
+        clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "the budget bounds the read in progress, not only the next one");
+        walk.Spent!.StoppedBy.Should().Be("time");
+        walk.Items.Should().NotBeEmpty("the records the anchors reached before the slow read stand");
+    }
+
+    // Matches as the inner reader does; every expansion waits until it is cancelled.
+    private sealed class SlowExpandReader(IModuleTraversalReader inner) : IModuleTraversalReader
+    {
+        public Task<ModuleReadResult> MatchAsync(ModuleAnchorQuery query, ModuleReadContext context, CancellationToken cancellationToken = default) =>
+            inner.MatchAsync(query, context, cancellationToken);
+
+        public async Task<ModuleTraversalStep> ExpandAsync(ModuleExpandQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            throw new InvalidOperationException("unreachable");
+        }
+    }
+
     private sealed class FloodReader(Dictionary<string, int> seeds, int growth = 0) : IModuleTraversalReader
     {
         private int _next;
