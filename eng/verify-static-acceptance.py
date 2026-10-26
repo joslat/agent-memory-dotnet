@@ -92,6 +92,7 @@ try:
 finally:
     (keys / 'pack.private.pem').unlink(missing_ok=True)
 run('pack-verify', ['dotnet', cli, 'packs', 'verify', str(pack_bundle), '--developer-key', str(keys / 'pack.public.pem')])
+run('pack-repository', ['dotnet', 'pack', 'src/AgentMemory.Packs.Repository/AgentMemory.Packs.Repository.csproj', '-c', 'Release', '-o', str(feed), version_property])
 run('pack-martial-arts', ['dotnet', 'pack', 'packs/AgentMemory.Packs.MartialArts/AgentMemory.Packs.MartialArts.csproj', '-c', 'Release', '-o', str(feed)])
 consumer = ROOT / 'eng/module-consumers/StaticAcceptance/StaticAcceptance.csproj'
 run('build-consumer', ['dotnet', 'build', str(consumer), '-c', 'Release', *props])

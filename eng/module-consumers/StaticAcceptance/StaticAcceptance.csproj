@@ -11,6 +11,8 @@
     <PackageReference Include="AgentMemory.Inference" Version="$(CoreVersion)" />
     <!-- A knowledge pack: data only; its buildTransitive props copy the signed bundle to agentmemory-packs/<id>/. -->
     <PackageReference Include="AgentMemory.Packs.MartialArts" Version="1.0.0" />
+    <!-- Held for 2.0 (it ships inside the coding tool); packed into this run's local feed only. -->
+    <PackageReference Include="AgentMemory.Packs.Repository" Version="0.1.0-preview.1" />
     <PackageReference Include="Microsoft.Agents.AI" Version="1.23.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />

@@ -21,6 +21,7 @@ using AgentMemory.Extensibility.Reading;
 using AgentMemory.Gate;
 using AgentMemory.Inference;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Packs.Repository;
 using AgentMemory.Validation;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -236,7 +237,10 @@ if (args.Contains("--live"))
         throw new InvalidOperationException("--live needs TYPESAFE_API_KEY for the JEV judges.");
     var writer = new MeteredModel(glm);
     var judged = new RecordingGate();
-    await using var liveHost = await HostAsync(modules: true, maxItems: 8, lessons: writer, liveJudges: judged);
+    await using var liveHost = await HostAsync(modules: true, maxItems: 8, lessons: writer, liveJudges: judged, knowledge: [martialArts], repositoryPack: true);
+    // Part D removed the pack in this same database at its own clock; transaction time only moves forward, so start after it.
+    liveHost.Clock.UtcNow = DateTimeOffset.Parse("2026-10-22T09:00:00Z");
+    await liveHost.ImportAsync(martialArts);
     await liveHost.EntityAsync("atlas-live", "Atlas", "lea");
     await liveHost.TurnAsync("lea", "l1", """{"format":"agentmemory.commitment/v1","key":"atlas-draft","title":"Send Atlas draft","detail":"Promised to the board","status":"open","priority":2,"due_at":"2026-10-23T16:00:00Z","about":{"kind":"name","target":"Atlas"}}""");
     await liveHost.TurnAsync("lea", "l2", "In agent-memory-dotnet the integration build failed with MSB3021 'Unable to copy file ... being used by another process': "
@@ -265,6 +269,24 @@ if (args.Contains("--live"))
     var afterCorrection = await liveHost.LessonsAsync("lea");
     var closed = stored.Where(l => afterCorrection.All(a => a.Key != l.Key)).Select(l => l.Key).ToList();
     var after = await liveHost.TurnAsync("lea", "l6", "How do I get past locked DLLs when I build?");
+    // EXT-acceptance-2 live (criteria in the ledger before this run): the repository pack's real writer, and the knowledge pack
+    // searched with what Lea's own memory holds, judged by JEV.
+    var repoLessons = await liveHost.ViewTextsAsync(RepositoryPack.Id, RepositoryPack.CurrentView, "lea");
+    var repoKinds = await liveHost.KindsAsync("lea");
+    Require("live:repo:writer", repoLessons.Count >= 1 && repoKinds.All(k => RepositoryWriter.Kinds.Contains(k)),
+        $"the real repository writer stored {repoLessons.Count} lesson(s), kinds {string.Join(", ", repoKinds)}: " + string.Join(" | ", repoLessons));
+    var repoRecall = await liveHost.TurnAsync("lea", "l7", "The build fails again with MSB3021 and locked DLLs. What did we learn?");
+    Require("live:repo:recall", repoLessons.Any(t => repoRecall.Contains(t, StringComparison.Ordinal)), "a repository lesson reached the model in a fresh session");
+    await liveHost.FactAsync("lea", "Lea", "holds rank", "6th kyu in Shotokan karate");
+    var beltCalls = judged.Calls.Count;
+    var belt = await liveHost.TurnAsync("lea", "l8", "What do I need for my next belt?");
+    var beltPool = judged.Calls.Skip(beltCalls).ToList();
+    Require("live:pack:next-belt", belt.Contains("Heian Yondan", StringComparison.Ordinal)
+        && beltPool.Count == 1 && beltPool[0].AnsweredBy?.Contains("jev", StringComparison.Ordinal) == true,
+        $"the next grade's kata {(belt.Contains("Heian Yondan", StringComparison.Ordinal) ? "present" : "missing")}; {beltPool.Count} gate call(s), answered by "
+        + (beltPool.Count == 1 ? beltPool[0].AnsweredBy ?? "nobody" : "-"));
+    var beltVerdicts = beltPool.SelectMany(c => c.Request.Candidates.Where(x => x.Companion && x.MemoryType == MartialArtsPack)
+        .Select(x => new { text = x.Text.Length > 80 ? x.Text[..80] : x.Text, probability = c.Probabilities.TryGetValue(x.Key, out var v) ? v : (double?)null })).ToList();
     var companionVerdicts = pooled.SelectMany(c => c.Request.Candidates.Where(x => x.Companion)
         .Select(x => new { x.MemoryType, x.Text, probability = c.Probabilities.TryGetValue(x.Key, out var v) ? v : (double?)null })).ToList();
     live = new
@@ -274,7 +296,7 @@ if (args.Contains("--live"))
         lessonsAfterTeach = stored.Select(l => new { key = l.Key, text = l.Text }),
         lessonsAfterCorrection = afterCorrection.Select(l => new { key = l.Key, text = l.Text }), closedByCorrection = closed,
         correctionRecalled = afterCorrection.Where(l => after.Contains(l.Text, StringComparison.Ordinal)).Select(l => l.Key),
-        companionVerdicts,
+        companionVerdicts, repoLessons, repoKinds, beltVerdicts,
     };
     Console.WriteLine("live: " + JsonSerializer.Serialize(live));
 }
@@ -289,7 +311,7 @@ Console.WriteLine($"ext-static-acceptance: {checks.Count - failed} passed, {fail
 return failed == 0 ? 0 : 1;
 
 async Task<AcceptanceHost> HostAsync(bool modules, int maxItems, IChatClient? lessons = null, RecordingGate? liveJudges = null,
-    IReadOnlyList<KnowledgePack>? knowledge = null, IMemoryGate? judge = null)
+    IReadOnlyList<KnowledgePack>? knowledge = null, IMemoryGate? judge = null, bool repositoryPack = false)
 {
     var clock = new AcceptanceClock { UtcNow = DateTimeOffset.Parse("2026-10-20T09:00:00Z") };
     var options = new MemoryOptions { Recall = RecallOptions.Default with { MaxRecentMessages = 0, MaxRelevantMessages = 0 } };
@@ -334,6 +356,7 @@ async Task<AcceptanceHost> HostAsync(bool modules, int maxItems, IChatClient? le
                     b.AddIngestionProvider(_ => new CommitmentProvider());
                     b.AddContextContributor(c => CommitmentsModule.Due(c.Resolution, c.Reader));
                 });
+            if (repositoryPack) m.Add<RepositoryPack>();
             foreach (var pack in knowledge ?? []) m.AddKnowledgePack(pack);
         });
         if (knowledge is not null) services.AddNeo4jKnowledgePacks();
@@ -399,6 +422,23 @@ sealed class AcceptanceHost(ServiceProvider services, AcceptanceClock clock) : I
             new ModuleReadContext { Scope = MemoryScope.For(owner) });
         return [.. result.Items.Select(i => (i.Record.Key, i.Text))];
     }
+
+    /// <summary>An owner's current records of a module view, as rendered.</summary>
+    public async Task<IReadOnlyList<string>> ViewTextsAsync(string moduleId, string viewId, string owner)
+    {
+        using var scope = services.CreateScope();
+        var sp = scope.ServiceProvider;
+        var set = sp.GetRequiredService<ModuleSet>();
+        var reader = new Neo4jModuleReader(sp.GetRequiredService<INeo4jTransactionRunner>(), set.Resolution, moduleId,
+            sp.GetRequiredService<IMemoryIsolationPolicy>(), Clock);
+        var result = await new ModuleViews(set.Resolution, reader).EvaluateAsync(viewId, new ModuleReadContext { Scope = MemoryScope.For(owner) });
+        return [.. result.Items.Select(i => i.Text)];
+    }
+
+    /// <summary>The kinds of an owner's live repository lessons.</summary>
+    public Task<IReadOnlyList<string>> KindsAsync(string owner) => services.GetRequiredService<INeo4jTransactionRunner>().ReadAsync(async tx =>
+        (IReadOnlyList<string>)[.. (await (await tx.RunAsync("MATCH (n:RepoLesson {owner_id:$owner}) WHERE n.invalidated_at IS NULL RETURN n.kind AS kind",
+            new { owner })).ToListAsync()).Select(r => r["kind"].As<string>())]);
 
     /// <summary>Imports a knowledge pack through the host's importer.</summary>
     public Task<KnowledgePackImportResult> ImportAsync(KnowledgePack pack) => services.GetRequiredService<KnowledgePackImporter>().ImportAsync(pack);
