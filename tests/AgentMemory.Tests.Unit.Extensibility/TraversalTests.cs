@@ -49,11 +49,16 @@ public sealed class TraversalTests
         Properties = properties.ToDictionary(p => p.Name, p => JsonSerializer.SerializeToElement(p.Value), StringComparer.Ordinal),
     };
 
-    /// <summary>An in-memory store: records by type, links as (from, relation, to).</summary>
+    /// <summary>
+    /// An in-memory store: records by type, links as (from, relation, to). Like the Neo4j reader, an expansion keeps first the
+    /// records whose text holds most of the question's words, then the lowest degree, then by id.
+    /// </summary>
     private sealed class FakeReader : IModuleTraversalReader
     {
         public readonly List<ModuleRecord> Records = [];
         public readonly List<(string From, string Relation, string To)> Links = [];
+        public readonly Dictionary<string, int> Degrees = new(StringComparer.Ordinal);
+        public readonly List<IReadOnlyList<string>> Words = [];
         public readonly List<string> Calls = [];
         public ModuleReadStatus Status = ModuleReadStatus.Succeeded;
 
@@ -71,14 +76,20 @@ public sealed class TraversalTests
         public Task<ModuleTraversalStep> ExpandAsync(ModuleExpandQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
         {
             Calls.Add($"expand {query.Relation} {query.Direction} fanOut {query.FanOut}");
+            Words.Add(query.Words);
+            int Hits(string id) => query.Words.Count(w => string.Join(' ', Records.Single(r => r.Id == id).Properties.Values
+                .Select(v => v.GetString())).ToLowerInvariant().Contains(w, StringComparison.Ordinal));
             var edges = new List<ModuleTraversalEdge>();
             foreach (var from in query.FromIds)
             {
                 var reached = query.Direction == ModuleTraversalDirection.Out
                     ? Links.Where(l => l.From == from && l.Relation == query.Relation).Select(l => l.To)
                     : Links.Where(l => l.To == from && l.Relation == query.Relation).Select(l => l.From);
-                edges.AddRange(reached.Order(StringComparer.Ordinal).Take(query.FanOut)
-                    .Select(id => new ModuleTraversalEdge { FromId = from, To = Records.Single(r => r.Id == id) }));
+                edges.AddRange(reached.OrderByDescending(Hits).ThenBy(id => Degrees.GetValueOrDefault(id, 1)).ThenBy(id => id, StringComparer.Ordinal)
+                    .Take(query.FanOut).Select(id => new ModuleTraversalEdge
+                    {
+                        FromId = from, To = Records.Single(r => r.Id == id), Degree = Degrees.GetValueOrDefault(id, 1),
+                    }));
             }
             return Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.Succeeded, Edges = edges });
         }
@@ -280,5 +291,53 @@ public sealed class TraversalTests
 
         plain.Traversal.Should().BeNull();
         JsonSerializer.Serialize(plain).Should().NotContain("Traversal");
+    }
+
+    [Fact]
+    public async Task The_question_orders_what_the_anchors_reach()
+    {
+        var (contributor, reader) = Contributor();
+
+        var result = await contributor.ContributeResultAsync(Request(ContextAnchor.Path(StoreFile)) with { Query = "Refuse a downgrade of the store" });
+
+        // "Downgrade is refused" holds two of the question's words: the expansion keeps it and the walk offers it first
+        // (0.72 x 3), ahead of the other kept test (0.72) and the decision (0.7). Without the question it was cut by id.
+        reader.Words.Should().AllSatisfy(w => w.Should().Equal("refuse", "downgrade", "store"));
+        result.Section!.Items.Select(i => i.Id).Should().Equal("test-upgrade", "test-removal", "decision-close");
+    }
+
+    [Fact]
+    public async Task Among_equal_paths_the_most_specific_link_comes_first()
+    {
+        var reader = Store();
+        reader.Degrees["test-removal"] = 5;   // a test linked to five types says less about this one
+        reader.Degrees["test-upgrade"] = 3;
+        var (contributor, _) = Contributor(reader);
+
+        var result = await contributor.ContributeResultAsync(Request(ContextAnchor.Path(StoreFile)));
+
+        result.Section!.Items.Select(i => i.Id).Should().Equal("test-third", "test-upgrade", "decision-close");
+    }
+
+    [Fact]
+    public void A_question_s_words_split_identifiers_and_drop_what_every_record_shares()
+    {
+        TraversalWords.Of("Make SupersedeReplacedFacts honour the as-of path for tests")
+            .Should().Equal("supersede", "replaced", "facts", "honour", "path");
+        TraversalWords.Of(null).Should().BeEmpty();
+        TraversalWords.Of(string.Join(' ', Enumerable.Range(0, 40).Select(i => "word" + i))).Should().HaveCount(ModuleExpandQuery.MaximumWords);
+    }
+
+    [Fact]
+    public void A_type_s_text_is_the_string_properties_its_template_names()
+    {
+        var properties = new Dictionary<string, ModuleProperty>
+        {
+            ["name"] = new() { Type = "string" }, ["file"] = new() { Type = "string" }, ["line"] = new() { Type = "int" },
+            ["framework"] = new() { Type = "string" },
+        };
+        new ModuleType { Name = "CodemapTest", Render = "Test {name} ({file}) line {line}", Properties = properties }.TextProperties()
+            .Should().Equal("name", "file");
+        new ModuleType { Name = "CodemapTest", Properties = properties }.TextProperties().Should().Equal("file", "framework", "name");
     }
 }

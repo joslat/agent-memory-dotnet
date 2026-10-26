@@ -44,7 +44,7 @@ if (string.Equals(cli.Command, "codemap", StringComparison.OrdinalIgnoreCase) &&
         Console.Error.WriteLine("error: codemap needs scan or import.");
         return 2;
     }
-    return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"));
+    return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"), cli.Get("output"));
 }
 
 // decisions scan reads ADR files and Squad's log offline; decisions import goes through the host below (CMP-3).
@@ -315,6 +315,16 @@ try
             .ExecuteAsync(cli.Get("owner"), cli.Get("limit")),
         // 40.57: validation packs build their own stack per pack (its options, its extraction, a replayed clock),
         // against the same store this host is configured for.
+        // CMP-4: the traversal-context trial composes the Coding packs over the same store and compiles each fixture task.
+        "evaluate" when cli.Get("traversal") is not null => await new TraversalTrialCommand(o =>
+            {
+                o.Uri = uri;
+                o.Username = user;
+                o.Password = password;
+                o.Database = database;
+                o.EmbeddingDimensions = dims;
+            }, output)
+            .ExecuteAsync(cli.Get("traversal"), cli.Get("output"), cli.Get("rounds"), cli.Get("warmup")),
         "evaluate" when cli.HasFlag("pack") => await new PackEvaluationCommand(o =>
             {
                 o.Uri = uri;

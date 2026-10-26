@@ -32,6 +32,12 @@ public sealed record ModuleType
     /// <summary>Declared property names and constraints.</summary>
     public IReadOnlyDictionary<string, ModuleProperty> Properties { get; init; } =
         new Dictionary<string, ModuleProperty>().AsReadOnly();
+
+    /// <summary>
+    /// The string properties a reader of this type sees: those its render template names, or all of them without a template.
+    /// Traversal matches a question's words against them (CMP-4).
+    /// </summary>
+    public IReadOnlyList<string> TextProperties() => ModuleRenderTemplate.TextProperties(this);
 }
 
 /// <summary>One declared property. Numeric bounds preserve their original JSON precision.</summary>

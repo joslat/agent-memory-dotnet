@@ -23,8 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keyed by SCIP symbols (`scip-dotnet nuget Assembly . Ns/Type#`, version slot empty so keys survive releases). The reader
   uses the Roslyn compiler without MSBuild or a build: one compilation per project against the runtime's reference
   assemblies, so in-repo types resolve exactly; each test links to the in-repo types its method touches outside its own
-  project. The pack declares traversal, so the file or symbol in hand leads to the tests that exercise it. CLI:
-  `codemap scan --root <repo>` (offline) and `codemap import --root <repo> [--source git:<sha>]`.
+  project, including what the helpers of its own class touch (a test that builds its subject in `CreateSut()` still tests
+  it). Without MSBuild, the reader adds what MSBuild would generate: the SDK's implicit usings when the project or its
+  `Directory.Build.props` enables them, `<Using>` items, and `InternalsVisibleTo`; without them, calls whose signatures
+  name `IEnumerable<T>` or `Task`, or internal members, did not bind. The pack declares traversal, so the file or symbol in hand leads to the tests that exercise it. CLI:
+  `codemap scan --root <repo> [--output map.jsonl]` (offline) and `codemap import --root <repo> [--source git:<sha>]`.
+- Traversal ranks by the question (CMP-4): when a type leads to more records than the fan-out, the reader keeps first those
+  whose text (`ModuleType.TextProperties()`, the render template's string properties) holds the question's words
+  (`ModuleExpandQuery.Words`), then the most specific (`ModuleTraversalEdge.Degree`: fewest records sharing the link); the
+  walk offers by path score raised per matched word, then specificity. Before, the fan-out kept records in id order. On this
+  repository's own history the share of changes whose own tests reach the gate rose from 0.375 to 0.775 (0.80 on 40 older
+  changes held out while tuning), precision from 0.18 to 0.51 (0.60 held out), for about 30 ms at p95. The Neo4j traversal reader checks module migrations once
+  per request instead of before every read. Trial: `evaluate --traversal eng/evaluation/traversal-fixture.json`.
 - Add experimental module snapshots (`ModuleSnapshot`, `IModuleSnapshotStore`, Neo4j `Neo4jModuleSnapshotStore`): a
   host-generated, complete set of a data module's records at one source version. Import writes only what changed, closes
   what disappeared (history kept), in batches; records carry the source and the snapshot digest as provenance. One read

@@ -7,9 +7,16 @@ using AgentMemory.Extensibility.Reading;
 
 namespace AgentMemory.Extensibility.Context.Traversal;
 
-/// <summary>A record a walk reached: its score and how it was reached.</summary>
+/// <summary>
+/// A record a walk reached: its score and how it was reached, how many of the question's words its text holds, and how specific
+/// the last link to it was (1 over how many records share that link).
+/// </summary>
 [Experimental("AMEXT001")]
-internal sealed record TraversalItem(ModuleRecord Record, double Score, string Via, int Hops);
+internal sealed record TraversalItem(ModuleRecord Record, double Score, string Via, int Hops, int Matches = 0, double Specificity = 1)
+{
+    /// <summary>The order a walk offers records in: the path's score, raised by each question word the record's text holds.</summary>
+    internal double Rank => Score * (1 + Matches);
+}
 
 /// <summary>What one walk reached, best first, and the reads it could not make.</summary>
 [Experimental("AMEXT001")]
@@ -23,6 +30,13 @@ internal sealed record TraversalResult(IReadOnlyList<TraversalItem> Items, IRead
 /// most two hops; each reached record keeps its best score (anchor quality times the weights along the path) and that path.
 /// Bounded in hops, fan-out, visited records and a score floor, so a hub cannot flood the gate.
 /// </summary>
+/// <remarks>
+/// <b>The question orders what the anchors reach (CMP-4).</b> A type can have hundreds of tests, all one link from it and all with
+/// the same score; which few reach the gate was decided by record id. Now an expansion keeps first the records whose text holds
+/// the question's words, then the most specific (a test linked to one type over one linked to twelve), and the walk offers records
+/// by score raised per matched word, then specificity. Measured on this repository's own history (40 changes, and 40 older ones
+/// held out while tuning): the share of changes whose own tests were offered rose from 0.375 to 0.775, and 0.80 held out.
+/// </remarks>
 [Experimental("AMEXT001")]
 internal static class TraversalWalk
 {
@@ -45,6 +59,18 @@ internal static class TraversalWalk
         var modules = resolution.Modules.Where(m => m.Traversal is not null && m.Ontology is not null).ToList();
         var best = new Dictionary<string, TraversalItem>(StringComparer.Ordinal);
         var problems = new List<string>();
+        var words = TraversalWords.Of(request.Query);
+        var texts = new Dictionary<(string, string), IReadOnlyList<string>>();
+        int Matches(ModuleRecord record)
+        {
+            if (words.Count == 0) return 0;
+            if (!texts.TryGetValue((record.ModuleId, record.Type), out var properties))
+                texts[(record.ModuleId, record.Type)] = properties = resolution.Modules.SingleOrDefault(m => m.Id == record.ModuleId)?.Ontology?.Types
+                    .SingleOrDefault(t => t.Name == record.Type)?.TextProperties() ?? [];
+            var text = string.Join(' ', properties.Select(p => record.Properties.TryGetValue(p, out var v) && v.ValueKind == JsonValueKind.String
+                ? v.GetString() : null)).ToLowerInvariant();
+            return words.Count(w => text.Contains(w, StringComparison.Ordinal));
+        }
 
         // Seeds: records whose anchor properties match the anchors.
         foreach (var module in modules)
@@ -64,7 +90,7 @@ internal static class TraversalWalk
                     if (quality <= 0) continue;
                     var via = Short(anchor!) + (string.Equals(pattern, anchor, StringComparison.OrdinalIgnoreCase)
                         ? "" : " matches " + declared.Property + " " + pattern);
-                    Offer(best, new TraversalItem(record, quality, via, 0));
+                    Offer(best, new TraversalItem(record, quality, via, 0, Matches(record)));
                 }
             }
 
@@ -85,7 +111,7 @@ internal static class TraversalWalk
                     var step = await reader.ExpandAsync(new ModuleExpandQuery
                     {
                         ModuleId = module.Id, Relation = declared.Name, Direction = declared.Direction,
-                        FromIds = [.. starting.Keys.Order(StringComparer.Ordinal)], FanOut = declared.FanOut
+                        FromIds = [.. starting.Keys.Order(StringComparer.Ordinal)], FanOut = declared.FanOut, Words = words
                     }, context, cancellationToken).ConfigureAwait(false);
                     if (step.Status != ModuleReadStatus.Succeeded) { problems.AddRange(step.Errors.Select(e => module.Id + ": " + e)); continue; }
                     foreach (var edge in step.Edges)
@@ -96,15 +122,15 @@ internal static class TraversalWalk
                         var verb = Verb(module, declared.Name);
                         var via = parent.Via + " → " + (declared.Direction == ModuleTraversalDirection.Out
                             ? verb + " " + Label(edge.To) : Label(edge.To) + " " + verb + " it");
-                        var item = new TraversalItem(edge.To, score, via, hop);
+                        var item = new TraversalItem(edge.To, score, via, hop, Matches(edge.To), 1.0 / Math.Max(1, edge.Degree));
                         if (Offer(best, item)) next.Add(item);
                         if (best.Count >= MaximumVisited) break;
                     }
                 }
             frontier = next;
         }
-        return new([.. best.Values.OrderByDescending(i => i.Score).ThenBy(i => i.Hops).ThenBy(i => i.Record.Id, StringComparer.Ordinal)],
-            problems.AsReadOnly());
+        return new([.. best.Values.OrderByDescending(i => i.Rank).ThenByDescending(i => i.Specificity).ThenBy(i => i.Hops)
+            .ThenBy(i => i.Record.Id, StringComparer.Ordinal)], problems.AsReadOnly());
     }
 
     private static bool Offer(Dictionary<string, TraversalItem> best, TraversalItem item)
@@ -162,4 +188,28 @@ internal sealed class TraversalService(ModuleResolution resolution, IModuleTrave
         reader is null || request.Anchors.Count == 0
             ? Task.FromResult(TraversalResult.Empty)
             : _walks.GetValue(request, r => TraversalWalk.RunAsync(resolution, reader, r, cancellationToken));
+}
+
+/// <summary>
+/// A question's words as traversal ranks by them (CMP-4): identifiers split where the case changes, lower case, three characters
+/// or more, without common English words and task verbs, which every record's text would share; at most
+/// <see cref="ModuleExpandQuery.MaximumWords"/>, in the question's order.
+/// </summary>
+[Experimental("AMEXT001")]
+internal static partial class TraversalWords
+{
+    private static readonly System.Collections.Frozen.FrozenSet<string> Common = System.Collections.Frozen.FrozenSet.ToFrozenSet(
+        "the and for with from that this into when are not but its has have was were make made add adds fix fixes test tests one two three all any only now new also than then them they their our out off"
+            .Split(' '), StringComparer.Ordinal);
+
+    internal static IReadOnlyList<string> Of(string? question) =>
+        string.IsNullOrWhiteSpace(question) ? []
+        : [.. Word().Matches(CaseChange().Replace(question, "$1 $2").ToLowerInvariant()).Select(m => m.Value)
+            .Where(w => w.Length >= 3 && !Common.Contains(w)).Distinct(StringComparer.Ordinal).Take(ModuleExpandQuery.MaximumWords)];
+
+    [System.Text.RegularExpressions.GeneratedRegex("([a-z0-9])([A-Z])")]
+    private static partial System.Text.RegularExpressions.Regex CaseChange();
+
+    [System.Text.RegularExpressions.GeneratedRegex("[a-z0-9]+")]
+    private static partial System.Text.RegularExpressions.Regex Word();
 }

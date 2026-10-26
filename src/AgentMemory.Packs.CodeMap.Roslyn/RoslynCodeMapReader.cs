@@ -64,6 +64,14 @@ public static class RoslynCodeMapReader
             var trees = (byProject.TryGetValue(project.Path, out var mine) ? mine : [])
                 .Select(f => CSharpSyntaxTree.ParseText(SourceText.From(File.ReadAllText(Path.Combine(root, f))),
                     CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview), f, cancellationToken)).ToList();
+            // What MSBuild would generate into obj/: the global usings (without them, every IEnumerable<T> or Task in a project with
+            // implicit usings is unbound, and so is every call whose signature names one) and InternalsVisibleTo (without it, a
+            // test's call to an internal member fails to bind).
+            if (project.GlobalUsings.Count + project.VisibleTo.Count != 0)
+                trees.Add(CSharpSyntaxTree.ParseText(SourceText.From(
+                    string.Concat(project.GlobalUsings.Select(u => "global using " + u + ";\n"))
+                    + string.Concat(project.VisibleTo.Select(a => "[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(\"" + a + "\")]\n"))),
+                    CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview), GeneratedFile, cancellationToken));
             var references = Runtime.Value.Concat(Closure(project, projects).Where(compilations.ContainsKey).Select(r => (MetadataReference)compilations[r].ToMetadataReference()));
             var compilation = CSharpCompilation.Create(project.Name, trees, references,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable, allowUnsafe: true));
@@ -94,9 +102,10 @@ public static class RoslynCodeMapReader
                 {
                     var attribute = method.AttributeLists.SelectMany(l => l.Attributes).Select(a => AttributeName(a.Name)).FirstOrDefault(TestAttributes.Contains);
                     if (attribute is null || model.GetDeclaredSymbol(method, cancellationToken) is not IMethodSymbol symbol) continue;
-                    // What the method itself touches, most first; only a test that touches nothing itself (it delegates to helpers)
-                    // falls back to its class's: class-wide types on every test would bury the ones that matter.
-                    var touched = Touched(model, method, declared, path, cancellationToken).ToList();
+                    // What the test exercises in its own class, most first: its body and the helpers of its class it calls. Only a
+                    // test that touches nothing that way falls back to its class's: class-wide types on every test would bury the
+                    // ones that matter.
+                    var touched = Exercised(compilation, model, method, symbol.ContainingType, declared, path, cancellationToken);
                     if (touched.Count == 0 && method.Parent is TypeDeclarationSyntax owner) touched = [.. Touched(model, owner, declared, path, cancellationToken)];
                     var tested = touched.GroupBy(s => s.Scip).Select(g => (g.Key, Weight: g.Sum(x => x.Weight)))
                         .OrderByDescending(g => g.Weight).ThenBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Key);
@@ -106,6 +115,50 @@ public static class RoslynCodeMapReader
                 }
             }
         return builder;
+    }
+
+    /// <summary>How many calls deep a test's own-class helpers are followed.</summary>
+    private const int HelperDepth = 3;
+
+    // The test's body and the bodies of the methods and property getters of its class (or a base class) it calls, a few calls
+    // deep: a test that builds its subject in CreateSut() still tests that subject. Field initializers stay out (class-wide).
+    private static List<(string Scip, int Weight)> Exercised(Compilation compilation, SemanticModel model, MethodDeclarationSyntax method,
+        INamedTypeSymbol owner, IReadOnlyDictionary<string, (string Scip, string Project)> declared, string project, CancellationToken cancellationToken)
+    {
+        var touched = new List<(string Scip, int Weight)>();
+        var models = new Dictionary<SyntaxTree, SemanticModel> { [model.SyntaxTree] = model };
+        var visited = new HashSet<SyntaxNode>();
+        var pending = new Queue<(SyntaxNode Node, int Depth)>();
+        pending.Enqueue((method, 0));
+        while (pending.TryDequeue(out var item))
+        {
+            if (!visited.Add(item.Node)) continue;
+            var nodeModel = models.TryGetValue(item.Node.SyntaxTree, out var known) ? known
+                : models[item.Node.SyntaxTree] = compilation.GetSemanticModel(item.Node.SyntaxTree);
+            touched.AddRange(Touched(nodeModel, item.Node, declared, project, cancellationToken));
+            if (item.Depth == HelperDepth) continue;
+            foreach (var name in item.Node.DescendantNodes().OfType<SimpleNameSyntax>())
+            {
+                var info = nodeModel.GetSymbolInfo(name, cancellationToken);
+                var called = (info.Symbol ?? info.CandidateSymbols.FirstOrDefault()) switch
+                {
+                    IMethodSymbol { MethodKind: MethodKind.Ordinary } m => m,
+                    IPropertySymbol { GetMethod: { } getter } => getter,
+                    _ => null,
+                };
+                if (called is null || !OwnClass(called.ContainingType, owner)) continue;
+                foreach (var reference in called.OriginalDefinition.DeclaringSyntaxReferences)
+                    if (compilation.ContainsSyntaxTree(reference.SyntaxTree)) pending.Enqueue((reference.GetSyntax(cancellationToken), item.Depth + 1));
+            }
+        }
+        return touched;
+    }
+
+    private static bool OwnClass(INamedTypeSymbol? type, INamedTypeSymbol owner)
+    {
+        for (var t = owner; t is not null; t = t.BaseType)
+            if (SymbolEqualityComparer.Default.Equals(type?.OriginalDefinition, t.OriginalDefinition)) return true;
+        return false;
     }
 
     // The in-repo types a node's names bind to, outside the test's own project, one weight per mention.
@@ -227,7 +280,16 @@ public static class RoslynCodeMapReader
             .Where(f => !f.Split('/').Any(s => s is "bin" or "obj" or ".git" or "node_modules"))];
     }
 
-    private sealed record Project(string Path, string Folder, string Name, IReadOnlyList<string> References)
+    /// <summary>The path of the generated usings and attributes in each compilation; it declares nothing and is not a repository file.</summary>
+    private const string GeneratedFile = "obj/AgentMemoryCodeMap.g.cs";
+
+    // The SDK's implicit usings (Microsoft.NET.Sdk, and what the Web and Worker SDKs add).
+    private static readonly string[] SdkUsings = ["System", "System.Collections.Generic", "System.IO", "System.Linq", "System.Net.Http", "System.Threading", "System.Threading.Tasks"];
+    private static readonly string[] HostingUsings = ["Microsoft.Extensions.Configuration", "Microsoft.Extensions.DependencyInjection", "Microsoft.Extensions.Hosting", "Microsoft.Extensions.Logging"];
+    private static readonly string[] WebUsings = ["System.Net.Http.Json", "Microsoft.AspNetCore.Builder", "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Http", "Microsoft.AspNetCore.Routing"];
+
+    private sealed record Project(string Path, string Folder, string Name, IReadOnlyList<string> References, IReadOnlyList<string> GlobalUsings,
+        IReadOnlyList<string> VisibleTo)
     {
         public static Project Load(string root, string path)
         {
@@ -239,7 +301,41 @@ public static class RoslynCodeMapReader
                 .Select(e => e.Attribute("Include")?.Value).OfType<string>()
                 .Select(r => Normalize(System.IO.Path.GetRelativePath(root, System.IO.Path.GetFullPath(System.IO.Path.Combine(root, folder, r.Replace('\\', '/'))))))
                 .ToList();
-            return new Project(path, folder, name, references);
+            var visibleTo = document.Descendants().Where(e => e.Name.LocalName == "InternalsVisibleTo")
+                .Select(e => e.Attribute("Include")?.Value).OfType<string>().Where(a => a.Length > 0 && !a.Contains('$') && !a.Contains('"'))
+                .Select(a => a.Replace("$(AssemblyName)", name, StringComparison.Ordinal)).Distinct(StringComparer.Ordinal).ToList();
+            return new Project(path, folder, name, references, Usings(root, folder, document), visibleTo);
+        }
+
+        // Implicit usings when the project or the nearest Directory.Build.props that says so enables them, then the <Using> items
+        // of the project and those props: Include, Static="true" and Alias, and Remove.
+        private static List<string> Usings(string root, string folder, XDocument project)
+        {
+            var props = new List<XDocument>();
+            for (var dir = folder; ; dir = dir.Contains('/') ? dir[..dir.LastIndexOf('/')] : "")
+            {
+                var candidate = System.IO.Path.Combine(root, dir, "Directory.Build.props");
+                if (File.Exists(candidate)) props.Add(XDocument.Load(candidate));
+                if (dir.Length == 0) break;
+            }
+            string? Setting(XDocument d) => d.Descendants().LastOrDefault(e => e.Name.LocalName == "ImplicitUsings")?.Value.Trim();
+            var implicitUsings = Setting(project) ?? props.Select(Setting).FirstOrDefault(v => v is not null);
+            var usings = new List<string>();
+            if (implicitUsings is "enable" or "true")
+            {
+                var sdk = project.Root?.Attribute("Sdk")?.Value ?? "";
+                usings.AddRange(SdkUsings);
+                if (sdk.Contains(".Web", StringComparison.OrdinalIgnoreCase)) usings.AddRange([.. WebUsings, .. HostingUsings]);
+                else if (sdk.Contains(".Worker", StringComparison.OrdinalIgnoreCase)) usings.AddRange(HostingUsings);
+            }
+            foreach (var item in props.AsEnumerable().Reverse().Append(project).SelectMany(d => d.Descendants()).Where(e => e.Name.LocalName == "Using"))
+            {
+                if (item.Attribute("Remove")?.Value is { Length: > 0 } removed) { usings.RemoveAll(u => u == removed); continue; }
+                if (item.Attribute("Include")?.Value is not { Length: > 0 } included || included.Contains('$')) continue;
+                usings.Add(item.Attribute("Alias")?.Value is { Length: > 0 } alias ? alias + " = " + included
+                    : string.Equals(item.Attribute("Static")?.Value, "true", StringComparison.OrdinalIgnoreCase) ? "static " + included : included);
+            }
+            return [.. usings.Distinct(StringComparer.Ordinal)];
         }
     }
 }

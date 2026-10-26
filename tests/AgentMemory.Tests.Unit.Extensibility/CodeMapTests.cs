@@ -112,6 +112,50 @@ public sealed class CodeMapTests : IDisposable
         RoslynCodeMapReader.Read(_root, RoslynCodeMapReader.TrackedFiles(_root)).Build("git:three").Digest.Should().NotBe(first.Digest);
     }
 
+    /// <summary>
+    /// CMP-4: a test that reaches its subject only through a helper of its own class still tests it, in a repository that relies
+    /// on what MSBuild generates (implicit usings from Directory.Build.props, InternalsVisibleTo), which the reader runs without.
+    /// </summary>
+    [Fact]
+    public void A_test_links_what_its_own_class_helpers_touch_with_the_usings_and_internals_MSBuild_would_generate()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "codemap-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            foreach (var (path, text) in new[]
+            {
+                ("Directory.Build.props", "<Project><PropertyGroup><ImplicitUsings>enable</ImplicitUsings></PropertyGroup></Project>"),
+                ("src/Lib/Lib.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><InternalsVisibleTo Include="Lib.Tests" /></ItemGroup></Project>"""),
+                ("src/Lib/Prompts.cs", "namespace Lib; public enum Mode { A } internal static class Prompts { internal static string Build(Mode m) => \"\"; }"),
+                ("tests/Lib.Tests/Lib.Tests.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../../src/Lib/Lib.csproj" /></ItemGroup></Project>"""),
+                ("tests/Lib.Tests/PromptTests.cs", """
+                    using Lib;
+                    namespace Lib.Tests;
+                    public sealed class PromptTests
+                    {
+                        private static IEnumerable<(string Rung, string Prompt)> All() { yield return ("one", Prompts.Build(Mode.A)); }
+                        [Fact] public void Every_rung_carries_the_setting() { foreach (var (rung, prompt) in All()) { } }
+                    }
+                    """),
+            })
+            {
+                var full = Path.Combine(root, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, text);
+            }
+
+            var test = RoslynCodeMapReader.Read(root, RoslynCodeMapReader.TrackedFiles(root)).Build("git:one").Records
+                .Single(r => r.Type == CodeMapPack.TestType);
+
+            test.Links.Where(l => l.Relation == "CODEMAP_TESTS").Select(l => l.Target)
+                .Should().BeEquivalentTo(["scip-dotnet nuget Lib . Lib/Prompts#", "scip-dotnet nuget Lib . Lib/Mode#"]);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void A_long_scip_identity_keeps_a_readable_key_with_a_hash()
     {

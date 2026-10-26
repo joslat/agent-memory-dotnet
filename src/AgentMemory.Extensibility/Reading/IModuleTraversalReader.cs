@@ -56,6 +56,14 @@ public sealed record ModuleExpandQuery
     public required IReadOnlyList<string> FromIds { get; init; }
     /// <summary>Most records one starting record leads to.</summary>
     public int FanOut { get; init; } = 8;
+    /// <summary>Most question words one expansion ranks by.</summary>
+    public const int MaximumWords = 16;
+    /// <summary>
+    /// The question's words, lower case (CMP-4). When a starting record leads to more than the fan-out, the reader keeps first the
+    /// records whose text (<see cref="Modules.ModuleType.TextProperties"/>) holds most of them, then the most specific: those
+    /// fewest records share the link with. Empty keeps the most specific first.
+    /// </summary>
+    public IReadOnlyList<string> Words { get; init; } = [];
 }
 
 /// <summary>What one hop reached.</summary>
@@ -78,4 +86,10 @@ public sealed record ModuleTraversalEdge
     public required string FromId { get; init; }
     /// <summary>The reached live record.</summary>
     public required ModuleRecord To { get; init; }
+    /// <summary>
+    /// How many records share this link with the reached one: for an incoming hop, how many records of this relation the reached
+    /// record links to; for an outgoing hop, how many link to it. A test linked to one type says more about it than one linked to
+    /// twelve. At least 1.
+    /// </summary>
+    public int Degree { get; init; } = 1;
 }

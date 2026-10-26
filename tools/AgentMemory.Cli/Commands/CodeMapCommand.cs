@@ -11,12 +11,13 @@ namespace AgentMemory.Cli.Commands;
 /// The code map (coding packs CMP-2a). <c>codemap scan --root &lt;repo&gt;</c> reads a C# repository with Roslyn and reports what it
 /// found, offline. <c>codemap import --root &lt;repo&gt; [--source git:&lt;sha&gt;]</c> writes the snapshot into the configured store:
 /// only what changed since the last import, closing what is gone. The source defaults to the repository's HEAD commit.
+/// <c>codemap scan --output map.jsonl</c> also writes the records, one per line, for reading the map without a store.
 /// </summary>
 internal sealed class CodeMapCommand(TextWriter output)
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public int Scan(string? root)
+    public int Scan(string? root, string? outputPath = null)
     {
         if (root is null) return Usage("codemap scan needs --root <repository>.");
         var watch = Stopwatch.StartNew();
@@ -24,6 +25,11 @@ internal sealed class CodeMapCommand(TextWriter output)
         var snapshot = builder.Build(Head(root) ?? "scan");
         var (projects, files, symbols, tests) = builder.Counts;
         var problems = snapshot.Problems();
+        if (outputPath is not null)
+            File.WriteAllLines(outputPath, snapshot.Records.Select(r => JsonSerializer.Serialize(new
+            {
+                type = r.Type, key = r.Key, properties = r.Properties, links = r.Links.Select(l => new { relation = l.Relation, target = l.Target }),
+            })));
         output.WriteLine(JsonSerializer.Serialize(new
         {
             source = snapshot.Source, projects, files, symbols, tests, records = snapshot.Records.Count, digest = snapshot.Digest,

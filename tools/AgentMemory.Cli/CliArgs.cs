@@ -124,6 +124,15 @@ public static class CliHelp
               evaluate --pack <core|file|directory> [--output <path>]
                                      Run validation packs (a schema, conversations with what extraction
                                      yields, expected storage, questions): deterministic, no model.
+              evaluate --traversal <fixture> [--rounds <n>] [--warmup <pass|one>] [--output <path>]
+                                     The traversal trial: compile each fixture task with its anchors and
+                                     with its question alone; report tests and decisions offered, latency.
+              codemap scan --root <repo> [--output <map.jsonl>]
+                                     Read a C# repository's code map with Roslyn (offline); report counts.
+              codemap import --root <repo> [--source git:<sha>]
+                                     Write the code map into the store: only what changed since the last.
+              decisions scan|import --root <repo> [--source git:<sha>]
+                                     Read ADRs and Squad's decision log; import writes what changed.
               owner <export|import|erase> --owner <id> [--file <path>] [--confirm]
                                      An owner's data as a whole: export to a JSON file, import a file under
                                      an owner (fresh ids), or erase everything of theirs (needs --confirm).

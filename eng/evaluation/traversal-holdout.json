@@ -1,0 +1,904 @@
+{
+  "format": "agentmemory.traversal-fixture/v1",
+  "head": "185947b792f564e6bcb1941e57641713866a2767",
+  "built": "build-traversal-fixture.py",
+  "testImpact": {
+    "rule": "commits with 1-3 changed source files and >=1 changed test file, <=25 files, files present at HEAD",
+    "skip": 40,
+    "count": 40
+  },
+  "tasks": [
+    {
+      "id": "ti-fba4849eb6",
+      "kind": "test-impact",
+      "question": "feat: keep GraphRAG item identity so it can be attributed (K4)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Domain/Context/MemoryContext.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/MemoryContextAssembler.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Services/GraphRagAttributionTests.cs"
+        ]
+      },
+      "source": "git:fba4849eb6dd1cb6aa9a3a03e78bef42058b9151"
+    },
+    {
+      "id": "ti-0385156a66",
+      "kind": "test-impact",
+      "question": "feat: route aggregation questions to relation completeness (J4.1)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/Neo4jMemoryContextProvider.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/Recall/AutomaticRecallDecision.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/Recall/HeuristicAutomaticRecallPolicy.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/AgentFramework/AggregationRouteTests.cs"
+        ]
+      },
+      "source": "git:0385156a661c91ba84aa2bd998c71197d5015958"
+    },
+    {
+      "id": "ti-82bc81a463",
+      "kind": "test-impact",
+      "question": "fix: un-retire `welcomed`, and declare expansion exemptions (J1.8)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/RelationVocabularyDocument.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/RelationVocabularyCoherenceTests.cs"
+        ]
+      },
+      "source": "git:82bc81a463f3c3699823826c6d6f05624a3bc327"
+    },
+    {
+      "id": "ti-5e30ddf533",
+      "kind": "test-impact",
+      "question": "fix: let recall filter reasoning traces by outcome (K5)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Options/RecallOptions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/MemoryContextAssembler.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Services/TraceSuccessFilterWiringTests.cs"
+        ]
+      },
+      "source": "git:5e30ddf533be80a9be51c60d3a82fbfd35f0f46a"
+    },
+    {
+      "id": "ti-d9e2d43b85",
+      "kind": "test-impact",
+      "question": "feat: reject the imperative-instruction shape (J1.4 structural)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationLexicon.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/MemoryRelationLexiconTests.cs"
+        ]
+      },
+      "source": "git:d9e2d43b85d4632a69d73d52e6911ae2e8e6c1a6"
+    },
+    {
+      "id": "ti-732846b8fb",
+      "kind": "test-impact",
+      "question": "fix: make storedOnly survive the stemmer (J1.4 round 6, plateau)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationLexicon.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/MemoryRelationLexiconTests.cs"
+        ]
+      },
+      "source": "git:732846b8fbdebb957d816c4e6e0093d114da6fd4"
+    },
+    {
+      "id": "ti-c19f31f9f5",
+      "kind": "test-impact",
+      "question": "feat: apply the round-3 vocabulary review (J1.4 round 4)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationSeedTable.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/RelationVocabularyCoherenceTests.cs"
+        ]
+      },
+      "source": "git:c19f31f9f5cd5ed91d1dc6808e541e9fd507b2f6"
+    },
+    {
+      "id": "ti-56a24b0efe",
+      "kind": "test-impact",
+      "question": "feat: apply the independent vocabulary review (J1.4 round 2)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationLexicon.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationSeedTable.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/RelationVocabularyDocument.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/MemoryRelationLexiconTests.cs",
+          "tests/AgentMemory.Tests.Unit/Memory/RelationVocabularyCoherenceTests.cs"
+        ]
+      },
+      "source": "git:56a24b0efe5433b331fc3bc39c30a3a04893c9c1"
+    },
+    {
+      "id": "ti-9547d1aacb",
+      "kind": "test-impact",
+      "question": "feat: author the relation vocabulary as a licensed JSON artifact (J1.1/J1.3)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationSeedTable.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/RelationVocabularyDocument.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/RelationVocabularyDocumentTests.cs"
+        ]
+      },
+      "source": "git:9547d1aacb645086c90670b0da98ff83516c9529"
+    },
+    {
+      "id": "ti-bd2770b77e",
+      "kind": "test-impact",
+      "question": "fix: one relation table for both extraction and retrieval",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryPredicateSeedVocabulary.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationSeedTable.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Extraction/ExtractionPredicateVocabularyPromptTests.cs",
+          "tests/AgentMemory.Tests.Unit/Memory/RelationVocabularyCoherenceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Services/FactExpansionQuestionRelationTests.cs"
+        ]
+      },
+      "source": "git:bd2770b77e36505bf04199bbdb6c580fcbbcb379"
+    },
+    {
+      "id": "ti-99d75d8eb4",
+      "kind": "test-impact",
+      "question": "feat: fingerprint the extraction vocabulary and query lexicon into run reports",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryPredicateSeedVocabulary.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationSeedTable.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryVocabularyFingerprint.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/MemoryVocabularyFingerprintTests.cs"
+        ]
+      },
+      "source": "git:99d75d8eb4cfa36b37f2782402cf6e34f5de7d42"
+    },
+    {
+      "id": "ti-2d1c078a5c",
+      "kind": "test-impact",
+      "question": "feat: resolve a question's verbs onto stored relations (J2.1)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationLexicon.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationSeedTable.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/MemoryRelationLexiconTests.cs"
+        ]
+      },
+      "source": "git:2d1c078a5c6e4fb75e0b3409a51087e0ccce9503"
+    },
+    {
+      "id": "ti-beb972e6ba",
+      "kind": "test-impact",
+      "question": "feat: wire the canonical-key backfill into bootstrap (Phase 1.1 complete)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/CanonicalKeyBackfillRow.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/SchemaBootstrapper.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/CanonicalKeyBackfillWiringTests.cs",
+          "tests/AgentMemory.Tests.Unit/Infrastructure/SchemaBootstrapperTests.cs"
+        ]
+      },
+      "source": "git:beb972e6ba762fa1853d824563f22dbb384a66fb"
+    },
+    {
+      "id": "ti-046497d2bd",
+      "kind": "test-impact",
+      "question": "fix: expansion scope semantics (Phase 1.2 and 1.3)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/FactQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jFactRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Queries/CypherQuerySnapshotTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/FactPredicateExpansionQueryTests.cs"
+        ]
+      },
+      "source": "git:046497d2bd1c2a154002367ec3fe373667822f4f"
+    },
+    {
+      "id": "ti-c98d2d1bd7",
+      "kind": "test-impact",
+      "question": "feat: add the canonical-key backfill queries (Phase 1.1)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/FactQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Queries/CypherQuerySnapshotTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/FactKeyBackfillQueryTests.cs"
+        ]
+      },
+      "source": "git:c98d2d1bd7b64e3b0d2a5b0774ab9f79e5001fbb"
+    },
+    {
+      "id": "ti-176c937d09",
+      "kind": "test-impact",
+      "question": "fix: two audit findings - value canonicalization and the second validator",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryTripleCanonicalizer.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jFactRepository.Fused.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jFactRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/MemoryTripleCanonicalizerTests.cs"
+        ]
+      },
+      "source": "git:176c937d09d52282c018a9a1229031e515fde205"
+    },
+    {
+      "id": "ti-fffc2f8658",
+      "kind": "test-impact",
+      "question": "fix: distinguish out-of-window provenance from corruption (G5-BUG1)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Domain/LongTerm/Fact.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/LongTermMemoryService.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.LongMemEval/LongMemEvalExpandedFactEvidenceTests.cs"
+        ]
+      },
+      "source": "git:fffc2f8658cf025956b76a5a39d4b1af615a543a"
+    },
+    {
+      "id": "ti-bba44b7617",
+      "kind": "test-impact",
+      "question": "feat: offer the established relation vocabulary to extraction",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryPredicateSeedVocabulary.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/LlmMultiSessionUnifiedMemoryExtractor.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Extraction/ExtractionPredicateVocabularyPromptTests.cs"
+        ]
+      },
+      "source": "git:bba44b7617e3508dda6d742c6abce3fdff484503"
+    },
+    {
+      "id": "ti-4bc1c84635",
+      "kind": "test-impact",
+      "question": "feat: add a controlled predicate vocabulary for extraction",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryPredicateVocabulary.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/MemoryPredicateVocabularyTests.cs"
+        ]
+      },
+      "source": "git:4bc1c846357385877a267bb8eb6b4459d7096be3"
+    },
+    {
+      "id": "ti-6b6ee4377b",
+      "kind": "test-impact",
+      "question": "feat: retrieve a relation whole via canonical-predicate expansion",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/FactQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Queries/CypherQuerySnapshotTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/FactPredicateExpansionQueryTests.cs"
+        ]
+      },
+      "source": "git:6b6ee4377b2810ab2909f6a5609566a0e8981eb5"
+    },
+    {
+      "id": "ti-c7cddeb5a1",
+      "kind": "test-impact",
+      "question": "fix: apply canonical fact identity to the fused write path too",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/FusedPersistenceQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jFactRepository.Fused.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Queries/FactWritePathParityTests.cs"
+        ]
+      },
+      "source": "git:c7cddeb5a17108c388dcb7a4b45847d501e6d8a5"
+    },
+    {
+      "id": "ti-07cb99d8d8",
+      "kind": "test-impact",
+      "question": "fix: deduplicate facts on a canonical triple instead of raw strings",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryTripleCanonicalizer.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/FactQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jFactRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Memory/MemoryTripleCanonicalizerTests.cs",
+          "tests/AgentMemory.Tests.Unit/Repositories/Neo4jFactRepositoryDeduplicationTests.cs",
+          "tests/AgentMemory.Tests.Unit/Repositories/Neo4jFactRepositoryTests.cs"
+        ]
+      },
+      "source": "git:07cb99d8d83ebeb0e556543c5fc0c58e8035c3c7"
+    },
+    {
+      "id": "ti-52b5425191",
+      "kind": "test-impact",
+      "question": "fix: fail bootstrap when an index is left in the FAILED state",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/SchemaBootstrapper.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/SchemaQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Queries/CypherQuerySnapshotTests.cs"
+        ]
+      },
+      "source": "git:52b54251919e8788b9cfdce9ef45a74df00134b5"
+    },
+    {
+      "id": "ti-d16f139b12",
+      "kind": "test-impact",
+      "question": "fix: never persist a message that could never be retrieved",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/ShortTermMemoryService.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/MessageQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Services/ShortTermMemoryEmbeddingValidationTests.cs"
+        ]
+      },
+      "source": "git:d16f139b1282797fa47a46ab983b6cb6537fcc95"
+    },
+    {
+      "id": "ti-bc68336b17",
+      "kind": "test-impact",
+      "question": "fix: request JSON for LLM extraction",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/Internal/LlmExtractionRunner.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/LlmExtractionOptions.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.LongMemEval/LongMemEvalPreparationManifestTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/LlmFactExtractorTests.cs",
+          "tests/AgentMemory.Tests.Unit/Options/ConfigurationValidationTests.cs"
+        ]
+      },
+      "source": "git:bc68336b17feab4655a2e3e8241411bf42e28674"
+    },
+    {
+      "id": "ti-12714b98a9",
+      "kind": "test-impact",
+      "question": "perf: combine single-message Neo4j writes",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/MessageQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jMessageRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Repositories/Neo4jMessageRepositoryAddTests.cs"
+        ]
+      },
+      "source": "git:12714b98a9f834d249224e1475dcc4605b025bfa"
+    },
+    {
+      "id": "ti-031db1f8fa",
+      "kind": "test-impact",
+      "question": "perf: add concurrent reliability characterization",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/Neo4jTransactionRunner.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Cli/PerfConcurrencyAnalysisTests.cs",
+          "tests/AgentMemory.Tests.Unit/Infrastructure/Neo4jTransactionRunnerTests.cs"
+        ]
+      },
+      "source": "git:031db1f8fac1d229ace2164e88f6f7597dfe0a13"
+    },
+    {
+      "id": "ti-51a81cb685",
+      "kind": "test-impact",
+      "question": "fix: scope message recall before ranking",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/CypherQueryRegistry.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/MessageQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jMessageRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Queries/ScopedVectorSearchQueryTests.cs"
+        ]
+      },
+      "source": "git:51a81cb68579b166ec2b030c1c39af1a6a3d728c"
+    },
+    {
+      "id": "ti-7d0e904a91",
+      "kind": "test-impact",
+      "question": "perf: attribute Neo4j query round trips",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/Neo4jTransactionRunner.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/CypherQueryRegistry.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/Neo4jTransactionRunnerTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/CypherQueryRegistryTests.cs"
+        ]
+      },
+      "source": "git:7d0e904a91deedf3faa41890d164d6cbbab16446"
+    },
+    {
+      "id": "ti-cfb62497f1",
+      "kind": "test-impact",
+      "question": "perf: measure Neo4j result payload",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/Neo4jTransactionRunner.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/Neo4jTransactionRunnerTests.cs"
+        ]
+      },
+      "source": "git:cfb62497f10eb4f84e41d1034c07d014a6ac7e71"
+    },
+    {
+      "id": "ti-d5419f5b0f",
+      "kind": "test-impact",
+      "question": "perf(M-17): measure whole-session extraction (#174)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Extraction/ExtractionStage.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Cli/PerfScenarioCatalogTests.cs"
+        ]
+      },
+      "source": "git:d5419f5b0f4f5a50cf3cdfb39d1e79806df0c4c9"
+    },
+    {
+      "id": "ti-878df68726",
+      "kind": "test-impact",
+      "question": "perf(M-15): add degraded dependency recall scenario (#172)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/Neo4jMemoryContextProvider.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Cli/PerfDependencyLatencyTests.cs",
+          "tests/AgentMemory.Tests.Unit/Cli/PerfScenarioCatalogTests.cs"
+        ]
+      },
+      "source": "git:878df687265ed90da787a3385f0dd90ab49c5197"
+    },
+    {
+      "id": "ti-1a075f1fde",
+      "kind": "test-impact",
+      "question": "NAMS round 6: fix an unbounded-backoff crash bug shared with Enrichment (#160)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Enrichment/Http/RetryHttpMessageHandler.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.McpServer.Nams/Tools/NamsReasoningReadTools.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/NamsRetryPolicy.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Enrichment/RetryHttpMessageHandlerTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsRetryPolicyTests.cs"
+        ]
+      },
+      "source": "git:1a075f1fde6c1db2ef6025dd9db10149dd933154"
+    },
+    {
+      "id": "ti-b667fa3a97",
+      "kind": "test-impact",
+      "question": "NAMS round 5: close a redaction-bypass gap in exception logging (#159)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/NamsClientExceptionMapper.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/NamsRetryPolicy.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/Neo4jNamsClientAdapter.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/MetaPackage/MetaPackageDiRegistrationTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsRetryPolicyTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/Neo4jNamsClientAdapterTests.cs"
+        ]
+      },
+      "source": "git:b667fa3a979469a3dfbfba5e62975450653eb9c8"
+    },
+    {
+      "id": "ti-f8ec9168dd",
+      "kind": "test-impact",
+      "question": "NAMS Phase 10j: CreateEntityAsync (add_entity), needed for the TCK Platinum bridge (#152)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/INamsClient.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/Neo4jNamsClientAdapter.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Domain/NamsCreateEntityResult.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Nams/NamsEntityGraphTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/Neo4jNamsClientAdapterTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/ThrowingNamsClientStub.cs"
+        ]
+      },
+      "source": "git:f8ec9168dd20ad192c50cf3e74e38efa457545a6"
+    },
+    {
+      "id": "ti-b299e6fbe8",
+      "kind": "test-impact",
+      "question": "NAMS client: replace bool isIdempotent with a NamsRetryEligibility enum (#151)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/NamsRetryEligibility.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/NamsRetryPolicy.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/Neo4jNamsClientAdapter.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Nams/NamsRetryPolicyTests.cs"
+        ]
+      },
+      "source": "git:b299e6fbe82c08205096278d09bf92a6f419fcc6"
+    },
+    {
+      "id": "ti-4b31b4ab72",
+      "kind": "test-impact",
+      "question": "NAMS Phase 10 post-completion review: fix real findings, consolidate duplication (#150)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/INamsClient.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/Neo4jNamsClientAdapter.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Nams/NamsConversationLifecycleTests.cs",
+          "tests/AgentMemory.Tests.Integration/Nams/NamsCypherQueryTests.cs",
+          "tests/AgentMemory.Tests.Integration/Nams/NamsEntityGraphTests.cs",
+          "tests/AgentMemory.Tests.Integration/Nams/NamsLiveTestHelpers.cs",
+          "tests/AgentMemory.Tests.Integration/Nams/NamsReasoningTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsConversationResolverTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsHealthCheckTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsObservabilityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsPersistenceServiceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsRecallServiceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/Neo4jNamsClientAdapterTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/ThrowingNamsClientStub.cs"
+        ]
+      },
+      "source": "git:4b31b4ab726121de0658719888463b98141db606"
+    },
+    {
+      "id": "ti-84a7bc8c1f",
+      "kind": "test-impact",
+      "question": "NAMS Phase 10i: Cypher query console (gated capability) (#149)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/INamsClient.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/Neo4jNamsClientAdapter.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Domain/NamsQueryResult.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Nams/NamsCypherQueryTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsConversationResolverTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsHealthCheckTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsObservabilityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsPersistenceServiceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsRecallServiceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/Neo4jNamsClientAdapterTests.cs"
+        ]
+      },
+      "source": "git:84a7bc8c1f0672104943efdd5db77ced96a7b24d"
+    },
+    {
+      "id": "ti-e40c8eaab8",
+      "kind": "test-impact",
+      "question": "NAMS Phase 10f: conversation lifecycle & context completion (#146)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/INamsClient.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/Neo4jNamsClientAdapter.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Domain/NamsConversationSummary.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Nams/NamsConversationLifecycleTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsConversationResolverTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsHealthCheckTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsObservabilityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsPersistenceServiceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsRecallServiceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/Neo4jNamsClientAdapterTests.cs"
+        ]
+      },
+      "source": "git:e40c8eaab894617a587f96907d718c6e9c718037"
+    },
+    {
+      "id": "ti-36226944af",
+      "kind": "test-impact",
+      "question": "NAMS Phase 10b: data lifecycle -- delete conversation (#142)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/INamsClient.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Client/Neo4jNamsClientAdapter.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Nams/NamsLiveConnectivityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsConversationResolverTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsHealthCheckTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsObservabilityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsPersistenceServiceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsRecallServiceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/Neo4jNamsClientAdapterTests.cs"
+        ]
+      },
+      "source": "git:36226944af41ddf335dc29242ab2b15b3ebfb1f8"
+    }
+  ]
+}

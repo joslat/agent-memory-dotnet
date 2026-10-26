@@ -1,0 +1,947 @@
+{
+  "format": "agentmemory.traversal-fixture/v1",
+  "head": "185947b792f564e6bcb1941e57641713866a2767",
+  "built": "build-traversal-fixture.py",
+  "testImpact": {
+    "rule": "commits with 1-3 changed source files and >=1 changed test file, <=25 files, files present at HEAD",
+    "count": 40,
+    "commits": 40
+  },
+  "tasks": [
+    {
+      "id": "ti-f44cd48edb",
+      "kind": "test-impact",
+      "question": "DBP-1: host-set module priority and pack priority",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extensibility/Modules/ModuleSetBuilder.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleActivationTests.cs"
+        ]
+      },
+      "source": "git:f44cd48edbe13dbd5d6853c95719c804a6ae1b54"
+    },
+    {
+      "id": "ti-965a23a672",
+      "kind": "test-impact",
+      "question": "KP-martial-arts: the \"I know martial arts\" knowledge pack, packaged and accepted",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extensibility/Packs/KnowledgePack.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.Extensibility/MartialArtsPackTests.cs"
+        ]
+      },
+      "source": "git:965a23a672c705971b03661f388684ac8befc73f"
+    },
+    {
+      "id": "ti-f8127aa1f1",
+      "kind": "test-impact",
+      "question": "KP-sign: signed bundles, the verifier and the packs CLI",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extensibility/Bundles/BundleFiles.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extensibility/Bundles/BundleSigning.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extensibility/Bundles/BundleVerifier.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.Extensibility/BundleSigningTests.cs"
+        ]
+      },
+      "source": "git:f8127aa1f1f0dca3e0125866d8bdbaeac63d362e"
+    },
+    {
+      "id": "ti-796b87592a",
+      "kind": "test-impact",
+      "question": "Assemble the ten-vertical scoreboard, and refuse the cells that cannot carry a number (#217)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Options/ExtractionOptions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/Projection/ConflictProjectionFeature.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.LongMemEval/ScoreboardTests.cs"
+        ]
+      },
+      "source": "git:796b87592a14c2f86c68aef1bbeeaffda55874a3"
+    },
+    {
+      "id": "ti-aabddd9c4d",
+      "kind": "test-impact",
+      "question": "Say something when SupersedeReplacedFacts is on and inert (#210)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Options/ExtractionOptions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Extraction/PersistenceStage.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Extraction/WriteTimeSupersessionTests.cs"
+        ]
+      },
+      "source": "git:aabddd9c4d555d63c88613b7e5e15d616e141e34"
+    },
+    {
+      "id": "ti-5a816ba82a",
+      "kind": "test-impact",
+      "question": "Stop the enrichment queue losing work in silence, and two ignored tokens (R2)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Analytics/GdsAvailability.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Enrichment/BackgroundEnrichmentQueue.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/Neo4jMemoryStoreProvisioner.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Enrichment/BackgroundEnrichmentQueueTests.cs"
+        ]
+      },
+      "source": "git:5a816ba82a1d63f56b01aea5dbebd78b8785dba3"
+    },
+    {
+      "id": "ti-0f6ddea22b",
+      "kind": "test-impact",
+      "question": "Count the mention when a fact arrives by dedup (the D2 finding, now fixed)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/FactQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Repositories/DedupOnCreateIntegrationTests.cs"
+        ]
+      },
+      "source": "git:0f6ddea22b04287425b8381850afeeb45af4dc79"
+    },
+    {
+      "id": "ti-0cb8f0af4f",
+      "kind": "test-impact",
+      "question": "Rename kind to fact_kind, and prove the four extensions install together",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/DerivedFactQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Schema/Extensions/ArithmeticSchemaExtension.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Repositories/AllExtensionsOnIntegrationTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/DerivedFactCypherGuardTests.cs"
+        ]
+      },
+      "source": "git:0cb8f0af4f937acad973f35645636e62564a49cc"
+    },
+    {
+      "id": "ti-2829b4a3fa",
+      "kind": "test-impact",
+      "question": "Wire projection into both recall paths, and land match quality (30.2 steps 4-5)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Options/MemoryOptions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/MemoryContextAssembler.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/Projection/MatchQualityProjectionFeature.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Services/MatchQualityProjectionFeatureTests.cs",
+          "tests/AgentMemory.Tests.Unit/Services/MemoryContextAssemblerProjectionTests.cs"
+        ]
+      },
+      "source": "git:2829b4a3fac50b227ad6b9852b0e96e024c9b127"
+    },
+    {
+      "id": "ti-a9b1034457",
+      "kind": "test-impact",
+      "question": "Close three gaps the first pass left open, found by auditing my own claim (30.1, 30.14)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/ServiceCollectionExtensions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Schema/Extensions/SchemaExtensionRegistry.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Repositories/SchemaExtensionMigrationIntegrationTests.cs",
+          "tests/AgentMemory.Tests.Unit.LongMemEval/ExtractionSeedCommandLineTests.cs",
+          "tests/AgentMemory.Tests.Unit/Cli/CliCommandsTests.cs"
+        ]
+      },
+      "source": "git:a9b10344570c088788a3cb82a17d8fd65a6ed8ca"
+    },
+    {
+      "id": "ti-2deee3c612",
+      "kind": "test-impact",
+      "question": "Fix procedural promotion, which had never worked, and measure retrieval precision (26.2)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/ReasoningQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jReasoningTraceRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Queries/ProcedureTraceQueryTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/TraceFallbackParameterBindingTests.cs"
+        ]
+      },
+      "source": "git:2deee3c61241de042b0315ba88dd3d7f359c453a"
+    },
+    {
+      "id": "ti-623cc5c563",
+      "kind": "test-impact",
+      "question": "Wire the ranking intent into as-of recall, and pin the rest of the divergence (25.5)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/MemoryContextAssembler.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Configuration/AsOfRecallDivergenceTests.cs"
+        ]
+      },
+      "source": "git:623cc5c5633035909946d9635f9c3bd6a55d45a8"
+    },
+    {
+      "id": "ti-b2d0a6db82",
+      "kind": "test-impact",
+      "question": "Make MemoryOptions.Recall the application default it claims to be (25.2)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/MemoryContextAssembler.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.McpServer/Tools/CoreMemoryTools.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Configuration/ConfiguredRecallDefaultTests.cs",
+          "tests/AgentMemory.Tests.Unit/McpServer/CoreMemoryToolsTests.cs"
+        ]
+      },
+      "source": "git:b2d0a6db8217cc270166d74ecede978f6076c9b8"
+    },
+    {
+      "id": "ti-8d4c0db6a2",
+      "kind": "test-impact",
+      "question": "Stop the context prefix from contradicting procedural memory (25.3)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/ContextFormatOptions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/Mapping/MafTypeMapper.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/ServiceCollectionExtensions.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/AgentFramework/MafTypeMapperTests.cs",
+          "tests/AgentMemory.Tests.Unit/AgentFramework/ProcedureTrustClauseTests.cs"
+        ]
+      },
+      "source": "git:8d4c0db6a29a9c5a4fab80b74bd424045b77a312"
+    },
+    {
+      "id": "ti-68fb82009e",
+      "kind": "test-impact",
+      "question": "Make the configure-lambda registration overload able to configure memory (25.1)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Options/MemoryOptions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory/ServiceCollectionExtensions.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Configuration/MemoryOptionsConfigurabilityTests.cs"
+        ]
+      },
+      "source": "git:68fb82009e4cb69cb85a3d0c9e25f3d126cbc9bf"
+    },
+    {
+      "id": "ti-2296fa0f19",
+      "kind": "test-impact",
+      "question": "Fix the doc whose first step hard-fails, and three more silent absences (0.9, 0.10, 0.12, 0.14)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Options/ReasoningMemoryOptions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework.Nams/NamsMemoryContextProvider.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Documentation/CopilotStudioConnectorTests.cs"
+        ]
+      },
+      "source": "git:2296fa0f19fdc927cdd127dd0145f58956647b98"
+    },
+    {
+      "id": "ti-86e905caf1",
+      "kind": "test-impact",
+      "question": "Find the lever: completeness is worth 80 points, everything else ~0 (P3, 0.5, 0.15)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/MemoryQueryFacade.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Services/MemoryQueryFacadeBoundaryTests.cs"
+        ]
+      },
+      "source": "git:86e905caf1726af6ef2d0025936152ccd06caee0"
+    },
+    {
+      "id": "ti-a006505bd1",
+      "kind": "test-impact",
+      "question": "Wire the procedural arm's read path, and get 7.6's first real number (7.6)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/ContextFormatOptions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/Mapping/MafTypeMapper.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.LongMemEval/MafAgentTaskRunnerTests.cs",
+          "tests/AgentMemory.Tests.Unit.LongMemEval/ProceduralBenefitHarnessTests.cs",
+          "tests/AgentMemory.Tests.Unit/AgentFramework/MafTypeMapperTests.cs",
+          "tests/AgentMemory.Tests.Unit/Options/ConfigurationValidationTests.cs"
+        ]
+      },
+      "source": "git:a006505bd194e18345b72777eb6f0d904cd293f0"
+    },
+    {
+      "id": "ti-601b0b69c5",
+      "kind": "test-impact",
+      "question": "The 1.4.0 rescue had a ceiling at ~2,000 competitors; remove it for facts",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/FactQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jFactRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Repositories/OwnerVectorStarvationIntegrationTests.cs"
+        ]
+      },
+      "source": "git:601b0b69c553e45566407e311b817b4f8d7bfd9b"
+    },
+    {
+      "id": "ti-83f9b97b35",
+      "kind": "test-impact",
+      "question": "Add an extraction seed, and measure that it helps without fixing determinism",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/Internal/LlmExtractionRunner.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/LlmExtractionOptions.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Extraction/ExtractionSeedTests.cs"
+        ]
+      },
+      "source": "git:83f9b97b3516b56b94fa3e4943fc34770c6495bc"
+    },
+    {
+      "id": "ti-a350d795a0",
+      "kind": "test-impact",
+      "question": "Extend the empty-result rescue to preference and reasoning-trace searches",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jPreferenceRepository.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jReasoningTraceRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Repositories/PreferenceVectorYieldTelemetryTests.cs",
+          "tests/AgentMemory.Tests.Unit/Repositories/TraceVectorYieldTelemetryTests.cs"
+        ]
+      },
+      "source": "git:a350d795a0c90f5b6ffe9734c794436fc459eb5a"
+    },
+    {
+      "id": "ti-f117a219af",
+      "kind": "test-impact",
+      "question": "Give entity search the empty-result rescue the fact path already had",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Integration/Repositories/OwnerVectorStarvationIntegrationTests.cs",
+          "tests/AgentMemory.Tests.Unit/Repositories/EntityVectorYieldTelemetryTests.cs"
+        ]
+      },
+      "source": "git:f117a219afa809bf9a5ad9fe84d1582844ef1743"
+    },
+    {
+      "id": "ti-ab88aa001d",
+      "kind": "test-impact",
+      "question": "Fix: the batch extractor ignored TemporalValidityMode, and my test let it through",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/LlmMultiSessionUnifiedMemoryExtractor.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Extraction/TemporalValidityModeTests.cs"
+        ]
+      },
+      "source": "git:ab88aa001d1735b73ab493654a7cf55ac6e93245"
+    },
+    {
+      "id": "ti-507136fbc9",
+      "kind": "test-impact",
+      "question": "Make unified extraction honour EntityTypes, and refuse what it cannot honour",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/LlmUnifiedMemoryExtractor.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/ServiceCollectionExtensions.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Extraction/UnifiedExtractionOptionParityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/UnifiedExtractionOverrideRejectionTests.cs"
+        ]
+      },
+      "source": "git:507136fbc9d38fb7ff61d2d9f6e7e8a42e36ff8c"
+    },
+    {
+      "id": "ti-43c5d60ed8",
+      "kind": "test-impact",
+      "question": "Rewrite FindByTriple onto the merge key: a correctness bug that was also a scan",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/FactQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jFactRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Queries/FindByTripleMergeKeyTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/ScopedNonVectorReadQueryTests.cs",
+          "tests/AgentMemory.Tests.Unit/Repositories/Neo4jFactRepositoryDeduplicationTests.cs"
+        ]
+      },
+      "source": "git:43c5d60ed8a61bf91f04c9b9791f7b0de5996bcd"
+    },
+    {
+      "id": "ti-1df432dd95",
+      "kind": "test-impact",
+      "question": "Index Fact.owner_key: dedup-on-create was scanning the whole label on every write",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/SchemaQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/SchemaBootstrapperTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/CypherQuerySnapshotTests.cs"
+        ]
+      },
+      "source": "git:1df432dd958e1d9c3ba0fd6b2535ad9e6c276a90"
+    },
+    {
+      "id": "ti-d3e3e54dab",
+      "kind": "test-impact",
+      "question": "Add the bare session index: the composite gave the hottest query nothing",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/SchemaQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/SchemaBootstrapperTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/CypherQuerySnapshotTests.cs"
+        ]
+      },
+      "source": "git:d3e3e54dab50b8ab752563dfd9729ce39b746832"
+    },
+    {
+      "id": "ti-fb61f26cf2",
+      "kind": "test-impact",
+      "question": "Index the two hot properties that had no index at all",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/SchemaQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/SchemaBootstrapperTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/CypherQuerySnapshotTests.cs"
+        ]
+      },
+      "source": "git:fb61f26cf29bde05e498a59aff5c13b4f7cf0d2c"
+    },
+    {
+      "id": "ti-267188d323",
+      "kind": "test-impact",
+      "question": "Record trace outcomes on the MAF path, and delete two refuted doc claims",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.AgentFramework/AgentTraceRecorder.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/FactQueries.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/ReasoningQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/AgentFramework/TraceOutcomeIsRecordedTests.cs"
+        ]
+      },
+      "source": "git:267188d323eabd4018fbd141ddb08ae05b7ebfa7"
+    },
+    {
+      "id": "ti-6fbeab0341",
+      "kind": "test-impact",
+      "question": "BUG-A2: index MemoryReadAudit.memory_id, the property history actually matches on",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/SchemaQueries.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/SchemaBootstrapperTests.cs",
+          "tests/AgentMemory.Tests.Unit/Queries/CypherQuerySnapshotTests.cs"
+        ]
+      },
+      "source": "git:6fbeab03411c794e5374c5cc89f2bb788154d1f3"
+    },
+    {
+      "id": "ti-9a509274a5",
+      "kind": "test-impact",
+      "question": "L11 follow-up: a failed optimization index must not make the system unstartable",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/SchemaBootstrapper.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/SchemaConformance.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/FailedIndexScopeTests.cs"
+        ]
+      },
+      "source": "git:9a509274a5b306315896e171ac06c5e50d4df920"
+    },
+    {
+      "id": "ti-2f9064c6bc",
+      "kind": "test-impact",
+      "question": "L10: harden the FAILED-index check across all three of its defects",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Exceptions/SchemaInitializationException.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/SchemaBootstrapper.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/SchemaConformance.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Cli/CliCommandsTests.cs",
+          "tests/AgentMemory.Tests.Unit/Exceptions/SchemaInitializationExceptionCodeTests.cs",
+          "tests/AgentMemory.Tests.Unit/Infrastructure/FailedIndexScopeTests.cs"
+        ]
+      },
+      "source": "git:2f9064c6bcc37870dcdc1ad3e9b1672449d3d681"
+    },
+    {
+      "id": "ti-0fafd8c858",
+      "kind": "test-impact",
+      "question": "fix: reject entity names too large to range-index (L9)",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/IndexKeyBudget.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/IndexKeyBudgetTests.cs"
+        ]
+      },
+      "source": "git:0fafd8c8584457556916419b88dc4b9892f2dd2c"
+    },
+    {
+      "id": "ti-193f823738",
+      "kind": "test-impact",
+      "question": "fix: clear the three merge blockers found by pre-merge review",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/Neo4jMemoryPersistenceTransaction.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/Neo4jPersistenceTransactionFallbackTests.cs"
+        ]
+      },
+      "source": "git:193f823738b3a08d04922ebcef3afe43f90ef457"
+    },
+    {
+      "id": "ti-9221ea9072",
+      "kind": "test-impact",
+      "question": "feat: report which relations a question resolved to",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Domain/Context/MemoryContext.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Services/MemoryContextAssembler.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Services/ResolvedQueryRelationsTests.cs"
+        ]
+      },
+      "source": "git:9221ea9072a018e03a274edd49cbce68424fa862"
+    },
+    {
+      "id": "ti-d1c9c4802a",
+      "kind": "test-impact",
+      "question": "fix: tell permanent provider failures apart from transient ones",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/Internal/LlmExtractionRunner.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/LlmMultiSessionUnifiedMemoryExtractor.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Extraction/LlmExtractionTransportRetryTests.cs"
+        ]
+      },
+      "source": "git:d1c9c4802aa5d2bb53ffb36848038a3189b0748d"
+    },
+    {
+      "id": "ti-85ff7ff3f1",
+      "kind": "test-impact",
+      "question": "fix: retry transport failures so a long preparation can finish",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/Internal/LlmExtractionRunner.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Extraction/LlmExtractionTransportRetryTests.cs"
+        ]
+      },
+      "source": "git:85ff7ff3f1dda178982a3e87f966c2908ec2becf"
+    },
+    {
+      "id": "ti-0c332bf623",
+      "kind": "test-impact",
+      "question": "fix: split a multi-session batch only for failures its own shape caused",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extraction.Llm/LlmMultiSessionUnifiedMemoryExtractor.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Extraction/LlmMultiSessionBatchSplitPolicyTests.cs"
+        ]
+      },
+      "source": "git:0c332bf62303b10385dc5f8d8d0971d33dc05f40"
+    },
+    {
+      "id": "ti-b522cab0d6",
+      "kind": "test-impact",
+      "question": "test: re-run J1.5 gate 1 after J1.6, on the real lexicon",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Memory/MemoryRelationLexicon.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.LongMemEval/PredicateCoverageBandTests.cs"
+        ]
+      },
+      "source": "git:b522cab0d6a491aab88af99d7767e843d2175912"
+    },
+    {
+      "id": "ti-4ace2e80d4",
+      "kind": "test-impact",
+      "question": "fix: make the public registration API able to configure the memory system",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/ServiceCollectionExtensions.cs"
+        },
+        {
+          "kind": "path",
+          "value": "src/AgentMemory/ServiceCollectionExtensions.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/MetaPackage/MetaPackageDiRegistrationTests.cs",
+          "tests/AgentMemory.Tests.Unit/Options/RegistrationOptionsReachabilityTests.cs"
+        ]
+      },
+      "source": "git:4ace2e80d48c6aeb2af8f7e98ec7637fdf4b255f"
+    },
+    {
+      "id": "dec-embedding-orchestrator",
+      "kind": "decision",
+      "question": "Move IEmbeddingOrchestrator into Core next to its implementation",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Services/IEmbeddingOrchestrator.cs"
+        }
+      ],
+      "expect": {
+        "decisionTitles": [
+          "IEmbeddingOrchestrator + ExtractorBase<T>"
+        ]
+      }
+    },
+    {
+      "id": "dec-pipeline-split",
+      "kind": "decision",
+      "question": "Add an embedding step inside ExtractionStage so it persists too",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Extraction/ExtractionStage.cs"
+        }
+      ],
+      "expect": {
+        "decisionTitles": [
+          "Pipeline SRP Split and Dual Pipeline Merge"
+        ]
+      }
+    },
+    {
+      "id": "dec-thresholds",
+      "kind": "decision",
+      "question": "Hard-code the regex match confidence instead of reading ExtractionOptions",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Options/ExtractionOptions.cs"
+        },
+        {
+          "kind": "symbol",
+          "value": "ExtractionOptions"
+        }
+      ],
+      "expect": {
+        "decisionTitles": [
+          "Thresholds Parameterization + Azure API Cache"
+        ]
+      }
+    },
+    {
+      "id": "dec-cypher-direct",
+      "kind": "decision",
+      "question": "Add a new entity lookup query",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Queries/EntityQueries.cs"
+        }
+      ],
+      "expect": {
+        "decisionTitles": [
+          "Cypher Query Centralization"
+        ]
+      }
+    },
+    {
+      "id": "dec-cypher-indirect",
+      "kind": "decision",
+      "indirect": true,
+      "question": "Write the entity merge Cypher inline in the repository method",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs"
+        }
+      ],
+      "expect": {
+        "decisionTitles": [
+          "Cypher Query Centralization"
+        ]
+      }
+    },
+    {
+      "id": "dec-domain-types",
+      "kind": "decision",
+      "question": "Move SessionSummary out of Abstractions into Core",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Abstractions/Domain/ShortTerm/SessionSummary.cs"
+        },
+        {
+          "kind": "symbol",
+          "value": "SessionSummary"
+        }
+      ],
+      "expect": {
+        "decisionTitles": [
+          "Functional Parity Domain Types"
+        ]
+      }
+    }
+  ]
+}

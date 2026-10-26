@@ -104,7 +104,8 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 {
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared,
                     ["ids"] = query.FromIds.Distinct(StringComparer.Ordinal).ToArray(),
-                    ["fanOut"] = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut))
+                    ["fanOut"] = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut)),
+                    ["words"] = Words(query.Words), ["text"] = reached.Type.TextProperties().ToArray()
                 }, cancellationToken).ConfigureAwait(false);
                 return new ModuleTraversalStep
                 {
@@ -112,7 +113,8 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                     Edges = rows.Select(r => new ModuleTraversalEdge
                     {
                         FromId = r["fid"].As<string>(),
-                        To = Neo4jModuleReader.Record(reached.Module, reached.Type, r["row"].As<Dictionary<string, object>>(), [])
+                        To = Neo4jModuleReader.Record(reached.Module, reached.Type, r["row"].As<Dictionary<string, object>>(), []),
+                        Degree = (int)Math.Clamp(r["degree"].As<long>(), 1, int.MaxValue)
                     }).ToList().AsReadOnly()
                 };
             }, cancellationToken).ConfigureAwait(false);
@@ -134,11 +136,23 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
         catch (MemoryOwnerScopeRequiredException) { scope = null!; return false; }
     }
 
+    // A reader lives for one request (one per scope), so a passed check holds for the rest of its walk: one check per request,
+    // not one per read. A failed check is asked again.
     private async Task<bool> NotReadyAsync(IAsyncQueryRunner transaction, CancellationToken cancellationToken)
     {
+        if (_ready) return false;
         var readiness = await _migrator.PlanInAsync(transaction, cancellationToken).ConfigureAwait(false);
-        return readiness.Problems.Count != 0 || readiness.Pending.Count != 0 || readiness.PendingNamespaces.Count != 0 || readiness.PendingBookkeeping.Count != 0;
+        var notReady = readiness.Problems.Count != 0 || readiness.Pending.Count != 0 || readiness.PendingNamespaces.Count != 0 || readiness.PendingBookkeeping.Count != 0;
+        _ready = !notReady;
+        return notReady;
     }
+
+    private volatile bool _ready;
+
+    // The question's words as the query matches them: lower case, at most 40 characters, at most ModuleExpandQuery.MaximumWords.
+    private static string[] Words(IReadOnlyList<string> words) =>
+        [.. words.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim().ToLowerInvariant()).Where(w => w.Length <= 40)
+            .Distinct(StringComparer.Ordinal).Take(ModuleExpandQuery.MaximumWords)];
 
     private static ModuleReadResult Refused(string error) => new() { Status = ModuleReadStatus.Refused, Errors = [error] };
     private static ModuleReadResult NotApplicable() => new() { Status = ModuleReadStatus.NotApplicable, Errors = ["Traversal reads live records only."] };

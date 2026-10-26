@@ -25,22 +25,41 @@ internal static class ModuleTraversalQueries
 
     /// <summary>
     /// Out: each live source's link targets, as their live versions (a link may point at an older version of its target; the
-    /// live one shares its key identity, <c>key_id</c>). At most <c>$fanOut</c> per source, in id order.
+    /// live one shares its key identity, <c>key_id</c>). At most <c>$fanOut</c> per source, ranked (see <see cref="Ranked"/>);
+    /// a target's degree is how many live sources in scope link to it.
     /// </summary>
     internal static string Out(string source, string relation, string target) =>
         "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE s.invalidated_at IS NULL "
         + "MATCH (s)-[:`" + relation + "`]->(old:`" + target + "`) "
         + "MATCH (t:`" + target + "` {key_id:old.key_id}) WHERE t.invalidated_at IS NULL AND " + In("t") + " "
-        + "WITH fid, t ORDER BY t.id WITH fid, collect(DISTINCT properties(t))[..$fanOut] AS rows UNWIND rows AS row RETURN fid, row";
+        + "WITH DISTINCT fid, t "
+        + "CALL { WITH t MATCH (:`" + target + "` {key_id:t.key_id})<-[:`" + relation + "`]-(o:`" + source + "`) "
+        + "WHERE o.invalidated_at IS NULL AND " + In("o") + " RETURN count(DISTINCT o) AS degree } "
+        + Ranked("t");
 
     /// <summary>
     /// In: the live sources whose link points at any version of each live target, so links written before the target changed
     /// still count (every version shares its key identity, <c>key_id</c>, which is indexed). At most <c>$fanOut</c> per target,
-    /// in id order.
+    /// ranked (see <see cref="Ranked"/>); a source's degree is how many links of the relation it has (a version links each target
+    /// once), counted without reading the targets: under a type with hundreds of tests, reading each test's targets was most of
+    /// a cold read.
     /// </summary>
     internal static string In(string source, string relation, string target) =>
         "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE x.invalidated_at IS NULL "
         + "MATCH (v:`" + target + "` {key_id:x.key_id}) "
         + "MATCH (s:`" + source + "`)-[:`" + relation + "`]->(v) WHERE s.invalidated_at IS NULL AND " + In("s") + " "
-        + "WITH fid, s ORDER BY s.id WITH fid, collect(DISTINCT properties(s))[..$fanOut] AS rows UNWIND rows AS row RETURN fid, row";
+        + "WITH DISTINCT fid, s "
+        + "CALL { WITH s MATCH (s)-[:`" + relation + "`]->() RETURN count(*) AS degree } "
+        + Ranked("s");
+
+    /// <summary>
+    /// Per starting record, the reached records whose text (the <c>$text</c> properties, lower case) holds most of the question's
+    /// <c>$words</c> first, then the most specific (lowest degree), then by id; at most <c>$fanOut</c> (CMP-4).
+    /// </summary>
+    private static string Ranked(string node) =>
+        "WITH fid, " + node + ", degree, reduce(text = '', k IN $text | text + ' ' + toLower(coalesce(toString(" + node + "[k]), ''))) AS text "
+        + "WITH fid, " + node + ", degree, size([w IN $words WHERE text CONTAINS w]) AS hits "
+        + "ORDER BY hits DESC, degree ASC, " + node + ".id "
+        + "WITH fid, collect({row: properties(" + node + "), degree: degree})[..$fanOut] AS rows "
+        + "UNWIND rows AS r RETURN fid, r.row AS row, r.degree AS degree";
 }
