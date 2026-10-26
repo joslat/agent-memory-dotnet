@@ -132,6 +132,14 @@ public static class CliHelp
                                      (offline); report counts.
               codemap import [--root <repo>] [--scip <index.scip>[,...]] [--source git:<sha>]
                                      Write the code map into the store: only what changed since the last.
+              codemap pack --root <repo> --id <id> --version <v> --key <private.pem> --out <file.ampack>
+                                     Share the code map as a signed snapshot pack (offline).
+              codemap import --pack <file.ampack> --trust <trust.json>
+                                     Import a shared snapshot pack, verified, instead of reading the repo.
+              evaluate --gate <pack id> --repo <repo> --host-key <private.pem> --activations <folder>
+                       [--pack <definition.ampack> --trust <trust.json>] [--variant mediocre|weak] [--output <path>]
+                                     Trial a pack on this repository's history and sign the decision; with
+                                     --pack, the pack as loaded from its verified .ampack.
               decisions scan|import --root <repo> [--source git:<sha>]
                                      Read ADRs and Squad's decision log; import writes what changed.
               work scan|import --ledger <tasks.json> --root <repo> [--source <text>]

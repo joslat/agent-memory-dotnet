@@ -1,7 +1,9 @@
 #pragma warning disable AMEXT001 // The code map is an Extensibility preview pack.
 using System.Diagnostics;
 using System.Text.Json;
+using AgentMemory.Extensibility.Ampack;
 using AgentMemory.Extensibility.Neo4j.Storage;
+using AgentMemory.Extensibility.Packs;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Packs.CodeMap;
 using AgentMemory.Packs.CodeMap.Roslyn;
@@ -16,6 +18,9 @@ namespace AgentMemory.Cli.Commands;
 /// <c>codemap scan --output map.jsonl</c> also writes the records, one per line, for reading the map without a store.
 /// <c>--scip index.scip[,other.scip]</c> adds SCIP indexes (CMP-2b: TypeScript, Python, Java, Go, Rust...) to the same map; without
 /// <c>--root</c> the map is the indexes alone, and import needs <c>--source</c>.
+/// <c>codemap pack --root &lt;repo&gt; --id &lt;id&gt; --version &lt;v&gt; --key &lt;private.pem&gt; --out &lt;file.ampack&gt;</c> shares the map as a
+/// signed snapshot pack (pack format v1.2 §3), offline; <c>codemap import --pack &lt;file.ampack&gt; --trust &lt;trust.json&gt;</c>
+/// imports one, verified, instead of reading a repository.
 /// </summary>
 internal sealed class CodeMapCommand(TextWriter output)
 {
@@ -43,9 +48,45 @@ internal sealed class CodeMapCommand(TextWriter output)
         return problems.Count == 0 ? 0 : 1;
     }
 
-    public async Task<int> ImportAsync(INeo4jTransactionRunner runner, string? root, string? source, string? scip = null)
+    public int Pack(string? root, string? scip, string? id, string? version, string? keyPath, string? outPath, string? repository)
     {
-        if (root is null && scip is null) return Usage("codemap import needs --root <repository>, --scip <index.scip>, or both.");
+        if (root is null && scip is null) return Usage("codemap pack needs --root <repository>, --scip <index.scip>, or both.");
+        if (id is null || version is null || keyPath is null || outPath is null)
+            return Usage("codemap pack needs --id <reverse.dns.id> --version <semver> --key <private.pem> --out <file.ampack>.");
+        if (!File.Exists(keyPath)) return Usage($"there is no key at {keyPath} (ampack keygen makes one).");
+        var watch = Stopwatch.StartNew();
+        var head = root is null ? null : Head(root);
+        var snapshot = Read(root, scip).Build(head ?? "pack");
+        if (snapshot.Problems() is { Count: > 0 } problems)
+        {
+            output.WriteLine(JsonSerializer.Serialize(new { records = snapshot.Records.Count, problems }, Json));
+            return 1;
+        }
+        byte[] archive;
+        try
+        {
+            archive = PackAuthoring.Build(PackAuthoring.FromSnapshot(snapshot, id, version, repository, head?["git:".Length..]), File.ReadAllText(keyPath));
+        }
+        catch (PackLoadException e)
+        {
+            output.WriteLine(JsonSerializer.Serialize(new { problems = e.Problems }, Json));
+            return 1;
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
+        File.WriteAllBytes(outPath, archive);
+        output.WriteLine(JsonSerializer.Serialize(new
+        {
+            id, version, commit = head, records = snapshot.Records.Count, snapshotDigest = snapshot.Digest, bytes = archive.Length, wrote = outPath,
+            seconds = Math.Round(watch.Elapsed.TotalSeconds, 1),
+        }, Json));
+        return 0;
+    }
+
+    public async Task<int> ImportAsync(INeo4jTransactionRunner runner, string? root, string? source, string? scip = null, string? packPath = null,
+        string? trustPath = null)
+    {
+        if (packPath is not null) return await ImportPackAsync(runner, packPath, trustPath).ConfigureAwait(false);
+        if (root is null && scip is null) return Usage("codemap import needs --root <repository>, --scip <index.scip>, --pack <file.ampack>, or one of them.");
         var watch = Stopwatch.StartNew();
         var snapshot = Read(root, scip).Build(source ?? (root is null ? null : Head(root)) ?? throw new InvalidOperationException(
             "codemap import needs --source when there is no Git repository to take the commit from."));
@@ -55,6 +96,34 @@ internal sealed class CodeMapCommand(TextWriter output)
         {
             result.ModuleId, result.Source, result.Created, result.Changed, result.Unchanged, result.Closed, records = snapshot.Records.Count,
             digest = snapshot.Digest, readSeconds = Math.Round(read.TotalSeconds, 1), importSeconds = Math.Round((watch.Elapsed - read).TotalSeconds, 1),
+        }, Json));
+        return 0;
+    }
+
+    // A shared snapshot pack: verified against the host's trust, its records checked against this host's code map, then imported.
+    private async Task<int> ImportPackAsync(INeo4jTransactionRunner runner, string packPath, string? trustPath)
+    {
+        if (trustPath is null || !File.Exists(trustPath)) return Usage("codemap import --pack needs --trust <trust.json>.");
+        var watch = Stopwatch.StartNew();
+        ModuleSnapshot snapshot;
+        LoadedPack pack;
+        try
+        {
+            pack = PackLoader.Load(packPath, PackTrust.Load(trustPath));
+            snapshot = pack.ToSnapshot(CodeMapPack.Manifest);
+        }
+        catch (PackLoadException e)
+        {
+            output.WriteLine(JsonSerializer.Serialize(new { refused = packPath, problems = e.Problems }, Json));
+            return 1;
+        }
+        var read = watch.Elapsed;
+        var result = await new Neo4jModuleSnapshotStore(runner).ImportAsync(snapshot, DateTimeOffset.UtcNow).ConfigureAwait(false);
+        output.WriteLine(JsonSerializer.Serialize(new
+        {
+            pack = pack.Id, packVersion = pack.Version, packDigest = pack.Digest, result.ModuleId, result.Source, result.Created, result.Changed,
+            result.Unchanged, result.Closed, records = snapshot.Records.Count, digest = snapshot.Digest, readSeconds = Math.Round(read.TotalSeconds, 1),
+            importSeconds = Math.Round((watch.Elapsed - read).TotalSeconds, 1),
         }, Json));
         return 0;
     }

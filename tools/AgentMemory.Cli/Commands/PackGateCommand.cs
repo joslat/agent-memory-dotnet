@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AgentMemory.Core.Stubs;
+using AgentMemory.Extensibility.Ampack;
 using AgentMemory.Extensibility;
 using AgentMemory.Extensibility.Context;
 using AgentMemory.Extensibility.Modules;
@@ -32,7 +33,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath)
+    public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
+        string? packPath = null, string? trustPath = null)
     {
         if (packId != CodeMapPack.Id)
         {
@@ -49,10 +51,38 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             output.WriteLine("error: --variant is mediocre, weak or absent.");
             return 2;
         }
-        var manifest = variant switch { "weak" => Weaken(CodeMapPack.Manifest, 1, _ => 1), "mediocre" => Weaken(CodeMapPack.Manifest, 2, f => Math.Max(1, f / 2)), _ => CodeMapPack.Manifest };
+        // With --pack, the declaration under trial is the one the verified .ampack carries, not the compiled one.
+        var declared = CodeMapPack.Manifest;
+        string? packDigest = null;
+        if (packPath is not null)
+        {
+            if (trustPath is null || !File.Exists(trustPath))
+            {
+                output.WriteLine("error: evaluate --gate --pack needs --trust <trust.json>.");
+                return 2;
+            }
+            try
+            {
+                var loaded = PackLoader.Load(packPath, PackTrust.Load(trustPath));
+                if (loaded.Id != packId || loaded.Kind != "definition")
+                {
+                    output.WriteLine($"error: {packPath} is {loaded.Id} ({loaded.Kind}); the gate trials the {packId} definition.");
+                    return 2;
+                }
+                declared = loaded.Manifest;
+                packDigest = loaded.Digest;
+            }
+            catch (PackLoadException e)
+            {
+                output.WriteLine("error: " + e.Message);
+                return 1;
+            }
+        }
+        var manifest = variant switch { "weak" => Weaken(declared, 1, _ => 1), "mediocre" => Weaken(declared, 2, f => Math.Max(1, f / 2)), _ => declared };
         var trial = manifest.Trial!;
         var tasks = HistoryTasks(repo ?? ".", trial.Tasks);
         output.WriteLine($"{manifest.Id} {manifest.Version}{(variant is null ? "" : " (" + variant + ")")}: {tasks.Count} tasks from this repository's history");
+        if (packDigest is not null) output.WriteLine($"  pack     {packPath} ({packDigest}), verified");
 
         await using var with = await ProviderAsync(m => m.UseNeo4jStore().Add(manifest, new CodeMapPack().Configure)).ConfigureAwait(false);
         await using var without = await ProviderAsync(m => m.UseNeo4jStore()).ConfigureAwait(false);
@@ -93,7 +123,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
             await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(new
             {
-                pack = manifest.Id, version = manifest.Version.ToString(), variant, manifestDigest = decision.ManifestDigest,
+                pack = manifest.Id, version = manifest.Version.ToString(), variant, packDigest, manifestDigest = decision.ManifestDigest,
                 decision, record = Path.GetFileName(record), gate = new { on = set.Modules.Select(m => m.Manifest.Id), off = set.SwitchedOff }, tasks = details,
             }, Json)).ConfigureAwait(false);
             output.WriteLine($"  report   {outputPath}");

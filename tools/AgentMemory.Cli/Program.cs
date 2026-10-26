@@ -39,9 +39,12 @@ if (string.Equals(cli.Command, "routing-score", StringComparison.OrdinalIgnoreCa
 // codemap scan reads a repository with Roslyn offline; codemap import goes through the host below (CMP-2a).
 if (string.Equals(cli.Command, "codemap", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
 {
+    if (string.Equals(cli.Subcommand, "pack", StringComparison.OrdinalIgnoreCase))
+        return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out)
+            .Pack(cli.Get("root"), cli.Get("scip"), cli.Get("id"), cli.Get("version"), cli.Get("key"), cli.Get("out"), cli.Get("repository"));
     if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
     {
-        Console.Error.WriteLine("error: codemap needs scan or import.");
+        Console.Error.WriteLine("error: codemap needs scan, pack or import.");
         return 2;
     }
     return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"), cli.Get("output"), cli.Get("scip"));
@@ -270,7 +273,7 @@ try
         "work" => await new AgentMemory.Cli.Commands.WorkCommand(output)
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("ledger"), cli.Get("root"), cli.Get("source")),
         "codemap" => await new AgentMemory.Cli.Commands.CodeMapCommand(output)
-            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source"), cli.Get("scip")),
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source"), cli.Get("scip"), cli.Get("pack"), cli.Get("trust")),
         "modules" => await new ModulesCommand(
             sp.GetRequiredService<INeo4jTransactionRunner>(), output).ExecuteAsync(moduleInput!),
         "migrate" => await new MigrateCommand(
@@ -338,7 +341,8 @@ try
                 o.Database = database;
                 o.EmbeddingDimensions = dims;
             }, output)
-            .ExecuteAsync(cli.Get("gate"), cli.Get("repo"), cli.Get("host-key"), cli.Get("activations"), cli.Get("variant"), cli.Get("output")),
+            .ExecuteAsync(cli.Get("gate"), cli.Get("repo"), cli.Get("host-key"), cli.Get("activations"), cli.Get("variant"), cli.Get("output"),
+                cli.Get("pack"), cli.Get("trust")),
         "evaluate" when cli.Get("traversal") is not null => await new TraversalTrialCommand(o =>
             {
                 o.Uri = uri;
