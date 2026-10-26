@@ -39,6 +39,8 @@
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Coding\AgentMemory.Packs.Coding.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Work\AgentMemory.Packs.Work.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility.Ampack\AgentMemory.Extensibility.Ampack.csproj" />
+    <!-- PACK-tool-e2e: the ampack tool is run as a process; built first, not referenced. -->
+    <ProjectReference Include="..\..\tools\Ampack\Ampack.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
