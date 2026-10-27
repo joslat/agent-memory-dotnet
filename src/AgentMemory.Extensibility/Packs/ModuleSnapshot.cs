@@ -33,6 +33,11 @@ public sealed record ModuleSnapshot
     /// file and line it came from; the import stamps the module, the source and the snapshot's digest on each.
     /// </summary>
     public required IReadOnlyList<ModuleProposal> Records { get; init; }
+    /// <summary>
+    /// The signed snapshot pack that carried these records, when they arrived in one: stamped on every record the import writes,
+    /// beside the definition and the source (PACK-bind), so a record says who signed it. Null for a snapshot the host built.
+    /// </summary>
+    public PackCarrier? Carrier { get; init; }
 
     /// <summary>SHA-256 of the records in canonical order: the same code gives the same digest.</summary>
     public string Digest => _digest ??= ComputeDigest();
@@ -115,7 +120,10 @@ public sealed record ModuleSnapshot
         Source = new ProposalSource
         {
             Excerpt = r.Source.Pack is { File.Length: > 0 } at ? at.File + (at.Line > 0 ? ":" + at.Line : "") : Source,
-            Pack = new PackSource { Id = Module.Id, Version = Source, Digest = Digest, File = r.Source.Pack?.File ?? "", Line = r.Source.Pack?.Line ?? 0 },
+            Pack = new PackSource
+            {
+                Id = Module.Id, Version = Source, Digest = Digest, File = r.Source.Pack?.File ?? "", Line = r.Source.Pack?.Line ?? 0, Carrier = Carrier,
+            },
         },
     });
 

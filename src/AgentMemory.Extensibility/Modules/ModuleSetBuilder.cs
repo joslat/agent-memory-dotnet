@@ -73,8 +73,8 @@ public sealed class ModuleSetBuilder
 
     /// <summary>
     /// Adds a verified knowledge pack (Extensibility 0.13 §K5): its manifest, and a contributor for each of its search views,
-    /// which searches with the turn's question. The pack runs no code; the fingerprint names its bundle digest and signer.
-    /// Its records are imported separately, with <see cref="Packs.KnowledgePackImporter"/>.
+    /// which searches with the turn's question. The pack runs no code; the fingerprint names its bundle digest and signer, and a
+    /// trial decision must name the same digest. Its records are imported separately, with <see cref="Packs.KnowledgePackImporter"/>.
     /// </summary>
     /// <param name="pack">The verified pack.</param>
     /// <param name="priority">Its search contributors' priority: lower comes first in the candidate budget and wins ties.</param>
@@ -85,7 +85,17 @@ public sealed class ModuleSetBuilder
         {
             foreach (var view in pack.Manifest.Views.Where(v => v.Search is not null))
                 builder.AddContextContributor(c => new Contributors.ViewContributor(c.Resolution, c.Reader, view.Id, priority));
-        }, "knowledge-pack; digest=" + pack.Digest + "; signer=" + pack.Bundle.Signer.ToString().ToLowerInvariant(), priority);
+        }, "knowledge-pack; digest=" + pack.Digest + "; signer=" + pack.Bundle.Signer.ToString().ToLowerInvariant(), priority, pack.Digest);
+    }
+
+    /// <summary>
+    /// Adds a verified definition pack: its declarations, and no code. The fingerprint names the pack's digest and signers, not
+    /// the assembly that loaded it (PACK-review 2.19), and a trial decision must name the same digest (PACK-bind).
+    /// </summary>
+    internal ModuleSetBuilder AddDefinitionPack(ModuleManifest manifest, string digest, string signers, int traversalPriority = 100)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(digest);
+        return Add(manifest, _ => { }, "definition-pack; digest=" + digest + "; signer=" + signers, traversalPriority, digest);
     }
 
     /// <summary>
@@ -102,12 +112,13 @@ public sealed class ModuleSetBuilder
         return this;
     }
 
-    private ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure, string implementation, int traversalPriority = 100)
+    private ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure, string implementation, int traversalPriority = 100,
+        string? packDigest = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         if (_modules.Any(m => string.Equals(m.Manifest.Id, manifest.Id, StringComparison.Ordinal)))
             throw new ArgumentException($"Module '{manifest.Id}' is already added.", nameof(manifest));
-        var registration = new ModuleRegistration(manifest, implementation);
+        var registration = new ModuleRegistration(manifest, implementation, packDigest);
         configure(registration);
         // CMP-1: a module that declares traversal gets its share of the turn's walk, with no code of its own.
         if (manifest.Traversal is not null)
@@ -168,7 +179,7 @@ public sealed class ModuleSetBuilder
 
 /// <summary>One added module's declarations, recorded at registration.</summary>
 [Experimental("AMEXT001")]
-internal sealed class ModuleRegistration(ModuleManifest manifest, string implementation) : IModuleBuilder
+internal sealed class ModuleRegistration(ModuleManifest manifest, string implementation, string? packDigest = null) : IModuleBuilder
 {
     private readonly List<Func<ModuleActivationContext, IContextContributor>> _contributors = [];
     private readonly List<Func<ModuleActivationContext, IIngestionProvider>> _providers = [];
@@ -176,6 +187,8 @@ internal sealed class ModuleRegistration(ModuleManifest manifest, string impleme
 
     public ModuleManifest Manifest { get; } = manifest;
     public string Implementation { get; } = implementation;
+    /// <summary>For a module that came from a pack, the pack's digest, which its trial decision must name; null for compiled code.</summary>
+    public string? PackDigest { get; } = packDigest;
     public ModuleOptionsBinding? Options { get; private set; }
     public IReadOnlyList<Func<ModuleActivationContext, IContextContributor>> Contributors => _contributors;
     public IReadOnlyList<Func<ModuleActivationContext, IIngestionProvider>> Providers => _providers;

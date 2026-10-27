@@ -151,7 +151,12 @@ public sealed class Neo4jModuleReader : IModuleReader
             Pack = Text(row, "source_pack") is { } pack ? new()
             {
                 Id = pack, Version = Text(row, "source_pack_version") ?? "", Digest = Text(row, "source_pack_digest") ?? "",
-                File = Text(row, "source_pack_file") ?? "", Line = row.TryGetValue("source_pack_line", out var line) ? (int)line.As<long>() : 0
+                File = Text(row, "source_pack_file") ?? "", Line = row.TryGetValue("source_pack_line", out var line) ? (int)line.As<long>() : 0,
+                Carrier = Text(row, "source_carrier") is { } carrier ? new()
+                {
+                    Id = carrier, Version = Text(row, "source_carrier_version") ?? "", Digest = Text(row, "source_carrier_digest") ?? "",
+                    Signer = Text(row, "source_carrier_signer") ?? "",
+                } : null,
             } : null
         },
         Properties = type.Properties.Keys.Where(row.ContainsKey).ToDictionary(key => key, key => JsonSerializer.SerializeToElement(Value(row[key])), StringComparer.Ordinal).AsReadOnly()

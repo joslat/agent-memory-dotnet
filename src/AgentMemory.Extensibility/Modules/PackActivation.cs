@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace AgentMemory.Extensibility.Modules;
 
@@ -35,7 +37,8 @@ public sealed record PackTrialCheck(string Target, double Required, double Obser
 
 /// <summary>
 /// A host's decision about one pack, from its trial (pack format v1.1 §4, claim 2): on or off, the reason, and every check.
-/// Bound to the pack's exact declaration by <see cref="ManifestDigest"/>: a changed pack needs a new trial.
+/// Bound to the exact declarations by <see cref="ManifestDigest"/> and, for a pack, to its exact content by
+/// <see cref="PackDigest"/> (PACK-bind): a changed pack needs a new trial.
 /// </summary>
 [Experimental("AMEXT001")]
 public sealed record PackActivation
@@ -44,8 +47,18 @@ public sealed record PackActivation
     public required string ModuleId { get; init; }
     /// <summary>Its version.</summary>
     public required string Version { get; init; }
-    /// <summary>The SHA-256 of the manifest the trial ran (<see cref="PackTrialGate.DigestOf"/>).</summary>
+    /// <summary>
+    /// The declarations the trial ran: <c>jcs-sha256:</c>, SHA-256 over the manifest's RFC 8785 canonical JSON
+    /// (<see cref="PackTrialGate.DigestOf"/>). Records written before PACK-bind name <c>sha256:</c> of the SDK's serialization,
+    /// and match nothing now: those packs are trialled again.
+    /// </summary>
     public required string ManifestDigest { get; init; }
+    /// <summary>
+    /// For a pack, the content the trial ran: <c>sha256:</c> over the exact bytes of its file list, the identity the ledger and
+    /// a composite's lock name. Null for a module compiled into the host; a decision for one never counts for the other.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PackDigest { get; init; }
     /// <summary>Whether every target was met.</summary>
     public required bool Active { get; init; }
     /// <summary>Why, in one line.</summary>
@@ -67,9 +80,12 @@ public interface IPackActivations
     /// <summary>The latest decision for this pack id and version, or null when it was never trialled here.</summary>
     PackActivation? Find(string moduleId, ModuleVersion version);
 
-    /// <summary>The latest decision for exactly this content: id, version and manifest digest; null when it was never trialled.</summary>
-    PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest) =>
-        Find(moduleId, version) is { } latest && latest.ManifestDigest == manifestDigest ? latest : null;
+    /// <summary>
+    /// The latest decision for exactly this content: id, version, manifest digest and, for a pack, its pack digest (null for a
+    /// compiled module); null when it was never trialled.
+    /// </summary>
+    PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest, string? packDigest = null) =>
+        Find(moduleId, version) is { } latest && latest.ManifestDigest == manifestDigest && latest.PackDigest == packDigest ? latest : null;
 }
 
 /// <summary>A module the host left off, and why.</summary>
@@ -97,17 +113,32 @@ public static class PackTrialGate
         return Math.Max(0, (centre - margin) / (1 + z2 / trials));
     }
 
-    /// <summary>The SHA-256 of a manifest as this SDK serializes it: what an activation record binds to.</summary>
+    /// <summary>The prefix of <see cref="DigestOf"/>: SHA-256 over RFC 8785 canonical JSON, named apart from a pack's <c>sha256:</c>.</summary>
+    public const string ManifestDigestPrefix = "jcs-sha256:";
+
+    /// <summary>
+    /// The declarations' digest an activation record binds to: <c>jcs-sha256:</c> and the SHA-256 of the manifest's RFC 8785
+    /// canonical JSON, so the bytes do not depend on how this SDK orders or spaces what it writes.
+    /// </summary>
     public static string DigestOf(ModuleManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        return "sha256:" + Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(manifest))).ToLowerInvariant();
+        return ManifestDigestPrefix + Convert.ToHexString(SHA256.HashData(CanonicalJson.Canonical(JsonSerializer.SerializeToUtf8Bytes(manifest)))).ToLowerInvariant();
     }
 
-    /// <summary>Checks every target of the manifest's trial against the two arms; the pack goes on only if all are met.</summary>
-    public static PackActivation Decide(ModuleManifest manifest, PackTrialMeasurement with, PackTrialMeasurement without, DateTimeOffset decidedAt)
+    private static readonly Regex PackDigestPattern = new("^sha256:[0-9a-f]{64}\\z", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Checks every target of the manifest's trial against the two arms; the pack goes on only if all are met. Give
+    /// <paramref name="packDigest"/> when the trial ran a pack, so the decision binds to its content and not only to its declarations.
+    /// </summary>
+    /// <exception cref="ArgumentException">The manifest declares no trial, or <paramref name="packDigest"/> is not <c>sha256:</c> and 64 hex digits.</exception>
+    public static PackActivation Decide(ModuleManifest manifest, PackTrialMeasurement with, PackTrialMeasurement without, DateTimeOffset decidedAt,
+        string? packDigest = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
+        if (packDigest is not null && !PackDigestPattern.IsMatch(packDigest))
+            throw new ArgumentException("A pack digest is sha256: and 64 lowercase hex digits.", nameof(packDigest));
         var trial = manifest.Trial ?? throw new ArgumentException($"Module '{manifest.Id}' declares no trial.", nameof(manifest));
         var checks = new List<PackTrialCheck>();
         var t = trial.Targets;
@@ -135,14 +166,14 @@ public static class PackTrialGate
                 : $"{c.Target} {c.Observed.ToString(CultureInfo.InvariantCulture)} below {c.Required.ToString(CultureInfo.InvariantCulture)}"));
         return new PackActivation
         {
-            ModuleId = manifest.Id, Version = manifest.Version.ToString(), ManifestDigest = DigestOf(manifest),
+            ModuleId = manifest.Id, Version = manifest.Version.ToString(), ManifestDigest = DigestOf(manifest), PackDigest = packDigest,
             Active = enough && failed.Count == 0, Reason = reason, DecidedAt = decidedAt, Checks = checks, With = with, Without = without,
         };
     }
 
     /// <summary>
     /// The registrations that may compose, and the ones left off: a module that declares a trial needs a passing decision for
-    /// exactly its manifest; a module that needs one left off is left off too.
+    /// exactly its manifest and, when it came from a pack, exactly that pack; a module that needs one left off is left off too.
     /// </summary>
     internal static (IReadOnlyList<ModuleRegistration> On, IReadOnlyList<SwitchedOffModule> Off) Apply(IReadOnlyList<ModuleRegistration> registrations,
         IPackActivations? activations)
@@ -152,7 +183,7 @@ public static class PackTrialGate
         foreach (var registration in registrations.Where(r => r.Manifest.Trial is not null))
         {
             var manifest = registration.Manifest;
-            var decision = activations.Find(manifest.Id, manifest.Version, DigestOf(manifest));
+            var decision = activations.Find(manifest.Id, manifest.Version, DigestOf(manifest), registration.PackDigest);
             var reason = decision is not null ? (decision.Active ? null : "its trial failed: " + decision.Reason)
                 : activations.Find(manifest.Id, manifest.Version) is not null ? "its trial ran on other content; trial it again"
                 : "no trial on this host yet";
@@ -184,7 +215,7 @@ public sealed class PackActivationFolder : IPackActivations
     public const string PredicateType = "urn:agentmemory:pack:trial:v1";
     private const string PayloadType = "application/vnd.in-toto+json";
     private readonly Dictionary<(string, string), PackActivation> _latest = [];
-    private readonly Dictionary<(string, string, string), PackActivation> _latestByDigest = [];
+    private readonly Dictionary<(string, string, string, string), PackActivation> _latestByDigest = [];
 
     /// <summary>Reads every <c>*.dsse.json</c> in <paramref name="folder"/>; files that do not verify are listed in <see cref="Ignored"/>.</summary>
     public PackActivationFolder(string folder, string hostPublicKeyPem)
@@ -201,7 +232,7 @@ public sealed class PackActivationFolder : IPackActivations
                 if (activation is null) { ignored.Add(Path.GetFileName(file)); continue; }
                 var id = (activation.ModuleId, activation.Version);
                 if (!_latest.TryGetValue(id, out var known) || known.DecidedAt < activation.DecidedAt) _latest[id] = activation;
-                var exact = (activation.ModuleId, activation.Version, activation.ManifestDigest);
+                var exact = (activation.ModuleId, activation.Version, activation.ManifestDigest, activation.PackDigest ?? "");
                 if (!_latestByDigest.TryGetValue(exact, out var same) || same.DecidedAt < activation.DecidedAt) _latestByDigest[exact] = activation;
             }
         Ignored = ignored.AsReadOnly();
@@ -214,8 +245,8 @@ public sealed class PackActivationFolder : IPackActivations
     public PackActivation? Find(string moduleId, ModuleVersion version) => _latest.GetValueOrDefault((moduleId, version.ToString()));
 
     /// <inheritdoc/>
-    public PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest) =>
-        _latestByDigest.GetValueOrDefault((moduleId, version.ToString(), manifestDigest));
+    public PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest, string? packDigest = null) =>
+        _latestByDigest.GetValueOrDefault((moduleId, version.ToString(), manifestDigest, packDigest ?? ""));
 
     /// <summary>The DSSE pre-authentication encoding of a payload.</summary>
     public static byte[] Pae(ReadOnlySpan<byte> payload)
@@ -224,14 +255,17 @@ public sealed class PackActivationFolder : IPackActivations
         return [.. head, .. payload];
     }
 
-    /// <summary>The in-toto statement an activation record signs, as JSON bytes.</summary>
+    /// <summary>
+    /// The in-toto statement an activation record signs, as JSON bytes. Its subject is what the trial ran: the pack, by its
+    /// digest, or for a compiled module its canonical manifest.
+    /// </summary>
     public static byte[] Statement(PackActivation activation)
     {
         ArgumentNullException.ThrowIfNull(activation);
         return JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object>
         {
             ["_type"] = "https://in-toto.io/Statement/v1",
-            ["subject"] = new[] { new { name = activation.ModuleId + "@" + activation.Version, digest = new { sha256 = activation.ManifestDigest["sha256:".Length..] } } },
+            ["subject"] = new[] { new { name = activation.ModuleId + "@" + activation.Version, digest = new { sha256 = SubjectHex(activation) } } },
             ["predicateType"] = PredicateType,
             ["predicate"] = activation,
         });
@@ -253,11 +287,19 @@ public sealed class PackActivationFolder : IPackActivations
             var activation = statement.RootElement.GetProperty("predicate").Deserialize<PackActivation>();
             var subject = statement.RootElement.GetProperty("subject")[0];
             return activation is not null && subject.GetProperty("name").GetString() == activation.ModuleId + "@" + activation.Version
-                && "sha256:" + subject.GetProperty("digest").GetProperty("sha256").GetString() == activation.ManifestDigest ? activation : null;
+                && subject.GetProperty("digest").GetProperty("sha256").GetString() == SubjectHex(activation) ? activation : null;
         }
-        catch (Exception e) when (e is JsonException or FormatException or KeyNotFoundException or InvalidOperationException or CryptographicException or IndexOutOfRangeException)
+        catch (Exception e) when (e is JsonException or FormatException or KeyNotFoundException or InvalidOperationException or CryptographicException
+            or IndexOutOfRangeException or ArgumentOutOfRangeException)
         {
             return null;
         }
+    }
+
+    // The statement's subject digest: the pack's when the trial ran a pack, otherwise the manifest's; hex after the prefix.
+    private static string SubjectHex(PackActivation activation)
+    {
+        var digest = activation.PackDigest ?? activation.ManifestDigest;
+        return digest[(digest.IndexOf(':', StringComparison.Ordinal) + 1)..];
     }
 }

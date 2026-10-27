@@ -91,4 +91,24 @@ public sealed record PackSource
     public required string File { get; init; }
     /// <summary>The 1-based line in the seed file.</summary>
     public required int Line { get; init; }
+    /// <summary>
+    /// For a snapshot's record that arrived in a signed snapshot pack, that pack (PACK-bind): the record belongs to the
+    /// definition named by <see cref="Id"/>, but who signed it, and in which exact pack, stays with it. Null otherwise.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public PackCarrier? Carrier { get; init; }
+}
+
+/// <summary>The signed pack that carried a snapshot's records (pack format v1.2 §3): its id, version, digest and signers.</summary>
+[Experimental("AMEXT001")]
+public sealed record PackCarrier
+{
+    /// <summary>The snapshot pack's id.</summary>
+    public required string Id { get; init; }
+    /// <summary>Its version.</summary>
+    public required string Version { get; init; }
+    /// <summary>Its digest: <c>sha256:</c> over the exact bytes of its file list.</summary>
+    public required string Digest { get; init; }
+    /// <summary>Who signed it, as the loader verified it: role and key id, comma separated.</summary>
+    public required string Signer { get; init; }
 }

@@ -381,7 +381,9 @@ public sealed class Neo4jModuleStore : IModuleStore
         var pack = proposal.Source.Pack;
         await OneAsync(runner, ModuleRecordQueries.Create(type), new { id, keyId, key = proposal.Key, owner,
             now = atUtc.ToString("O"), session = request.SessionId, sources = proposal.Source.MessageIds.ToArray(), excerpt = proposal.Source.Excerpt,
-            pack = pack?.Id, packVersion = pack?.Version, packDigest = pack?.Digest, packFile = pack?.File, packLine = pack?.Line, properties }, cancellationToken).ConfigureAwait(false);
+            pack = pack?.Id, packVersion = pack?.Version, packDigest = pack?.Digest, packFile = pack?.File, packLine = pack?.Line,
+            carrier = pack?.Carrier?.Id, carrierVersion = pack?.Carrier?.Version, carrierDigest = pack?.Carrier?.Digest, carrierSigner = pack?.Carrier?.Signer,
+            properties }, cancellationToken).ConfigureAwait(false);
         foreach (var link in links.Links)
             await OneAsync(runner, ModuleRecordQueries.Link(type.Name, link.Relation, link.TargetLabel), new { id, target = link.TargetId, owner }, cancellationToken).ConfigureAwait(false);
         if (previousId is not null)

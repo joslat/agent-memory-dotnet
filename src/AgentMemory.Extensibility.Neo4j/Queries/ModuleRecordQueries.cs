@@ -31,7 +31,8 @@ internal static class ModuleRecordQueries
     internal static string Create(ModuleType type) => "CREATE (n:`" + type.Name + "`) SET n=$properties "
         + "SET n.id=$id, n.key_id=$keyId, n.key=$key, n.owner_id=$owner, n.created_at=datetime($now), "
         + "n.source_session_id=$session, n.source_message_ids=$sources, n.source_excerpt=$excerpt, "
-        + "n.source_pack=$pack, n.source_pack_version=$packVersion, n.source_pack_digest=$packDigest, n.source_pack_file=$packFile, n.source_pack_line=$packLine "
+        + "n.source_pack=$pack, n.source_pack_version=$packVersion, n.source_pack_digest=$packDigest, n.source_pack_file=$packFile, n.source_pack_line=$packLine, "
+        + "n.source_carrier=$carrier, n.source_carrier_version=$carrierVersion, n.source_carrier_digest=$carrierDigest, n.source_carrier_signer=$carrierSigner "
         + string.Join(" ", type.Properties.Where(p => p.Value.Type is "date" or "datetime").Select(p => "SET n.`" + p.Key + "`=" + Value(p.Key, p.Value.Type)))
         + " RETURN n.id AS id";
     // A knowledge pack's live records (Extensibility 0.13 §K3): what an import may close, and what its state reports.

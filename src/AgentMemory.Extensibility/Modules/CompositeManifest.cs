@@ -239,6 +239,14 @@ public sealed class CompositeMembers
         return this;
     }
 
+    /// <summary>Adds a verified definition pack member: declarations only, named in the fingerprint by its digest and signers.</summary>
+    internal CompositeMembers AddDefinitionPack(ModuleManifest manifest, string digest, string signers)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (Admit(manifest) is { } priority) _builder.AddDefinitionPack(manifest, digest, signers).Prioritize(manifest.Id, priority);
+        return this;
+    }
+
     /// <summary>Adds a verified knowledge pack member.</summary>
     public CompositeMembers AddKnowledgePack(Packs.KnowledgePack pack)
     {

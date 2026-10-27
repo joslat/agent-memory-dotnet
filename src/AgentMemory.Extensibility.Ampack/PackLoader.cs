@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Extensibility.Bundles;
+using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Extensibility.Packs;
 using AgentMemory.Packs.Format;
@@ -231,7 +232,8 @@ public static class PackLoader
     /// <summary>
     /// Composes a loaded pack: a knowledge pack with a search contributor per view (its records import with
     /// <see cref="KnowledgePackImporter"/>); a definition pack as a data-only module whose records the host's importer
-    /// writes. A pack that declares a trial still needs a passing decision when the host requires trials.
+    /// writes. Either is named in the fingerprint by its digest and signers. A pack that declares a trial still needs a passing
+    /// decision for exactly this pack (its digest) when the host requires trials.
     /// </summary>
     public static ModuleSetBuilder AddPack(this ModuleSetBuilder builder, LoadedPack pack, int priority = 100)
     {
@@ -239,13 +241,15 @@ public static class PackLoader
         ArgumentNullException.ThrowIfNull(pack);
         if (pack.Kind == "snapshot")
             throw new PackLoadException([$"{pack.Id} is a snapshot pack: compose its definition, and import the snapshot with ToSnapshot."]);
-        return pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority) : builder.Add(pack.Manifest, _ => { });
+        return pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority)
+            : builder.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), priority);
     }
 
     /// <summary>
     /// The records of a snapshot pack as a snapshot of <paramref name="definition"/>, for the snapshot import (v1.2 §3): the
     /// pack must require that definition in a range that holds the host's version of it, and every record is checked against
-    /// the definition's ontology. Nothing is written here.
+    /// the definition's ontology. Nothing is written here. Every record keeps this pack as its carrier: id, version, digest and
+    /// signers (PACK-bind), so a snapshot signed by one key for another publisher's definition says so on each record.
     /// </summary>
     /// <param name="pack">A loaded snapshot pack.</param>
     /// <param name="definition">The definition its records belong to: a loaded definition pack's manifest, or the host's own.</param>
@@ -260,7 +264,13 @@ public static class PackLoader
             throw new PackLoadException([$"{pack.Id} is a snapshot of {string.Join(", ", pack.Manifest.Modules.Keys)}, not of {definition.Id}."]);
         if (!range.Contains(definition.Version))
             throw new PackLoadException([$"{pack.Id} needs {definition.Id} {range.Value}; the host has {definition.Version.Value}."]);
-        try { return ModuleSnapshot.FromRecordFiles(definition, dependencies ?? [], pack.SnapshotSource!, pack.RecordFiles); }
+        try
+        {
+            return ModuleSnapshot.FromRecordFiles(definition, dependencies ?? [], pack.SnapshotSource!, pack.RecordFiles) with
+            {
+                Carrier = new PackCarrier { Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Signer = string.Join(", ", pack.Signers) },
+            };
+        }
         catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
     }
 }

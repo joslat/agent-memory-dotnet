@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Extensibility;
 using AgentMemory.Extensibility.Ampack;
+using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Extensibility.Neo4j;
 using AgentMemory.Extensibility.Neo4j.Migrations;
@@ -138,6 +139,8 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             Match = ModuleAnchorMatch.Exact, Values = ["src/Map/MapStore.cs"] }, context)).Records.Should().ContainSingle().Subject;
         file.Source.Pack!.Version.Should().Be("git:0a1b2c3d4e5f");
         file.Source.Pack.File.Should().StartWith("records/");
+        // PACK-bind: the record also names the signed pack that carried it, and who signed it.
+        file.Source.Pack.Carrier.Should().Be(new PackCarrier { Id = "io.example.acme-map", Version = "1.0.0", Digest = shared.Digest, Signer = shared.Signers.Single() });
         var symbol = (await reader.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_DEFINES",
             Direction = ModuleTraversalDirection.Out, FromIds = [file.Id] }, context)).Edges.Should().ContainSingle().Subject.To;
         var tests = await reader.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_TESTS",

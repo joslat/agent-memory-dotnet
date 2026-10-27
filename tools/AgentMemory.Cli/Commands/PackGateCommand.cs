@@ -54,6 +54,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         // With --pack, the declaration under trial is the one the verified .ampack carries, not the compiled one.
         var declared = CodeMapPack.Manifest;
         string? packDigest = null;
+        LoadedPack? pack = null;
         if (packPath is not null)
         {
             if (trustPath is null || !File.Exists(trustPath))
@@ -71,6 +72,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 }
                 declared = loaded.Manifest;
                 packDigest = loaded.Digest;
+                pack = loaded;
             }
             catch (PackLoadException e)
             {
@@ -79,12 +81,15 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             }
         }
         var manifest = variant switch { "weak" => Weaken(declared, 1, _ => 1), "mediocre" => Weaken(declared, 2, f => Math.Max(1, f / 2)), _ => declared };
+        // The pack itself is composed as a pack, and its decision binds to its digest (PACK-bind); a weakened variant is not that pack.
+        var asPack = variant is null ? pack : null;
+        ModuleSetBuilder Compose(ModuleSetBuilder m) => asPack is not null ? m.AddPack(asPack) : m.Add(manifest, new CodeMapPack().Configure);
         var trial = manifest.Trial!;
         var tasks = HistoryTasks(repo ?? ".", trial.Tasks);
         output.WriteLine($"{manifest.Id} {manifest.Version}{(variant is null ? "" : " (" + variant + ")")}: {tasks.Count} tasks from this repository's history");
         if (packDigest is not null) output.WriteLine($"  pack     {packPath} ({packDigest}), verified");
 
-        await using var with = await ProviderAsync(m => m.UseNeo4jStore().Add(manifest, new CodeMapPack().Configure)).ConfigureAwait(false);
+        await using var with = await ProviderAsync(m => Compose(m.UseNeo4jStore())).ConfigureAwait(false);
         await using var without = await ProviderAsync(m => m.UseNeo4jStore()).ConfigureAwait(false);
         foreach (var task in tasks) { await CompileAsync(with, task).ConfigureAwait(false); await CompileAsync(without, task).ConfigureAwait(false); }
         var (withArm, details) = await MeasureAsync(with, tasks).ConfigureAwait(false);
@@ -92,7 +97,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         // Without the pack: the host's own retrieval when the trial names it, timed like the host without the pack.
         var withoutArm = trial.Baseline == "host" ? Grep(repo ?? ".", tasks) with { P95Ms = emptyArm.P95Ms } : emptyArm;
 
-        var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow);
+        var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest);
         using var hostKey = ECDsa.Create();
         hostKey.ImportFromPem(await File.ReadAllTextAsync(hostKeyPath).ConfigureAwait(false));
         Directory.CreateDirectory(activationsFolder);
@@ -114,7 +119,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
 
         // The gate itself: compose again with trials required, from the signed records alone.
         var activations = new PackActivationFolder(activationsFolder, hostKey.ExportSubjectPublicKeyInfoPem());
-        await using var gated = await ProviderAsync(m => m.UseNeo4jStore().Add(manifest, new CodeMapPack().Configure).RequireTrials(activations)).ConfigureAwait(false);
+        await using var gated = await ProviderAsync(m => Compose(m.UseNeo4jStore()).RequireTrials(activations)).ConfigureAwait(false);
         var set = gated.GetRequiredService<ModuleSet>();
         output.WriteLine($"  gate     on: [{string.Join(", ", set.Modules.Select(m => m.Manifest.Id))}]; off: [{string.Join(", ", set.SwitchedOff.Select(o => o.ModuleId + " (" + o.Reason + ")"))}]");
 

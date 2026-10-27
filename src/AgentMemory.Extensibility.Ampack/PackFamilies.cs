@@ -82,7 +82,7 @@ public static class PackFamilies
         {
             foreach (var pack in family.Members)
                 if (pack.Knowledge is { } knowledge) members.AddKnowledgePack(knowledge);
-                else members.Add(pack.Manifest, _ => { });
+                else members.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers));
         }, configure);
     }
 
