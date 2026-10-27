@@ -26,7 +26,7 @@ public static class PackAdvice
     {
         ArgumentNullException.ThrowIfNull(inspection);
         IEnumerable<LoadedPack> packs = inspection.Pack is { } single ? [single]
-            : inspection.Set is { } set ? [.. set.Families.SelectMany(f => f.Members), .. set.Packs] : [];
+            : inspection.Set is { } set ? set.AllPacks : [];
         return [.. packs.SelectMany(p => Of(p, now))];
     }
 

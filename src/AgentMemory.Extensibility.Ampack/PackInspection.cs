@@ -72,11 +72,11 @@ public sealed record PackInspection
             {
                 case "set":
                     var set = PackFamilies.LoadSet(archive, trust);
-                    var members = set.Families.SelectMany(f => f.Members).Concat(set.Packs).ToList();
+                    var members = set.AllPacks;
                     return inspection with
                     {
                         Set = set, Mount = MountOrNull(archive, trust),
-                        Pins = [.. set.Families.Select(f => new PackPart(f.Id, f.Version, "composite", f.Digest)), .. members.Select(m => new PackPart(m.Id, m.Version, m.Kind, m.Digest))],
+                        Pins = [.. set.AllFamilies.Select(f => new PackPart(f.Id, f.Version, "composite", f.Digest)), .. members.Select(m => new PackPart(m.Id, m.Version, m.Kind, m.Digest))],
                     };
                 case "composite":
                     var (entries, _) = PackLock.Parse(content.Files[PackPaths.LockFile]);

@@ -139,7 +139,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
             {
                 case "set":
                     var set = PackFamilies.LoadSet(archive, trust);
-                    loaded.AddRange(set.Families.SelectMany(f => f.Members).Concat(set.Packs));
+                    loaded.AddRange(set.AllPacks);
                     break;
                 case "composite":
                     throw new PackLoadException(["A composite pins its members but does not carry them: mount the pack set that carries both."]);

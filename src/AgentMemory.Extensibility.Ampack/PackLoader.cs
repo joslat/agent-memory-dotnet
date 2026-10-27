@@ -68,12 +68,12 @@ public sealed class PackInstallLedger
         Ledger.Save(_path);
     }
 
-    /// <summary>Records an installed composite and every member, and saves the ledger.</summary>
+    /// <summary>Records an installed composite, every composite under it and every member at any depth, and saves the ledger.</summary>
     public void Record(LoadedFamily family)
     {
         ArgumentNullException.ThrowIfNull(family);
-        Ledger.Record(family.Id, family.Version, family.Digest);
-        foreach (var member in family.Members) Ledger.Record(member.Id, member.Version, member.Digest);
+        foreach (var composite in family.AllFamilies.Prepend(family)) Ledger.Record(composite.Id, composite.Version, composite.Digest);
+        foreach (var member in family.AllMembers) Ledger.Record(member.Id, member.Version, member.Digest);
         Ledger.Save(_path);
     }
 
@@ -82,12 +82,8 @@ public sealed class PackInstallLedger
     {
         ArgumentNullException.ThrowIfNull(set);
         Ledger.Record(set.Id, set.Version, set.Digest);
-        foreach (var family in set.Families)
-        {
-            Ledger.Record(family.Id, family.Version, family.Digest);
-            foreach (var member in family.Members) Ledger.Record(member.Id, member.Version, member.Digest);
-        }
-        foreach (var pack in set.Packs) Ledger.Record(pack.Id, pack.Version, pack.Digest);
+        foreach (var family in set.AllFamilies) Ledger.Record(family.Id, family.Version, family.Digest);
+        foreach (var pack in set.AllPacks) Ledger.Record(pack.Id, pack.Version, pack.Digest);
         Ledger.Save(_path);
     }
 }

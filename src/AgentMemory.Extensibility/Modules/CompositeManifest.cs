@@ -11,7 +11,7 @@ namespace AgentMemory.Extensibility.Modules;
 /// A composite pack (KP-composite): a pack made of packs, such as "Coding" made of the code map, decisions and repository
 /// experience. It names its members with version ranges, the priority each takes and whether it starts on; it holds no records,
 /// views or code of its own. Members stay whole modules: separately versioned, signed where they are bundles, and switchable.
-/// One level only: a composite's members are modules, never composites.
+/// A member may itself be a composite (PACK-nest), at most <see cref="MaximumDepth"/> composites deep.
 /// </summary>
 /// <remarks>
 /// <b>A family is a hierarchy (CODING-hierarchy).</b> A member may say which other members it contains: decisions contain the
@@ -27,6 +27,11 @@ public sealed record CompositeManifest
     public const string FormatName = "agentmemory.composite/v1alpha1";
     /// <summary>Most members one composite names.</summary>
     public const int MaximumMembers = 16;
+    /// <summary>
+    /// Most composites on any path from the outermost one down to a module (PACK-nest): a family of families of families of
+    /// families, and no deeper, so a host can always show and switch the whole tree.
+    /// </summary>
+    public const int MaximumDepth = 4;
     /// <summary>The embedded resource suffix a composite assembly carries its manifest under.</summary>
     public const string ResourceSuffix = ".agentmemory-composite.json";
 
@@ -206,7 +211,10 @@ public sealed class CompositeOptions
 
 /// <summary>
 /// How a composite adds its members (KP-composite): each must be named in its manifest, within the version range; a member
-/// switched off is skipped; every member added takes its priority. There is no way to add a composite here, by design.
+/// switched off is skipped; every member added takes its priority. A member may be a composite itself (PACK-nest): its
+/// members take its slot's priority plus their own (at most 10,000), so they never come before the slot and keep their own
+/// order within it; switching the slot off switches off everything under it; a module that two composites of the family
+/// both name is composed once, from the first that adds it. At most <see cref="CompositeManifest.MaximumDepth"/> deep.
 /// </summary>
 [Experimental("AMEXT001")]
 public sealed class CompositeMembers
@@ -214,13 +222,63 @@ public sealed class CompositeMembers
     private readonly ModuleSetBuilder _builder;
     private readonly CompositeManifest _composite;
     private readonly CompositeOptions _options;
+    private readonly IReadOnlyList<string> _chain;
+    private readonly int _offset;
+    private readonly bool _on;
+    private readonly HashSet<string> _composed;
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (ModuleManifest Manifest, bool Enabled)> _added = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (CompositeMembers Members, bool Enabled)> _nested = new(StringComparer.Ordinal);
 
     internal CompositeMembers(ModuleSetBuilder builder, CompositeManifest composite, CompositeOptions options)
+        : this(builder, composite, options, [composite.Id], 0, true, new HashSet<string>(StringComparer.Ordinal))
     {
-        _builder = builder; _composite = composite; _options = options;
     }
+
+    // A composite inside the family: the chain of composites above it and itself, the slot priority it adds to its members',
+    // whether every slot above is on, and the modules the family composed so far.
+    private CompositeMembers(ModuleSetBuilder builder, CompositeManifest composite, CompositeOptions options, IReadOnlyList<string> chain, int offset, bool on,
+        HashSet<string> composed)
+    {
+        _builder = builder; _composite = composite; _options = options; _chain = chain; _offset = offset; _on = on; _composed = composed;
+    }
+
+    /// <summary>
+    /// Adds a member that is itself a composite (PACK-nest), with a delegate that adds its members. The nested composite is
+    /// validated like any; it must be named here within the version range, and the family may not nest deeper than
+    /// <see cref="CompositeManifest.MaximumDepth"/> or contain a composite inside itself. A host's switches and priorities
+    /// for this composite apply to the slot; the nested composite's own members keep their declared choices.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The nested composite is invalid, not named, out of range, too deep or a cycle.</exception>
+    public CompositeMembers AddComposite(CompositeManifest composite, Action<CompositeMembers> addMembers)
+    {
+        ArgumentNullException.ThrowIfNull(composite);
+        ArgumentNullException.ThrowIfNull(addMembers);
+        if (composite.Validate() is { Count: > 0 } problems) throw new InvalidOperationException(string.Join(" ", problems));
+        var member = _composite.Members.SingleOrDefault(m => m.Id == composite.Id)
+            ?? throw new InvalidOperationException($"Composite '{_composite.Id}' adds '{composite.Id}', which its manifest does not name.");
+        if (!member.Version.Contains(composite.Version))
+            throw new InvalidOperationException($"Composite '{_composite.Id}' accepts {member.Id} {member.Version}, not {composite.Version}.");
+        if (_chain.Contains(composite.Id, StringComparer.Ordinal))
+            throw new InvalidOperationException($"Composite '{composite.Id}' contains itself: {string.Join(" > ", _chain)} > {composite.Id}.");
+        if (_chain.Count + 1 > CompositeManifest.MaximumDepth)
+            throw new InvalidOperationException($"{string.Join(" > ", _chain)} > {composite.Id} nests deeper than {CompositeManifest.MaximumDepth} composites.");
+        _seen.Add(member.Id);
+        var enabled = _on && (_options.Switches.TryGetValue(member.Id, out var on) ? on : member.Enabled);
+        var slot = Math.Min(10_000, _offset + (_options.Priorities.TryGetValue(member.Id, out var p) ? p : member.Priority));
+        var nested = new CompositeMembers(_builder, composite, new CompositeOptions(), [.. _chain, composite.Id], slot, enabled, _composed);
+        addMembers(nested);
+        nested.Complete();
+        _nested[member.Id] = (nested, enabled);
+        return this;
+    }
+
+    /// <summary>A code composite member from its assembly (PACK-nest): as <see cref="AddComposite(CompositeManifest, Action{CompositeMembers})"/>.</summary>
+    public CompositeMembers AddComposite<TComposite>() where TComposite : IAgentMemoryComposite, new() =>
+        AddComposite(CompositeManifest.Load(typeof(TComposite).Assembly), members => new TComposite().AddMembers(members));
+
+    // Whether this composite, at any depth, holds the module.
+    private bool Holds(string moduleId) => _added.ContainsKey(moduleId) || _nested.Values.Any(n => n.Members.Holds(moduleId));
 
     /// <summary>Adds a code module member from its assembly.</summary>
     public CompositeMembers Add<TModule>() where TModule : IAgentMemoryModule, new()
@@ -271,9 +329,11 @@ public sealed class CompositeMembers
         if (!member.Version.Contains(manifest.Version))
             throw new InvalidOperationException($"Composite '{_composite.Id}' accepts {member.Id} {member.Version}, not {manifest.Version}.");
         _seen.Add(member.Id);
-        var enabled = _options.Switches.TryGetValue(member.Id, out var on) ? on : member.Enabled;
+        var enabled = _on && (_options.Switches.TryGetValue(member.Id, out var on) ? on : member.Enabled);
         _added[member.Id] = (manifest, enabled);
-        return enabled ? (_options.Priorities.TryGetValue(member.Id, out var p) ? p : member.Priority) : null;
+        // Off, or composed already through another composite of the family: nothing more to add.
+        if (!enabled || !_composed.Add(member.Id)) return null;
+        return Math.Min(10_000, _offset + (_options.Priorities.TryGetValue(member.Id, out var p) ? p : member.Priority));
     }
 
     internal void Complete()
@@ -282,14 +342,25 @@ public sealed class CompositeMembers
         if (missing.Count != 0) throw new InvalidOperationException($"Composite '{_composite.Id}' did not add {string.Join(", ", missing)}.");
         var unknown = _options.Switches.Keys.Concat(_options.Priorities.Keys).Where(id => _composite.Members.All(m => m.Id != id)).Distinct().ToList();
         if (unknown.Count != 0) throw new InvalidOperationException($"Composite '{_composite.Id}' has no member {string.Join(", ", unknown)}.");
-        // A member depends on (and links to) only what it contains, and what it needs is composed with it.
+        // A member depends on (and links to) only what it contains, and what it needs is composed with it. A module inside a
+        // nested composite is contained through that composite.
         foreach (var (id, (manifest, enabled)) in _added.Where(a => a.Value.Enabled))
-            foreach (var dependency in manifest.Modules.Keys.Where(_added.ContainsKey))
+            foreach (var dependency in manifest.Modules.Keys)
             {
-                if (!_composite.Children(id).Contains(dependency, StringComparer.Ordinal))
-                    throw new InvalidOperationException($"Composite '{_composite.Id}': {id} depends on {dependency}, which it does not contain.");
-                if (!_added[dependency].Enabled)
-                    throw new InvalidOperationException($"Composite '{_composite.Id}': {id} needs {dependency}, which is switched off.");
+                if (_added.TryGetValue(dependency, out var direct))
+                {
+                    if (!_composite.Children(id).Contains(dependency, StringComparer.Ordinal))
+                        throw new InvalidOperationException($"Composite '{_composite.Id}': {id} depends on {dependency}, which it does not contain.");
+                    if (!direct.Enabled)
+                        throw new InvalidOperationException($"Composite '{_composite.Id}': {id} needs {dependency}, which is switched off.");
+                }
+                else if (_nested.FirstOrDefault(n => n.Value.Members.Holds(dependency)) is { Key: { } slot, Value: var nested })
+                {
+                    if (!_composite.Children(id).Contains(slot, StringComparer.Ordinal))
+                        throw new InvalidOperationException($"Composite '{_composite.Id}': {id} depends on {dependency} in {slot}, which it does not contain.");
+                    if (!nested.Enabled)
+                        throw new InvalidOperationException($"Composite '{_composite.Id}': {id} needs {dependency} in {slot}, which is switched off.");
+                }
             }
     }
 }
