@@ -49,6 +49,10 @@ public sealed partial class PackMemory : IModuleTraversalReader
     /// <summary>How many records it holds.</summary>
     public int Count => _byId.Count;
 
+    /// <summary>Every record held, by module, type and key: what a composer lists (PACK-composer).</summary>
+    public IReadOnlyList<ModuleRecord> Records => [.. _byId.Values.OrderBy(r => r.ModuleId, StringComparer.Ordinal)
+        .ThenBy(r => r.Type, StringComparer.Ordinal).ThenBy(r => r.Key, StringComparer.Ordinal)];
+
     /// <summary>
     /// Holds knowledge packs and snapshots in memory. A snapshot brings its module and its dependencies; a link into a record
     /// none of them holds is left out, as the store leaves it out.
