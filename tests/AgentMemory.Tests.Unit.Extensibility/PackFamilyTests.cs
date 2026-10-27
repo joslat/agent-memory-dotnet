@@ -76,6 +76,19 @@ public sealed class PackFamilyTests : IDisposable
     }
 
     [Fact]
+    public void A_coding_member_outside_the_composite_s_range_is_refused()
+    {
+        // CP-acceptance: the Coding composite pins each member to [0.1.0-preview.1,0.2); a 0.2.0 work pack does not compose.
+        var work = WorkPack.Manifest with { Version = ModuleVersion.Parse("0.2.0") };
+
+        FluentActions.Invoking(() => new ModuleSetBuilder().AddComposite(CodingPack.Manifest, members => members.Add(work, _ => { })))
+            .Should().Throw<InvalidOperationException>().WithMessage($"*accepts {WorkPack.Id} *not 0.2.0*");
+        new ModuleSetBuilder().AddComposite(CodingPack.Manifest, members => members.Add(DecisionsPack.Manifest, _ => { }).Add(RepositoryPack.Manifest, _ => { })
+                .Add(CodeMapPack.Manifest, _ => { }).Add(WorkPack.Manifest, _ => { }))
+            .Modules.Should().HaveCount(4, "the members as shipped are inside the range");
+    }
+
+    [Fact]
     public void A_host_switches_members_of_a_pack_family_as_of_any_composite()
     {
         var (composite, members) = Family();
