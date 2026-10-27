@@ -23,7 +23,17 @@ internal static class PackReader
         if (!file.Exists) throw new FileNotFoundException($"No pack at {path}.", path);
         if (file.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new InvalidDataException($"{path} is a link or reparse point.");
         if (file.Length > limits.MaxArchiveBytes) throw new InvalidDataException($"The archive is larger than {limits.MaxArchiveBytes} bytes.");
-        return File.ReadAllBytes(file.FullName);
+        // Read with a bound, not by the reported length: a pipe or a device reports 0 and never ends (review: red team 12).
+        using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.SequentialScan);
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        int read;
+        while ((read = stream.Read(chunk, 0, chunk.Length)) > 0)
+        {
+            buffer.Write(chunk, 0, read);
+            if (buffer.Length > limits.MaxArchiveBytes) throw new InvalidDataException($"The archive is larger than {limits.MaxArchiveBytes} bytes.");
+        }
+        return buffer.ToArray();
     }
 
     internal static PackContent ReadArchive(byte[] archive, string source, PackLimits? limits = null) =>

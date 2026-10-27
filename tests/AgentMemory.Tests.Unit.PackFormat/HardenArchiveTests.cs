@@ -23,7 +23,7 @@ public sealed class HardenArchiveTests
     }
 
     // One deflated entry whose compressed bytes are given, in the strict profile otherwise.
-    private static byte[] Archive(string name, byte[] content, byte[] packed)
+    internal static byte[] Archive(string name, byte[] content, byte[] packed)
     {
         var nameBytes = Encoding.ASCII.GetBytes(name);
         var crc = Crc32.Compute(content);

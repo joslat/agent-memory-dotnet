@@ -36,13 +36,14 @@ def ampack(*args, env=None):
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
-def write_deflated_zip(files, junk=None):
-    """The strict profile with every entry deflated (method 8); `junk` maps a name to bytes appended after its deflate stream."""
+def write_deflated_zip(files, junk=None, unfinished=()):
+    """The strict profile with every entry deflated (method 8); `junk` maps a name to bytes appended after its deflate stream,
+    and an entry named in `unfinished` ends with a sync flush: all its data, no final block."""
     out, central = bytearray(), []
     for name in sorted(files):
         data, nb = files[name], name.encode("ascii")
         packer = zlib.compressobj(9, zlib.DEFLATED, -15)
-        packed = packer.compress(data) + packer.flush() + (junk or {}).get(name, b"")
+        packed = packer.compress(data) + packer.flush(zlib.Z_SYNC_FLUSH if name in unfinished else zlib.Z_FINISH) + (junk or {}).get(name, b"")
         crc, off = zlib.crc32(data) & 0xFFFFFFFF, len(out)
         out += b"PK\x03\x04" + struct.pack("<HHHHHIIIHH", 20, 0, 8, 0, 0x21, crc, len(packed), len(data), len(nb), 0) + nb + packed
         central.append((nb, crc, len(packed), len(data), off))
@@ -73,17 +74,20 @@ def files_list(pid, version, content):
     return py.canonical({"format": py.FILES_FORMAT, "id": pid, "version": version, "files": entries}).encode()
 
 
-def sign(list_bytes, pid, version, key, role="publisher"):
+def sign(list_bytes, pid, version, key, role="publisher", signed_at="2026-10-26T12:00:00Z", payload_text=None, sig_text=None, extra_signatures=()):
     statement = py.canonical({
         "_type": py.STATEMENT,
         "subject": [{"name": py.FILES, "digest": {"sha256": hashlib.sha256(list_bytes).hexdigest()}}],
         "predicateType": f"urn:agentmemory:pack:{role}:v1",
-        "predicate": {"id": pid, "version": version, "role": role, "signedAt": "2026-10-26T12:00:00Z"},
+        "predicate": {"id": pid, "version": version, "role": role, "signedAt": signed_at},
     }).encode()
     spki = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
     sig = key.sign(py.pae(statement), ec.ECDSA(hashes.SHA256()))
-    envelope = py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(statement).decode(),
-                             "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
+    signatures = [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": sig_text(base64.b64encode(sig).decode()) if sig_text else base64.b64encode(sig).decode()},
+                  *extra_signatures]
+    envelope = py.canonical({"payloadType": py.PAYLOAD_TYPE,
+                             "payload": payload_text(base64.b64encode(statement).decode()) if payload_text else base64.b64encode(statement).decode(),
+                             "signatures": signatures}).encode()
     return f"{py.SIGNATURES}{role}-{hashlib.sha256(spki).hexdigest()[:16]}.dsse.json", envelope
 
 
@@ -212,6 +216,61 @@ def main():
     for name, (document, expected) in revocations.items():
         vectors[name] = (dict(base), "trust-with-revoker.json", expected, document)
 
+    # The second red team's divergences and crashes (27 Oct): one verdict for each, in both verifiers.
+    def signed_with(content_, **options):
+        lb = files_list(pid, version, content_)
+        path, env = sign(lb, pid, version, key, **options)
+        return {**content_, py.FILES: lb, path: env}
+    listing = json.loads(files_list(pid, version, content))
+    def relisted(change):
+        changed = json.loads(json.dumps(listing))
+        change(changed["files"][0])
+        lb = py.canonical(changed).encode()
+        path, env = sign(lb, pid, version, key)
+        return {**content, py.FILES: lb, path: env}
+    vectors["files-entry-extra-field"] = (relisted(lambda e: e.__setitem__("mode", "rw")), "trust.json", "refused")
+    vectors["files-entry-length-true"] = (relisted(lambda e: e.__setitem__("length", True)), "trust.json", "refused")
+    vectors["signature-outside-the-alphabet"] = (signed_with(content, sig_text=lambda s: s[:10] + "*" + s[10:]), "trust.json", "refused")
+    vectors["payload-base64-with-a-line-break"] = (signed_with(content, payload_text=lambda s: s[:40] + "\n" + s[40:]), "trust.json", "refused")
+    vectors["second-signature-entry-not-base64"] = (signed_with(content, extra_signatures=[{"keyid": entry["keyId"], "sig": "abc"}]), "trust.json", "verified")
+    vectors["second-signature-entry-without-sig"] = (signed_with(content, extra_signatures=[{"keyid": entry["keyId"]}]), "trust.json", "verified")
+    vectors["signed-at-without-leading-zero"] = (signed_with(content, signed_at="2026-1-05T12:00:00Z"), "trust.json", "refused")
+    vectors["signed-at-lowercase"] = (signed_with(content, signed_at="2026-10-26t12:00:00z"), "trust.json", "refused")
+    vectors["valid-until-offset-beyond-14-hours"] = (signed(edited(validUntil="2099-01-01T00:00:00+15:00")), "trust.json", "refused")
+    vectors["valid-until-as-a-number"] = (signed(edited(validUntil=1767225600)), "trust.json", "refused")
+    vectors["protection-null"] = (signed(edited(protection=None)), "trust.json", "refused")
+    vectors["code-as-a-list"] = (signed(edited(code=["E2"])), "trust.json", "refused")
+    vectors["sdk-as-a-number"] = (signed(edited(sdk=1)), "trust.json", "refused")
+    vectors["display-as-a-string"] = (signed(edited(display="notes")), "trust.json", "refused")
+    vectors["number-beyond-double"] = (signed({**content, record: b'{"key":"a","n":1e400}\n'}), "trust.json", "refused")
+    vectors["integer-int64-min"] = (signed({**content, record: b'{"key":"a","n":-9223372036854775808}\n'}), "trust.json", "refused")
+    nested = lambda depth: ("[" * depth + "]" * depth).encode()
+    vectors["nesting-64-deep"] = (signed({**content, record: b'{"key":"a","n":' + nested(63) + b'}\n'}), "trust.json", "verified")
+    vectors["nesting-65-deep"] = (signed({**content, record: b'{"key":"a","n":' + nested(64) + b'}\n'}), "trust.json", "refused")
+    vectors["combining-marks-30-in-a-row"] = (signed({**content, record: ('{"key":"q' + "\u0301" * 30 + '"}\n').encode("utf-8")}), "trust.json", "verified")
+    vectors["combining-marks-31-in-a-row"] = (signed({**content, record: ('{"key":"q' + "\u0301" * 31 + '"}\n').encode("utf-8")}), "trust.json", "refused")
+    vectors["source-100-astral-characters"] = (signed(edited(source={"repository": "\U0001F600" * 100})), "trust.json", "verified")
+    vectors["source-101-astral-characters"] = (signed(edited(source={"repository": "\U0001F600" * 101})), "trust.json", "refused")
+    arabic = "1\u0663.0.0"
+    arabic_content = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": arabic}, ensure_ascii=False) + chr(10)).encode("utf-8")}
+    vectors["version-with-an-arabic-digit"] = (signed(arabic_content, version_=arabic), "trust.json", "refused")
+    extra_statement = base64.b64encode(py.canonical({"_type": 1, "subject": [], "predicateType": 2, "predicate": {"role": 3}}).encode()).decode()
+    odd = py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": extra_statement, "signatures": [{"keyid": entry["keyId"], "sig": "AAAA"}]}).encode()
+    vectors["extra-envelope-of-wrong-types"] = ({**signed(content), py.SIGNATURES + "zz.dsse.json": odd}, "trust.json", "verified")
+    # Policies the red team found read differently: both verifiers refuse them before any pack is looked at.
+    for name, body in {
+        "trust-require-no-roles.json": {"keys": [entry], "requireRoles": []},
+        "trust-key-listed-twice.json": {"keys": [entry, entry]},
+        "trust-prefix-null.json": {"keys": [dict(entry, idPrefixes=[None])]},
+        "trust-time-not-rfc3339.json": {"keys": [dict(entry, notAfter="next year")]},
+    }.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    unsigned = {**content, py.FILES: files_list(pid, version, content)}
+    vectors["unsigned-pack-with-no-required-roles"] = (unsigned, "trust-require-no-roles.json", "refused")
+    vectors["policy-with-a-key-listed-twice"] = (dict(base), "trust-key-listed-twice.json", "refused")
+    vectors["policy-with-a-null-prefix"] = (dict(base), "trust-prefix-null.json", "refused")
+    vectors["policy-with-a-time-not-rfc3339"] = (dict(base), "trust-time-not-rfc3339.json", "refused")
+
     # The JSON profile and the archive, more ways.
     vectors["junk-signature-file"] = ({**signed(content), py.SIGNATURES + "junk.dsse.json": b'{"hello":1}\n'}, "trust.json", "refused")
     vectors["integer-beyond-2-53"] = (signed({**content, record: b'{"key":"a","n":9007199254740993}\n'}), "trust.json", "refused")
@@ -242,6 +301,9 @@ def main():
     vectors["composite-lock-extra-field"] = (family_with(**{py.LOCK: py.canonical({**lock, "note": "x"}).encode()}), "trust.json", "refused")
     vectors["composite-members-differ"] = (family_with(**{"members.json": (json.dumps({"members": [{"id": "io.example.other", "version": "[1,2)"}]}) + chr(10)).encode()}),
                                            "trust.json", "refused")
+
+    vectors["composite-lock-id-a-number"] = (family_with(**{py.LOCK: py.canonical({**lock, "members": [{**lock["members"][0], "id": 5}]}).encode()}),
+                                             "trust.json", "refused")
 
     # Pack sets: built with ampack (each member keeps its own list and signatures), then changed and signed again as a whole.
     code, text = ampack("set", str(work / "bundle.ampack"), str(VECTORS / "valid-dotnet.ampack"), "--id", "io.example.bundle", "--version", "1.0.0",
@@ -298,6 +360,7 @@ def main():
     # PACK-harden 4.13: a deflate stream must end where its entry's bytes end.
     raw["deflate-valid"] = (write_deflated_zip(s), "trust.json", "verified")
     raw["deflate-trailing-bytes"] = (write_deflated_zip(s, junk={record: b"\x00junk"}), "trust.json", "refused")
+    raw["deflate-without-its-final-block"] = (write_deflated_zip(s, unfinished={record}), "trust.json", "refused")
 
     results, failures = [], 0
     for name, (files, policy_file, expected, *document) in {**{k: (write_zip(v[0]), *v[1:]) for k, v in vectors.items()}, **raw}.items():
@@ -308,8 +371,9 @@ def main():
         pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(path), str(OUT / policy_file),
                              *([str(OUT / document[0])] if document else [])],
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
-        dotnet = "verified" if dn_code == 0 else "refused"
-        python = "verified" if pr.returncode == 0 else "refused"
+        # Exit 1 is a refusal; anything else but 0 is a crash, which agrees with nothing.
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
         agree = dotnet == python == expected
         failures += not agree
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,

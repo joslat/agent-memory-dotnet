@@ -177,49 +177,54 @@ internal static class StrictZip
         return files;
     }
 
+    // A deflate stream must end exactly where the entry's compressed bytes end (PACK-harden, review 4.13): with its final
+    // block (a truncated stream makes the inflater ask for bytes past the end), and with nothing after it (inflating all but
+    // the last byte must then fail, since the final block's last bits are in that byte). Two passes, in large chunks.
     private static byte[] Inflate(ReadOnlySpan<byte> data, uint size, string where)
     {
-        using var input = new ExactInput(data.ToArray());
-        using var inflater = new DeflateStream(input, CompressionMode.Decompress);
-        var output = new byte[size];
-        var read = 0;
-        while (read < output.Length)
-        {
-            var n = inflater.Read(output, read, output.Length - read);
-            if (n == 0) throw Bad($"{where} inflates to fewer bytes than it declares");
-            read += n;
-        }
-        if (inflater.Read(new byte[1], 0, 1) != 0) throw Bad($"{where} inflates to more bytes than it declares");
-        // PACK-harden (review 4.13): the inflater stops at the stream's final block; every compressed byte must have been used.
-        if (!input.Exhausted) throw Bad($"{where} has bytes after the end of its deflate stream");
+        var bytes = data.ToArray();
+        var (output, read, complete) = Decode(bytes, bytes.Length, size, where);
+        if (!complete) throw Bad($"{where} has a deflate stream without its final block");
+        if (read < size) throw Bad($"{where} inflates to fewer bytes than it declares");
+        if (bytes.Length > 0 && Decode(bytes, bytes.Length - 1, size, where) is { Complete: true, Read: var again } && again == size)
+            throw Bad($"{where} has bytes after the end of its deflate stream");
         return output;
     }
 
-    /// <summary>
-    /// The compressed bytes, handed to the inflater so that what it consumed is known exactly: in large chunks, and one byte at
-    /// a time over the last <see cref="Tail"/> bytes, so the inflater can never have read past its stream's end unseen. If the
-    /// stream ends before the tail, the tail is never asked for at all.
-    /// </summary>
-    private sealed class ExactInput(byte[] data) : Stream
+    // Inflates the first `length` bytes: the output, how much of it, and whether the stream ended without asking for more input.
+    private static (byte[] Output, long Read, bool Complete) Decode(byte[] data, int length, uint size, string where)
     {
-        private const int Tail = 64 * 1024;
+        using var input = new BoundedInput(data, length);
+        using var inflater = new DeflateStream(input, CompressionMode.Decompress);
+        var output = new byte[size];
+        var read = 0;
+        try
+        {
+            while (read < output.Length)
+            {
+                var n = inflater.Read(output, read, output.Length - read);
+                if (n == 0) break;
+                read += n;
+            }
+            if (read == output.Length && inflater.Read(new byte[1], 0, 1) != 0) throw Bad($"{where} inflates to more bytes than it declares");
+        }
+        // Cut one byte short, a stream may also read as damaged: that is not a complete stream either.
+        catch (InvalidDataException) when (length < data.Length) { return (output, read, false); }
+        return (output, read, !input.AskedPastEnd);
+    }
+
+    /// <summary>The first bytes of a buffer, noting whether the inflater asked for more than there are.</summary>
+    private sealed class BoundedInput(byte[] data, int length) : Stream
+    {
         private int _position;
 
-        public bool Exhausted => _position == data.Length;
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            var remaining = data.Length - _position;
-            if (remaining == 0 || count == 0) return 0;
-            var n = remaining > Tail ? Math.Min(count, remaining - Tail) : 1;
-            Array.Copy(data, _position, buffer, offset, n);
-            _position += n;
-            return n;
-        }
+        public bool AskedPastEnd { get; private set; }
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
         public override int Read(Span<byte> buffer)
         {
-            var remaining = data.Length - _position;
-            if (remaining == 0 || buffer.Length == 0) return 0;
-            var n = remaining > Tail ? Math.Min(buffer.Length, remaining - Tail) : 1;
+            if (buffer.Length == 0) return 0;
+            var n = Math.Min(buffer.Length, length - _position);
+            if (n == 0) { AskedPastEnd = true; return 0; }
             data.AsSpan(_position, n).CopyTo(buffer);
             _position += n;
             return n;
@@ -227,7 +232,7 @@ internal static class StrictZip
         public override bool CanRead => true;
         public override bool CanSeek => false;
         public override bool CanWrite => false;
-        public override long Length => data.Length;
+        public override long Length => length;
         public override long Position { get => _position; set => throw new NotSupportedException(); }
         public override void Flush() { }
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();

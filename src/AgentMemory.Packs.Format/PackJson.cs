@@ -66,10 +66,12 @@ internal static class PackJson
                 string value;
                 try { value = element.GetString()!; }
                 catch (InvalidOperationException) { return $"has a string with an unpaired surrogate at {where}"; }
+                // UAX #15 Stream-Safe Text Format: at most 30 combining marks in a row, which also bounds the NFC check's work.
+                if (Nfc.LongestCombiningRun(value) > Nfc.MaximumCombiningRun) return $"has more than {Nfc.MaximumCombiningRun} combining marks in a row at {where}";
                 return IsNfc(value) ? null : $"has a string that is not in NFC at {where}";
             case JsonValueKind.Number:
                 if (element.TryGetInt64(out var integer))
-                    return Math.Abs(integer) <= MaxSafeInteger ? null : $"has an integer beyond ±2^53 at {where}";
+                    return integer is >= -MaxSafeInteger and <= MaxSafeInteger ? null : $"has an integer beyond ±2^53 at {where}";
                 if (element.GetRawText().AsSpan().IndexOfAny('.', 'e', 'E') < 0) return $"has an integer beyond ±2^53 at {where}";
                 if (integersOnly) return $"has a number that is not an integer at {where}";
                 return element.TryGetDouble(out var real) && double.IsFinite(real) ? null : $"has a number out of range at {where}";

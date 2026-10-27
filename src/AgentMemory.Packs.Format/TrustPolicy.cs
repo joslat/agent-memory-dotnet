@@ -79,8 +79,9 @@ internal sealed record TrustPolicy
         if (root.TryGetProperty("keys", out var keyArray))
             foreach (var k in keyArray.EnumerateArray())
             {
-                var pem = k.GetProperty("publicKey").GetString()!;
-                var keyId = k.GetProperty("keyId").GetString()!;
+                var pem = k.GetProperty("publicKey").GetString() ?? throw new FormatException("A key's publicKey is a string.");
+                var keyId = k.GetProperty("keyId").GetString() ?? throw new FormatException("A key's keyId is a string.");
+                if (keys.Any(known => known.KeyId == keyId)) throw new InvalidDataException($"Key {Dsse.Short(keyId)} is listed twice.");
                 if (PackKey.KeyIdOf(pem) != keyId) throw new InvalidDataException($"Key {Dsse.Short(keyId)}: the id is not the SHA-256 of its public key.");
                 var prefixes = Strings(k, "idPrefixes");
                 if (prefixes.Count == 0) throw new InvalidDataException($"Key {Dsse.Short(keyId)} names no pack id prefixes: a key that may sign anything is refused.");
@@ -103,9 +104,14 @@ internal sealed record TrustPolicy
         return new TrustPolicy { Keys = keys, RevokedDigests = revokedDigests, RevokedKeys = revokedKeys, RevocationsExpire = expires, RequiredRoles = required };
     }
 
-    private static IReadOnlyList<string> Strings(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
-            ? [.. value.EnumerateArray().Select(v => v.GetString()!)] : [];
+    // A list of strings: absent is empty; anything but an array of strings makes the policy malformed.
+    private static IReadOnlyList<string> Strings(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value)) return [];
+        if (value.ValueKind != JsonValueKind.Array || value.EnumerateArray().Any(v => v.ValueKind != JsonValueKind.String))
+            throw new FormatException($"'{name}' is a list of strings.");
+        return [.. value.EnumerateArray().Select(v => v.GetString()!)];
+    }
 
     // A time in the policy: absent, or an RFC 3339 date-time (PackTime); anything else makes the policy malformed.
     private static DateTimeOffset? Time(JsonElement element, string name)

@@ -11,6 +11,9 @@ namespace AgentMemory.Packs.Format;
 /// </summary>
 internal static class Nfc
 {
+    /// <summary>The Stream-Safe Text Format's limit (UAX #15 §13): at most 30 non-starters in a row.</summary>
+    internal const int MaximumCombiningRun = 30;
+
     private static readonly bool PlatformNormalizes = Probe();
     private static readonly Lazy<(Dictionary<int, int[]> Decompositions, Dictionary<long, int> Compositions)> Data = new(Build);
 
@@ -23,6 +26,20 @@ internal static class Nfc
         if (!PlatformNormalizes) return Check(value);
         try { return value.IsNormalized(NormalizationForm.FormC); }
         catch (ArgumentException) { return Check(value); } // the platform refuses some code points outright; decide by the tables
+    }
+
+    /// <summary>The longest run of code points with a combining class above 0 (non-starters), as the Stream-Safe Text Format counts them.</summary>
+    internal static int LongestCombiningRun(string value)
+    {
+        int longest = 0, run = 0;
+        for (var i = 0; i < value.Length; i++)
+        {
+            int cp = value[i];
+            if (char.IsHighSurrogate(value[i]) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1])) cp = char.ConvertToUtf32(value[i], value[++i]);
+            if (Class(cp) != 0) longest = Math.Max(longest, ++run);
+            else run = 0;
+        }
+        return longest;
     }
 
     /// <summary>The table-driven check: <paramref name="value"/> equals its own NFC.</summary>

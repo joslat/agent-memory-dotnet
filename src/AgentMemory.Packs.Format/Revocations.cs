@@ -71,8 +71,7 @@ internal static partial class Revocations
                 || type.GetString() != PayloadType || !root.TryGetProperty("payload", out var text) || text.ValueKind != JsonValueKind.String
                 || !root.TryGetProperty("signatures", out var sigs) || sigs.ValueKind != JsonValueKind.Array)
                 throw Bad("is not a DSSE envelope of a revocation document");
-            try { payload = Convert.FromBase64String(text.GetString()!); }
-            catch (FormatException) { throw Bad("has a payload that is not base64"); }
+            payload = Dsse.FromBase64(text.GetString()) ?? throw Bad("has a payload that is not base64");
             signatures = sigs.Clone();
         }
         var pae = Dsse.Pae(PayloadType, payload);
@@ -138,7 +137,8 @@ internal static partial class Revocations
         {
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportFromPem(key.PublicKeyPem);
-            return ecdsa.VerifyData(pae, Convert.FromBase64String(sig.GetString()!), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+            return Dsse.FromBase64(sig.GetString()) is { } signature
+                && ecdsa.VerifyData(pae, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
         }
         catch (FormatException) { return false; }
     }

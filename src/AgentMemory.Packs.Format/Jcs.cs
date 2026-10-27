@@ -75,7 +75,7 @@ internal static class Jcs
                 WriteString(element.GetString()!, output);
                 break;
             case JsonValueKind.Number:
-                if (!element.TryGetInt64(out var integer) || Math.Abs(integer) > PackJson.MaxSafeInteger)
+                if (!element.TryGetInt64(out var integer) || integer is < -PackJson.MaxSafeInteger or > PackJson.MaxSafeInteger)
                     throw new InvalidDataException("A canonical pack file holds integers within ±2^53 only.");
                 output.Append(integer.ToString(CultureInfo.InvariantCulture));
                 break;

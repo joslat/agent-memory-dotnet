@@ -11,7 +11,9 @@ Needs: Python 3.10+, the `cryptography` package.
 """
 import base64
 import hashlib
+import binascii
 import json
+import math
 import re
 import struct
 import sys
@@ -43,14 +45,19 @@ REVOCATIONS_FORMAT = "agentmemory.pack.revocations/1.2"
 REVOCATIONS_TYPE = "application/vnd.agentmemory.revocations+json"
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 KEY_ID = re.compile(r"[0-9a-f]{64}")
-INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})")
+INSTANT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?(?:Z|[+-][0-9]{2}:[0-9]{2})", re.ASCII)
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 STATEMENT = "https://in-toto.io/Statement/v1"
 ROLES = {"publisher", "curator", "assurer"}
 SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 DEVICES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){2,}")
-SEMVER = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?")
+SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", re.ASCII)
+SIGNED_AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", re.ASCII)
+KEY_ROLES = {"publisher", "curator", "assurer", "revoker"}
+MAX_DEPTH = 64
+MAX_COMBINING_RUN = 30
+INT64_MAX = 2 ** 63 - 1
 MAX_FILES, MAX_FILE, MAX_TOTAL, MAX_RATIO = 4096, 64 << 20, 256 << 20, 250
 
 
@@ -127,8 +134,13 @@ def instant(text):
         digits = "".join(c for c in rest if c.isdigit())
         text = head + "." + (digits + "000000")[:6] + rest[len(digits):]
     try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        # As a .NET DateTimeOffset holds it: an offset within 14 hours, a UTC time within years 1 to 9999.
+        if abs(parsed.utcoffset().total_seconds()) > 14 * 3600:
+            return None
+        parsed.astimezone(timezone.utc)
+        return parsed
+    except (ValueError, OverflowError):
         return None
 
 
@@ -171,10 +183,10 @@ def apply_revocations(policy, data, now):
         if hashlib.sha256(spki).hexdigest() != key["keyId"]:
             continue
         try:
-            public.verify(base64.b64decode(s["sig"]), signed, ec.ECDSA(hashes.SHA256()))
+            public.verify(base64.b64decode(s["sig"], validate=True), signed, ec.ECDSA(hashes.SHA256()))
             verified = True
             break
-        except (InvalidSignature, ValueError):
+        except (InvalidSignature, ValueError, binascii.Error):
             continue
     if not verified:
         raise Refused("the revocation document is not signed by a key the trust policy names as revoker and that is valid now")
@@ -215,6 +227,14 @@ def valid_id(value):
 
 def manifest_checks(manifest, content, now):
     """pack.json's fields and what its kind must hold (v1.2 §2, §3, §5), as `ampack verify` checks them."""
+    for field in ("format", "id", "version", "kind", "sdk", "tier", "licence", "validUntil", "protection", "code"):
+        if field in manifest and not isinstance(manifest[field], str):
+            raise Refused(f"pack.json has a '{field}' that is not a string")
+    for field in ("requires", "display"):
+        if field in manifest and not isinstance(manifest[field], dict):
+            raise Refused(f"pack.json has a '{field}' that is not an object")
+    if isinstance(manifest.get("display"), dict) and "icon" in manifest["display"] and not isinstance(manifest["display"]["icon"], str):
+        raise Refused("pack.json has a display.icon that is not a string")
     kind = manifest.get("kind")
     if kind not in KINDS:
         raise Refused("pack.json needs a known kind")
@@ -233,7 +253,7 @@ def manifest_checks(manifest, content, now):
             raise Refused("the pack's validUntil has passed")
     if "source" in manifest:
         source = manifest["source"]
-        if not isinstance(source, dict) or not all(k in ("repository", "commit", "builtAt") and isinstance(v, str) and 0 < len(v) <= 200
+        if not isinstance(source, dict) or not all(k in ("repository", "commit", "builtAt") and isinstance(v, str) and 0 < len(v.encode("utf-16-le")) // 2 <= 200
                                                    for k, v in source.items()):
             raise Refused("pack.json has a malformed 'source'")
         if "builtAt" in source and instant(source["builtAt"]) is None:
@@ -266,7 +286,7 @@ def composite_checks(manifest, content):
     pinned = []
     for m in lock["members"]:
         if not isinstance(m, dict) or set(m) != {"id", "version", "digest"} or not valid_id(m["id"]) \
-                or not isinstance(m["version"], str) or not SEMVER.fullmatch(m["version"]) \
+                or not isinstance(m["version"], str) or not valid_version(m["version"]) \
                 or not isinstance(m["digest"], str) or not m["digest"].startswith("sha256:") or len(m["digest"]) != 71:
             raise Refused("META/lock.json has a malformed member")
         pinned.append(m["id"])
@@ -327,16 +347,26 @@ def profile(data, integers_only=False):
     except (UnicodeDecodeError, ValueError) as e:
         raise Refused(f"a JSON file is not valid: {e}")
 
-    def walk(v):
+    def walk(v, depth=0):
+        if isinstance(v, (dict, list)) and depth + 1 > MAX_DEPTH:
+            raise Refused("a JSON file nests deeper than 64")
         if isinstance(v, dict):
             for k, x in v.items():
-                walk(k)
-                walk(x)
+                walk(k, depth + 1)
+                walk(x, depth + 1)
         elif isinstance(v, list):
             for x in v:
-                walk(x)
+                walk(x, depth + 1)
         elif isinstance(v, str):
-            if unicodedata.normalize("NFC", v) != v or any(0xD800 <= ord(c) <= 0xDFFF for c in v):
+            if any(0xD800 <= ord(c) <= 0xDFFF for c in v):
+                raise Refused("a JSON string has an unpaired surrogate")
+            run = longest = 0
+            for c in v:
+                run = run + 1 if unicodedata.combining(c) else 0
+                longest = max(longest, run)
+            if longest > MAX_COMBINING_RUN:
+                raise Refused("a JSON string has more than 30 combining marks in a row")
+            if unicodedata.normalize("NFC", v) != v:
                 raise Refused("a JSON string is not NFC")
         elif isinstance(v, bool) or v is None:
             pass
@@ -345,6 +375,8 @@ def profile(data, integers_only=False):
                 raise Refused("a JSON integer is beyond 2^53")
         elif isinstance(v, float) and integers_only:
             raise Refused("a canonical file holds a fraction")
+        elif isinstance(v, float) and not math.isfinite(v):
+            raise Refused("a JSON number is out of range")
     walk(value)
     return value
 
@@ -388,10 +420,16 @@ def verify(files, policy, now):
     if set(listing) != {"format", "id", "version", "files"} or listing["format"] != FILES_FORMAT:
         raise Refused("META/files.json is not a v1.1 files list")
     pid, version = listing["id"], listing["version"]
-    if not ID.fullmatch(pid) or len(pid) > 64 or not SEMVER.fullmatch(version):
+    if not isinstance(pid, str) or not isinstance(version, str) or not ID.fullmatch(pid) or len(pid) > 64 or not valid_version(version):
         raise Refused("META/files.json names no valid id or version")
     listed = {}
+    if not isinstance(listing["files"], list):
+        raise Refused("META/files.json has no files array")
     for entry in listing["files"]:
+        if not isinstance(entry, dict) or set(entry) != {"path", "length", "sha256"} or not isinstance(entry["path"], str) \
+                or isinstance(entry["length"], bool) or not isinstance(entry["length"], int) or entry["length"] < 0 \
+                or not isinstance(entry["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]):
+            raise Refused("META/files.json has a malformed entry")
         listed[entry["path"]] = entry
     paths = [e["path"] for e in listing["files"]]
     if paths != sorted(paths) or len(set(paths)) != len(paths):
@@ -461,6 +499,8 @@ def verify(files, policy, now):
                   and st["subject"][0]["digest"]["sha256"] == hashlib.sha256(list_bytes).hexdigest()
                   and role in ROLES and st["predicateType"] == f"urn:agentmemory:pack:{role}:v1"
                   and pred["id"] == pid and pred["version"] == version)
+            if not isinstance(pred["signedAt"], str) or not SIGNED_AT.fullmatch(pred["signedAt"]):
+                continue
             signed_at = datetime.strptime(pred["signedAt"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         except (Refused, KeyError, TypeError, ValueError):
             continue
@@ -485,9 +525,10 @@ def verify(files, policy, now):
             if not_after is not None and (signed_at > not_after or now > not_after):
                 continue
             try:
-                public.verify(base64.b64decode(s["sig"]), pae(payload), ec.ECDSA(hashes.SHA256()))
+                public.verify(base64.b64decode(s.get("sig") if isinstance(s.get("sig"), str) else "!", validate=True),
+                              pae(payload), ec.ECDSA(hashes.SHA256()))
                 roles.add(role)
-            except InvalidSignature:
+            except (InvalidSignature, ValueError, binascii.Error):
                 continue
     missing = set(policy.get("requireRoles", ["publisher"])) - roles
     if missing:
@@ -495,17 +536,75 @@ def verify(files, policy, now):
     return pid, version, digest, manifest
 
 
+def valid_version(text):
+    if not isinstance(text, str):
+        return False
+    match = SEMVER.fullmatch(text)
+    return match is not None and all(int(part) <= INT64_MAX for part in match.group(1, 2, 3))
+
+
+def load_policy(raw):
+    """The host's trust policy, as .NET reads it: a BOM and CRLF are tolerated, the JSON profile holds, every key is
+    checked (its id is the SHA-256 of its key, it names prefixes and known roles), no key is listed twice, times are RFC 3339,
+    and requireRoles names pack roles."""
+    text = raw.decode("utf-8")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    policy = profile(text.replace("\r\n", "\n").encode("utf-8"))
+    if not isinstance(policy, dict) or policy.get("format") != "agentmemory.pack.trust/1.1":
+        raise Refused("the trust policy must name format 'agentmemory.pack.trust/1.1'")
+    seen = set()
+    for key in policy.get("keys", []) if isinstance(policy.get("keys", []), list) else [None]:
+        if not isinstance(key, dict) or not isinstance(key.get("keyId"), str) or not isinstance(key.get("publicKey"), str):
+            raise Refused("the trust policy has a malformed key")
+        prefixes, roles = key.get("idPrefixes", []), key.get("roles", [])
+        if not isinstance(prefixes, list) or not prefixes or not all(isinstance(p, str) for p in prefixes):
+            raise Refused("a trusted key names no pack id prefixes")
+        if not isinstance(roles, list) or not roles or not all(isinstance(r, str) and r in KEY_ROLES for r in roles):
+            raise Refused("a trusted key needs known roles")
+        try:
+            public = serialization.load_pem_public_key(key["publicKey"].encode())
+            spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        except (ValueError, TypeError):
+            raise Refused("a trusted key is not a PEM public key")
+        if hashlib.sha256(spki).hexdigest() != key["keyId"]:
+            raise Refused("a trusted key's id is not the SHA-256 of its key")
+        if key["keyId"] in seen:
+            raise Refused("the trust policy lists a key twice")
+        seen.add(key["keyId"])
+        policy_time(key.get("notBefore"))
+        policy_time(key.get("notAfter"))
+    revoked = policy.get("revoked", {})
+    if not isinstance(revoked, dict):
+        raise Refused("the trust policy has a malformed revoked section")
+    if not isinstance(revoked.get("digests", []), list) or not all(isinstance(d, str) for d in revoked.get("digests", [])):
+        raise Refused("the trust policy has a malformed revoked digest list")
+    for r in revoked.get("keys", []) if isinstance(revoked.get("keys", []), list) else [None]:
+        if not isinstance(r, dict) or not isinstance(r.get("keyId"), str):
+            raise Refused("the trust policy has a malformed revoked key")
+        policy_time(r.get("compromisedAt"))
+    policy_time(revoked.get("expires"))
+    if "requireRoles" in policy:
+        required = policy["requireRoles"]
+        if not isinstance(required, list) or not required or not all(isinstance(r, str) and r in ROLES for r in required):
+            raise Refused("requireRoles must name known roles")
+    return policy
+
+
 def main(argv):
     pack_path, policy_path = argv[1], argv[2]
-    policy = json.load(open(policy_path, encoding="utf-8"))
     now = datetime.now(timezone.utc)
     try:
+        policy = load_policy(open(policy_path, "rb").read())
         if len(argv) > 3:
             policy = apply_revocations(policy, open(argv[3], "rb").read(), now)
         pid, version, digest = verify_any(read_zip(open(pack_path, "rb").read()), policy, now)
     except Refused as e:
         print(f"refused: {e}")
         return 1
+    except Exception as e:  # a defect, never a verdict: the conformance run tells it apart from a refusal
+        print(f"error: {type(e).__name__}: {e}")
+        return 2
     print(f"verified {pid} {version} {digest}")
     return 0
 

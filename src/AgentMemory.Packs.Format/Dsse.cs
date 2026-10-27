@@ -102,9 +102,7 @@ internal static class Dsse
             || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array)
         { problems.Add($"{file} is not a DSSE envelope of an in-toto statement."); return (valid, problems, true); }
 
-        byte[] payload;
-        try { payload = Convert.FromBase64String(payloadText.GetString()!); }
-        catch (FormatException) { problems.Add($"{file} has a payload that is not base64."); return (valid, problems, true); }
+        if (FromBase64(payloadText.GetString()) is not { } payload) { problems.Add($"{file} has a payload that is not base64."); return (valid, problems, true); }
         var (claim, claimProblem) = ReadStatement(payload, filesList, list);
         if (claim is null) { problems.Add($"{file} {claimProblem}"); return (valid, problems, false); }
 
@@ -116,9 +114,7 @@ internal static class Dsse
             { problems.Add($"{file} has a malformed signature entry."); continue; }
             var keyId = keyIdElement.GetString()!;
             if (policy.Find(keyId) is not { } key) { problems.Add($"{file}: key {Short(keyId)} is not in the trust policy."); continue; }
-            byte[] sig;
-            try { sig = Convert.FromBase64String(sigElement.GetString()!); }
-            catch (FormatException) { problems.Add($"{file}: the signature is not base64."); continue; }
+            if (FromBase64(sigElement.GetString()) is not { } sig) { problems.Add($"{file}: the signature is not base64."); continue; }
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportFromPem(key.PublicKeyPem);
             if (!ecdsa.VerifyData(pae, sig, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
@@ -135,28 +131,40 @@ internal static class Dsse
         if (PackJson.Check(payload) is { } malformed) return (null, $"has a statement that {malformed}.");
         using var document = JsonDocument.Parse(payload);
         var statement = document.RootElement;
-        if (statement.ValueKind != JsonValueKind.Object || !statement.TryGetProperty("_type", out var type) || type.GetString() != StatementType)
-            return (null, "does not carry an in-toto Statement v1.");
+        if (Str(statement, "_type") != StatementType) return (null, "does not carry an in-toto Statement v1.");
         if (!statement.TryGetProperty("subject", out var subjects) || subjects.ValueKind != JsonValueKind.Array || subjects.GetArrayLength() != 1)
             return (null, "must name exactly one subject.");
         var subject = subjects[0];
-        if (subject.ValueKind != JsonValueKind.Object || !subject.TryGetProperty("name", out var name) || name.GetString() != PackPaths.FilesList
-            || !subject.TryGetProperty("digest", out var digest) || digest.ValueKind != JsonValueKind.Object
-            || !digest.TryGetProperty("sha256", out var sha) || sha.GetString() != FilesList.Hex(filesList))
+        if (Str(subject, "name") != PackPaths.FilesList || !subject.TryGetProperty("digest", out var digest) || Str(digest, "sha256") != FilesList.Hex(filesList))
             return (null, $"signs another {PackPaths.FilesList} than this pack's.");
-        if (!statement.TryGetProperty("predicate", out var predicate) || predicate.ValueKind != JsonValueKind.Object
-            || !predicate.TryGetProperty("role", out var role) || role.GetString() is not { } roleName || !Roles.Contains(roleName))
+        if (!statement.TryGetProperty("predicate", out var predicate) || Str(predicate, "role") is not { } roleName || !Roles.Contains(roleName))
             return (null, "names no known role.");
-        if (!statement.TryGetProperty("predicateType", out var predicateType) || predicateType.GetString() != PredicateType(roleName))
+        if (Str(statement, "predicateType") != PredicateType(roleName))
             return (null, "has a predicate type that does not match its role.");
-        if (!predicate.TryGetProperty("id", out var id) || id.GetString() != list.Id
-            || !predicate.TryGetProperty("version", out var version) || version.GetString() != list.Version)
+        if (Str(predicate, "id") != list.Id || Str(predicate, "version") != list.Version)
             return (null, "was made for another pack id or version.");
-        if (!predicate.TryGetProperty("signedAt", out var signedAtElement) || signedAtElement.GetString() is not { } signedAtText
+        if (Str(predicate, "signedAt") is not { } signedAtText
             || !DateTimeOffset.TryParseExact(signedAtText, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var signedAt))
             return (null, "has no signing time in UTC (yyyy-MM-ddTHH:mm:ssZ).");
         return (new PackSignature(roleName, "", list.Id, list.Version, signedAt, ""), null);
     }
 
     internal static string Short(string keyId) => keyId.Length > 16 ? keyId[..16] : keyId;
+
+    /// <summary>
+    /// Strict base64 (RFC 4648 §4): the alphabet and its padding only, length a multiple of four. Whitespace, which .NET's decoder
+    /// skips and Python's validating decoder refuses, is refused, so two verifiers read one signature the same way.
+    /// </summary>
+    internal static byte[]? FromBase64(string? text)
+    {
+        if (text is null || text.Length % 4 != 0) return null;
+        var padding = text.EndsWith("==", StringComparison.Ordinal) ? 2 : text.EndsWith('=') ? 1 : 0;
+        for (var i = 0; i < text.Length - padding; i++)
+            if (!(char.IsAsciiLetterOrDigit(text[i]) || text[i] is '+' or '/')) return null;
+        try { return Convert.FromBase64String(text); }
+        catch (FormatException) { return null; }
+    }
+
+    private static string? Str(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 }

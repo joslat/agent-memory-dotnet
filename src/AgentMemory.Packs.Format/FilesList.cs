@@ -60,7 +60,7 @@ internal sealed partial record FilesList(string Id, string Version, IReadOnlyLis
         {
             if (entry.ValueKind != JsonValueKind.Object || entry.EnumerateObject().Count() != 3
                 || !entry.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String
-                || !entry.TryGetProperty("length", out var length) || !length.TryGetInt64(out var bytesLength) || bytesLength < 0
+                || !entry.TryGetProperty("length", out var length) || length.ValueKind != JsonValueKind.Number || !length.TryGetInt64(out var bytesLength) || bytesLength < 0
                 || !entry.TryGetProperty("sha256", out var sha) || sha.ValueKind != JsonValueKind.String || !HexSha256().IsMatch(sha.GetString()!))
                 return (null, $"{PackPaths.FilesList} has a malformed entry.");
             var name = path.GetString()!;

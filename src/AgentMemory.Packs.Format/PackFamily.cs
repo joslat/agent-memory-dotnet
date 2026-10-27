@@ -28,7 +28,8 @@ internal static class PackLock
         if (Jcs.CheckCanonical(bytes) is { } problem) return (null, $"{PackPaths.LockFile} {problem}.");
         using var document = JsonDocument.Parse(bytes.ToArray());
         var root = document.RootElement;
-        if (!root.TryGetProperty("format", out var format) || format.GetString() != Format || !root.TryGetProperty("members", out var members)
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("format", out var format) || format.ValueKind != JsonValueKind.String
+            || format.GetString() != Format || !root.TryGetProperty("members", out var members)
             || members.ValueKind != JsonValueKind.Array || root.EnumerateObject().Any(p => p.Name is not ("format" or "members")))
             return (null, $"{PackPaths.LockFile} is not a '{Format}' lock: format and members, nothing else.");
         var entries = new List<LockEntry>();
@@ -36,6 +37,7 @@ internal static class PackLock
         {
             if (m.ValueKind != JsonValueKind.Object || m.EnumerateObject().Any(p => p.Name is not ("id" or "version" or "digest"))
                 || !m.TryGetProperty("id", out var id) || !m.TryGetProperty("version", out var version) || !m.TryGetProperty("digest", out var digest)
+                || id.ValueKind != JsonValueKind.String || version.ValueKind != JsonValueKind.String || digest.ValueKind != JsonValueKind.String
                 || id.GetString() is not { } i || !PackManifest.IsValidId(i) || version.GetString() is not { } v || !SemVer.TryParse(v, out _)
                 || digest.GetString() is not { } d || !d.StartsWith("sha256:", StringComparison.Ordinal) || d.Length != 71)
                 return (null, $"{PackPaths.LockFile} has a malformed member.");

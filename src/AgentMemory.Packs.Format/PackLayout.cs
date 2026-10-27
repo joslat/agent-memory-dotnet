@@ -37,6 +37,13 @@ internal static class PackLayout
     /// <summary>The module manifest a host composes, from a verified pack's files (v1.2 §4).</summary>
     internal static ModuleImage ToModule(IReadOnlyDictionary<string, byte[]> files)
     {
+        // Typed access on input the profile admitted: a value of the wrong type is a refusal, never an escaping exception.
+        try { return Map(files); }
+        catch (InvalidOperationException e) { throw new InvalidDataException($"A declaration has a value of the wrong type: {e.Message}", e); }
+    }
+
+    private static ModuleImage Map(IReadOnlyDictionary<string, byte[]> files)
+    {
         var pack = Object(files, PackManifest.FileName) ?? throw new InvalidDataException($"There is no {PackManifest.FileName}.");
         var kind = pack["kind"]?.GetValue<string>();
         if (kind is not ("knowledge" or "definition" or "snapshot"))
@@ -136,6 +143,12 @@ internal static class PackLayout
 
     /// <summary>The host's composite manifest for a verified composite pack.</summary>
     internal static byte[] ToComposite(IReadOnlyDictionary<string, byte[]> files)
+    {
+        try { return MapComposite(files); }
+        catch (InvalidOperationException e) { throw new InvalidDataException($"A declaration has a value of the wrong type: {e.Message}", e); }
+    }
+
+    private static byte[] MapComposite(IReadOnlyDictionary<string, byte[]> files)
     {
         var pack = Object(files, PackManifest.FileName) ?? throw new InvalidDataException($"There is no {PackManifest.FileName}.");
         var members = Object(files, Members) ?? throw new InvalidDataException($"A composite pack carries {Members}.");

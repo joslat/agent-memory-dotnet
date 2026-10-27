@@ -78,6 +78,15 @@ internal sealed partial record PackManifest
         if (root.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => !Fields.Contains(n)) is { } unknown)
             return (null, $"{FileName} has an unknown field '{unknown}'; a field this format does not define goes in 'extensions'.");
         if (Extensions(root) is { } extensionProblem) return (null, extensionProblem);
+        // A field of the wrong type is refused, never read as absent (an expiry as a number would never expire).
+        foreach (var name in (string[])["format", "id", "version", "kind", "sdk", "tier", "licence", "validUntil", "protection", "code"])
+            if (root.TryGetProperty(name, out var field) && field.ValueKind != JsonValueKind.String)
+                return (null, $"{FileName} has a '{name}' that is not a string.");
+        foreach (var name in (string[])["requires", "display"])
+            if (root.TryGetProperty(name, out var field) && field.ValueKind != JsonValueKind.Object)
+                return (null, $"{FileName} has a '{name}' that is not an object.");
+        if (root.TryGetProperty("display", out var shown) && shown.TryGetProperty("icon", out var icon) && icon.ValueKind != JsonValueKind.String)
+            return (null, $"{FileName} has a display.icon that is not a string.");
         if (Text("format") is not { } format) return (null, $"{FileName} names no format.");
         if (format != Format) return (null, $"{FileName} has format '{format}'; this reader knows '{Format}'.");
         if (Text("id") is not { } id || !IsValidId(id)) return (null, $"{FileName} has no valid reverse-DNS id.");
