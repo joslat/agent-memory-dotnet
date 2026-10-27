@@ -89,10 +89,12 @@ internal static class Dsse
     /// </summary>
     /// <returns>The valid signatures; the problems; and whether the file is not a DSSE envelope at all, which refuses the pack.</returns>
     internal static (List<PackSignature> Valid, List<string> Problems, bool Malformed) Verify(string file, ReadOnlySpan<byte> envelopeBytes,
-        ReadOnlySpan<byte> filesList, FilesList list, TrustPolicy policy, DateTimeOffset now)
+        string filesListHex, FilesList list, TrustPolicy policy, DateTimeOffset now)
     {
         var valid = new List<PackSignature>();
         var problems = new List<string>();
+        // Bounded before anything is parsed: every check below costs at most the envelope's size (fifth review).
+        if (envelopeBytes.Length > MaximumEnvelopeBytes) { problems.Add($"{file} is larger than {MaximumEnvelopeBytes / 1024} KiB: a signature envelope is small."); return (valid, problems, true); }
         if (PackJson.Check(envelopeBytes) is { } malformed) { problems.Add($"{file} {malformed}."); return (valid, problems, true); }
         using var document = JsonDocument.Parse(envelopeBytes.ToArray());
         var envelope = document.RootElement;
@@ -102,11 +104,13 @@ internal static class Dsse
             || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array)
         { problems.Add($"{file} is not a DSSE envelope of an in-toto statement."); return (valid, problems, true); }
 
+        if (signatures.GetArrayLength() > MaximumSignatures) { problems.Add($"{file} holds more than {MaximumSignatures} signatures."); return (valid, problems, true); }
         if (FromBase64(payloadText.GetString()) is not { } payload) { problems.Add($"{file} has a payload that is not base64."); return (valid, problems, true); }
-        var (claim, claimProblem) = ReadStatement(payload, filesList, list);
+        var (claim, claimProblem) = ReadStatement(payload, filesListHex, list);
         if (claim is null) { problems.Add($"{file} {claimProblem}"); return (valid, problems, false); }
 
-        var pae = Pae(PayloadType, payload);
+        // The pre-authentication encoding is hashed once, and each of at most MaximumSignatures entries is checked against it.
+        var hash = SHA256.HashData(Pae(PayloadType, payload));
         foreach (var entry in signatures.EnumerateArray())
         {
             if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("keyid", out var keyIdElement) || keyIdElement.ValueKind != JsonValueKind.String
@@ -117,7 +121,7 @@ internal static class Dsse
             if (FromBase64(sigElement.GetString()) is not { } sig) { problems.Add($"{file}: the signature is not base64."); continue; }
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportFromPem(key.PublicKeyPem);
-            if (!ecdsa.VerifyData(pae, sig, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
+            if (!ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence))
             { problems.Add($"{file}: the signature by {Short(keyId)} does not verify."); continue; }
             if (policy.Refusal(key, claim.Role, claim.Id, claim.SignedAt, now) is { } refusal)
             { problems.Add($"{file}: {refusal}"); continue; }
@@ -126,7 +130,14 @@ internal static class Dsse
         return (valid, problems, false);
     }
 
-    private static (PackSignature? Claim, string? Problem) ReadStatement(byte[] payload, ReadOnlySpan<byte> filesList, FilesList list)
+    /// <summary>Largest signature envelope: one statement and a few signatures fit many times over.</summary>
+    internal const int MaximumEnvelopeBytes = 64 * 1024;
+    /// <summary>Most signature entries in one envelope.</summary>
+    internal const int MaximumSignatures = 16;
+    /// <summary>Most signature envelopes one pack carries.</summary>
+    internal const int MaximumEnvelopes = 16;
+
+    private static (PackSignature? Claim, string? Problem) ReadStatement(byte[] payload, string filesListHex, FilesList list)
     {
         if (PackJson.Check(payload) is { } malformed) return (null, $"has a statement that {malformed}.");
         using var document = JsonDocument.Parse(payload);
@@ -135,7 +146,7 @@ internal static class Dsse
         if (!statement.TryGetProperty("subject", out var subjects) || subjects.ValueKind != JsonValueKind.Array || subjects.GetArrayLength() != 1)
             return (null, "must name exactly one subject.");
         var subject = subjects[0];
-        if (Str(subject, "name") != PackPaths.FilesList || !subject.TryGetProperty("digest", out var digest) || Str(digest, "sha256") != FilesList.Hex(filesList))
+        if (Str(subject, "name") != PackPaths.FilesList || !subject.TryGetProperty("digest", out var digest) || Str(digest, "sha256") != filesListHex)
             return (null, $"signs another {PackPaths.FilesList} than this pack's.");
         if (!statement.TryGetProperty("predicate", out var predicate) || Str(predicate, "role") is not { } roleName || !Roles.Contains(roleName))
             return (null, "names no known role.");

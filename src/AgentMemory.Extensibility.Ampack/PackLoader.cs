@@ -11,7 +11,7 @@ namespace AgentMemory.Extensibility.Ampack;
 [Experimental("AMEXT001")]
 public sealed class PackTrust
 {
-    private PackTrust(TrustPolicy policy) => Policy = policy;
+    internal PackTrust(TrustPolicy policy) => Policy = policy;
 
     internal TrustPolicy Policy { get; }
 
@@ -32,8 +32,8 @@ public sealed class PackTrust
     /// </summary>
     /// <exception cref="InvalidDataException">The document is malformed, not signed by a trusted revoker valid now, or issued in the future.</exception>
     /// <param name="signedDocument">The signed revocation document.</param>
-    /// <param name="ledger">The host's install ledger: when given, a document older than the newest one it applied is refused, so an
-    /// older list cannot drop revocations issued since, and this one is recorded.</param>
+    /// <param name="ledger">The host's install ledger: when given, what the document revokes is kept there for good, so a later run
+    /// with an older list, or none, still holds it.</param>
     public PackTrust WithRevocations(byte[] signedDocument, PackInstallLedger? ledger = null)
     {
         var applied = new PackTrust(Revocations.Apply(Policy, signedDocument ?? throw new ArgumentNullException(nameof(signedDocument)), DateTimeOffset.UtcNow, ledger?.Ledger));
@@ -57,11 +57,14 @@ public sealed class PackInstallLedger
     /// <summary>Opens the ledger file, or starts an empty one there.</summary>
     public static PackInstallLedger Open(string path) => new(path, HostLedger.Load(path));
 
-    /// <summary>Why this host must not load anything under <paramref name="trust"/> now: a revocation list it applied before is missing; null when none is.</summary>
-    public string? Withheld(PackTrust trust)
+    /// <summary>
+    /// <paramref name="trust"/> with every revocation this host applied before added (fifth review): what was revoked here stays
+    /// revoked, whatever lists a later run is given. Verifying with this ledger does the same.
+    /// </summary>
+    public PackTrust WithKeptRevocations(PackTrust trust)
     {
         ArgumentNullException.ThrowIfNull(trust);
-        return PackVerifier.Withheld(Ledger, trust.Policy, DateTimeOffset.UtcNow);
+        return new PackTrust(Ledger.Apply(trust.Policy));
     }
 
     /// <summary>Saves the ledger as it is.</summary>

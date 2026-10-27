@@ -109,7 +109,7 @@ public sealed class FuzzTests
         for (var run = 0; run < Budget; run++)
         {
             var input = Mutate(envelope, random);
-            var (valid, _, _) = Dsse.Verify(path, input, listBytes, list, Sample.Policy(), SamplePack.Now);
+            var (valid, _, _) = Dsse.Verify(path, input, FilesList.Hex(listBytes), list, Sample.Policy(), SamplePack.Now);
             if (valid.Count > 0) counted++;
         }
         // A change that keeps the envelope valid can only be one that leaves the signed payload and the signature as they were.

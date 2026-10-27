@@ -1,6 +1,6 @@
 # Memory pack format v1.2: conformance vectors
 
-Two verifiers that share no code must reach the same verdict on every vector here (94 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
+Two verifiers that share no code must reach the same verdict on every vector here (123 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
 
 - `ampack verify` (.NET, `tools/Ampack`, library `src/AgentMemory.Packs.Format`)
 - `python/ampack_verify.py` (Python 3.10+ and `cryptography`)
@@ -29,6 +29,7 @@ list, DSSE signature, strict ZIP writers, stored and deflated), and derives tamp
 | JSON profile | CRLF; a byte order mark; a repeated key; an integer beyond 2^53, and the smallest 64-bit integer; a number beyond a double; a string not in NFC; more than 30 combining marks in a row (and 30, accepted); nesting 65 deep (and 64, accepted); an empty line; no final line feed |
 | Types and grammars (second red team) | a files-list entry with an extra field, or a length of `true`; `validUntil` as a number or beyond a 14-hour offset; `protection` null; `code` a list; `sdk` a number; `display` a string; a lock member id that is a number; a version with an Arabic-Indic digit; `source` of 100 and 101 astral characters (UTF-16 counted); base64 outside the alphabet or with a line break; a signing time without a leading zero or in lowercase; a second signature entry that is not base64 or has no `sig` (ignored); an extra envelope of wrong types (ignored); policies with no required roles, a key listed twice, a null prefix, a time that is not RFC 3339 |
 | Paths | a Windows device name (`CON`); two entries that differ only by case |
+| Bounds (fifth review) | a version of 256 characters (accepted) and 257; an envelope with 16 signature entries (accepted) and 17; a pack with 16 envelopes (accepted) and 17; an envelope over 64 KiB. A revocation document is at most 4 MiB, read with that bound |
 | ZIP profile | bytes before the first entry; bytes after the end record; an archive comment; unsorted entries; the data-descriptor flag; a local header whose name differs from the central directory; bytes after a deflate stream's end; a deflate stream without its final block |
 
 `results.json` records each verdict and each verifier's reason. The `trust*.json` files hold public keys only; the signing

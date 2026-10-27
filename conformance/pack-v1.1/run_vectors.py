@@ -321,6 +321,25 @@ def main():
     long_version = "1" * 5000 + ".0.0"
     long_content = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": long_version}, indent=2) + chr(10)).encode("utf-8")}
     vectors["version-5000-digits"] = (signed(long_content, version_=long_version), "trust.json", "refused")
+    # The fifth review's bounds before any signature holds: a version is at most 256 characters; an envelope at most 64 KiB
+    # and 16 signature entries; a pack at most 16 envelopes. Each bound, and one past it.
+    def versioned(text):
+        changed = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": text}, indent=2) + chr(10)).encode("utf-8")}
+        return signed(changed, version_=text)
+    vectors["version-256-characters"] = (versioned("1.0.0-" + "a" * 250), "trust.json", "verified")
+    vectors["version-257-characters"] = (versioned("1.0.0-" + "a" * 251), "trust.json", "refused")
+    junk_entry = {"keyid": "0" * 64, "sig": "AAAA"}
+    vectors["envelope-16-signatures"] = (signed_with(content, extra_signatures=(junk_entry,) * 15), "trust.json", "verified")
+    vectors["envelope-17-signatures"] = (signed_with(content, extra_signatures=(junk_entry,) * 16), "trust.json", "refused")
+    one = signed(content)
+    envelope_path, envelope = next((p, b) for p, b in one.items() if p.startswith(py.SIGNATURES))
+    def copies(n):
+        return {**one, **{f"{py.SIGNATURES}copy-{i:02}.dsse.json": envelope for i in range(n)}}
+    vectors["sixteen-envelopes"] = (copies(15), "trust.json", "verified")
+    vectors["seventeen-envelopes"] = (copies(16), "trust.json", "refused")
+    padded = json.loads(envelope)
+    padded["padding"] = "x" * (64 * 1024)
+    vectors["envelope-over-64-kib"] = ({**one, py.SIGNATURES + "padded.dsse.json": py.canonical(padded).encode()}, "trust.json", "refused")
 
     # The JSON profile and the archive, more ways.
     vectors["junk-signature-file"] = ({**signed(content), py.SIGNATURES + "junk.dsse.json": b'{"hello":1}\n'}, "trust.json", "refused")

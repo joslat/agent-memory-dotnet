@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, utils
 
 FILES = "META/files.json"
 SIGNATURES = "META/signatures/"
@@ -60,6 +60,8 @@ MAX_DEPTH = 64
 MAX_COMBINING_RUN = 30
 UNICODE_VERSION = "15.0.0"
 INT64_MAX = 2 ** 63 - 1
+# Bounds before any signature holds (fifth review): every check then costs at most what was read.
+MAX_ENVELOPE, MAX_SIGNATURES, MAX_ENVELOPES, MAX_VERSION, MAX_REVOCATIONS = 64 * 1024, 16, 16, 256, 4 << 20
 MAX_FILES, MAX_FILE, MAX_TOTAL, MAX_RATIO = 4096, 64 << 20, 256 << 20, 250
 
 
@@ -169,6 +171,8 @@ def present_time(obj, name):
 def apply_revocations(policy, data, now):
     """A signed revocation document (v1.2 §8) applied to the policy: signed by a revoker key valid now, its revocations
     added and never removed, its expiry the policy's when earlier."""
+    if len(data) > MAX_REVOCATIONS:
+        raise Refused(f"the revocation document is larger than {MAX_REVOCATIONS >> 20} MiB")
     env = profile(data)
     if not isinstance(env, dict) or env.get("payloadType") != REVOCATIONS_TYPE or not isinstance(env.get("payload"), str) \
             or not isinstance(env.get("signatures"), list):
@@ -177,7 +181,9 @@ def apply_revocations(policy, data, now):
         payload = base64.b64decode(env["payload"], validate=True)
     except ValueError:
         raise Refused("the revocation document has a payload that is not base64")
-    signed = f"DSSEv1 {len(REVOCATIONS_TYPE)} {REVOCATIONS_TYPE} {len(payload)} ".encode() + payload
+    if len(env["signatures"]) > MAX_SIGNATURES:
+        raise Refused(f"the revocation document holds more than {MAX_SIGNATURES} signatures")
+    digest = hashlib.sha256(f"DSSEv1 {len(REVOCATIONS_TYPE)} {REVOCATIONS_TYPE} {len(payload)} ".encode() + payload).digest()
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
     verified = False
@@ -195,7 +201,7 @@ def apply_revocations(policy, data, now):
         if hashlib.sha256(spki).hexdigest() != key["keyId"]:
             continue
         try:
-            public.verify(base64.b64decode(s["sig"], validate=True), signed, ec.ECDSA(hashes.SHA256()))
+            public.verify(base64.b64decode(s["sig"], validate=True), digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
             verified = True
             break
         except (InvalidSignature, ValueError, binascii.Error):
@@ -511,8 +517,14 @@ def verify(files, policy, now):
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
     roles = set()
-    for path in sorted(p for p in files if p.startswith(SIGNATURES)):
+    envelopes = sorted(p for p in files if p.startswith(SIGNATURES))
+    if len(envelopes) > MAX_ENVELOPES:
+        raise Refused(f"the pack carries {len(envelopes)} signature envelopes; at most {MAX_ENVELOPES}")
+    list_hex = hashlib.sha256(list_bytes).hexdigest()
+    for path in envelopes:
         # A file under META/signatures/ that is not an envelope at all is unlisted content: it refuses the pack.
+        if len(files[path]) > MAX_ENVELOPE:
+            raise Refused(f"{path} is larger than {MAX_ENVELOPE // 1024} KiB")
         try:
             env = profile(files[path])
         except Refused:
@@ -520,6 +532,8 @@ def verify(files, policy, now):
         if not isinstance(env, dict) or env.get("payloadType") != PAYLOAD_TYPE or not isinstance(env.get("payload"), str) \
                 or not isinstance(env.get("signatures"), list):
             raise Refused(f"{path} is not a DSSE envelope of an in-toto statement")
+        if len(env["signatures"]) > MAX_SIGNATURES:
+            raise Refused(f"{path} holds more than {MAX_SIGNATURES} signatures")
         try:
             payload = base64.b64decode(env["payload"], validate=True)
         except ValueError:
@@ -529,7 +543,7 @@ def verify(files, policy, now):
             pred = st["predicate"]
             role = pred["role"]
             ok = (st["_type"] == STATEMENT and len(st["subject"]) == 1 and st["subject"][0]["name"] == FILES
-                  and st["subject"][0]["digest"]["sha256"] == hashlib.sha256(list_bytes).hexdigest()
+                  and st["subject"][0]["digest"]["sha256"] == list_hex
                   and role in ROLES and st["predicateType"] == f"urn:agentmemory:pack:{role}:v1"
                   and pred["id"] == pid and pred["version"] == version)
             if not isinstance(pred["signedAt"], str) or not SIGNED_AT.fullmatch(pred["signedAt"]):
@@ -539,6 +553,8 @@ def verify(files, policy, now):
             continue
         if not ok:
             continue
+        # Hashed once per envelope (fifth review); at most MAX_SIGNATURES entries are tried.
+        digest_of_pae = hashlib.sha256(pae(payload)).digest()
         for s in env.get("signatures", []):
             if not isinstance(s, dict) or not isinstance(s.get("keyid"), str):
                 continue
@@ -560,7 +576,7 @@ def verify(files, policy, now):
                 continue
             try:
                 public.verify(base64.b64decode(s.get("sig") if isinstance(s.get("sig"), str) else "!", validate=True),
-                              pae(payload), ec.ECDSA(hashes.SHA256()))
+                              digest_of_pae, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
                 roles.add(role)
             except (InvalidSignature, ValueError, binascii.Error):
                 continue
@@ -571,7 +587,7 @@ def verify(files, policy, now):
 
 
 def valid_version(text):
-    if not isinstance(text, str):
+    if not isinstance(text, str) or len(text) > MAX_VERSION:
         return False
     match = SEMVER.fullmatch(text)
     # The length first: int() refuses a numeral past 4,300 digits, and 19 already reach past 2^63 (fourth review).
@@ -645,7 +661,8 @@ def main(argv):
     try:
         policy = load_policy(open(policy_path, "rb").read())
         if len(argv) > 3:
-            policy = apply_revocations(policy, open(argv[3], "rb").read(), now)
+            with open(argv[3], "rb") as document:
+                policy = apply_revocations(policy, document.read(MAX_REVOCATIONS + 1), now)
         pid, version, digest = verify_any(read_zip(open(pack_path, "rb").read()), policy, now)
     except Refused as e:
         print(f"refused: {e}")

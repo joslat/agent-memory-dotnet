@@ -53,13 +53,21 @@ internal static partial class Revocations
         });
     }
 
+    /// <summary>Largest revocation document read.</summary>
+    internal const int MaximumDocumentBytes = 4 << 20;
+
+    /// <summary>The archive limit for reading a revocation document from a file.</summary>
+    internal static PackLimits DocumentLimits { get; } = new() { MaxArchiveBytes = MaximumDocumentBytes };
+
     /// <summary>
     /// <paramref name="policy"/> with the document applied: verified by a revoker key it trusts and that is valid now, issued no
-    /// later than now (five minutes' grace), its revocations added and its expiry the policy's when earlier.
+    /// later than now (five minutes' grace), its revocations added and its expiry the policy's when earlier. With a
+    /// <paramref name="ledger"/>, what it revokes is kept by the host for good, so an older list, or none, later removes nothing.
     /// </summary>
     /// <exception cref="InvalidDataException">The document is malformed, signed by no trusted revoker, or issued in the future.</exception>
     internal static TrustPolicy Apply(TrustPolicy policy, ReadOnlySpan<byte> envelopeBytes, DateTimeOffset now, HostLedger? ledger = null)
     {
+        if (envelopeBytes.Length > MaximumDocumentBytes) throw Bad($"is larger than {MaximumDocumentBytes >> 20} MiB");
         ArgumentNullException.ThrowIfNull(policy);
         if (PackJson.Check(envelopeBytes) is { } problem) throw Bad($"is not a JSON envelope: it {problem}");
         byte[] payload;
@@ -74,11 +82,11 @@ internal static partial class Revocations
             payload = Dsse.FromBase64(text.GetString()) ?? throw Bad("has a payload that is not base64");
             signatures = sigs.Clone();
         }
-        var pae = Dsse.Pae(PayloadType, payload);
-        // Every revoker that signed it, not only the first: the signatures array is not signed, so its order is anyone's.
-        var revokers = signatures.EnumerateArray().Select(s => Signer(policy, s, pae, now)).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-        if (revokers.Count == 0) throw Bad("is not signed by a key the trust policy names as revoker and that is valid now");
-        var documentDigest = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(payload));
+        if (signatures.GetArrayLength() > Dsse.MaximumSignatures) throw Bad($"holds more than {Dsse.MaximumSignatures} signatures");
+        // Hashed once, and at most MaximumSignatures entries tried (fifth review).
+        var hash = SHA256.HashData(Dsse.Pae(PayloadType, payload));
+        if (!signatures.EnumerateArray().Any(s => Verifies(policy, s, hash, now)))
+            throw Bad("is not signed by a key the trust policy names as revoker and that is valid now");
 
         if (PackJson.Check(payload) is { } payloadProblem) throw Bad($"has a payload that {payloadProblem}");
         using var document = JsonDocument.Parse(payload);
@@ -91,12 +99,7 @@ internal static partial class Revocations
             || expires <= issuedAt)
             throw Bad("needs issuedAt and expires, RFC 3339, expiring after it was issued");
         if (issuedAt > now.AddMinutes(5)) throw Bad($"claims to be issued at {issuedAt:u}, in the future");
-        // An older document from a revoker than one this host applied could drop revocations issued since (red team 8); another
-        // list issued in the same second is older too, since lists are written to the second (fourth review).
-        foreach (var revoker in revokers)
-            if (ledger is not null && ledger.RevocationMarks.TryGetValue(revoker, out var applied)
-                && (issuedAt < applied.At || issuedAt == applied.At && documentDigest != applied.Digest))
-                throw Bad($"was issued at {issuedAt:u}, no later than the one this host applied from that key ({applied.At:u}) and other than it; an older list could drop revocations");
+
         var digests = new List<string>();
         if (!d.TryGetProperty("digests", out var digestArray) || digestArray.ValueKind != JsonValueKind.Array) throw Bad("needs a digests list");
         foreach (var digest in digestArray.EnumerateArray())
@@ -125,29 +128,18 @@ internal static partial class Revocations
         foreach (var key in keys)
             merged[key.KeyId] = merged.TryGetValue(key.KeyId, out var known) && (known.CompromisedAt is null || key.CompromisedAt is { } later && later > known.CompromisedAt)
                 ? known : key;
-        // An expired list leaves the host's revocations stale (it then refuses every pack) and leaves no mark: replaying an old one
-        // must not lock the host out of its current lists (fourth review).
-        var appliedLists = new Dictionary<string, (DateTimeOffset At, string Digest)>(policy.RevocationsApplied, StringComparer.Ordinal);
-        foreach (var revoker in revokers)
-        {
-            if (expires > now) ledger?.RecordRevocations(revoker, issuedAt, documentDigest);
-            if (!appliedLists.TryGetValue(revoker, out var earlier) || issuedAt > earlier.At) appliedLists[revoker] = (issuedAt, documentDigest);
-        }
+        // What it revokes is kept by the host for good: a later run without this list, or with an older one, still holds it.
+        ledger?.Record(digests, keys);
         return policy with
         {
-            RevocationsApplied = appliedLists,
             RevokedDigests = [.. policy.RevokedDigests.Union(digests, StringComparer.Ordinal)],
             RevokedKeys = [.. merged.Values.OrderBy(k => k.KeyId, StringComparer.Ordinal)],
             RevocationsExpire = policy.RevocationsExpire is { } current && current < expires ? current : expires,
         };
     }
 
-    // The key of one signature entry by a key the policy trusts as revoker, valid now and not itself revoked, that verifies;
-    // null when the entry is not such a signature.
-    private static string? Signer(TrustPolicy policy, JsonElement entry, byte[] pae, DateTimeOffset now) =>
-        Verifies(policy, entry, pae, now) ? entry.GetProperty("keyid").GetString() : null;
-
-    private static bool Verifies(TrustPolicy policy, JsonElement entry, byte[] pae, DateTimeOffset now)
+    // One signature entry by a key the policy trusts as revoker, valid now and not itself revoked, that verifies the hash.
+    private static bool Verifies(TrustPolicy policy, JsonElement entry, byte[] hash, DateTimeOffset now)
     {
         if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("keyid", out var keyId) || keyId.ValueKind != JsonValueKind.String
             || !entry.TryGetProperty("sig", out var sig) || sig.ValueKind != JsonValueKind.String)
@@ -159,8 +151,7 @@ internal static partial class Revocations
         {
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportFromPem(key.PublicKeyPem);
-            return Dsse.FromBase64(sig.GetString()) is { } signature
-                && ecdsa.VerifyData(pae, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+            return Dsse.FromBase64(sig.GetString()) is { } signature && ecdsa.VerifyHash(hash, signature, DSASignatureFormat.Rfc3279DerSequence);
         }
         catch (FormatException) { return false; }
     }

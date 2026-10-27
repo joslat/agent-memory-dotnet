@@ -468,18 +468,17 @@ internal static class Program
         [.. (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
     // The host's trust policy, with every signed revocation document --revocations names applied, in order (one per revoker,
-    // say). With --ledger (or a --store's ledger), a document older than the newest one this host applied from that revoker is
-    // refused, and so is going on without a list the host applied before: whatever the command, nothing is loaded rolled back.
+    // say). With --ledger (or a --store's ledger), what a list revokes is kept by the host, and what the host kept before is
+    // added: whatever the command and whatever lists a run is given, nothing revoked here comes back.
     private static TrustPolicy Policy(Options o)
     {
         var policy = TrustPolicy.Parse(File.ReadAllBytes(o.Required("policy")));
         var ledgerPath = LedgerPath(o);
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
         foreach (var revocations in o.Values("revocations"))
-            policy = Revocations.Apply(policy, PackReader.ReadArchiveFile(revocations), DateTimeOffset.UtcNow, ledger);
+            policy = Revocations.Apply(policy, PackReader.ReadArchiveFile(revocations, Revocations.DocumentLimits), DateTimeOffset.UtcNow, ledger);
         if (ledger is not null && o.Values("revocations").Count > 0) ledger.Save(ledgerPath!);
-        if (ledger is not null && PackVerifier.Withheld(ledger, policy, DateTimeOffset.UtcNow) is { } withheld) throw new InvalidDataException(withheld);
-        return policy;
+        return ledger is null ? policy : ledger.Apply(policy);
     }
 
     // The same, as the loader's trust.
@@ -487,9 +486,8 @@ internal static class Program
     {
         var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
         var ledger = LedgerPath(o) is { } path ? AgentMemory.Extensibility.Ampack.PackInstallLedger.Open(path) : null;
-        foreach (var revocations in o.Values("revocations")) trust = trust.WithRevocations(PackReader.ReadArchiveFile(revocations), ledger);
-        if (ledger?.Withheld(trust) is { } withheld) throw new InvalidDataException(withheld);
-        return trust;
+        foreach (var revocations in o.Values("revocations")) trust = trust.WithRevocations(PackReader.ReadArchiveFile(revocations, Revocations.DocumentLimits), ledger);
+        return ledger is null ? trust : ledger.WithKeptRevocations(trust);
     }
 
     private static string? LedgerPath(Options o) => o.Value("ledger") ?? (o.Value("store") is { } store ? Path.Combine(store, "ledger.json") : null);

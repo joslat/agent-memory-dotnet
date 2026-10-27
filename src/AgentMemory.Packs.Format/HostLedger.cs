@@ -13,22 +13,40 @@ internal sealed class HostLedger
     internal const string Format = "agentmemory.pack.ledger/1.1";
     private readonly Dictionary<string, (string Highest, Dictionary<string, string> Digests)> _packs = new(StringComparer.Ordinal);
 
-    private readonly Dictionary<string, (DateTimeOffset At, string Digest)> _revocations = new(StringComparer.Ordinal);
+    private readonly SortedSet<string> _revokedDigests = new(StringComparer.Ordinal);
+    private readonly SortedDictionary<string, DateTimeOffset?> _revokedKeys = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Per revoker key, when the newest revocation document it signed that this host applied was issued (red team 8, third
-    /// review): an older one from that key is refused, and while the key is trusted as revoker, verifying needs that list or
-    /// a newer one applied, so leaving the list out cannot roll the host back either.
+    /// Every revocation this host applied, kept for good (fifth review): a pack digest or a key once revoked here stays revoked
+    /// whatever list a later run is given, an older one, none, or one whose revoker has since expired or been revoked itself. A
+    /// list can only add. Verifying with the ledger applies them first.
     /// </summary>
-    internal IReadOnlyDictionary<string, (DateTimeOffset At, string Digest)> RevocationMarks => _revocations;
+    internal IReadOnlyCollection<string> RevokedDigests => _revokedDigests;
 
-    /// <summary>
-    /// Records an applied revocation document for a key that signed it: its issue time and its digest, so another list issued in
-    /// the same second (lists are written to the second) counts as older (fourth review). The ledger keeps the latest.
-    /// </summary>
-    internal void RecordRevocations(string revokerKeyId, DateTimeOffset issuedAt, string digest)
+    /// <summary>Keys this host revoked, with the earliest compromise time it learned (null: revoked outright).</summary>
+    internal IReadOnlyDictionary<string, DateTimeOffset?> RevokedKeys => _revokedKeys;
+
+    /// <summary>Keeps what a revocation document revoked.</summary>
+    internal void Record(IEnumerable<string> digests, IEnumerable<RevokedKey> keys)
     {
-        if (!_revocations.TryGetValue(revokerKeyId, out var seen) || issuedAt > seen.At) _revocations[revokerKeyId] = (issuedAt, digest);
+        foreach (var digest in digests) _revokedDigests.Add(digest);
+        foreach (var key in keys)
+            _revokedKeys[key.KeyId] = _revokedKeys.TryGetValue(key.KeyId, out var known) && (known is null || key.CompromisedAt is { } later && later > known)
+                ? known : key.CompromisedAt;
+    }
+
+    /// <summary>The policy with every revocation this host kept added to it.</summary>
+    internal TrustPolicy Apply(TrustPolicy policy)
+    {
+        if (_revokedDigests.Count == 0 && _revokedKeys.Count == 0) return policy;
+        var keys = policy.RevokedKeys.ToDictionary(k => k.KeyId, k => k.CompromisedAt, StringComparer.Ordinal);
+        foreach (var (keyId, at) in _revokedKeys)
+            keys[keyId] = keys.TryGetValue(keyId, out var known) && (known is null || at is { } later && later > known) ? known : at;
+        return policy with
+        {
+            RevokedDigests = [.. policy.RevokedDigests.Union(_revokedDigests, StringComparer.Ordinal)],
+            RevokedKeys = [.. keys.OrderBy(k => k.Key, StringComparer.Ordinal).Select(k => new RevokedKey(k.Key, k.Value))],
+        };
     }
 
     /// <summary>Why installing this pack must be refused, or null.</summary>
@@ -69,19 +87,31 @@ internal sealed class HostLedger
         if (!document.RootElement.TryGetProperty("format", out var format) || format.GetString() != Format)
             throw new InvalidDataException($"The ledger at {path} is not a '{Format}' file.");
         // A field this reader does not know (an older mark's spelling, say) refuses the ledger: dropping it would forget history.
-        if (document.RootElement.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => n is not ("format" or "packs" or "revocations")) is { } unknown)
+        if (document.RootElement.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => n is not ("format" or "packs" or "revoked")) is { } unknown)
             throw new InvalidDataException($"The ledger at {path} has a field this host does not know ('{unknown}'); it is not read rather than half read.");
         foreach (var pack in document.RootElement.GetProperty("packs").EnumerateObject())
         {
             var digests = pack.Value.GetProperty("versions").EnumerateObject().ToDictionary(v => v.Name, v => v.Value.GetString()!, StringComparer.Ordinal);
             ledger._packs[pack.Name] = (pack.Value.GetProperty("highest").GetString()!, digests);
         }
-        if (document.RootElement.TryGetProperty("revocations", out var marks))
-            foreach (var mark in marks.EnumerateObject())
-                ledger._revocations[mark.Name] = mark.Value.ValueKind == JsonValueKind.Object
-                    && mark.Value.TryGetProperty("issuedAt", out var issued) && issued.ValueKind == JsonValueKind.String && PackTime.TryParse(issued.GetString(), out var at)
-                    && mark.Value.TryGetProperty("digest", out var digest) && digest.ValueKind == JsonValueKind.String
-                    ? (at, digest.GetString()!) : throw new InvalidDataException($"The ledger at {path} has a malformed revocation mark.");
+        if (document.RootElement.TryGetProperty("revoked", out var revoked))
+        {
+            if (revoked.ValueKind != JsonValueKind.Object || !revoked.TryGetProperty("digests", out var digests) || digests.ValueKind != JsonValueKind.Array
+                || !revoked.TryGetProperty("keys", out var keys) || keys.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException($"The ledger at {path} has a malformed revoked section.");
+            foreach (var digest in digests.EnumerateArray())
+                ledger._revokedDigests.Add(digest.ValueKind == JsonValueKind.String ? digest.GetString()! : throw new InvalidDataException($"The ledger at {path} has a malformed revoked digest."));
+            foreach (var key in keys.EnumerateArray())
+            {
+                if (key.ValueKind != JsonValueKind.Object || !key.TryGetProperty("keyId", out var id) || id.ValueKind != JsonValueKind.String)
+                    throw new InvalidDataException($"The ledger at {path} has a malformed revoked key.");
+                DateTimeOffset? at = null;
+                if (key.TryGetProperty("compromisedAt", out var compromised))
+                    at = compromised.ValueKind == JsonValueKind.String && PackTime.TryParse(compromised.GetString(), out var time)
+                        ? time : throw new InvalidDataException($"The ledger at {path} has a malformed compromise time.");
+                ledger._revokedKeys[id.GetString()!] = at;
+            }
+        }
         return ledger;
     }
 
@@ -95,17 +125,17 @@ internal sealed class HostLedger
             packs[id] = new JsonObject { ["highest"] = highest, ["versions"] = versions };
         }
         var root = new JsonObject { ["format"] = Format, ["packs"] = packs };
-        if (_revocations.Count > 0)
-        {
-            var marks = new JsonObject();
-            // Full precision: a mark rounded down would let an older document issued in the same second through.
-            foreach (var (keyId, (at, digest)) in _revocations.OrderBy(m => m.Key, StringComparer.Ordinal))
-                marks[keyId] = new JsonObject
+        if (_revokedDigests.Count > 0 || _revokedKeys.Count > 0)
+            root["revoked"] = new JsonObject
+            {
+                ["digests"] = new JsonArray([.. _revokedDigests.Select(d => (JsonNode)d)]),
+                ["keys"] = new JsonArray([.. _revokedKeys.Select(k =>
                 {
-                    ["issuedAt"] = at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture), ["digest"] = digest,
-                };
-            root["revocations"] = marks;
-        }
+                    var key = new JsonObject { ["keyId"] = k.Key };
+                    if (k.Value is { } at) key["compromisedAt"] = at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+                    return (JsonNode)key;
+                })]),
+            };
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (directory is not null) Directory.CreateDirectory(directory);
         var temporary = path + ".tmp";

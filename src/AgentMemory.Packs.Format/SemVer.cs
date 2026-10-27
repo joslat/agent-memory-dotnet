@@ -6,9 +6,14 @@ namespace AgentMemory.Packs.Format;
 /// <summary>A SemVer 2.0.0 version. Precedence ignores build metadata, as the spec says; the host ledger does not (v1.1 H4).</summary>
 internal sealed partial record SemVer(long Major, long Minor, long Patch, string[] Prerelease, string Build) : IComparable<SemVer>
 {
+    /// <summary>Longest version read: a name, never a payload; the same bound in every verifier.</summary>
+    internal const int MaximumLength = 256;
+
     internal static bool TryParse(string text, out SemVer version)
     {
         version = null!;
+        // Bounded: a version is a name, not a payload (fifth review: a megabyte of prerelease identifiers).
+        if (text.Length > MaximumLength) return false;
         var match = Pattern().Match(text);
         if (!match.Success) return false;
         if (!long.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var major)

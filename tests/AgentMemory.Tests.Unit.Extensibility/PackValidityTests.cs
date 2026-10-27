@@ -10,8 +10,8 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 
 /// <summary>
 /// The second red team's host findings: a loaded pack stops being valid at the first of its own validUntil, its set's, the
-/// revocation list's expiry and its signing key's expiry, so a long-running host switches it off then; and an older signed
-/// revocation document cannot replace a newer one on a host with a ledger.
+/// revocation list's expiry and its signing key's expiry, so a long-running host switches it off then; and a host with a ledger
+/// keeps what it revoked, whatever list a later run is given.
 /// </summary>
 public sealed class PackValidityTests : IDisposable
 {
@@ -81,93 +81,82 @@ public sealed class PackValidityTests : IDisposable
     }
 
     [Fact]
-    public void An_older_revocation_document_than_the_newest_applied_is_refused_on_a_host_with_a_ledger()
+    public void What_a_host_revoked_stays_revoked_whatever_list_a_later_run_is_given()
     {
-        var ledger = PackInstallLedger.Open(Path.Combine(_root, "ledger.json"));
+        // Red team 8 and the third review: an older list, or none, must not roll the host back. Fifth review: the host keeps
+        // what it revoked, so nothing has to be given again and nothing can lock it out.
+        var path = Path.Combine(_root, "ledger.json");
+        var archive = Archive();
+        var digest = PackLoader.Load(archive, Trust()).Digest;
         var now = DateTimeOffset.UtcNow;
-        var newer = Revocations.Sign(["sha256:" + new string('a', 64)], [], now.AddMinutes(-1), now.AddDays(7), _revoker.PrivateKeyPem);
+        var revoking = Revocations.Sign([digest], [], now.AddMinutes(-1), now.AddDays(7), _revoker.PrivateKeyPem);
         var older = Revocations.Sign([], [], now.AddDays(-1), now.AddDays(7), _revoker.PrivateKeyPem);
-
-        Trust().WithRevocations(newer, ledger);
-        Trust().WithRevocations(newer, PackInstallLedger.Open(Path.Combine(_root, "ledger.json"))).Should().NotBeNull("the same document again is fine");
-
-        FluentActions.Invoking(() => Trust().WithRevocations(older, PackInstallLedger.Open(Path.Combine(_root, "ledger.json"))))
-            .Should().Throw<InvalidDataException>().WithMessage("*no later than the one this host applied*");
-        Trust().WithRevocations(older).Should().NotBeNull("without a ledger there is no history to hold it to");
-    }
-
-    [Fact]
-    public void A_host_that_applied_a_revocation_list_does_not_verify_without_it()
-    {
-        // Third review: leaving the list out rolled the host back as surely as an older list.
-        var path = Path.Combine(_root, "ledger.json");
-        var now = DateTimeOffset.UtcNow;
-        var list = Revocations.Sign([], [], now.AddMinutes(-1), now.AddDays(7), _revoker.PrivateKeyPem);
-        Trust().WithRevocations(list, PackInstallLedger.Open(path));
-
-        FluentActions.Invoking(() => PackLoader.Load(Archive(), Trust(), PackInstallLedger.Open(path)))
-            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("give that list or a newer one"));
-        PackLoader.Load(Archive(), Trust().WithRevocations(list), PackInstallLedger.Open(path)).Should().NotBeNull();
-        PackLoader.Load(Archive(), Trust()).Should().NotBeNull("a host without a ledger keeps no history");
-    }
-
-    [Fact]
-    public void Each_revoker_keeps_its_own_mark()
-    {
-        var second = PackKey.Create();
-        var path = Path.Combine(_root, "ledger.json");
-        var now = DateTimeOffset.UtcNow;
-        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(TrustJsonWithRevokers(second)));
-        var fromFirst = Revocations.Sign([], [], now.AddMinutes(-1), now.AddDays(7), _revoker.PrivateKeyPem);
-        var fromSecondEarlier = Revocations.Sign([], [], now.AddMinutes(-2), now.AddDays(7), second.PrivateKeyPem);
-
-        trust.WithRevocations(fromFirst, PackInstallLedger.Open(path));
-        // Issued before the first revoker's list, by the other revoker: its own history, so it applies.
-        trust.WithRevocations(fromSecondEarlier, PackInstallLedger.Open(path)).Should().NotBeNull();
-    }
-
-    [Fact]
-    public void Another_list_in_the_same_second_counts_as_older()
-    {
-        // Fourth review: lists are written to the second, so a full-precision mark alone let a second list of that second through.
-        var path = Path.Combine(_root, "ledger.json");
-        var second = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds());
-        var revoking = Revocations.Sign(["sha256:" + new string('c', 64)], [], second, second.AddDays(7), _revoker.PrivateKeyPem);
-        var forgetting = Revocations.Sign([], [], second, second.AddDays(7), _revoker.PrivateKeyPem);
         Trust().WithRevocations(revoking, PackInstallLedger.Open(path));
 
-        Trust().WithRevocations(revoking, PackInstallLedger.Open(path)).Should().NotBeNull("the same list again");
-        FluentActions.Invoking(() => Trust().WithRevocations(forgetting, PackInstallLedger.Open(path))).Should().Throw<InvalidDataException>();
+        Revoked(() => PackLoader.Load(archive, Trust().WithRevocations(older, PackInstallLedger.Open(path)), PackInstallLedger.Open(path)));
+        Revoked(() => PackLoader.Load(archive, Trust(), PackInstallLedger.Open(path)));
+        Revoked(() => PackLoader.Load(archive, PackInstallLedger.Open(path).WithKeptRevocations(Trust())));
+        PackLoader.Load(archive, Trust()).Should().NotBeNull("a host without a ledger keeps no history");
     }
 
     [Fact]
-    public void Revocation_marks_never_lock_a_host_out()
+    public void A_revocation_outlives_its_revoker()
     {
+        // Fifth review: once the revoker's key was itself revoked, or expired, everything it revoked lapsed.
         var second = PackKey.Create();
+        var path = Path.Combine(_root, "ledger.json");
+        var archive = Archive();
         var now = DateTimeOffset.UtcNow;
         var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(TrustJsonWithRevokers(second)));
-        var current = Revocations.Sign([], [], now.AddMinutes(-1), now.AddDays(7), _revoker.PrivateKeyPem);
-
-        // (a) An old, expired list from the other revoker, replayed: it leaves no mark.
-        var path = Path.Combine(_root, "a.json");
-        trust.WithRevocations(current, PackInstallLedger.Open(path));
-        var expired = Revocations.Sign([], [], now.AddDays(-30), now.AddDays(-20), second.PrivateKeyPem);
-        trust.WithRevocations(expired, PackInstallLedger.Open(path));
-        PackInstallLedger.Open(path).Withheld(trust.WithRevocations(current)).Should().BeNull();
-
-        // (b) A revoker revoked since asks for nothing: the other revoker revokes the first.
-        path = Path.Combine(_root, "b.json");
-        trust.WithRevocations(current, PackInstallLedger.Open(path));
+        var revoking = Revocations.Sign([PackLoader.Load(archive, trust).Digest], [], now.AddMinutes(-2), now.AddDays(7), _revoker.PrivateKeyPem);
+        trust.WithRevocations(revoking, PackInstallLedger.Open(path));
         var revokesFirst = Revocations.Sign([], [new RevokedKey(_revoker.KeyId, null)], now.AddMinutes(-1), now.AddDays(7), second.PrivateKeyPem);
-        PackInstallLedger.Open(path).Withheld(trust.WithRevocations(revokesFirst)).Should().BeNull();
+        var afterwards = trust.WithRevocations(revokesFirst, PackInstallLedger.Open(path));
 
-        // (c) One list signed by both, its signatures reordered: both marks are kept, and the same list meets both.
-        path = Path.Combine(_root, "c.json");
-        var both = CoSigned(current, second);
-        trust.WithRevocations(both, PackInstallLedger.Open(path));
-        PackInstallLedger.Open(path).Withheld(trust.WithRevocations(Reversed(both))).Should().BeNull();
-        PackInstallLedger.Open(path).Withheld(trust).Should().NotBeNull("without the list a host that applied it is held back");
+        FluentActions.Invoking(() => afterwards.WithRevocations(revoking)).Should().Throw<InvalidDataException>("its revoker is revoked now");
+        Revoked(() => PackLoader.Load(archive, afterwards, PackInstallLedger.Open(path)));
+        Revoked(() => PackLoader.Load(archive, trust, PackInstallLedger.Open(path)));
     }
+
+    [Fact]
+    public void Co_signed_and_older_lists_never_lock_a_host_out()
+    {
+        // Fifth review: a mark per co-signer refused the co-signed list once one signer issued a newer list alone, and the
+        // newer list alone was held back for the other signer's mark.
+        var second = PackKey.Create();
+        var path = Path.Combine(_root, "ledger.json");
+        var now = DateTimeOffset.UtcNow;
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(TrustJsonWithRevokers(second)));
+        var both = CoSigned(Revocations.Sign([], [], now.AddMinutes(-20), now.AddDays(7), _revoker.PrivateKeyPem), second);
+        var firstAlone = Revocations.Sign([], [], now.AddMinutes(-1), now.AddDays(7), _revoker.PrivateKeyPem);
+        trust.WithRevocations(both, PackInstallLedger.Open(path));
+        trust.WithRevocations(both, PackInstallLedger.Open(path)).WithRevocations(firstAlone, PackInstallLedger.Open(path));
+
+        var archive = Archive();
+        PackLoader.Load(archive, trust.WithRevocations(both, PackInstallLedger.Open(path)), PackInstallLedger.Open(path)).Should().NotBeNull();
+        PackLoader.Load(archive, trust.WithRevocations(firstAlone, PackInstallLedger.Open(path)), PackInstallLedger.Open(path)).Should().NotBeNull();
+        PackLoader.Load(archive, trust.WithRevocations(Reversed(both)), PackInstallLedger.Open(path)).Should().NotBeNull();
+        PackLoader.Load(archive, trust, PackInstallLedger.Open(path)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void A_list_from_the_same_second_or_an_expired_one_removes_nothing()
+    {
+        var path = Path.Combine(_root, "ledger.json");
+        var archive = Archive();
+        var digest = PackLoader.Load(archive, Trust()).Digest;
+        var second = Second(DateTimeOffset.UtcNow.AddMinutes(-1));
+        Trust().WithRevocations(Revocations.Sign([digest], [], second, second.AddDays(7), _revoker.PrivateKeyPem), PackInstallLedger.Open(path));
+
+        var forgetting = Revocations.Sign([], [], second, second.AddDays(7), _revoker.PrivateKeyPem);
+        Revoked(() => PackLoader.Load(archive, Trust().WithRevocations(forgetting, PackInstallLedger.Open(path)), PackInstallLedger.Open(path)));
+        var expired = Revocations.Sign([], [], second.AddDays(-30), second.AddDays(-20), _revoker.PrivateKeyPem);
+        Trust().WithRevocations(expired, PackInstallLedger.Open(path));
+        Revoked(() => PackLoader.Load(archive, Trust(), PackInstallLedger.Open(path)));
+    }
+
+    private static void Revoked(Func<object> load) =>
+        FluentActions.Invoking(load).Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("is revoked"));
 
     // A revocation document signed again by another revoker: the same payload, a second signature entry.
     private static byte[] CoSigned(byte[] document, PackKey other)

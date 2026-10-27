@@ -26,8 +26,6 @@ internal sealed record TrustPolicy
     internal IReadOnlyList<RevokedKey> RevokedKeys { get; init; } = [];
     /// <summary>When the revocation information goes stale; after it, nothing verifies until the host refreshes it.</summary>
     internal DateTimeOffset? RevocationsExpire { get; init; }
-    /// <summary>Per revoker key, the newest revocation document applied to this policy (<see cref="Revocations.Apply"/>).</summary>
-    internal IReadOnlyDictionary<string, (DateTimeOffset At, string Digest)> RevocationsApplied { get; init; } = new Dictionary<string, (DateTimeOffset, string)>();
     internal IReadOnlyList<string> RequiredRoles { get; init; } = ["publisher"];
 
     internal TrustedKey? Find(string keyId) => Keys.FirstOrDefault(k => k.KeyId == keyId);
