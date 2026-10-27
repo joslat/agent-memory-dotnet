@@ -103,6 +103,8 @@ public sealed class OnboardingTests
         accepted.Source.Excerpt.Should().Contain("Accepted by jose").And.Contain("model:test").And.Contain("docs/vision.md:3-3");
         accepted.Source.Pack!.File.Should().Be("docs/vision.md");
         merged.Problems().Should().BeEmpty("an accepted proposal is a record the pack takes");
+        accepted.Properties["source"].GetString().Should().StartWith("docs/vision.md:3 (accepted by jose on").And.Contain("confidence 0.80",
+            "the store keeps a record's file and line as its excerpt, so who accepted it travels in its own source property");
         FluentActions.Invoking(() => ModuleReview.Merge(Deterministic(), set with { Module = "io.example.other" }, out _)).Should().Throw<ArgumentException>();
     }
 

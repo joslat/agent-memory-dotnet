@@ -20,6 +20,8 @@ public sealed class DecisionsPack : IAgentMemoryModule
     public const string Type = "DecisionsDecision";
     /// <summary>The search view recall uses.</summary>
     public const string RelevantView = "relevant";
+    /// <summary>A decision replaces another (CP-acceptance: read from "Supersedes" and "Superseded by" in ADRs).</summary>
+    public const string Supersedes = "DECISIONS_SUPERSEDES";
 
     private static readonly Lazy<ModuleManifest> Metadata = new(() => ModuleManifest.Load(typeof(DecisionsPack).Assembly));
 

@@ -215,9 +215,20 @@ public static class ModuleReview
         {
             if (!held.Add((item.Type, item.Key))) { clashes.Add($"{item.Type}:{item.Key}"); continue; }
             var first = item.Evidence[0];
+            // The store keeps a record's file and line as its excerpt; who accepted it travels in its own source property.
+            var properties = item.Properties;
+            if (deterministic.Module.Ontology?.Types.FirstOrDefault(t => t.Name == item.Type)?.Properties.GetValueOrDefault("source") is { Type: "string" } rule)
+            {
+                var source = $"{first.File}:{first.Line} ({(item.State == ReviewState.Edited ? "edited and accepted" : "accepted")} by {item.ReviewedBy} on {item.ReviewedAt:yyyy-MM-dd}; " +
+                    $"proposed by {item.ProposedBy}, confidence {item.Confidence.ToString("0.00", CultureInfo.InvariantCulture)})";
+                properties = new Dictionary<string, JsonElement>(item.Properties, StringComparer.Ordinal)
+                {
+                    ["source"] = JsonSerializer.SerializeToElement(rule.MaxLength is { } max && source.Length > max ? source[..max] : source),
+                }.AsReadOnly();
+            }
             records.Add(new ModuleProposal
             {
-                Type = item.Type, Key = item.Key, Properties = item.Properties,
+                Type = item.Type, Key = item.Key, Properties = properties,
                 Source = new ProposalSource
                 {
                     Excerpt = Clip($"{(item.State == ReviewState.Edited ? "Edited and accepted" : "Accepted")} by {item.ReviewedBy} on {item.ReviewedAt:yyyy-MM-dd}; proposed by {item.ProposedBy} " +

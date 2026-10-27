@@ -133,4 +133,30 @@ public sealed class DecisionsPackTests : IDisposable
         DecisionsPack.Manifest.Traversal!.Anchors.Select(a => (a.Property, a.Kind)).Should().Equal(
             ("appliesTo", ContextAnchorKind.Path), ("mentions", ContextAnchorKind.Symbol));
     }
+
+    [Fact]
+    public void A_decision_that_supersedes_another_links_to_it_and_the_older_one_reads_as_superseded()
+    {
+        // CP-acceptance: the manifest declared DECISIONS_SUPERSEDES; the reader now writes it, from either side.
+        var folder = Path.Combine(_root, "supersession");
+        Directory.CreateDirectory(Path.Combine(folder, "docs", "adr", "archive"));
+        string Adr(string status, string title, string extra = "") =>
+            $"# {title}\n\n## Status\n\n{status}\n\n## Context\n\nWhy.\n\n## Decision\n\nWe use src/Store.cs for this.{extra}\n";
+        File.WriteAllText(Path.Combine(folder, "docs", "adr", "0001-cache-per-owner.md"), Adr("Accepted", "1. Cache per owner"));
+        File.WriteAllText(Path.Combine(folder, "docs", "adr", "0002-cache-per-store.md"), Adr("Accepted", "2. Cache per store", "\n\nSupersedes ADR-0001."));
+        File.WriteAllText(Path.Combine(folder, "docs", "adr", "archive", "0003-old-index.md"), Adr("Superseded by [the new index](../0004-new-index.md)", "3. Old index"));
+        File.WriteAllText(Path.Combine(folder, "docs", "adr", "0004-new-index.md"), Adr("Accepted", "4. New index"));
+        File.WriteAllText(Path.Combine(folder, "docs", "adr", "0005-unrelated.md"), Adr("Accepted", "5. Unrelated", "\n\nSupersedes ADR-0099, which this repository never had."));
+        string[] files = ["docs/adr/0001-cache-per-owner.md", "docs/adr/0002-cache-per-store.md", "docs/adr/archive/0003-old-index.md", "docs/adr/0004-new-index.md", "docs/adr/0005-unrelated.md"];
+
+        var snapshot = DecisionsReader.Read(folder, files, CodeIndex.Scan(folder, ["src/Store.cs"]), "git:abc");
+
+        snapshot.Problems().Should().BeEmpty();
+        var byKey = snapshot.Records.ToDictionary(r => r.Key);
+        byKey["docs/adr/0002-cache-per-store.md#decision"].Links.Should().ContainSingle(l => l.Relation == DecisionsPack.Supersedes && l.Target == "docs/adr/0001-cache-per-owner.md#decision");
+        byKey["docs/adr/0004-new-index.md#decision"].Links.Should().ContainSingle(l => l.Relation == DecisionsPack.Supersedes && l.Target == "docs/adr/archive/0003-old-index.md#decision");
+        byKey["docs/adr/0001-cache-per-owner.md#decision"].Properties["status"].GetString().Should().Be("superseded", "a later decision replaced it, whatever its file still says");
+        byKey["docs/adr/0001-cache-per-owner.md#decision"].Properties.Should().NotContainKey("appliesTo");
+        byKey["docs/adr/0005-unrelated.md#decision"].Links.Should().BeEmpty("a reference to nothing this read holds is left alone");
+    }
 }

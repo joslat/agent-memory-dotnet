@@ -84,19 +84,87 @@ public static partial class DecisionsReader
     /// <summary>The decisions in the given Markdown files under <paramref name="root"/>, as a snapshot taken from <paramref name="source"/>.</summary>
     public static ModuleSnapshot Read(string root, IReadOnlyList<string> markdownFiles, CodeIndex code, string source)
     {
-        var records = new List<ModuleProposal>();
+        var records = new List<(Decision Decision, ModuleProposal Record)>();
         foreach (var file in markdownFiles)
         {
             var text = File.ReadAllText(Path.Combine(root, file)).Replace("\r\n", "\n", StringComparison.Ordinal);
             var found = file.EndsWith(".squad/decisions.md", StringComparison.OrdinalIgnoreCase) || file.Equals(".squad/decisions.md", StringComparison.OrdinalIgnoreCase)
                 ? SquadEntries(text, file) : [Adr(text, file)];
             foreach (var decision in found.OfType<Decision>())
-                records.Add(Record(decision, code));
+                records.Add((decision, Record(decision, code)));
         }
         // Keys repeat when two entries share a heading: keep the first, as Markdown readers do.
-        var unique = records.GroupBy(r => r.Key, StringComparer.Ordinal).Select(g => g.First()).ToList();
-        return new ModuleSnapshot { Module = DecisionsPack.Manifest, Source = source, Records = unique.AsReadOnly() };
+        var unique = records.GroupBy(r => r.Record.Key, StringComparer.Ordinal).Select(g => g.First()).ToList();
+        return new ModuleSnapshot { Module = DecisionsPack.Manifest, Source = source, Records = Supersessions(unique) };
     }
+
+    /// <summary>
+    /// ADR supersession as links (CP-acceptance): "Supersedes ADR-2", or a link to the older file, in the newer decision, or
+    /// "Superseded by …" in the older one, becomes a <c>DECISIONS_SUPERSEDES</c> link from the newer to the older; the older then
+    /// reads as superseded and applies to nothing, whatever its own file still says. A reference to nothing this read holds is
+    /// left alone.
+    /// </summary>
+    internal static IReadOnlyList<ModuleProposal> Supersessions(IReadOnlyList<(Decision Decision, ModuleProposal Record)> found)
+    {
+        var byFile = found.Where(f => f.Decision.Anchor.Length == 0).GroupBy(f => f.Decision.File, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Record.Key, StringComparer.OrdinalIgnoreCase);
+        var byNumber = new Dictionary<int, string>();
+        foreach (var (file, key) in byFile.OrderBy(f => f.Key, StringComparer.Ordinal))
+            if (AdrFile().Match(Path.GetFileName(file)) is { Success: true } m && int.TryParse(m.Groups["n"].Value, System.Globalization.CultureInfo.InvariantCulture, out var n))
+                byNumber.TryAdd(n, key);
+        string? Resolve(string from, string reference)
+        {
+            if (MarkdownTarget().Match(reference) is { Success: true } link)
+            {
+                var folder = Path.GetDirectoryName(from)?.Replace('\\', '/') ?? "";
+                var parts = new List<string>();
+                foreach (var part in CodeIndex.Normalize(folder.Length == 0 ? link.Groups["path"].Value : folder + "/" + link.Groups["path"].Value).Split('/'))
+                    if (part == "..") { if (parts.Count > 0) parts.RemoveAt(parts.Count - 1); }
+                    else if (part is not ("." or "")) parts.Add(part);
+                if (byFile.TryGetValue(string.Join('/', parts), out var linked)) return linked;
+            }
+            return AdrReference().Match(reference) is { Success: true } number
+                && int.TryParse(number.Groups["n"].Value, System.Globalization.CultureInfo.InvariantCulture, out var n) && byNumber.TryGetValue(n, out var numbered) ? numbered : null;
+        }
+        var supersedes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (decision, record) in found.Where(f => f.Decision.Anchor.Length == 0))
+            foreach (var line in decision.Body.Split('\n'))
+            {
+                if (SupersedesLine().Match(line) is { Success: true } newer && Resolve(decision.File, newer.Groups["rest"].Value) is { } older && older != record.Key)
+                    supersedes.TryAdd(record.Key, older);
+                if (SupersededByLine().Match(line) is { Success: true } by && Resolve(decision.File, by.Groups["rest"].Value) is { } successor && successor != record.Key)
+                    supersedes.TryAdd(successor, record.Key);
+            }
+        var superseded = supersedes.Values.ToHashSet(StringComparer.Ordinal);
+        return [.. found.Select(f =>
+        {
+            var record = f.Record;
+            if (supersedes.TryGetValue(record.Key, out var target))
+                record = record with { Links = [.. record.Links, new ProposedLink { Relation = DecisionsPack.Supersedes, Target = target }] };
+            if (superseded.Contains(record.Key))
+            {
+                var properties = record.Properties.Where(p => p.Key is not ("appliesTo" or "mentions")).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+                properties["status"] = JsonSerializer.SerializeToElement("superseded");
+                record = record with { Properties = properties.AsReadOnly() };
+            }
+            return record;
+        })];
+    }
+
+    [GeneratedRegex(@"^(?:adr-?)?(?<n>\d{1,4})[-_]", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex AdrFile();
+
+    [GeneratedRegex(@"\]\((?<path>[^)#\s]+\.md)", RegexOptions.CultureInvariant)]
+    private static partial Regex MarkdownTarget();
+
+    [GeneratedRegex(@"(?:\b(?:ADR|MADR)[-\s#]*|#)0*(?<n>\d{1,4})\b|\b0*(?<n>\d{1,4})-[a-z]", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex AdrReference();
+
+    [GeneratedRegex(@"\bsupersedes\b(?<rest>.*)$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex SupersedesLine();
+
+    [GeneratedRegex(@"\bsuperseded\s+by\b(?<rest>.*)$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex SupersededByLine();
 
     internal sealed record Decision(string File, int Line, string Anchor, string Title, string Status, string? Date, string? By,
         string? Context, string DecisionText, string? Consequences, string Body);
