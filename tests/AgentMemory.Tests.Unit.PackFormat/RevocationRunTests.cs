@@ -58,8 +58,15 @@ public sealed class RevocationRunTests : IDisposable
             .Should().BeFalse("a newer list from any revoker renews the host");
 
         var retired = HostLedger.Load(LedgerPath);
+        var stillHolding = HostLedger.Load(LedgerPath);
         retired.RetireRevocationLists();
-        Stale(VerifyAt(Now.AddDays(5), Policy(), retired)).Should().BeFalse("a host that stops using lists forgets their freshness");
+        retired.Save(LedgerPath);
+        Stale(VerifyAt(Now.AddDays(5), Policy(), HostLedger.Load(LedgerPath))).Should().BeFalse("a host that stops using lists forgets their freshness, saved");
+        stillHolding.Save(LedgerPath);
+        Stale(VerifyAt(Now.AddDays(5), Policy(), HostLedger.Load(LedgerPath))).Should().BeFalse("a run that still held the old mark does not bring it back");
+        var replayed = HostLedger.Load(LedgerPath);
+        Revocations.ApplyAll(Policy(), [newest], Now, replayed, out _);
+        replayed.Freshness.Should().BeNull("a list issued before the retirement does not re-establish freshness");
     }
 
     [Fact]
@@ -74,14 +81,13 @@ public sealed class RevocationRunTests : IDisposable
         var fromRevoked = List(_first, Now.AddMinutes(-5), Now.AddDays(7), digests: [digest]);
         var policy = Revocations.ApplyAll(Policy(), [fromRevoked], Now, next, out var notApplied);
 
-        notApplied.Should().ContainSingle().Which.Should().Contain("not applied");
-        policy.RevokedDigests.Should().NotContain(digest);
-        next.RevokedDigests.Should().NotContain(digest, "nothing it said is kept");
-        FluentActions.Invoking(() => Revocations.Apply(Policy(), fromRevoked, Now, HostLedger.Load(LedgerPath))).Should().Throw<InvalidDataException>();
+        notApplied.Should().ContainSingle().Which.Should().Contain("this run only");
+        policy.RevokedDigests.Should().Contain(digest, "within the run it still denies: fail closed");
+        next.RevokedDigests.Should().NotContain(digest, "nothing a revoked revoker says is kept");
     }
 
     [Fact]
-    public void Within_one_run_a_list_whose_signer_another_revokes_does_not_count_whatever_the_order()
+    public void Within_one_run_a_list_whose_signer_another_revokes_only_denies_whatever_the_order()
     {
         var digest = "sha256:" + new string('d', 64);
         var fromFirst = List(_first, Now.AddMinutes(-5), Now.AddDays(7), digests: [digest]);
@@ -89,11 +95,24 @@ public sealed class RevocationRunTests : IDisposable
 
         foreach (var lists in new[] { new[] { fromFirst, revokesFirst }, [revokesFirst, fromFirst] })
         {
-            var policy = Revocations.ApplyAll(Policy(), lists, Now, null, out var notApplied);
-            policy.RevokedDigests.Should().NotContain(digest);
+            var ledger = HostLedger.Load(Path.Combine(_root, $"order-{lists[0].Length}.json"));
+            var policy = Revocations.ApplyAll(Policy(), lists, Now, ledger, out var notApplied);
+            policy.RevokedDigests.Should().Contain(digest, "a rotated revoker's list still denies for the run (seventh review)");
             policy.RevokedKeys.Should().Contain(k => k.KeyId == _first.KeyId);
+            ledger.RevokedDigests.Should().NotContain(digest, "and is not kept");
             notApplied.Should().ContainSingle();
         }
+    }
+
+    [Fact]
+    public void A_list_never_extends_a_policy_s_own_expiry_however_the_policy_was_made()
+    {
+        // Seventh review: a policy built in code with only RevocationsExpire had it extended by a list.
+        var policy = Policy() with { RevocationsExpire = Now.AddHours(1) };
+
+        var applied = Revocations.ApplyAll(policy, [List(_first, Now.AddMinutes(-1), Now.AddDays(30)), List(_second, Now, Now.AddDays(30))], Now, null, out _);
+
+        applied.RevocationsExpire.Should().Be(Now.AddHours(1));
     }
 
     [Fact]

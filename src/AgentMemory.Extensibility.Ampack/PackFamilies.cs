@@ -172,10 +172,10 @@ public static class PackFamilies
         foreach (var (id, files) in members.OrderBy(m => m.Key, StringComparer.Ordinal))
         {
             var memberContent = new PackContent(files, content.Source + "#" + id);
-            if (verifications[id].Pack!.Manifest.Kind == "composite") composites[id] = OpenComposite(memberContent, trust, ledger);
+            if (verifications[id].Pack!.Manifest.Kind == "composite") composites[id] = OpenComposite(memberContent, trust, ledger, allowDowngrade);
             else
             {
-                var pack = PackLoader.Load(memberContent, trust, ledger, allowDowngrade: false);
+                var pack = PackLoader.Load(memberContent, trust, ledger, allowDowngrade);
                 packs[id] = pack with { ValidUntil = PackLoader.Earliest([pack.ValidUntil, setValidUntil]) };
             }
         }
@@ -247,10 +247,10 @@ public static class PackFamilies
 
     private sealed record Opened(VerifiedPack Pack, CompositeManifest Manifest, IReadOnlyList<LockEntry> Lock);
 
-    private static Opened OpenComposite(PackContent content, PackTrust trust, PackInstallLedger? ledger)
+    private static Opened OpenComposite(PackContent content, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade = false)
     {
         ArgumentNullException.ThrowIfNull(trust);
-        var verification = PackVerifier.Verify(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger);
+        var verification = PackVerifier.Verify(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger, allowDowngrade);
         if (verification.Pack is not { } pack) throw new PackLoadException(verification.Problems);
         if (pack.Manifest.Kind != "composite") throw new PackLoadException([$"{pack.Id} is a {pack.Manifest.Kind} pack, not a composite."]);
         CompositeManifest manifest;

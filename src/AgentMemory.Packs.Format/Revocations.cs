@@ -68,9 +68,7 @@ internal static partial class Revocations
     /// revoked, or issued in the future.</exception>
     internal static TrustPolicy Apply(TrustPolicy policy, ReadOnlySpan<byte> envelopeBytes, DateTimeOffset now, HostLedger? ledger = null)
     {
-        var applied = ApplyAll(policy, [envelopeBytes.ToArray()], now, ledger, out var withdrawn);
-        if (withdrawn.Count > 0) throw Bad("is not signed by a key the trust policy names as revoker and that is valid now and not revoked");
-        return applied;
+        return ApplyAll(policy, [envelopeBytes.ToArray()], now, ledger, out _);
     }
 
     /// <summary>
@@ -78,10 +76,14 @@ internal static partial class Revocations
     /// the host revoked before is applied first, so a revoker revoked in an earlier run signs nothing now (sixth review).
     /// </summary>
     /// <remarks>
-    /// <para>A list counts only through a signer nobody revoked: not the policy, not this host before, not another list applied
-    /// now. One signed only by revoked revokers is not applied and is named in <paramref name="withdrawn"/>; a feed that still
-    /// carries a retired revoker's old lists keeps working. When lists revoke each other's signers and none of them is beyond
-    /// doubt, nothing is applied: the operator decides which revoker to believe.</para>
+    /// <para>Fail closed within a run, authority only from live revokers (seventh review). Every authentic list from a key the
+    /// policy names as revoker, live or not, adds its revocations of packs and of non-revoker keys for this run: they can only
+    /// deny, and a revoker could deny while it was live. Only a list with a live signer (valid now, revoked by nobody: not the
+    /// policy, not this host before, not another such list now) also revokes revoker keys, sets freshness and is kept by the
+    /// ledger. Without trusted timestamps a list's issue time is its signer's claim, so a revoked revoker's lists carry no
+    /// authority at any date; when a revoker is rotated out, its successor re-issues what it revoked (carry-forward). A list from
+    /// a revoker that is not live is named in <paramref name="withdrawn"/>. When lists revoke each other's signers and none is
+    /// beyond doubt, nothing is applied: the operator decides which revoker to believe.</para>
     /// <para>Freshness is the newest list's: an older list adds its revocations but never its expiry, and with a ledger the
     /// newest list ever applied sets it, so leaving lists out, or giving only older ones, cannot keep a host fresh past the
     /// newest list's expiry (sixth review). Lists issued in the same second keep the earlier expiry.</para>
@@ -108,7 +110,7 @@ internal static partial class Revocations
                 if (state[i] != 0) continue;
                 bool RevokedBy(string signer, Func<int, bool> which) =>
                     Enumerable.Range(0, read.Count).Any(j => j != i && which(j) && read[j].Keys.Any(k => k.KeyId == signer));
-                var live = read[i].Signers.Where(s => !revokedBefore.Contains(s)).ToList();
+                var live = read[i].Signers.Where(s => !revokedBefore.Contains(s) && ValidNow(policy, s, now)).ToList();
                 if (live.Any(s => !RevokedBy(s, j => state[j] != 2))) { state[i] = 1; changed = true; }
                 else if (live.All(s => RevokedBy(s, j => state[j] == 1))) { state[i] = 2; changed = true; }
             }
@@ -116,17 +118,19 @@ internal static partial class Revocations
         if (state.Contains(0)) throw Bad("set given in this run revokes its own signers in a circle; give only the lists of the revokers you still trust");
 
         var notes = new List<string>();
+        var revokers = policy.Keys.Where(k => k.Roles.Contains(Role)).Select(k => k.KeyId).ToHashSet(StringComparer.Ordinal);
         for (var i = 0; i < read.Count; i++)
         {
             var document = read[i];
-            if (state[i] == 2)
-            {
-                notes.Add($"The revocation list issued at {document.IssuedAt:u} was not applied: every key that signed it is revoked ({string.Join(", ", document.Signers.Select(Dsse.Short))}).");
-                continue;
-            }
+            var counts = state[i] == 1;
+            // A list without a live signer still denies what it names, for this run; it never decides about a revoker.
+            var keys = counts ? document.Keys : [.. document.Keys.Where(k => !revokers.Contains(k.KeyId))];
+            if (!counts)
+                notes.Add($"The revocation list issued at {document.IssuedAt:u} has no live signer ({string.Join(", ", document.Signers.Select(Dsse.Short))}): "
+                    + "its revocations of packs and keys hold for this run only; its revocations of revokers and its freshness do not count.");
             // Added, never removed: a key revoked outright stays revoked; of two compromise times the earlier holds.
             var merged = policy.RevokedKeys.ToDictionary(k => k.KeyId, StringComparer.Ordinal);
-            foreach (var key in document.Keys)
+            foreach (var key in keys)
                 merged[key.KeyId] = merged.TryGetValue(key.KeyId, out var known) && (known.CompromisedAt is null || key.CompromisedAt is { } later && later > known.CompromisedAt)
                     ? known : key;
             policy = policy with
@@ -134,6 +138,7 @@ internal static partial class Revocations
                 RevokedDigests = [.. policy.RevokedDigests.Union(document.Digests, StringComparer.Ordinal)],
                 RevokedKeys = [.. merged.Values.OrderBy(k => k.KeyId, StringComparer.Ordinal)],
             };
+            if (!counts) continue;
             policy = Fresher(policy, document.IssuedAt, document.Expires);
             // Kept by the host for good. An expired list leaves no freshness mark: replaying one must not hold a host back.
             ledger?.Record(document.Digests, document.Keys);
@@ -147,13 +152,19 @@ internal static partial class Revocations
     internal static TrustPolicy Fresher(TrustPolicy policy, DateTimeOffset issuedAt, DateTimeOffset expires)
     {
         if (policy.RevocationsIssued is { } newest && issuedAt < newest) return policy;
+        // Before any list, the policy's expiry is its own; the cap is taken from it then, so one set in code is kept too.
+        var cap = policy.RevocationsIssued is null ? policy.RevocationsExpire : policy.StaticRevocationsExpire;
         var listExpiry = policy.RevocationsIssued == issuedAt && policy.RevocationsExpire is { } same && same < expires ? same : expires;
         return policy with
         {
-            RevocationsIssued = issuedAt,
-            RevocationsExpire = policy.StaticRevocationsExpire is { } fixedExpiry && fixedExpiry < listExpiry ? fixedExpiry : listExpiry,
+            RevocationsIssued = issuedAt, StaticRevocationsExpire = cap,
+            RevocationsExpire = cap is { } fixedExpiry && fixedExpiry < listExpiry ? fixedExpiry : listExpiry,
         };
     }
+
+    // A revoker key within its window now; one outside it signs authentic lists without authority.
+    private static bool ValidNow(TrustPolicy policy, string keyId, DateTimeOffset now) =>
+        policy.Find(keyId) is { } key && !(key.NotBefore is { } from && now < from || key.NotAfter is { } until && now > until);
 
     private sealed record Document(IReadOnlyList<string> Signers, DateTimeOffset IssuedAt, DateTimeOffset Expires, IReadOnlyList<string> Digests, IReadOnlyList<RevokedKey> Keys);
 
@@ -177,8 +188,8 @@ internal static partial class Revocations
         if (signatures.GetArrayLength() > Dsse.MaximumSignatures) throw Bad($"holds more than {Dsse.MaximumSignatures} signatures");
         // Hashed once, and at most MaximumSignatures entries tried (fifth review).
         var hash = SHA256.HashData(Dsse.Pae(PayloadType, payload));
-        var signers = signatures.EnumerateArray().Select(s => Signer(policy, s, hash, now)).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-        if (signers.Count == 0) throw Bad("is not signed by a key the trust policy names as revoker and that is valid now");
+        var signers = signatures.EnumerateArray().Select(s => Signer(policy, s, hash)).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        if (signers.Count == 0) throw Bad("is not signed by a key the trust policy names as revoker");
 
         if (PackJson.Check(payload) is { } payloadProblem) throw Bad($"has a payload that {payloadProblem}");
         using var document = JsonDocument.Parse(payload);
@@ -217,15 +228,14 @@ internal static partial class Revocations
         return new Document(signers, issuedAt, expires, digests, keys);
     }
 
-    // The key id of one signature entry by a key the policy trusts as revoker and that is valid now, when it verifies the hash
-    // in strict DER; whether that key is revoked is decided for the whole run (ApplyAll).
-    private static string? Signer(TrustPolicy policy, JsonElement entry, byte[] hash, DateTimeOffset now)
+    // The key id of one signature entry by a key the policy names as revoker, when it verifies the hash in strict DER; whether
+    // that key is live (valid now, revoked by nobody) is decided for the whole run (ApplyAll).
+    private static string? Signer(TrustPolicy policy, JsonElement entry, byte[] hash)
     {
         if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("keyid", out var keyId) || keyId.ValueKind != JsonValueKind.String
             || !entry.TryGetProperty("sig", out var sig) || sig.ValueKind != JsonValueKind.String)
             return null;
         if (policy.Find(keyId.GetString()!) is not { } key || !key.Roles.Contains(Role)) return null;
-        if (key.NotBefore is { } from && now < from || key.NotAfter is { } until && now > until) return null;
         try
         {
             using var ecdsa = ECDsa.Create();

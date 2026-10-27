@@ -70,14 +70,26 @@ public sealed class RevocationTests
     }
 
     [Fact]
-    public void A_document_not_signed_by_a_trusted_revoker_valid_now_is_refused()
+    public void A_document_not_signed_by_a_revoker_is_refused_and_one_from_a_revoker_that_is_not_live_only_denies()
     {
         FluentActions.Invoking(() => Revocations.Apply(Policy(), Document(by: _sample.Key), SamplePack.Now))
             .Should().Throw<InvalidDataException>().WithMessage("*revoker*");
-        var expiredRevoker = Policy() with { Keys = [.. Policy().Keys.Select(k => k.KeyId == _revoker.KeyId ? k with { NotAfter = Issued } : k)] };
-        FluentActions.Invoking(() => Revocations.Apply(expiredRevoker, Document(), SamplePack.Now)).Should().Throw<InvalidDataException>();
-        var revokedRevoker = Policy() with { RevokedKeys = [new RevokedKey(_revoker.KeyId, null)] };
-        FluentActions.Invoking(() => Revocations.Apply(revokedRevoker, Document(), SamplePack.Now)).Should().Throw<InvalidDataException>();
+
+        // Seventh review: a list from an expired or revoked revoker still denies the packs and keys it names, for the run;
+        // it never decides about a revoker and brings no freshness.
+        var digest = "sha256:" + new string('e', 64);
+        var other = PackKey.Create();
+        foreach (var policy in new[]
+        {
+            Policy() with { Keys = [.. Policy().Keys.Select(k => k.KeyId == _revoker.KeyId ? k with { NotAfter = Issued } : k)] },
+            Policy() with { RevokedKeys = [new RevokedKey(_revoker.KeyId, null)] },
+        })
+        {
+            var applied = Revocations.Apply(policy, Document(digests: [digest], keys: [new RevokedKey(other.KeyId, null)], expires: Issued.AddMinutes(30)), SamplePack.Now);
+            applied.RevokedDigests.Should().Contain(digest);
+            applied.RevokedKeys.Should().Contain(k => k.KeyId == other.KeyId);
+            applied.RevocationsExpire.Should().Be(policy.RevocationsExpire, "a list without a live signer brings no freshness");
+        }
     }
 
     [Fact]

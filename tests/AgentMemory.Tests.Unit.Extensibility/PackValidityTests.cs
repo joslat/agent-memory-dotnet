@@ -113,7 +113,8 @@ public sealed class PackValidityTests : IDisposable
         var revokesFirst = Revocations.Sign([], [new RevokedKey(_revoker.KeyId, null)], now.AddMinutes(-1), now.AddDays(7), second.PrivateKeyPem);
         var afterwards = trust.WithRevocations(revokesFirst, PackInstallLedger.Open(path));
 
-        FluentActions.Invoking(() => afterwards.WithRevocations(revoking)).Should().Throw<InvalidDataException>("its revoker is revoked now");
+        // Given again now, the revoked revoker's list still denies for this run; it adds nothing to the ledger.
+        Revoked(() => PackLoader.Load(archive, afterwards.WithRevocations(revoking)));
         Revoked(() => PackLoader.Load(archive, afterwards, PackInstallLedger.Open(path)));
         Revoked(() => PackLoader.Load(archive, trust, PackInstallLedger.Open(path)));
     }
@@ -165,6 +166,29 @@ public sealed class PackValidityTests : IDisposable
 
         FluentActions.Invoking(() => store.Install(changed, Trust(), allowDowngrade: true))
             .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("other content"));
+    }
+
+    [Fact]
+    public void Allowing_a_set_downgrade_installs_a_member_older_than_the_host_had()
+    {
+        // Seventh review: the set path passed the flag to the set but not to its members.
+        var store = PackStore.Open(Path.Combine(_root, "store"));
+        store.Install(Versioned("2.0.0"), Trust());
+        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Versioned("1.0.0")], _key.PrivateKeyPem);
+
+        FluentActions.Invoking(() => store.Install(set, Trust())).Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("downgrade"));
+        store.Install(set, Trust(), allowDowngrade: true).Should().NotBeNull();
+    }
+
+    // The martial arts pack at another version.
+    private byte[] Versioned(string version)
+    {
+        var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(Directory.EnumerateFiles(MartialArts, "*", SearchOption.AllDirectories).ToDictionary(
+            f => Path.GetRelativePath(MartialArts, f).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllBytes, StringComparer.Ordinal)), StringComparer.Ordinal);
+        var manifest = JsonNode.Parse(source["pack.json"])!.AsObject();
+        manifest["version"] = version;
+        source["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
+        return PackAuthoring.Build(source, _key.PrivateKeyPem);
     }
 
     private static void Revoked(Func<object> load) =>

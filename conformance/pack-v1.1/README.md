@@ -1,6 +1,6 @@
 # Memory pack format v1.2: conformance vectors
 
-Two verifiers that share no code must reach the same verdict on every vector here (126 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
+Two verifiers that share no code must reach the same verdict on every vector here (128 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
 
 - `ampack verify` (.NET, `tools/Ampack`, library `src/AgentMemory.Packs.Format`)
 - `python/ampack_verify.py` (Python 3.10+ and `cryptography`)
@@ -31,6 +31,7 @@ list, DSSE signature, strict ZIP writers, stored and deflated), and derives tamp
 | Paths | a Windows device name (`CON`); two entries that differ only by case |
 | Bounds (fifth review) | a version of 256 characters (accepted) and 257; an envelope with 16 signature entries (accepted) and 17; a pack with 16 envelopes (accepted) and 17; an envelope over 64 KiB. A revocation document is at most 4 MiB, read with that bound |
 | Signature encoding (sixth review) | an ECDSA INTEGER whose sign pad was dropped, on a pack and on a revocation list (the same list well padded is accepted): strict DER in both verifiers |
+| Revokers that are not live (seventh review) | a list signed by a revoker the policy revokes: revoking nothing it verifies, revoking the pack it refuses (it still denies what it names, never decides about a revoker, brings no freshness) |
 | ZIP profile | bytes before the first entry; bytes after the end record; an archive comment; unsorted entries; the data-descriptor flag; a local header whose name differs from the central directory; bytes after a deflate stream's end; a deflate stream without its final block |
 
 `results.json` records each verdict and each verifier's reason. The `trust*.json` files hold public keys only; the signing

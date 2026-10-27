@@ -169,8 +169,10 @@ def present_time(obj, name):
 
 
 def apply_revocations(policy, data, now):
-    """A signed revocation document (v1.2 §8) applied to the policy: signed by a revoker key valid now, its revocations
-    added and never removed, its expiry the policy's when earlier."""
+    """A signed revocation document (v1.2 §8) applied to the policy, as .NET's ApplyAll applies one: signed by a key the
+    policy names as revoker. With a live signer (valid now, not revoked) its revocations are added and never removed and
+    its expiry is the policy's when earlier; without one (seventh review) it still adds its revocations of packs and of
+    non-revoker keys, never of revokers, and never its expiry."""
     if len(data) > MAX_REVOCATIONS:
         raise Refused(f"the revocation document is larger than {MAX_REVOCATIONS >> 20} MiB")
     env = profile(data)
@@ -186,15 +188,13 @@ def apply_revocations(policy, data, now):
     digest = hashlib.sha256(f"DSSEv1 {len(REVOCATIONS_TYPE)} {REVOCATIONS_TYPE} {len(payload)} ".encode() + payload).digest()
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
-    verified = False
+    revoker_ids = {k["keyId"] for k in policy.get("keys", []) if "revoker" in k.get("roles", [])}
+    authentic, live = False, False
     for s in env["signatures"]:
         if not isinstance(s, dict) or not isinstance(s.get("keyid"), str) or not isinstance(s.get("sig"), str):
             continue
         key = keys.get(s["keyid"])
-        if key is None or "revoker" not in key.get("roles", []) or key["keyId"] in revoked_keys:
-            continue
-        not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
-        if (not_before is not None and now < not_before) or (not_after is not None and now > not_after):
+        if key is None or "revoker" not in key.get("roles", []):
             continue
         public = serialization.load_pem_public_key(key["publicKey"].encode())
         spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -202,12 +202,15 @@ def apply_revocations(policy, data, now):
             continue
         try:
             public.verify(base64.b64decode(s["sig"], validate=True), digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
-            verified = True
-            break
         except (InvalidSignature, ValueError, binascii.Error):
             continue
-    if not verified:
-        raise Refused("the revocation document is not signed by a key the trust policy names as revoker and that is valid now")
+        authentic = True
+        not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
+        if key["keyId"] not in revoked_keys and not (not_before is not None and now < not_before) and not (not_after is not None and now > not_after):
+            live = True
+            break
+    if not authentic:
+        raise Refused("the revocation document is not signed by a key the trust policy names as revoker")
     doc = profile(payload)
     if not isinstance(doc, dict) or set(doc) - {"format", "issuedAt", "expires", "digests", "keys"} or doc.get("format") != REVOCATIONS_FORMAT:
         raise Refused("the revocation document is not a v1.2 revocation document")
@@ -227,13 +230,14 @@ def apply_revocations(policy, data, now):
     current = dict(policy.get("revoked", {}))
     current["digests"] = sorted(set(current.get("digests", [])) | set(digests))
     by_id = {k["keyId"]: k for k in current.get("keys", [])}
-    for k in revoked:
+    # Without a live signer a list never decides about a revoker, and brings no freshness.
+    for k in (revoked if live else [k for k in revoked if k["keyId"] not in revoker_ids]):
         known = by_id.get(k["keyId"])
         if known is None or ("compromisedAt" in known and ("compromisedAt" not in k or instant(k["compromisedAt"]) < instant(known["compromisedAt"]))):
             by_id[k["keyId"]] = k
     current["keys"] = [by_id[i] for i in sorted(by_id)]
     old = policy_time(current.get("expires"))
-    if old is None or expires < old:
+    if live and (old is None or expires < old):
         current["expires"] = doc["expires"]
     merged["revoked"] = current
     return merged

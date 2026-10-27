@@ -121,6 +121,8 @@ internal static class Program
             };
         }
         catch (UsageException e) { return Fail(e.Message, 2); }
+        // A ledger another run holds is an operational failure, not a refusal (seventh review).
+        catch (LedgerBusyException e) { return Fail(e.Message, 3); }
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or JsonException or System.Security.Cryptography.CryptographicException)
         {
             return Fail(e.Message, 1);
@@ -427,6 +429,9 @@ internal static class Program
             keys.Add(new RevokedKey(at >= 0 ? entry[..at] : entry, compromisedAt));
         }
         if (digests.Count == 0 && keys.Count == 0) Console.Error.WriteLine("Note: the document revokes nothing; it renews the revocation list's freshness.");
+        // Freshness is the newest list's: a short one makes every host that applies it stale when it expires, until a newer list.
+        if (expires - issuedAt < TimeSpan.FromDays(1))
+            Console.Error.WriteLine($"Note: this list expires {(expires - issuedAt).TotalHours:0.#} h after it is issued; every host that applies it is stale then until a newer list arrives.");
         using var signer = Signer(o);
         File.WriteAllBytes(output, Revocations.Sign(digests, keys, issuedAt, expires, signer));
         Console.WriteLine($"Wrote {output}: {digests.Count} digest(s), {keys.Count} key(s), issued {issuedAt:u}, expires {expires:u}.");
@@ -757,7 +762,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "retire-revocations" };
     private readonly List<string> _positional = [];
     private readonly Dictionary<string, List<string>> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);

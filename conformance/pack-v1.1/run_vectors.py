@@ -238,12 +238,17 @@ def main():
     nothing_signed = f"DSSEv1 {len(py.REVOCATIONS_TYPE)} {py.REVOCATIONS_TYPE} {len(nothing)} ".encode() + nothing
     while (negative := unpadded(padded := revoker_key.sign(nothing_signed, ec.ECDSA(hashes.SHA256())))) is None:
         pass
+    # The seventh review: a list from a revoker the policy revokes still denies what it names, and nothing else.
+    revoked_revoker = {"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker], "revoked": {"digests": [], "keys": [{"keyId": revoker["keyId"]}]}}
+    (OUT / "trust-revoker-revoked.json").write_text(json.dumps(revoked_revoker, separators=(",", ":")), encoding="utf-8")
     for name, signature, expected in (("revocations-padded-integer", padded, "verified"), ("revocations-negative-integer", negative, "refused")):
         (OUT / f"{name}.json").write_bytes(py.canonical({"payloadType": py.REVOCATIONS_TYPE, "payload": base64.b64encode(nothing).decode(),
             "signatures": [{"keyid": revoker["keyId"], "sig": base64.b64encode(signature).decode()}]}).encode())
         revocations[name] = (f"{name}.json", expected)
     for name, (document, expected) in revocations.items():
         vectors[name] = (dict(base), "trust-with-revoker.json", expected, document)
+    vectors["revocations-by-a-revoked-revoker-revoking-nothing"] = (dict(base), "trust-revoker-revoked.json", "verified", "revocations-none.json")
+    vectors["revocations-by-a-revoked-revoker-revoking-the-pack"] = (dict(base), "trust-revoker-revoked.json", "refused", "revocations-digest.json")
 
     # The second red team's divergences and crashes (27 Oct): one verdict for each, in both verifiers.
     def signed_with(content_, **options):

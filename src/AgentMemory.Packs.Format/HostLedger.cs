@@ -16,6 +16,7 @@ internal sealed class HostLedger
     private readonly SortedSet<string> _revokedDigests = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, DateTimeOffset?> _revokedKeys = new(StringComparer.Ordinal);
     private (DateTimeOffset IssuedAt, DateTimeOffset Expires)? _freshness;
+    private DateTimeOffset? _retired;
     private int _version;
 
     /// <summary>
@@ -51,6 +52,8 @@ internal sealed class HostLedger
     /// <summary>Keeps a list's freshness when it is the newest this host applied; of two issued in one second, the earlier expiry.</summary>
     internal void RecordFreshness(DateTimeOffset issuedAt, DateTimeOffset expires)
     {
+        // A list issued no later than the mark that was retired does not bring freshness back (seventh review).
+        if (_retired is { } floor && issuedAt <= floor) return;
         if (_freshness is { } known && (issuedAt < known.IssuedAt || issuedAt == known.IssuedAt && expires >= known.Expires)) return;
         _freshness = (issuedAt, expires);
         _version++;
@@ -59,6 +62,8 @@ internal sealed class HostLedger
     /// <summary>Forgets the freshness mark, for a host that stops using revocation lists; what was revoked stays revoked.</summary>
     internal void RetireRevocationLists()
     {
+        // A tombstone, not a blank: saving merges with the file, and a run that still holds the old mark must not restore it.
+        if (_freshness is { } retired && (_retired is null || retired.IssuedAt > _retired)) _retired = retired.IssuedAt;
         _freshness = null;
         _version++;
     }
@@ -114,14 +119,20 @@ internal sealed class HostLedger
     private static HostLedger LoadChecked(string path)
     {
         var ledger = new HostLedger();
-        var bytes = File.ReadAllBytes(path);
+        var bytes = Retry(() =>
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var copy = new MemoryStream();
+            stream.CopyTo(copy);
+            return copy.ToArray();
+        });
         // The profile refuses a repeated key, so no field is read twice with the last one winning (sixth review).
         if (PackJson.Check(bytes) is { } malformed) throw new InvalidDataException($"The ledger at {path} {malformed}.");
         using var document = JsonDocument.Parse(bytes);
         if (!document.RootElement.TryGetProperty("format", out var format) || format.GetString() != Format)
             throw new InvalidDataException($"The ledger at {path} is not a '{Format}' file.");
         // A field this reader does not know (an older mark's spelling, say) refuses the ledger: dropping it would forget history.
-        if (document.RootElement.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => n is not ("format" or "packs" or "revoked" or "freshness")) is { } unknown)
+        if (document.RootElement.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => n is not ("format" or "packs" or "revoked" or "freshness" or "retired")) is { } unknown)
             throw new InvalidDataException(unknown == "revocations"
                 ? $"The ledger at {path} holds revocation marks from an earlier preview build; delete its 'revocations' field and apply the current lists again."
                 : $"The ledger at {path} has a field this host does not know ('{unknown}'); it is not read rather than half read.");
@@ -139,6 +150,9 @@ internal sealed class HostLedger
                 && freshness.TryGetProperty("issuedAt", out var issued) && issued.ValueKind == JsonValueKind.String && PackTime.TryParse(issued.GetString(), out var issuedAt)
                 && freshness.TryGetProperty("expires", out var expires) && expires.ValueKind == JsonValueKind.String && PackTime.TryParse(expires.GetString(), out var expiresAt)
                 ? (issuedAt, expiresAt) : throw new InvalidDataException($"The ledger at {path} has a malformed freshness mark.");
+        if (document.RootElement.TryGetProperty("retired", out var retiredText))
+            ledger._retired = retiredText.ValueKind == JsonValueKind.String && PackTime.TryParse(retiredText.GetString(), out var retiredAt)
+                ? retiredAt : throw new InvalidDataException($"The ledger at {path} has a malformed retired mark.");
         if (document.RootElement.TryGetProperty("revoked", out var revoked))
         {
             if (revoked.ValueKind != JsonValueKind.Object || !revoked.TryGetProperty("digests", out var digests) || digests.ValueKind != JsonValueKind.Array
@@ -178,7 +192,21 @@ internal sealed class HostLedger
         for (var attempt = 0; ; attempt++)
         {
             try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose); }
-            catch (IOException) when (attempt < 200) { Thread.Sleep(50); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= 200) throw new LedgerBusyException($"The ledger is locked by another run ({path}); try again.", e);
+                Thread.Sleep(50);
+            }
+        }
+    }
+
+    // A file another process is reading or replacing at this moment, tried again a few times.
+    private static T Retry<T>(Func<T> action)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return action(); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException && e is not FileNotFoundException && attempt < 40) { Thread.Sleep(50); }
         }
     }
 
@@ -192,6 +220,8 @@ internal sealed class HostLedger
                 _packs[id] = (highest, mine.Digests);
         }
         Record(saved._revokedDigests, saved._revokedKeys.Select(k => new RevokedKey(k.Key, k.Value)));
+        if (saved._retired is { } floor && (_retired is null || floor > _retired)) _retired = floor;
+        if (_retired is { } retiredFloor && _freshness is { } held && held.IssuedAt <= retiredFloor) _freshness = null;
         if (saved._freshness is { } fresh) RecordFreshness(fresh.IssuedAt, fresh.Expires);
     }
 
@@ -222,8 +252,10 @@ internal sealed class HostLedger
                 ["issuedAt"] = fresh.IssuedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture),
                 ["expires"] = fresh.Expires.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture),
             };
+        if (_retired is { } retiredMark)
+            root["retired"] = retiredMark.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture);
         var temporary = path + ".tmp";
         File.WriteAllBytes(temporary, Jcs.Canonical(root));
-        File.Move(temporary, path, overwrite: true);
+        Retry(() => { File.Move(temporary, path, overwrite: true); return 0; });
     }
 }
