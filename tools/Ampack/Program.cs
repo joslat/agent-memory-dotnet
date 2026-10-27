@@ -23,6 +23,7 @@ internal static class Program
                                  write META/files.json, optionally sign, and pack; prints the digest
           sign <folder> --key <private.pem> [--role publisher|curator|assurer]
           verify <folder|file> --policy <trust.json> [--revocations <file>] [--ledger <ledger.json>] [--record] [--allow-downgrade]
+                 [--explain]       with --explain, every step in order: what it checked, whether it held, and why
           inspect <folder|file>  identity, digest, files and signatures, without trusting them
           keygen --out <folder> [--name <name>] [--prefix <id.prefix>] [--role publisher|curator|assurer|revoker]
                                  a P-256 key pair and a trust-policy entry for it
@@ -206,7 +207,8 @@ internal static class Program
         var ledgerPath = o.Value("ledger");
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
         var content = PackReader.Read(target);
-        var result = PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"));
+        Action<PackStep>? explain = o.Flag("explain") ? Explain : null;
+        var result = PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"), explain);
         if (!result.IsVerified) return Report(result.Problems, "");
         var pack = result.Pack!;
         if (pack.Manifest.Kind == "set")
@@ -434,6 +436,13 @@ internal static class Program
         return Encoding.UTF8.GetString(buffer.ToArray()).Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
     }
 
+    // verify --explain: one line per step, then its details.
+    private static void Explain(PackStep step)
+    {
+        Console.WriteLine($"{(step.Passed ? "  ok  " : "  FAIL")}  {step.Name}");
+        foreach (var line in step.Lines) Console.WriteLine($"          {line}");
+    }
+
     private static int Report(IEnumerable<string> problems, string success)
     {
         var list = problems.ToList();
@@ -455,7 +464,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain" };
     private readonly List<string> _positional = [];
     private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);

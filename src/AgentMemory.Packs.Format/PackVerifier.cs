@@ -6,6 +6,9 @@ namespace AgentMemory.Packs.Format;
 internal sealed record VerifiedPack(string Id, string Version, string Digest, PackManifest Manifest, IReadOnlyList<PackSignature> Signatures,
     IReadOnlyDictionary<string, byte[]> Files);
 
+/// <summary>One step of a verification, as <c>ampack verify --explain</c> shows it: what it checked, whether it held, and the details.</summary>
+internal sealed record PackStep(string Name, bool Passed, IReadOnlyList<string> Lines);
+
 /// <summary>The verification result: the pack, or every reason it was refused.</summary>
 internal sealed record PackVerification(VerifiedPack? Pack, IReadOnlyList<string> Problems)
 {
@@ -28,34 +31,53 @@ internal sealed record PackVerification(VerifiedPack? Pack, IReadOnlyList<string
 /// </summary>
 internal static class PackVerifier
 {
-    internal static PackVerification Verify(PackContent content, TrustPolicy policy, DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false)
+    // explain: when given, told the outcome of every step in order (ampack verify --explain); the verdict is the same.
+    internal static PackVerification Verify(PackContent content, TrustPolicy policy, DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false,
+        Action<PackStep>? explain = null)
     {
-        var (integrity, list, listBytes, manifest) = CheckIntegrity(content);
+        var (integrity, list, listBytes, manifest) = CheckIntegrity(content, explain);
         if (integrity.Count > 0) return new(null, integrity);
         var problems = new List<string>();
 
         var digest = FilesList.DigestOf(listBytes!);
-        if (policy.RevokedDigests.Contains(digest)) problems.Add($"The pack {digest} is revoked.");
-        if (manifest!.ValidUntil is { } until && until < now) problems.Add($"The pack was valid until {until:u}.");
-        if (policy.RevocationsExpire is { } expires && expires < now) problems.Add($"The host's revocation list expired at {expires:u}; refresh it before verifying.");
+        var lifetime = new List<string>();
+        if (policy.RevokedDigests.Contains(digest)) lifetime.Add($"The pack {digest} is revoked.");
+        if (manifest!.ValidUntil is { } until && until < now) lifetime.Add($"The pack was valid until {until:u}.");
+        if (policy.RevocationsExpire is { } expires && expires < now) lifetime.Add($"The host's revocation list expired at {expires:u}; refresh it before verifying.");
+        problems.AddRange(lifetime);
+        explain?.Invoke(new("revocation and expiry", lifetime.Count == 0, lifetime.Count > 0 ? lifetime : [
+            $"{digest} is not revoked" + (policy.RevocationsExpire is { } fresh ? $"; the revocation list is fresh until {fresh:u}" : ""),
+            manifest.ValidUntil is { } validUntil ? $"valid until {validUntil:u}" : "no validUntil"]));
 
         var signatures = new List<PackSignature>();
         var junk = new List<string>();
+        var envelopeProblems = new List<string>();
         foreach (var file in content.Files.Keys.Where(PackPaths.IsSignature).Order(StringComparer.Ordinal))
         {
             var (valid, invalid, malformed) = Dsse.Verify(file, content.Files[file], listBytes, list!, policy, now);
             signatures.AddRange(valid);
-            (malformed ? junk : problems).AddRange(invalid);
+            (malformed ? junk : envelopeProblems).AddRange(invalid);
         }
-        foreach (var role in policy.RequiredRoles.Where(r => signatures.All(s => s.Role != r)))
+        problems.AddRange(envelopeProblems);
+        var missingRoles = policy.RequiredRoles.Where(r => signatures.All(s => s.Role != r)).ToList();
+        foreach (var role in missingRoles)
             problems.Add($"No valid {role} signature: a pack is refused unless a key the host trusts for '{list!.Id}' signed it as {role}.");
         // Invalid extra envelopes are reported, but they do not refuse a pack whose required signatures hold.
-        if (policy.RequiredRoles.All(r => signatures.Any(s => s.Role == r)))
+        if (missingRoles.Count == 0)
             problems.RemoveAll(p => p.StartsWith(PackPaths.SignaturesFolder, StringComparison.Ordinal));
         // A file that is not an envelope at all is unlisted content travelling with the pack: refused (PACK-review 1.9).
         problems.AddRange(junk);
+        explain?.Invoke(new("signatures", missingRoles.Count == 0 && junk.Count == 0, [
+            .. signatures.Select(s => $"counted: {s.Role} by key {Dsse.Short(s.KeyId)} at {s.SignedAt:u} ({s.File})"),
+            .. envelopeProblems.Select(p => (missingRoles.Count == 0 ? "ignored (the required roles hold): " : "not counted: ") + p),
+            .. junk.Select(p => "refuses the pack: " + p),
+            .. missingRoles.Select(r => $"missing: no valid {r} signature from a key the policy trusts for '{list!.Id}'"),
+            $"required roles: {string.Join(", ", policy.RequiredRoles)}"]));
 
-        if (ledger?.Refusal(list!.Id, list.Version, digest, allowDowngrade) is { } refusal) problems.Add(refusal);
+        var ledgerRefusal = ledger?.Refusal(list!.Id, list.Version, digest, allowDowngrade);
+        if (ledgerRefusal is not null) problems.Add(ledgerRefusal);
+        if (ledger is not null)
+            explain?.Invoke(new("ledger", ledgerRefusal is null, [ledgerRefusal ?? $"{list!.Id} {list.Version} with {digest[..23]}… is allowed by the ledger"]));
         return problems.Count > 0
             ? new(null, problems)
             : new(new VerifiedPack(list!.Id, list.Version, digest, manifest!, signatures,
@@ -63,13 +85,20 @@ internal static class PackVerifier
     }
 
     /// <summary>Steps 1–5: everything that needs no trust. <c>ampack lint</c> and <c>build</c> use it alone.</summary>
-    internal static (List<string> Problems, FilesList? List, byte[]? ListBytes, PackManifest? Manifest) CheckIntegrity(PackContent content)
+    internal static (List<string> Problems, FilesList? List, byte[]? ListBytes, PackManifest? Manifest) CheckIntegrity(PackContent content,
+        Action<PackStep>? explain = null)
     {
         var problems = PackPaths.Problems(content.Files.Keys).ToList();
+        explain?.Invoke(new("paths", problems.Count == 0, problems.Count > 0 ? problems : [$"{content.Files.Count} files, every path in the grammar"]));
         if (problems.Count > 0) return (problems, null, null, null);
         if (!content.Files.TryGetValue(PackPaths.FilesList, out var listBytes))
+        {
+            explain?.Invoke(new("files list", false, [$"There is no {PackPaths.FilesList}: build the pack first."]));
             return ([$"There is no {PackPaths.FilesList}: build the pack first."], null, null, null);
+        }
         var (list, listProblem) = FilesList.Parse(listBytes);
+        explain?.Invoke(new("files list", list is not null, list is null ? [listProblem!]
+            : [$"{list.Id} {list.Version}, {list.Files.Count} files; RFC 8785 canonical", $"digest {FilesList.DigestOf(listBytes)}"]));
         if (list is null) return ([listProblem!], null, null, null);
 
         var listed = list.Files.ToDictionary(f => f.Path, StringComparer.Ordinal);
@@ -81,6 +110,8 @@ internal static class PackVerifier
             if (bytes.LongLength == file.Length && FilesList.Hex(bytes) == file.Sha256) continue;
             problems.Add($"'{file.Path}' does not match {PackPaths.FilesList}{Cause(bytes, file)}.");
         }
+        explain?.Invoke(new("content", problems.Count == 0, problems.Count > 0 ? problems
+            : [$"exactly the listed files, each with its length and SHA-256 ({list.Files.Sum(f => f.Length):N0} bytes)"]));
         if (problems.Count > 0) return (problems, null, null, null);
 
         foreach (var (path, bytes) in content.Files.Where(f => FilesList.IsListed(f.Key)).OrderBy(f => f.Key, StringComparer.Ordinal))
@@ -89,6 +120,9 @@ internal static class PackVerifier
                 : path.EndsWith(".json", StringComparison.Ordinal) ? PackJson.Check(bytes, integersOnly: path == PackPaths.LockFile) : null;
             if (problem is not null) problems.Add($"'{path}' {problem}.");
         }
+        explain?.Invoke(new("JSON profile", problems.Count == 0, problems.Count > 0 ? problems
+            : ["every JSON and JSONL file: UTF-8, LF, no repeated key, NFC strings, integers within 2^53"]));
+        var profileProblems = problems.Count;
         if (!content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes))
             problems.Add($"There is no {PackManifest.FileName}.");
         else
@@ -100,9 +134,13 @@ internal static class PackVerifier
             else
             {
                 problems.AddRange(KindProblems(manifest, content.Files));
+                explain?.Invoke(new("pack.json and kind", problems.Count == profileProblems, problems.Count > profileProblems ? problems.Skip(profileProblems).ToList()
+                    : [$"{manifest.Kind} pack, tier {manifest.Tier}, protection {manifest.Protection}, code {manifest.Code}"]));
                 if (problems.Count == 0) return (problems, list, listBytes, manifest);
+                return (problems, null, null, null);
             }
         }
+        explain?.Invoke(new("pack.json and kind", false, problems.Skip(profileProblems).ToList()));
         return (problems, null, null, null);
     }
 
