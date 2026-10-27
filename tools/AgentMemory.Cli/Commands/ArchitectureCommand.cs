@@ -43,7 +43,7 @@ internal sealed class ArchitectureCommand(TextWriter output)
         return 0;
     }
 
-    private static Extensibility.Packs.ModuleSnapshot Read(string root, string? source, out IReadOnlyList<string> files, out IReadOnlyList<string> skipped)
+    internal static Extensibility.Packs.ModuleSnapshot Read(string root, string? source, out IReadOnlyList<string> files, out IReadOnlyList<string> skipped)
     {
         var listed = Git(root, "ls-files", "-z") is { } text ? text.Split('\0', StringSplitOptions.RemoveEmptyEntries) : [];
         files = ArchitectureReader.ArchitectureFiles(listed);

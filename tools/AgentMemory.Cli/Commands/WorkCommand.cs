@@ -48,7 +48,7 @@ internal sealed class WorkCommand(TextWriter output)
 
     // The ledger's items; the repository's commits (no merges), each with the files it changed that are still tracked C# files,
     // which is what a Roslyn code map holds.
-    private static Extensibility.Packs.ModuleSnapshot Read(string ledger, string root, string? source)
+    internal static Extensibility.Packs.ModuleSnapshot Read(string ledger, string root, string? source)
     {
         var json = File.ReadAllText(ledger);
         var tracked = (Git(root, "ls-files", "-z") ?? "").Split('\0', StringSplitOptions.RemoveEmptyEntries)

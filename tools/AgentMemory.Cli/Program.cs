@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work", "architecture", "intent" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work", "architecture", "intent", "project" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -49,6 +49,11 @@ if (string.Equals(cli.Command, "codemap", StringComparison.OrdinalIgnoreCase) &&
     }
     return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"), cli.Get("output"), cli.Get("scip"));
 }
+
+// project writes a pack's records as Markdown projections (and an AGENTS.md section), offline (CMP-7).
+if (string.Equals(cli.Command, "project", StringComparison.OrdinalIgnoreCase))
+    return new AgentMemory.Cli.Commands.ProjectCommand(Console.Out)
+        .Run(cli.Get("pack"), cli.Get("root"), cli.Get("out"), cli.Get("agents"), cli.Get("ledger"), cli.HasFlag("check"), cli.HasFlag("force"));
 
 // intent scan reads requirements, features, objectives and ideas offline; intent import goes through the host (CMP-6).
 if (string.Equals(cli.Command, "intent", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))

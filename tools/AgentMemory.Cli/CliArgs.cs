@@ -144,6 +144,11 @@ public static class CliHelp
                                      Trial a pack on this repository's history and sign the decision; with
                                      --pack, the pack as loaded from its verified .ampack; with --previous, an
                                      upgrade compared against the version that passed here, on the same tasks.
+              project --pack decisions|architecture|intent|work --root <repo> [--out docs/memory]
+                      [--agents AGENTS.md] [--ledger <tasks.json>] [--check] [--force]
+                                     Write the pack's records as one Markdown file and an AGENTS.md section,
+                                     deterministically; a hand edit is never overwritten without --force;
+                                     --check writes nothing and fails when anything is not up to date.
               intent scan|import --root <repo> [--source git:<sha>]
                                      Read requirements (EARS), Gherkin features, OpenSLO objectives and
                                      ideas; import writes what changed.

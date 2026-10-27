@@ -44,7 +44,7 @@ internal sealed class DecisionsCommand(TextWriter output)
         return 0;
     }
 
-    private static Extensibility.Packs.ModuleSnapshot Read(string root, string? source, out IReadOnlyList<string> sources)
+    internal static Extensibility.Packs.ModuleSnapshot Read(string root, string? source, out IReadOnlyList<string> sources)
     {
         var files = Git(root, "ls-files", "-z") is { } listed ? listed.Split('\0', StringSplitOptions.RemoveEmptyEntries) : [];
         // Squad keeps its team state local (often git-ignored); its decision log counts when it is there.
