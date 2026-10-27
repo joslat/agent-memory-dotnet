@@ -119,6 +119,7 @@ internal static class Dsse
             var keyId = keyIdElement.GetString()!;
             if (policy.Find(keyId) is not { } key) { problems.Add($"{file}: key {Short(keyId)} is not in the trust policy."); continue; }
             if (FromBase64(sigElement.GetString()) is not { } sig) { problems.Add($"{file}: the signature is not base64."); continue; }
+            if (!IsStrictDer(sig)) { problems.Add($"{file}: the signature by {Short(keyId)} is not strict DER."); continue; }
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportFromPem(key.PublicKeyPem);
             if (!ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence))
@@ -161,6 +162,31 @@ internal static class Dsse
     }
 
     internal static string Short(string keyId) => keyId.Length > 16 ? keyId[..16] : keyId;
+
+    private static readonly byte[] P256Order = Convert.FromHexString("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551");
+
+    /// <summary>
+    /// Strict DER (X.690) for a P-256 signature: a SEQUENCE of exactly two minimal, positive INTEGERs r and s with
+    /// 1 &lt;= r, s &lt; n, nothing after. OpenSSL takes only this; .NET alone also took an INTEGER whose sign pad was dropped,
+    /// so one signature could verify in one verifier and not the other (sixth review).
+    /// </summary>
+    internal static bool IsStrictDer(ReadOnlySpan<byte> signature)
+    {
+        if (signature.Length < 8 || signature[0] != 0x30 || signature[1] >= 0x80 || signature[1] != signature.Length - 2) return false;
+        var rest = signature[2..];
+        return Integer(ref rest) && Integer(ref rest) && rest.IsEmpty;
+
+        static bool Integer(ref ReadOnlySpan<byte> rest)
+        {
+            if (rest.Length < 3 || rest[0] != 0x02 || rest[1] is 0 or > 33 || rest[1] > rest.Length - 2) return false;
+            var value = rest.Slice(2, rest[1]);
+            rest = rest[(2 + value.Length)..];
+            if (value[0] >= 0x80) return false;
+            if (value[0] == 0 && (value.Length == 1 || value[1] < 0x80)) return false;
+            var magnitude = value[0] == 0 ? value[1..] : value;
+            return magnitude.Length < 32 || magnitude.Length == 32 && magnitude.SequenceCompareTo(P256Order) < 0;
+        }
+    }
 
     /// <summary>
     /// Strict base64 (RFC 4648 §4): the alphabet and its padding only, length a multiple of four. Whitespace, which .NET's decoder

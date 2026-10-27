@@ -91,6 +91,16 @@ def sign(list_bytes, pid, version, key, role="publisher", signed_at="2026-10-26T
     return f"{py.SIGNATURES}{role}-{hashlib.sha256(spki).hexdigest()[:16]}.dsse.json", envelope
 
 
+def unpadded_pack(der):
+    """A DER signature with the sign pad of r (or else s) dropped, or None when neither has one."""
+    r = der[4:4 + der[3]]
+    s = der[6 + der[3]:]
+    if len(r) == 33: r = r[1:]
+    elif len(s) == 33: s = s[1:]
+    else: return None
+    return bytes([0x30, 4 + len(r) + len(s), 0x02, len(r)]) + r + bytes([0x02, len(s)]) + s
+
+
 def main():
     if VECTORS.exists():
         shutil.rmtree(VECTORS)
@@ -213,6 +223,25 @@ def main():
     (OUT / "revocations-python.json").write_bytes(py.canonical({"payloadType": py.REVOCATIONS_TYPE, "payload": base64.b64encode(payload).decode(),
         "signatures": [{"keyid": revoker["keyId"], "sig": base64.b64encode(sig).decode()}]}).encode())
     revocations["revocations-python-signed"] = ("revocations-python.json", "refused")
+    # The sixth review: an ECDSA INTEGER whose sign pad was dropped reads as negative. OpenSSL refuses it; .NET took it, so
+    # anyone holding a signed pack or list could make the verifiers disagree. Both refuse it now.
+    def unpadded(der):
+        r = der[4:4 + der[3]]
+        s_ = der[6 + der[3]:]
+        if len(r) == 33: r = r[1:]
+        elif len(s_) == 33: s_ = s_[1:]
+        else: return None
+        return bytes([0x30, 4 + len(r) + len(s_), 0x02, len(r)]) + r + bytes([0x02, len(s_)]) + s_
+    # On a list that revokes nothing, so only the signature's encoding decides: well formed it verifies, unpadded it is refused.
+    nothing = py.canonical({"format": py.REVOCATIONS_FORMAT, "issuedAt": "2026-10-27T00:00:00Z", "expires": "2099-01-01T00:00:00Z",
+                            "digests": [], "keys": []}).encode()
+    nothing_signed = f"DSSEv1 {len(py.REVOCATIONS_TYPE)} {py.REVOCATIONS_TYPE} {len(nothing)} ".encode() + nothing
+    while (negative := unpadded(padded := revoker_key.sign(nothing_signed, ec.ECDSA(hashes.SHA256())))) is None:
+        pass
+    for name, signature, expected in (("revocations-padded-integer", padded, "verified"), ("revocations-negative-integer", negative, "refused")):
+        (OUT / f"{name}.json").write_bytes(py.canonical({"payloadType": py.REVOCATIONS_TYPE, "payload": base64.b64encode(nothing).decode(),
+            "signatures": [{"keyid": revoker["keyId"], "sig": base64.b64encode(signature).decode()}]}).encode())
+        revocations[name] = (f"{name}.json", expected)
     for name, (document, expected) in revocations.items():
         vectors[name] = (dict(base), "trust-with-revoker.json", expected, document)
 
@@ -339,6 +368,14 @@ def main():
     vectors["seventeen-envelopes"] = (copies(16), "trust.json", "refused")
     padded = json.loads(envelope)
     padded["padding"] = "x" * (64 * 1024)
+    while True:
+        listed = files_list(pid, version, content)
+        sig_path, sig_env = sign(listed, pid, version, key)
+        envelope_json = json.loads(sig_env)
+        if (negative_pack := unpadded_pack(base64.b64decode(envelope_json["signatures"][0]["sig"]))) is not None:
+            break
+    envelope_json["signatures"][0]["sig"] = base64.b64encode(negative_pack).decode()
+    vectors["signature-integer-without-sign-pad"] = ({**content, py.FILES: listed, sig_path: py.canonical(envelope_json).encode()}, "trust.json", "refused")
     vectors["envelope-over-64-kib"] = ({**one, py.SIGNATURES + "padded.dsse.json": py.canonical(padded).encode()}, "trust.json", "refused")
 
     # The JSON profile and the archive, more ways.

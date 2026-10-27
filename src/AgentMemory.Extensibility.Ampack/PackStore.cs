@@ -76,8 +76,8 @@ public sealed class PackStore
         switch (kind)
         {
             case "set":
-                // Allowing a downgrade waives the version history, never the revocations this host applied.
-                var set = PackFamilies.LoadSet(archive, allowDowngrade ? ledger.WithKeptRevocations(trust) : trust, allowDowngrade ? null : ledger);
+                // Allowing a downgrade waives the version history only: one content per version, and every kept revocation, still hold.
+                var set = PackFamilies.LoadSet(archive, trust, ledger, allowDowngrade);
                 digest = set.Digest;
                 record = () => ledger.Record(set);
                 break;

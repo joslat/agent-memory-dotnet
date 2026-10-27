@@ -207,6 +207,8 @@ internal static class PackVerifier
     internal static (PackVerification Set, IReadOnlyDictionary<string, PackVerification> Members) VerifySet(PackContent content, TrustPolicy policy,
         DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false)
     {
+        // The ledger's kept revocations once for the whole set, not again for each member (sixth review).
+        if (ledger is not null) policy = ledger.Apply(policy);
         var set = Verify(content, policy, now, ledger, allowDowngrade);
         var members = new Dictionary<string, PackVerification>(StringComparer.Ordinal);
         if (set.Pack is not { } outer) return (set, members);

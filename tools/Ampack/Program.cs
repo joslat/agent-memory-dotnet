@@ -44,6 +44,9 @@ internal static class Program
           revoke <out.json> --key <revoker.pem> --expires <RFC 3339> [--digests <sha256:…,…>] [--keys <keyId[@compromisedAt],…>]
                                  a signed revocation document; hosts apply it with --revocations, and nothing
                                  verifies after it expires until a fresh one is applied
+          ledger --retire-revocations (--ledger <ledger.json> | --store <folder>)
+                                 for a host that stops using revocation lists: forget the newest list's freshness
+                                 (verifying is stale after it expires); every revocation stays
           lock <composite-folder> <member.ampack>...
                                  pin every member's id, version and digest in META/lock.json
           migrate <bundle-folder|manifest.json> --out <folder>
@@ -101,6 +104,7 @@ internal static class Program
                 "diff" => DiffPacks(options),
                 "keygen" => Keygen(options),
                 "revoke" => Revoke(options),
+                "ledger" => Ledger(options),
                 "sign-bytes" => SignBytes(options),
                 "lock" => Lock(options),
                 "migrate" => Migrate(options),
@@ -475,10 +479,11 @@ internal static class Program
         var policy = TrustPolicy.Parse(File.ReadAllBytes(o.Required("policy")));
         var ledgerPath = LedgerPath(o);
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
-        foreach (var revocations in o.Values("revocations"))
-            policy = Revocations.Apply(policy, PackReader.ReadArchiveFile(revocations, Revocations.DocumentLimits), DateTimeOffset.UtcNow, ledger);
-        if (ledger is not null && o.Values("revocations").Count > 0) ledger.Save(ledgerPath!);
-        return ledger is null ? policy : ledger.Apply(policy);
+        var documents = o.Values("revocations").Select(r => PackReader.ReadArchiveFile(r, Revocations.DocumentLimits)).ToList();
+        policy = Revocations.ApplyAll(policy, documents, DateTimeOffset.UtcNow, ledger, out var notApplied);
+        foreach (var note in notApplied) Console.Error.WriteLine("Note: " + note);
+        if (ledger is not null && documents.Count > 0) ledger.Save(ledgerPath!);
+        return policy;
     }
 
     // The same, as the loader's trust.
@@ -486,8 +491,22 @@ internal static class Program
     {
         var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
         var ledger = LedgerPath(o) is { } path ? AgentMemory.Extensibility.Ampack.PackInstallLedger.Open(path) : null;
-        foreach (var revocations in o.Values("revocations")) trust = trust.WithRevocations(PackReader.ReadArchiveFile(revocations, Revocations.DocumentLimits), ledger);
-        return ledger is null ? trust : ledger.WithKeptRevocations(trust);
+        var documents = o.Values("revocations").Select(r => PackReader.ReadArchiveFile(r, Revocations.DocumentLimits)).ToList();
+        trust = trust.WithRevocations(documents, ledger, out var notApplied);
+        foreach (var note in notApplied) Console.Error.WriteLine("Note: " + note);
+        return trust;
+    }
+
+    // A host that stops using revocation lists forgets the newest list's freshness; what it revoked stays revoked.
+    private static int Ledger(Options o)
+    {
+        var path = LedgerPath(o) ?? throw new ArgumentException("ledger needs --ledger <ledger.json> or --store <folder>.");
+        if (!o.Flag("retire-revocations")) throw new ArgumentException("ledger takes --retire-revocations.");
+        var ledger = HostLedger.Load(path);
+        ledger.RetireRevocationLists();
+        ledger.Save(path);
+        Console.WriteLine($"Retired the revocation lists' freshness in {path}; {ledger.RevokedDigests.Count} digests and {ledger.RevokedKeys.Count} keys stay revoked.");
+        return 0;
     }
 
     private static string? LedgerPath(Options o) => o.Value("ledger") ?? (o.Value("store") is { } store ? Path.Combine(store, "ledger.json") : null);

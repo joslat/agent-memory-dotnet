@@ -105,16 +105,22 @@ public static class PackFamilies
 
     /// <summary>Loads a pack set: the set's signature, then every member on its own, then every family's pins.</summary>
     /// <exception cref="PackLoadException">The set, a member or a pin is refused; every reason is listed.</exception>
-    public static LoadedSet LoadSet(string path, PackTrust trust, PackInstallLedger? ledger = null) => LoadSet(Read(path), trust, ledger);
+    public static LoadedSet LoadSet(string path, PackTrust trust, PackInstallLedger? ledger = null) => LoadSet(Read(path), trust, ledger, false);
 
     /// <summary>Loads a pack set read into memory.</summary>
-    public static LoadedSet LoadSet(byte[] archive, PackTrust trust, PackInstallLedger? ledger = null)
+    public static LoadedSet LoadSet(byte[] archive, PackTrust trust, PackInstallLedger? ledger = null) => LoadSet(archive, trust, ledger, false);
+
+    /// <summary>
+    /// Loads a pack set read into memory; <paramref name="allowDowngrade"/> waives the ledger's version history only: a version
+    /// still names one content for ever, and every revocation the host kept still holds (sixth review).
+    /// </summary>
+    public static LoadedSet LoadSet(byte[] archive, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade)
     {
         ArgumentNullException.ThrowIfNull(archive);
         PackContent content;
         try { content = PackReader.ReadArchive(archive, "set"); }
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
-        return LoadSet(content, trust, ledger);
+        return LoadSet(content, trust, ledger, allowDowngrade);
     }
 
     /// <summary>
@@ -150,10 +156,10 @@ public static class PackFamilies
         catch (Exception e) when (e is InvalidDataException or IOException) { throw new PackLoadException([$"{path}: {e.Message}"]); }
     }
 
-    private static LoadedSet LoadSet(PackContent content, PackTrust trust, PackInstallLedger? ledger)
+    private static LoadedSet LoadSet(PackContent content, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade = false)
     {
         ArgumentNullException.ThrowIfNull(trust);
-        var (set, verifications) = PackVerifier.VerifySet(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger);
+        var (set, verifications) = PackVerifier.VerifySet(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger, allowDowngrade);
         if (set.Pack is not { } outer) throw new PackLoadException(set.Problems);
         var problems = verifications.Where(v => !v.Value.IsVerified).SelectMany(v => v.Value.Problems.Select(p => $"packs/{v.Key}/: {p}")).ToList();
         if (problems.Count > 0) throw new PackLoadException(problems);

@@ -60,15 +60,107 @@ internal static partial class Revocations
     internal static PackLimits DocumentLimits { get; } = new() { MaxArchiveBytes = MaximumDocumentBytes };
 
     /// <summary>
-    /// <paramref name="policy"/> with the document applied: verified by a revoker key it trusts and that is valid now, issued no
-    /// later than now (five minutes' grace), its revocations added and its expiry the policy's when earlier. With a
-    /// <paramref name="ledger"/>, what it revokes is kept by the host for good, so an older list, or none, later removes nothing.
+    /// <paramref name="policy"/> with the document applied: verified by a revoker key it trusts, valid now and not revoked,
+    /// issued no later than now (five minutes' grace), its revocations added. With a <paramref name="ledger"/>, what it revokes
+    /// is kept by the host for good, and so is the newest list's freshness (see <see cref="ApplyAll"/>).
     /// </summary>
-    /// <exception cref="InvalidDataException">The document is malformed, signed by no trusted revoker, or issued in the future.</exception>
+    /// <exception cref="InvalidDataException">The document is malformed, signed by no trusted revoker that is valid now and not
+    /// revoked, or issued in the future.</exception>
     internal static TrustPolicy Apply(TrustPolicy policy, ReadOnlySpan<byte> envelopeBytes, DateTimeOffset now, HostLedger? ledger = null)
     {
-        if (envelopeBytes.Length > MaximumDocumentBytes) throw Bad($"is larger than {MaximumDocumentBytes >> 20} MiB");
+        var applied = ApplyAll(policy, [envelopeBytes.ToArray()], now, ledger, out var withdrawn);
+        if (withdrawn.Count > 0) throw Bad("is not signed by a key the trust policy names as revoker and that is valid now and not revoked");
+        return applied;
+    }
+
+    /// <summary>
+    /// The policy with every document of one run applied, in order (one per revoker, say). With a <paramref name="ledger"/>, what
+    /// the host revoked before is applied first, so a revoker revoked in an earlier run signs nothing now (sixth review).
+    /// </summary>
+    /// <remarks>
+    /// <para>A list counts only through a signer nobody revoked: not the policy, not this host before, not another list applied
+    /// now. One signed only by revoked revokers is not applied and is named in <paramref name="withdrawn"/>; a feed that still
+    /// carries a retired revoker's old lists keeps working. When lists revoke each other's signers and none of them is beyond
+    /// doubt, nothing is applied: the operator decides which revoker to believe.</para>
+    /// <para>Freshness is the newest list's: an older list adds its revocations but never its expiry, and with a ledger the
+    /// newest list ever applied sets it, so leaving lists out, or giving only older ones, cannot keep a host fresh past the
+    /// newest list's expiry (sixth review). Lists issued in the same second keep the earlier expiry.</para>
+    /// </remarks>
+    /// <exception cref="InvalidDataException">A document is malformed, not signed by a trusted revoker valid now, or issued in
+    /// the future; or the lists revoke each other's signers.</exception>
+    internal static TrustPolicy ApplyAll(TrustPolicy policy, IReadOnlyList<byte[]> documents, DateTimeOffset now, HostLedger? ledger,
+        out IReadOnlyList<string> withdrawn)
+    {
         ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(documents);
+        if (ledger is not null) policy = ledger.Apply(policy);
+        var read = documents.Select(d => Read(policy, d, now)).ToList();
+        var revokedBefore = policy.RevokedKeys.Select(k => k.KeyId).ToHashSet(StringComparer.Ordinal);
+
+        // Settle which lists count: one with a signer nobody now revokes counts; one whose every signer is revoked before or by
+        // a counted list does not; what is left revokes itself in a circle.
+        var state = new int[read.Count]; // 0 open, 1 counts, 2 withdrawn
+        for (var changed = true; changed;)
+        {
+            changed = false;
+            for (var i = 0; i < read.Count; i++)
+            {
+                if (state[i] != 0) continue;
+                bool RevokedBy(string signer, Func<int, bool> which) =>
+                    Enumerable.Range(0, read.Count).Any(j => j != i && which(j) && read[j].Keys.Any(k => k.KeyId == signer));
+                var live = read[i].Signers.Where(s => !revokedBefore.Contains(s)).ToList();
+                if (live.Any(s => !RevokedBy(s, j => state[j] != 2))) { state[i] = 1; changed = true; }
+                else if (live.All(s => RevokedBy(s, j => state[j] == 1))) { state[i] = 2; changed = true; }
+            }
+        }
+        if (state.Contains(0)) throw Bad("set given in this run revokes its own signers in a circle; give only the lists of the revokers you still trust");
+
+        var notes = new List<string>();
+        for (var i = 0; i < read.Count; i++)
+        {
+            var document = read[i];
+            if (state[i] == 2)
+            {
+                notes.Add($"The revocation list issued at {document.IssuedAt:u} was not applied: every key that signed it is revoked ({string.Join(", ", document.Signers.Select(Dsse.Short))}).");
+                continue;
+            }
+            // Added, never removed: a key revoked outright stays revoked; of two compromise times the earlier holds.
+            var merged = policy.RevokedKeys.ToDictionary(k => k.KeyId, StringComparer.Ordinal);
+            foreach (var key in document.Keys)
+                merged[key.KeyId] = merged.TryGetValue(key.KeyId, out var known) && (known.CompromisedAt is null || key.CompromisedAt is { } later && later > known.CompromisedAt)
+                    ? known : key;
+            policy = policy with
+            {
+                RevokedDigests = [.. policy.RevokedDigests.Union(document.Digests, StringComparer.Ordinal)],
+                RevokedKeys = [.. merged.Values.OrderBy(k => k.KeyId, StringComparer.Ordinal)],
+            };
+            policy = Fresher(policy, document.IssuedAt, document.Expires);
+            // Kept by the host for good. An expired list leaves no freshness mark: replaying one must not hold a host back.
+            ledger?.Record(document.Digests, document.Keys);
+            if (document.Expires > now) ledger?.RecordFreshness(document.IssuedAt, document.Expires);
+        }
+        withdrawn = notes.AsReadOnly();
+        return ledger is null ? policy : ledger.Apply(policy);
+    }
+
+    /// <summary>The policy's freshness after a list issued at <paramref name="issuedAt"/>: the newest list's expiry, capped by the policy's own.</summary>
+    internal static TrustPolicy Fresher(TrustPolicy policy, DateTimeOffset issuedAt, DateTimeOffset expires)
+    {
+        if (policy.RevocationsIssued is { } newest && issuedAt < newest) return policy;
+        var listExpiry = policy.RevocationsIssued == issuedAt && policy.RevocationsExpire is { } same && same < expires ? same : expires;
+        return policy with
+        {
+            RevocationsIssued = issuedAt,
+            RevocationsExpire = policy.StaticRevocationsExpire is { } fixedExpiry && fixedExpiry < listExpiry ? fixedExpiry : listExpiry,
+        };
+    }
+
+    private sealed record Document(IReadOnlyList<string> Signers, DateTimeOffset IssuedAt, DateTimeOffset Expires, IReadOnlyList<string> Digests, IReadOnlyList<RevokedKey> Keys);
+
+    // One document read and its signatures checked: the revoker keys, trusted and valid now, whose signatures hold.
+    private static Document Read(TrustPolicy policy, ReadOnlySpan<byte> envelopeBytes, DateTimeOffset now)
+    {
+        if (envelopeBytes.Length > MaximumDocumentBytes) throw Bad($"is larger than {MaximumDocumentBytes >> 20} MiB");
         if (PackJson.Check(envelopeBytes) is { } problem) throw Bad($"is not a JSON envelope: it {problem}");
         byte[] payload;
         JsonElement signatures;
@@ -85,8 +177,8 @@ internal static partial class Revocations
         if (signatures.GetArrayLength() > Dsse.MaximumSignatures) throw Bad($"holds more than {Dsse.MaximumSignatures} signatures");
         // Hashed once, and at most MaximumSignatures entries tried (fifth review).
         var hash = SHA256.HashData(Dsse.Pae(PayloadType, payload));
-        if (!signatures.EnumerateArray().Any(s => Verifies(policy, s, hash, now)))
-            throw Bad("is not signed by a key the trust policy names as revoker and that is valid now");
+        var signers = signatures.EnumerateArray().Select(s => Signer(policy, s, hash, now)).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        if (signers.Count == 0) throw Bad("is not signed by a key the trust policy names as revoker and that is valid now");
 
         if (PackJson.Check(payload) is { } payloadProblem) throw Bad($"has a payload that {payloadProblem}");
         using var document = JsonDocument.Parse(payload);
@@ -122,38 +214,26 @@ internal static partial class Revocations
             }
             keys.Add(new RevokedKey(keyId.GetString()!, compromisedAt));
         }
-
-        // Added, never removed: a key revoked outright stays revoked; of two compromise times the earlier holds.
-        var merged = policy.RevokedKeys.ToDictionary(k => k.KeyId, StringComparer.Ordinal);
-        foreach (var key in keys)
-            merged[key.KeyId] = merged.TryGetValue(key.KeyId, out var known) && (known.CompromisedAt is null || key.CompromisedAt is { } later && later > known.CompromisedAt)
-                ? known : key;
-        // What it revokes is kept by the host for good: a later run without this list, or with an older one, still holds it.
-        ledger?.Record(digests, keys);
-        return policy with
-        {
-            RevokedDigests = [.. policy.RevokedDigests.Union(digests, StringComparer.Ordinal)],
-            RevokedKeys = [.. merged.Values.OrderBy(k => k.KeyId, StringComparer.Ordinal)],
-            RevocationsExpire = policy.RevocationsExpire is { } current && current < expires ? current : expires,
-        };
+        return new Document(signers, issuedAt, expires, digests, keys);
     }
 
-    // One signature entry by a key the policy trusts as revoker, valid now and not itself revoked, that verifies the hash.
-    private static bool Verifies(TrustPolicy policy, JsonElement entry, byte[] hash, DateTimeOffset now)
+    // The key id of one signature entry by a key the policy trusts as revoker and that is valid now, when it verifies the hash
+    // in strict DER; whether that key is revoked is decided for the whole run (ApplyAll).
+    private static string? Signer(TrustPolicy policy, JsonElement entry, byte[] hash, DateTimeOffset now)
     {
         if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("keyid", out var keyId) || keyId.ValueKind != JsonValueKind.String
             || !entry.TryGetProperty("sig", out var sig) || sig.ValueKind != JsonValueKind.String)
-            return false;
-        if (policy.Find(keyId.GetString()!) is not { } key || !key.Roles.Contains(Role)) return false;
-        if (key.NotBefore is { } from && now < from || key.NotAfter is { } until && now > until) return false;
-        if (policy.RevokedKeys.Any(r => r.KeyId == key.KeyId)) return false;
+            return null;
+        if (policy.Find(keyId.GetString()!) is not { } key || !key.Roles.Contains(Role)) return null;
+        if (key.NotBefore is { } from && now < from || key.NotAfter is { } until && now > until) return null;
         try
         {
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportFromPem(key.PublicKeyPem);
-            return Dsse.FromBase64(sig.GetString()) is { } signature && ecdsa.VerifyHash(hash, signature, DSASignatureFormat.Rfc3279DerSequence);
+            return Dsse.FromBase64(sig.GetString()) is { } signature && Dsse.IsStrictDer(signature)
+                && ecdsa.VerifyHash(hash, signature, DSASignatureFormat.Rfc3279DerSequence) ? key.KeyId : null;
         }
-        catch (FormatException) { return false; }
+        catch (FormatException) { return null; }
     }
 
     private static string Time(DateTimeOffset at) => at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);

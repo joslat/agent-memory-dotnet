@@ -155,6 +155,18 @@ public sealed class PackValidityTests : IDisposable
         Revoked(() => PackLoader.Load(archive, Trust(), PackInstallLedger.Open(path)));
     }
 
+    [Fact]
+    public void Allowing_a_set_downgrade_still_holds_one_content_per_version()
+    {
+        // Sixth review: a set installed with --allow-downgrade skipped the ledger, so a member version could change content.
+        var store = PackStore.Open(Path.Combine(_root, "store"));
+        store.Install(PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Archive()], _key.PrivateKeyPem), Trust());
+        var changed = PackAuthoring.BuildSet("io.example.dojo-set", "0.9.0", [Archive(validUntil: Second(DateTimeOffset.UtcNow.AddDays(90)))], _key.PrivateKeyPem);
+
+        FluentActions.Invoking(() => store.Install(changed, Trust(), allowDowngrade: true))
+            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("other content"));
+    }
+
     private static void Revoked(Func<object> load) =>
         FluentActions.Invoking(load).Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("is revoked"));
 

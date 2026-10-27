@@ -469,8 +469,12 @@ public sealed class PackActivationFolder : IPackActivations
             var root = envelope.RootElement;
             if (root.GetProperty("payloadType").GetString() != PayloadType) return null;
             var payload = Convert.FromBase64String(root.GetProperty("payload").GetString()!);
-            var verified = root.GetProperty("signatures").EnumerateArray().Any(s =>
-                key.VerifyData(Pae(payload), Convert.FromBase64String(s.GetProperty("sig").GetString()!), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence));
+            // Hashed once, at most sixteen entries tried, as for packs (sixth review).
+            var signatures = root.GetProperty("signatures");
+            if (signatures.GetArrayLength() > 16) return null;
+            var hash = SHA256.HashData(Pae(payload));
+            var verified = signatures.EnumerateArray().Any(s =>
+                key.VerifyHash(hash, Convert.FromBase64String(s.GetProperty("sig").GetString()!), DSASignatureFormat.Rfc3279DerSequence));
             if (!verified) return null;
             using var statement = JsonDocument.Parse(payload);
             if (statement.RootElement.GetProperty("predicateType").GetString() != PredicateType) return null;

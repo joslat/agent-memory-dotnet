@@ -26,6 +26,13 @@ internal sealed record TrustPolicy
     internal IReadOnlyList<RevokedKey> RevokedKeys { get; init; } = [];
     /// <summary>When the revocation information goes stale; after it, nothing verifies until the host refreshes it.</summary>
     internal DateTimeOffset? RevocationsExpire { get; init; }
+    /// <summary>The policy file's own <c>revoked.expires</c>, which caps every list's freshness.</summary>
+    internal DateTimeOffset? StaticRevocationsExpire { get; init; }
+    /// <summary>When the newest revocation list behind <see cref="RevocationsExpire"/> was issued; null when no list was applied.</summary>
+    internal DateTimeOffset? RevocationsIssued { get; init; }
+    /// <summary>The ledger whose kept revocations this policy already holds, and at which of its versions (so a set's members do not apply it again).</summary>
+    internal HostLedger? KeptFrom { get; init; }
+    internal int KeptVersion { get; init; }
     internal IReadOnlyList<string> RequiredRoles { get; init; } = ["publisher"];
 
     internal TrustedKey? Find(string keyId) => Keys.FirstOrDefault(k => k.KeyId == keyId);
@@ -112,7 +119,10 @@ internal sealed record TrustPolicy
         }
         var required = root.TryGetProperty("requireRoles", out _) ? Strings(root, "requireRoles") : ["publisher"];
         if (required.Count == 0 || required.Any(r => !Dsse.Roles.Contains(r))) throw new InvalidDataException("requireRoles must name known roles.");
-        return new TrustPolicy { Keys = keys, RevokedDigests = revokedDigests, RevokedKeys = revokedKeys, RevocationsExpire = expires, RequiredRoles = required };
+        return new TrustPolicy
+        {
+            Keys = keys, RevokedDigests = revokedDigests, RevokedKeys = revokedKeys, RevocationsExpire = expires, StaticRevocationsExpire = expires, RequiredRoles = required,
+        };
     }
 
     // A list of strings: absent is empty; anything but an array of strings makes the policy malformed.

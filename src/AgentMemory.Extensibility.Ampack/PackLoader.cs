@@ -36,8 +36,23 @@ public sealed class PackTrust
     /// with an older list, or none, still holds it.</param>
     public PackTrust WithRevocations(byte[] signedDocument, PackInstallLedger? ledger = null)
     {
-        var applied = new PackTrust(Revocations.Apply(Policy, signedDocument ?? throw new ArgumentNullException(nameof(signedDocument)), DateTimeOffset.UtcNow, ledger?.Ledger));
+        ArgumentNullException.ThrowIfNull(signedDocument);
+        var applied = new PackTrust(Revocations.Apply(Policy, signedDocument, DateTimeOffset.UtcNow, ledger?.Ledger));
         ledger?.Save();
+        return applied;
+    }
+
+    /// <summary>
+    /// This trust with one run's revocation documents applied together (sixth review): with a <paramref name="ledger"/>, what
+    /// the host revoked before first, so a revoker revoked earlier signs nothing; a list signed only by revoked revokers is not
+    /// applied and is named in <paramref name="notApplied"/>; lists that revoke each other's signers are refused.
+    /// </summary>
+    /// <exception cref="InvalidDataException">A document is malformed, unsigned or from the future, or the lists revoke each other's signers.</exception>
+    public PackTrust WithRevocations(IReadOnlyList<byte[]> signedDocuments, PackInstallLedger? ledger, out IReadOnlyList<string> notApplied)
+    {
+        ArgumentNullException.ThrowIfNull(signedDocuments);
+        var applied = new PackTrust(Revocations.ApplyAll(Policy, signedDocuments, DateTimeOffset.UtcNow, ledger?.Ledger, out notApplied));
+        if (signedDocuments.Count > 0) ledger?.Save();
         return applied;
     }
 }
@@ -65,6 +80,16 @@ public sealed class PackInstallLedger
     {
         ArgumentNullException.ThrowIfNull(trust);
         return new PackTrust(Ledger.Apply(trust.Policy));
+    }
+
+    /// <summary>
+    /// Forgets the newest revocation list's freshness, for a host that stops using revocation lists; what was revoked stays
+    /// revoked. Saved at once.
+    /// </summary>
+    public void RetireRevocationLists()
+    {
+        Ledger.RetireRevocationLists();
+        Save();
     }
 
     /// <summary>Saves the ledger as it is.</summary>
