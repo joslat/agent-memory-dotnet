@@ -45,6 +45,8 @@ internal static class Program
 
     internal static int Main(string[] args)
     {
+        // Messages name packs, digests and paths with non-ASCII characters (…, ≥); write them as UTF-8 on every console.
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
         if (args.Length == 0 || args[0] is "-h" or "--help" or "help") { Console.WriteLine(Usage); return args.Length == 0 ? 2 : 0; }
         try
         {
@@ -206,7 +208,9 @@ internal static class Program
         if (pack.Manifest.Kind == "set")
         {
             // A set verifies as a whole and member by member: each keeps its own list and signatures.
-            var (_, members) = PackVerifier.VerifySet(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"));
+            var (whole, members) = PackVerifier.VerifySet(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"));
+            // The set as a whole first: a file outside any member folder, or members other than it names, refuses it.
+            if (!whole.IsVerified) return Report(whole.Problems, "");
             var refused = members.Where(m => !m.Value.IsVerified).SelectMany(m => m.Value.Problems.Select(p => $"packs/{m.Key}/: {p}")).ToList();
             if (refused.Count > 0) return Report(refused, "");
             Console.WriteLine($"Verified set {pack.Id} {pack.Version}\n  digest  {pack.Digest}");
@@ -316,7 +320,7 @@ internal static class Program
         var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
         var paths = o.PositionalFrom(0).ToList();
         if (paths.Count == 0) throw new UsageException("serve needs at least one pack.");
-        try { return Serve.Run(AgentMemory.Extensibility.Ampack.PackMemory.Mount(paths.Select(File.ReadAllBytes), trust)); }
+        try { return Serve.Run(AgentMemory.Extensibility.Ampack.PackMemory.Mount(paths.Select(p => PackReader.ReadArchiveFile(p)), trust)); }
         catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
     }
 
@@ -328,7 +332,7 @@ internal static class Program
         if (paths.Count == 0) throw new UsageException("test needs at least one pack.");
         try
         {
-            var (loaded, memory) = AgentMemory.Extensibility.Ampack.PackMemory.Mount(paths.Select(File.ReadAllBytes), trust);
+            var (loaded, memory) = AgentMemory.Extensibility.Ampack.PackMemory.Mount(paths.Select(p => PackReader.ReadArchiveFile(p)), trust);
             Console.WriteLine($"Loaded {loaded.Count} pack(s), {memory.Count:N0} records in memory.");
             var failed = 0; var ran = 0;
             foreach (var pack in loaded)

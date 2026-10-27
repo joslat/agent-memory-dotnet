@@ -10,7 +10,21 @@ internal static class PackReader
     internal const string Extension = ".ampack";
 
     internal static PackContent Read(string path, PackLimits? limits = null) =>
-        Directory.Exists(path) ? ReadFolder(path, limits) : ReadArchive(File.ReadAllBytes(path), path, limits);
+        Directory.Exists(path) ? ReadFolder(path, limits) : ReadArchive(ReadArchiveFile(path, limits), path, limits);
+
+    /// <summary>
+    /// An <c>.ampack</c> file's bytes, its size checked against the archive limit before one byte is read (PACK-harden,
+    /// review 4.14), and it must be a plain file, not a link.
+    /// </summary>
+    internal static byte[] ReadArchiveFile(string path, PackLimits? limits = null)
+    {
+        limits ??= PackLimits.Default;
+        var file = new FileInfo(path);
+        if (!file.Exists) throw new FileNotFoundException($"No pack at {path}.", path);
+        if (file.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new InvalidDataException($"{path} is a link or reparse point.");
+        if (file.Length > limits.MaxArchiveBytes) throw new InvalidDataException($"The archive is larger than {limits.MaxArchiveBytes} bytes.");
+        return File.ReadAllBytes(file.FullName);
+    }
 
     internal static PackContent ReadArchive(byte[] archive, string source, PackLimits? limits = null) =>
         new(StrictZip.Read(archive, limits ?? PackLimits.Default), source);

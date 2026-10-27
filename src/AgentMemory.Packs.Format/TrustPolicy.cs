@@ -33,8 +33,12 @@ internal sealed record TrustPolicy
         var shortId = Dsse.Short(key.KeyId);
         if (!key.Roles.Contains(role)) return $"key {shortId} may not sign as {role}.";
         if (!key.IdPrefixes.Any(p => PackManifest.Covers(p, id))) return $"key {shortId} may not sign for '{id}'.";
-        if (key.NotBefore is { } from && signedAt < from) return $"key {shortId} was not yet valid at the signing time.";
+        if (key.NotBefore is { } from && (signedAt < from || now < from)) return $"key {shortId} was not yet valid at the signing time.";
         if (key.NotAfter is { } until && signedAt > until) return $"key {shortId} had expired at the signing time.";
+        // PACK-harden (review 4.7): the signing time is the signer's own claim and can be back-dated, so a key's expiry is
+        // checked against now; only a verified timestamp token could prove a signature older than the expiry.
+        if (key.NotAfter is { } expired && now > expired)
+            return $"key {shortId} expired at {expired:u}; without a verified timestamp token its signatures no longer count.";
         if (signedAt > now.AddMinutes(5)) return $"the signature by {shortId} claims a time in the future.";
         if (RevokedKeys.FirstOrDefault(r => r.KeyId == key.KeyId) is { } revoked)
             // A timestamp authority's token is the only proof a signature predates a compromise; until the token is checked, refuse.
@@ -98,8 +102,11 @@ internal sealed record TrustPolicy
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
             ? [.. value.EnumerateArray().Select(v => v.GetString()!)] : [];
 
-    private static DateTimeOffset? Time(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? DateTimeOffset.Parse(value.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal)
-            : null;
+    // A time in the policy: absent, or an RFC 3339 date-time (PackTime); anything else makes the policy malformed.
+    private static DateTimeOffset? Time(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value)) return null;
+        return value.ValueKind == JsonValueKind.String && PackTime.TryParse(value.GetString(), out var time)
+            ? time : throw new FormatException($"'{name}' is not an RFC 3339 date-time.");
+    }
 }

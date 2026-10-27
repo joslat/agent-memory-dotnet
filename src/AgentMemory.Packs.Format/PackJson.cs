@@ -78,11 +78,8 @@ internal static class PackJson
         }
     }
 
-    private static bool IsNfc(string value)
-    {
-        try { return value.IsNormalized(NormalizationForm.FormC); }
-        catch (ArgumentException) { return false; } // an unpaired surrogate
-    }
+    // The same verdict on every host, whatever its globalization mode (Nfc).
+    private static bool IsNfc(string value) => Nfc.IsNormalized(value);
 
     /// <summary>Splits on LF, without the final empty segment after the last LF.</summary>
     private ref struct LineEnumerator(ReadOnlySpan<byte> text)

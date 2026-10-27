@@ -13,7 +13,8 @@ namespace AgentMemory.Packs.Format;
 /// <item>each local header equals its central-directory entry (name, method, flags, time, CRC, sizes);</item>
 /// <item>methods stored (0) or deflate (8) only; flags 0 (no data descriptors, no encryption); no extra fields; no
 /// directory entries; no ZIP64; MS-DOS attributes 0; time fixed at 1980-01-01 00:00;</item>
-/// <item>inflation is counted against the declared size, a ratio cap and a total cap, and every CRC is checked.</item>
+/// <item>inflation is counted against the declared size, a ratio cap and a total cap, and every CRC is checked; a deflate
+/// stream must end exactly where the entry's compressed bytes end (no bytes after it that another reader might use).</item>
 /// </list>
 /// Reading never extracts to disk: it returns the bytes, which the verifier then checks and the importer then uses.
 /// </summary>
@@ -178,7 +179,7 @@ internal static class StrictZip
 
     private static byte[] Inflate(ReadOnlySpan<byte> data, uint size, string where)
     {
-        using var input = new MemoryStream(data.ToArray());
+        using var input = new ExactInput(data.ToArray());
         using var inflater = new DeflateStream(input, CompressionMode.Decompress);
         var output = new byte[size];
         var read = 0;
@@ -189,7 +190,49 @@ internal static class StrictZip
             read += n;
         }
         if (inflater.Read(new byte[1], 0, 1) != 0) throw Bad($"{where} inflates to more bytes than it declares");
+        // PACK-harden (review 4.13): the inflater stops at the stream's final block; every compressed byte must have been used.
+        if (!input.Exhausted) throw Bad($"{where} has bytes after the end of its deflate stream");
         return output;
+    }
+
+    /// <summary>
+    /// The compressed bytes, handed to the inflater so that what it consumed is known exactly: in large chunks, and one byte at
+    /// a time over the last <see cref="Tail"/> bytes, so the inflater can never have read past its stream's end unseen. If the
+    /// stream ends before the tail, the tail is never asked for at all.
+    /// </summary>
+    private sealed class ExactInput(byte[] data) : Stream
+    {
+        private const int Tail = 64 * 1024;
+        private int _position;
+
+        public bool Exhausted => _position == data.Length;
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var remaining = data.Length - _position;
+            if (remaining == 0 || count == 0) return 0;
+            var n = remaining > Tail ? Math.Min(count, remaining - Tail) : 1;
+            Array.Copy(data, _position, buffer, offset, n);
+            _position += n;
+            return n;
+        }
+        public override int Read(Span<byte> buffer)
+        {
+            var remaining = data.Length - _position;
+            if (remaining == 0 || buffer.Length == 0) return 0;
+            var n = remaining > Tail ? Math.Min(buffer.Length, remaining - Tail) : 1;
+            data.AsSpan(_position, n).CopyTo(buffer);
+            _position += n;
+            return n;
+        }
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => data.Length;
+        public override long Position { get => _position; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private static byte[] DeflateBytes(byte[] content)

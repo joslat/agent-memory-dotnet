@@ -1,7 +1,9 @@
-"""A second, independent verifier for memory packs (format v1.1), in Python, to prove the format is language-neutral.
+"""A second, independent verifier for memory packs (format v1.2), in Python, to prove the format is language-neutral.
 
 It shares no code with the .NET implementation: it reads the strict ZIP profile itself, checks the canonical
-META/files.json, every file's length and SHA-256, and the DSSE envelopes of in-toto statements against a trust policy.
+META/files.json, every file's length and SHA-256, the DSSE envelopes of in-toto statements against a trust policy (key
+scopes, roles, validity windows, revocations and their expiry), pack.json (fields, kinds, enumerations, validUntil,
+source), what each kind must hold, a composite's lock against its members, and a pack set with each member on its own.
 It must agree with `ampack verify` on every vector in ../vectors (see run_vectors.py).
 
 usage: python ampack_verify.py <pack.ampack> <trust.json>      exit 0 verified, 1 refused
@@ -29,6 +31,15 @@ PACK_FORMAT = "agentmemory.pack/1.2"
 PACK_FIELDS = {"format", "id", "version", "kind", "sdk", "requires", "display", "containableBy", "contains", "tier", "licence",
                "validUntil", "protection", "code", "source", "extensions"}
 UNDERSTOOD_EXTENSIONS = set()
+KINDS = {"knowledge", "definition", "snapshot", "composite", "set"}
+TIERS = {"open", "curated", "premium", "private", "hosted"}
+PROTECTIONS = {"open", "audience", "licensed", "attested", "hosted"}
+CODE_TIERS = {"E0", "E1", "E2"}
+LOCK = "META/lock.json"
+LOCK_FORMAT = "agentmemory.pack.lock/1.1"
+COMMIT = re.compile(r"[0-9a-f]{7,64}")
+# RFC 3339 date-times, the one form a time in a pack or a policy takes.
+INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})")
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 STATEMENT = "https://in-toto.io/Statement/v1"
 ROLES = {"publisher", "curator", "assurer"}
@@ -89,6 +100,8 @@ def read_zip(data):
             content = d.decompress(raw, size + 1)
             if len(content) != size or d.unconsumed_tail or not d.eof:
                 raise Refused(f"entry '{name}' does not inflate to its declared size")
+            if d.unused_data:
+                raise Refused(f"entry '{name}' has bytes after the end of its deflate stream")
         else:
             content = raw
         if zlib.crc32(content) & 0xFFFFFFFF != crc:
@@ -99,6 +112,132 @@ def read_zip(data):
     if cursor != cd_start or pos != cd_start + cd_size:
         raise Refused("there are bytes outside the entries")
     return files
+
+
+def instant(text):
+    """An RFC 3339 date-time as an aware datetime, or None when the text is not one."""
+    if not isinstance(text, str) or not INSTANT.fullmatch(text):
+        return None
+    head, _, rest = text.partition(".")
+    if rest:
+        digits = "".join(c for c in rest if c.isdigit())
+        text = head + "." + (digits + "000000")[:6] + rest[len(digits):]
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def policy_time(value):
+    """A time in the host's policy: absent, or an RFC 3339 date-time; anything else is a malformed policy."""
+    if value is None:
+        return None
+    parsed = instant(value)
+    if parsed is None:
+        raise Refused("the trust policy has a time that is not an RFC 3339 date-time")
+    return parsed
+
+
+def valid_id(value):
+    return isinstance(value, str) and len(value) <= 64 and ID.fullmatch(value) is not None
+
+
+def manifest_checks(manifest, content, now):
+    """pack.json's fields and what its kind must hold (v1.2 §2, §3, §5), as `ampack verify` checks them."""
+    kind = manifest.get("kind")
+    if kind not in KINDS:
+        raise Refused("pack.json needs a known kind")
+    for field, allowed in (("tier", TIERS), ("protection", PROTECTIONS), ("code", CODE_TIERS)):
+        if field in manifest and manifest[field] not in allowed:
+            raise Refused(f"pack.json has an unknown {field}")
+    for field in ("contains", "containableBy"):
+        value = manifest.get(field, [])
+        if not isinstance(value, list) or not all(valid_id(v) for v in value):
+            raise Refused(f"pack.json has a malformed '{field}'")
+    if "validUntil" in manifest:
+        until = instant(manifest["validUntil"])
+        if until is None:
+            raise Refused("pack.json has a validUntil that is not a date and time")
+        if until < now:
+            raise Refused("the pack's validUntil has passed")
+    if "source" in manifest:
+        source = manifest["source"]
+        if not isinstance(source, dict) or not all(k in ("repository", "commit", "builtAt") and isinstance(v, str) and 0 < len(v) <= 200
+                                                   for k, v in source.items()):
+            raise Refused("pack.json has a malformed 'source'")
+        if "builtAt" in source and instant(source["builtAt"]) is None:
+            raise Refused("pack.json has a source.builtAt that is not a date and time")
+        if "commit" in source and not COMMIT.fullmatch(source["commit"]):
+            raise Refused("pack.json has a source.commit that is not 7 to 64 hexadecimal characters")
+    records = [p for p in content if p.startswith("records/") and p.endswith(".jsonl")]
+    if kind in ("knowledge", "snapshot") and not records:
+        raise Refused(f"a {kind} pack holds records")
+    if kind == "definition" and records:
+        raise Refused("a definition pack holds no records")
+    if kind == "composite":
+        if LOCK not in content or not manifest.get("contains"):
+            raise Refused("a composite names what it contains and pins it in META/lock.json")
+        composite_checks(manifest, content)
+    if kind == "set" and not any(p.startswith("packs/") for p in content):
+        raise Refused("a pack set carries its members under packs/")
+    if manifest.get("protection", "open") != "open" and "META/seal.json" not in content:
+        raise Refused("a protected pack carries META/seal.json")
+
+
+def composite_checks(manifest, content):
+    """The lock is canonical and strict; members.json, pack.json and the lock name the same members."""
+    lock_bytes = content[LOCK]
+    lock = profile(lock_bytes, integers_only=True)
+    if canonical(lock).encode("utf-8") != lock_bytes:
+        raise Refused("META/lock.json is not canonical")
+    if not isinstance(lock, dict) or set(lock) != {"format", "members"} or lock["format"] != LOCK_FORMAT or not isinstance(lock["members"], list):
+        raise Refused("META/lock.json is not a lock: format and members, nothing else")
+    pinned = []
+    for m in lock["members"]:
+        if not isinstance(m, dict) or set(m) != {"id", "version", "digest"} or not valid_id(m["id"]) \
+                or not isinstance(m["version"], str) or not SEMVER.fullmatch(m["version"]) \
+                or not isinstance(m["digest"], str) or not m["digest"].startswith("sha256:") or len(m["digest"]) != 71:
+            raise Refused("META/lock.json has a malformed member")
+        pinned.append(m["id"])
+    if len(set(pinned)) != len(pinned):
+        raise Refused("META/lock.json pins one id twice")
+    if "members.json" not in content:
+        raise Refused("a composite pack carries members.json")
+    try:
+        named = [m["id"] for m in profile(content["members.json"])["members"]]
+    except (Refused, KeyError, TypeError):
+        raise Refused("members.json is malformed")
+    contains = sorted(manifest["contains"])
+    if sorted(named) != contains:
+        raise Refused("members.json and pack.json name different members")
+    if sorted(pinned) != contains:
+        raise Refused("META/lock.json pins other members than the composite contains")
+
+
+def verify_any(files, policy, now):
+    """A pack, or a pack set and every member on its own (v1.2 §5)."""
+    pid, version, digest, manifest = verify(files, policy, now)
+    if manifest.get("kind") != "set":
+        return pid, version, digest
+    members = {}
+    for path, data in files.items():
+        if not path.startswith("packs/"):
+            continue
+        rest = path[len("packs/"):]
+        member, slash, inner = rest.partition("/")
+        if not member or not slash or not inner:
+            raise Refused(f"'{path}' is not inside a member folder")
+        members.setdefault(member, {})[inner] = data
+    if sorted(members) != sorted(manifest.get("contains", [])):
+        raise Refused("the set's pack.json names other members than it carries")
+    for member, member_files in sorted(members.items()):
+        try:
+            inner_id = verify(member_files, policy, now)[0]
+        except Refused as e:
+            raise Refused(f"packs/{member}/: {e}")
+        if inner_id != member:
+            raise Refused(f"the member in packs/{member}/ is {inner_id}")
+    return pid, version, digest
 
 
 def no_duplicates(pairs):
@@ -219,19 +358,31 @@ def verify(files, policy, now):
             raise Refused(f"pack.json marks '{name}' critical, but holds no such extension")
         if name not in UNDERSTOOD_EXTENSIONS:
             raise Refused(f"pack.json marks the extension '{name}' critical, and this verifier does not understand it")
+    manifest_checks(manifest, content, now)
     digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
     if digest in policy.get("revoked", {}).get("digests", []):
         raise Refused("the pack is revoked")
+    expires = policy_time(policy.get("revoked", {}).get("expires"))
+    if expires is not None and expires < now:
+        raise Refused("the host's revocation list has expired")
 
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
     roles = set()
     for path in sorted(p for p in files if p.startswith(SIGNATURES)):
+        # A file under META/signatures/ that is not an envelope at all is unlisted content: it refuses the pack.
         try:
             env = profile(files[path])
-            if env.get("payloadType") != PAYLOAD_TYPE:
-                continue
+        except Refused:
+            raise Refused(f"{path} is not a JSON envelope")
+        if not isinstance(env, dict) or env.get("payloadType") != PAYLOAD_TYPE or not isinstance(env.get("payload"), str) \
+                or not isinstance(env.get("signatures"), list):
+            raise Refused(f"{path} is not a DSSE envelope of an in-toto statement")
+        try:
             payload = base64.b64decode(env["payload"], validate=True)
+        except ValueError:
+            raise Refused(f"{path} has a payload that is not base64")
+        try:
             st = profile(payload)
             pred = st["predicate"]
             role = pred["role"]
@@ -245,6 +396,8 @@ def verify(files, policy, now):
         if not ok:
             continue
         for s in env.get("signatures", []):
+            if not isinstance(s, dict):
+                continue
             key = keys.get(s.get("keyid"))
             if key is None or key["keyId"] in revoked_keys or role not in key["roles"]:
                 continue
@@ -254,6 +407,12 @@ def verify(files, policy, now):
             spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
             if hashlib.sha256(spki).hexdigest() != key["keyId"] or signed_at.timestamp() > now.timestamp() + 300:
                 continue
+            # A key's window: the signing time is the signer's own claim, so expiry is also checked against now.
+            not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
+            if not_before is not None and (signed_at < not_before or now < not_before):
+                continue
+            if not_after is not None and (signed_at > not_after or now > not_after):
+                continue
             try:
                 public.verify(base64.b64decode(s["sig"]), pae(payload), ec.ECDSA(hashes.SHA256()))
                 roles.add(role)
@@ -262,14 +421,14 @@ def verify(files, policy, now):
     missing = set(policy.get("requireRoles", ["publisher"])) - roles
     if missing:
         raise Refused("no valid signature in role " + ", ".join(sorted(missing)))
-    return pid, version, digest
+    return pid, version, digest, manifest
 
 
 def main(argv):
     pack_path, policy_path = argv[1], argv[2]
     policy = json.load(open(policy_path, encoding="utf-8"))
     try:
-        pid, version, digest = verify(read_zip(open(pack_path, "rb").read()), policy, datetime.now(timezone.utc))
+        pid, version, digest = verify_any(read_zip(open(pack_path, "rb").read()), policy, datetime.now(timezone.utc))
     except Refused as e:
         print(f"refused: {e}")
         return 1

@@ -1,4 +1,4 @@
-"""Conformance vectors for memory pack format v1.1, checked by two independent verifiers.
+"""Conformance vectors for memory pack format v1.2, checked by two independent verifiers.
 
 Builds a valid pack with `ampack`, derives tampered and ambiguous variants with a separate Python writer, builds one pack
 entirely in Python (canonical list, DSSE signature, strict ZIP), and requires `ampack verify` (.NET) and
@@ -31,8 +31,25 @@ VECTORS = OUT / "vectors"
 
 
 def ampack(*args):
-    r = subprocess.run([AMPACK, *args], capture_output=True, text=True, encoding="utf-8")
+    r = subprocess.run([AMPACK, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def write_deflated_zip(files, junk=None):
+    """The strict profile with every entry deflated (method 8); `junk` maps a name to bytes appended after its deflate stream."""
+    out, central = bytearray(), []
+    for name in sorted(files):
+        data, nb = files[name], name.encode("ascii")
+        packer = zlib.compressobj(9, zlib.DEFLATED, -15)
+        packed = packer.compress(data) + packer.flush() + (junk or {}).get(name, b"")
+        crc, off = zlib.crc32(data) & 0xFFFFFFFF, len(out)
+        out += b"PK\x03\x04" + struct.pack("<HHHHHIIIHH", 20, 0, 8, 0, 0x21, crc, len(packed), len(data), len(nb), 0) + nb + packed
+        central.append((nb, crc, len(packed), len(data), off))
+    start = len(out)
+    for nb, crc, csize, size, off in central:
+        out += b"PK\x01\x02" + struct.pack("<HHHHHHIIIHHHHHII", 20, 20, 0, 8, 0, 0x21, crc, csize, size, len(nb), 0, 0, 0, 0, 0, off) + nb
+    out += b"PK\x05\x06" + struct.pack("<HHHHIIH", 0, 0, len(central), len(central), len(out) - start, start, 0)
+    return bytes(out)
 
 
 def write_zip(files, order=None, mutate=None):
@@ -85,6 +102,15 @@ def main():
     (OUT / "trust.json").write_text(json.dumps(policy, separators=(",", ":")), encoding="utf-8")
     other_scope = {"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, idPrefixes=["io.other"])]}
     (OUT / "trust-other-scope.json").write_text(json.dumps(other_scope, separators=(",", ":")), encoding="utf-8")
+    # PACK-conformance-v12: a key's window and the revocations' freshness, as host policies.
+    policies = {
+        "trust-key-expired.json": {"keys": [dict(entry, notAfter="2020-01-01T00:00:00Z")]},
+        "trust-key-not-yet-valid.json": {"keys": [dict(entry, notBefore="2099-01-01T00:00:00Z")]},
+        "trust-key-window-open.json": {"keys": [dict(entry, notBefore="2020-01-01T00:00:00Z", notAfter="2099-01-01T00:00:00Z")]},
+        "trust-revocations-stale.json": {"keys": [entry], "revoked": {"digests": [], "expires": "2020-01-01T00:00:00Z"}},
+    }
+    for name, body in policies.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
 
     assert ampack("init", str(work / "notes"), "--id", "io.example.notes", "--version", "1.0.0")[0] == 0
     code, text = ampack("build", str(work / "notes"), "--key", str(work / "keys" / "publisher.key.pem"), "--out", str(VECTORS / "valid-dotnet.ampack"))
@@ -116,6 +142,82 @@ def main():
     vectors["duplicate-key-record"] = (signed({**content, record: b'{"key":"a","key":"b"}\n'}), "trust.json", "refused")
     vectors["device-name-path"] = (signed({**content, "records/CON.jsonl": b'{"key":"c"}\n'}), "trust.json", "refused")
     vectors["pack-json-names-other-id"] = (signed(content, pid_="io.example.other"), "trust.json", "refused")
+
+    # PACK-conformance-v12: pack.json's fields and kinds, as both verifiers check them.
+    def edited(**fields):
+        m = json.loads(content["pack.json"])
+        m.update(fields)
+        return {**content, "pack.json": (json.dumps(m, indent=2, ensure_ascii=False) + chr(10)).encode("utf-8")}
+    vectors["unknown-kind"] = (signed(edited(kind="bundle")), "trust.json", "refused")
+    vectors["unknown-tier"] = (signed(edited(tier="gold")), "trust.json", "refused")
+    vectors["unknown-code-tier"] = (signed(edited(code="E9")), "trust.json", "refused")
+    vectors["valid-until-passed"] = (signed(edited(validUntil="2020-01-01T00:00:00Z")), "trust.json", "refused")
+    vectors["valid-until-ahead"] = (signed(edited(validUntil="2099-01-01T00:00:00Z")), "trust.json", "verified")
+    vectors["valid-until-not-rfc3339"] = (signed(edited(validUntil="2099-01-01")), "trust.json", "refused")
+    vectors["source-commit-not-hex"] = (signed(edited(source={"commit": "main"})), "trust.json", "refused")
+    vectors["source-valid"] = (signed(edited(source={"repository": "https://example.com/notes", "commit": "0a1b2c3",
+                                                     "builtAt": "2026-10-27T00:00:00Z"})), "trust.json", "verified")
+    vectors["containable-by-not-an-id"] = (signed(edited(containableBy=["Not An Id"])), "trust.json", "refused")
+    vectors["knowledge-without-records"] = (signed({p: b for p, b in content.items() if not p.startswith("records/")}), "trust.json", "refused")
+    vectors["definition-with-records"] = (signed(edited(kind="definition")), "trust.json", "refused")
+    vectors["protected-without-seal"] = (signed(edited(protection="audience")), "trust.json", "refused")
+
+    # A key's window and the revocations, judged against now as well as the claimed signing time.
+    vectors["key-expired"] = (dict(base), "trust-key-expired.json", "refused")
+    vectors["key-not-yet-valid"] = (dict(base), "trust-key-not-yet-valid.json", "refused")
+    vectors["key-window-open"] = (dict(base), "trust-key-window-open.json", "verified")
+    vectors["revocations-stale"] = (dict(base), "trust-revocations-stale.json", "refused")
+
+    # The JSON profile and the archive, more ways.
+    vectors["junk-signature-file"] = ({**signed(content), py.SIGNATURES + "junk.dsse.json": b'{"hello":1}\n'}, "trust.json", "refused")
+    vectors["integer-beyond-2-53"] = (signed({**content, record: b'{"key":"a","n":9007199254740993}\n'}), "trust.json", "refused")
+    vectors["nfd-string"] = (signed({**content, record: '{"key":"cafe\u0301"}\n'.encode("utf-8")}), "trust.json", "refused")
+    vectors["empty-line-record"] = (signed({**content, record: content[record] + b"\n"}), "trust.json", "refused")
+    vectors["no-final-line-feed"] = (signed({**content, record: content[record].rstrip(b"\n")}), "trust.json", "refused")
+    vectors["case-collision"] = (signed({**content, "records/Note.jsonl": content[record]}), "trust.json", "refused")
+
+    # Composites: built with ampack (lock pins the member's digest), then changed by this writer and signed again.
+    family = work / "family"
+    family.mkdir()
+    (family / "pack.json").write_bytes((json.dumps({"format": py.PACK_FORMAT, "id": "io.example.family", "version": "1.0.0", "kind": "composite",
+                                                    "contains": [pid], "tier": "open", "protection": "open", "code": "E0"}, indent=2) + chr(10)).encode())
+    (family / "members.json").write_bytes((json.dumps({"members": [{"id": pid, "version": "[1,2)"}]}, indent=2) + chr(10)).encode())
+    code, text = ampack("lock", str(family), str(VECTORS / "valid-dotnet.ampack"))
+    assert code == 0, text
+    code, text = ampack("build", str(family), "--key", str(work / "keys" / "publisher.key.pem"), "--out", str(work / "family.ampack"))
+    assert code == 0, text
+    composite = py.read_zip((work / "family.ampack").read_bytes())
+    composite_content = {p: b for p, b in composite.items() if p != py.FILES and not p.startswith(py.SIGNATURES)}
+    lock = json.loads(composite_content[py.LOCK])
+    def family_with(**files):
+        return signed({**composite_content, **files}, pid_="io.example.family")
+    vectors["composite-valid"] = (dict(composite), "trust.json", "verified")
+    vectors["composite-lock-pins-other"] = (family_with(**{py.LOCK: py.canonical({**lock, "members": [{**lock["members"][0], "id": "io.example.other"}]}).encode()}),
+                                            "trust.json", "refused")
+    vectors["composite-lock-not-canonical"] = (family_with(**{py.LOCK: (json.dumps(lock, indent=1) + chr(10)).encode()}), "trust.json", "refused")
+    vectors["composite-lock-extra-field"] = (family_with(**{py.LOCK: py.canonical({**lock, "note": "x"}).encode()}), "trust.json", "refused")
+    vectors["composite-members-differ"] = (family_with(**{"members.json": (json.dumps({"members": [{"id": "io.example.other", "version": "[1,2)"}]}) + chr(10)).encode()}),
+                                           "trust.json", "refused")
+
+    # Pack sets: built with ampack (each member keeps its own list and signatures), then changed and signed again as a whole.
+    code, text = ampack("set", str(work / "bundle.ampack"), str(VECTORS / "valid-dotnet.ampack"), "--id", "io.example.bundle", "--version", "1.0.0",
+                        "--key", str(work / "keys" / "publisher.key.pem"))
+    assert code == 0, text
+    bundle = py.read_zip((work / "bundle.ampack").read_bytes())
+    bundle_content = {p: b for p, b in bundle.items() if p != py.FILES and not p.startswith(py.SIGNATURES)}
+    member = f"packs/{pid}/"
+    def bundle_with(files, contains=None):
+        m = json.loads(files["pack.json"])
+        if contains is not None:
+            m["contains"] = contains
+        files = {**files, "pack.json": (json.dumps(m, indent=2) + chr(10)).encode()}
+        return signed(files, pid_="io.example.bundle")
+    vectors["set-valid"] = (dict(bundle), "trust.json", "verified")
+    vectors["set-member-tampered"] = (bundle_with({**bundle_content, member + record: bundle_content[member + record].replace(b"Replace me", b"Changed")}),
+                                      "trust.json", "refused")
+    renamed = {(p.replace(member, "packs/io.example.renamed/", 1) if p.startswith(member) else p): b for p, b in bundle_content.items()}
+    vectors["set-member-misnamed"] = (bundle_with(renamed, contains=["io.example.renamed"]), "trust.json", "refused")
+    vectors["set-file-outside-member"] = (bundle_with({**bundle_content, "packs/loose.json": b'{"a":1}\n'}), "trust.json", "refused")
 
     def manifest_with(**fields):
         m = json.loads(content["pack.json"])
@@ -149,6 +251,9 @@ def main():
         b[30] = ord("X")  # the first entry's local name only
         return b
     raw["local-name-differs"] = (write_zip(s, mutate=local_name), "trust.json", "refused")
+    # PACK-harden 4.13: a deflate stream must end where its entry's bytes end.
+    raw["deflate-valid"] = (write_deflated_zip(s), "trust.json", "verified")
+    raw["deflate-trailing-bytes"] = (write_deflated_zip(s, junk={record: b"\x00junk"}), "trust.json", "refused")
 
     results, failures = [], 0
     for name, (files, policy_file, expected) in {**{k: (write_zip(v[0]), v[1], v[2]) for k, v in vectors.items()}, **raw}.items():
@@ -156,7 +261,7 @@ def main():
         path.write_bytes(files)
         dn_code, dn_text = ampack("verify", str(path), "--policy", str(OUT / policy_file))
         pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(path), str(OUT / policy_file)],
-                            capture_output=True, text=True, encoding="utf-8")
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         dotnet = "verified" if dn_code == 0 else "refused"
         python = "verified" if pr.returncode == 0 else "refused"
         agree = dotnet == python == expected
@@ -165,7 +270,7 @@ def main():
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[0] if pr.stdout.strip() else pr.stderr.strip()[-200:],
                         "sha256": hashlib.sha256(files).hexdigest()})
         print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
-    (OUT / "results.json").write_text(json.dumps({"format": "agentmemory.pack.conformance/1.1", "vectors": results,
+    (OUT / "results.json").write_text(json.dumps({"format": "agentmemory.pack.conformance/1.2", "vectors": results,
                                                   "agreed": len(results) - failures, "total": len(results)}, indent=1) + "\n", encoding="utf-8")
     shutil.rmtree(work, ignore_errors=True)
     print(f"{len(results) - failures}/{len(results)} vectors: both verifiers agree with the expected outcome")

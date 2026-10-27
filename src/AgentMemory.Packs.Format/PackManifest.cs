@@ -94,8 +94,8 @@ internal sealed partial record PackManifest
         DateTimeOffset? validUntil = null;
         if (Text("validUntil") is { } until)
         {
-            if (!DateTimeOffset.TryParse(until, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
-                return (null, $"{FileName} has a validUntil that is not a date and time.");
+            if (!PackTime.TryParse(until, out var parsed))
+                return (null, $"{FileName} has a validUntil that is not an RFC 3339 date and time.");
             validUntil = parsed;
         }
         PackOrigin? origin = null;
@@ -108,8 +108,8 @@ internal sealed partial record PackManifest
             DateTimeOffset? builtAt = null;
             if (Field("builtAt") is { } built)
             {
-                if (!DateTimeOffset.TryParse(built, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at))
-                    return (null, $"{FileName} has a source.builtAt that is not a date and time.");
+                if (!PackTime.TryParse(built, out var at))
+                    return (null, $"{FileName} has a source.builtAt that is not an RFC 3339 date and time.");
                 builtAt = at;
             }
             if (Field("commit") is { } commit && !CommitPattern().IsMatch(commit))
