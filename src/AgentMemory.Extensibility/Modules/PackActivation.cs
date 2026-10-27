@@ -103,6 +103,12 @@ public sealed record PackActivation
     /// <summary>For an upgrade, the active version it was compared against on the same tasks; null otherwise.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PackTrialPrevious? Previous { get; init; }
+    /// <summary>
+    /// The upgrade rule the trial declared, recorded with the decision: the next version is held to it even if it declares a
+    /// looser one, or none (red team 6a).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleTrialUpgrade? Upgrade { get; init; }
 }
 
 /// <summary>The activation records a host has, by pack.</summary>
@@ -168,7 +174,10 @@ public static class PackTrialGate
         var residuals = tasks.Sum(t => Math.Pow(t.Correct - p * t.Offered, 2));
         var clustered = clusters / (clusters - 1.0) * residuals / (offered * offered);
         var binomial = p * (1 - p) / offered;
-        var designEffect = binomial == 0 ? 1 : Math.Max(1, clustered / binomial);
+        // At a precision of 0 or 1 there is no spread to measure a design effect by: each task counts as one observation
+        // (red team: two tasks with 201 correct files otherwise bound at 0.987).
+        if (binomial == 0) return WilsonLower(p, clusters, z);
+        var designEffect = Math.Max(1, clustered / binomial);
         return WilsonLower(p, offered / designEffect, z);
     }
 
@@ -220,9 +229,11 @@ public static class PackTrialGate
         if (with.PerTask is { } perTask && (perTask.Count != with.Tasks || perTask.Sum(t => t.Offered) != with.Offered
                 || perTask.Sum(t => t.Correct) != with.Correct || perTask.Any(t => t.Correct < 0 || t.Correct > t.Offered)))
             throw new ArgumentException("PerTask holds one entry per task, 0 <= correct <= offered, summing to Offered and Correct.", nameof(with));
-        if (previous is not null && (!ModuleVersion.TryParse(previous.Version, out var before) || before.CompareTo(manifest.Version) >= 0
+        // The previous version is earlier, or the same version with other content (a replacement is an upgrade too).
+        if (previous is not null && (!ModuleVersion.TryParse(previous.Version, out var before) || before.CompareTo(manifest.Version) > 0
+                || before.CompareTo(manifest.Version) == 0 && previous.ManifestDigest == DigestOf(manifest) && previous.PackDigest == packDigest
                 || previous.With.Tasks != with.Tasks))
-            throw new ArgumentException("The previous version is an earlier version, measured on the same tasks.", nameof(previous));
+            throw new ArgumentException("The previous version is an earlier version, or other content under this one, measured on the same tasks.", nameof(previous));
         var trial = manifest.Trial ?? throw new ArgumentException($"Module '{manifest.Id}' declares no trial.", nameof(manifest));
         var checks = new List<PackTrialCheck>();
         var t = trial.Targets;
@@ -266,7 +277,7 @@ public static class PackTrialGate
         {
             ModuleId = manifest.Id, Version = manifest.Version.ToString(), ManifestDigest = DigestOf(manifest), PackDigest = packDigest,
             Active = enough && failed.Count == 0, Reason = reason, DecidedAt = decidedAt, Checks = checks, With = with, Without = without,
-            Previous = previous,
+            Previous = previous, Upgrade = trial.Upgrade,
         };
     }
 
@@ -309,18 +320,48 @@ public static class PackTrialGate
 
     // PACK-upgrade-gate: a passing upgrade that must not regress goes on only if its trial compared it with exactly the version
     // that passed here before (the latest earlier version with a passing decision); null when it may go on.
-    private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision)
+    private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision) =>
+        Refusal(activations, decision, decision.Upgrade ?? manifest.Trial?.Upgrade, new Dictionary<PackActivation, string?>(ReferenceEqualityComparer.Instance));
+
+    // Why a passing decision may not go on as an upgrade, or null. The version it replaces is the one that passed here before
+    // it: of every content's current decision (a later failing one supersedes a pass), a passing one that the gate itself
+    // allows, at an earlier version, or at this version with other content decided earlier; the highest, the latest.
+    private static string? Refusal(IPackActivations activations, PackActivation decision, ModuleTrialUpgrade? rule,
+        Dictionary<PackActivation, string?> known)
     {
-        if (manifest.Trial?.Upgrade is not { NoRegression: true }) return null;
-        var active = activations.History(manifest.Id)
-            .Where(a => a.Active && ModuleVersion.TryParse(a.Version, out var v) && v.CompareTo(manifest.Version) < 0)
-            .OrderByDescending(a => ModuleVersion.Parse(a.Version)).ThenByDescending(a => a.DecidedAt).FirstOrDefault();
-        if (active is null) return null;
+        if (known.TryGetValue(decision, out var settled)) return settled;
+        known[decision] = "it is its own predecessor"; // never reached: predecessors come strictly before
+        var version = ModuleVersion.Parse(decision.Version);
+        var active = activations.History(decision.ModuleId)
+            .GroupBy(a => (a.Version, a.ManifestDigest, a.PackDigest))
+            .Select(g => g.MaxBy(a => a.DecidedAt)!)
+            .Where(a => a.Active && ModuleVersion.TryParse(a.Version, out var v)
+                && (a.ManifestDigest, a.PackDigest) != (decision.ManifestDigest, decision.PackDigest)
+                && (v.CompareTo(version) < 0 || v.CompareTo(version) == 0 && a.DecidedAt < decision.DecidedAt))
+            .OrderByDescending(a => ModuleVersion.Parse(a.Version)).ThenByDescending(a => a.DecidedAt)
+            .FirstOrDefault(a => Refusal(activations, a, a.Upgrade, known) is null);
+        var result = active is null ? null : Against(decision, rule, active);
+        known[decision] = result;
+        return result;
+    }
+
+    // An upgrade against the version it replaces: held to this version's rule or that version's, whichever is stricter, from
+    // the measurements the record carries, whatever its own checks said.
+    private static string? Against(PackActivation decision, ModuleTrialUpgrade? rule, PackActivation active)
+    {
+        var rules = new[] { rule, active.Upgrade }.Where(r => r is { NoRegression: true }).ToList();
+        if (rules.Count == 0) return null;
+        var tolerance = rules.Min(r => r!.Tolerance);
         if (decision.Previous is not { } previous)
             return $"it upgrades {active.Version}, which passed here; its trial must compare against that version";
-        return previous.Version == active.Version && previous.ManifestDigest == active.ManifestDigest && previous.PackDigest == active.PackDigest
-            ? null
-            : $"its trial compared against {previous.Version}, but {active.Version} ({Short(active.PackDigest ?? active.ManifestDigest)}) is the version that passed here";
+        if (previous.Version != active.Version || previous.ManifestDigest != active.ManifestDigest || previous.PackDigest != active.PackDigest)
+            return $"its trial compared against {previous.Version}, but {active.Version} ({Short(active.PackDigest ?? active.ManifestDigest)}) is the version that passed here";
+        if (decision.With is not { } with) return "its record carries no measurement to compare";
+        var hitDrop = with.HitRate - previous.With.HitRate;
+        var precisionDrop = with.Precision - previous.With.Precision;
+        return hitDrop >= -tolerance - 1e-9 && precisionDrop >= -tolerance - 1e-9 ? null
+            : $"it does worse than {active.Version} beyond the tolerance {tolerance.ToString(CultureInfo.InvariantCulture)} (hit rate {Math.Round(hitDrop, 3).ToString(CultureInfo.InvariantCulture)}, "
+              + $"precision {Math.Round(precisionDrop, 3).ToString(CultureInfo.InvariantCulture)})";
     }
 
     private static string Short(string digest) => digest[..Math.Min(digest.Length, digest.IndexOf(':', StringComparison.Ordinal) + 13)] + "…";

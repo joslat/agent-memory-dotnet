@@ -19,6 +19,8 @@ public sealed record LoadedFamily
     public required CompositeManifest Manifest { get; init; }
     /// <summary>The members, in the composite's order.</summary>
     public required IReadOnlyList<LoadedPack> Members { get; init; }
+    /// <summary>When the composite stops being valid here; every member's validity is capped by it.</summary>
+    public DateTimeOffset? ValidUntil { get; init; }
 }
 
 /// <summary>A verified pack set: its digest, the families it carries, and the packs in it that belong to no family.</summary>
@@ -35,6 +37,8 @@ public sealed record LoadedSet
     public IReadOnlyList<LoadedFamily> Families { get; init; } = [];
     /// <summary>Members of no composite.</summary>
     public IReadOnlyList<LoadedPack> Packs { get; init; } = [];
+    /// <summary>When the set stops being valid here; every pack in it is capped by it.</summary>
+    public DateTimeOffset? ValidUntil { get; init; }
 }
 
 /// <summary>
@@ -53,7 +57,7 @@ public static class PackFamilies
         ArgumentNullException.ThrowIfNull(memberPaths);
         var composite = OpenComposite(Read(compositePath), trust, ledger);
         var members = memberPaths.Select(p => PackLoader.Load(Read(p), trust, ledger, allowDowngrade: false)).ToList();
-        return Assemble(composite, members);
+        return Assemble(composite, members, trust, null);
     }
 
     /// <summary>Loads a pack set: the set's signature, then every member on its own, then every family's pins.</summary>
@@ -103,17 +107,23 @@ public static class PackFamilies
         var members = PackSets.Members(content.Files);
         var composites = new List<(VerifiedPack Pack, CompositeManifest Manifest, IReadOnlyList<LockEntry> Lock)>();
         var packs = new Dictionary<string, LoadedPack>(StringComparer.Ordinal);
+        // The set's own validity caps every pack in it (red team 7).
+        var setValidUntil = PackLoader.ValidUntil(outer, trust.Policy);
         foreach (var (id, files) in members.OrderBy(m => m.Key, StringComparer.Ordinal))
         {
             var memberContent = new PackContent(files, content.Source + "#" + id);
             if (verifications[id].Pack!.Manifest.Kind == "composite") composites.Add(OpenComposite(memberContent, trust, ledger));
-            else packs[id] = PackLoader.Load(memberContent, trust, ledger, allowDowngrade: false);
+            else
+            {
+                var pack = PackLoader.Load(memberContent, trust, ledger, allowDowngrade: false);
+                packs[id] = pack with { ValidUntil = PackLoader.Earliest([pack.ValidUntil, setValidUntil]) };
+            }
         }
-        var families = composites.Select(c => Assemble(c, [.. c.Lock.Select(e => packs.GetValueOrDefault(e.Id)).OfType<LoadedPack>()])).ToList();
+        var families = composites.Select(c => Assemble(c, [.. c.Lock.Select(e => packs.GetValueOrDefault(e.Id)).OfType<LoadedPack>()], trust, setValidUntil)).ToList();
         var inFamilies = families.SelectMany(f => f.Members.Select(m => m.Id)).ToHashSet(StringComparer.Ordinal);
         return new LoadedSet
         {
-            Id = outer.Id, Version = outer.Version, Digest = outer.Digest, Families = families,
+            Id = outer.Id, Version = outer.Version, Digest = outer.Digest, Families = families, ValidUntil = setValidUntil,
             Packs = [.. packs.Values.Where(p => !inFamilies.Contains(p.Id)).OrderBy(p => p.Id, StringComparer.Ordinal)],
         };
     }
@@ -135,7 +145,8 @@ public static class PackFamilies
     }
 
     // Exactly the pinned members: each present once, at the pinned version and digest; nothing else.
-    private static LoadedFamily Assemble((VerifiedPack Pack, CompositeManifest Manifest, IReadOnlyList<LockEntry> Lock) composite, IReadOnlyList<LoadedPack> members)
+    private static LoadedFamily Assemble((VerifiedPack Pack, CompositeManifest Manifest, IReadOnlyList<LockEntry> Lock) composite, IReadOnlyList<LoadedPack> members,
+        PackTrust trust, DateTimeOffset? setValidUntil)
     {
         var problems = new List<string>();
         var byId = members.GroupBy(m => m.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
@@ -152,10 +163,12 @@ public static class PackFamilies
         foreach (var snapshot in members.Where(m => m.Kind == "snapshot"))
             problems.Add($"{snapshot.Id} is a snapshot pack; a composite contains modules, so carry it beside {composite.Pack.Id} in a pack set.");
         if (problems.Count > 0) throw new PackLoadException(problems);
+        // The composite's own validity caps every member (red team 7).
+        var validUntil = PackLoader.Earliest([PackLoader.ValidUntil(composite.Pack, trust.Policy), setValidUntil]);
         return new LoadedFamily
         {
-            Id = composite.Pack.Id, Version = composite.Pack.Version, Digest = composite.Pack.Digest, Manifest = composite.Manifest,
-            Members = [.. composite.Manifest.Members.Select(m => byId[m.Id][0])],
+            Id = composite.Pack.Id, Version = composite.Pack.Version, Digest = composite.Pack.Digest, Manifest = composite.Manifest, ValidUntil = validUntil,
+            Members = [.. composite.Manifest.Members.Select(m => byId[m.Id][0] with { ValidUntil = PackLoader.Earliest([byId[m.Id][0].ValidUntil, validUntil]) })],
         };
     }
 }

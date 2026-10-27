@@ -58,7 +58,7 @@ internal static partial class Revocations
     /// later than now (five minutes' grace), its revocations added and its expiry the policy's when earlier.
     /// </summary>
     /// <exception cref="InvalidDataException">The document is malformed, signed by no trusted revoker, or issued in the future.</exception>
-    internal static TrustPolicy Apply(TrustPolicy policy, ReadOnlySpan<byte> envelopeBytes, DateTimeOffset now)
+    internal static TrustPolicy Apply(TrustPolicy policy, ReadOnlySpan<byte> envelopeBytes, DateTimeOffset now, HostLedger? ledger = null)
     {
         ArgumentNullException.ThrowIfNull(policy);
         if (PackJson.Check(envelopeBytes) is { } problem) throw Bad($"is not a JSON envelope: it {problem}");
@@ -88,6 +88,9 @@ internal static partial class Revocations
             || expires <= issuedAt)
             throw Bad("needs issuedAt and expires, RFC 3339, expiring after it was issued");
         if (issuedAt > now.AddMinutes(5)) throw Bad($"claims to be issued at {issuedAt:u}, in the future");
+        // An older document than one this host applied could drop revocations issued since: refused (red team 8).
+        if (ledger?.RevocationsIssuedAt is { } applied && issuedAt < applied)
+            throw Bad($"was issued at {issuedAt:u}, before the one this host applied ({applied:u}); an older list could drop revocations");
         var digests = new List<string>();
         if (!d.TryGetProperty("digests", out var digestArray) || digestArray.ValueKind != JsonValueKind.Array) throw Bad("needs a digests list");
         foreach (var digest in digestArray.EnumerateArray())
@@ -116,6 +119,7 @@ internal static partial class Revocations
         foreach (var key in keys)
             merged[key.KeyId] = merged.TryGetValue(key.KeyId, out var known) && (known.CompromisedAt is null || key.CompromisedAt is { } later && later > known.CompromisedAt)
                 ? known : key;
+        ledger?.RecordRevocations(issuedAt);
         return policy with
         {
             RevokedDigests = [.. policy.RevokedDigests.Union(digests, StringComparer.Ordinal)],

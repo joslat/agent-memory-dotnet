@@ -66,7 +66,13 @@ internal sealed class PackTools
     {
         if (mount.Packs.FirstOrDefault(p => p.Id == pack) is { } loaded && Expired(loaded))
             return JsonSerializer.Serialize(new { error = $"{pack} was valid until {loaded.ValidUntil:u}; it is switched off." }, Json);
-        try { return Hits(await mount.Memory.AskAsync(pack, view, text, key, limit, cancellationToken).ConfigureAwait(false)); }
+        var expired = ExpiredIds(mount);
+        // A snapshot's records leave with their carrier, as on a walk (red team 7).
+        try
+        {
+            var hits = await mount.Memory.AskAsync(pack, view, text, key, limit, cancellationToken).ConfigureAwait(false);
+            return Hits([.. hits.Where(h => !(h.Pack?.Carrier?.Id is { } carrier && expired.Contains(carrier)))]);
+        }
         catch (PackLoadException e) { return JsonSerializer.Serialize(new { error = string.Join(" ", e.Problems) }, Json); }
     }
 

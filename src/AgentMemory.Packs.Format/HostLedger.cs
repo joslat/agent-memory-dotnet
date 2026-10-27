@@ -13,6 +13,15 @@ internal sealed class HostLedger
     internal const string Format = "agentmemory.pack.ledger/1.1";
     private readonly Dictionary<string, (string Highest, Dictionary<string, string> Digests)> _packs = new(StringComparer.Ordinal);
 
+    /// <summary>When the newest revocation document this host applied was issued: an older one is refused (red team 8).</summary>
+    internal DateTimeOffset? RevocationsIssuedAt { get; private set; }
+
+    /// <summary>Records an applied revocation document's issue time; the ledger keeps the latest.</summary>
+    internal void RecordRevocations(DateTimeOffset issuedAt)
+    {
+        if (RevocationsIssuedAt is not { } seen || issuedAt > seen) RevocationsIssuedAt = issuedAt;
+    }
+
     /// <summary>Why installing this pack must be refused, or null.</summary>
     internal string? Refusal(string id, string version, string digest, bool allowDowngrade = false)
     {
@@ -55,6 +64,8 @@ internal sealed class HostLedger
             var digests = pack.Value.GetProperty("versions").EnumerateObject().ToDictionary(v => v.Name, v => v.Value.GetString()!, StringComparer.Ordinal);
             ledger._packs[pack.Name] = (pack.Value.GetProperty("highest").GetString()!, digests);
         }
+        if (document.RootElement.TryGetProperty("revocationsIssuedAt", out var issued))
+            ledger.RevocationsIssuedAt = PackTime.TryParse(issued.GetString(), out var at) ? at : throw new InvalidDataException($"The ledger at {path} has a malformed revocationsIssuedAt.");
         return ledger;
     }
 
@@ -68,6 +79,7 @@ internal sealed class HostLedger
             packs[id] = new JsonObject { ["highest"] = highest, ["versions"] = versions };
         }
         var root = new JsonObject { ["format"] = Format, ["packs"] = packs };
+        if (RevocationsIssuedAt is { } issued) root["revocationsIssuedAt"] = issued.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (directory is not null) Directory.CreateDirectory(directory);
         var temporary = path + ".tmp";

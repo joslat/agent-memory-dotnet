@@ -110,14 +110,70 @@ public sealed class PackUpgradeTests : IDisposable
     }
 
     [Fact]
-    public void A_first_version_or_a_trial_without_the_rule_is_not_held_to_a_predecessor()
+    public void A_first_version_is_not_held_to_a_predecessor()
     {
         Write(PackTrialGate.Decide(Manifest("1.1.0"), Arm(32), Nothing, Now));
-        Compose(Manifest("1.1.0")).Modules.Should().ContainSingle("nothing passed here before it");
 
-        Write(PackTrialGate.Decide(Manifest("1.0.0"), Arm(30), Nothing, Now.AddMinutes(1)));
-        Write(PackTrialGate.Decide(Manifest("1.2.0", upgrade: ""), Arm(31), Nothing, Now.AddMinutes(2)));
-        Compose(Manifest("1.2.0", upgrade: "")).Modules.Should().ContainSingle("its trial does not ask for the rule");
+        Compose(Manifest("1.1.0")).Modules.Should().ContainSingle("nothing passed here before it");
+    }
+
+    [Fact]
+    public void When_neither_version_asks_for_the_rule_an_upgrade_composes_without_comparison()
+    {
+        Write(PackTrialGate.Decide(Manifest("1.0.0", upgrade: ""), Arm(30), Nothing, Now));
+        Write(PackTrialGate.Decide(Manifest("1.2.0", upgrade: ""), Arm(31), Nothing, Now.AddMinutes(1)));
+
+        Compose(Manifest("1.2.0", upgrade: "")).Modules.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void A_version_can_neither_drop_nor_loosen_the_rule_its_predecessor_was_held_to()
+    {
+        var passed = PackTrialGate.Decide(Manifest("1.0.0"), Arm(30), Nothing, Now); // tolerance 0.02
+        Write(passed);
+
+        // 1.1.0 declares no rule of its own and was never compared: still off.
+        Write(PackTrialGate.Decide(Manifest("1.1.0", upgrade: ""), Arm(29), Nothing, Now.AddMinutes(1)));
+        Compose(Manifest("1.1.0", upgrade: "")).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("must compare");
+
+        // Compared, with a loose tolerance of its own (0.5): held to the predecessor's 0.02, a drop of 0.025 is too much.
+        const string loose = ""","upgrade":{"noRegression":true,"tolerance":0.5}""";
+        Write(PackTrialGate.Decide(Manifest("1.1.0", loose), Arm(29), Nothing, Now.AddMinutes(2), previous: Previous(passed, Arm(30))));
+        Compose(Manifest("1.1.0", loose)).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("beyond the tolerance 0.02");
+    }
+
+    [Fact]
+    public void The_same_version_with_other_content_is_an_upgrade_too()
+    {
+        var first = "sha256:" + new string('a', 64);
+        var second = "sha256:" + new string('b', 64);
+        var passed = PackTrialGate.Decide(Manifest("1.0.0"), Arm(30), Nothing, Now, first);
+        Write(passed);
+        Write(PackTrialGate.Decide(Manifest("1.0.0"), Arm(31), Nothing, Now.AddMinutes(1), second));
+
+        ComposePack(Manifest("1.0.0"), second).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("must compare");
+        Write(PackTrialGate.Decide(Manifest("1.0.0"), Arm(31), Nothing, Now.AddMinutes(2), second, Previous(passed, Arm(30))));
+        ComposePack(Manifest("1.0.0"), second).Modules.Should().ContainSingle();
+        FluentActions.Invoking(() => PackTrialGate.Decide(Manifest("1.0.0"), Arm(31), Nothing, Now, first, Previous(passed, Arm(30))))
+            .Should().Throw<ArgumentException>("the same content is not its own predecessor");
+    }
+
+    [Fact]
+    public void A_predecessor_whose_latest_decision_failed_does_not_count()
+    {
+        Write(PackTrialGate.Decide(Manifest("1.0.0"), Arm(30), Nothing, Now));
+        Write(PackTrialGate.Decide(Manifest("1.0.0"), Arm(2), Nothing, Now.AddMinutes(1))); // the same content, trialled again: it fails now
+        Write(PackTrialGate.Decide(Manifest("1.1.0"), Arm(31), Nothing, Now.AddMinutes(2)));
+
+        Compose(Manifest("1.1.0")).Modules.Should().ContainSingle("no version passes here now, so 1.1.0 is a first version");
+    }
+
+    private ModuleSet ComposePack(ModuleManifest manifest, string packDigest)
+    {
+        var services = new ServiceCollection();
+        services.AddAgentMemoryModules(m => m.AddDefinitionPack(manifest, packDigest, "developer 1a2b")
+            .RequireTrials(new PackActivationFolder(_folder, _host.ExportSubjectPublicKeyInfoPem())));
+        return services.BuildServiceProvider().GetRequiredService<ModuleSet>();
     }
 
     private ModuleSet Compose(ModuleManifest manifest)

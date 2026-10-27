@@ -31,8 +31,15 @@ public sealed class PackTrust
     /// nothing verifies until a fresh document is applied.
     /// </summary>
     /// <exception cref="InvalidDataException">The document is malformed, not signed by a trusted revoker valid now, or issued in the future.</exception>
-    public PackTrust WithRevocations(byte[] signedDocument) =>
-        new(Revocations.Apply(Policy, signedDocument ?? throw new ArgumentNullException(nameof(signedDocument)), DateTimeOffset.UtcNow));
+    /// <param name="signedDocument">The signed revocation document.</param>
+    /// <param name="ledger">The host's install ledger: when given, a document older than the newest one it applied is refused, so an
+    /// older list cannot drop revocations issued since, and this one is recorded.</param>
+    public PackTrust WithRevocations(byte[] signedDocument, PackInstallLedger? ledger = null)
+    {
+        var applied = new PackTrust(Revocations.Apply(Policy, signedDocument ?? throw new ArgumentNullException(nameof(signedDocument)), DateTimeOffset.UtcNow, ledger?.Ledger));
+        ledger?.Save();
+        return applied;
+    }
 }
 
 /// <summary>
@@ -49,6 +56,9 @@ public sealed class PackInstallLedger
 
     /// <summary>Opens the ledger file, or starts an empty one there.</summary>
     public static PackInstallLedger Open(string path) => new(path, HostLedger.Load(path));
+
+    /// <summary>Saves the ledger as it is.</summary>
+    internal void Save() => Ledger.Save(_path);
 
     /// <summary>Records an installed pack and saves the ledger.</summary>
     public void Record(LoadedPack pack)
@@ -107,7 +117,10 @@ public sealed record LoadedPack
     public string? SnapshotSource { get; init; }
     /// <summary>The pack's own tests (<c>evals/tests.json</c>), verified with it; null when it has none. Run with <see cref="PackTests"/>.</summary>
     public ReadOnlyMemory<byte>? Tests { get; init; }
-    /// <summary>When the pack declares <c>validUntil</c>: after it a host switches the pack off, at load and at runtime.</summary>
+    /// <summary>
+    /// When the pack stops being valid on this host, and a host switches it off at runtime: its own <c>validUntil</c>, its
+    /// family's and its set's, the host's revocation list expiry, and its signing keys' expiry, whichever comes first.
+    /// </summary>
     public DateTimeOffset? ValidUntil { get; init; }
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
@@ -220,10 +233,29 @@ public static class PackLoader
         return new LoadedPack
         {
             Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Kind = pack.Manifest.Kind, Manifest = manifest,
-            Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles, ValidUntil = pack.Manifest.ValidUntil,
+            Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles, ValidUntil = ValidUntil(pack, trust.Policy),
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
         };
+    }
+
+    /// <summary>
+    /// When a verified pack stops being valid here: its own validUntil, the revocation list's expiry, and for each required role
+    /// the latest expiry among the keys that signed in it (a key without one never expires), whichever comes first.
+    /// </summary>
+    internal static DateTimeOffset? ValidUntil(VerifiedPack pack, TrustPolicy policy)
+    {
+        var keys = policy.RequiredRoles.Select(role => pack.Signatures.Where(s => s.Role == role).Select(s => policy.Find(s.KeyId)?.NotAfter).ToList())
+            .Select(expiries => expiries.Count == 0 || expiries.Any(e => e is null) ? null : expiries.Max());
+        return Earliest([pack.Manifest.ValidUntil, policy.RevocationsExpire, .. keys]);
+    }
+
+    internal static DateTimeOffset? Earliest(IEnumerable<DateTimeOffset?> times)
+    {
+        DateTimeOffset? earliest = null;
+        foreach (var time in times)
+            if (time is { } value && (earliest is null || value < earliest)) earliest = value;
+        return earliest;
     }
 
     // What a pack declares that this host cannot enforce yet refuses it, rather than loading it as if it were open (PACK-review

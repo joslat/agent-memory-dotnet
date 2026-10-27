@@ -391,18 +391,28 @@ internal static class Program
         [.. (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
     // The host's trust policy, with a signed revocation document applied when --revocations names one.
+    // With --ledger (or a --store's ledger), a revocation document older than the newest one this host applied is refused.
     private static TrustPolicy Policy(Options o)
     {
         var policy = TrustPolicy.Parse(File.ReadAllBytes(o.Required("policy")));
-        return o.Value("revocations") is { } revocations ? Revocations.Apply(policy, PackReader.ReadArchiveFile(revocations), DateTimeOffset.UtcNow) : policy;
+        if (o.Value("revocations") is not { } revocations) return policy;
+        var ledgerPath = LedgerPath(o);
+        var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
+        var applied = Revocations.Apply(policy, PackReader.ReadArchiveFile(revocations), DateTimeOffset.UtcNow, ledger);
+        if (ledger is not null) ledger.Save(ledgerPath!);
+        return applied;
     }
 
     // The same, as the loader's trust.
     private static AgentMemory.Extensibility.Ampack.PackTrust Trust(Options o)
     {
         var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
-        return o.Value("revocations") is { } revocations ? trust.WithRevocations(PackReader.ReadArchiveFile(revocations)) : trust;
+        if (o.Value("revocations") is not { } revocations) return trust;
+        var ledger = LedgerPath(o) is { } path ? AgentMemory.Extensibility.Ampack.PackInstallLedger.Open(path) : null;
+        return trust.WithRevocations(PackReader.ReadArchiveFile(revocations), ledger);
     }
+
+    private static string? LedgerPath(Options o) => o.Value("ledger") ?? (o.Value("store") is { } store ? Path.Combine(store, "ledger.json") : null);
 
     private static int Lock(Options o)
     {
