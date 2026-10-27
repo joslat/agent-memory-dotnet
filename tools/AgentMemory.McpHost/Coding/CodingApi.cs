@@ -12,7 +12,7 @@ internal sealed record CodingApiResult(int StatusCode, object Body);
 
 /// <summary>One strict request contract and operation dispatcher for HTTP and MCP.</summary>
 internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue queue, CodingRecallReceipts? receipts = null,
-    CodingEvidence? evidence = null)
+    CodingEvidence? evidence = null, CodingReview? review = null)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -27,7 +27,7 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!identity.CanWrite && operation is "remember" or "forget") return Error(403, "insufficient_scope");
+            if (!identity.CanWrite && operation is "remember" or "forget" or "review_decide") return Error(403, "insufficient_scope");
             if (receipts is not null && !identity.CanWrite && operation == "recall_feedback") return Error(403, "insufficient_scope");
             if (arguments.ValueKind != JsonValueKind.Object) return Error(400, "invalid_input");
             switch (operation)
@@ -78,6 +78,14 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
                     var feedback = Read<RecallFeedbackInput>(arguments);
                     var updated = receipts.Feedback(identity, feedback.Session, feedback.RecallId, feedback.Label);
                     return updated is null ? Error(404, "recall_not_found") : new(200, updated);
+                case "review_list" when review is not null:
+                    var list = Read<ReviewListInput>(arguments);
+                    return new(200, review.List(list.Pack, list.State is { } s ? Enum.Parse<Extensibility.Packs.ReviewState>(s, ignoreCase: true) : null));
+                case "review_decide" when review is not null:
+                    var decide = Read<ReviewDecideInput>(arguments);
+                    if (decide.Decision is not ("accept" or "reject") || decide.Keys.Count is 0 or > 50) return Error(400, "invalid_input");
+                    var decided = review.Decide(identity, decide.Pack, decide.Keys, decide.Decision == "accept", decide.Edit, decide.Note);
+                    return decided is null ? Error(404, "review_set_not_found") : new(200, decided);
                 case "remember":
                     var job = queue.TryEnqueue(identity, Read<CodingRememberRequest>(arguments));
                     return job is null ? Error(503, "queue_unavailable") : new(202, job);
@@ -135,4 +143,13 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
         public required IReadOnlyList<CodingEvidenceSelection> Items { get; init; }
     }
     private sealed record EmptyInput;
+    private sealed record ReviewListInput { public string? Pack { get; init; } public string? State { get; init; } }
+    private sealed record ReviewDecideInput
+    {
+        public required string Pack { get; init; }
+        public required IReadOnlyList<string> Keys { get; init; }
+        public required string Decision { get; init; }
+        public Dictionary<string, JsonElement>? Edit { get; init; }
+        public string? Note { get; init; }
+    }
 }

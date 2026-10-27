@@ -43,12 +43,13 @@ internal sealed class ArchitectureCommand(TextWriter output)
         return 0;
     }
 
-    internal static Extensibility.Packs.ModuleSnapshot Read(string root, string? source, out IReadOnlyList<string> files, out IReadOnlyList<string> skipped)
+    internal static Extensibility.Packs.ModuleSnapshot Read(string root, string? source, out IReadOnlyList<string> files, out IReadOnlyList<string> skipped, bool reviewed = true)
     {
         var listed = Git(root, "ls-files", "-z") is { } text ? text.Split('\0', StringSplitOptions.RemoveEmptyEntries) : [];
         files = ArchitectureReader.ArchitectureFiles(listed);
         var head = Git(root, "rev-parse", "HEAD")?.Trim();
-        return ArchitectureReader.Read(root, files, source ?? (head is { Length: 40 or 64 } ? "git:" + head : "scan"), out skipped);
+        var snapshot = ArchitectureReader.Read(root, files, source ?? (head is { Length: 40 or 64 } ? "git:" + head : "scan"), out skipped);
+        return reviewed ? OnboardCommand.Reviewed(snapshot, root) : snapshot;
     }
 
     private static string? Git(string root, params string[] arguments)

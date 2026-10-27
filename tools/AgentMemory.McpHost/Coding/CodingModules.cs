@@ -28,13 +28,19 @@ internal sealed record CodingModulesOptions
     public IReadOnlyList<string> DeveloperKeys { get; init; } = [];
     /// <summary>At most this many module items a recall returns, 1 to 32.</summary>
     public int MaxItems { get; init; } = 8;
+    /// <summary>
+    /// A repository whose onboarding review sets (<c>docs/memory/review</c>) this host lists and decides through
+    /// <c>review_list</c> and <c>review_decide</c> (CMP-9); null offers neither tool.
+    /// </summary>
+    public string? Review { get; init; }
 
     public void Validate()
     {
         if (Packs is not { Count: <= 8 } || DeveloperKeys is not { Count: <= 4 } || MaxItems is < 1 or > 32
             || Packs.Concat(DeveloperKeys).Any(p => string.IsNullOrWhiteSpace(p) || p.Length > 1024 || p.Any(char.IsControl))
-            || (!Repository && !Coding && Packs.Count == 0))
-            throw new ArgumentException("Coding modules need the coding or repository pack or 1-8 pack paths, at most 4 developer keys and 1-32 items.");
+            || (!Repository && !Coding && Packs.Count == 0)
+            || Review is not null && (Review.Length > 1024 || Review.Any(char.IsControl) || !Directory.Exists(Review)))
+            throw new ArgumentException("Coding modules need the coding or repository pack or 1-8 pack paths, at most 4 developer keys, 1-32 items, and a review folder that exists.");
     }
 
     /// <summary>Opens and verifies every configured pack; a pack that is unsigned, changed or untrusted stops startup.</summary>

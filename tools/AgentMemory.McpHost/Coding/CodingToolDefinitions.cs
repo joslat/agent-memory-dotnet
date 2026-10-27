@@ -55,11 +55,25 @@ internal static class CodingToolDefinitions
                 },
             }, true)),
     ];
-    public static IReadOnlyList<Tool> For(bool durable, bool diagnostics = false, bool evidence = false)
+    // CMP-9: onboarding proposals, each with the lines it read, for a person to accept, edit or reject.
+    private static readonly Tool[] Review =
+    [
+        Define("review_list", "List onboarding proposals for the decisions, architecture or intent pack: each proposed record with the lines it cites, the proposer's confidence and its state. Proposals are not memory until accepted.",
+            ("pack", new { type = "string", @enum = new[] { "decisions", "architecture", "intent" } }, false),
+            ("state", new { type = "string", @enum = new[] { "pending", "accepted", "edited", "rejected" } }, false)),
+        Define("review_decide", "Accept or reject onboarding proposals by key (Type:key). Accepting with edit changes properties first (null removes one). Record only a person's decision here; the pack's next import adds what is accepted.",
+            ("pack", new { type = "string", @enum = new[] { "decisions", "architecture", "intent" } }, true),
+            ("keys", new { type = "array", minItems = 1, maxItems = 50, items = Text(260) }, true),
+            ("decision", new { type = "string", @enum = new[] { "accept", "reject" } }, true),
+            ("edit", new { type = "object", maxProperties = 16 }, false), ("note", Text(500), false)),
+    ];
+
+    public static IReadOnlyList<Tool> For(bool durable, bool diagnostics = false, bool evidence = false, bool review = false)
     {
         IReadOnlyList<Tool> result = durable ? Durable : All;
         if (diagnostics) result = [.. result, .. Diagnostics];
         if (evidence) result = [.. result, .. Evidence];
+        if (review) result = [.. result, .. Review];
         return result;
     }
 

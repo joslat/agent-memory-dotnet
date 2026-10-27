@@ -149,6 +149,15 @@ public static class CliHelp
                                      Write the pack's records as one Markdown file and an AGENTS.md section,
                                      deterministically; a hand edit is never overwritten without --force;
                                      --check writes nothing and fails when anything is not up to date.
+              onboard propose --pack decisions|architecture|intent --root <repo> [--dry-run] [--docs <globs>]
+                      [--types T1,T2] [--max-calls 40] [--review <file>] [--raw <folder>]
+                                     A model reads the project's documents and proposes records, each with the
+                                     lines it quotes (checked) and a confidence, into docs/memory/review as
+                                     pending; --dry-run spends nothing and prints what would be sent and its cost.
+              onboard list|decide --pack <pack> --root <repo> [--state pending] | --accept k1,k2 | --reject k1
+                      [--edit '{"status":"accepted"}'] [--note <text>] [--by <name>]
+                                     Read the review set; record a person's decision. Scan, import and project
+                                     merge what is accepted; the project's own files win a clash.
               intent scan|import --root <repo> [--source git:<sha>]
                                      Read requirements (EARS), Gherkin features, OpenSLO objectives and
                                      ideas; import writes what changed.

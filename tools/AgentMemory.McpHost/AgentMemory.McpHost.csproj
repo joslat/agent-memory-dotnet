@@ -53,6 +53,8 @@
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Repository\AgentMemory.Packs.Repository.csproj" />
     <!-- KP-composite: the Coding composite (decisions, repository, code map); held packages that ship inside this tool. -->
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Coding\AgentMemory.Packs.Coding.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Architecture\AgentMemory.Packs.Architecture.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Intent\AgentMemory.Packs.Intent.csproj" />
   </ItemGroup>
 
 </Project>

@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work", "architecture", "intent", "project" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work", "architecture", "intent", "project", "onboard" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -54,6 +54,25 @@ if (string.Equals(cli.Command, "codemap", StringComparison.OrdinalIgnoreCase) &&
 if (string.Equals(cli.Command, "project", StringComparison.OrdinalIgnoreCase))
     return new AgentMemory.Cli.Commands.ProjectCommand(Console.Out)
         .Run(cli.Get("pack"), cli.Get("root"), cli.Get("out"), cli.Get("agents"), cli.Get("ledger"), cli.HasFlag("check"), cli.HasFlag("force"));
+
+// onboard proposes records from a project's documents into a review set, and records a person's decisions, offline (CMP-9).
+if (string.Equals(cli.Command, "onboard", StringComparison.OrdinalIgnoreCase))
+{
+    var onboard = new AgentMemory.Cli.Commands.OnboardCommand(Console.Out);
+    switch (cli.Subcommand?.ToLowerInvariant())
+    {
+        case "propose":
+            return await onboard.ProposeAsync(cli.Get("pack"), cli.Get("root"), cli.Get("docs"), cli.Get("types"), cli.Get("review"), cli.HasFlag("dry-run"),
+                cli.Get("max-calls"), cli.Get("price-in"), cli.Get("price-out"), cli.Get("raw"));
+        case "list":
+            return onboard.List(cli.Get("pack"), cli.Get("root"), cli.Get("review"), cli.Get("state"));
+        case "decide":
+            return onboard.Decide(cli.Get("pack"), cli.Get("root"), cli.Get("review"), cli.Get("accept"), cli.Get("reject"), cli.Get("note"), cli.Get("by"), cli.Get("edit"));
+        default:
+            Console.Error.WriteLine("error: onboard needs propose, list or decide.");
+            return 2;
+    }
+}
 
 // intent scan reads requirements, features, objectives and ideas offline; intent import goes through the host (CMP-6).
 if (string.Equals(cli.Command, "intent", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))

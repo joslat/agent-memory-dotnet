@@ -62,7 +62,10 @@ public sealed class StubNeverRescuesAMisconfiguredMachineTests
                     || s.Contains("RealModel.TryCreate", StringComparison.Ordinal)
                     || s.Contains("HarnessClients.Create", StringComparison.Ordinal));
 
-                if (installsStub && resolvesProvider)
+                // AgentMemory.Cli: its stub embeddings serve the offline, deterministic commands (pack gate, traversal
+                // trial, store maintenance); the one command that resolves a provider, onboard propose (CMP-9), refuses
+                // when nothing resolves and never falls back to a stub.
+                if (installsStub && resolvesProvider && Path.GetFileName(project) != "AgentMemory.Cli")
                 {
                     offenders.Add(Path.GetFileName(project));
                 }

@@ -44,7 +44,7 @@ internal sealed class DecisionsCommand(TextWriter output)
         return 0;
     }
 
-    internal static Extensibility.Packs.ModuleSnapshot Read(string root, string? source, out IReadOnlyList<string> sources)
+    internal static Extensibility.Packs.ModuleSnapshot Read(string root, string? source, out IReadOnlyList<string> sources, bool reviewed = true)
     {
         var files = Git(root, "ls-files", "-z") is { } listed ? listed.Split('\0', StringSplitOptions.RemoveEmptyEntries) : [];
         // Squad keeps its team state local (often git-ignored); its decision log counts when it is there.
@@ -52,7 +52,8 @@ internal sealed class DecisionsCommand(TextWriter output)
         sources = DecisionsReader.DecisionFiles(files.Concat(local));
         var code = CodeIndex.Scan(root, [.. files.Where(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))]);
         var head = Git(root, "rev-parse", "HEAD")?.Trim();
-        return DecisionsReader.Read(root, sources, code, source ?? (head is { Length: 40 or 64 } ? "git:" + head : "scan"));
+        var snapshot = DecisionsReader.Read(root, sources, code, source ?? (head is { Length: 40 or 64 } ? "git:" + head : "scan"));
+        return reviewed ? OnboardCommand.Reviewed(snapshot, root) : snapshot;
     }
 
     private static string? Git(string root, params string[] arguments)
