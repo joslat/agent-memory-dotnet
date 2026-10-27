@@ -34,7 +34,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
-        string? packPath = null, string? trustPath = null)
+        string? packPath = null, string? trustPath = null, string? previousPath = null)
     {
         if (packId != CodeMapPack.Id)
         {
@@ -97,7 +97,36 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         // Without the pack: the host's own retrieval when the trial names it, timed like the host without the pack.
         var withoutArm = trial.Baseline == "host" ? Grep(repo ?? ".", tasks) with { P95Ms = emptyArm.P95Ms } : emptyArm;
 
-        var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest);
+        // PACK-upgrade-gate: with --previous, the version that passed here before is measured on the same tasks, and an upgrade
+        // that declares upgrade.noRegression must not do worse than it.
+        PackTrialPrevious? previous = null;
+        if (previousPath is not null)
+        {
+            if (trustPath is null || !File.Exists(trustPath))
+            {
+                output.WriteLine("error: evaluate --gate --previous needs --trust <trust.json>.");
+                return 2;
+            }
+            LoadedPack before;
+            try { before = PackLoader.Load(previousPath, PackTrust.Load(trustPath)); }
+            catch (PackLoadException e)
+            {
+                output.WriteLine("error: " + e.Message);
+                return 1;
+            }
+            if (before.Id != packId || before.Kind != "definition" || before.Manifest.Version.CompareTo(manifest.Version) >= 0)
+            {
+                output.WriteLine($"error: {previousPath} is {before.Id} {before.Version} ({before.Kind}); --previous is an earlier version of the {packId} definition.");
+                return 2;
+            }
+            await using var old = await ProviderAsync(m => m.UseNeo4jStore().AddPack(before)).ConfigureAwait(false);
+            foreach (var task in tasks) await CompileAsync(old, task).ConfigureAwait(false);
+            var (beforeArm, _) = await MeasureAsync(old, tasks).ConfigureAwait(false);
+            previous = new PackTrialPrevious { Version = before.Version, ManifestDigest = PackTrialGate.DigestOf(before.Manifest), PackDigest = before.Digest, With = beforeArm };
+            output.WriteLine($"  previous {before.Version} ({before.Digest[..23]}…): hit {beforeArm.HitRate:0.000} ({beforeArm.Hits}/{beforeArm.Tasks}), precision {beforeArm.Precision:0.000} ({beforeArm.Correct}/{beforeArm.Offered})");
+        }
+
+        var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest, previous);
         using var hostKey = ECDsa.Create();
         hostKey.ImportFromPem(await File.ReadAllTextAsync(hostKeyPath).ConfigureAwait(false));
         Directory.CreateDirectory(activationsFolder);

@@ -137,9 +137,11 @@ public static class CliHelp
               codemap import --pack <file.ampack> --trust <trust.json>
                                      Import a shared snapshot pack, verified, instead of reading the repo.
               evaluate --gate <pack id> --repo <repo> --host-key <private.pem> --activations <folder>
-                       [--pack <definition.ampack> --trust <trust.json>] [--variant mediocre|weak] [--output <path>]
+                       [--pack <definition.ampack> --trust <trust.json>] [--previous <active.ampack>]
+                       [--variant mediocre|weak] [--output <path>]
                                      Trial a pack on this repository's history and sign the decision; with
-                                     --pack, the pack as loaded from its verified .ampack.
+                                     --pack, the pack as loaded from its verified .ampack; with --previous, an
+                                     upgrade compared against the version that passed here, on the same tasks.
               decisions scan|import --root <repo> [--source git:<sha>]
                                      Read ADRs and Squad's decision log; import writes what changed.
               work scan|import --ledger <tasks.json> --root <repo> [--source <text>]

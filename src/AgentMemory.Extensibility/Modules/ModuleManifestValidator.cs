@@ -225,6 +225,8 @@ internal sealed class ModuleManifestValidator
         if (trial.Tasks is < ModuleTrial.MinimumTasks or > ModuleTrial.MaximumTasks) Error(path + ".tasks", "expected 10 to 200");
         if (trial.Baseline is not ("host" or "none")) Error(path + ".baseline", "expected host or none");
         if (trial.Confidence is { } confidence && !PackTrialGate.Confidences.ContainsKey(confidence)) Error(path + ".confidence", "expected 0.9, 0.95, 0.975 or 0.99");
+        if (trial.Upgrade is { Tolerance: < 0 or > ModuleTrialUpgrade.MaximumTolerance or double.NaN })
+            Error(path + ".upgrade.tolerance", "expected 0 to 0.5");
         var t = trial.Targets;
         if (t is null || (t.HitRate, t.Precision, t.Lift, t.PrecisionLift, t.AddedP95Ms) == (null, null, null, null, null)) { Error(path + ".targets", "a trial needs at least one target"); return; }
         if (t.PrecisionLift is < -1 or > 1) Error(path + ".targets.precisionLift", "expected -1 to 1");

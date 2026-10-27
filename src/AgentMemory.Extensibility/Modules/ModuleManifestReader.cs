@@ -61,7 +61,7 @@ internal static class ModuleManifestReader
 
     private static ModuleTrial Trial(JsonElement value, string path)
     {
-        Object(value, path, "measure", "tasks", "baseline", "confidence", "targets");
+        Object(value, path, "measure", "tasks", "baseline", "confidence", "targets", "upgrade");
         if (!value.TryGetProperty("targets", out var targets)) throw Error(path + ".targets", "a trial needs targets");
         Object(targets, path + ".targets", "hitRate", "precision", "lift", "precisionLift", "addedP95Ms");
         double? Number(string name) => targets.TryGetProperty(name, out var n)
@@ -70,10 +70,21 @@ internal static class ModuleManifestReader
         double? confidence = value.TryGetProperty("confidence", out var c)
             ? c.ValueKind == JsonValueKind.Number ? c.GetDouble() : throw Error(path + ".confidence", "expected a number")
             : null;
+        ModuleTrialUpgrade? upgrade = null;
+        if (value.TryGetProperty("upgrade", out var rule))
+        {
+            Object(rule, path + ".upgrade", "noRegression", "tolerance");
+            if (!rule.TryGetProperty("noRegression", out var no) || no.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw Error(path + ".upgrade.noRegression", "expected true or false");
+            double tolerance = 0;
+            if (rule.TryGetProperty("tolerance", out var t))
+                tolerance = t.ValueKind == JsonValueKind.Number ? t.GetDouble() : throw Error(path + ".upgrade.tolerance", "expected a number");
+            upgrade = new ModuleTrialUpgrade { NoRegression = no.GetBoolean(), Tolerance = tolerance };
+        }
         return new ModuleTrial
         {
             Measure = Text(value, "measure", path), Tasks = PositiveInteger(value, "tasks", path) ?? 40,
-            Baseline = OptionalText(value, "baseline", path) ?? "none", Confidence = confidence,
+            Baseline = OptionalText(value, "baseline", path) ?? "none", Confidence = confidence, Upgrade = upgrade,
             Targets = new ModuleTrialTargets
             {
                 HitRate = Number("hitRate"), Precision = Number("precision"), Lift = Number("lift"), PrecisionLift = Number("precisionLift"),

@@ -342,7 +342,7 @@ try
                 o.EmbeddingDimensions = dims;
             }, output)
             .ExecuteAsync(cli.Get("gate"), cli.Get("repo"), cli.Get("host-key"), cli.Get("activations"), cli.Get("variant"), cli.Get("output"),
-                cli.Get("pack"), cli.Get("trust")),
+                cli.Get("pack"), cli.Get("trust"), cli.Get("previous")),
         "evaluate" when cli.Get("traversal") is not null => await new TraversalTrialCommand(o =>
             {
                 o.Uri = uri;

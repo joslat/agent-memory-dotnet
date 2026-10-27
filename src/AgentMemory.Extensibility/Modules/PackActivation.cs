@@ -35,6 +35,24 @@ public sealed record PackTrialMeasurement
     public double Precision => Offered == 0 ? 0 : (double)Correct / Offered;
 }
 
+/// <summary>
+/// The version a trial compared an upgrade against (PACK-upgrade-gate): the one that passed on this host before, measured on
+/// the same tasks in the same run.
+/// </summary>
+[Experimental("AMEXT001")]
+public sealed record PackTrialPrevious
+{
+    /// <summary>Its version.</summary>
+    public required string Version { get; init; }
+    /// <summary>Its declarations' digest (<see cref="PackTrialGate.DigestOf"/>).</summary>
+    public required string ManifestDigest { get; init; }
+    /// <summary>For a pack, its digest; null for compiled code.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PackDigest { get; init; }
+    /// <summary>What it measured on the same tasks.</summary>
+    public required PackTrialMeasurement With { get; init; }
+}
+
 /// <summary>What one task of a trial offered, and how many of those items were in its truth.</summary>
 [Experimental("AMEXT001")]
 public sealed record PackTrialTask(int Offered, int Correct);
@@ -82,6 +100,9 @@ public sealed record PackActivation
     public PackTrialMeasurement? With { get; init; }
     /// <summary>The arm without it.</summary>
     public PackTrialMeasurement? Without { get; init; }
+    /// <summary>For an upgrade, the active version it was compared against on the same tasks; null otherwise.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PackTrialPrevious? Previous { get; init; }
 }
 
 /// <summary>The activation records a host has, by pack.</summary>
@@ -97,6 +118,12 @@ public interface IPackActivations
     /// </summary>
     PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest, string? packDigest = null) =>
         Find(moduleId, version) is { } latest && latest.ManifestDigest == manifestDigest && latest.PackDigest == packDigest ? latest : null;
+
+    /// <summary>
+    /// Every decision for this pack id, any version (PACK-upgrade-gate: the version that passed before an upgrade). The default
+    /// knows none, and then an upgrade's trial is not held to its predecessor.
+    /// </summary>
+    IReadOnlyList<PackActivation> History(string moduleId) => [];
 }
 
 /// <summary>A module the host left off, and why.</summary>
@@ -174,9 +201,17 @@ public static class PackTrialGate
     /// Checks every target of the manifest's trial against the two arms; the pack goes on only if all are met. Give
     /// <paramref name="packDigest"/> when the trial ran a pack, so the decision binds to its content and not only to its declarations.
     /// </summary>
-    /// <exception cref="ArgumentException">The manifest declares no trial, or <paramref name="packDigest"/> is not <c>sha256:</c> and 64 hex digits.</exception>
+    /// <param name="manifest">The declarations under trial.</param>
+    /// <param name="with">The arm with the pack.</param>
+    /// <param name="without">The arm without it: the baseline.</param>
+    /// <param name="decidedAt">When the host decided.</param>
+    /// <param name="packDigest">For a pack, its digest; null for compiled code.</param>
+    /// <param name="previous">For an upgrade, the version that passed on this host before, measured on the same tasks; with
+    /// <c>upgrade.noRegression</c>, its hit rate and precision become two more targets.</param>
+    /// <exception cref="ArgumentException">The manifest declares no trial, <paramref name="packDigest"/> is not <c>sha256:</c> and 64 hex
+    /// digits, or <paramref name="previous"/> is not an earlier version measured on as many tasks.</exception>
     public static PackActivation Decide(ModuleManifest manifest, PackTrialMeasurement with, PackTrialMeasurement without, DateTimeOffset decidedAt,
-        string? packDigest = null)
+        string? packDigest = null, PackTrialPrevious? previous = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         if (packDigest is not null && !PackDigestPattern.IsMatch(packDigest))
@@ -185,6 +220,9 @@ public static class PackTrialGate
         if (with.PerTask is { } perTask && (perTask.Count != with.Tasks || perTask.Sum(t => t.Offered) != with.Offered
                 || perTask.Sum(t => t.Correct) != with.Correct || perTask.Any(t => t.Correct < 0 || t.Correct > t.Offered)))
             throw new ArgumentException("PerTask holds one entry per task, 0 <= correct <= offered, summing to Offered and Correct.", nameof(with));
+        if (previous is not null && (!ModuleVersion.TryParse(previous.Version, out var before) || before.CompareTo(manifest.Version) >= 0
+                || previous.With.Tasks != with.Tasks))
+            throw new ArgumentException("The previous version is an earlier version, measured on the same tasks.", nameof(previous));
         var trial = manifest.Trial ?? throw new ArgumentException($"Module '{manifest.Id}' declares no trial.", nameof(manifest));
         var checks = new List<PackTrialCheck>();
         var t = trial.Targets;
@@ -209,6 +247,14 @@ public static class PackTrialGate
         if (t.PrecisionLift is { } precisionLift)
             checks.Add(new("precisionLift", precisionLift, Math.Round(with.Precision - without.Precision, 3), with.Precision - without.Precision >= precisionLift));
         if (t.AddedP95Ms is { } added) checks.Add(new("addedP95Ms", added, Math.Round(with.P95Ms - without.P95Ms, 1), with.P95Ms - without.P95Ms <= added));
+        // An upgrade does not do worse than the version it replaces, on the same tasks, beyond the declared tolerance.
+        if (trial.Upgrade is { NoRegression: true } upgrade && previous is not null)
+        {
+            var hitDrop = with.HitRate - previous.With.HitRate;
+            var precisionDrop = with.Precision - previous.With.Precision;
+            checks.Add(new("noRegression.hitRate", -upgrade.Tolerance, Math.Round(hitDrop, 3), hitDrop >= -upgrade.Tolerance - 1e-9));
+            checks.Add(new("noRegression.precision", -upgrade.Tolerance, Math.Round(precisionDrop, 3), precisionDrop >= -upgrade.Tolerance - 1e-9));
+        }
         var enough = with.Tasks >= ModuleTrial.MinimumTasks;
         var failed = checks.Where(c => !c.Met).ToList();
         var reason = !enough ? $"only {with.Tasks} tasks in this host's history; a trial needs {ModuleTrial.MinimumTasks}"
@@ -220,6 +266,7 @@ public static class PackTrialGate
         {
             ModuleId = manifest.Id, Version = manifest.Version.ToString(), ManifestDigest = DigestOf(manifest), PackDigest = packDigest,
             Active = enough && failed.Count == 0, Reason = reason, DecidedAt = decidedAt, Checks = checks, With = with, Without = without,
+            Previous = previous,
         };
     }
 
@@ -241,7 +288,7 @@ public static class PackTrialGate
         {
             var manifest = registration.Manifest;
             var decision = activations.Find(manifest.Id, manifest.Version, DigestOf(manifest), registration.PackDigest);
-            var reason = decision is not null ? (decision.Active ? null : "its trial failed: " + decision.Reason)
+            var reason = decision is not null ? (decision.Active ? Upgrade(activations, manifest, decision) : "its trial failed: " + decision.Reason)
                 : activations.Find(manifest.Id, manifest.Version) is not null ? "its trial ran on other content; trial it again"
                 : "no trial on this host yet";
             if (reason is not null) off[manifest.Id] = new SwitchedOffModule(manifest.Id, manifest.Version.ToString(), reason);
@@ -259,6 +306,24 @@ public static class PackTrialGate
         }
         return ([.. registrations.Where(r => !off.ContainsKey(r.Manifest.Id))], [.. off.Values.OrderBy(o => o.ModuleId, StringComparer.Ordinal)]);
     }
+
+    // PACK-upgrade-gate: a passing upgrade that must not regress goes on only if its trial compared it with exactly the version
+    // that passed here before (the latest earlier version with a passing decision); null when it may go on.
+    private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision)
+    {
+        if (manifest.Trial?.Upgrade is not { NoRegression: true }) return null;
+        var active = activations.History(manifest.Id)
+            .Where(a => a.Active && ModuleVersion.TryParse(a.Version, out var v) && v.CompareTo(manifest.Version) < 0)
+            .OrderByDescending(a => ModuleVersion.Parse(a.Version)).ThenByDescending(a => a.DecidedAt).FirstOrDefault();
+        if (active is null) return null;
+        if (decision.Previous is not { } previous)
+            return $"it upgrades {active.Version}, which passed here; its trial must compare against that version";
+        return previous.Version == active.Version && previous.ManifestDigest == active.ManifestDigest && previous.PackDigest == active.PackDigest
+            ? null
+            : $"its trial compared against {previous.Version}, but {active.Version} ({Short(active.PackDigest ?? active.ManifestDigest)}) is the version that passed here";
+    }
+
+    private static string Short(string digest) => digest[..Math.Min(digest.Length, digest.IndexOf(':', StringComparison.Ordinal) + 13)] + "…";
 }
 
 /// <summary>
@@ -273,6 +338,7 @@ public sealed class PackActivationFolder : IPackActivations
     private const string PayloadType = "application/vnd.in-toto+json";
     private readonly Dictionary<(string, string), PackActivation> _latest = [];
     private readonly Dictionary<(string, string, string, string), PackActivation> _latestByDigest = [];
+    private readonly Dictionary<string, List<PackActivation>> _history = new(StringComparer.Ordinal);
 
     /// <summary>Reads every <c>*.dsse.json</c> in <paramref name="folder"/>; files that do not verify are listed in <see cref="Ignored"/>.</summary>
     public PackActivationFolder(string folder, string hostPublicKeyPem)
@@ -289,6 +355,8 @@ public sealed class PackActivationFolder : IPackActivations
                 if (activation is null) { ignored.Add(Path.GetFileName(file)); continue; }
                 var id = (activation.ModuleId, activation.Version);
                 if (!_latest.TryGetValue(id, out var known) || known.DecidedAt < activation.DecidedAt) _latest[id] = activation;
+                if (!_history.TryGetValue(activation.ModuleId, out var all)) _history[activation.ModuleId] = all = [];
+                all.Add(activation);
                 var exact = (activation.ModuleId, activation.Version, activation.ManifestDigest, activation.PackDigest ?? "");
                 if (!_latestByDigest.TryGetValue(exact, out var same) || same.DecidedAt < activation.DecidedAt) _latestByDigest[exact] = activation;
             }
@@ -304,6 +372,9 @@ public sealed class PackActivationFolder : IPackActivations
     /// <inheritdoc/>
     public PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest, string? packDigest = null) =>
         _latestByDigest.GetValueOrDefault((moduleId, version.ToString(), manifestDigest, packDigest ?? ""));
+
+    /// <inheritdoc/>
+    public IReadOnlyList<PackActivation> History(string moduleId) => _history.TryGetValue(moduleId, out var all) ? all.AsReadOnly() : [];
 
     /// <summary>The DSSE pre-authentication encoding of a payload.</summary>
     public static byte[] Pae(ReadOnlySpan<byte> payload)

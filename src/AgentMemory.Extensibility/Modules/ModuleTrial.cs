@@ -35,6 +35,27 @@ public sealed record ModuleTrial
     public double? Confidence { get; init; }
     /// <summary>The targets; every one given must be met.</summary>
     public required ModuleTrialTargets Targets { get; init; }
+    /// <summary>
+    /// How an upgrade is gated (PACK-upgrade-gate): with <see cref="ModuleTrialUpgrade.NoRegression"/>, a new version goes on
+    /// only if, on the same tasks, it does not do worse than the version that passed on this host before it.
+    /// </summary>
+    public ModuleTrialUpgrade? Upgrade { get; init; }
+}
+
+/// <summary>A trial's upgrade rule (pack format v1.2 §7, claim 6).</summary>
+[Experimental("AMEXT001")]
+public sealed record ModuleTrialUpgrade
+{
+    /// <summary>The largest tolerated drop in hit rate or precision against the active version, 0 to 0.5.</summary>
+    public const double MaximumTolerance = 0.5;
+
+    /// <summary>
+    /// Whether the new version must not do worse than the active one: its hit rate and precision, measured on the same tasks
+    /// in the same run, may drop by at most <see cref="Tolerance"/>.
+    /// </summary>
+    public required bool NoRegression { get; init; }
+    /// <summary>How much worse is still no regression, 0 to 0.5; default 0.</summary>
+    public double Tolerance { get; init; }
 }
 
 /// <summary>A trial's targets. Each is optional; at least one must be given.</summary>

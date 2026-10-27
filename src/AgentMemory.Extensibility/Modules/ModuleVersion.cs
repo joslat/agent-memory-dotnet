@@ -28,6 +28,15 @@ public sealed record ModuleVersion : IComparable<ModuleVersion>
         return new ModuleVersion(value);
     }
 
+    /// <summary>Parses like <see cref="Parse"/>, returning false instead of throwing.</summary>
+    public static bool TryParse(string? value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ModuleVersion? version)
+    {
+        version = null;
+        if (value is null) return false;
+        try { version = Parse(value); return true; }
+        catch (FormatException) { return false; }
+    }
+
     /// <inheritdoc/>
     public int CompareTo(ModuleVersion? other)
     {
