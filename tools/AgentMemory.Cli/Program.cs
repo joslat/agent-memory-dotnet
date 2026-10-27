@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work", "architecture" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work", "architecture", "intent" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -48,6 +48,17 @@ if (string.Equals(cli.Command, "codemap", StringComparison.OrdinalIgnoreCase) &&
         return 2;
     }
     return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"), cli.Get("output"), cli.Get("scip"));
+}
+
+// intent scan reads requirements, features, objectives and ideas offline; intent import goes through the host (CMP-6).
+if (string.Equals(cli.Command, "intent", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
+{
+    if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("error: intent needs scan or import.");
+        return 2;
+    }
+    return new AgentMemory.Cli.Commands.IntentCommand(Console.Out).Scan(cli.Get("root"));
 }
 
 // architecture scan reads catalogs, API documents, SBOMs and workspaces offline; architecture import goes through the host (CMP-5).
@@ -279,6 +290,8 @@ try
 
     return cli.Command.ToLowerInvariant() switch
     {
+        "intent" => await new AgentMemory.Cli.Commands.IntentCommand(output)
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
         "architecture" => await new AgentMemory.Cli.Commands.ArchitectureCommand(output)
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
         "decisions" => await new AgentMemory.Cli.Commands.DecisionsCommand(output)

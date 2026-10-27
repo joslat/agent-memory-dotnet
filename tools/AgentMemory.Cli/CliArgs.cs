@@ -144,6 +144,9 @@ public static class CliHelp
                                      Trial a pack on this repository's history and sign the decision; with
                                      --pack, the pack as loaded from its verified .ampack; with --previous, an
                                      upgrade compared against the version that passed here, on the same tasks.
+              intent scan|import --root <repo> [--source git:<sha>]
+                                     Read requirements (EARS), Gherkin features, OpenSLO objectives and
+                                     ideas; import writes what changed.
               architecture scan|import --root <repo> [--source git:<sha>]
                                      Read Backstage catalogs, OpenAPI and AsyncAPI documents, SBOMs and
                                      Structurizr workspaces; import writes what changed.
