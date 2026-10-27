@@ -22,11 +22,22 @@ public sealed record PackTrialMeasurement
     public required int Correct { get; init; }
     /// <summary>The p95 compile time, in milliseconds.</summary>
     public required double P95Ms { get; init; }
+    /// <summary>
+    /// Each task's offered and correct items, in task order, when the runner kept them (PACK-gate-stats-2): the items one task
+    /// offers are correlated, so precision's confidence bound treats each task as one cluster. Their sums must be
+    /// <see cref="Offered"/> and <see cref="Correct"/>, one per task. Null: the bound treats items as independent.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<PackTrialTask>? PerTask { get; init; }
     /// <summary><see cref="Hits"/> over <see cref="Tasks"/>.</summary>
     public double HitRate => Tasks == 0 ? 0 : (double)Hits / Tasks;
     /// <summary><see cref="Correct"/> over <see cref="Offered"/>.</summary>
     public double Precision => Offered == 0 ? 0 : (double)Correct / Offered;
 }
+
+/// <summary>What one task of a trial offered, and how many of those items were in its truth.</summary>
+[Experimental("AMEXT001")]
+public sealed record PackTrialTask(int Offered, int Correct);
 
 /// <summary>
 /// One target checked: what was required, what the decision used (a confidence lower bound when the trial asks for one),
@@ -113,6 +124,37 @@ public static class PackTrialGate
         return Math.Max(0, (centre - margin) / (1 + z2 / trials));
     }
 
+    /// <summary>
+    /// The lower confidence bound of a ratio of items over tasks, with each task as one cluster (PACK-gate-stats-2): the
+    /// cluster-robust variance of the ratio gives a design effect, the item count divided by it is the effective sample size,
+    /// and the Wilson bound is taken at that size. Items in one task are correlated, so this is never above the plain bound.
+    /// </summary>
+    public static double ClusteredWilsonLower(IReadOnlyList<PackTrialTask> tasks, double z)
+    {
+        ArgumentNullException.ThrowIfNull(tasks);
+        var offered = tasks.Sum(t => (double)t.Offered);
+        if (offered == 0) return 0;
+        var p = tasks.Sum(t => (double)t.Correct) / offered;
+        var clusters = tasks.Count(t => t.Offered > 0);
+        // One cluster carries no information about the spread between tasks: it counts as one observation.
+        if (clusters < 2) return WilsonLower(p, 1, z);
+        var residuals = tasks.Sum(t => Math.Pow(t.Correct - p * t.Offered, 2));
+        var clustered = clusters / (clusters - 1.0) * residuals / (offered * offered);
+        var binomial = p * (1 - p) / offered;
+        var designEffect = binomial == 0 ? 1 : Math.Max(1, clustered / binomial);
+        return WilsonLower(p, offered / designEffect, z);
+    }
+
+    // The Wilson score lower bound at proportion p over a (possibly fractional) effective sample size n.
+    private static double WilsonLower(double p, double n, double z)
+    {
+        if (n <= 0) return 0;
+        var z2 = z * z;
+        var centre = p + z2 / (2.0 * n);
+        var margin = z * Math.Sqrt(p * (1 - p) / n + z2 / (4.0 * n * n));
+        return Math.Max(0, (centre - margin) / (1 + z2 / n));
+    }
+
     /// <summary>The prefix of <see cref="DigestOf"/>: SHA-256 over RFC 8785 canonical JSON, named apart from a pack's <c>sha256:</c>.</summary>
     public const string ManifestDigestPrefix = "jcs-sha256:";
 
@@ -139,6 +181,10 @@ public static class PackTrialGate
         ArgumentNullException.ThrowIfNull(manifest);
         if (packDigest is not null && !PackDigestPattern.IsMatch(packDigest))
             throw new ArgumentException("A pack digest is sha256: and 64 lowercase hex digits.", nameof(packDigest));
+        ArgumentNullException.ThrowIfNull(with);
+        if (with.PerTask is { } perTask && (perTask.Count != with.Tasks || perTask.Sum(t => t.Offered) != with.Offered
+                || perTask.Sum(t => t.Correct) != with.Correct || perTask.Any(t => t.Correct < 0 || t.Correct > t.Offered)))
+            throw new ArgumentException("PerTask holds one entry per task, 0 <= correct <= offered, summing to Offered and Correct.", nameof(with));
         var trial = manifest.Trial ?? throw new ArgumentException($"Module '{manifest.Id}' declares no trial.", nameof(manifest));
         var checks = new List<PackTrialCheck>();
         var t = trial.Targets;
@@ -151,8 +197,14 @@ public static class PackTrialGate
             var bound = WilsonLower(successes, trials, quantile);
             return new(name, required, Math.Round(bound, 3), bound >= required, Math.Round(estimate, 3));
         }
+        // Precision with each task as a cluster: its items are correlated, so the bound is the cluster-robust one.
+        static PackTrialCheck Clustered(string name, double required, double estimate, double bound) =>
+            new(name, required, Math.Round(bound, 3), bound >= required, Math.Round(estimate, 3));
         if (t.HitRate is { } hit) checks.Add(Rate("hitRate", hit, with.Hits, with.Tasks));
-        if (t.Precision is { } precision) checks.Add(Rate("precision", precision, with.Correct, with.Offered));
+        if (t.Precision is { } precision)
+            checks.Add(z is { } q && with.PerTask is { } clustered
+                ? Clustered("precision", precision, with.Precision, ClusteredWilsonLower(clustered, q))
+                : Rate("precision", precision, with.Correct, with.Offered));
         if (t.Lift is { } lift) checks.Add(new("lift", lift, Math.Round(with.HitRate - without.HitRate, 3), with.HitRate - without.HitRate >= lift));
         if (t.PrecisionLift is { } precisionLift)
             checks.Add(new("precisionLift", precisionLift, Math.Round(with.Precision - without.Precision, 3), with.Precision - without.Precision >= precisionLift));

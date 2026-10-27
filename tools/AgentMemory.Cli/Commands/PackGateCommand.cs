@@ -197,6 +197,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         int hits = 0, offered = 0, correct = 0;
         var times = new List<double>();
         var details = new List<object>();
+        var perTask = new List<PackTrialTask>();
         foreach (var task in tasks)
         {
             var (envelope, ms) = await CompileAsync(provider, task).ConfigureAwait(false);
@@ -209,11 +210,13 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             offered += files.Count;
             correct += right;
             if (right > 0) hits++;
+            perTask.Add(new PackTrialTask(files.Count, right));
             details.Add(new { task.Commit, task.Subject, task.Anchors, task.Tests, offered = files, hit = right > 0 });
         }
         var sorted = times.Order().ToArray();
         var p95 = sorted.Length == 0 ? 0 : sorted[Math.Min(sorted.Length - 1, (int)Math.Ceiling(0.95 * sorted.Length) - 1)];
-        return (new PackTrialMeasurement { Tasks = tasks.Count, Hits = hits, Offered = offered, Correct = correct, P95Ms = Math.Round(p95, 1) }, details);
+        return (new PackTrialMeasurement { Tasks = tasks.Count, Hits = hits, Offered = offered, Correct = correct, P95Ms = Math.Round(p95, 1), PerTask = perTask },
+            details);
     }
 
     private static async Task<(ContextEnvelope Envelope, double Milliseconds)> CompileAsync(IServiceProvider provider, HistoryTask task)
