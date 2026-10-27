@@ -249,6 +249,17 @@ def main():
         vectors[name] = (dict(base), "trust-with-revoker.json", expected, document)
     vectors["revocations-by-a-revoked-revoker-revoking-nothing"] = (dict(base), "trust-revoker-revoked.json", "verified", "revocations-none.json")
     vectors["revocations-by-a-revoked-revoker-revoking-the-pack"] = (dict(base), "trust-revoker-revoked.json", "refused", "revocations-digest.json")
+    # The eighth review: a revoker that a non-live list revoked must not come back to life; a revoker holds that role alone.
+    code, text = ampack("keygen", "--out", str(work / "keys2"), "--name", "second", "--role", "revoker", "--prefix", "io.example")
+    assert code == 0, text
+    second = json.loads(text[text.index("{"):])
+    (OUT / "trust-two-revokers-first-revoked.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker, second],
+        "revoked": {"digests": [], "keys": [{"keyId": revoker["keyId"]}]}}, separators=(",", ":")), encoding="utf-8")
+    revoke("revocations-revoking-the-second-revoker.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2099-01-01T00:00:00Z", "--keys", second["keyId"])
+    vectors["revocations-non-live-list-revoking-a-live-revoker"] = (dict(base), "trust-two-revokers-first-revoked.json", "refused", "revocations-revoking-the-second-revoker.json")
+    (OUT / "trust-revoker-also-publisher.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, roles=["publisher", "revoker"])]},
+        separators=(",", ":")), encoding="utf-8")
+    vectors["policy-with-a-revoker-that-also-publishes"] = (dict(base), "trust-revoker-also-publisher.json", "refused")
 
     # The second red team's divergences and crashes (27 Oct): one verdict for each, in both verifiers.
     def signed_with(content_, **options):

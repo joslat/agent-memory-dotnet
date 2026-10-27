@@ -43,9 +43,10 @@ public sealed class PackTrust
     }
 
     /// <summary>
-    /// This trust with one run's revocation documents applied together (sixth review): with a <paramref name="ledger"/>, what
-    /// the host revoked before first, so a revoker revoked earlier signs nothing; a list signed only by revoked revokers is not
-    /// applied and is named in <paramref name="notApplied"/>; lists that revoke each other's signers are refused.
+    /// This trust with one run's revocation documents applied together: with a <paramref name="ledger"/>, what the host revoked
+    /// before first. A list with a live signer adds its revocations, sets freshness and is kept; a list without one denies the
+    /// packs and non-revoker keys it names for this run only and is named in <paramref name="notApplied"/>. Lists that revoke
+    /// each other's signers, or a list without a live signer that revokes a revoker still live, are refused.
     /// </summary>
     /// <exception cref="InvalidDataException">A document is malformed, unsigned or from the future, or the lists revoke each other's signers.</exception>
     public PackTrust WithRevocations(IReadOnlyList<byte[]> signedDocuments, PackInstallLedger? ledger, out IReadOnlyList<string> notApplied)

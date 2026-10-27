@@ -93,8 +93,14 @@ public sealed class PackStore
         var target = Path.Combine(_root, file);
         var temporary = target + ".partial";
         File.WriteAllBytes(temporary, archive);
+        // The ledger first: if it cannot be saved (another run holds it), nothing is installed and no file is left behind.
+        try { record(); }
+        catch
+        {
+            File.Delete(temporary);
+            throw;
+        }
         File.Move(temporary, target, overwrite: true);
-        record();
         var installed = new InstalledPack(id, version, digest, kind, file.Replace('\\', '/'), DateTimeOffset.UtcNow);
         foreach (var replaced in _installed.Where(p => p.Id == id && p.File != installed.File).ToList())
             File.Delete(Path.Combine(_root, replaced.File));

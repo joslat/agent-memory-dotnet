@@ -103,6 +103,10 @@ internal sealed record TrustPolicy
                 if (prefixes.Count == 0) throw new InvalidDataException($"Key {Dsse.Short(keyId)} names no pack id prefixes: a key that may sign anything is refused.");
                 var roles = Strings(k, "roles");
                 if (roles.Count == 0 || roles.Any(r => !KeyRoles.Contains(r))) throw new InvalidDataException($"Key {Dsse.Short(keyId)} needs known roles.");
+                // A revoker signs revocation lists only: a key that also signs packs would let a revocation of it, read as a
+                // revocation of a revoker, decide what its own packs are worth (eighth review).
+                if (roles.Contains(Revocations.Role) && roles.Count > 1)
+                    throw new InvalidDataException($"Key {Dsse.Short(keyId)} is a revoker and also signs packs; a revoker key holds that role alone.");
                 keys.Add(new TrustedKey(keyId, pem, prefixes, roles, Time(k, "notBefore"), Time(k, "notAfter")));
             }
         var revokedDigests = new List<string>();

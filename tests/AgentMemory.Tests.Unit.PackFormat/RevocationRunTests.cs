@@ -116,6 +116,54 @@ public sealed class RevocationRunTests : IDisposable
     }
 
     [Fact]
+    public void A_revoker_revoked_by_a_rotated_revoker_does_not_come_back_unless_a_live_revoker_carries_it_forward()
+    {
+        // Eighth review (high): the first revoker revoked a compromised third; then the first was rotated out. Its list no
+        // longer decides about revokers, so the third would be live again on a fresh host and could take it over.
+        var third = PackKey.Create();
+        var policy = Policy() with
+        {
+            Keys = [.. Policy().Keys, new TrustedKey(third.KeyId, third.PublicKeyPem, ["io.example"], [Revocations.Role], null, null)],
+            RevokedKeys = [new RevokedKey(_first.KeyId, null)],
+        };
+        var firstRevokesThird = List(_first, Now.AddDays(-2), Now.AddDays(7), keys: [new RevokedKey(third.KeyId, null)]);
+        var thirdRevokesSecond = List(third, Now.AddMinutes(-1), Now.AddYears(10), keys: [new RevokedKey(_second.KeyId, null)]);
+
+        FluentActions.Invoking(() => Revocations.ApplyAll(policy, [firstRevokesThird, thirdRevokesSecond], Now, null, out _))
+            .Should().Throw<InvalidDataException>().WithMessage("*carry that revocation forward*");
+
+        // Carried forward by the second, a live revoker, on a host with a ledger: the third is revoked and kept.
+        var carried = List(_second, Now.AddMinutes(-2), Now.AddDays(7), keys: [new RevokedKey(third.KeyId, null)]);
+        var ledger = HostLedger.Load(LedgerPath);
+        var applied = Revocations.ApplyAll(policy, [firstRevokesThird, carried], Now, ledger, out _);
+        applied.RevokedKeys.Should().Contain(k => k.KeyId == third.KeyId).And.NotContain(k => k.KeyId == _second.KeyId);
+        ledger.RevokedKeys.Should().ContainKey(third.KeyId);
+        // Later the compromised third's own list arrives: it decides nothing, and while it names a live revoker the run is
+        // refused (fail closed) until it is dropped from the feed.
+        FluentActions.Invoking(() => Revocations.ApplyAll(policy, [thirdRevokesSecond], Now, ledger, out _))
+            .Should().Throw<InvalidDataException>().WithMessage("*still live*");
+        ledger.RevokedKeys.Should().NotContainKey(_second.KeyId);
+    }
+
+    [Fact]
+    public void A_retiring_revoker_s_final_list_given_twice_or_reissued_is_no_circle()
+    {
+        var final = List(_first, Now.AddMinutes(-5), Now.AddDays(7), keys: [new RevokedKey(_first.KeyId, null)]);
+        var reissued = List(_first, Now.AddMinutes(-4), Now.AddDays(7), keys: [new RevokedKey(_first.KeyId, null)]);
+
+        Revocations.ApplyAll(Policy(), [final, final], Now, null, out _).RevokedKeys.Should().Contain(k => k.KeyId == _first.KeyId);
+        Revocations.ApplyAll(Policy(), [final, reissued], Now, null, out _).RevokedKeys.Should().Contain(k => k.KeyId == _first.KeyId);
+    }
+
+    [Fact]
+    public void A_revoker_key_holds_that_role_alone()
+    {
+        var json = $$"""{"format":"agentmemory.pack.trust/1.1","keys":[{"keyId":"{{_first.KeyId}}","publicKey":{{System.Text.Json.JsonSerializer.Serialize(_first.PublicKeyPem)}},"idPrefixes":["io.example"],"roles":["publisher","revoker"]}]}""";
+
+        FluentActions.Invoking(() => TrustPolicy.Parse(Encoding.UTF8.GetBytes(json))).Should().Throw<InvalidDataException>().WithMessage("*role alone*");
+    }
+
+    [Fact]
     public void Lists_that_revoke_each_other_s_signers_are_refused()
     {
         var one = List(_first, Now.AddMinutes(-5), Now.AddDays(7), keys: [new RevokedKey(_second.KeyId, null)]);

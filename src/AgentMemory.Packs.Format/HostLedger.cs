@@ -192,23 +192,35 @@ internal sealed class HostLedger
         for (var attempt = 0; ; attempt++)
         {
             try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            catch (IOException e) when (Busy(e))
             {
                 if (attempt >= 200) throw new LedgerBusyException($"The ledger is locked by another run ({path}); try again.", e);
                 Thread.Sleep(50);
             }
+            // A lock file being deleted reads as access denied for a moment; a real denial fails after a second, as itself.
+            catch (UnauthorizedAccessException) when (attempt < 20) { Thread.Sleep(50); }
         }
     }
 
-    // A file another process is reading or replacing at this moment, tried again a few times.
+    // A file another process is reading or replacing at this moment, tried again for about two seconds; still busy, that is an
+    // operational failure, never a refusal (eighth review).
     private static T Retry<T>(Func<T> action)
     {
         for (var attempt = 0; ; attempt++)
         {
             try { return action(); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException && e is not FileNotFoundException && attempt < 40) { Thread.Sleep(50); }
+            catch (IOException e) when (Busy(e))
+            {
+                if (attempt >= 40) throw new LedgerBusyException("The ledger is in use by another run; try again.", e);
+                Thread.Sleep(50);
+            }
+            catch (UnauthorizedAccessException) when (attempt < 20) { Thread.Sleep(50); }
         }
     }
+
+    // A sharing or lock violation (Windows 32, 33), or the Unix equivalent: the file is busy, not missing or forbidden.
+    private static bool Busy(IOException e) => e is not FileNotFoundException and not DirectoryNotFoundException
+        && ((e.HResult & 0xFFFF) is 32 or 33 || !OperatingSystem.IsWindows());
 
     private void Merge(HostLedger saved)
     {

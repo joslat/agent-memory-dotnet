@@ -211,6 +211,12 @@ def apply_revocations(policy, data, now):
             break
     if not authentic:
         raise Refused("the revocation document is not signed by a key the trust policy names as revoker")
+    def live_now(key_id):
+        key = keys.get(key_id)
+        if key is None or key_id in revoked_keys:
+            return False
+        not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
+        return not (not_before is not None and now < not_before) and not (not_after is not None and now > not_after)
     doc = profile(payload)
     if not isinstance(doc, dict) or set(doc) - {"format", "issuedAt", "expires", "digests", "keys"} or doc.get("format") != REVOCATIONS_FORMAT:
         raise Refused("the revocation document is not a v1.2 revocation document")
@@ -228,6 +234,10 @@ def apply_revocations(policy, data, now):
         raise Refused("the revocation document has a malformed keys list")
     merged = dict(policy)
     current = dict(policy.get("revoked", {}))
+    # Without a live signer a list cannot decide about a revoker; one it revoked that is still live must be carried forward by
+    # a live revoker first (eighth review).
+    if not live and any(k["keyId"] in revoker_ids and live_now(k["keyId"]) for k in revoked):
+        raise Refused("the revocation document has no live signer and revokes a revoker that is still live; a live revoker must carry it forward")
     current["digests"] = sorted(set(current.get("digests", [])) | set(digests))
     by_id = {k["keyId"]: k for k in current.get("keys", [])}
     # Without a live signer a list never decides about a revoker, and brings no freshness.
@@ -624,6 +634,8 @@ def load_policy(raw):
             raise Refused("a trusted key names no pack id prefixes")
         if not isinstance(roles, list) or not roles or not all(isinstance(r, str) and r in KEY_ROLES for r in roles):
             raise Refused("a trusted key needs known roles")
+        if "revoker" in roles and len(roles) > 1:
+            raise Refused("a revoker key holds that role alone")
         try:
             public = serialization.load_pem_public_key(key["publicKey"].encode())
             spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)

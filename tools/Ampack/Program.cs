@@ -505,8 +505,9 @@ internal static class Program
     // A host that stops using revocation lists forgets the newest list's freshness; what it revoked stays revoked.
     private static int Ledger(Options o)
     {
-        var path = LedgerPath(o) ?? throw new ArgumentException("ledger needs --ledger <ledger.json> or --store <folder>.");
-        if (!o.Flag("retire-revocations")) throw new ArgumentException("ledger takes --retire-revocations.");
+        var path = LedgerPath(o) ?? throw new UsageException("ledger needs --ledger <ledger.json> or --store <folder>.");
+        if (!o.Flag("retire-revocations")) throw new UsageException("ledger takes --retire-revocations.");
+        if (o.PositionalFrom(0).Any()) throw new UsageException("ledger takes no file arguments.");
         var ledger = HostLedger.Load(path);
         ledger.RetireRevocationLists();
         ledger.Save(path);

@@ -60,12 +60,13 @@ internal static partial class Revocations
     internal static PackLimits DocumentLimits { get; } = new() { MaxArchiveBytes = MaximumDocumentBytes };
 
     /// <summary>
-    /// <paramref name="policy"/> with the document applied: verified by a revoker key it trusts, valid now and not revoked,
-    /// issued no later than now (five minutes' grace), its revocations added. With a <paramref name="ledger"/>, what it revokes
-    /// is kept by the host for good, and so is the newest list's freshness (see <see cref="ApplyAll"/>).
+    /// <paramref name="policy"/> with the document applied as <see cref="ApplyAll"/> applies one: signed by a key the policy
+    /// names as revoker, issued no later than now (five minutes' grace). With a live signer its revocations are added, it sets
+    /// freshness and a <paramref name="ledger"/> keeps it; without one it denies the packs and non-revoker keys it names for
+    /// this run only.
     /// </summary>
-    /// <exception cref="InvalidDataException">The document is malformed, signed by no trusted revoker that is valid now and not
-    /// revoked, or issued in the future.</exception>
+    /// <exception cref="InvalidDataException">The document is malformed, signed by no key the policy names as revoker, issued in
+    /// the future, or without a live signer and revoking a revoker that is still live.</exception>
     internal static TrustPolicy Apply(TrustPolicy policy, ReadOnlySpan<byte> envelopeBytes, DateTimeOffset now, HostLedger? ledger = null)
     {
         return ApplyAll(policy, [envelopeBytes.ToArray()], now, ledger, out _);
@@ -96,7 +97,8 @@ internal static partial class Revocations
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(documents);
         if (ledger is not null) policy = ledger.Apply(policy);
-        var read = documents.Select(d => Read(policy, d, now)).ToList();
+        // The same list twice (a mirrored feed) is one list (eighth review).
+        var read = documents.DistinctBy(d => Convert.ToHexString(SHA256.HashData(d))).Select(d => Read(policy, d, now)).ToList();
         var revokedBefore = policy.RevokedKeys.Select(k => k.KeyId).ToHashSet(StringComparer.Ordinal);
 
         // Settle which lists count: one with a signer nobody now revokes counts; one whose every signer is revoked before or by
@@ -108,8 +110,9 @@ internal static partial class Revocations
             for (var i = 0; i < read.Count; i++)
             {
                 if (state[i] != 0) continue;
+                // A key that revokes itself (a retiring revoker's final list) does not withdraw its own other lists.
                 bool RevokedBy(string signer, Func<int, bool> which) =>
-                    Enumerable.Range(0, read.Count).Any(j => j != i && which(j) && read[j].Keys.Any(k => k.KeyId == signer));
+                    Enumerable.Range(0, read.Count).Any(j => j != i && which(j) && read[j].Keys.Any(k => k.KeyId == signer) && !read[j].Signers.Contains(signer));
                 var live = read[i].Signers.Where(s => !revokedBefore.Contains(s) && ValidNow(policy, s, now)).ToList();
                 if (live.Any(s => !RevokedBy(s, j => state[j] != 2))) { state[i] = 1; changed = true; }
                 else if (live.All(s => RevokedBy(s, j => state[j] == 1))) { state[i] = 2; changed = true; }
@@ -119,6 +122,15 @@ internal static partial class Revocations
 
         var notes = new List<string>();
         var revokers = policy.Keys.Where(k => k.Roles.Contains(Role)).Select(k => k.KeyId).ToHashSet(StringComparer.Ordinal);
+        // A list without a live signer cannot decide about a revoker; one it revoked must not come back to life because its
+        // revoker was rotated out or expired. When such a revoker is still live in this run nothing is applied: a live revoker
+        // has to carry that revocation forward (eighth review).
+        var revokedNow = revokedBefore.Concat(Enumerable.Range(0, read.Count).Where(j => state[j] == 1).SelectMany(j => read[j].Keys.Select(k => k.KeyId)))
+            .ToHashSet(StringComparer.Ordinal);
+        for (var i = 0; i < read.Count; i++)
+            if (state[i] == 2 && read[i].Keys.FirstOrDefault(k => revokers.Contains(k.KeyId) && !revokedNow.Contains(k.KeyId) && ValidNow(policy, k.KeyId, now)) is { } named)
+                throw Bad($"issued at {read[i].IssuedAt:u} has no live signer and revokes revoker {Dsse.Short(named.KeyId)}, which is still live; "
+                    + "a live revoker must carry that revocation forward before this host can apply these lists");
         for (var i = 0; i < read.Count; i++)
         {
             var document = read[i];
