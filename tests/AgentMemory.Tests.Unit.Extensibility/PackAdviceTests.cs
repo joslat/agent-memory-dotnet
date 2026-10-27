@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using AgentMemory.Extensibility.Ampack;
+using AgentMemory.Packs.Format;
 using FluentAssertions;
 using Xunit;
 
@@ -28,6 +29,34 @@ public sealed class PackAdviceTests
     }
 
     private static IEnumerable<string> Rules(LoadedPack pack, DateTimeOffset? now = null) => PackAdvice.Of(pack, now ?? DateTimeOffset.UtcNow).Select(a => a.Rule);
+
+    [Fact]
+    public void A_countersignature_keeps_the_digest_and_counts_where_the_policy_trusts_the_role()
+    {
+        // PACK-composer phase 3: a curator signs a built pack again; a host that requires a curator then loads it.
+        var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(Directory.EnumerateFiles(MartialArts, "*", SearchOption.AllDirectories).ToDictionary(
+            f => Path.GetRelativePath(MartialArts, f).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllBytes, StringComparer.Ordinal)), StringComparer.Ordinal);
+        var built = PackAuthoring.Build(source, Key.PrivateKeyPem);
+        var curator = PackKey.Create();
+        var policy = new JsonObject
+        {
+            ["format"] = "agentmemory.pack.trust/1.1", ["requireRoles"] = new JsonArray("publisher", "curator"),
+            ["keys"] = new JsonArray(
+                new JsonObject { ["keyId"] = PackKey.KeyIdOf(Key.PublicKeyPem), ["publicKey"] = Key.PublicKeyPem, ["idPrefixes"] = new JsonArray("io.agentmemory"), ["roles"] = new JsonArray("publisher") },
+                new JsonObject { ["keyId"] = curator.KeyId, ["publicKey"] = curator.PublicKeyPem, ["idPrefixes"] = new JsonArray("io.agentmemory"), ["roles"] = new JsonArray("curator") }),
+        };
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(policy.ToJsonString()));
+
+        FluentActions.Invoking(() => PackLoader.Load(built, trust)).Should().Throw<PackLoadException>("a curator is required and none signed yet");
+        var countersigned = PackAuthoring.Countersign(built, curator.PrivateKeyPem, "curator");
+        var loaded = PackLoader.Load(countersigned, trust);
+
+        loaded.Digest.Should().Be(PackLoader.Load(built, PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(Key.PublicKeyPem, "io.agentmemory")))).Digest);
+        loaded.Signers.Should().HaveCount(2);
+        var tampered = (byte[])built.Clone();
+        tampered[tampered.Length / 2] ^= 0x01;
+        FluentActions.Invoking(() => PackAuthoring.Countersign(tampered, curator.PrivateKeyPem, "curator")).Should().Throw<PackLoadException>();
+    }
 
     [Fact]
     public void A_knowledge_pack_without_a_trial_is_told_a_host_requiring_trials_refuses_it()

@@ -52,6 +52,41 @@ public static class PackAuthoring
     }
 
     /// <summary>
+    /// Builds a pack from its source folder, as <c>ampack build</c> does (PACK-composer): the folder read under the strict
+    /// path rules, the file list written, signed in <paramref name="role"/>; the <c>.ampack</c> bytes.
+    /// </summary>
+    /// <exception cref="PackLoadException">The folder cannot be read, or its files do not form a valid pack.</exception>
+    public static byte[] BuildFolder(string folder, string privateKeyPem, string role = "publisher")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
+        PackContent content;
+        try { content = PackReader.ReadFolder(folder); }
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { throw new PackLoadException([e.Message]); }
+        return Build(content.Files, privateKeyPem, role);
+    }
+
+    /// <summary>
+    /// Adds a signature in <paramref name="role"/> to a built pack without changing its content (PACK-composer): a curator's
+    /// or an assurer's countersignature beside the publisher's. The digest stays the same; a host counts the new signature
+    /// only if its policy trusts the key for that role and namespace.
+    /// </summary>
+    /// <exception cref="PackLoadException">The archive is not a pack under the strict profile, or its content does not match its list.</exception>
+    public static byte[] Countersign(byte[] archive, string privateKeyPem, string role)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
+        ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
+        PackContent content;
+        try { content = PackReader.ReadArchive(archive, "archive"); }
+        catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
+        if (PackVerifier.CheckIntegrity(content).Problems is { Count: > 0 } problems) throw new PackLoadException(problems);
+        var files = content.Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
+        try { PackBuilder.Sign(files, privateKeyPem, role, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds())); }
+        catch (Exception e) when (e is InvalidDataException or ArgumentException or System.Security.Cryptography.CryptographicException) { throw new PackLoadException([e.Message]); }
+        return PackBuilder.Pack(files);
+    }
+
+    /// <summary>
     /// A snapshot as v1.2 snapshot-pack files (§3): <c>pack.json</c> (kind <c>snapshot</c>, requiring the snapshot's module from
     /// its version up to the next minor) and one record file per type, records by key. Build and sign it with
     /// <see cref="Build"/>; a host imports it with <see cref="PackLoader.ToSnapshot"/>.
