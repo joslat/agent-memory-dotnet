@@ -193,6 +193,23 @@ public sealed class AmpackCommandLineTests : IDisposable
     }
 
     [Fact]
+    public void Install_list_test_and_uninstall_work_on_a_store_and_the_ledger_outlives_removal()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory");
+        File.WriteAllText(At("trust.json"), PackAuthoring.TrustPolicy(File.ReadAllText(At("keys", "publisher.pub.pem")), "io.agentmemory"));
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "martialarts");
+        Done("build", "martialarts", "--out", "martialarts.ampack", "--key", At("keys", "publisher.key.pem"));
+
+        Done("install", "martialarts.ampack", "--store", "store", "--policy", "trust.json").Should().Contain("Installed io.agentmemory.packs.martialarts 1.0.0");
+        Done("list", "--store", "store").Should().Contain("io.agentmemory.packs.martialarts 1.0.0 (knowledge)");
+        Done("test", "--store", "store", "--policy", "trust.json").Should().Contain("Loaded 1 pack(s), 93 records");
+        Done("uninstall", "io.agentmemory.packs.martialarts", "--store", "store").Should().Contain("the store's ledger keeps it");
+        Done("list", "--store", "store").Should().Contain("No packs installed.");
+        Ampack("uninstall", "io.agentmemory.packs.martialarts", "--store", "store").Exit.Should().Be(1);
+        Ampack("test", "--store", "store", "--policy", "trust.json").Exit.Should().Be(2, "nothing to test is a usage error");
+    }
+
+    [Fact]
     public async Task Serve_answers_an_MCP_client_over_standard_input_and_output()
     {
         Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory");

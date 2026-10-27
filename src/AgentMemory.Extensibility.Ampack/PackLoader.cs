@@ -221,7 +221,8 @@ public static class PackLoader
         {
             Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Kind = pack.Manifest.Kind, Manifest = manifest,
             Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles, ValidUntil = pack.Manifest.ValidUntil,
-            Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? tests : null,
+            // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.
+            Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
         };
     }
 

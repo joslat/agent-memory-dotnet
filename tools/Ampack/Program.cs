@@ -41,10 +41,16 @@ internal static class Program
                                  a composite pack for a composite manifest (then: ampack lock, ampack build)
           set <out.ampack> <member.ampack>... --id <id> --version <v> --key <private.pem>
                                  one archive carrying complete packs side by side, signed as a whole
-          serve <pack.ampack>... --policy <trust.json> [--revocations <file>]
+          install <pack.ampack> --store <folder> --policy <trust.json> [--revocations <file>] [--allow-downgrade]
+                                 verify a pack or pack set in full and install it in a host's pack store; the
+                                 store's ledger refuses an older version or other content under a known version
+          uninstall <id> --store <folder>
+                                 remove an installed pack (the ledger keeps it)
+          list --store <folder>  the installed packs
+          serve [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
                                  mount the packs in memory and serve them over MCP on standard input and output:
                                  pack_list, pack_ask (a view: search text or a key), pack_walk (from files and symbols)
-          test <pack.ampack>... --policy <trust.json> [--revocations <file>]
+          test [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
                                  load the packs as a host does (every record checked), hold them in memory, and run
                                  each pack's own tests (evals/tests.json): views, searches and walks, offline;
                                  give a snapshot's definition pack beside it
@@ -74,6 +80,9 @@ internal static class Program
                 "set" => Set(options),
                 "test" => Test(options),
                 "serve" => ServePacks(options),
+                "install" => Install(options),
+                "uninstall" => Uninstall(options),
+                "list" => ListInstalled(options),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}", 2),
             };
         }
@@ -372,9 +381,8 @@ internal static class Program
     private static int ServePacks(Options o)
     {
         var trust = Trust(o);
-        var paths = o.PositionalFrom(0).ToList();
-        if (paths.Count == 0) throw new UsageException("serve needs at least one pack.");
-        try { return Serve.Run(AgentMemory.Extensibility.Ampack.PackMemory.Mount(paths.Select(p => PackReader.ReadArchiveFile(p)), trust)); }
+        var archives = Archives(o, "serve");
+        try { return Serve.Run(AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust)); }
         catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
     }
 
@@ -382,11 +390,10 @@ internal static class Program
     private static int Test(Options o)
     {
         var trust = Trust(o);
-        var paths = o.PositionalFrom(0).ToList();
-        if (paths.Count == 0) throw new UsageException("test needs at least one pack.");
+        var archives = Archives(o, "test");
         try
         {
-            var (loaded, memory) = AgentMemory.Extensibility.Ampack.PackMemory.Mount(paths.Select(p => PackReader.ReadArchiveFile(p)), trust);
+            var (loaded, memory) = AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust);
             Console.WriteLine($"Loaded {loaded.Count} pack(s), {memory.Count:N0} records in memory.");
             var failed = 0; var ran = 0;
             foreach (var pack in loaded)
@@ -438,6 +445,45 @@ internal static class Program
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true })) node.WriteTo(writer);
         return Encoding.UTF8.GetString(buffer.ToArray()).Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
+    }
+
+    // The packs a command runs on: the files it names, and with --store every pack installed there.
+    private static List<byte[]> Archives(Options o, string command)
+    {
+        var archives = o.PositionalFrom(0).Select(p => PackReader.ReadArchiveFile(p)).ToList();
+        if (o.Value("store") is { } store) archives.AddRange(AgentMemory.Extensibility.Ampack.PackStore.Open(store).Archives());
+        return archives.Count > 0 ? archives : throw new UsageException($"{command} needs at least one pack, or --store with packs installed.");
+    }
+
+    // PACK-toolset: a host's pack store.
+    private static int Install(Options o)
+    {
+        var path = o.Positional(0, "pack to install");
+        var store = AgentMemory.Extensibility.Ampack.PackStore.Open(o.Required("store"));
+        try
+        {
+            var installed = store.Install(PackReader.ReadArchiveFile(path), Trust(o), o.Flag("allow-downgrade"));
+            Console.WriteLine($"Installed {installed.Id} {installed.Version} ({installed.Kind})\n  digest  {installed.Digest}\n  file    {installed.File}");
+            return 0;
+        }
+        catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
+    }
+
+    private static int Uninstall(Options o)
+    {
+        var id = o.Positional(0, "pack id");
+        var store = AgentMemory.Extensibility.Ampack.PackStore.Open(o.Required("store"));
+        if (!store.Uninstall(id)) return Report([$"{id} is not installed."], "");
+        Console.WriteLine($"Removed {id}; the store's ledger keeps it.");
+        return 0;
+    }
+
+    private static int ListInstalled(Options o)
+    {
+        var store = AgentMemory.Extensibility.Ampack.PackStore.Open(o.Required("store"));
+        if (store.Installed.Count == 0) Console.WriteLine("No packs installed.");
+        foreach (var p in store.Installed) Console.WriteLine($"  {p.Id} {p.Version} ({p.Kind})  {p.Digest[..23]}…  installed {p.InstalledAt:u}");
+        return 0;
     }
 
     // PACK-toolset: ampack diff.
