@@ -71,7 +71,8 @@ internal sealed class PackTools
         try
         {
             var hits = await mount.Memory.AskAsync(pack, view, text, key, limit, cancellationToken).ConfigureAwait(false);
-            return Hits([.. hits.Where(h => !(h.Pack?.Carrier?.Id is { } carrier && expired.Contains(carrier)))]);
+            // A view may read its dependencies' types: their records leave too once they expire (third review).
+            return Hits([.. hits.Where(h => !expired.Contains(h.Module) && !(h.Pack?.Carrier?.Id is { } carrier && expired.Contains(carrier)))]);
         }
         catch (PackLoadException e) { return JsonSerializer.Serialize(new { error = string.Join(" ", e.Problems) }, Json); }
     }

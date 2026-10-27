@@ -75,6 +75,37 @@ public sealed class RedTeamTests
     }
 
     [Fact]
+    public void The_stream_safe_count_is_on_the_NFKD_decomposition_and_covers_keys()
+    {
+        // Third review: U+0F73 is a starter that decomposes to two marks; a run of them bypassed a per-code-point count.
+        PackJson.Check(Encoding.UTF8.GetBytes("{\"k\":\"q" + new string('\u0F73', 16) + "\"}")).Should().Contain("more than 30 combining marks in a row");
+        // U+00A8 is a starter that trails one mark once decomposed: with 29 more it is 30, with 30 it is 31.
+        PackJson.Check(Encoding.UTF8.GetBytes("{\"k\":\"q\u00A8" + new string('\u0316', 29) + "\"}")).Should().BeNull();
+        PackJson.Check(Encoding.UTF8.GetBytes("{\"k\":\"q\u00A8" + new string('\u0316', 30) + "\"}")).Should().Contain("in a row");
+        // A key is a string too: the same limit, before the NFC check.
+        PackJson.Check(Encoding.UTF8.GetBytes("{\"q" + new string('\u0301', 30) + "\":1}")).Should().BeNull();
+        PackJson.Check(Encoding.UTF8.GetBytes("{\"q" + new string('\u0301', 31) + "\":1}")).Should().Contain("key with more than 30 combining marks");
+        var attack = "{\"q" + string.Concat(Enumerable.Repeat("\u0301\u0316", 20_000)) + "\":1}";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        PackJson.Check(Encoding.UTF8.GetBytes(attack)).Should().Contain("in a row");
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2), "the limit is checked before the normalizer runs");
+    }
+
+    [Fact]
+    public void A_policy_is_read_strictly_one_BOM_strict_UTF8_and_typed_revoked_keys()
+    {
+        var key = PackKey.Create();
+        string Policy(string extra = "") => "{\"format\":\"agentmemory.pack.trust/1.1\",\"keys\":[{\"keyId\":\"" + key.KeyId + "\",\"publicKey\":"
+            + System.Text.Json.JsonSerializer.Serialize(key.PublicKeyPem) + ",\"idPrefixes\":[\"io.example\"],\"roles\":[\"publisher\"]}]" + extra + "}";
+        TrustPolicy.Parse(Encoding.UTF8.GetBytes("\uFEFF" + Policy())).Keys.Should().ContainSingle();
+        FluentActions.Invoking(() => TrustPolicy.Parse(Encoding.UTF8.GetBytes("\uFEFF\uFEFF" + Policy()))).Should().Throw<InvalidDataException>();
+        var bytes = Encoding.UTF8.GetBytes(Policy()).ToList();
+        bytes.Insert(bytes.Count - 3, 0xFF);
+        FluentActions.Invoking(() => TrustPolicy.Parse([.. bytes])).Should().Throw<InvalidDataException>();
+        FluentActions.Invoking(() => TrustPolicy.Parse(Encoding.UTF8.GetBytes(Policy(",\"revoked\":{\"keys\":[{\"keyId\":null}]}")))).Should().Throw<InvalidDataException>();
+    }
+
+    [Fact]
     public void Base64_with_whitespace_or_outside_the_alphabet_is_refused()
     {
         Dsse.FromBase64("QUJD").Should().Equal("ABC"u8.ToArray());

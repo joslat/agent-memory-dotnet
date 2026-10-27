@@ -95,4 +95,43 @@ public sealed class PackValidityTests : IDisposable
             .Should().Throw<InvalidDataException>().WithMessage("*before the one this host applied*");
         Trust().WithRevocations(older).Should().NotBeNull("without a ledger there is no history to hold it to");
     }
+
+    [Fact]
+    public void A_host_that_applied_a_revocation_list_does_not_verify_without_it()
+    {
+        // Third review: leaving the list out rolled the host back as surely as an older list.
+        var path = Path.Combine(_root, "ledger.json");
+        var now = DateTimeOffset.UtcNow;
+        var list = Revocations.Sign([], [], now.AddMinutes(-1), now.AddDays(7), _revoker.PrivateKeyPem);
+        Trust().WithRevocations(list, PackInstallLedger.Open(path));
+
+        FluentActions.Invoking(() => PackLoader.Load(Archive(), Trust(), PackInstallLedger.Open(path)))
+            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("give that list or a newer one"));
+        PackLoader.Load(Archive(), Trust().WithRevocations(list), PackInstallLedger.Open(path)).Should().NotBeNull();
+        PackLoader.Load(Archive(), Trust()).Should().NotBeNull("a host without a ledger keeps no history");
+    }
+
+    [Fact]
+    public void Each_revoker_keeps_its_own_mark()
+    {
+        var second = PackKey.Create();
+        var path = Path.Combine(_root, "ledger.json");
+        var now = DateTimeOffset.UtcNow;
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(TrustJsonWithRevokers(second)));
+        var fromFirst = Revocations.Sign([], [], now.AddMinutes(-1), now.AddDays(7), _revoker.PrivateKeyPem);
+        var fromSecondEarlier = Revocations.Sign([], [], now.AddMinutes(-2), now.AddDays(7), second.PrivateKeyPem);
+
+        trust.WithRevocations(fromFirst, PackInstallLedger.Open(path));
+        // Issued before the first revoker's list, by the other revoker: its own history, so it applies.
+        trust.WithRevocations(fromSecondEarlier, PackInstallLedger.Open(path)).Should().NotBeNull();
+    }
+
+    private string TrustJsonWithRevokers(PackKey second)
+    {
+        var keys = new JsonArray(
+            new JsonObject { ["keyId"] = PackKey.KeyIdOf(_key.PublicKeyPem), ["publicKey"] = _key.PublicKeyPem, ["idPrefixes"] = new JsonArray("io.agentmemory"), ["roles"] = new JsonArray("publisher") },
+            new JsonObject { ["keyId"] = _revoker.KeyId, ["publicKey"] = _revoker.PublicKeyPem, ["idPrefixes"] = new JsonArray("io.example"), ["roles"] = new JsonArray("revoker") },
+            new JsonObject { ["keyId"] = second.KeyId, ["publicKey"] = second.PublicKeyPem, ["idPrefixes"] = new JsonArray("io.example"), ["roles"] = new JsonArray("revoker") });
+        return new JsonObject { ["format"] = "agentmemory.pack.trust/1.1", ["keys"] = keys }.ToJsonString();
+    }
 }

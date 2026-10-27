@@ -143,6 +143,24 @@ public sealed class PackUpgradeTests : IDisposable
     }
 
     [Fact]
+    public void The_rule_carries_down_the_whole_chain_not_one_version()
+    {
+        // Third review: 1.0.0 asks for no regression; 1.1.0 declares nothing and stays within it; 1.2.0 declares nothing either.
+        var first = PackTrialGate.Decide(Manifest("1.0.0"), Arm(30), Nothing, Now);
+        Write(first);
+        var second = PackTrialGate.Decide(Manifest("1.1.0", upgrade: ""), Arm(30), Nothing, Now.AddMinutes(1), previous: Previous(first, Arm(30)));
+        Write(second);
+        Compose(Manifest("1.1.0", upgrade: "")).Modules.Should().ContainSingle();
+
+        // 1.2.0 was never compared: held to the rule 1.1.0 was held to, so off.
+        Write(PackTrialGate.Decide(Manifest("1.2.0", upgrade: ""), Arm(20), Nothing, Now.AddMinutes(2)));
+        Compose(Manifest("1.2.0", upgrade: "")).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("must compare");
+        // Compared, and worse than 1.1.0 by more than 0.02: still off.
+        Write(PackTrialGate.Decide(Manifest("1.2.0", upgrade: ""), Arm(20), Nothing, Now.AddMinutes(3), previous: Previous(second, Arm(30))));
+        Compose(Manifest("1.2.0", upgrade: "")).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("beyond the tolerance 0.02");
+    }
+
+    [Fact]
     public void The_same_version_with_other_content_is_an_upgrade_too()
     {
         var first = "sha256:" + new string('a', 64);

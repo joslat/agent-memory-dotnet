@@ -11,11 +11,12 @@ namespace AgentMemory.Packs.Format;
 /// </summary>
 internal static class Nfc
 {
-    /// <summary>The Stream-Safe Text Format's limit (UAX #15 §13): at most 30 non-starters in a row.</summary>
+    /// <summary>The Stream-Safe Text Format's limit (UAX #15 D4): at most 30 non-starters in a row, once normalized to NFKD.</summary>
     internal const int MaximumCombiningRun = 30;
 
     private static readonly bool PlatformNormalizes = Probe();
     private static readonly Lazy<(Dictionary<int, int[]> Decompositions, Dictionary<long, int> Compositions)> Data = new(Build);
+    private static readonly Lazy<Dictionary<int, (int Lead, int Trail, bool All)>> StreamSafe = new(BuildStreamSafe);
 
     private const int SBase = 0xAC00, LBase = 0x1100, VBase = 0x1161, TBase = 0x11A7, LCount = 19, VCount = 21, TCount = 28;
     private const int NCount = VCount * TCount, SCount = LCount * NCount;
@@ -28,7 +29,12 @@ internal static class Nfc
         catch (ArgumentException) { return Check(value); } // the platform refuses some code points outright; decide by the tables
     }
 
-    /// <summary>The longest run of code points with a combining class above 0 (non-starters), as the Stream-Safe Text Format counts them.</summary>
+    /// <summary>
+    /// The longest run of non-starters the string would hold once normalized to NFKD, as the Stream-Safe Text Format counts
+    /// them (UAX #15 D4 and §13): a code point that decomposes to non-starters only adds them all; any other adds the
+    /// non-starters it leads with, ends the run, and starts the next with those it trails with. Counting the decomposition,
+    /// not the code points, is what bounds the normalizer's work: U+0F73 is a starter that decomposes to two marks.
+    /// </summary>
     internal static int LongestCombiningRun(string value)
     {
         int longest = 0, run = 0;
@@ -36,10 +42,28 @@ internal static class Nfc
         {
             int cp = value[i];
             if (char.IsHighSurrogate(value[i]) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1])) cp = char.ConvertToUtf32(value[i], value[++i]);
-            if (Class(cp) != 0) longest = Math.Max(longest, ++run);
-            else run = 0;
+            var (lead, trail, all) = Profile(cp);
+            run += lead;
+            longest = Math.Max(longest, run);
+            if (!all) run = trail;
         }
         return longest;
+    }
+
+    // A code point's Stream-Safe profile: from the table where its NFKD decomposition differs, else from its combining class.
+    private static (int Lead, int Trail, bool All) Profile(int cp)
+    {
+        if (cp < 0xA0) return (0, 0, false);
+        if (StreamSafe.Value.TryGetValue(cp, out var profile)) return profile;
+        return Class(cp) != 0 ? (1, 1, true) : (0, 0, false);
+    }
+
+    private static Dictionary<int, (int, int, bool)> BuildStreamSafe()
+    {
+        var table = NfcTables.StreamSafe;
+        var profiles = new Dictionary<int, (int, int, bool)>(table.Length / 4);
+        for (var i = 0; i < table.Length; i += 4) profiles[table[i]] = (table[i + 1], table[i + 2], table[i + 3] == 1);
+        return profiles;
     }
 
     /// <summary>The table-driven check: <paramref name="value"/> equals its own NFC.</summary>

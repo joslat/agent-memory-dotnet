@@ -26,6 +26,8 @@ internal sealed record TrustPolicy
     internal IReadOnlyList<RevokedKey> RevokedKeys { get; init; } = [];
     /// <summary>When the revocation information goes stale; after it, nothing verifies until the host refreshes it.</summary>
     internal DateTimeOffset? RevocationsExpire { get; init; }
+    /// <summary>Per revoker key, the newest revocation document applied to this policy (<see cref="Revocations.Apply"/>).</summary>
+    internal IReadOnlyDictionary<string, DateTimeOffset> RevocationsApplied { get; init; } = new Dictionary<string, DateTimeOffset>();
     internal IReadOnlyList<string> RequiredRoles { get; init; } = ["publisher"];
 
     internal TrustedKey? Find(string keyId) => Keys.FirstOrDefault(k => k.KeyId == keyId);
@@ -68,7 +70,10 @@ internal sealed record TrustPolicy
 
     private static TrustPolicy ParseChecked(ReadOnlySpan<byte> raw)
     {
-        var text = System.Text.Encoding.UTF8.GetString(raw).TrimStart('\uFEFF').Replace("\r\n", "\n", StringComparison.Ordinal);
+        // Strict UTF-8, and one BOM tolerated, as the Python verifier reads it (third review).
+        var text = new System.Text.UTF8Encoding(false, throwOnInvalidBytes: true).GetString(raw);
+        if (text.StartsWith('\uFEFF')) text = text[1..];
+        text = text.Replace("\r\n", "\n", StringComparison.Ordinal);
         var bytes = System.Text.Encoding.UTF8.GetBytes(text);
         if (PackJson.Check(bytes) is { } problem) throw new InvalidDataException($"The trust policy {problem}.");
         using var document = JsonDocument.Parse(bytes);
@@ -96,7 +101,9 @@ internal sealed record TrustPolicy
         {
             revokedDigests.AddRange(Strings(revoked, "digests"));
             if (revoked.TryGetProperty("keys", out var rk))
-                foreach (var r in rk.EnumerateArray()) revokedKeys.Add(new RevokedKey(r.GetProperty("keyId").GetString()!, Time(r, "compromisedAt")));
+                foreach (var r in rk.EnumerateArray())
+                    revokedKeys.Add(new RevokedKey(r.GetProperty("keyId") is { ValueKind: JsonValueKind.String } id ? id.GetString()! : throw new FormatException("A revoked key's keyId is a string."),
+                        Time(r, "compromisedAt")));
             expires = Time(revoked, "expires");
         }
         var required = root.TryGetProperty("requireRoles", out _) ? Strings(root, "requireRoles") : ["publisher"];

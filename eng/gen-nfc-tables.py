@@ -6,13 +6,16 @@ The pack format's JSON profile requires every string in NFC. .NET under invarian
 normalized, so the format library normalizes by itself there, from these tables:
 - full canonical decompositions (Hangul syllables are algorithmic and left out);
 - canonical combining classes above 0;
-- primary composites: the pairs NFC composes back (composition exclusions left out).
+- primary composites: the pairs NFC composes back (composition exclusions left out);
+- the Stream-Safe profile (UAX #15 D4, §13): for each code point whose NFKD decomposition does not simply follow its own
+  combining class, how many non-starters it leads and trails with, and whether it is all non-starters (U+0F73 is a
+  starter that decomposes to two marks; U+00A8 is a starter that trails one).
 """
 import sys
 import unicodedata
 
 out = sys.argv[1]
-decompositions, ccc, pairs = [], {}, []
+decompositions, ccc, pairs, stream = [], {}, [], []
 for cp in range(0x110000):
     if 0xD800 <= cp <= 0xDFFF or 0xAC00 <= cp <= 0xD7A3:
         continue
@@ -23,6 +26,12 @@ for cp in range(0x110000):
     k = unicodedata.combining(c)
     if k:
         ccc[cp] = k
+    classes = [unicodedata.combining(x) for x in unicodedata.normalize("NFKD", c)]
+    lead = next((i for i, x in enumerate(classes) if x == 0), len(classes))
+    trail = next((i for i, x in enumerate(reversed(classes)) if x == 0), len(classes))
+    profile = (lead, trail, int(lead == len(classes)))
+    if profile != ((1, 1, 1) if k else (0, 0, 0)):
+        stream.append((cp, *profile))
     d = unicodedata.decomposition(c)
     if d and not d.startswith("<"):
         parts = [int(x, 16) for x in d.split()]
@@ -80,7 +89,17 @@ internal static class NfcTables
     [
 {ints([v for r in ccc_ranges for v in r])}
     ];
+
+    /// <summary>
+    /// The Stream-Safe profile where it differs from the combining class (UAX #15 D4): code point, the non-starters its NFKD
+    /// decomposition leads with, those it trails with, and 1 when it is non-starters only.
+    /// </summary>
+    internal static readonly int[] StreamSafe =
+    [
+{ints([v for s in stream for v in s])}
+    ];
 }}
 """
 open(out, "w", encoding="utf-8", newline="\n").write(code)
-print(f"decompositions: {len(decompositions)}; compositions: {len(pairs)}; combining classes: {len(ccc)} in {len(ccc_ranges)} ranges")
+print(f"decompositions: {len(decompositions)}; compositions: {len(pairs)}; combining classes: {len(ccc)} in {len(ccc_ranges)} ranges; "
+      f"stream-safe exceptions: {len(stream)}")

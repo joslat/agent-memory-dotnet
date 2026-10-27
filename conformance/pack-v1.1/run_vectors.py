@@ -271,6 +271,47 @@ def main():
     vectors["policy-with-a-null-prefix"] = (dict(base), "trust-prefix-null.json", "refused")
     vectors["policy-with-a-time-not-rfc3339"] = (dict(base), "trust-time-not-rfc3339.json", "refused")
 
+    # The third review's (27 Oct): the Stream-Safe count on the NFKD decomposition and on keys, times, versions, policies.
+    # U+00A8 is a starter whose NFKD trails one mark: with 29 more it is 30 in a row, with 30 it is 31.
+    vectors["stream-safe-nfkd-30"] = (signed({**content, record: ('{"key":"q\u00a8' + "\u0316" * 29 + '"}\n').encode("utf-8")}), "trust.json", "verified")
+    vectors["stream-safe-nfkd-31"] = (signed({**content, record: ('{"key":"q\u00a8' + "\u0316" * 30 + '"}\n').encode("utf-8")}), "trust.json", "refused")
+    vectors["stream-safe-expanding-starters"] = (signed({**content, record: ('{"key":"q' + "\u0f73" * 16 + '"}\n').encode("utf-8")}), "trust.json", "refused")
+    vectors["object-key-30-marks"] = (signed({**content, record: ('{"key":"a","q' + "\u0301" * 30 + '":1}\n').encode("utf-8")}), "trust.json", "verified")
+    vectors["object-key-31-marks"] = (signed({**content, record: ('{"key":"a","q' + "\u0301" * 31 + '":1}\n').encode("utf-8")}), "trust.json", "refused")
+    vectors["nesting-100000-deep"] = (signed({**content, record: b'{"key":"a","n":' + nested(100000) + b'}\n'}), "trust.json", "refused")
+    vectors["valid-until-offset-minutes-60"] = (signed(edited(validUntil="2099-01-01T00:00:00+05:60")), "trust.json", "refused")
+    prerelease = "1.0.0-01"
+    prerelease_content = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": prerelease}, indent=2) + chr(10)).encode("utf-8")}
+    vectors["version-prerelease-leading-zero"] = (signed(prerelease_content, version_=prerelease), "trust.json", "refused")
+    vectors["files-list-a-number"] = ({**content, py.FILES: b"5"}, "trust.json", "refused")
+    vectors["files-list-an-array"] = ({**content, py.FILES: b"[{}]"}, "trust.json", "refused")
+    # The signatures array is not signed: anyone may append an entry, and a malformed one only fails to count.
+    vectors["signature-entry-keyid-a-list"] = (signed_with(content, extra_signatures=({"keyid": ["x"], "sig": "AAAA"},)), "trust.json", "verified")
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    rsa_public = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key()
+    rsa_pem = rsa_public.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    rsa_id = hashlib.sha256(rsa_public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).hexdigest()
+    for name, body in {
+        "trust-time-null.json": {"keys": [dict(entry, notAfter=None)]},
+        "trust-revoked-expires-null.json": {"keys": [entry], "revoked": {"digests": [], "expires": None}},
+        "trust-revoked-key-null.json": {"keys": [entry], "revoked": {"keys": [{"keyId": None}]}},
+        "trust-prefix-double-dot.json": {"keys": [dict(entry, idPrefixes=["io.example.."])]},
+        "trust-rsa-key.json": {"keys": [entry, {"keyId": rsa_id, "publicKey": rsa_pem, "idPrefixes": ["io.other"], "roles": ["publisher"]}]},
+    }.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    plain = json.dumps(policy, separators=(",", ":")).encode()
+    (OUT / "trust-two-boms.json").write_bytes(b"\xef\xbb\xbf\xef\xbb\xbf" + plain)
+    (OUT / "trust-one-bom.json").write_bytes(b"\xef\xbb\xbf" + plain)
+    (OUT / "trust-not-utf8.json").write_bytes(plain.replace(b'"publisher"', b'"publisher\xff"'))
+    vectors["policy-with-a-null-time"] = (dict(base), "trust-time-null.json", "refused")
+    vectors["policy-with-revocations-expiring-null"] = (dict(base), "trust-revoked-expires-null.json", "refused")
+    vectors["policy-with-a-null-revoked-key"] = (dict(base), "trust-revoked-key-null.json", "refused")
+    vectors["policy-prefix-with-two-dots"] = (dict(base), "trust-prefix-double-dot.json", "refused")
+    vectors["policy-with-an-rsa-key"] = (dict(base), "trust-rsa-key.json", "refused")
+    vectors["policy-with-two-boms"] = (dict(base), "trust-two-boms.json", "refused")
+    vectors["policy-with-one-bom"] = (dict(base), "trust-one-bom.json", "verified")
+    vectors["policy-not-utf8"] = (dict(base), "trust-not-utf8.json", "refused")
+
     # The JSON profile and the archive, more ways.
     vectors["junk-signature-file"] = ({**signed(content), py.SIGNATURES + "junk.dsse.json": b'{"hello":1}\n'}, "trust.json", "refused")
     vectors["integer-beyond-2-53"] = (signed({**content, record: b'{"key":"a","n":9007199254740993}\n'}), "trust.json", "refused")

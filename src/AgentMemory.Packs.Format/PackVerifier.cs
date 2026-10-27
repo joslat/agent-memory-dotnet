@@ -74,7 +74,7 @@ internal static class PackVerifier
             .. missingRoles.Select(r => $"missing: no valid {r} signature from a key the policy trusts for '{list!.Id}'"),
             $"required roles: {string.Join(", ", policy.RequiredRoles)}"]));
 
-        var ledgerRefusal = ledger?.Refusal(list!.Id, list.Version, digest, allowDowngrade);
+        var ledgerRefusal = ledger?.Refusal(list!.Id, list.Version, digest, allowDowngrade) ?? (ledger is null ? null : Withheld(ledger, policy));
         if (ledgerRefusal is not null) problems.Add(ledgerRefusal);
         if (ledger is not null)
             explain?.Invoke(new("ledger", ledgerRefusal is null, [ledgerRefusal ?? $"{list!.Id} {list.Version} with {digest[..23]}… is allowed by the ledger"]));
@@ -217,6 +217,17 @@ internal static class PackVerifier
                 ? new PackVerification(null, [$"The member in packs/{id}/ is {verified.Id}."]) : member;
         }
         return (set, members);
+    }
+
+    // A host that applied a revocation list from a key it still trusts as revoker verifies only with that list or a newer one
+    // applied: leaving the list out would roll the host back (third review).
+    private static string? Withheld(HostLedger ledger, TrustPolicy policy)
+    {
+        foreach (var (keyId, mark) in ledger.RevocationMarks.OrderBy(m => m.Key, StringComparer.Ordinal))
+            if (policy.Find(keyId) is { } key && key.Roles.Contains(Revocations.Role)
+                && (!policy.RevocationsApplied.TryGetValue(keyId, out var applied) || applied < mark))
+                return $"This host applied a revocation list signed by {Dsse.Short(keyId)} and issued at {mark:u}; give that list or a newer one, so its revocations still hold.";
+        return null;
     }
 
     /// <summary>The usual reasons a checked-out pack stops matching its list.</summary>

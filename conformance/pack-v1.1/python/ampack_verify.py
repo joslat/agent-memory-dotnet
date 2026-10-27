@@ -12,6 +12,7 @@ Needs: Python 3.10+, the `cryptography` package.
 import base64
 import hashlib
 import binascii
+import functools
 import json
 import math
 import re
@@ -133,6 +134,9 @@ def instant(text):
     if rest:
         digits = "".join(c for c in rest if c.isdigit())
         text = head + "." + (digits + "000000")[:6] + rest[len(digits):]
+    # An offset's minutes are below 60, as .NET reads them (fromisoformat takes +05:60).
+    if not text.endswith("Z") and int(text[-2:]) >= 60:
+        return None
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
         # As a .NET DateTimeOffset holds it: an offset within 14 hours, a UTC time within years 1 to 9999.
@@ -152,6 +156,13 @@ def policy_time(value):
     if parsed is None:
         raise Refused("the trust policy has a time that is not an RFC 3339 date-time")
     return parsed
+
+
+def present_time(obj, name):
+    """A time field of the policy: absent, or an RFC 3339 date-time; null is not absent (as .NET reads it)."""
+    if name in obj and obj[name] is None:
+        raise Refused("the trust policy has a time that is not an RFC 3339 date-time")
+    return policy_time(obj.get(name))
 
 
 def apply_revocations(policy, data, now):
@@ -338,6 +349,17 @@ def no_duplicates(pairs):
     return dict(pairs)
 
 
+@functools.lru_cache(maxsize=65536)
+def stream_safe(c):
+    """A character's Stream-Safe profile (UAX #15 D4): the non-starters its NFKD leads and trails with, and whether it is all non-starters."""
+    if c < "\u00a0":
+        return 0, 0, False
+    classes = [unicodedata.combining(x) for x in unicodedata.normalize("NFKD", c)]
+    lead = next((i for i, x in enumerate(classes) if x == 0), len(classes))
+    trail = next((i for i, x in enumerate(reversed(classes)) if x == 0), len(classes))
+    return lead, trail, lead == len(classes)
+
+
 def profile(data, integers_only=False):
     """The JSON profile: no BOM, LF only, no duplicate keys, NFC strings, integers within 2^53."""
     if data.startswith(b"\xef\xbb\xbf") or b"\r" in data:
@@ -346,6 +368,8 @@ def profile(data, integers_only=False):
         value = json.loads(data.decode("utf-8"), object_pairs_hook=no_duplicates, parse_constant=lambda c: (_ for _ in ()).throw(Refused(c)))
     except (UnicodeDecodeError, ValueError) as e:
         raise Refused(f"a JSON file is not valid: {e}")
+    except RecursionError:
+        raise Refused("a JSON file nests deeper than 64")
 
     def walk(v, depth=0):
         if isinstance(v, (dict, list)) and depth + 1 > MAX_DEPTH:
@@ -360,10 +384,14 @@ def profile(data, integers_only=False):
         elif isinstance(v, str):
             if any(0xD800 <= ord(c) <= 0xDFFF for c in v):
                 raise Refused("a JSON string has an unpaired surrogate")
+            # UAX #15 D4: non-starters counted on each character's NFKD decomposition, not on the characters themselves.
             run = longest = 0
             for c in v:
-                run = run + 1 if unicodedata.combining(c) else 0
+                lead, trail, whole = stream_safe(c)
+                run += lead
                 longest = max(longest, run)
+                if not whole:
+                    run = trail
             if longest > MAX_COMBINING_RUN:
                 raise Refused("a JSON string has more than 30 combining marks in a row")
             if unicodedata.normalize("NFC", v) != v:
@@ -415,6 +443,8 @@ def verify(files, policy, now):
         raise Refused("there is no META/files.json")
     list_bytes = files[FILES]
     listing = profile(list_bytes, integers_only=True)
+    if not isinstance(listing, dict):
+        raise Refused("META/files.json is not a v1.1 files list")
     if canonical(listing).encode("utf-8") != list_bytes:
         raise Refused("META/files.json is not canonical")
     if set(listing) != {"format", "id", "version", "files"} or listing["format"] != FILES_FORMAT:
@@ -507,12 +537,13 @@ def verify(files, policy, now):
         if not ok:
             continue
         for s in env.get("signatures", []):
-            if not isinstance(s, dict):
+            if not isinstance(s, dict) or not isinstance(s.get("keyid"), str):
                 continue
             key = keys.get(s.get("keyid"))
             if key is None or key["keyId"] in revoked_keys or role not in key["roles"]:
                 continue
-            if not any(pid == pre or pid.startswith(pre.rstrip(".") + ".") for pre in key["idPrefixes"]):
+            # As .NET covers it: the same id, or the prefix as a namespace (one trailing dot allowed, never stripped further).
+            if not any(pid == pre or pid.startswith(pre if pre.endswith(".") else pre + ".") for pre in key["idPrefixes"]):
                 continue
             public = serialization.load_pem_public_key(key["publicKey"].encode())
             spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -540,14 +571,21 @@ def valid_version(text):
     if not isinstance(text, str):
         return False
     match = SEMVER.fullmatch(text)
-    return match is not None and all(int(part) <= INT64_MAX for part in match.group(1, 2, 3))
+    if match is None or any(int(part) > INT64_MAX for part in match.group(1, 2, 3)):
+        return False
+    # SemVer 2.0: a numeric prerelease identifier has no leading zero (1.0.0-01 is not a version).
+    prerelease = text.split("+", 1)[0].partition("-")[2]
+    return not any(len(p) > 1 and p[0] == "0" and p.isdigit() for p in prerelease.split(".")) if prerelease else True
 
 
 def load_policy(raw):
     """The host's trust policy, as .NET reads it: a BOM and CRLF are tolerated, the JSON profile holds, every key is
     checked (its id is the SHA-256 of its key, it names prefixes and known roles), no key is listed twice, times are RFC 3339,
     and requireRoles names pack roles."""
-    text = raw.decode("utf-8")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise Refused("the trust policy is not UTF-8")
     if text.startswith("\ufeff"):
         text = text[1:]
     policy = profile(text.replace("\r\n", "\n").encode("utf-8"))
@@ -565,15 +603,17 @@ def load_policy(raw):
         try:
             public = serialization.load_pem_public_key(key["publicKey"].encode())
             spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, UnicodeEncodeError):
             raise Refused("a trusted key is not a PEM public key")
+        if not isinstance(public, ec.EllipticCurvePublicKey) or public.curve.name != "secp256r1":
+            raise Refused("a trusted key is not a P-256 public key")
         if hashlib.sha256(spki).hexdigest() != key["keyId"]:
             raise Refused("a trusted key's id is not the SHA-256 of its key")
         if key["keyId"] in seen:
             raise Refused("the trust policy lists a key twice")
         seen.add(key["keyId"])
-        policy_time(key.get("notBefore"))
-        policy_time(key.get("notAfter"))
+        present_time(key, "notBefore")
+        present_time(key, "notAfter")
     revoked = policy.get("revoked", {})
     if not isinstance(revoked, dict):
         raise Refused("the trust policy has a malformed revoked section")
@@ -582,8 +622,8 @@ def load_policy(raw):
     for r in revoked.get("keys", []) if isinstance(revoked.get("keys", []), list) else [None]:
         if not isinstance(r, dict) or not isinstance(r.get("keyId"), str):
             raise Refused("the trust policy has a malformed revoked key")
-        policy_time(r.get("compromisedAt"))
-    policy_time(revoked.get("expires"))
+        present_time(r, "compromisedAt")
+    present_time(revoked, "expires")
     if "requireRoles" in policy:
         required = policy["requireRoles"]
         if not isinstance(required, list) or not required or not all(isinstance(r, str) and r in ROLES for r in required):

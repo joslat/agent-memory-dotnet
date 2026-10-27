@@ -13,13 +13,19 @@ internal sealed class HostLedger
     internal const string Format = "agentmemory.pack.ledger/1.1";
     private readonly Dictionary<string, (string Highest, Dictionary<string, string> Digests)> _packs = new(StringComparer.Ordinal);
 
-    /// <summary>When the newest revocation document this host applied was issued: an older one is refused (red team 8).</summary>
-    internal DateTimeOffset? RevocationsIssuedAt { get; private set; }
+    private readonly Dictionary<string, DateTimeOffset> _revocations = new(StringComparer.Ordinal);
 
-    /// <summary>Records an applied revocation document's issue time; the ledger keeps the latest.</summary>
-    internal void RecordRevocations(DateTimeOffset issuedAt)
+    /// <summary>
+    /// Per revoker key, when the newest revocation document it signed that this host applied was issued (red team 8, third
+    /// review): an older one from that key is refused, and while the key is trusted as revoker, verifying needs that list or
+    /// a newer one applied, so leaving the list out cannot roll the host back either.
+    /// </summary>
+    internal IReadOnlyDictionary<string, DateTimeOffset> RevocationMarks => _revocations;
+
+    /// <summary>Records an applied revocation document's issue time for the key that signed it; the ledger keeps the latest.</summary>
+    internal void RecordRevocations(string revokerKeyId, DateTimeOffset issuedAt)
     {
-        if (RevocationsIssuedAt is not { } seen || issuedAt > seen) RevocationsIssuedAt = issuedAt;
+        if (!_revocations.TryGetValue(revokerKeyId, out var seen) || issuedAt > seen) _revocations[revokerKeyId] = issuedAt;
     }
 
     /// <summary>Why installing this pack must be refused, or null.</summary>
@@ -64,8 +70,10 @@ internal sealed class HostLedger
             var digests = pack.Value.GetProperty("versions").EnumerateObject().ToDictionary(v => v.Name, v => v.Value.GetString()!, StringComparer.Ordinal);
             ledger._packs[pack.Name] = (pack.Value.GetProperty("highest").GetString()!, digests);
         }
-        if (document.RootElement.TryGetProperty("revocationsIssuedAt", out var issued))
-            ledger.RevocationsIssuedAt = PackTime.TryParse(issued.GetString(), out var at) ? at : throw new InvalidDataException($"The ledger at {path} has a malformed revocationsIssuedAt.");
+        if (document.RootElement.TryGetProperty("revocations", out var marks))
+            foreach (var mark in marks.EnumerateObject())
+                ledger._revocations[mark.Name] = mark.Value.ValueKind == JsonValueKind.String && PackTime.TryParse(mark.Value.GetString(), out var at)
+                    ? at : throw new InvalidDataException($"The ledger at {path} has a malformed revocation mark.");
         return ledger;
     }
 
@@ -79,7 +87,14 @@ internal sealed class HostLedger
             packs[id] = new JsonObject { ["highest"] = highest, ["versions"] = versions };
         }
         var root = new JsonObject { ["format"] = Format, ["packs"] = packs };
-        if (RevocationsIssuedAt is { } issued) root["revocationsIssuedAt"] = issued.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        if (_revocations.Count > 0)
+        {
+            var marks = new JsonObject();
+            // Full precision: a mark rounded down would let an older document issued in the same second through.
+            foreach (var (keyId, at) in _revocations.OrderBy(m => m.Key, StringComparer.Ordinal))
+                marks[keyId] = at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+            root["revocations"] = marks;
+        }
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (directory is not null) Directory.CreateDirectory(directory);
         var temporary = path + ".tmp";

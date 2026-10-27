@@ -57,6 +57,18 @@ public sealed class TrialClusteringTests
     }
 
     [Fact]
+    public void The_bound_moves_smoothly_as_one_item_turns_wrong_and_two_tasks_never_pass_for_many()
+    {
+        // Third review: one wrong file of 201 raised the bound from 0.425 to 0.978; two tasks are still two observations.
+        static List<PackTrialTask> Two(int offered, int correct) =>
+            [.. Enumerable.Range(0, 40).Select(i => i switch { 0 => new PackTrialTask(offered, correct), 1 => new PackTrialTask(1, 1), _ => new PackTrialTask(0, 0) })];
+        var allRight = PackTrialGate.ClusteredWilsonLower(Two(200, 200), Z95);
+        var oneWrong = PackTrialGate.ClusteredWilsonLower(Two(200, 199), Z95);
+        oneWrong.Should().BeLessThanOrEqualTo(allRight + 1e-9).And.BeLessThan(0.6);
+        PackTrialGate.ClusteredWilsonLower(Two(1000, 999), Z95).Should().BeLessThan(0.6);
+    }
+
+    [Fact]
     public void A_decision_with_tasks_kept_uses_the_clustered_bound_for_precision()
     {
         var manifest = ModuleManifest.Parse("""

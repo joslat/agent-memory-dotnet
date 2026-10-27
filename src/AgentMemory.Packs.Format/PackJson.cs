@@ -53,6 +53,8 @@ internal static class PackJson
                 foreach (var property in element.EnumerateObject())
                 {
                     if (!seen.Add(property.Name)) return $"repeats the key '{property.Name}' at {where}";
+                    // A key is a string too: the same Stream-Safe limit first, which bounds the NFC check (third review, 1a).
+                    if (Nfc.LongestCombiningRun(property.Name) > Nfc.MaximumCombiningRun) return $"has a key with more than {Nfc.MaximumCombiningRun} combining marks in a row at {where}";
                     if (!IsNfc(property.Name)) return $"has a key that is not in NFC at {where}";
                     if (Problem(property.Value, integersOnly, where + "." + property.Name) is { } inner) return inner;
                 }

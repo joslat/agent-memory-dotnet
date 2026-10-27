@@ -75,22 +75,23 @@ internal static partial class Revocations
             signatures = sigs.Clone();
         }
         var pae = Dsse.Pae(PayloadType, payload);
-        if (!signatures.EnumerateArray().Any(s => Verifies(policy, s, pae, now))) throw Bad("is not signed by a key the trust policy names as revoker and that is valid now");
+        var revoker = signatures.EnumerateArray().Select(s => Signer(policy, s, pae, now)).FirstOrDefault(k => k is not null)
+            ?? throw Bad("is not signed by a key the trust policy names as revoker and that is valid now");
 
         if (PackJson.Check(payload) is { } payloadProblem) throw Bad($"has a payload that {payloadProblem}");
         using var document = JsonDocument.Parse(payload);
         var d = document.RootElement;
         if (d.ValueKind != JsonValueKind.Object || d.EnumerateObject().Any(p => p.Name is not ("format" or "issuedAt" or "expires" or "digests" or "keys"))
-            || !d.TryGetProperty("format", out var format) || format.GetString() != Format)
+            || !d.TryGetProperty("format", out var format) || format.ValueKind != JsonValueKind.String || format.GetString() != Format)
             throw Bad($"is not a '{Format}' document: format, issuedAt, expires, digests and keys, nothing else");
         if (!d.TryGetProperty("issuedAt", out var issuedText) || !PackTime.TryParse(issuedText.ValueKind == JsonValueKind.String ? issuedText.GetString() : null, out var issuedAt)
             || !d.TryGetProperty("expires", out var expiresText) || !PackTime.TryParse(expiresText.ValueKind == JsonValueKind.String ? expiresText.GetString() : null, out var expires)
             || expires <= issuedAt)
             throw Bad("needs issuedAt and expires, RFC 3339, expiring after it was issued");
         if (issuedAt > now.AddMinutes(5)) throw Bad($"claims to be issued at {issuedAt:u}, in the future");
-        // An older document than one this host applied could drop revocations issued since: refused (red team 8).
-        if (ledger?.RevocationsIssuedAt is { } applied && issuedAt < applied)
-            throw Bad($"was issued at {issuedAt:u}, before the one this host applied ({applied:u}); an older list could drop revocations");
+        // An older document from this revoker than one this host applied could drop revocations issued since (red team 8).
+        if (ledger is not null && ledger.RevocationMarks.TryGetValue(revoker, out var applied) && issuedAt < applied)
+            throw Bad($"was issued at {issuedAt:u}, before the one this host applied from that key ({applied:u}); an older list could drop revocations");
         var digests = new List<string>();
         if (!d.TryGetProperty("digests", out var digestArray) || digestArray.ValueKind != JsonValueKind.Array) throw Bad("needs a digests list");
         foreach (var digest in digestArray.EnumerateArray())
@@ -119,16 +120,23 @@ internal static partial class Revocations
         foreach (var key in keys)
             merged[key.KeyId] = merged.TryGetValue(key.KeyId, out var known) && (known.CompromisedAt is null || key.CompromisedAt is { } later && later > known.CompromisedAt)
                 ? known : key;
-        ledger?.RecordRevocations(issuedAt);
+        ledger?.RecordRevocations(revoker, issuedAt);
+        var appliedLists = new Dictionary<string, DateTimeOffset>(policy.RevocationsApplied, StringComparer.Ordinal);
+        if (!appliedLists.TryGetValue(revoker, out var earlier) || issuedAt > earlier) appliedLists[revoker] = issuedAt;
         return policy with
         {
+            RevocationsApplied = appliedLists,
             RevokedDigests = [.. policy.RevokedDigests.Union(digests, StringComparer.Ordinal)],
             RevokedKeys = [.. merged.Values.OrderBy(k => k.KeyId, StringComparer.Ordinal)],
             RevocationsExpire = policy.RevocationsExpire is { } current && current < expires ? current : expires,
         };
     }
 
-    // One signature entry by a key the policy trusts as revoker, valid now and not itself revoked, that verifies.
+    // The key of one signature entry by a key the policy trusts as revoker, valid now and not itself revoked, that verifies;
+    // null when the entry is not such a signature.
+    private static string? Signer(TrustPolicy policy, JsonElement entry, byte[] pae, DateTimeOffset now) =>
+        Verifies(policy, entry, pae, now) ? entry.GetProperty("keyid").GetString() : null;
+
     private static bool Verifies(TrustPolicy policy, JsonElement entry, byte[] pae, DateTimeOffset now)
     {
         if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("keyid", out var keyId) || keyId.ValueKind != JsonValueKind.String

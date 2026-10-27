@@ -158,9 +158,13 @@ public static class PackTrialGate
     }
 
     /// <summary>
-    /// The lower confidence bound of a ratio of items over tasks, with each task as one cluster (PACK-gate-stats-2): the
-    /// cluster-robust variance of the ratio gives a design effect, the item count divided by it is the effective sample size,
-    /// and the Wilson bound is taken at that size. Items in one task are correlated, so this is never above the plain bound.
+    /// The lower confidence bound of a ratio of items over tasks, with each task as one cluster (PACK-gate-stats-2): the lower
+    /// of two bounds. Over items: the cluster-robust variance of the ratio gives a design effect, the item count divided by it
+    /// is the effective sample size, and the Wilson bound is taken at that size. Over tasks: each task that offered anything is
+    /// one observation scored by its own precision, and the Wilson bound is taken over them (valid for a mean of values in
+    /// [0, 1]). The second keeps a few tasks from passing for many however many items one of them offered, and the two
+    /// together change smoothly as one item turns right or wrong (third review: two tasks gave 0.425 at 200 of 200 right and
+    /// 0.978 at 199). Items in one task are correlated, so this is never above the plain bound.
     /// </summary>
     public static double ClusteredWilsonLower(IReadOnlyList<PackTrialTask> tasks, double z)
     {
@@ -168,17 +172,14 @@ public static class PackTrialGate
         var offered = tasks.Sum(t => (double)t.Offered);
         if (offered == 0) return 0;
         var p = tasks.Sum(t => (double)t.Correct) / offered;
-        var clusters = tasks.Count(t => t.Offered > 0);
-        // One cluster carries no information about the spread between tasks: it counts as one observation.
-        if (clusters < 2) return WilsonLower(p, 1, z);
+        var answered = tasks.Where(t => t.Offered > 0).ToList();
+        var overTasks = WilsonLower(answered.Average(t => (double)t.Correct / t.Offered), answered.Count, z);
+        // One task, or a precision of 0 or 1, leaves no spread between tasks to measure a design effect by.
+        if (answered.Count < 2 || p is 0 or 1) return overTasks;
         var residuals = tasks.Sum(t => Math.Pow(t.Correct - p * t.Offered, 2));
-        var clustered = clusters / (clusters - 1.0) * residuals / (offered * offered);
-        var binomial = p * (1 - p) / offered;
-        // At a precision of 0 or 1 there is no spread to measure a design effect by: each task counts as one observation
-        // (red team: two tasks with 201 correct files otherwise bound at 0.987).
-        if (binomial == 0) return WilsonLower(p, clusters, z);
-        var designEffect = Math.Max(1, clustered / binomial);
-        return WilsonLower(p, offered / designEffect, z);
+        var clustered = answered.Count / (answered.Count - 1.0) * residuals / (offered * offered);
+        var designEffect = Math.Max(1, clustered / (p * (1 - p) / offered));
+        return Math.Min(WilsonLower(p, offered / designEffect, z), overTasks);
     }
 
     // The Wilson score lower bound at proportion p over a (possibly fractional) effective sample size n.
@@ -321,37 +322,52 @@ public static class PackTrialGate
     // PACK-upgrade-gate: a passing upgrade that must not regress goes on only if its trial compared it with exactly the version
     // that passed here before (the latest earlier version with a passing decision); null when it may go on.
     private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision) =>
-        Refusal(activations, decision, decision.Upgrade ?? manifest.Trial?.Upgrade, new Dictionary<PackActivation, string?>(ReferenceEqualityComparer.Instance));
+        Settle(activations, decision, decision.Upgrade ?? manifest.Trial?.Upgrade,
+            new Dictionary<PackActivation, (string?, ModuleTrialUpgrade?)>(ReferenceEqualityComparer.Instance)).Refusal;
 
-    // Why a passing decision may not go on as an upgrade, or null. The version it replaces is the one that passed here before
-    // it: of every content's current decision (a later failing one supersedes a pass), a passing one that the gate itself
-    // allows, at an earlier version, or at this version with other content decided earlier; the highest, the latest.
-    private static string? Refusal(IPackActivations activations, PackActivation decision, ModuleTrialUpgrade? rule,
-        Dictionary<PackActivation, string?> known)
+    // Why a passing decision may not go on as an upgrade (or null), and the rule it is held to: the stricter of its own and
+    // the one its predecessor was held to, so a rule carries down the whole chain, not one version (third review). The version
+    // it replaces is the one that passed here before it: of every content's current decision (a later failing one supersedes
+    // a pass), a passing one that the gate itself allows, at an earlier version, or at this version with other content
+    // decided earlier (on the same instant, the lower digest first); the highest, the latest.
+    private static (string? Refusal, ModuleTrialUpgrade? Rule) Settle(IPackActivations activations, PackActivation decision, ModuleTrialUpgrade? rule,
+        Dictionary<PackActivation, (string?, ModuleTrialUpgrade?)> known)
     {
         if (known.TryGetValue(decision, out var settled)) return settled;
-        known[decision] = "it is its own predecessor"; // never reached: predecessors come strictly before
+        known[decision] = ("it is its own predecessor", rule); // never reached: predecessors come strictly before
         var version = ModuleVersion.Parse(decision.Version);
+        var content = Content(decision);
         var active = activations.History(decision.ModuleId)
             .GroupBy(a => (a.Version, a.ManifestDigest, a.PackDigest))
             .Select(g => g.MaxBy(a => a.DecidedAt)!)
-            .Where(a => a.Active && ModuleVersion.TryParse(a.Version, out var v)
-                && (a.ManifestDigest, a.PackDigest) != (decision.ManifestDigest, decision.PackDigest)
-                && (v.CompareTo(version) < 0 || v.CompareTo(version) == 0 && a.DecidedAt < decision.DecidedAt))
-            .OrderByDescending(a => ModuleVersion.Parse(a.Version)).ThenByDescending(a => a.DecidedAt)
-            .FirstOrDefault(a => Refusal(activations, a, a.Upgrade, known) is null);
-        var result = active is null ? null : Against(decision, rule, active);
+            .Select(a => (Decision: a, Version: ModuleVersion.TryParse(a.Version, out var v) ? v : null))
+            .Where(a => a.Decision.Active && a.Version is not null && Content(a.Decision) != content
+                && (a.Version.CompareTo(version) < 0 || a.Version.CompareTo(version) == 0
+                    && (a.Decision.DecidedAt < decision.DecidedAt || a.Decision.DecidedAt == decision.DecidedAt && string.CompareOrdinal(Content(a.Decision), content) < 0)))
+            .OrderByDescending(a => a.Version).ThenByDescending(a => a.Decision.DecidedAt).ThenByDescending(a => Content(a.Decision), StringComparer.Ordinal)
+            .Select(a => (a.Decision, Settled: Settle(activations, a.Decision, a.Decision.Upgrade, known)))
+            .FirstOrDefault(a => a.Settled.Refusal is null);
+        var held = active.Decision is null ? rule : Stricter(rule, active.Settled.Rule);
+        var result = (active.Decision is null ? null : Against(decision, held, active.Decision), held);
         known[decision] = result;
         return result;
     }
 
-    // An upgrade against the version it replaces: held to this version's rule or that version's, whichever is stricter, from
-    // the measurements the record carries, whatever its own checks said.
+    private static string Content(PackActivation decision) => (decision.PackDigest ?? "") + "|" + decision.ManifestDigest;
+
+    // The stricter of two upgrade rules: no regression if either asks it, at the smaller tolerance.
+    private static ModuleTrialUpgrade? Stricter(ModuleTrialUpgrade? a, ModuleTrialUpgrade? b)
+    {
+        var rules = new[] { a, b }.Where(r => r is { NoRegression: true }).ToList();
+        return rules.Count == 0 ? a ?? b : new ModuleTrialUpgrade { NoRegression = true, Tolerance = rules.Min(r => r!.Tolerance) };
+    }
+
+    // An upgrade against the version it replaces, held to the rule the chain carries, from the measurements the record
+    // carries, whatever its own checks said.
     private static string? Against(PackActivation decision, ModuleTrialUpgrade? rule, PackActivation active)
     {
-        var rules = new[] { rule, active.Upgrade }.Where(r => r is { NoRegression: true }).ToList();
-        if (rules.Count == 0) return null;
-        var tolerance = rules.Min(r => r!.Tolerance);
+        if (rule is not { NoRegression: true }) return null;
+        var tolerance = rule.Tolerance;
         if (decision.Previous is not { } previous)
             return $"it upgrades {active.Version}, which passed here; its trial must compare against that version";
         if (previous.Version != active.Version || previous.ManifestDigest != active.ManifestDigest || previous.PackDigest != active.PackDigest)
