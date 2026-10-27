@@ -27,6 +27,7 @@
     <ProjectReference Include="../../src/AgentMemory.Packs.CodeMap.Roslyn/AgentMemory.Packs.CodeMap.Roslyn.csproj" />
     <ProjectReference Include="../../src/AgentMemory.Extensibility.Ampack/AgentMemory.Extensibility.Ampack.csproj" />
     <ProjectReference Include="../../src/AgentMemory.Packs.Decisions/AgentMemory.Packs.Decisions.csproj" />
+    <ProjectReference Include="../../src/AgentMemory.Packs.Architecture/AgentMemory.Packs.Architecture.csproj" />
     <ProjectReference Include="../../src/AgentMemory.Packs.Coding/AgentMemory.Packs.Coding.csproj" />
     <ProjectReference Include="../../src/AgentMemory.Packs.Work/AgentMemory.Packs.Work.csproj" />
     <!-- NOT in the meta-package, and `perf` measures the MAF turn (ProvideAIContext/StoreAIContext),

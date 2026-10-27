@@ -36,6 +36,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Repository\AgentMemory.Packs.Repository.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.CodeMap.Roslyn\AgentMemory.Packs.CodeMap.Roslyn.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Decisions\AgentMemory.Packs.Decisions.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Architecture\AgentMemory.Packs.Architecture.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Coding\AgentMemory.Packs.Coding.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Work\AgentMemory.Packs.Work.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extensibility.Ampack\AgentMemory.Extensibility.Ampack.csproj" />

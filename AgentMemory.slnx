@@ -37,6 +37,7 @@
     <Project Path="src/AgentMemory.Packs.Repository/AgentMemory.Packs.Repository.csproj" />
     <Project Path="src/AgentMemory.Packs.CodeMap/AgentMemory.Packs.CodeMap.csproj" />
     <Project Path="src/AgentMemory.Packs.CodeMap.Roslyn/AgentMemory.Packs.CodeMap.Roslyn.csproj" />
+    <Project Path="src/AgentMemory.Packs.Architecture/AgentMemory.Packs.Architecture.csproj" />
     <Project Path="src/AgentMemory.Packs.Decisions/AgentMemory.Packs.Decisions.csproj" />
     <Project Path="src/AgentMemory.Packs.Coding/AgentMemory.Packs.Coding.csproj" />
     <Project Path="src/AgentMemory.Packs.Work/AgentMemory.Packs.Work.csproj" />
