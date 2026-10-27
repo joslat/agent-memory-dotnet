@@ -70,6 +70,10 @@ internal static class Program
                                  the pack as its subject, the trial's tasks with and without it, the gate's decision,
                                  and the signed record itself; an assurer seals and signs it (agenteval aef seal
                                  --sealed-by ingest --key ...)
+          scan <folder|file> [--policy <trust.json>] [--aef <run-folder>]
+                                 look in every record and declaration for personal data, secrets and prompt-injection
+                                 payloads; exit 1 when anything is found; with --policy, scan only a pack that
+                                 verifies; with --aef, write the scan as an AEF run for an assurer to seal and sign
           countersign <pack.ampack> --key <file|env:VAR|dpapi:FILE> --role <curator|assurer|publisher> --out <file>
                                  sign a built pack again in another role, its content and digest unchanged
           test [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
@@ -103,6 +107,7 @@ internal static class Program
                 "set" => Set(options),
                 "test" => Test(options),
                 "evidence" => Evidence(options),
+                "scan" => ScanPack(options),
                 "countersign" => Countersign(options),
                 "serve" => ServePacks(options),
                 "install" => Install(options),
@@ -252,6 +257,28 @@ internal static class Program
             typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "2.0.0");
         Console.WriteLine($"{id} {decision.Version}: {(decision.Active ? "on" : "off")}, {decision.Reason}\n  run     {runId}\n  wrote   {o.Required("out")}");
         return 0;
+    }
+
+    // PACK-scan: personal data, secrets and injection payloads, before a pack travels.
+    private static int ScanPack(Options o)
+    {
+        var target = o.Positional(0, "folder or file");
+        var content = PackReader.Read(target);
+        if (o.Value("policy") is not null && PackVerifier.Verify(content, Policy(o), DateTimeOffset.UtcNow) is { IsVerified: false } refused)
+            return Report(refused.Problems, "");
+        var report = AgentMemory.Extensibility.Ampack.PackScan.Scan(target);
+        foreach (var finding in report.Findings)
+            Console.WriteLine($"  {finding.Severity,-6} {finding.Rule,-34} {finding.File}{(finding.Line > 0 ? ":" + finding.Line : "")} {finding.Path}  {finding.Sample}");
+        Console.WriteLine(report.Clean ? $"Clean: {report.Strings} strings in {report.Files} files." : $"{report.Findings.Count} finding(s) in {report.Strings} strings in {report.Files} files.");
+        if (o.Value("aef") is { } folder)
+        {
+            if (!content.Files.TryGetValue(PackPaths.FilesList, out var listBytes) || FilesList.Parse(listBytes).List is not { } list)
+                return Report(["An AEF run names the pack by its digest: build the pack first."], "");
+            var runId = AgentMemory.Extensibility.Ampack.PackScan.WriteRun(report, list.Id, list.Version, FilesList.DigestOf(listBytes), DateTimeOffset.UtcNow, folder,
+                typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "2.0.0");
+            Console.WriteLine($"  run     {runId}\n  wrote   {folder}");
+        }
+        return report.Clean ? 0 : 1;
     }
 
     private static int Countersign(Options o)
