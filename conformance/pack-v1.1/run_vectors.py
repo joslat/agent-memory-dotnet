@@ -260,6 +260,38 @@ def main():
     (OUT / "trust-revoker-also-publisher.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, roles=["publisher", "revoker"])]},
         separators=(",", ":")), encoding="utf-8")
     vectors["policy-with-a-revoker-that-also-publishes"] = (dict(base), "trust-revoker-also-publisher.json", "refused")
+    # The ninth review: the rule for one run of several lists, now in both verifiers. The first revoker is rotated out (the
+    # policy revokes it); its list revoked the third, a compromised revoker; the second is in good standing.
+    code, text = ampack("keygen", "--out", str(work / "keys3"), "--name", "third", "--role", "revoker", "--prefix", "io.example")
+    assert code == 0, text
+    third = json.loads(text[text.index("{"):])
+    first_key, second_key, third_key = str(keys_dir / "revoker.key.pem"), str(work / "keys2" / "second.key.pem"), str(work / "keys3" / "third.key.pem")
+    (OUT / "trust-first-rotated-out.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker, second, third],
+        "revoked": {"digests": [], "keys": [{"keyId": revoker["keyId"]}]}}, separators=(",", ":")), encoding="utf-8")
+    (OUT / "trust-two-live-revokers.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, second, third]},
+        separators=(",", ":")), encoding="utf-8")
+    (OUT / "trust-successor-not-yet-valid.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker,
+        dict(second, notBefore="2099-01-01T00:00:00Z")], "revoked": {"digests": [], "keys": [{"keyId": revoker["keyId"]}]}}, separators=(",", ":")), encoding="utf-8")
+    revoke("run-first-revokes-third.json", "--key", first_key, "--expires", "2099-01-01T00:00:00Z", "--keys", third["keyId"])
+    revoke("run-third-revokes-second.json", "--key", third_key, "--expires", "2099-01-01T00:00:00Z", "--keys", second["keyId"])
+    revoke("run-third-revokes-second-and-itself.json", "--key", third_key, "--expires", "2099-01-01T00:00:00Z", "--keys", f"{second['keyId']},{third['keyId']}")
+    revoke("run-second-revokes-third.json", "--key", second_key, "--expires", "2099-01-01T00:00:00Z", "--keys", third["keyId"])
+    revoke("run-second-revokes-the-pack.json", "--key", second_key, "--expires", "2099-01-01T00:00:00Z", "--digests", digest)
+    vectors["run-rotated-revoker-not-carried-forward"] = (dict(base), "trust-first-rotated-out.json", "refused",
+        ["run-first-revokes-third.json", "run-third-revokes-second.json"])
+    vectors["run-rotated-revoker-carried-forward"] = (dict(base), "trust-first-rotated-out.json", "verified",
+        ["run-first-revokes-third.json", "run-second-revokes-third.json"])
+    vectors["run-revoked-revoker-revoking-itself-to-dodge"] = (dict(base), "trust-first-rotated-out.json", "refused",
+        ["run-first-revokes-third.json", "run-third-revokes-second-and-itself.json"])
+    vectors["run-two-revokers-in-a-circle"] = (dict(base), "trust-two-live-revokers.json", "refused",
+        ["run-second-revokes-third.json", "run-third-revokes-second.json"])
+    vectors["run-the-same-list-twice"] = (dict(base), "trust-two-live-revokers.json", "verified",
+        ["run-second-revokes-third.json", "run-second-revokes-third.json"])
+    vectors["run-live-list-revoking-the-pack-beside-others"] = (dict(base), "trust-first-rotated-out.json", "refused",
+        ["run-first-revokes-third.json", "run-second-revokes-third.json", "run-second-revokes-the-pack.json"])
+    revoke("run-first-revokes-the-successor.json", "--key", first_key, "--expires", "2099-01-01T00:00:00Z", "--keys", second["keyId"])
+    vectors["run-non-live-list-revoking-a-successor-not-yet-valid"] = (dict(base), "trust-successor-not-yet-valid.json", "refused",
+        ["run-first-revokes-the-successor.json"])
 
     # The second red team's divergences and crashes (27 Oct): one verdict for each, in both verifiers.
     def signed_with(content_, **options):
@@ -490,10 +522,11 @@ def main():
     for name, (files, policy_file, expected, *document) in {**{k: (write_zip(v[0]), *v[1:]) for k, v in vectors.items()}, **raw}.items():
         path = VECTORS / f"{name}.ampack"
         path.write_bytes(files)
-        extra = ["--revocations", str(OUT / document[0])] if document else []
+        documents = ([document[0]] if isinstance(document[0], str) else list(document[0])) if document else []
+        extra = [arg for name_ in documents for arg in ("--revocations", str(OUT / name_))]
         dn_code, dn_text = ampack("verify", str(path), "--policy", str(OUT / policy_file), *extra)
         pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(path), str(OUT / policy_file),
-                             *([str(OUT / document[0])] if document else [])],
+                             *[str(OUT / name_) for name_ in documents]],
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
         # Exit 1 is a refusal; anything else but 0 is a crash, which agrees with nothing.
         dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")

@@ -48,7 +48,9 @@ public sealed class PackTrust
     /// packs and non-revoker keys it names for this run only and is named in <paramref name="notApplied"/>. Lists that revoke
     /// each other's signers, or a list without a live signer that revokes a revoker still live, are refused.
     /// </summary>
-    /// <exception cref="InvalidDataException">A document is malformed, unsigned or from the future, or the lists revoke each other's signers.</exception>
+    /// <exception cref="InvalidDataException">A document is malformed, unsigned or from the future; the lists revoke each other's
+    /// signers; or a list without a live signer revokes a revoker that has not expired and no live list carries it forward. Never
+    /// fall back to loading without the lists: that would lose this run's denials.</exception>
     public PackTrust WithRevocations(IReadOnlyList<byte[]> signedDocuments, PackInstallLedger? ledger, out IReadOnlyList<string> notApplied)
     {
         ArgumentNullException.ThrowIfNull(signedDocuments);

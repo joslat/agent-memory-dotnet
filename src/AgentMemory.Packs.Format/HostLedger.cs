@@ -191,14 +191,15 @@ internal sealed class HostLedger
     {
         for (var attempt = 0; ; attempt++)
         {
-            try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose); }
-            catch (IOException e) when (Busy(e))
+            // On Windows the lock file goes when its holder closes it; elsewhere it is kept, so no run can lock an unlinked file
+            // while another locks the new one (ninth review).
+            try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, OperatingSystem.IsWindows() ? FileOptions.DeleteOnClose : FileOptions.None); }
+            // A lock file held, or being deleted (access denied for a moment), is busy for the whole window.
+            catch (Exception e) when (e is UnauthorizedAccessException || e is IOException io && Busy(io))
             {
                 if (attempt >= 200) throw new LedgerBusyException($"The ledger is locked by another run ({path}); try again.", e);
                 Thread.Sleep(50);
             }
-            // A lock file being deleted reads as access denied for a moment; a real denial fails after a second, as itself.
-            catch (UnauthorizedAccessException) when (attempt < 20) { Thread.Sleep(50); }
         }
     }
 

@@ -1,6 +1,6 @@
 # Memory pack format v1.2: conformance vectors
 
-Two verifiers that share no code must reach the same verdict on every vector here (130 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
+Two verifiers that share no code must reach the same verdict on every vector here (137 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
 
 - `ampack verify` (.NET, `tools/Ampack`, library `src/AgentMemory.Packs.Format`)
 - `python/ampack_verify.py` (Python 3.10+ and `cryptography`)
@@ -33,6 +33,7 @@ list, DSSE signature, strict ZIP writers, stored and deflated), and derives tamp
 | Signature encoding (sixth review) | an ECDSA INTEGER whose sign pad was dropped, on a pack and on a revocation list (the same list well padded is accepted): strict DER in both verifiers |
 | Revokers that are not live (seventh review) | a list signed by a revoker the policy revokes: revoking nothing it verifies, revoking the pack it refuses (it still denies what it names, never decides about a revoker, brings no freshness) |
 | Revokers that come back (eighth review) | a list without a live signer that revokes a revoker still live is refused (a live revoker carries it forward); a policy whose revoker key also signs packs is refused |
+| One run, several lists (ninth review; Python's `apply_all` is a second implementation of the rule) | a rotated revoker's revocation of a revoker not carried forward (refused) and carried forward (verified); the named revoker revoking itself to dodge (refused); two revokers in a circle (refused); the same list twice (one list); a live list revoking the pack beside others (refused); a successor not yet valid named by a list without a live signer (refused) |
 | ZIP profile | bytes before the first entry; bytes after the end record; an archive comment; unsorted entries; the data-descriptor flag; a local header whose name differs from the central directory; bytes after a deflate stream's end; a deflate stream without its final block |
 
 `results.json` records each verdict and each verifier's reason. The `trust*.json` files hold public keys only; the signing

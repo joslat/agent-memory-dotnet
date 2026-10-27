@@ -141,8 +141,58 @@ public sealed class RevocationRunTests : IDisposable
         // Later the compromised third's own list arrives: it decides nothing, and while it names a live revoker the run is
         // refused (fail closed) until it is dropped from the feed.
         FluentActions.Invoking(() => Revocations.ApplyAll(policy, [thirdRevokesSecond], Now, ledger, out _))
-            .Should().Throw<InvalidDataException>().WithMessage("*still live*");
+            .Should().Throw<InvalidDataException>().WithMessage("*has not expired*");
         ledger.RevokedKeys.Should().NotContainKey(_second.KeyId);
+    }
+
+    [Fact]
+    public void A_revoker_cannot_dodge_the_carry_forward_refusal_by_revoking_itself_or_by_co_signing()
+    {
+        // Ninth review: the third, named by the rotated-out first, signs a list revoking the second and itself (F2), or adds
+        // its signature to the second's list that revokes it (F3). A list revokes a key against its will only when a live
+        // signer other than that key signed it.
+        var third = PackKey.Create();
+        var policy = Policy() with
+        {
+            Keys = [.. Policy().Keys, new TrustedKey(third.KeyId, third.PublicKeyPem, ["io.example"], [Revocations.Role], null, null)],
+            RevokedKeys = [new RevokedKey(_first.KeyId, null)],
+        };
+        var firstRevokesThird = List(_first, Now.AddDays(-2), Now.AddDays(7), keys: [new RevokedKey(third.KeyId, null)]);
+        var dodge = List(third, Now.AddMinutes(-1), Now.AddYears(10), keys: [new RevokedKey(_second.KeyId, null), new RevokedKey(third.KeyId, null)]);
+        FluentActions.Invoking(() => Revocations.ApplyAll(policy, [firstRevokesThird, dodge], Now, null, out _))
+            .Should().Throw<InvalidDataException>().WithMessage("*carry that revocation forward*");
+
+        var twoLive = Policy() with { Keys = [.. Policy().Keys, new TrustedKey(third.KeyId, third.PublicKeyPem, ["io.example"], [Revocations.Role], null, null)] };
+        var secondRevokesThird = List(_second, Now.AddMinutes(-2), Now.AddDays(7), keys: [new RevokedKey(third.KeyId, null)]);
+        var thirdRevokesSecond = List(third, Now.AddMinutes(-1), Now.AddYears(10), keys: [new RevokedKey(_second.KeyId, null)]);
+        FluentActions.Invoking(() => Revocations.ApplyAll(twoLive, [CoSignedBy(secondRevokesThird, third), thirdRevokesSecond], Now, null, out _))
+            .Should().Throw<InvalidDataException>("co-signing its own revocation earns the third nothing: the run is refused, as before it was accepted");
+    }
+
+    [Fact]
+    public void A_successor_not_yet_valid_does_not_escape_the_carry_forward_refusal()
+    {
+        // Ninth review (F1): a successor provisioned ahead, with a future notBefore, was not "valid now" and slipped through.
+        var policy = Policy() with
+        {
+            Keys = [.. Policy().Keys.Select(k => k.KeyId == _second.KeyId ? k with { NotBefore = Now.AddDays(30) } : k)],
+            RevokedKeys = [new RevokedKey(_first.KeyId, null)],
+        };
+
+        FluentActions.Invoking(() => Revocations.ApplyAll(policy, [List(_first, Now.AddDays(-1), Now.AddDays(7), keys: [new RevokedKey(_second.KeyId, null)])], Now, null, out _))
+            .Should().Throw<InvalidDataException>().WithMessage("*has not expired*");
+    }
+
+    // A revocation document with another revoker's signature added: the same payload, a second signature entry.
+    private static byte[] CoSignedBy(byte[] document, PackKey other)
+    {
+        var envelope = JsonNode.Parse(document)!.AsObject();
+        var payload = Convert.FromBase64String(envelope["payload"]!.GetValue<string>());
+        using var key = ECDsa.Create();
+        key.ImportFromPem(other.PrivateKeyPem);
+        var signature = key.SignData(Dsse.Pae(Revocations.PayloadType, payload), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        envelope["signatures"]!.AsArray().Add(new JsonObject { ["keyid"] = other.KeyId, ["sig"] = Convert.ToBase64String(signature) });
+        return Encoding.UTF8.GetBytes(envelope.ToJsonString());
     }
 
     [Fact]

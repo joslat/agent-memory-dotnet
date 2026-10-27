@@ -77,6 +77,8 @@ internal static partial class Revocations
     /// the host revoked before is applied first, so a revoker revoked in an earlier run signs nothing now (sixth review).
     /// </summary>
     /// <remarks>
+    /// <para>A revoker revokes keys and packs of every vendor in the policy: its <c>idPrefixes</c> do not scope what it may
+    /// revoke (revokers are global; scope by policy, one revoker per trust domain).</para>
     /// <para>Fail closed within a run, authority only from live revokers (seventh review). Every authentic list from a key the
     /// policy names as revoker, live or not, adds its revocations of packs and of non-revoker keys for this run: they can only
     /// deny, and a revoker could deny while it was live. Only a list with a live signer (valid now, revoked by nobody: not the
@@ -100,6 +102,10 @@ internal static partial class Revocations
         // The same list twice (a mirrored feed) is one list (eighth review).
         var read = documents.DistinctBy(d => Convert.ToHexString(SHA256.HashData(d))).Select(d => Read(policy, d, now)).ToList();
         var revokedBefore = policy.RevokedKeys.Select(k => k.KeyId).ToHashSet(StringComparer.Ordinal);
+        var liveSigners = read.Select(d => d.Signers.Where(s => !revokedBefore.Contains(s) && ValidNow(policy, s, now)).ToList()).ToList();
+        // A list revokes a key against its will only when a live signer other than that key signed it: a key cannot dodge a
+        // refusal by revoking itself, nor claim an exemption by co-signing a list (ninth review).
+        bool RevokesOther(int j, string key) => read[j].Keys.Any(k => k.KeyId == key) && liveSigners[j].Any(s => s != key);
 
         // Settle which lists count: one with a signer nobody now revokes counts; one whose every signer is revoked before or by
         // a counted list does not; what is left revokes itself in a circle.
@@ -112,7 +118,7 @@ internal static partial class Revocations
                 if (state[i] != 0) continue;
                 // A key that revokes itself (a retiring revoker's final list) does not withdraw its own other lists.
                 bool RevokedBy(string signer, Func<int, bool> which) =>
-                    Enumerable.Range(0, read.Count).Any(j => j != i && which(j) && read[j].Keys.Any(k => k.KeyId == signer) && !read[j].Signers.Contains(signer));
+                    Enumerable.Range(0, read.Count).Any(j => j != i && which(j) && RevokesOther(j, signer));
                 var live = read[i].Signers.Where(s => !revokedBefore.Contains(s) && ValidNow(policy, s, now)).ToList();
                 if (live.Any(s => !RevokedBy(s, j => state[j] != 2))) { state[i] = 1; changed = true; }
                 else if (live.All(s => RevokedBy(s, j => state[j] == 1))) { state[i] = 2; changed = true; }
@@ -125,12 +131,15 @@ internal static partial class Revocations
         // A list without a live signer cannot decide about a revoker; one it revoked must not come back to life because its
         // revoker was rotated out or expired. When such a revoker is still live in this run nothing is applied: a live revoker
         // has to carry that revocation forward (eighth review).
-        var revokedNow = revokedBefore.Concat(Enumerable.Range(0, read.Count).Where(j => state[j] == 1).SelectMany(j => read[j].Keys.Select(k => k.KeyId)))
-            .ToHashSet(StringComparer.Ordinal);
+        var revokedNow = revokedBefore.Concat(Enumerable.Range(0, read.Count).Where(j => state[j] == 1)
+            .SelectMany(j => read[j].Keys.Where(k => RevokesOther(j, k.KeyId)).Select(k => k.KeyId))).ToHashSet(StringComparer.Ordinal);
+        // "Still live" for this refusal is "not expired": a successor provisioned ahead (not valid yet) must not escape it (ninth review).
         for (var i = 0; i < read.Count; i++)
-            if (state[i] == 2 && read[i].Keys.FirstOrDefault(k => revokers.Contains(k.KeyId) && !revokedNow.Contains(k.KeyId) && ValidNow(policy, k.KeyId, now)) is { } named)
-                throw Bad($"issued at {read[i].IssuedAt:u} has no live signer and revokes revoker {Dsse.Short(named.KeyId)}, which is still live; "
-                    + "a live revoker must carry that revocation forward before this host can apply these lists");
+            if (state[i] == 2 && read[i].Keys.FirstOrDefault(k => revokers.Contains(k.KeyId) && !revokedNow.Contains(k.KeyId)
+                    && !(policy.Find(k.KeyId)?.NotAfter is { } until && now > until)) is { } named)
+                throw Bad($"issued at {read[i].IssuedAt:u}, signed by {string.Join(", ", read[i].Signers.Select(Dsse.Short))}, has no live signer and revokes "
+                    + $"revoker {Dsse.Short(named.KeyId)}, which has not expired; a live revoker must carry that revocation forward before this host "
+                    + "can apply these lists. Never fall back to verifying without the lists");
         for (var i = 0; i < read.Count; i++)
         {
             var document = read[i];

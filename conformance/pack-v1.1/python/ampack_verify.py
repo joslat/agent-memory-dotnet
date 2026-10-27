@@ -6,7 +6,7 @@ scopes, roles, validity windows, revocations and their expiry), pack.json (field
 source), what each kind must hold, a composite's lock against its members, and a pack set with each member on its own.
 It must agree with `ampack verify` on every vector in ../vectors (see run_vectors.py).
 
-usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>]      exit 0 verified, 1 refused
+usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>...]      exit 0 verified, 1 refused
 Needs: Python 3.10+, the `cryptography` package.
 """
 import base64
@@ -168,11 +168,10 @@ def present_time(obj, name):
     return policy_time(obj.get(name))
 
 
-def apply_revocations(policy, data, now):
-    """A signed revocation document (v1.2 §8) applied to the policy, as .NET's ApplyAll applies one: signed by a key the
-    policy names as revoker. With a live signer (valid now, not revoked) its revocations are added and never removed and
-    its expiry is the policy's when earlier; without one (seventh review) it still adds its revocations of packs and of
-    non-revoker keys, never of revokers, and never its expiry."""
+def read_revocations(policy, data, now):
+    """One revocation document read and its signatures checked: the keys the policy names as revoker whose signatures hold
+    (whether they are live is decided for the whole run), its issue time, expiry, digests and keys. Refused when no such
+    key signed it, or when it is malformed or issued in the future."""
     if len(data) > MAX_REVOCATIONS:
         raise Refused(f"the revocation document is larger than {MAX_REVOCATIONS >> 20} MiB")
     env = profile(data)
@@ -187,9 +186,7 @@ def apply_revocations(policy, data, now):
         raise Refused(f"the revocation document holds more than {MAX_SIGNATURES} signatures")
     digest = hashlib.sha256(f"DSSEv1 {len(REVOCATIONS_TYPE)} {REVOCATIONS_TYPE} {len(payload)} ".encode() + payload).digest()
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
-    revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
-    revoker_ids = {k["keyId"] for k in policy.get("keys", []) if "revoker" in k.get("roles", [])}
-    authentic, live = False, False
+    signers = set()
     for s in env["signatures"]:
         if not isinstance(s, dict) or not isinstance(s.get("keyid"), str) or not isinstance(s.get("sig"), str):
             continue
@@ -204,19 +201,9 @@ def apply_revocations(policy, data, now):
             public.verify(base64.b64decode(s["sig"], validate=True), digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
         except (InvalidSignature, ValueError, binascii.Error):
             continue
-        authentic = True
-        not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
-        if key["keyId"] not in revoked_keys and not (not_before is not None and now < not_before) and not (not_after is not None and now > not_after):
-            live = True
-            break
-    if not authentic:
+        signers.add(key["keyId"])
+    if not signers:
         raise Refused("the revocation document is not signed by a key the trust policy names as revoker")
-    def live_now(key_id):
-        key = keys.get(key_id)
-        if key is None or key_id in revoked_keys:
-            return False
-        not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
-        return not (not_before is not None and now < not_before) and not (not_after is not None and now > not_after)
     doc = profile(payload)
     if not isinstance(doc, dict) or set(doc) - {"format", "issuedAt", "expires", "digests", "keys"} or doc.get("format") != REVOCATIONS_FORMAT:
         raise Refused("the revocation document is not a v1.2 revocation document")
@@ -232,23 +219,90 @@ def apply_revocations(policy, data, now):
                                                  and KEY_ID.fullmatch(k["keyId"]) and ("compromisedAt" not in k or instant(k["compromisedAt"]) is not None)
                                                  for k in revoked):
         raise Refused("the revocation document has a malformed keys list")
+    return {"signers": sorted(signers), "issued": issued, "expires": expires, "expires_text": doc["expires"], "digests": digests, "keys": revoked}
+
+
+def apply_revocations(policy, data, now):
+    """One signed revocation document applied to the policy: apply_all with that document alone."""
+    return apply_all(policy, [data], now)
+
+
+def apply_all(policy, documents, now):
+    """The revocation documents of one run applied to the policy, by the rule .NET's Revocations.ApplyAll keeps (a second
+    implementation of it, not a port of its code):
+    - every authentic list from a key the policy names as revoker denies the packs and non-revoker keys it names;
+    - only a list with a live signer (valid now, revoked by nobody: the policy, or another counted list) revokes revokers and
+      brings freshness, the newest such list's expiry, capped by the policy's own;
+    - a list revokes a key against its will only when a live signer other than that key signed it;
+    - a list without a live signer that revokes a revoker that has not expired, which no counted list revokes, refuses the
+      run (a live revoker carries it forward); lists that revoke each other's signers in a circle refuse it too;
+    - the same list twice is one list."""
+    keys = {k["keyId"]: k for k in policy.get("keys", [])}
+    revoked_before = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
+    revoker_ids = {k for k, v in keys.items() if "revoker" in v.get("roles", [])}
+
+    def window(key_id):
+        key = keys.get(key_id, {})
+        return policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
+
+    def valid_now(key_id):
+        not_before, not_after = window(key_id)
+        return not (not_before is not None and now < not_before) and not (not_after is not None and now > not_after)
+
+    def expired(key_id):
+        not_after = window(key_id)[1]
+        return not_after is not None and now > not_after
+
+    seen, read = set(), []
+    for data in documents:
+        fingerprint = hashlib.sha256(data).hexdigest()
+        if fingerprint not in seen:
+            seen.add(fingerprint)
+            read.append(read_revocations(policy, data, now))
+    live = [[s for s in r["signers"] if s not in revoked_before and valid_now(s)] for r in read]
+
+    def revokes_other(j, key_id):
+        return any(k["keyId"] == key_id for k in read[j]["keys"]) and any(s != key_id for s in live[j])
+
+    state = [0] * len(read)  # 0 open, 1 counts, 2 without a live signer
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(read)):
+            if state[i]:
+                continue
+            def revoked_by(signer, which):
+                return any(j != i and which(j) and revokes_other(j, signer) for j in range(len(read)))
+            if any(not revoked_by(s, lambda j: state[j] != 2) for s in live[i]):
+                state[i], changed = 1, True
+            elif all(revoked_by(s, lambda j: state[j] == 1) for s in live[i]):
+                state[i], changed = 2, True
+    if 0 in state:
+        raise Refused("the revocation documents of this run revoke their own signers in a circle")
+    revoked_now = revoked_before | {k["keyId"] for j in range(len(read)) if state[j] == 1 for k in read[j]["keys"] if revokes_other(j, k["keyId"])}
+    for i in range(len(read)):
+        if state[i] == 2 and any(k["keyId"] in revoker_ids and k["keyId"] not in revoked_now and not expired(k["keyId"]) for k in read[i]["keys"]):
+            raise Refused("a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward")
+
     merged = dict(policy)
     current = dict(policy.get("revoked", {}))
-    # Without a live signer a list cannot decide about a revoker; one it revoked that is still live must be carried forward by
-    # a live revoker first (eighth review).
-    if not live and any(k["keyId"] in revoker_ids and live_now(k["keyId"]) for k in revoked):
-        raise Refused("the revocation document has no live signer and revokes a revoker that is still live; a live revoker must carry it forward")
-    current["digests"] = sorted(set(current.get("digests", [])) | set(digests))
+    static = policy_time(current.get("expires"))
     by_id = {k["keyId"]: k for k in current.get("keys", [])}
-    # Without a live signer a list never decides about a revoker, and brings no freshness.
-    for k in (revoked if live else [k for k in revoked if k["keyId"] not in revoker_ids]):
-        known = by_id.get(k["keyId"])
-        if known is None or ("compromisedAt" in known and ("compromisedAt" not in k or instant(k["compromisedAt"]) < instant(known["compromisedAt"]))):
-            by_id[k["keyId"]] = k
+    digests = set(current.get("digests", []))
+    newest = None  # (issued, expires, text) of the newest counted list; of two in one second, the earlier expiry
+    for i, r in enumerate(read):
+        counts = state[i] == 1
+        digests |= set(r["digests"])
+        for k in (r["keys"] if counts else [k for k in r["keys"] if k["keyId"] not in revoker_ids]):
+            known = by_id.get(k["keyId"])
+            if known is None or ("compromisedAt" in known and ("compromisedAt" not in k or instant(k["compromisedAt"]) < instant(known["compromisedAt"]))):
+                by_id[k["keyId"]] = k
+        if counts and (newest is None or r["issued"] > newest[0] or (r["issued"] == newest[0] and r["expires"] < newest[1])):
+            newest = (r["issued"], r["expires"], r["expires_text"])
+    current["digests"] = sorted(digests)
     current["keys"] = [by_id[i] for i in sorted(by_id)]
-    old = policy_time(current.get("expires"))
-    if live and (old is None or expires < old):
-        current["expires"] = doc["expires"]
+    if newest is not None and (static is None or newest[1] < static):
+        current["expires"] = newest[2]
     merged["revoked"] = current
     return merged
 
@@ -676,9 +730,12 @@ def main(argv):
     now = datetime.now(timezone.utc)
     try:
         policy = load_policy(open(policy_path, "rb").read())
-        if len(argv) > 3:
-            with open(argv[3], "rb") as document:
-                policy = apply_revocations(policy, document.read(MAX_REVOCATIONS + 1), now)
+        documents = []
+        for name in argv[3:]:
+            with open(name, "rb") as document:
+                documents.append(document.read(MAX_REVOCATIONS + 1))
+        if documents:
+            policy = apply_all(policy, documents, now)
         pid, version, digest = verify_any(read_zip(open(pack_path, "rb").read()), policy, now)
     except Refused as e:
         print(f"refused: {e}")
