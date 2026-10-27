@@ -33,6 +33,8 @@ public sealed class ModuleSetBuilder
     internal Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient>? ChatClient { get; private set; }
     internal IPackActivations? Activations { get; private set; }
     internal IReadOnlyList<string> MandatoryTrials => _mandatoryTrials;
+    internal IReadOnlyList<ModuleConsentGrant> ConsentGrants => _consentGrants;
+    private readonly List<ModuleConsentGrant> _consentGrants = [];
     private readonly List<string> _mandatoryTrials = [];
 
     /// <summary>Adds a module from its assembly: the embedded manifest and its <see cref="IAgentMemoryModule"/>.</summary>
@@ -183,6 +185,19 @@ public sealed class ModuleSetBuilder
                 throw new ArgumentException($"'{prefix}' is not a pack id prefix.", nameof(idPrefixes));
             _mandatoryTrials.Add(prefix);
         }
+        return this;
+    }
+
+    /// <summary>
+    /// Lets <paramref name="module"/> link into, and walk into, the records of <paramref name="into"/> although
+    /// <paramref name="into"/> does not list it in containableBy (PACK-consent): the host overriding a publisher's consent
+    /// for its own store. The set fingerprint names every grant.
+    /// </summary>
+    public ModuleSetBuilder GrantConsent(string module, string into)
+    {
+        if (!ModuleIdentity.IsValidModuleId(module)) throw new ArgumentException($"'{module}' is not a module id.", nameof(module));
+        if (!ModuleIdentity.IsValidModuleId(into)) throw new ArgumentException($"'{into}' is not a module id.", nameof(into));
+        if (_consentGrants.All(g => g.Module != module || g.Into != into)) _consentGrants.Add(new ModuleConsentGrant(module, into));
         return this;
     }
 

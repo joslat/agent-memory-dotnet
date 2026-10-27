@@ -215,14 +215,8 @@ internal static class TraversalWalk
     /// Why a walk may not follow <paramref name="relation"/>, or null when it may: a link into another module needs that
     /// module's consent, its <see cref="ModuleManifest.ContainableBy"/> naming this one (red-team M4).
     /// </summary>
-    internal static string? Consent(ModuleResolution resolution, ModuleManifest module, ModuleRelation relation)
-    {
-        var parts = relation.To.Split(':');
-        if (parts.Length != 2 || parts[0] == "core" || parts[0] == module.Id) return null;
-        var other = resolution.Modules.FirstOrDefault(m => m.Id == parts[0]);
-        var consents = other?.ContainableBy?.Any(c => module.Id == c || module.Id.StartsWith(c + ".", StringComparison.Ordinal)) == true;
-        return consents ? null : $"{module.Id}: {relation.Name} reaches into {parts[0]}, which does not list it in containableBy.";
-    }
+    internal static string? Consent(ModuleResolution resolution, ModuleManifest module, ModuleRelation relation) =>
+        resolution.ConsentRefusal(module, relation);
 
     private static (string Module, string Type)? Target(ModuleManifest module, ModuleRelation relation)
     {

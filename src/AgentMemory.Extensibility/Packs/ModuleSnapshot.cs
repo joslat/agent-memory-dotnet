@@ -38,6 +38,11 @@ public sealed record ModuleSnapshot
     /// beside the definition and the source (PACK-bind), so a record says who signed it. Null for a snapshot the host built.
     /// </summary>
     public PackCarrier? Carrier { get; init; }
+    /// <summary>
+    /// The host's consent grants for this import (PACK-consent): a link into a dependency that does not list this module in
+    /// containableBy is refused unless a grant names the pair.
+    /// </summary>
+    public IReadOnlyList<ModuleConsentGrant> ConsentGrants { get; init; } = [];
 
     /// <summary>SHA-256 of the records in canonical order: the same code gives the same digest.</summary>
     public string Digest => _digest ??= ComputeDigest();
@@ -87,6 +92,7 @@ public sealed record ModuleSnapshot
             foreach (var error in ModuleProposalAdmission.AdmitSeed(Module, record)) problems.Add($"{At(record)}{record.Type} '{record.Key}': {error}");
             if (!keys.Add((record.Type, record.Key))) problems.Add($"{At(record)}{record.Type} '{record.Key}' appears twice.");
         }
+        var foreign = new HashSet<ModuleRelation>();
         foreach (var record in Records)
             foreach (var link in record.Links)
             {
@@ -94,17 +100,22 @@ public sealed record ModuleSnapshot
                 // A link into a dependency's records is resolved by the store, which leaves it out when the target is not there.
                 if (relation is not null && !IsForeign(relation) && !keys.Contains((relation.To, link.Target)))
                     problems.Add($"{At(record)}{record.Type} '{record.Key}' links {link.Relation} to {relation.To} '{link.Target}', which the snapshot does not hold.");
+                if (relation is not null && IsForeign(relation)) foreign.Add(relation);
             }
+        // PACK-consent: a link written into another module's records needs its consent, as a walk into them does.
+        foreach (var relation in foreign.OrderBy(r => r.Name, StringComparer.Ordinal))
+            if (ModuleConsent.Refusal(Module, relation, id => Dependencies.FirstOrDefault(d => d.Id == id), ConsentGrants) is { } refusal)
+                problems.Add(refusal + " No link of it is written; a host may grant it (ConsentGrants).");
         return problems.Count > 100 ? [.. problems.Take(100), $"... and {problems.Count - 100} more."] : problems;
     }
 
     /// <summary>The module resolved with its dependencies against the running SDK, as a store imports it; refused with its errors.</summary>
     public ModuleResolution Resolve()
     {
-        if (Dependencies.Count == 0) return KnowledgePack.ResolutionOf(Module);
+        if (Dependencies.Count == 0) return KnowledgePack.ResolutionOf(Module) with { ConsentGrants = ConsentGrants };
         var resolution = ModuleResolver.Resolve([Module, .. Dependencies], ModuleSet.SdkVersion, ModuleHostFeatures.Known);
         if (!resolution.Succeeded) throw new KnowledgePackException(resolution.Errors);
-        return resolution;
+        return resolution with { ConsentGrants = ConsentGrants };
     }
 
     // Where a record came from, when it names a file: a snapshot pack's record file and line.

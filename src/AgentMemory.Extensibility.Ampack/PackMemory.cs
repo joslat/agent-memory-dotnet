@@ -64,6 +64,12 @@ public sealed partial class PackMemory : IModuleTraversalReader
             manifests.TryAdd(manifest.Id, manifest);
         var resolution = ModuleResolver.Resolve([.. manifests.Values], ModuleSet.SdkVersion, ModuleHostFeatures.Known);
         if (!resolution.Succeeded) throw new KnowledgePackException(resolution.Errors);
+        // PACK-consent: links into another module's records need its consent or the host's grant, as the store requires.
+        resolution = resolution with { ConsentGrants = [.. shots.SelectMany(s => s.ConsentGrants).Distinct()] };
+        var refused = shots.SelectMany(s => s.Records.SelectMany(r => r.Links.Select(l => s.Module.Ontology?.Relations.SingleOrDefault(x => x.Name == l.Relation && x.From == r.Type)))
+                .OfType<ModuleRelation>().Distinct().Select(relation => resolution.ConsentRefusal(s.Module, relation)))
+            .OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+        if (refused.Count != 0) throw new KnowledgePackException(refused);
 
         var memory = new PackMemory(resolution);
         var loadedAt = DateTimeOffset.UtcNow;

@@ -111,7 +111,7 @@ public sealed class ModuleSet
             errors.Add($"Priority set for module '{prioritized}', which is not added.");
         if (errors.Count != 0) throw new ModuleActivationException([.. errors]);
 
-        var resolution = composition.ForStore(alias);
+        var resolution = composition.ForStore(alias) with { ConsentGrants = [.. builder.ConsentGrants] };
         var canonical = JsonSerializer.SerializeToUtf8Bytes(new
         {
             format = "agentmemory.module-set/v1alpha1",
@@ -127,6 +127,13 @@ public sealed class ModuleSet
         // Host-set priorities change the order contributors run in, so they join the fingerprint; without any, it is unchanged.
         var priorities = builder.Priorities.OrderBy(p => p.Key, StringComparer.Ordinal).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         if (priorities.Count != 0) canonical = [.. canonical, .. JsonSerializer.SerializeToUtf8Bytes(new { priorities })];
+        // Consent grants change what may link and walk where, so they join it too; without any, it is unchanged.
+        if (builder.ConsentGrants.Count != 0)
+            canonical = [.. canonical, .. JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                consentGrants = builder.ConsentGrants.OrderBy(g => g.Module, StringComparer.Ordinal).ThenBy(g => g.Into, StringComparer.Ordinal)
+                    .Select(g => new[] { g.Module, g.Into }),
+            })];
         var fingerprint = Convert.ToHexString(SHA256.HashData(canonical)).ToLowerInvariant();
         var set = new ModuleSet(resolution, modules.AsReadOnly(), composition.CompositionFingerprint!, fingerprint, store,
             registrations, switchedOff) { ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly() };

@@ -75,6 +75,8 @@ internal sealed class ModuleRecordLinks(ModuleResolution resolution)
         var dependency = resolution.Modules.SingleOrDefault(m => m.Id == parts[0]);
         if (!module.Modules.ContainsKey(parts[0]) || dependency?.Ontology?.Types.All(t => t.Name != parts[1]) != false)
             throw new ModuleRecordRefusal("Link dependency is not bound to this store.");
+        // PACK-consent: a link into another module's records needs its consent (or the host's grant), as a walk does.
+        if (resolution.ConsentRefusal(module, relation) is { } refusal) throw new ModuleRecordRefusal(refusal);
         return parts[1];
     }
 
