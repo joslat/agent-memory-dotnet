@@ -58,6 +58,7 @@ SIGNED_AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
 KEY_ROLES = {"publisher", "curator", "assurer", "revoker"}
 MAX_DEPTH = 64
 MAX_COMBINING_RUN = 30
+UNICODE_VERSION = "15.0.0"
 INT64_MAX = 2 ** 63 - 1
 MAX_FILES, MAX_FILE, MAX_TOTAL, MAX_RATIO = 4096, 64 << 20, 256 << 20, 250
 
@@ -308,6 +309,8 @@ def composite_checks(manifest, content):
     try:
         named = [m["id"] for m in profile(content["members.json"])["members"]]
     except (Refused, KeyError, TypeError):
+        raise Refused("members.json is malformed")
+    if not all(isinstance(m, str) for m in named):
         raise Refused("members.json is malformed")
     contains = sorted(manifest["contains"])
     if sorted(named) != contains:
@@ -571,7 +574,8 @@ def valid_version(text):
     if not isinstance(text, str):
         return False
     match = SEMVER.fullmatch(text)
-    if match is None or any(int(part) > INT64_MAX for part in match.group(1, 2, 3)):
+    # The length first: int() refuses a numeral past 4,300 digits, and 19 already reach past 2^63 (fourth review).
+    if match is None or any(len(part) > 19 or int(part) > INT64_MAX for part in match.group(1, 2, 3)):
         return False
     # SemVer 2.0: a numeric prerelease identifier has no leading zero (1.0.0-01 is not a version).
     prerelease = text.split("+", 1)[0].partition("-")[2]
@@ -632,6 +636,10 @@ def load_policy(raw):
 
 
 def main(argv):
+    # NFC and the Stream-Safe count are Unicode's: the verdicts are Unicode 15.0's, as .NET's tables are, on every host.
+    if unicodedata.unidata_version != UNICODE_VERSION:
+        print(f"error: this verifier decides with Unicode {UNICODE_VERSION} data; this Python has {unicodedata.unidata_version} (use Python 3.12)")
+        return 2
     pack_path, policy_path = argv[1], argv[2]
     now = datetime.now(timezone.utc)
     try:

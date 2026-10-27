@@ -74,7 +74,7 @@ internal static class PackVerifier
             .. missingRoles.Select(r => $"missing: no valid {r} signature from a key the policy trusts for '{list!.Id}'"),
             $"required roles: {string.Join(", ", policy.RequiredRoles)}"]));
 
-        var ledgerRefusal = ledger?.Refusal(list!.Id, list.Version, digest, allowDowngrade) ?? (ledger is null ? null : Withheld(ledger, policy));
+        var ledgerRefusal = ledger?.Refusal(list!.Id, list.Version, digest, allowDowngrade) ?? (ledger is null ? null : Withheld(ledger, policy, now));
         if (ledgerRefusal is not null) problems.Add(ledgerRefusal);
         if (ledger is not null)
             explain?.Invoke(new("ledger", ledgerRefusal is null, [ledgerRefusal ?? $"{list!.Id} {list.Version} with {digest[..23]}… is allowed by the ledger"]));
@@ -219,14 +219,21 @@ internal static class PackVerifier
         return (set, members);
     }
 
-    // A host that applied a revocation list from a key it still trusts as revoker verifies only with that list or a newer one
-    // applied: leaving the list out would roll the host back (third review).
-    private static string? Withheld(HostLedger ledger, TrustPolicy policy)
+    /// <summary>
+    /// Why a host must not verify now, or null: it applied a revocation list from a key it still trusts as revoker (valid now,
+    /// not itself revoked), and that list or a newer one is not applied this time. Leaving the list out would roll the host back
+    /// (third review); a revoker the host no longer trusts, or one revoked or expired since, asks for nothing (fourth review).
+    /// </summary>
+    internal static string? Withheld(HostLedger ledger, TrustPolicy policy, DateTimeOffset now)
     {
         foreach (var (keyId, mark) in ledger.RevocationMarks.OrderBy(m => m.Key, StringComparer.Ordinal))
-            if (policy.Find(keyId) is { } key && key.Roles.Contains(Revocations.Role)
-                && (!policy.RevocationsApplied.TryGetValue(keyId, out var applied) || applied < mark))
-                return $"This host applied a revocation list signed by {Dsse.Short(keyId)} and issued at {mark:u}; give that list or a newer one, so its revocations still hold.";
+        {
+            if (policy.Find(keyId) is not { } key || !key.Roles.Contains(Revocations.Role)) continue;
+            if (key.NotBefore is { } from && now < from || key.NotAfter is { } until && now > until) continue;
+            if (policy.RevokedKeys.Any(r => r.KeyId == keyId)) continue;
+            if (!policy.RevocationsApplied.TryGetValue(keyId, out var applied) || applied.At < mark.At || applied.At == mark.At && applied.Digest != mark.Digest)
+                return $"This host applied a revocation list signed by {Dsse.Short(keyId)} and issued at {mark.At:u}; give that list or a newer one, so its revocations still hold.";
+        }
         return null;
     }
 

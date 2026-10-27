@@ -75,8 +75,10 @@ internal static partial class Revocations
             signatures = sigs.Clone();
         }
         var pae = Dsse.Pae(PayloadType, payload);
-        var revoker = signatures.EnumerateArray().Select(s => Signer(policy, s, pae, now)).FirstOrDefault(k => k is not null)
-            ?? throw Bad("is not signed by a key the trust policy names as revoker and that is valid now");
+        // Every revoker that signed it, not only the first: the signatures array is not signed, so its order is anyone's.
+        var revokers = signatures.EnumerateArray().Select(s => Signer(policy, s, pae, now)).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        if (revokers.Count == 0) throw Bad("is not signed by a key the trust policy names as revoker and that is valid now");
+        var documentDigest = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(payload));
 
         if (PackJson.Check(payload) is { } payloadProblem) throw Bad($"has a payload that {payloadProblem}");
         using var document = JsonDocument.Parse(payload);
@@ -89,9 +91,12 @@ internal static partial class Revocations
             || expires <= issuedAt)
             throw Bad("needs issuedAt and expires, RFC 3339, expiring after it was issued");
         if (issuedAt > now.AddMinutes(5)) throw Bad($"claims to be issued at {issuedAt:u}, in the future");
-        // An older document from this revoker than one this host applied could drop revocations issued since (red team 8).
-        if (ledger is not null && ledger.RevocationMarks.TryGetValue(revoker, out var applied) && issuedAt < applied)
-            throw Bad($"was issued at {issuedAt:u}, before the one this host applied from that key ({applied:u}); an older list could drop revocations");
+        // An older document from a revoker than one this host applied could drop revocations issued since (red team 8); another
+        // list issued in the same second is older too, since lists are written to the second (fourth review).
+        foreach (var revoker in revokers)
+            if (ledger is not null && ledger.RevocationMarks.TryGetValue(revoker, out var applied)
+                && (issuedAt < applied.At || issuedAt == applied.At && documentDigest != applied.Digest))
+                throw Bad($"was issued at {issuedAt:u}, no later than the one this host applied from that key ({applied.At:u}) and other than it; an older list could drop revocations");
         var digests = new List<string>();
         if (!d.TryGetProperty("digests", out var digestArray) || digestArray.ValueKind != JsonValueKind.Array) throw Bad("needs a digests list");
         foreach (var digest in digestArray.EnumerateArray())
@@ -120,9 +125,14 @@ internal static partial class Revocations
         foreach (var key in keys)
             merged[key.KeyId] = merged.TryGetValue(key.KeyId, out var known) && (known.CompromisedAt is null || key.CompromisedAt is { } later && later > known.CompromisedAt)
                 ? known : key;
-        ledger?.RecordRevocations(revoker, issuedAt);
-        var appliedLists = new Dictionary<string, DateTimeOffset>(policy.RevocationsApplied, StringComparer.Ordinal);
-        if (!appliedLists.TryGetValue(revoker, out var earlier) || issuedAt > earlier) appliedLists[revoker] = issuedAt;
+        // An expired list leaves the host's revocations stale (it then refuses every pack) and leaves no mark: replaying an old one
+        // must not lock the host out of its current lists (fourth review).
+        var appliedLists = new Dictionary<string, (DateTimeOffset At, string Digest)>(policy.RevocationsApplied, StringComparer.Ordinal);
+        foreach (var revoker in revokers)
+        {
+            if (expires > now) ledger?.RecordRevocations(revoker, issuedAt, documentDigest);
+            if (!appliedLists.TryGetValue(revoker, out var earlier) || issuedAt > earlier.At) appliedLists[revoker] = (issuedAt, documentDigest);
+        }
         return policy with
         {
             RevocationsApplied = appliedLists,

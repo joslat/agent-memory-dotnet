@@ -92,6 +92,39 @@ public sealed class RedTeamTests
     }
 
     [Fact]
+    public void A_long_path_costs_nothing_until_something_is_refused()
+    {
+        // Fourth review: the path was built for every child, and a key can be as long as the file (26 s for a megabyte).
+        var json = "{\"key\":\"a\",\"" + new string('k', 200_000) + "\":[" + string.Join(",", Enumerable.Repeat("0", 200_000)) + "]}";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        PackJson.Check(Encoding.UTF8.GetBytes(json)).Should().BeNull();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+        PackJson.Check("{\"a\":[1,{\"b\":9007199254740993}]}"u8).Should().Contain("at $.a[1].b");
+    }
+
+    [Fact]
+    public void A_ledger_with_a_field_this_host_does_not_know_is_refused_not_half_read()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "ledger-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"format\":\"agentmemory.pack.ledger/1.1\",\"packs\":{},\"revocationsIssuedAt\":\"2026-10-27T00:00:00Z\"}");
+            FluentActions.Invoking(() => HostLedger.Load(path)).Should().Throw<InvalidDataException>().WithMessage("*revocationsIssuedAt*");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void A_policy_key_on_another_curve_is_refused()
+    {
+        using var p384 = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP384);
+        var pem = p384.ExportSubjectPublicKeyInfoPem();
+        var policy = "{\"format\":\"agentmemory.pack.trust/1.1\",\"keys\":[{\"keyId\":\"" + PackKey.KeyIdOf(pem) + "\",\"publicKey\":"
+            + System.Text.Json.JsonSerializer.Serialize(pem) + ",\"idPrefixes\":[\"io.example\"],\"roles\":[\"publisher\"]}]}";
+        FluentActions.Invoking(() => TrustPolicy.Parse(Encoding.UTF8.GetBytes(policy))).Should().Throw<InvalidDataException>().WithMessage("*P-256*");
+    }
+
+    [Fact]
     public void A_policy_is_read_strictly_one_BOM_strict_UTF8_and_typed_revoked_keys()
     {
         var key = PackKey.Create();

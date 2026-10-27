@@ -22,7 +22,7 @@ internal static class PackJson
         try
         {
             using var document = JsonDocument.Parse(utf8.ToArray(), Options);
-            return Problem(document.RootElement, integersOnly, "$");
+            return Problem(document.RootElement, integersOnly, new Where());
         }
         catch (JsonException e) { return "is not valid JSON: " + e.Message; }
         catch (InvalidOperationException e) { return "is not valid JSON: " + e.Message; }
@@ -44,7 +44,19 @@ internal static class PackJson
         return null;
     }
 
-    private static string? Problem(JsonElement element, bool integersOnly, string where)
+    // The path to a value, written out only for a refusal: building it for every child cost the length of the path each time,
+    // and one key can be as long as the file (fourth review: a megabyte took 26 s before any signature).
+    private sealed class Where
+    {
+        private readonly List<(string? Name, int Index)> _segments = [];
+        public void Enter(string name) => _segments.Add((name, -1));
+        public void Enter(int index) => _segments.Add((null, index));
+        public void Leave() => _segments.RemoveAt(_segments.Count - 1);
+        public override string ToString() =>
+            "$" + string.Concat(_segments.Select(s => s.Name is { } name ? "." + name : "[" + s.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]"));
+    }
+
+    private static string? Problem(JsonElement element, bool integersOnly, Where where)
     {
         switch (element.ValueKind)
         {
@@ -52,17 +64,26 @@ internal static class PackJson
                 var seen = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var property in element.EnumerateObject())
                 {
-                    if (!seen.Add(property.Name)) return $"repeats the key '{property.Name}' at {where}";
+                    var name = property.Name;
+                    if (!seen.Add(name)) return $"repeats the key '{name}' at {where}";
                     // A key is a string too: the same Stream-Safe limit first, which bounds the NFC check (third review, 1a).
-                    if (Nfc.LongestCombiningRun(property.Name) > Nfc.MaximumCombiningRun) return $"has a key with more than {Nfc.MaximumCombiningRun} combining marks in a row at {where}";
-                    if (!IsNfc(property.Name)) return $"has a key that is not in NFC at {where}";
-                    if (Problem(property.Value, integersOnly, where + "." + property.Name) is { } inner) return inner;
+                    if (Nfc.LongestCombiningRun(name) > Nfc.MaximumCombiningRun) return $"has a key with more than {Nfc.MaximumCombiningRun} combining marks in a row at {where}";
+                    if (!IsNfc(name)) return $"has a key that is not in NFC at {where}";
+                    where.Enter(name);
+                    var inner = Problem(property.Value, integersOnly, where);
+                    where.Leave();
+                    if (inner is not null) return inner;
                 }
                 return null;
             case JsonValueKind.Array:
                 var index = 0;
                 foreach (var item in element.EnumerateArray())
-                    if (Problem(item, integersOnly, $"{where}[{index++}]") is { } inner) return inner;
+                {
+                    where.Enter(index++);
+                    var inner = Problem(item, integersOnly, where);
+                    where.Leave();
+                    if (inner is not null) return inner;
+                }
                 return null;
             case JsonValueKind.String:
                 string value;

@@ -27,7 +27,7 @@ internal sealed record TrustPolicy
     /// <summary>When the revocation information goes stale; after it, nothing verifies until the host refreshes it.</summary>
     internal DateTimeOffset? RevocationsExpire { get; init; }
     /// <summary>Per revoker key, the newest revocation document applied to this policy (<see cref="Revocations.Apply"/>).</summary>
-    internal IReadOnlyDictionary<string, DateTimeOffset> RevocationsApplied { get; init; } = new Dictionary<string, DateTimeOffset>();
+    internal IReadOnlyDictionary<string, (DateTimeOffset At, string Digest)> RevocationsApplied { get; init; } = new Dictionary<string, (DateTimeOffset, string)>();
     internal IReadOnlyList<string> RequiredRoles { get; init; } = ["publisher"];
 
     internal TrustedKey? Find(string keyId) => Keys.FirstOrDefault(k => k.KeyId == keyId);
@@ -88,6 +88,12 @@ internal sealed record TrustPolicy
                 var keyId = k.GetProperty("keyId").GetString() ?? throw new FormatException("A key's keyId is a string.");
                 if (keys.Any(known => known.KeyId == keyId)) throw new InvalidDataException($"Key {Dsse.Short(keyId)} is listed twice.");
                 if (PackKey.KeyIdOf(pem) != keyId) throw new InvalidDataException($"Key {Dsse.Short(keyId)}: the id is not the SHA-256 of its public key.");
+                // P-256 only, as the format signs and as the Python verifier reads a policy (fourth review: .NET took any curve).
+                using (var curve = System.Security.Cryptography.ECDsa.Create())
+                {
+                    curve.ImportFromPem(pem);
+                    if (curve.ExportParameters(false).Curve.Oid?.Value != "1.2.840.10045.3.1.7") throw new InvalidDataException($"Key {Dsse.Short(keyId)} is not a P-256 key.");
+                }
                 var prefixes = Strings(k, "idPrefixes");
                 if (prefixes.Count == 0) throw new InvalidDataException($"Key {Dsse.Short(keyId)} names no pack id prefixes: a key that may sign anything is refused.");
                 var roles = Strings(k, "roles");

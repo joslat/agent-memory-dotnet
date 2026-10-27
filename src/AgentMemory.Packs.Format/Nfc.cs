@@ -1,33 +1,29 @@
-using System.Text;
 
 namespace AgentMemory.Packs.Format;
 
 /// <summary>
-/// Whether a string is in Unicode Normalization Form C, with the same verdict on every host. The platform's check is used
-/// when the process can normalize. Under invariant globalization (NativeAOT tools, many Linux containers) .NET reads every
-/// non-ASCII string as normalized, so a host would accept what the Python verifier refuses; there this class normalizes by
-/// itself (UAX #15: full canonical decomposition, canonical ordering, canonical composition) from the tables in
-/// <see cref="NfcTables"/>, and compares.
+/// Whether a string is in Unicode Normalization Form C, with the same verdict on every host: this class normalizes by itself
+/// (UAX #15: full canonical decomposition, canonical ordering, canonical composition) from the tables in
+/// <see cref="NfcTables"/>, and compares. Not the platform's check: under invariant globalization (NativeAOT tools, many
+/// Linux containers) .NET reads every non-ASCII string as normalized, and elsewhere its ICU follows the host's Unicode version.
 /// </summary>
 internal static class Nfc
 {
     /// <summary>The Stream-Safe Text Format's limit (UAX #15 D4): at most 30 non-starters in a row, once normalized to NFKD.</summary>
     internal const int MaximumCombiningRun = 30;
 
-    private static readonly bool PlatformNormalizes = Probe();
     private static readonly Lazy<(Dictionary<int, int[]> Decompositions, Dictionary<long, int> Compositions)> Data = new(Build);
     private static readonly Lazy<Dictionary<int, (int Lead, int Trail, bool All)>> StreamSafe = new(BuildStreamSafe);
 
     private const int SBase = 0xAC00, LBase = 0x1100, VBase = 0x1161, TBase = 0x11A7, LCount = 19, VCount = 21, TCount = 28;
     private const int NCount = VCount * TCount, SCount = LCount * NCount;
 
-    /// <summary>Whether <paramref name="value"/> is NFC; an unpaired surrogate is not.</summary>
-    internal static bool IsNormalized(string value)
-    {
-        if (!PlatformNormalizes) return Check(value);
-        try { return value.IsNormalized(NormalizationForm.FormC); }
-        catch (ArgumentException) { return Check(value); } // the platform refuses some code points outright; decide by the tables
-    }
+    /// <summary>
+    /// Whether <paramref name="value"/> is NFC; an unpaired surrogate is not. Always by the tables (Unicode
+    /// <see cref="NfcTables.UnicodeVersion"/>), never the platform's ICU, whose Unicode version differs from host to host: a
+    /// code point assigned later would otherwise read one way here and another there (fourth review).
+    /// </summary>
+    internal static bool IsNormalized(string value) => Check(value);
 
     /// <summary>
     /// The longest run of non-starters the string would hold once normalized to NFKD, as the Stream-Safe Text Format counts
@@ -179,12 +175,5 @@ internal static class Nfc
         var triples = NfcTables.Compositions;
         for (var i = 0; i < triples.Length; i += 3) compositions[((long)triples[i] << 21) | (uint)triples[i + 1]] = triples[i + 2];
         return (decompositions, compositions);
-    }
-
-    // Whether this process can normalize: under invariant globalization "Å" does not decompose (or normalizing throws).
-    private static bool Probe()
-    {
-        try { return "Å".Normalize(NormalizationForm.FormD).Length == 2; }
-        catch (PlatformNotSupportedException) { return false; }
     }
 }

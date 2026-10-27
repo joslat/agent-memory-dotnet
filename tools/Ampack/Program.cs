@@ -440,26 +440,29 @@ internal static class Program
     private static List<string> List(string? value) =>
         [.. (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
-    // The host's trust policy, with a signed revocation document applied when --revocations names one.
-    // With --ledger (or a --store's ledger), a revocation document older than the newest one this host applied is refused.
+    // The host's trust policy, with every signed revocation document --revocations names applied, in order (one per revoker,
+    // say). With --ledger (or a --store's ledger), a document older than the newest one this host applied from that revoker is
+    // refused, and so is going on without a list the host applied before: whatever the command, nothing is loaded rolled back.
     private static TrustPolicy Policy(Options o)
     {
         var policy = TrustPolicy.Parse(File.ReadAllBytes(o.Required("policy")));
-        if (o.Value("revocations") is not { } revocations) return policy;
         var ledgerPath = LedgerPath(o);
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
-        var applied = Revocations.Apply(policy, PackReader.ReadArchiveFile(revocations), DateTimeOffset.UtcNow, ledger);
-        if (ledger is not null) ledger.Save(ledgerPath!);
-        return applied;
+        foreach (var revocations in o.Values("revocations"))
+            policy = Revocations.Apply(policy, PackReader.ReadArchiveFile(revocations), DateTimeOffset.UtcNow, ledger);
+        if (ledger is not null && o.Values("revocations").Count > 0) ledger.Save(ledgerPath!);
+        if (ledger is not null && PackVerifier.Withheld(ledger, policy, DateTimeOffset.UtcNow) is { } withheld) throw new InvalidDataException(withheld);
+        return policy;
     }
 
     // The same, as the loader's trust.
     private static AgentMemory.Extensibility.Ampack.PackTrust Trust(Options o)
     {
         var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
-        if (o.Value("revocations") is not { } revocations) return trust;
         var ledger = LedgerPath(o) is { } path ? AgentMemory.Extensibility.Ampack.PackInstallLedger.Open(path) : null;
-        return trust.WithRevocations(PackReader.ReadArchiveFile(revocations), ledger);
+        foreach (var revocations in o.Values("revocations")) trust = trust.WithRevocations(PackReader.ReadArchiveFile(revocations), ledger);
+        if (ledger?.Withheld(trust) is { } withheld) throw new InvalidDataException(withheld);
+        return trust;
     }
 
     private static string? LedgerPath(Options o) => o.Value("ledger") ?? (o.Value("store") is { } store ? Path.Combine(store, "ledger.json") : null);
@@ -712,7 +715,7 @@ internal sealed class Options
 {
     private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote" };
     private readonly List<string> _positional = [];
-    private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<string>> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);
 
     internal static Options Parse(IEnumerable<string> args)
@@ -725,7 +728,8 @@ internal sealed class Options
             var name = list[i][2..];
             if (Flags.Contains(name)) { options._flags.Add(name); continue; }
             if (i + 1 >= list.Count) throw new UsageException($"--{name} needs a value.");
-            options._values[name] = list[++i];
+            if (!options._values.TryGetValue(name, out var values)) options._values[name] = values = [];
+            values.Add(list[++i]);
         }
         return options;
     }
@@ -734,7 +738,9 @@ internal sealed class Options
         index < _positional.Count ? _positional[index] : throw new UsageException($"Missing the {what}.");
 
     internal IEnumerable<string> PositionalFrom(int index) => _positional.Skip(index);
-    internal string? Value(string name) => _values.GetValueOrDefault(name);
+    internal string? Value(string name) => _values.TryGetValue(name, out var values) ? values[^1] : null;
+    /// <summary>Every value an option was given, in order (an option given more than once, such as --revocations).</summary>
+    internal IReadOnlyList<string> Values(string name) => _values.TryGetValue(name, out var values) ? values : [];
     internal string Required(string name) => Value(name) ?? throw new UsageException($"Missing --{name}.");
     internal bool Flag(string name) => _flags.Contains(name);
 }

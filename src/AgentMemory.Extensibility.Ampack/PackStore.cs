@@ -76,6 +76,8 @@ public sealed class PackStore
         switch (kind)
         {
             case "set":
+                // Allowing a downgrade waives the version history, never the revocation lists this host applied (fourth review).
+                if (allowDowngrade && ledger.Withheld(trust) is { } withheld) throw new PackLoadException([withheld]);
                 var set = PackFamilies.LoadSet(archive, trust, allowDowngrade ? null : ledger);
                 digest = set.Digest;
                 record = () => ledger.Record(set);

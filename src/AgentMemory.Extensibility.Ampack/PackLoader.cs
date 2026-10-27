@@ -57,6 +57,13 @@ public sealed class PackInstallLedger
     /// <summary>Opens the ledger file, or starts an empty one there.</summary>
     public static PackInstallLedger Open(string path) => new(path, HostLedger.Load(path));
 
+    /// <summary>Why this host must not load anything under <paramref name="trust"/> now: a revocation list it applied before is missing; null when none is.</summary>
+    public string? Withheld(PackTrust trust)
+    {
+        ArgumentNullException.ThrowIfNull(trust);
+        return PackVerifier.Withheld(Ledger, trust.Policy, DateTimeOffset.UtcNow);
+    }
+
     /// <summary>Saves the ledger as it is.</summary>
     internal void Save() => Ledger.Save(_path);
 

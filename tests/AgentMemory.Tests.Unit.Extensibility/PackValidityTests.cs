@@ -92,7 +92,7 @@ public sealed class PackValidityTests : IDisposable
         Trust().WithRevocations(newer, PackInstallLedger.Open(Path.Combine(_root, "ledger.json"))).Should().NotBeNull("the same document again is fine");
 
         FluentActions.Invoking(() => Trust().WithRevocations(older, PackInstallLedger.Open(Path.Combine(_root, "ledger.json"))))
-            .Should().Throw<InvalidDataException>().WithMessage("*before the one this host applied*");
+            .Should().Throw<InvalidDataException>().WithMessage("*no later than the one this host applied*");
         Trust().WithRevocations(older).Should().NotBeNull("without a ledger there is no history to hold it to");
     }
 
@@ -124,6 +124,71 @@ public sealed class PackValidityTests : IDisposable
         trust.WithRevocations(fromFirst, PackInstallLedger.Open(path));
         // Issued before the first revoker's list, by the other revoker: its own history, so it applies.
         trust.WithRevocations(fromSecondEarlier, PackInstallLedger.Open(path)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Another_list_in_the_same_second_counts_as_older()
+    {
+        // Fourth review: lists are written to the second, so a full-precision mark alone let a second list of that second through.
+        var path = Path.Combine(_root, "ledger.json");
+        var second = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds());
+        var revoking = Revocations.Sign(["sha256:" + new string('c', 64)], [], second, second.AddDays(7), _revoker.PrivateKeyPem);
+        var forgetting = Revocations.Sign([], [], second, second.AddDays(7), _revoker.PrivateKeyPem);
+        Trust().WithRevocations(revoking, PackInstallLedger.Open(path));
+
+        Trust().WithRevocations(revoking, PackInstallLedger.Open(path)).Should().NotBeNull("the same list again");
+        FluentActions.Invoking(() => Trust().WithRevocations(forgetting, PackInstallLedger.Open(path))).Should().Throw<InvalidDataException>();
+    }
+
+    [Fact]
+    public void Revocation_marks_never_lock_a_host_out()
+    {
+        var second = PackKey.Create();
+        var now = DateTimeOffset.UtcNow;
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(TrustJsonWithRevokers(second)));
+        var current = Revocations.Sign([], [], now.AddMinutes(-1), now.AddDays(7), _revoker.PrivateKeyPem);
+
+        // (a) An old, expired list from the other revoker, replayed: it leaves no mark.
+        var path = Path.Combine(_root, "a.json");
+        trust.WithRevocations(current, PackInstallLedger.Open(path));
+        var expired = Revocations.Sign([], [], now.AddDays(-30), now.AddDays(-20), second.PrivateKeyPem);
+        trust.WithRevocations(expired, PackInstallLedger.Open(path));
+        PackInstallLedger.Open(path).Withheld(trust.WithRevocations(current)).Should().BeNull();
+
+        // (b) A revoker revoked since asks for nothing: the other revoker revokes the first.
+        path = Path.Combine(_root, "b.json");
+        trust.WithRevocations(current, PackInstallLedger.Open(path));
+        var revokesFirst = Revocations.Sign([], [new RevokedKey(_revoker.KeyId, null)], now.AddMinutes(-1), now.AddDays(7), second.PrivateKeyPem);
+        PackInstallLedger.Open(path).Withheld(trust.WithRevocations(revokesFirst)).Should().BeNull();
+
+        // (c) One list signed by both, its signatures reordered: both marks are kept, and the same list meets both.
+        path = Path.Combine(_root, "c.json");
+        var both = CoSigned(current, second);
+        trust.WithRevocations(both, PackInstallLedger.Open(path));
+        PackInstallLedger.Open(path).Withheld(trust.WithRevocations(Reversed(both))).Should().BeNull();
+        PackInstallLedger.Open(path).Withheld(trust).Should().NotBeNull("without the list a host that applied it is held back");
+    }
+
+    // A revocation document signed again by another revoker: the same payload, a second signature entry.
+    private static byte[] CoSigned(byte[] document, PackKey other)
+    {
+        var envelope = JsonNode.Parse(document)!.AsObject();
+        var payload = Convert.FromBase64String(envelope["payload"]!.GetValue<string>());
+        var type = envelope["payloadType"]!.GetValue<string>();
+        var pae = Encoding.UTF8.GetBytes($"DSSEv1 {Encoding.UTF8.GetByteCount(type)} {type} {payload.Length} ").Concat(payload).ToArray();
+        using var key = System.Security.Cryptography.ECDsa.Create();
+        key.ImportFromPem(other.PrivateKeyPem);
+        var sig = key.SignData(pae, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.DSASignatureFormat.Rfc3279DerSequence);
+        envelope["signatures"]!.AsArray().Add(new JsonObject { ["keyid"] = other.KeyId, ["sig"] = Convert.ToBase64String(sig) });
+        return Encoding.UTF8.GetBytes(envelope.ToJsonString());
+    }
+
+    private static byte[] Reversed(byte[] document)
+    {
+        var envelope = JsonNode.Parse(document)!.AsObject();
+        var signatures = envelope["signatures"]!.AsArray().Select(s => s!.DeepClone()).Reverse().ToArray();
+        envelope["signatures"] = new JsonArray(signatures);
+        return Encoding.UTF8.GetBytes(envelope.ToJsonString());
     }
 
     private string TrustJsonWithRevokers(PackKey second)

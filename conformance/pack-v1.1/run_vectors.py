@@ -311,6 +311,16 @@ def main():
     vectors["policy-with-two-boms"] = (dict(base), "trust-two-boms.json", "refused")
     vectors["policy-with-one-bom"] = (dict(base), "trust-one-bom.json", "verified")
     vectors["policy-not-utf8"] = (dict(base), "trust-not-utf8.json", "refused")
+    # The fourth review's: a key on another curve, a version numeral too long to read, members named by non-strings.
+    p384 = ec.generate_private_key(ec.SECP384R1()).public_key()
+    p384_pem = p384.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    p384_id = hashlib.sha256(p384.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).hexdigest()
+    (OUT / "trust-p384-key.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, {"keyId": p384_id, "publicKey": p384_pem,
+        "idPrefixes": ["io.other"], "roles": ["publisher"]}]}, separators=(",", ":")), encoding="utf-8")
+    vectors["policy-with-a-p384-key"] = (dict(base), "trust-p384-key.json", "refused")
+    long_version = "1" * 5000 + ".0.0"
+    long_content = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": long_version}, indent=2) + chr(10)).encode("utf-8")}
+    vectors["version-5000-digits"] = (signed(long_content, version_=long_version), "trust.json", "refused")
 
     # The JSON profile and the archive, more ways.
     vectors["junk-signature-file"] = ({**signed(content), py.SIGNATURES + "junk.dsse.json": b'{"hello":1}\n'}, "trust.json", "refused")
@@ -338,6 +348,7 @@ def main():
     vectors["composite-valid"] = (dict(composite), "trust.json", "verified")
     vectors["composite-lock-pins-other"] = (family_with(**{py.LOCK: py.canonical({**lock, "members": [{**lock["members"][0], "id": "io.example.other"}]}).encode()}),
                                             "trust.json", "refused")
+    vectors["composite-members-not-strings"] = (family_with(**{"members.json": b'{"members":[{"id":1,"version":"[1,2)"}]}\n'}), "trust.json", "refused")
     vectors["composite-lock-not-canonical"] = (family_with(**{py.LOCK: (json.dumps(lock, indent=1) + chr(10)).encode()}), "trust.json", "refused")
     vectors["composite-lock-extra-field"] = (family_with(**{py.LOCK: py.canonical({**lock, "note": "x"}).encode()}), "trust.json", "refused")
     vectors["composite-members-differ"] = (family_with(**{"members.json": (json.dumps({"members": [{"id": "io.example.other", "version": "[1,2)"}]}) + chr(10)).encode()}),
