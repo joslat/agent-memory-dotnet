@@ -55,7 +55,9 @@ internal sealed record TrustPolicy
     internal static TrustPolicy Parse(ReadOnlySpan<byte> raw)
     {
         try { return ParseChecked(raw); }
-        catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or FormatException or JsonException)
+        // A key that is not a PEM public key is malformed too (PACK-harden: found by fuzzing the policy reader).
+        catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or FormatException or JsonException or ArgumentException
+            or System.Security.Cryptography.CryptographicException or NotSupportedException)
         {
             throw new InvalidDataException($"The trust policy is malformed: {e.Message}", e);
         }
