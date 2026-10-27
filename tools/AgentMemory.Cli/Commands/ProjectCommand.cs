@@ -31,7 +31,7 @@ internal sealed class ProjectCommand(TextWriter output)
             case "intent": snapshot = IntentCommand.Read(repository, null, out _, out _); break;
             case "work":
                 if (ledger is null) return Usage("project --pack work needs --ledger <tasks.json>.");
-                snapshot = WorkCommand.Read(Path.GetFullPath(ledger), repository, null);
+                snapshot = WorkCommand.Read(ledger, repository, null);
                 break;
             default: return Usage($"project knows decisions, architecture, intent and work, not {pack}.");
         }

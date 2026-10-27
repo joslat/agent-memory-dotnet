@@ -9,7 +9,7 @@
     <PackageTags>agent-memory;memory-pack;coding;work;tasks</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- The module's own version: the embedded manifest names the same, and ModuleManifest.Load refuses a mismatch. -->
-    <Version>0.1.0-preview.1</Version>
+    <Version>0.1.1</Version>
   </PropertyGroup>
 
   <ItemGroup>

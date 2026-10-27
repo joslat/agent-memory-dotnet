@@ -96,7 +96,7 @@ if (string.Equals(cli.Command, "work", StringComparison.OrdinalIgnoreCase) && !s
         Console.Error.WriteLine("error: work needs scan or import.");
         return 2;
     }
-    return new AgentMemory.Cli.Commands.WorkCommand(Console.Out).Scan(cli.Get("ledger"), cli.Get("root"));
+    return new AgentMemory.Cli.Commands.WorkCommand(Console.Out).Scan(cli.Get("ledger"), cli.Get("root"), cli.Get("github-issues"), cli.Get("github-milestones"));
 }
 
 // packs signs and verifies bundles offline: no store, no model, no network (Extensibility 0.13 §K6).
@@ -302,7 +302,7 @@ try
         "decisions" => await new AgentMemory.Cli.Commands.DecisionsCommand(output)
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
         "work" => await new AgentMemory.Cli.Commands.WorkCommand(output)
-            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("ledger"), cli.Get("root"), cli.Get("source")),
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("ledger"), cli.Get("root"), cli.Get("source"), cli.Get("github-issues"), cli.Get("github-milestones")),
         "codemap" => await new AgentMemory.Cli.Commands.CodeMapCommand(output)
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source"), cli.Get("scip"), cli.Get("pack"), cli.Get("trust"),
                 cli.HasFlag("rebuild-if-stale")),

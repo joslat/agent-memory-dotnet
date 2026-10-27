@@ -1,7 +1,7 @@
 {
   "format": "agentmemory.module/v1alpha1",
   "id": "io.agentmemory.packs.work",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.1",
   "sdk": "[0.1,0.2)",
   "requires": {
     "modules": {
@@ -10,7 +10,7 @@
   },
   "display": {
     "title": "Work",
-    "description": "What was planned and done: the project's work items, each linked to the source files its commits changed. It lets memory say what work last shaped the code in hand.",
+    "description": "What was planned and done: the project's work items in their waves, what blocks what, which release shipped each, and the source files their commits changed. It lets memory say what work last shaped the code in hand.",
     "color": "#8F6200"
   },
   "ontology": {
@@ -22,16 +22,145 @@
         "description": "One planned piece of work: what it is, where it stands and why it was asked for.",
         "render": "Work item {item} ({status}): {title}. {summary}",
         "properties": {
-          "item": { "type": "string", "required": true, "maxLength": 64, "indexed": true, "description": "The item's id in its ledger" },
-          "title": { "type": "string", "required": true, "maxLength": 300 },
-          "status": { "type": "string", "required": true, "maxLength": 32 },
-          "phase": { "type": "string", "maxLength": 200 },
-          "summary": { "type": "string", "maxLength": 1200, "description": "The start of the item's notes: usually who asked for it and why" },
-          "remaining": { "type": "string", "maxLength": 64 },
-          "actual": { "type": "string", "maxLength": 64 },
-          "checkpoint": { "type": "string", "maxLength": 120 },
-          "commits": { "type": "int", "min": 0 },
-          "source": { "type": "string", "required": true, "maxLength": 512, "description": "The ledger file and item it came from" }
+          "item": {
+            "type": "string",
+            "required": true,
+            "maxLength": 64,
+            "indexed": true,
+            "description": "The item's id in its ledger"
+          },
+          "title": {
+            "type": "string",
+            "required": true,
+            "maxLength": 300
+          },
+          "status": {
+            "type": "string",
+            "required": true,
+            "maxLength": 32
+          },
+          "phase": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 1200,
+            "description": "The start of the item's notes: usually who asked for it and why"
+          },
+          "remaining": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "actual": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "checkpoint": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "commits": {
+            "type": "int",
+            "min": 0
+          },
+          "source": {
+            "type": "string",
+            "required": true,
+            "maxLength": 512,
+            "description": "The ledger file and item it came from"
+          },
+          "wave": {
+            "type": "int",
+            "min": 0,
+            "description": "The item's wave, in the ledger's order"
+          },
+          "step": {
+            "type": "int",
+            "min": 0,
+            "description": "Its place within the wave"
+          },
+          "estimate": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "labels": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Labels, comma-separated (GitHub)"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 512
+          }
+        }
+      },
+      {
+        "name": "WorkWave",
+        "scope": "shared",
+        "description": "A wave of work (a ledger phase, or a GitHub milestone): what it holds and how much is done.",
+        "render": "Wave {order} {name} ({state}): {done} of {items} done",
+        "properties": {
+          "name": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          },
+          "order": {
+            "type": "int",
+            "min": 0
+          },
+          "items": {
+            "type": "int",
+            "min": 0
+          },
+          "done": {
+            "type": "int",
+            "min": 0
+          },
+          "due": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "state": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "source": {
+            "type": "string",
+            "required": true,
+            "maxLength": 512
+          }
+        }
+      },
+      {
+        "name": "WorkRelease",
+        "scope": "shared",
+        "description": "A release, from a git tag: when, which commit, and how many work items it shipped.",
+        "render": "Release {name} ({date}): {items} work items",
+        "properties": {
+          "name": {
+            "type": "string",
+            "required": true,
+            "maxLength": 128
+          },
+          "date": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "commit": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "items": {
+            "type": "int",
+            "min": 0
+          },
+          "source": {
+            "type": "string",
+            "required": true,
+            "maxLength": 512
+          }
         }
       }
     ],
@@ -42,12 +171,37 @@
         "to": "io.agentmemory.packs.codemap:CodemapFile",
         "max": 64,
         "description": "A source file a commit of this work item changed"
+      },
+      {
+        "name": "WORK_IN_WAVE",
+        "from": "WorkItem",
+        "to": "WorkWave",
+        "max": 1,
+        "description": "The wave the item belongs to"
+      },
+      {
+        "name": "WORK_BLOCKED_BY",
+        "from": "WorkItem",
+        "to": "WorkItem",
+        "description": "The item waits for the other"
+      },
+      {
+        "name": "WORK_RELEASED_IN",
+        "from": "WorkItem",
+        "to": "WorkRelease",
+        "max": 1,
+        "description": "The first release that shipped a commit of the item"
       }
     ]
   },
   "traversal": {
     "relations": [
-      { "name": "WORK_CHANGED", "direction": "in", "weight": 0.6, "fanOut": 3 }
+      {
+        "name": "WORK_CHANGED",
+        "direction": "in",
+        "weight": 0.6,
+        "fanOut": 3
+      }
     ],
     "maxItems": 2,
     "hops": 1

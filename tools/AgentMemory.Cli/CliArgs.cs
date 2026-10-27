@@ -157,7 +157,8 @@ public static class CliHelp
                                      Structurizr workspaces; import writes what changed.
               decisions scan|import --root <repo> [--source git:<sha>]
                                      Read ADRs and Squad's decision log; import writes what changed.
-              work scan|import --ledger <tasks.json> --root <repo> [--source <text>]
+              work scan|import --ledger <tasks.json> | --github-issues <issues.json> [--github-milestones <m.json>]
+                    --root <repo> [--source <text>]
                                      Read a task ledger and the repository's commits: work items linked to
                                      the code map files their commits changed (import the code map first).
               owner <export|import|erase> --owner <id> [--file <path>] [--confirm]

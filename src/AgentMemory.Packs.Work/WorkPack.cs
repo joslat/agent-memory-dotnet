@@ -18,6 +18,16 @@ public sealed class WorkPack : IAgentMemoryModule
     public const string ItemType = "WorkItem";
     /// <summary>A work item to a source file its commits changed (a code map file).</summary>
     public const string Changed = "WORK_CHANGED";
+    /// <summary>A wave of work: a ledger phase, or a GitHub milestone (CMP-8).</summary>
+    public const string WaveType = "WorkWave";
+    /// <summary>A release, from a git tag (CMP-8).</summary>
+    public const string ReleaseType = "WorkRelease";
+    /// <summary>Item belongs to a wave.</summary>
+    public const string InWave = "WORK_IN_WAVE";
+    /// <summary>Item waits for another.</summary>
+    public const string BlockedBy = "WORK_BLOCKED_BY";
+    /// <summary>Item first shipped in a release.</summary>
+    public const string ReleasedIn = "WORK_RELEASED_IN";
 
     private static readonly Lazy<ModuleManifest> Metadata = new(() => ModuleManifest.Load(typeof(WorkPack).Assembly));
 
