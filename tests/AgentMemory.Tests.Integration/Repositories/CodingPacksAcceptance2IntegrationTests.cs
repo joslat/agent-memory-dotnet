@@ -51,10 +51,10 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         try
         {
             Directory.CreateDirectory(Path.Combine(root, "docs", "adr"));
-            File.WriteAllText(Path.Combine(root, "docs", "adr", "0001-cache-per-owner.md"), Adr("1. Cache per owner", "Accepted", "Keep one cache per owner."));
-            File.WriteAllText(Path.Combine(root, "docs", "adr", "0002-cache-per-store.md"), Adr("2. Cache per store", "Accepted", "Keep one cache per store.", "\n\nSupersedes ADR-0001."));
+            File.WriteAllText(Path.Combine(root, "docs", "adr", "0101-view-cache-per-owner.md"), Adr("1. Cache per owner", "Accepted", "Keep one cache per owner."));
+            File.WriteAllText(Path.Combine(root, "docs", "adr", "0102-view-cache-per-store.md"), Adr("2. Cache per store", "Accepted", "Keep one cache per store.", "\n\nSupersedes ADR-0101."));
             await store.ImportAsync(NoDecisions("git:clear"), at.AddSeconds(-1));
-            await store.ImportAsync(DecisionsReader.Read(root, ["docs/adr/0001-cache-per-owner.md", "docs/adr/0002-cache-per-store.md"], CodeIndex.Scan(root, []), "git:views"), at);
+            await store.ImportAsync(DecisionsReader.Read(root, ["docs/adr/0101-view-cache-per-owner.md", "docs/adr/0102-view-cache-per-store.md"], CodeIndex.Scan(root, []), "git:views"), at);
 
             using var services = Policies();
             var policy = services.GetRequiredService<IMemoryIsolationPolicy>();
@@ -70,7 +70,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
                 .Records.Should().HaveCount(2, "shared decisions are everyone's");
             var relevant = await new ModuleViews(decisions, decisionReader).EvaluateWithArgumentsAsync(DecisionsPack.RelevantView, new ModuleViewArguments { Search = "cache" }, everyone);
             relevant.Status.Should().Be(ModuleReadStatus.Succeeded);
-            relevant.Items.Select(i => i.Record.Key).Should().Equal(["docs/adr/0002-cache-per-store.md#decision"], "the relevant view leaves the superseded decision out");
+            relevant.Items.Select(i => i.Record.Key).Should().Equal(["docs/adr/0102-view-cache-per-store.md#decision"], "the relevant view leaves the superseded decision out");
 
             // An anchor that matches nothing reaches nothing, and says so as an empty result, not a refusal.
             var walk = new Neo4jModuleTraversalReader(fixture.TransactionRunner, decisions, policy);
