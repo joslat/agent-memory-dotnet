@@ -18,6 +18,9 @@ internal sealed record TrustPolicy
 {
     internal const string Format = "agentmemory.pack.trust/1.1";
 
+    /// <summary>The roles a trusted key may hold: the three that sign packs, and <c>revoker</c>, which signs revocation documents only.</summary>
+    internal static readonly IReadOnlySet<string> KeyRoles = new HashSet<string>(Dsse.Roles, StringComparer.Ordinal) { Revocations.Role };
+
     internal IReadOnlyList<TrustedKey> Keys { get; init; } = [];
     internal IReadOnlyList<string> RevokedDigests { get; init; } = [];
     internal IReadOnlyList<RevokedKey> RevokedKeys { get; init; } = [];
@@ -82,7 +85,7 @@ internal sealed record TrustPolicy
                 var prefixes = Strings(k, "idPrefixes");
                 if (prefixes.Count == 0) throw new InvalidDataException($"Key {Dsse.Short(keyId)} names no pack id prefixes: a key that may sign anything is refused.");
                 var roles = Strings(k, "roles");
-                if (roles.Count == 0 || roles.Any(r => !Dsse.Roles.Contains(r))) throw new InvalidDataException($"Key {Dsse.Short(keyId)} needs known roles.");
+                if (roles.Count == 0 || roles.Any(r => !KeyRoles.Contains(r))) throw new InvalidDataException($"Key {Dsse.Short(keyId)} needs known roles.");
                 keys.Add(new TrustedKey(keyId, pem, prefixes, roles, Time(k, "notBefore"), Time(k, "notAfter")));
             }
         var revokedDigests = new List<string>();

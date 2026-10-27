@@ -6,7 +6,7 @@ scopes, roles, validity windows, revocations and their expiry), pack.json (field
 source), what each kind must hold, a composite's lock against its members, and a pack set with each member on its own.
 It must agree with `ampack verify` on every vector in ../vectors (see run_vectors.py).
 
-usage: python ampack_verify.py <pack.ampack> <trust.json>      exit 0 verified, 1 refused
+usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>]      exit 0 verified, 1 refused
 Needs: Python 3.10+, the `cryptography` package.
 """
 import base64
@@ -39,6 +39,10 @@ LOCK = "META/lock.json"
 LOCK_FORMAT = "agentmemory.pack.lock/1.1"
 COMMIT = re.compile(r"[0-9a-f]{7,64}")
 # RFC 3339 date-times, the one form a time in a pack or a policy takes.
+REVOCATIONS_FORMAT = "agentmemory.pack.revocations/1.2"
+REVOCATIONS_TYPE = "application/vnd.agentmemory.revocations+json"
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+KEY_ID = re.compile(r"[0-9a-f]{64}")
 INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})")
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 STATEMENT = "https://in-toto.io/Statement/v1"
@@ -136,6 +140,73 @@ def policy_time(value):
     if parsed is None:
         raise Refused("the trust policy has a time that is not an RFC 3339 date-time")
     return parsed
+
+
+def apply_revocations(policy, data, now):
+    """A signed revocation document (v1.2 §8) applied to the policy: signed by a revoker key valid now, its revocations
+    added and never removed, its expiry the policy's when earlier."""
+    env = profile(data)
+    if not isinstance(env, dict) or env.get("payloadType") != REVOCATIONS_TYPE or not isinstance(env.get("payload"), str) \
+            or not isinstance(env.get("signatures"), list):
+        raise Refused("the revocation document is not a DSSE envelope of a revocation document")
+    try:
+        payload = base64.b64decode(env["payload"], validate=True)
+    except ValueError:
+        raise Refused("the revocation document has a payload that is not base64")
+    signed = f"DSSEv1 {len(REVOCATIONS_TYPE)} {REVOCATIONS_TYPE} {len(payload)} ".encode() + payload
+    keys = {k["keyId"]: k for k in policy.get("keys", [])}
+    revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
+    verified = False
+    for s in env["signatures"]:
+        if not isinstance(s, dict) or not isinstance(s.get("keyid"), str) or not isinstance(s.get("sig"), str):
+            continue
+        key = keys.get(s["keyid"])
+        if key is None or "revoker" not in key.get("roles", []) or key["keyId"] in revoked_keys:
+            continue
+        not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
+        if (not_before is not None and now < not_before) or (not_after is not None and now > not_after):
+            continue
+        public = serialization.load_pem_public_key(key["publicKey"].encode())
+        spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        if hashlib.sha256(spki).hexdigest() != key["keyId"]:
+            continue
+        try:
+            public.verify(base64.b64decode(s["sig"]), signed, ec.ECDSA(hashes.SHA256()))
+            verified = True
+            break
+        except (InvalidSignature, ValueError):
+            continue
+    if not verified:
+        raise Refused("the revocation document is not signed by a key the trust policy names as revoker and that is valid now")
+    doc = profile(payload)
+    if not isinstance(doc, dict) or set(doc) - {"format", "issuedAt", "expires", "digests", "keys"} or doc.get("format") != REVOCATIONS_FORMAT:
+        raise Refused("the revocation document is not a v1.2 revocation document")
+    issued, expires = instant(doc.get("issuedAt")), instant(doc.get("expires"))
+    if issued is None or expires is None or expires <= issued:
+        raise Refused("the revocation document needs issuedAt and expires, expiring after it was issued")
+    if issued.timestamp() > now.timestamp() + 300:
+        raise Refused("the revocation document claims to be issued in the future")
+    digests, revoked = doc.get("digests"), doc.get("keys")
+    if not isinstance(digests, list) or not all(isinstance(d, str) and DIGEST.fullmatch(d) for d in digests):
+        raise Refused("the revocation document has a malformed digests list")
+    if not isinstance(revoked, list) or not all(isinstance(k, dict) and not (set(k) - {"keyId", "compromisedAt"}) and isinstance(k.get("keyId"), str)
+                                                 and KEY_ID.fullmatch(k["keyId"]) and ("compromisedAt" not in k or instant(k["compromisedAt"]) is not None)
+                                                 for k in revoked):
+        raise Refused("the revocation document has a malformed keys list")
+    merged = dict(policy)
+    current = dict(policy.get("revoked", {}))
+    current["digests"] = sorted(set(current.get("digests", [])) | set(digests))
+    by_id = {k["keyId"]: k for k in current.get("keys", [])}
+    for k in revoked:
+        known = by_id.get(k["keyId"])
+        if known is None or ("compromisedAt" in known and ("compromisedAt" not in k or instant(k["compromisedAt"]) < instant(known["compromisedAt"]))):
+            by_id[k["keyId"]] = k
+    current["keys"] = [by_id[i] for i in sorted(by_id)]
+    old = policy_time(current.get("expires"))
+    if old is None or expires < old:
+        current["expires"] = doc["expires"]
+    merged["revoked"] = current
+    return merged
 
 
 def valid_id(value):
@@ -427,8 +498,11 @@ def verify(files, policy, now):
 def main(argv):
     pack_path, policy_path = argv[1], argv[2]
     policy = json.load(open(policy_path, encoding="utf-8"))
+    now = datetime.now(timezone.utc)
     try:
-        pid, version, digest = verify_any(read_zip(open(pack_path, "rb").read()), policy, datetime.now(timezone.utc))
+        if len(argv) > 3:
+            policy = apply_revocations(policy, open(argv[3], "rb").read(), now)
+        pid, version, digest = verify_any(read_zip(open(pack_path, "rb").read()), policy, now)
     except Refused as e:
         print(f"refused: {e}")
         return 1

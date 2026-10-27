@@ -30,8 +30,9 @@ OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE
 VECTORS = OUT / "vectors"
 
 
-def ampack(*args):
-    r = subprocess.run([AMPACK, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+def ampack(*args, env=None):
+    r = subprocess.run([AMPACK, *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env={**os.environ, **env} if env else None)
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -111,6 +112,12 @@ def main():
     }
     for name, body in policies.items():
         (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    # PACK-harden: a revoker key beside the publisher's, for signed revocation documents.
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "revoker", "--role", "revoker", "--prefix", "io.example")
+    assert code == 0, text
+    revoker = json.loads(text[text.index("{"):])
+    (OUT / "trust-with-revoker.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker]},
+                                                            separators=(",", ":")), encoding="utf-8")
 
     assert ampack("init", str(work / "notes"), "--id", "io.example.notes", "--version", "1.0.0")[0] == 0
     code, text = ampack("build", str(work / "notes"), "--key", str(work / "keys" / "publisher.key.pem"), "--out", str(VECTORS / "valid-dotnet.ampack"))
@@ -167,6 +174,43 @@ def main():
     vectors["key-not-yet-valid"] = (dict(base), "trust-key-not-yet-valid.json", "refused")
     vectors["key-window-open"] = (dict(base), "trust-key-window-open.json", "verified")
     vectors["revocations-stale"] = (dict(base), "trust-revocations-stale.json", "refused")
+
+    # Signed revocation documents (PACK-harden): applied to the policy by both verifiers.
+    digest = "sha256:" + hashlib.sha256(base[py.FILES]).hexdigest()
+    def revoke(name, *args, env=None):
+        code, text = ampack("revoke", str(OUT / name), *args, env=env)
+        assert code == 0, text
+        return name
+    keys_dir = work / "keys"
+    revocations = {
+        "revocations-none": (revoke("revocations-none.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2099-01-01T00:00:00Z"), "verified"),
+        "revocations-digest": (revoke("revocations-digest.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2099-01-01T00:00:00Z",
+                                      "--digests", digest), "refused"),
+        "revocations-key": (revoke("revocations-key.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2099-01-01T00:00:00Z",
+                                   "--keys", entry["keyId"]), "refused"),
+        "revocations-expired": (revoke("revocations-expired.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2020-06-01T00:00:00Z",
+                                       env={"SOURCE_DATE_EPOCH": "1577836800"}), "refused"),
+        "revocations-issued-in-the-future": (revoke("revocations-future.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2100-01-01T00:00:00Z",
+                                                    env={"SOURCE_DATE_EPOCH": "4070908800"}), "refused"),
+        "revocations-by-a-publisher-key": (revoke("revocations-publisher.json", "--key", str(keys_dir / "publisher.key.pem"), "--expires", "2099-01-01T00:00:00Z"),
+                                           "refused"),
+    }
+    none_env = json.loads((OUT / "revocations-none.json").read_bytes())
+    none_doc = json.loads(base64.b64decode(none_env["payload"]))
+    tampered = {**none_env, "payload": base64.b64encode(py.canonical({**none_doc, "expires": "2199-01-01T00:00:00Z"}).encode()).decode()}
+    (OUT / "revocations-tampered.json").write_bytes(py.canonical(tampered).encode())
+    revocations["revocations-tampered"] = ("revocations-tampered.json", "refused")
+    # Signed by this writer, applied by .NET: the document is language-neutral too.
+    revoker_key = serialization.load_pem_private_key((keys_dir / "revoker.key.pem").read_bytes(), password=None)
+    payload = py.canonical({"format": py.REVOCATIONS_FORMAT, "issuedAt": "2026-10-27T00:00:00Z", "expires": "2099-01-01T00:00:00Z",
+                            "digests": [digest], "keys": []}).encode()
+    signed_doc = f"DSSEv1 {len(py.REVOCATIONS_TYPE)} {py.REVOCATIONS_TYPE} {len(payload)} ".encode() + payload
+    sig = revoker_key.sign(signed_doc, ec.ECDSA(hashes.SHA256()))
+    (OUT / "revocations-python.json").write_bytes(py.canonical({"payloadType": py.REVOCATIONS_TYPE, "payload": base64.b64encode(payload).decode(),
+        "signatures": [{"keyid": revoker["keyId"], "sig": base64.b64encode(sig).decode()}]}).encode())
+    revocations["revocations-python-signed"] = ("revocations-python.json", "refused")
+    for name, (document, expected) in revocations.items():
+        vectors[name] = (dict(base), "trust-with-revoker.json", expected, document)
 
     # The JSON profile and the archive, more ways.
     vectors["junk-signature-file"] = ({**signed(content), py.SIGNATURES + "junk.dsse.json": b'{"hello":1}\n'}, "trust.json", "refused")
@@ -256,11 +300,13 @@ def main():
     raw["deflate-trailing-bytes"] = (write_deflated_zip(s, junk={record: b"\x00junk"}), "trust.json", "refused")
 
     results, failures = [], 0
-    for name, (files, policy_file, expected) in {**{k: (write_zip(v[0]), v[1], v[2]) for k, v in vectors.items()}, **raw}.items():
+    for name, (files, policy_file, expected, *document) in {**{k: (write_zip(v[0]), *v[1:]) for k, v in vectors.items()}, **raw}.items():
         path = VECTORS / f"{name}.ampack"
         path.write_bytes(files)
-        dn_code, dn_text = ampack("verify", str(path), "--policy", str(OUT / policy_file))
-        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(path), str(OUT / policy_file)],
+        extra = ["--revocations", str(OUT / document[0])] if document else []
+        dn_code, dn_text = ampack("verify", str(path), "--policy", str(OUT / policy_file), *extra)
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(path), str(OUT / policy_file),
+                             *([str(OUT / document[0])] if document else [])],
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
         dotnet = "verified" if dn_code == 0 else "refused"
         python = "verified" if pr.returncode == 0 else "refused"

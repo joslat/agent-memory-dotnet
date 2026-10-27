@@ -22,10 +22,13 @@ internal static class Program
           build <folder> [--out <file.ampack>] [--key <private.pem>] [--role publisher] [--stored]
                                  write META/files.json, optionally sign, and pack; prints the digest
           sign <folder> --key <private.pem> [--role publisher|curator|assurer]
-          verify <folder|file> --policy <trust.json> [--ledger <ledger.json>] [--record] [--allow-downgrade]
+          verify <folder|file> --policy <trust.json> [--revocations <file>] [--ledger <ledger.json>] [--record] [--allow-downgrade]
           inspect <folder|file>  identity, digest, files and signatures, without trusting them
-          keygen --out <folder> [--name <name>] [--prefix <id.prefix>]
+          keygen --out <folder> [--name <name>] [--prefix <id.prefix>] [--role publisher|curator|assurer|revoker]
                                  a P-256 key pair and a trust-policy entry for it
+          revoke <out.json> --key <revoker.pem> --expires <RFC 3339> [--digests <sha256:…,…>] [--keys <keyId[@compromisedAt],…>]
+                                 a signed revocation document; hosts apply it with --revocations, and nothing
+                                 verifies after it expires until a fresh one is applied
           lock <composite-folder> <member.ampack>...
                                  pin every member's id, version and digest in META/lock.json
           migrate <bundle-folder|manifest.json> --out <folder>
@@ -34,10 +37,10 @@ internal static class Program
                                  a composite pack for a composite manifest (then: ampack lock, ampack build)
           set <out.ampack> <member.ampack>... --id <id> --version <v> --key <private.pem>
                                  one archive carrying complete packs side by side, signed as a whole
-          serve <pack.ampack>... --policy <trust.json>
+          serve <pack.ampack>... --policy <trust.json> [--revocations <file>]
                                  mount the packs in memory and serve them over MCP on standard input and output:
                                  pack_list, pack_ask (a view: search text or a key), pack_walk (from files and symbols)
-          test <pack.ampack>... --policy <trust.json>
+          test <pack.ampack>... --policy <trust.json> [--revocations <file>]
                                  load the packs as a host does (every record checked), hold them in memory, and run
                                  each pack's own tests (evals/tests.json): views, searches and walks, offline;
                                  give a snapshot's definition pack beside it
@@ -60,6 +63,7 @@ internal static class Program
                 "verify" => Verify(options),
                 "inspect" => Inspect(options),
                 "keygen" => Keygen(options),
+                "revoke" => Revoke(options),
                 "lock" => Lock(options),
                 "migrate" => Migrate(options),
                 "set" => Set(options),
@@ -198,7 +202,7 @@ internal static class Program
     private static int Verify(Options o)
     {
         var target = o.Positional(0, "folder or file");
-        var policy = TrustPolicy.Parse(File.ReadAllBytes(o.Required("policy")));
+        var policy = Policy(o);
         var ledgerPath = o.Value("ledger");
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
         var content = PackReader.Read(target);
@@ -254,6 +258,8 @@ internal static class Program
     {
         var folder = o.Required("out");
         var name = o.Value("name") ?? "publisher";
+        var role = o.Value("role") ?? "publisher";
+        if (!TrustPolicy.KeyRoles.Contains(role)) throw new UsageException($"--role is one of {string.Join(", ", TrustPolicy.KeyRoles.Order())}.");
         var key = PackKey.Create();
         Directory.CreateDirectory(folder);
         var privatePath = Path.Combine(folder, name + ".key.pem");
@@ -263,10 +269,52 @@ internal static class Program
         var entry = new JsonObject
         {
             ["keyId"] = key.KeyId, ["publicKey"] = key.PublicKeyPem,
-            ["idPrefixes"] = new JsonArray((JsonNode)(o.Value("prefix") ?? "io.example")), ["roles"] = new JsonArray((JsonNode)"publisher"),
+            ["idPrefixes"] = new JsonArray((JsonNode)(o.Value("prefix") ?? "io.example")), ["roles"] = new JsonArray((JsonNode)role),
         };
         Console.WriteLine($"Key id  {key.KeyId}\nPrivate {privatePath}  (keep it secret; never commit it)\nTrust-policy entry:\n{Pretty(entry)}");
         return 0;
+    }
+
+    // PACK-harden: a signed revocation document (pack format v1.2 §8).
+    private static int Revoke(Options o)
+    {
+        var output = o.Positional(0, "output file");
+        if (!PackTime.TryParse(o.Required("expires"), out var expires)) throw new UsageException("--expires is an RFC 3339 date-time, such as 2026-12-31T00:00:00Z.");
+        var issuedAt = SigningTime();
+        var digests = List(o.Value("digests"));
+        var keys = new List<RevokedKey>();
+        foreach (var entry in List(o.Value("keys")))
+        {
+            var at = entry.IndexOf('@', StringComparison.Ordinal);
+            DateTimeOffset? compromisedAt = null;
+            if (at >= 0)
+            {
+                if (!PackTime.TryParse(entry[(at + 1)..], out var time)) throw new UsageException($"'{entry}': the time after @ is RFC 3339.");
+                compromisedAt = time;
+            }
+            keys.Add(new RevokedKey(at >= 0 ? entry[..at] : entry, compromisedAt));
+        }
+        if (digests.Count == 0 && keys.Count == 0) Console.Error.WriteLine("Note: the document revokes nothing; it renews the revocation list's freshness.");
+        File.WriteAllBytes(output, Revocations.Sign(digests, keys, issuedAt, expires, File.ReadAllText(o.Required("key"))));
+        Console.WriteLine($"Wrote {output}: {digests.Count} digest(s), {keys.Count} key(s), issued {issuedAt:u}, expires {expires:u}.");
+        return 0;
+    }
+
+    private static List<string> List(string? value) =>
+        [.. (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+
+    // The host's trust policy, with a signed revocation document applied when --revocations names one.
+    private static TrustPolicy Policy(Options o)
+    {
+        var policy = TrustPolicy.Parse(File.ReadAllBytes(o.Required("policy")));
+        return o.Value("revocations") is { } revocations ? Revocations.Apply(policy, PackReader.ReadArchiveFile(revocations), DateTimeOffset.UtcNow) : policy;
+    }
+
+    // The same, as the loader's trust.
+    private static AgentMemory.Extensibility.Ampack.PackTrust Trust(Options o)
+    {
+        var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
+        return o.Value("revocations") is { } revocations ? trust.WithRevocations(PackReader.ReadArchiveFile(revocations)) : trust;
     }
 
     private static int Lock(Options o)
@@ -317,7 +365,7 @@ internal static class Program
     // PACK-serve: the packs mounted as a host mounts them, served read-only over MCP.
     private static int ServePacks(Options o)
     {
-        var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
+        var trust = Trust(o);
         var paths = o.PositionalFrom(0).ToList();
         if (paths.Count == 0) throw new UsageException("serve needs at least one pack.");
         try { return Serve.Run(AgentMemory.Extensibility.Ampack.PackMemory.Mount(paths.Select(p => PackReader.ReadArchiveFile(p)), trust)); }
@@ -327,7 +375,7 @@ internal static class Program
     // PACK-toolset: a pack's own tests, on the packs loaded as a host loads them and held in memory.
     private static int Test(Options o)
     {
-        var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
+        var trust = Trust(o);
         var paths = o.PositionalFrom(0).ToList();
         if (paths.Count == 0) throw new UsageException("test needs at least one pack.");
         try

@@ -24,6 +24,15 @@ public sealed class PackTrust
 
     /// <summary>Trusts nothing: every pack is refused. There is no setting that admits unsigned packs.</summary>
     public static PackTrust None { get; } = new(new TrustPolicy());
+
+    /// <summary>
+    /// This trust with a signed revocation document applied (pack format v1.2 §8, PACK-harden): signed by a key this policy
+    /// names as <c>revoker</c>, its revoked digests and keys are added, and its expiry becomes the policy's, after which
+    /// nothing verifies until a fresh document is applied.
+    /// </summary>
+    /// <exception cref="InvalidDataException">The document is malformed, not signed by a trusted revoker valid now, or issued in the future.</exception>
+    public PackTrust WithRevocations(byte[] signedDocument) =>
+        new(Revocations.Apply(Policy, signedDocument ?? throw new ArgumentNullException(nameof(signedDocument)), DateTimeOffset.UtcNow));
 }
 
 /// <summary>

@@ -1,6 +1,6 @@
 # Memory pack format v1.2: conformance vectors
 
-Two verifiers that share no code must reach the same verdict on every vector here (56 today):
+Two verifiers that share no code must reach the same verdict on every vector here (64 today):
 
 - `ampack verify` (.NET, `tools/Ampack`, library `src/AgentMemory.Packs.Format`)
 - `python/ampack_verify.py` (Python 3.10+ and `cryptography`)
@@ -25,6 +25,7 @@ list, DSSE signature, strict ZIP writers, stored and deflated), and derives tamp
 | Composites | a lock pinning another member; a lock that is not canonical; a lock with an extra field; `members.json` naming another member |
 | Pack sets | a member changed under a re-signed set; a member in a folder named for another id; a file outside every member folder |
 | Trust | a key scoped to another namespace; a key expired now (even though the signature claims a time in its window); a key not yet valid; an open window; a stale revocation list; a file under `META/signatures/` that is not an envelope |
+| Revocations | signed documents applied by both verifiers: one that revokes nothing; one revoking the pack's digest; one revoking its key; one expired; one issued in the future; one signed by a publisher key, not a revoker; one changed after signing; one signed by the Python writer and applied by .NET |
 | JSON profile | CRLF; a byte order mark; a repeated key; an integer beyond 2^53; a string not in NFC; an empty line; no final line feed |
 | Paths | a Windows device name (`CON`); two entries that differ only by case |
 | ZIP profile | bytes before the first entry; bytes after the end record; an archive comment; unsorted entries; the data-descriptor flag; a local header whose name differs from the central directory; bytes after a deflate stream's end |
