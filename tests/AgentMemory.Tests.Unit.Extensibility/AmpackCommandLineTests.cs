@@ -198,8 +198,8 @@ public sealed class AmpackCommandLineTests : IDisposable
     [Fact]
     public void Install_list_test_and_uninstall_work_on_a_store_and_the_ledger_outlives_removal()
     {
-        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory");
-        File.WriteAllText(At("trust.json"), PackAuthoring.TrustPolicy(File.ReadAllText(At("keys", "publisher.pub.pem")), "io.agentmemory"));
+        // keygen --policy writes the host's trust policy itself, as a host without scripts needs.
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory", "--policy", "trust.json").Should().Contain("Added to trust.json (1 key(s))");
         Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "martialarts");
         Done("build", "martialarts", "--out", "martialarts.ampack", "--key", At("keys", "publisher.key.pem"));
 

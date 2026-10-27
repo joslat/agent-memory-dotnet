@@ -29,9 +29,10 @@ internal static class Program
                                  what changed between two packs: identity, every declared value (ontology, views,
                                  walk, trial, ...), every record by type and key, every file; --policy verifies both first
           keygen --out <folder> [--name <name>] [--prefix <id.prefix>] [--role publisher|curator|assurer|revoker]
-                 [--protect dpapi]
+                 [--protect dpapi] [--policy <trust.json>]
                                  a P-256 key pair and a trust-policy entry for it; --protect dpapi keeps the
-                                 private key encrypted for this Windows user (use it as --key dpapi:<file>)
+                                 private key encrypted for this Windows user (use it as --key dpapi:<file>);
+                                 --policy adds the key to a trust policy file, creating it when missing
           Every --key also takes env:<VARIABLE> or dpapi:<file>; or sign with --signer "<command>" --public <pub.pem>
           for an OS keychain, KMS or HSM (the command reads the bytes to sign, prints the signature in base64).
           sign-bytes --key <private.pem> [--p1363]
@@ -306,6 +307,18 @@ internal static class Program
             ["idPrefixes"] = new JsonArray((JsonNode)(o.Value("prefix") ?? "io.example")), ["roles"] = new JsonArray((JsonNode)role),
         };
         Console.WriteLine($"Key id  {key.KeyId}\nPrivate {privatePath}  (keep it secret; never commit it)\nTrust-policy entry:\n{Pretty(entry)}");
+        // --policy: the entry added to a trust policy file (created when missing), which is then read back as a host reads it.
+        if (o.Value("policy") is { } policyPath)
+        {
+            var policy = File.Exists(policyPath) ? JsonNode.Parse(File.ReadAllText(policyPath))?.AsObject() ?? throw new UsageException($"{policyPath} is not a JSON object.")
+                : new JsonObject { ["format"] = TrustPolicy.Format, ["keys"] = new JsonArray() };
+            if (policy["keys"] is not JsonArray keys) policy["keys"] = keys = new JsonArray();
+            keys.Add(entry.DeepClone());
+            var bytes = System.Text.Encoding.UTF8.GetBytes(policy.ToJsonString(new JsonSerializerOptions { WriteIndented = true }).Replace("\r\n", "\n", StringComparison.Ordinal) + "\n");
+            TrustPolicy.Parse(bytes);
+            File.WriteAllBytes(policyPath, bytes);
+            Console.WriteLine($"Added to {policyPath} ({keys.Count} key(s)).");
+        }
         return 0;
     }
 
