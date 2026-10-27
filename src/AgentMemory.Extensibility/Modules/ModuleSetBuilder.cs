@@ -32,6 +32,8 @@ public sealed class ModuleSetBuilder
     internal IConfiguration? Configuration { get; private set; }
     internal Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient>? ChatClient { get; private set; }
     internal IPackActivations? Activations { get; private set; }
+    internal IReadOnlyList<string> MandatoryTrials => _mandatoryTrials;
+    private readonly List<string> _mandatoryTrials = [];
 
     /// <summary>Adds a module from its assembly: the embedded manifest and its <see cref="IAgentMemoryModule"/>.</summary>
     public ModuleSetBuilder Add<TModule>() where TModule : IAgentMemoryModule, new() =>
@@ -164,6 +166,32 @@ public sealed class ModuleSetBuilder
         Activations = activations ?? throw new ArgumentNullException(nameof(activations));
         return this;
     }
+
+    /// <summary>
+    /// Makes a trial mandatory in these namespaces (PACK-require): a module whose id is a prefix or lies under it, segment by
+    /// segment as a trust policy scopes keys, and that declares no trial is left off, so leaving the trial out cannot skip the
+    /// gate. Needs <see cref="RequireTrials"/>. Without this a pack that declares no trial composes, as the format allows.
+    /// </summary>
+    /// <param name="idPrefixes">Pack id prefixes such as <c>io.example</c>; <c>io.example</c> covers <c>io.example.dojo</c>, not <c>io.examples</c>.</param>
+    public ModuleSetBuilder RequireTrialsFor(params string[] idPrefixes)
+    {
+        ArgumentNullException.ThrowIfNull(idPrefixes);
+        if (idPrefixes.Length == 0) throw new ArgumentException("Name at least one pack id prefix.", nameof(idPrefixes));
+        foreach (var prefix in idPrefixes)
+        {
+            if (string.IsNullOrWhiteSpace(prefix) || prefix.Any(char.IsWhiteSpace) || prefix.StartsWith('.') || prefix.Contains("..", StringComparison.Ordinal))
+                throw new ArgumentException($"'{prefix}' is not a pack id prefix.", nameof(idPrefixes));
+            _mandatoryTrials.Add(prefix);
+        }
+        return this;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="prefix"/> covers <paramref name="id"/>: equal, or a whole leading run of its segments. The same
+    /// rule as a trust policy's <c>idPrefixes</c> (pack format v1.1 H3).
+    /// </summary>
+    internal static bool Covers(string prefix, string id) =>
+        id == prefix || id.StartsWith(prefix.EndsWith('.') ? prefix : prefix + ".", StringComparison.Ordinal);
 
     /// <summary>The configuration module options bind from; by default the host's registered <see cref="IConfiguration"/>.</summary>
     public ModuleSetBuilder UseConfiguration(IConfiguration configuration)

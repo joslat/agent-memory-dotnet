@@ -173,13 +173,18 @@ public static class PackTrialGate
 
     /// <summary>
     /// The registrations that may compose, and the ones left off: a module that declares a trial needs a passing decision for
-    /// exactly its manifest and, when it came from a pack, exactly that pack; a module that needs one left off is left off too.
+    /// exactly its manifest and, when it came from a pack, exactly that pack; in a namespace where the host made trials
+    /// mandatory, a module that declares none is left off; a module that needs one left off is left off too.
     /// </summary>
     internal static (IReadOnlyList<ModuleRegistration> On, IReadOnlyList<SwitchedOffModule> Off) Apply(IReadOnlyList<ModuleRegistration> registrations,
-        IPackActivations? activations)
+        IPackActivations? activations, IReadOnlyList<string>? mandatory = null)
     {
         if (activations is null) return (registrations, []);
         var off = new Dictionary<string, SwitchedOffModule>(StringComparer.Ordinal);
+        foreach (var registration in registrations.Where(r => r.Manifest.Trial is null))
+            if ((mandatory ?? []).FirstOrDefault(p => ModuleSetBuilder.Covers(p, registration.Manifest.Id)) is { } prefix)
+                off[registration.Manifest.Id] = new SwitchedOffModule(registration.Manifest.Id, registration.Manifest.Version.ToString(),
+                    $"it declares no trial, and this host requires one for {prefix}");
         foreach (var registration in registrations.Where(r => r.Manifest.Trial is not null))
         {
             var manifest = registration.Manifest;
