@@ -56,8 +56,12 @@ internal static class Program
                                  remove an installed pack (the ledger keeps it)
           list --store <folder>  the installed packs
           serve [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
+                [--http <http://localhost:5199/> [--allow-remote]]
                                  mount the packs in memory and serve them over MCP on standard input and output:
-                                 pack_list, pack_ask (a view: search text or a key), pack_walk (from files and symbols)
+                                 pack_list, pack_ask (a view: search text or a key), pack_walk (from files and symbols);
+                                 with --http, the same over REST: GET /v1/meta, GET /v1/packs,
+                                 POST /v1/packs/{id}/views/{view}/ask, POST /v1/walk (this machine only, unless
+                                 --allow-remote)
           test [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
                                  load the packs as a host does (every record checked), hold them in memory, and run
                                  each pack's own tests (evals/tests.json): views, searches and walks, offline;
@@ -451,7 +455,11 @@ internal static class Program
     {
         var trust = Trust(o);
         var archives = Archives(o, "serve");
-        try { return Serve.Run(AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust)); }
+        try
+        {
+            var mount = AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust);
+            return o.Value("http") is { } url ? Rest.Run(mount, url, o.Flag("allow-remote")) : Serve.Run(mount);
+        }
         catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
     }
 
@@ -642,7 +650,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote" };
     private readonly List<string> _positional = [];
     private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);

@@ -247,6 +247,69 @@ public sealed class AmpackCommandLineTests : IDisposable
     }
 
     [Fact]
+    public async Task Serve_answers_over_REST_with_the_same_answers_as_its_MCP_tools()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory", "--policy", "trust.json");
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "martialarts");
+        Done("build", "martialarts", "--out", "martialarts.ampack", "--key", At("keys", "publisher.key.pem"));
+        int port;
+        using (var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0))
+        {
+            probe.Start();
+            port = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
+        }
+        Ampack("serve", "martialarts.ampack", "--policy", "trust.json", "--http", "http://example.com:5199/").Exit.Should().Be(2, "beyond this machine needs --allow-remote");
+
+        var start = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = _root,
+        };
+        foreach (var arg in new[] { Tool, "serve", "martialarts.ampack", "--policy", "trust.json", "--http", $"http://localhost:{port}/" }) start.ArgumentList.Add(arg);
+        using var server = Process.Start(start)!;
+        using var http = new HttpClient { BaseAddress = new Uri($"http://localhost:{port}/"), Timeout = TimeSpan.FromSeconds(10) };
+        try
+        {
+            async Task<(System.Net.HttpStatusCode Status, JsonNode Body)> Send(HttpMethod method, string path, string? json = null)
+            {
+                for (var attempt = 0; ; attempt++)
+                {
+                    try
+                    {
+                        using var message = new HttpRequestMessage(method, path) { Content = json is null ? null : new StringContent(json, Encoding.UTF8, "application/json") };
+                        using var response = await http.SendAsync(message);
+                        return (response.StatusCode, JsonNode.Parse(await response.Content.ReadAsStringAsync())!);
+                    }
+                    catch (HttpRequestException) when (attempt < 50) { await Task.Delay(200); } // the server is still starting
+                }
+            }
+
+            var meta = await Send(HttpMethod.Get, "v1/meta");
+            meta.Body["records"]!.GetValue<int>().Should().Be(93);
+            var packs = (await Send(HttpMethod.Get, "v1/packs")).Body.AsArray();
+            packs.Single()!["id"]!.GetValue<string>().Should().Be("io.agentmemory.packs.martialarts");
+            var asked = await Send(HttpMethod.Post, "v1/packs/io.agentmemory.packs.martialarts/views/kata/ask", """{"text":"Which kata for 8th kyu? Heian Shodan"}""");
+            asked.Status.Should().Be(System.Net.HttpStatusCode.OK);
+            asked.Body[0]!["key"]!.GetValue<string>().Should().Be("shotokan/heian-shodan");
+            asked.Body[0]!["source"]!["digest"]!.GetValue<string>().Should().Be(packs.Single()!["digest"]!.GetValue<string>());
+            (await Send(HttpMethod.Post, "v1/packs/io.agentmemory.packs.martialarts/views/ladder/ask", """{"key":"shotokan/8-kyu"}""")).Body.AsArray()
+                .Should().ContainSingle();
+            var nowhere = await Send(HttpMethod.Post, "v1/walk", "{}");
+            nowhere.Status.Should().Be(System.Net.HttpStatusCode.BadRequest);
+            nowhere.Body["error"]!.GetValue<string>().Should().Contain("at least one path or symbol");
+            (await Send(HttpMethod.Post, "v1/walk", "not json")).Status.Should().Be(System.Net.HttpStatusCode.BadRequest);
+            (await Send(HttpMethod.Post, "v1/walk", """{"paths":"one"}""")).Body["error"]!.GetValue<string>().Should().Contain("list of strings");
+            (await Send(HttpMethod.Delete, "v1/packs")).Status.Should().Be(System.Net.HttpStatusCode.NotFound, "nothing writes");
+            (await Send(HttpMethod.Post, "v1/packs/io.agentmemory.packs.martialarts/views/kata/ask", "{\"text\":\"" + new string('x', 70_000) + "\"}")).Status
+                .Should().Be(System.Net.HttpStatusCode.BadRequest, "bodies are capped");
+        }
+        finally
+        {
+            if (!server.HasExited) server.Kill(entireProcessTree: true);
+            await server.WaitForExitAsync();
+        }
+    }
+
+    [Fact]
     public async Task Serve_answers_an_MCP_client_over_standard_input_and_output()
     {
         Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory");

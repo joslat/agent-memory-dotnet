@@ -1,0 +1,125 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using AgentMemory.Extensibility.Ampack;
+
+namespace Ampack;
+
+/// <summary>
+/// <c>ampack serve --http</c> (pack format v1.2 §10, PACK-serve): the packs <see cref="Serve"/> mounts, served read-only over
+/// HTTP for any client in any language. The same three operations as the MCP tools, answered by the same code
+/// (<see cref="PackTools"/>), so the two never drift:
+/// <list type="bullet">
+/// <item><c>GET /v1/meta</c>: the server and what it holds;</item>
+/// <item><c>GET /v1/packs</c>: the packs (pack_list);</item>
+/// <item><c>POST /v1/packs/{id}/views/{view}/ask</c> with <c>{"text"|"key", "limit"}</c>: one view (pack_ask);</item>
+/// <item><c>POST /v1/walk</c> with <c>{"paths", "symbols", "question"}</c>: the walk from the work in hand (pack_walk).</item>
+/// </list>
+/// Loopback only unless the host says otherwise; request bodies are capped; nothing writes.
+/// </summary>
+internal static class Rest
+{
+    private const int MaximumBody = 64 * 1024;
+    private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    internal static int Run(PackMount mount, string url, bool allowRemote)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttp)
+            throw new UsageException("--http takes a URL such as http://localhost:5199/.");
+        if (!uri.IsLoopback && !allowRemote)
+            throw new UsageException($"{uri.Host} is not this machine: serving packs beyond it needs --allow-remote.");
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"{uri.Scheme}://{uri.Host}:{uri.Port}/");
+        listener.Start();
+        Console.Error.WriteLine($"ampack serve: {mount.Packs.Count} pack(s), {mount.Memory.Count:N0} records, REST on {uri.Scheme}://{uri.Host}:{uri.Port}/v1/");
+        using var stop = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+        using var registration = stop.Token.Register(listener.Stop);
+        while (!stop.IsCancellationRequested)
+        {
+            HttpListenerContext context;
+            try { context = listener.GetContext(); }
+            catch (HttpListenerException) when (stop.IsCancellationRequested) { break; }
+            catch (ObjectDisposedException) { break; }
+            _ = Task.Run(() => HandleAsync(mount, context, stop.Token));
+        }
+        return 0;
+    }
+
+    private static async Task HandleAsync(PackMount mount, HttpListenerContext context, CancellationToken cancellationToken)
+    {
+        var request = context.Request;
+        var segments = request.Url!.AbsolutePath.Trim('/').Split('/');
+        int status;
+        string body;
+        try
+        {
+            (status, body) = (request.HttpMethod, segments) switch
+            {
+                ("GET", ["v1", "meta"]) => (200, JsonSerializer.Serialize(new
+                {
+                    server = "ampack", version = typeof(Rest).Assembly.GetName().Version?.ToString(), format = "agentmemory.pack/1.2",
+                    packs = mount.Packs.Count, records = mount.Memory.Count,
+                    operations = new[] { "GET /v1/packs", "POST /v1/packs/{id}/views/{view}/ask", "POST /v1/walk" },
+                }, Json)),
+                ("GET", ["v1", "packs"]) => (200, PackTools.List(mount)),
+                ("POST", ["v1", "packs", var pack, "views", var view, "ask"]) => await AskAsync(mount, Uri.UnescapeDataString(pack), Uri.UnescapeDataString(view),
+                    await BodyAsync(request).ConfigureAwait(false), cancellationToken).ConfigureAwait(false),
+                ("POST", ["v1", "walk"]) => await WalkAsync(mount, await BodyAsync(request).ConfigureAwait(false), cancellationToken).ConfigureAwait(false),
+                _ => (404, Error($"No operation {request.HttpMethod} {request.Url.AbsolutePath}; GET /v1/meta lists them.")),
+            };
+        }
+        catch (BadRequest e) { (status, body) = (400, Error(e.Message)); }
+        catch (Exception e) when (e is not OperationCanceledException) { (status, body) = (500, Error("The server could not answer: " + e.GetType().Name + ".")); }
+        var bytes = Encoding.UTF8.GetBytes(body);
+        context.Response.StatusCode = status;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        context.Response.ContentLength64 = bytes.Length;
+        try { await context.Response.OutputStream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false); }
+        finally { context.Response.Close(); }
+    }
+
+    private static async Task<(int, string)> AskAsync(PackMount mount, string pack, string view, JsonObject body, CancellationToken cancellationToken)
+    {
+        var result = await PackTools.Ask(mount, pack, view, Text(body, "text"), Text(body, "key"),
+            body["limit"] is JsonValue limit && limit.TryGetValue<int>(out var n) ? n : null, cancellationToken).ConfigureAwait(false);
+        return (IsError(result) ? 400 : 200, result);
+    }
+
+    private static async Task<(int, string)> WalkAsync(PackMount mount, JsonObject body, CancellationToken cancellationToken)
+    {
+        var result = await PackTools.Walk(mount, Strings(body, "paths"), Strings(body, "symbols"), Text(body, "question"), cancellationToken).ConfigureAwait(false);
+        return (IsError(result) ? 400 : 200, result);
+    }
+
+    // The request body: a JSON object of at most 64 KiB; an empty body is an empty object.
+    private static async Task<JsonObject> BodyAsync(HttpListenerRequest request)
+    {
+        if (request.ContentLength64 > MaximumBody) throw new BadRequest($"The body is larger than {MaximumBody} bytes.");
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int read;
+        while ((read = await request.InputStream.ReadAsync(chunk).ConfigureAwait(false)) > 0)
+        {
+            buffer.Write(chunk, 0, read);
+            if (buffer.Length > MaximumBody) throw new BadRequest($"The body is larger than {MaximumBody} bytes.");
+        }
+        if (buffer.Length == 0) return [];
+        try { return JsonNode.Parse(buffer.ToArray()) as JsonObject ?? throw new BadRequest("The body is a JSON object."); }
+        catch (JsonException) { throw new BadRequest("The body is not JSON."); }
+    }
+
+    private static string? Text(JsonObject body, string name) =>
+        body[name] is null ? null : body[name] is JsonValue v && v.TryGetValue<string>(out var s) ? s : throw new BadRequest($"'{name}' is a string.");
+
+    private static string[]? Strings(JsonObject body, string name) =>
+        body[name] is null ? null : body[name] is JsonArray a && a.All(x => x is JsonValue v && v.TryGetValue<string>(out _))
+            ? [.. a.Select(x => x!.GetValue<string>())] : throw new BadRequest($"'{name}' is a list of strings.");
+
+    private static bool IsError(string json) => json.StartsWith("{\"error\"", StringComparison.Ordinal);
+
+    private static string Error(string message) => JsonSerializer.Serialize(new { error = message }, Json);
+
+    private sealed class BadRequest(string message) : Exception(message);
+}
