@@ -2,6 +2,7 @@
   <Folder Name="/samples/">
     <Project Path="samples/AgentMemory.Sample.AgentWithMemory/AgentMemory.Sample.AgentWithMemory.csproj" />
     <Project Path="samples/AgentMemory.Sample.ConversationalAgent/AgentMemory.Sample.ConversationalAgent.csproj" />
+    <Project Path="samples/AgentMemory.Sample.CopilotAgent/AgentMemory.Sample.CopilotAgent.csproj" />
     <Project Path="samples/AspireDemo/AspireDemo.AppHost/AspireDemo.AppHost.csproj" />
     <Project Path="samples/AspireDemo/AspireDemo.DemoApp/AspireDemo.DemoApp.csproj" />
     <Project Path="samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj" />
