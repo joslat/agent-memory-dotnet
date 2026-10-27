@@ -117,6 +117,17 @@ def main():
     vectors["device-name-path"] = (signed({**content, "records/CON.jsonl": b'{"key":"c"}\n'}), "trust.json", "refused")
     vectors["pack-json-names-other-id"] = (signed(content, pid_="io.example.other"), "trust.json", "refused")
 
+    def manifest_with(**fields):
+        m = json.loads(content["pack.json"])
+        m.update(fields)
+        return {**content, "pack.json": (json.dumps(m, indent=2, ensure_ascii=False) + chr(10)).encode("utf-8")}
+    # PACK-strict: a field the format does not define refuses the pack; inside "extensions" it is ignored unless critical.
+    vectors["unknown-field"] = (signed(manifest_with(homepage="https://example.com")), "trust.json", "refused")
+    vectors["extension-ignored"] = (signed(manifest_with(extensions={"io.example.cache": {"ttl": 3600}})), "trust.json", "verified")
+    vectors["critical-extension"] = (signed(manifest_with(extensions={"io.example.cache": {"ttl": 3600}, "critical": ["io.example.cache"]})),
+                                     "trust.json", "refused")
+    vectors["critical-names-nothing"] = (signed(manifest_with(extensions={"critical": ["io.example.absent"]})), "trust.json", "refused")
+
     raw = {}
     good = write_zip(signed(content))
     raw["prefix-bytes"] = (b"MZ-prefix" + good, "trust.json", "refused")

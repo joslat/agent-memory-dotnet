@@ -18,6 +18,22 @@ internal sealed partial record PackManifest
     internal static readonly IReadOnlySet<string> Protections = new HashSet<string>(StringComparer.Ordinal) { "open", "audience", "licensed", "attested", "hosted" };
     internal static readonly IReadOnlySet<string> CodeTiers = new HashSet<string>(StringComparer.Ordinal) { "E0", "E1", "E2" };
 
+    /// <summary>
+    /// Every field <c>pack.json</c> may hold (v1.1 §5 rule 1, PACK-strict): any other refuses the pack, so a field a newer
+    /// writer adds is never silently ignored. What the format does not define goes in <c>extensions</c>.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> Fields = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "format", "id", "version", "kind", "sdk", "requires", "display", "containableBy", "contains", "tier", "licence", "validUntil",
+        "protection", "code", "source", "extensions",
+    };
+
+    /// <summary>
+    /// The extensions this reader understands. An extension in <c>extensions</c> is ignored unless the pack lists its name in
+    /// <c>extensions.critical</c>; a critical extension the reader does not understand refuses the pack. None yet.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> UnderstoodExtensions = new HashSet<string>(StringComparer.Ordinal);
+
     internal required string Id { get; init; }
     internal required string Version { get; init; }
     internal required string Kind { get; init; }
@@ -59,6 +75,9 @@ internal sealed partial record PackManifest
             if (value.ValueKind != JsonValueKind.Array || value.EnumerateArray().Any(v => v.ValueKind != JsonValueKind.String)) return null;
             return [.. value.EnumerateArray().Select(v => v.GetString()!)];
         }
+        if (root.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => !Fields.Contains(n)) is { } unknown)
+            return (null, $"{FileName} has an unknown field '{unknown}'; a field this format does not define goes in 'extensions'.");
+        if (Extensions(root) is { } extensionProblem) return (null, extensionProblem);
         if (Text("format") is not { } format) return (null, $"{FileName} names no format.");
         if (format != Format) return (null, $"{FileName} has format '{format}'; this reader knows '{Format}'.");
         if (Text("id") is not { } id || !IsValidId(id)) return (null, $"{FileName} has no valid reverse-DNS id.");
@@ -102,6 +121,27 @@ internal sealed partial record PackManifest
             Id = id, Version = version, Kind = kind, Tier = tier, Licence = Text("licence"), Contains = contains, ContainableBy = containable,
             ValidUntil = validUntil, Protection = protection, Code = code, Source = origin,
         }, null);
+    }
+
+    // extensions: an object; "critical", when present, lists names of other members, each once; a critical one this reader
+    // does not understand refuses the pack, any other extension is ignored.
+    private static string? Extensions(JsonElement root)
+    {
+        if (!root.TryGetProperty("extensions", out var extensions)) return null;
+        if (extensions.ValueKind != JsonValueKind.Object) return $"{FileName} has a malformed 'extensions': an object.";
+        if (!extensions.TryGetProperty("critical", out var critical)) return null;
+        if (critical.ValueKind != JsonValueKind.Array || critical.EnumerateArray().Any(c => c.ValueKind != JsonValueKind.String))
+            return $"{FileName} has a malformed 'extensions.critical': a list of extension names.";
+        var names = critical.EnumerateArray().Select(c => c.GetString()!).ToList();
+        if (names.Distinct(StringComparer.Ordinal).Count() != names.Count) return $"{FileName} lists a critical extension twice.";
+        foreach (var name in names)
+        {
+            if (name == "critical" || !extensions.TryGetProperty(name, out _))
+                return $"{FileName} marks '{name}' critical, but 'extensions' holds no such extension.";
+            if (!UnderstoodExtensions.Contains(name))
+                return $"{FileName} marks the extension '{name}' critical, and this reader does not understand it.";
+        }
+        return null;
     }
 
     [GeneratedRegex("\\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){2,}\\z", RegexOptions.CultureInvariant)]

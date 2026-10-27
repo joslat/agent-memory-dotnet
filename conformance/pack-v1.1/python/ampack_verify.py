@@ -25,6 +25,10 @@ FILES = "META/files.json"
 SIGNATURES = "META/signatures/"
 FILES_FORMAT = "agentmemory.pack.files/1.1"
 PACK_FORMAT = "agentmemory.pack/1.2"
+# Every field pack.json may hold; anything the format does not define goes in "extensions" (PACK-strict).
+PACK_FIELDS = {"format", "id", "version", "kind", "sdk", "requires", "display", "containableBy", "contains", "tier", "licence",
+               "validUntil", "protection", "code", "source", "extensions"}
+UNDERSTOOD_EXTENSIONS = set()
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 STATEMENT = "https://in-toto.io/Statement/v1"
 ROLES = {"publisher", "curator", "assurer"}
@@ -201,6 +205,20 @@ def verify(files, policy, now):
     manifest = profile(content.get("pack.json", b"null"))
     if not isinstance(manifest, dict) or manifest.get("format") != PACK_FORMAT or manifest.get("id") != pid or manifest.get("version") != version:
         raise Refused("pack.json does not name the same pack as META/files.json")
+    unknown = sorted(set(manifest) - PACK_FIELDS)
+    if unknown:
+        raise Refused(f"pack.json has an unknown field '{unknown[0]}'")
+    extensions = manifest.get("extensions", {})
+    if not isinstance(extensions, dict):
+        raise Refused("pack.json has a malformed 'extensions'")
+    critical = extensions.get("critical", [])
+    if not isinstance(critical, list) or not all(isinstance(c, str) for c in critical) or len(set(critical)) != len(critical):
+        raise Refused("pack.json has a malformed 'extensions.critical'")
+    for name in critical:
+        if name == "critical" or name not in extensions:
+            raise Refused(f"pack.json marks '{name}' critical, but holds no such extension")
+        if name not in UNDERSTOOD_EXTENSIONS:
+            raise Refused(f"pack.json marks the extension '{name}' critical, and this verifier does not understand it")
     digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
     if digest in policy.get("revoked", {}).get("digests", []):
         raise Refused("the pack is revoked")

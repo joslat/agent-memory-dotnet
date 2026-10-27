@@ -139,6 +139,8 @@ internal static class PackLayout
     {
         var pack = Object(files, PackManifest.FileName) ?? throw new InvalidDataException($"There is no {PackManifest.FileName}.");
         var members = Object(files, Members) ?? throw new InvalidDataException($"A composite pack carries {Members}.");
+        if (members.Select(p => p.Key).FirstOrDefault(k => k != "members") is { } unknown)
+            throw new InvalidDataException($"{Members} has an unknown field '{unknown}'; it holds members only.");
         var composite = new JsonObject
         {
             ["format"] = CompositeFormat,

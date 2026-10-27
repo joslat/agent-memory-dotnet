@@ -19,6 +19,7 @@ ZIP writer), and derives tampered and ambiguous variants:
 | Valid | a pack built by .NET; a pack built and signed by Python |
 | Content | a changed record; an extra file; a missing file; a list rebuilt around changed content with the old signature |
 | Identity | a list that is valid JSON but not RFC 8785 canonical; `pack.json` naming another pack than the list |
+| Strictness | an unknown field in `pack.json`; an extension that is ignored; a critical extension neither verifier understands; a critical list naming no extension |
 | Trust | a key the policy scopes to another namespace |
 | JSON profile | CRLF in a record; a byte order mark; a repeated key |
 | Paths | a Windows device name (`CON`) |
