@@ -33,12 +33,15 @@ public sealed class AmpackCommandLineTests : IDisposable
 
     private string At(params string[] parts) => Path.Combine([_root, .. parts]);
 
-    private (int Exit, string Output) Ampack(params string[] args)
+    private (int Exit, string Output) Ampack(params string[] args) => Ampack(null, args);
+
+    private (int Exit, string Output) Ampack(IReadOnlyDictionary<string, string>? environment, params string[] args)
     {
         var start = new ProcessStartInfo("dotnet")
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = _root,
         };
+        foreach (var (name, value) in environment ?? new Dictionary<string, string>()) start.Environment[name] = value;
         start.ArgumentList.Add(Tool);
         foreach (var arg in args) start.ArgumentList.Add(arg);
         using var process = Process.Start(start)!;
@@ -207,6 +210,40 @@ public sealed class AmpackCommandLineTests : IDisposable
         Done("list", "--store", "store").Should().Contain("No packs installed.");
         Ampack("uninstall", "io.agentmemory.packs.martialarts", "--store", "store").Exit.Should().Be(1);
         Ampack("test", "--store", "store", "--policy", "trust.json").Exit.Should().Be(2, "nothing to test is a usage error");
+    }
+
+    [Fact]
+    public void A_key_from_the_environment_a_protected_file_or_an_external_signer_signs_as_a_file_key_does()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.example");
+        File.WriteAllText(At("trust.json"), PackAuthoring.TrustPolicy(File.ReadAllText(At("keys", "publisher.pub.pem")), "io.example"));
+        Done("init", "notes", "--id", "io.example.notes");
+        var pem = File.ReadAllText(At("keys", "publisher.key.pem"));
+        var signer = $"dotnet \"{Tool}\" sign-bytes --key \"{At("keys", "publisher.key.pem")}\"";
+
+        // env: a PEM in an environment variable, never on disk.
+        Ampack(new Dictionary<string, string> { ["AMPACK_TEST_KEY"] = pem }, "build", "notes", "--out", "env.ampack", "--key", "env:AMPACK_TEST_KEY").Exit.Should().Be(0);
+        Done("verify", "env.ampack", "--policy", "trust.json");
+        // --signer: the command signs; DER or the r||s form KMS tools print; ampack checks the signature against --public.
+        Done("build", "notes", "--out", "der.ampack", "--signer", signer, "--public", At("keys", "publisher.pub.pem"));
+        Done("verify", "der.ampack", "--policy", "trust.json");
+        Done("build", "notes", "--out", "p1363.ampack", "--signer", signer + " --p1363", "--public", At("keys", "publisher.pub.pem"));
+        Done("verify", "p1363.ampack", "--policy", "trust.json");
+        Done("keygen", "--out", "other", "--name", "other", "--prefix", "io.example");
+        var wrong = Ampack("build", "notes", "--out", "wrong.ampack", "--signer", signer, "--public", At("other", "other.pub.pem"));
+        wrong.Exit.Should().NotBe(0);
+        wrong.Output.Should().Contain("does not verify with the public key");
+        File.Exists(At("wrong.ampack")).Should().BeFalse("nothing is written when the signer signs with another key");
+
+        // dpapi: a private key encrypted for this Windows user.
+        if (OperatingSystem.IsWindows())
+        {
+            Done("keygen", "--out", "protected", "--name", "publisher", "--prefix", "io.example", "--protect", "dpapi");
+            File.Exists(At("protected", "publisher.key.pem")).Should().BeFalse("no plaintext private key");
+            File.WriteAllText(At("trust-protected.json"), PackAuthoring.TrustPolicy(File.ReadAllText(At("protected", "publisher.pub.pem")), "io.example"));
+            Done("build", "notes", "--out", "dpapi.ampack", "--key", "dpapi:" + At("protected", "publisher.key.dpapi"));
+            Done("verify", "dpapi.ampack", "--policy", "trust-protected.json");
+        }
     }
 
     [Fact]

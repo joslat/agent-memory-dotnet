@@ -29,7 +29,14 @@ internal static class Program
                                  what changed between two packs: identity, every declared value (ontology, views,
                                  walk, trial, ...), every record by type and key, every file; --policy verifies both first
           keygen --out <folder> [--name <name>] [--prefix <id.prefix>] [--role publisher|curator|assurer|revoker]
-                                 a P-256 key pair and a trust-policy entry for it
+                 [--protect dpapi]
+                                 a P-256 key pair and a trust-policy entry for it; --protect dpapi keeps the
+                                 private key encrypted for this Windows user (use it as --key dpapi:<file>)
+          Every --key also takes env:<VARIABLE> or dpapi:<file>; or sign with --signer "<command>" --public <pub.pem>
+          for an OS keychain, KMS or HSM (the command reads the bytes to sign, prints the signature in base64).
+          sign-bytes --key <private.pem> [--p1363]
+                                 the reference --signer: read bytes on standard input, print their signature in base64
+                                 (DER, or r||s with --p1363, as KMS tools print it)
           revoke <out.json> --key <revoker.pem> --expires <RFC 3339> [--digests <sha256:…,…>] [--keys <keyId[@compromisedAt],…>]
                                  a signed revocation document; hosts apply it with --revocations, and nothing
                                  verifies after it expires until a fresh one is applied
@@ -75,6 +82,7 @@ internal static class Program
                 "diff" => DiffPacks(options),
                 "keygen" => Keygen(options),
                 "revoke" => Revoke(options),
+                "sign-bytes" => SignBytes(options),
                 "lock" => Lock(options),
                 "migrate" => Migrate(options),
                 "set" => Set(options),
@@ -192,7 +200,11 @@ internal static class Program
         var integrity = PackVerifier.CheckIntegrity(new PackContent(files, folder));
         if (integrity.Problems.Count > 0) return Report(integrity.Problems, "");
         if (dropped) Console.WriteLine("The content changed, so the old signatures were removed.");
-        if (o.Value("key") is { } keyPath) PackBuilder.Sign(files, File.ReadAllText(keyPath), o.Value("role") ?? "publisher", SigningTime());
+        if (o.Value("key") is not null || o.Value("signer") is not null)
+        {
+            using var signer = Signer(o);
+            PackBuilder.Sign(files, signer, o.Value("role") ?? "publisher", SigningTime());
+        }
         WriteMeta(folder, files);
         var digest = FilesList.DigestOf(files[PackPaths.FilesList]);
         var output = o.Value("out") ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(folder))!, $"{integrity.List!.Id}-{integrity.List.Version}{PackReader.Extension}");
@@ -207,7 +219,8 @@ internal static class Program
         var files = PackReader.ReadFolder(folder).Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
         var integrity = PackVerifier.CheckIntegrity(new PackContent(files, folder));
         if (integrity.Problems.Count > 0) return Report(integrity.Problems, "");
-        var path = PackBuilder.Sign(files, File.ReadAllText(o.Required("key")), o.Value("role") ?? "publisher", SigningTime());
+        using var signer = Signer(o);
+        var path = PackBuilder.Sign(files, signer, o.Value("role") ?? "publisher", SigningTime());
         WriteMeta(folder, files);
         Console.WriteLine($"Signed {integrity.List!.Id} {integrity.List.Version}: {path}");
         return 0;
@@ -277,9 +290,15 @@ internal static class Program
         if (!TrustPolicy.KeyRoles.Contains(role)) throw new UsageException($"--role is one of {string.Join(", ", TrustPolicy.KeyRoles.Order())}.");
         var key = PackKey.Create();
         Directory.CreateDirectory(folder);
-        var privatePath = Path.Combine(folder, name + ".key.pem");
+        var protect = o.Value("protect");
+        if (protect is not (null or "dpapi")) throw new UsageException("--protect dpapi is the one protection keygen applies; use --signer for a keychain or KMS.");
+        if (protect == "dpapi" && !OperatingSystem.IsWindows()) throw new UsageException("--protect dpapi is Windows only.");
+        var privatePath = Path.Combine(folder, name + (protect == "dpapi" ? ".key.dpapi" : ".key.pem"));
         if (File.Exists(privatePath)) throw new UsageException($"{privatePath} exists; refusing to overwrite a key.");
-        File.WriteAllText(privatePath, key.PrivateKeyPem);
+        if (protect == "dpapi" && OperatingSystem.IsWindows())
+            File.WriteAllBytes(privatePath, System.Security.Cryptography.ProtectedData.Protect(System.Text.Encoding.UTF8.GetBytes(key.PrivateKeyPem), null,
+                System.Security.Cryptography.DataProtectionScope.CurrentUser));
+        else File.WriteAllText(privatePath, key.PrivateKeyPem);
         File.WriteAllText(Path.Combine(folder, name + ".pub.pem"), key.PublicKeyPem);
         var entry = new JsonObject
         {
@@ -310,8 +329,44 @@ internal static class Program
             keys.Add(new RevokedKey(at >= 0 ? entry[..at] : entry, compromisedAt));
         }
         if (digests.Count == 0 && keys.Count == 0) Console.Error.WriteLine("Note: the document revokes nothing; it renews the revocation list's freshness.");
-        File.WriteAllBytes(output, Revocations.Sign(digests, keys, issuedAt, expires, File.ReadAllText(o.Required("key"))));
+        using var signer = Signer(o);
+        File.WriteAllBytes(output, Revocations.Sign(digests, keys, issuedAt, expires, signer));
         Console.WriteLine($"Wrote {output}: {digests.Count} digest(s), {keys.Count} key(s), issued {issuedAt:u}, expires {expires:u}.");
+        return 0;
+    }
+
+    // Who signs (PACK-toolset): --key <file.pem>, --key env:<VARIABLE> (a PEM in the environment), --key dpapi:<file> (a key
+    // protected for this Windows user by keygen --protect dpapi), or --signer "<command>" --public <pub.pem> for any keychain,
+    // KMS or HSM: the command reads the bytes to sign on standard input and prints the signature in base64.
+    private static PackSigner Signer(Options o)
+    {
+        if (o.Value("signer") is { } command)
+            return PackSigner.FromCommand(command, File.ReadAllText(o.Value("public") ?? throw new UsageException("--signer needs --public <pub.pem>, the key it signs with.")));
+        var key = o.Required("key");
+        if (key.StartsWith("env:", StringComparison.Ordinal))
+            return PackSigner.FromPem(Environment.GetEnvironmentVariable(key[4..]) is { Length: > 0 } pem ? pem
+                : throw new UsageException($"The environment variable {key[4..]} holds no key."));
+        if (key.StartsWith("dpapi:", StringComparison.Ordinal))
+        {
+            if (!OperatingSystem.IsWindows()) throw new UsageException("dpapi: keys are Windows only; elsewhere use --signer with the OS keychain.");
+            var pem = System.Text.Encoding.UTF8.GetString(System.Security.Cryptography.ProtectedData.Unprotect(File.ReadAllBytes(key[6..]), null,
+                System.Security.Cryptography.DataProtectionScope.CurrentUser));
+            return PackSigner.FromPem(pem);
+        }
+        return PackSigner.FromPem(File.ReadAllText(key));
+    }
+
+    // The reference signer for --signer: what a keychain, KMS or HSM command must do.
+    private static int SignBytes(Options o)
+    {
+        using var input = Console.OpenStandardInput();
+        using var buffer = new MemoryStream();
+        input.CopyTo(buffer);
+        using var key = System.Security.Cryptography.ECDsa.Create();
+        key.ImportFromPem(File.ReadAllText(o.Required("key")));
+        var format = o.Flag("p1363") ? System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation
+            : System.Security.Cryptography.DSASignatureFormat.Rfc3279DerSequence;
+        Console.WriteLine(Convert.ToBase64String(key.SignData(buffer.ToArray(), System.Security.Cryptography.HashAlgorithmName.SHA256, format)));
         return 0;
     }
 
@@ -371,7 +426,8 @@ internal static class Program
         }
         if (members.Count == 0) throw new UsageException("A set carries at least one member.");
         var (files, _) = PackBuilder.Build(PackSets.Source(id, version, members));
-        PackBuilder.Sign(files, File.ReadAllText(o.Required("key")), o.Value("role") ?? "publisher", SigningTime());
+        using var setSigner = Signer(o);
+        PackBuilder.Sign(files, setSigner, o.Value("role") ?? "publisher", SigningTime());
         File.WriteAllBytes(output, PackBuilder.Pack(files, compress: !o.Flag("stored")));
         Console.WriteLine($"Set {id} {version}: {members.Count} members\n  digest  {FilesList.DigestOf(files[PackPaths.FilesList])}\n  wrote   {output}");
         return 0;
@@ -573,7 +629,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363" };
     private readonly List<string> _positional = [];
     private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);

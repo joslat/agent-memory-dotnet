@@ -57,9 +57,14 @@ internal static class Dsse
     internal static byte[] Sign(byte[] filesList, string id, string version, string role, DateTimeOffset signedAt, string privateKeyPem)
     {
         if (!Roles.Contains(role)) throw new ArgumentException($"Unknown role '{role}'.", nameof(role));
-        using var ecdsa = ECDsa.Create();
-        ecdsa.ImportFromPem(privateKeyPem);
-        if (ecdsa.KeySize != 256) throw new ArgumentException("The key must be a P-256 key.", nameof(privateKeyPem));
+        using var signer = PackSigner.FromPem(privateKeyPem);
+        return Sign(filesList, id, version, role, signedAt, signer);
+    }
+
+    /// <summary>Signs the list's exact bytes as <paramref name="role"/> with any signer (a key in memory, a keychain, a KMS).</summary>
+    internal static byte[] Sign(byte[] filesList, string id, string version, string role, DateTimeOffset signedAt, PackSigner signer)
+    {
+        if (!Roles.Contains(role)) throw new ArgumentException($"Unknown role '{role}'.", nameof(role));
         var statement = new JsonObject
         {
             ["_type"] = StatementType,
@@ -68,12 +73,12 @@ internal static class Dsse
             ["predicate"] = new JsonObject { ["id"] = id, ["version"] = version, ["role"] = role, ["signedAt"] = signedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) },
         };
         var payload = Jcs.Canonical(statement);
-        var signature = ecdsa.SignData(Pae(PayloadType, payload), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        var signature = signer.Sign(Pae(PayloadType, payload));
         var envelope = new JsonObject
         {
             ["payloadType"] = PayloadType,
             ["payload"] = Convert.ToBase64String(payload),
-            ["signatures"] = new JsonArray(new JsonObject { ["keyid"] = PackKey.KeyIdOf(ecdsa), ["sig"] = Convert.ToBase64String(signature) }),
+            ["signatures"] = new JsonArray(new JsonObject { ["keyid"] = signer.KeyId, ["sig"] = Convert.ToBase64String(signature) }),
         };
         return Jcs.Canonical(envelope);
     }

@@ -23,12 +23,17 @@ internal static partial class Revocations
     internal static byte[] Sign(IReadOnlyList<string> digests, IReadOnlyList<RevokedKey> keys, DateTimeOffset issuedAt, DateTimeOffset expires,
         string privateKeyPem)
     {
+        using var signer = PackSigner.FromPem(privateKeyPem);
+        return Sign(digests, keys, issuedAt, expires, signer);
+    }
+
+    /// <summary>Writes and signs a document with any signer.</summary>
+    internal static byte[] Sign(IReadOnlyList<string> digests, IReadOnlyList<RevokedKey> keys, DateTimeOffset issuedAt, DateTimeOffset expires,
+        PackSigner signer)
+    {
         if (expires <= issuedAt) throw new ArgumentException("A revocation document expires after it is issued.", nameof(expires));
         if (digests.FirstOrDefault(d => !DigestPattern().IsMatch(d)) is { } bad) throw new ArgumentException($"'{bad}' is not a pack digest.", nameof(digests));
         if (keys.FirstOrDefault(k => !KeyIdPattern().IsMatch(k.KeyId)) is { } badKey) throw new ArgumentException($"'{badKey.KeyId}' is not a key id.", nameof(keys));
-        using var ecdsa = ECDsa.Create();
-        ecdsa.ImportFromPem(privateKeyPem);
-        if (ecdsa.KeySize != 256) throw new ArgumentException("The key must be a P-256 key.", nameof(privateKeyPem));
         var document = new JsonObject
         {
             ["format"] = Format,
@@ -39,12 +44,12 @@ internal static partial class Revocations
                 ? new JsonObject { ["keyId"] = k.KeyId, ["compromisedAt"] = Time(at) } : new JsonObject { ["keyId"] = k.KeyId }))]),
         };
         var payload = Jcs.Canonical(document);
-        var signature = ecdsa.SignData(Dsse.Pae(PayloadType, payload), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        var signature = signer.Sign(Dsse.Pae(PayloadType, payload));
         return Jcs.Canonical(new JsonObject
         {
             ["payloadType"] = PayloadType,
             ["payload"] = Convert.ToBase64String(payload),
-            ["signatures"] = new JsonArray(new JsonObject { ["keyid"] = PackKey.KeyIdOf(ecdsa), ["sig"] = Convert.ToBase64String(signature) }),
+            ["signatures"] = new JsonArray(new JsonObject { ["keyid"] = signer.KeyId, ["sig"] = Convert.ToBase64String(signature) }),
         });
     }
 

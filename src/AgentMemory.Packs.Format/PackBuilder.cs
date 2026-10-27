@@ -30,13 +30,18 @@ internal static class PackBuilder
     /// <summary>Adds (or replaces) this key's signature in <paramref name="role"/>.</summary>
     internal static string Sign(Dictionary<string, byte[]> files, string privateKeyPem, string role, DateTimeOffset signedAt)
     {
+        using var signer = PackSigner.FromPem(privateKeyPem);
+        return Sign(files, signer, role, signedAt);
+    }
+
+    /// <summary>Adds (or replaces) this signer's signature in <paramref name="role"/>: a key in memory, a keychain, a KMS.</summary>
+    internal static string Sign(Dictionary<string, byte[]> files, PackSigner signer, string role, DateTimeOffset signedAt)
+    {
         var listBytes = files[PackPaths.FilesList];
         var (list, problem) = FilesList.Parse(listBytes);
         if (list is null) throw new InvalidDataException(problem);
-        var envelope = Dsse.Sign(listBytes, list.Id, list.Version, role, signedAt, privateKeyPem);
-        using var key = System.Security.Cryptography.ECDsa.Create();
-        key.ImportFromPem(privateKeyPem);
-        var path = Dsse.PathFor(role, PackKey.KeyIdOf(key));
+        var envelope = Dsse.Sign(listBytes, list.Id, list.Version, role, signedAt, signer);
+        var path = Dsse.PathFor(role, signer.KeyId);
         files[path] = envelope;
         return path;
     }
