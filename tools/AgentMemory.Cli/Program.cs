@@ -273,7 +273,8 @@ try
         "work" => await new AgentMemory.Cli.Commands.WorkCommand(output)
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("ledger"), cli.Get("root"), cli.Get("source")),
         "codemap" => await new AgentMemory.Cli.Commands.CodeMapCommand(output)
-            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source"), cli.Get("scip"), cli.Get("pack"), cli.Get("trust")),
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source"), cli.Get("scip"), cli.Get("pack"), cli.Get("trust"),
+                cli.HasFlag("rebuild-if-stale")),
         "modules" => await new ModulesCommand(
             sp.GetRequiredService<INeo4jTransactionRunner>(), output).ExecuteAsync(moduleInput!),
         "migrate" => await new MigrateCommand(

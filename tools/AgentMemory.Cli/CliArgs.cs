@@ -134,8 +134,10 @@ public static class CliHelp
                                      Write the code map into the store: only what changed since the last.
               codemap pack --root <repo> --id <id> --version <v> --key <private.pem> --out <file.ampack>
                                      Share the code map as a signed snapshot pack (offline).
-              codemap import --pack <file.ampack> --trust <trust.json>
-                                     Import a shared snapshot pack, verified, instead of reading the repo.
+              codemap import --pack <file.ampack> --trust <trust.json> [--root <repo> [--rebuild-if-stale]]
+                                     Import a shared snapshot pack, verified, instead of reading the repo;
+                                     with --root, say whether it was built at the repo's commit, and with
+                                     --rebuild-if-stale read the repo instead when it was not.
               evaluate --gate <pack id> --repo <repo> --host-key <private.pem> --activations <folder>
                        [--pack <definition.ampack> --trust <trust.json>] [--previous <active.ampack>]
                        [--variant mediocre|weak] [--output <path>]

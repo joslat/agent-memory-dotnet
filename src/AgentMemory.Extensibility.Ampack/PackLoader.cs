@@ -98,6 +98,8 @@ public sealed record LoadedPack
     public string? SnapshotSource { get; init; }
     /// <summary>The pack's own tests (<c>evals/tests.json</c>), verified with it; null when it has none. Run with <see cref="PackTests"/>.</summary>
     public ReadOnlyMemory<byte>? Tests { get; init; }
+    /// <summary>When the pack declares <c>validUntil</c>: after it a host switches the pack off, at load and at runtime.</summary>
+    public DateTimeOffset? ValidUntil { get; init; }
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
 }
@@ -209,7 +211,7 @@ public static class PackLoader
         return new LoadedPack
         {
             Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Kind = pack.Manifest.Kind, Manifest = manifest,
-            Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles,
+            Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles, ValidUntil = pack.Manifest.ValidUntil,
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? tests : null,
         };
     }
@@ -241,8 +243,8 @@ public static class PackLoader
         ArgumentNullException.ThrowIfNull(pack);
         if (pack.Kind == "snapshot")
             throw new PackLoadException([$"{pack.Id} is a snapshot pack: compose its definition, and import the snapshot with ToSnapshot."]);
-        return pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority)
-            : builder.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), priority);
+        return pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority, pack.ValidUntil)
+            : builder.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), priority, pack.ValidUntil);
     }
 
     /// <summary>

@@ -82,24 +82,28 @@ public sealed class ModuleSetBuilder
     /// </summary>
     /// <param name="pack">The verified pack.</param>
     /// <param name="priority">Its search contributors' priority: lower comes first in the candidate budget and wins ties.</param>
-    public ModuleSetBuilder AddKnowledgePack(Packs.KnowledgePack pack, int priority = 100)
+    public ModuleSetBuilder AddKnowledgePack(Packs.KnowledgePack pack, int priority = 100) => AddKnowledgePack(pack, priority, validUntil: null);
+
+    /// <summary>A verified knowledge pack valid until <paramref name="validUntil"/>: after it, its contributors go silent (PACK-staleness).</summary>
+    internal ModuleSetBuilder AddKnowledgePack(Packs.KnowledgePack pack, int priority, DateTimeOffset? validUntil)
     {
         ArgumentNullException.ThrowIfNull(pack);
         return Add(pack.Manifest, builder =>
         {
             foreach (var view in pack.Manifest.Views.Where(v => v.Search is not null))
                 builder.AddContextContributor(c => new Contributors.ViewContributor(c.Resolution, c.Reader, view.Id, priority));
-        }, "knowledge-pack; digest=" + pack.Digest + "; signer=" + pack.Bundle.Signer.ToString().ToLowerInvariant(), priority, pack.Digest);
+        }, "knowledge-pack; digest=" + pack.Digest + "; signer=" + pack.Bundle.Signer.ToString().ToLowerInvariant(), priority, pack.Digest, validUntil);
     }
 
     /// <summary>
     /// Adds a verified definition pack: its declarations, and no code. The fingerprint names the pack's digest and signers, not
     /// the assembly that loaded it (PACK-review 2.19), and a trial decision must name the same digest (PACK-bind).
     /// </summary>
-    internal ModuleSetBuilder AddDefinitionPack(ModuleManifest manifest, string digest, string signers, int traversalPriority = 100)
+    internal ModuleSetBuilder AddDefinitionPack(ModuleManifest manifest, string digest, string signers, int traversalPriority = 100,
+        DateTimeOffset? validUntil = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(digest);
-        return Add(manifest, _ => { }, "definition-pack; digest=" + digest + "; signer=" + signers, traversalPriority, digest);
+        return Add(manifest, _ => { }, "definition-pack; digest=" + digest + "; signer=" + signers, traversalPriority, digest, validUntil);
     }
 
     /// <summary>
@@ -117,12 +121,12 @@ public sealed class ModuleSetBuilder
     }
 
     private ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure, string implementation, int traversalPriority = 100,
-        string? packDigest = null)
+        string? packDigest = null, DateTimeOffset? validUntil = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         if (_modules.Any(m => string.Equals(m.Manifest.Id, manifest.Id, StringComparison.Ordinal)))
             throw new ArgumentException($"Module '{manifest.Id}' is already added.", nameof(manifest));
-        var registration = new ModuleRegistration(manifest, implementation, packDigest);
+        var registration = new ModuleRegistration(manifest, implementation, packDigest) { ValidUntil = validUntil };
         configure(registration);
         // CMP-1: a module that declares traversal gets its share of the turn's walk, with no code of its own.
         if (manifest.Traversal is not null)
@@ -232,6 +236,8 @@ internal sealed class ModuleRegistration(ModuleManifest manifest, string impleme
     public string Implementation { get; } = implementation;
     /// <summary>For a module that came from a pack, the pack's digest, which its trial decision must name; null for compiled code.</summary>
     public string? PackDigest { get; } = packDigest;
+    /// <summary>For a pack that declares <c>validUntil</c>, when it expires: after it, its contributors go silent.</summary>
+    public DateTimeOffset? ValidUntil { get; init; }
     public ModuleOptionsBinding? Options { get; private set; }
     public IReadOnlyList<Func<ModuleActivationContext, IContextContributor>> Contributors => _contributors;
     public IReadOnlyList<Func<ModuleActivationContext, IIngestionProvider>> Providers => _providers;

@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Extensibility;
 using AgentMemory.Extensibility.Ampack;
+using AgentMemory.Extensibility.Context;
 using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Extensibility.Neo4j;
@@ -182,6 +183,48 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     }
 
     [Fact]
+    public async Task AKnowledgePackPastItsValidUntilIsSwitchedOffInAHostThatLoadedItWhileValid()
+    {
+        // PACK-staleness: the real martial arts pack, valid for one more day, loaded and imported; the host's clock then passes it.
+        var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(RealBundle("MartialArts")), StringComparer.Ordinal);
+        var until = DateTimeOffset.UtcNow.AddDays(1);
+        var manifest = JsonNode.Parse(source["pack.json"])!.AsObject();
+        manifest["validUntil"] = until.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture);
+        source["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
+        var pack = PackLoader.Load(PackAuthoring.Build(source, AmpackKey.PrivateKeyPem), AmpackTrust());
+        pack.ValidUntil.Should().BeCloseTo(until, TimeSpan.FromSeconds(1));
+        var importer = new KnowledgePackImporter(new Neo4jKnowledgePackStore(fixture.TransactionRunner));
+        await importer.ImportAsync(pack.Knowledge!);
+        try
+        {
+            var clock = new SettableClock(DateTimeOffset.UtcNow);
+            await using var provider = Host(m => m.UseNeo4jStore().AddPack(pack), s => s.AddSingleton<TimeProvider>(clock));
+            var request = new ContextRequest { SessionId = "s", Owner = "lea", Query = "Which kata do I learn for 8th kyu in Shotokan? Heian Shodan" };
+
+            var valid = await CompileAsync(provider, request);
+            valid.Sections.Should().Contain(s => s.Items.Any(i => i.Provenance != null && i.Provenance.RecordModuleId == pack.Id));
+
+            clock.Now = until.AddMinutes(1);
+            var expired = await CompileAsync(provider, request);
+            expired.Sections.Should().NotContain(s => s.Items.Any(i => i.Provenance != null && i.Provenance.RecordModuleId == pack.Id));
+            expired.Omissions.Should().Contain(o => o.Reason == ContextOmissionReason.Denied && o.Detail != null && o.Detail.Contains("valid until", StringComparison.Ordinal));
+        }
+        finally { await importer.RemoveAsync(pack.Manifest); }
+    }
+
+    private static async Task<ContextEnvelope> CompileAsync(IServiceProvider provider, ContextRequest request)
+    {
+        await using var scope = provider.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IContextCompiler>().CompileAsync(request);
+    }
+
+    private sealed class SettableClock(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Fact]
     public async Task PackMemoryReadsWhatTheStoreReadsForTheSameRecords()
     {
         // The real martial arts pack in Neo4j and in memory: list order, key reads and the best search hit agree.
@@ -270,10 +313,11 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     // Members that declare inference need a granted model to compose; nothing here asks it anything.
     private static readonly IChatClient NeverCalled = NSubstitute.Substitute.For<IChatClient>();
 
-    private ServiceProvider Host(Action<ModuleSetBuilder> modules)
+    private ServiceProvider Host(Action<ModuleSetBuilder> modules, Action<IServiceCollection>? more = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        more?.Invoke(services);
         services.AddNeo4jAgentMemory(_ => { }, o =>
         {
             o.Uri = fixture.ConnectionString;

@@ -153,7 +153,9 @@ public sealed class ModuleSet
             Owned(module, "contributor", descriptor.Id);
             foreach (var section in descriptor.SectionTypes) Owned(module, "section", section);
         }).Select(c => Priorities.FirstOrDefault(p => ModuleIdentity.IsOwnedId(p.Key, c.Descriptor.Id)) is { Key: not null } p
-            ? new PrioritizedContributor(c, p.Value) : c)];
+            ? new PrioritizedContributor(c, p.Value) : c)
+          .Select(c => _registrations.FirstOrDefault(r => r.ValidUntil is not null && ModuleIdentity.IsOwnedId(r.Manifest.Id, c.Descriptor.Id)) is { } expiring
+            ? new ExpiringContributor(c, expiring.ValidUntil!.Value, services.GetService<TimeProvider>() ?? TimeProvider.System) : c)];
 
     /// <summary>Host-set contributor priorities by module (<see cref="ModuleSetBuilder.Prioritize"/>).</summary>
     internal IReadOnlyDictionary<string, int> Priorities { get; init; } = new Dictionary<string, int>().AsReadOnly();
@@ -166,6 +168,27 @@ public sealed class ModuleSet
         public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) => inner.ContributeAsync(request, cancellationToken);
         public Task<ContextContributionResult> ContributeResultAsync(ContextRequest request, CancellationToken cancellationToken = default) =>
             inner.ContributeResultAsync(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// A contributor of a pack that declares <c>validUntil</c> (PACK-staleness): once the host's clock passes it, the pack
+    /// contributes nothing, and says why, even in a host that loaded it while it was valid.
+    /// </summary>
+    private sealed class ExpiringContributor(IContextContributor inner, DateTimeOffset validUntil, TimeProvider clock) : IContextContributor
+    {
+        public ContextContributorDescriptor Descriptor => inner.Descriptor;
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => inner.AppliesAsync(request, cancellationToken);
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) =>
+            Expired ? Task.FromResult<ContextSection?>(null) : inner.ContributeAsync(request, cancellationToken);
+        public Task<ContextContributionResult> ContributeResultAsync(ContextRequest request, CancellationToken cancellationToken = default) =>
+            Expired
+                ? Task.FromResult(new ContextContributionResult
+                {
+                    OmissionReason = ContextOmissionReason.Denied,
+                    Detail = $"The pack was valid until {validUntil.ToUniversalTime():yyyy-MM-dd HH:mm:ss}Z; this host switched it off.",
+                })
+                : inner.ContributeResultAsync(request, cancellationToken);
+        private bool Expired => clock.GetUtcNow() > validUntil;
     }
 
     /// <summary>Creates every module's ingestion providers for one scope, refusing any identity outside its own module.</summary>

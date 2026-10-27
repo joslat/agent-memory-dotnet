@@ -81,8 +81,8 @@ public static class PackFamilies
         return builder.AddComposite(family.Manifest, members =>
         {
             foreach (var pack in family.Members)
-                if (pack.Knowledge is { } knowledge) members.AddKnowledgePack(knowledge);
-                else members.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers));
+                if (pack.Knowledge is { } knowledge) members.AddKnowledgePack(knowledge, pack.ValidUntil);
+                else members.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), pack.ValidUntil);
         }, configure);
     }
 

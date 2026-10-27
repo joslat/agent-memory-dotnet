@@ -240,10 +240,18 @@ public sealed class CompositeMembers
     }
 
     /// <summary>Adds a verified definition pack member: declarations only, named in the fingerprint by its digest and signers.</summary>
-    internal CompositeMembers AddDefinitionPack(ModuleManifest manifest, string digest, string signers)
+    internal CompositeMembers AddDefinitionPack(ModuleManifest manifest, string digest, string signers, DateTimeOffset? validUntil = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        if (Admit(manifest) is { } priority) _builder.AddDefinitionPack(manifest, digest, signers).Prioritize(manifest.Id, priority);
+        if (Admit(manifest) is { } priority) _builder.AddDefinitionPack(manifest, digest, signers, validUntil: validUntil).Prioritize(manifest.Id, priority);
+        return this;
+    }
+
+    /// <summary>Adds a verified knowledge pack member valid until <paramref name="validUntil"/>.</summary>
+    internal CompositeMembers AddKnowledgePack(Packs.KnowledgePack pack, DateTimeOffset? validUntil)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        if (Admit(pack.Manifest) is { } priority) _builder.AddKnowledgePack(pack, priority, validUntil).Prioritize(pack.Id, priority);
         return this;
     }
 

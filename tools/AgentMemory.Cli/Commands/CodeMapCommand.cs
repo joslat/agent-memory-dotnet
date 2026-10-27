@@ -83,9 +83,9 @@ internal sealed class CodeMapCommand(TextWriter output)
     }
 
     public async Task<int> ImportAsync(INeo4jTransactionRunner runner, string? root, string? source, string? scip = null, string? packPath = null,
-        string? trustPath = null)
+        string? trustPath = null, bool rebuildIfStale = false)
     {
-        if (packPath is not null) return await ImportPackAsync(runner, packPath, trustPath).ConfigureAwait(false);
+        if (packPath is not null) return await ImportPackAsync(runner, packPath, trustPath, root, rebuildIfStale).ConfigureAwait(false);
         if (root is null && scip is null) return Usage("codemap import needs --root <repository>, --scip <index.scip>, --pack <file.ampack>, or one of them.");
         var watch = Stopwatch.StartNew();
         var snapshot = Read(root, scip).Build(source ?? (root is null ? null : Head(root)) ?? throw new InvalidOperationException(
@@ -101,8 +101,11 @@ internal sealed class CodeMapCommand(TextWriter output)
     }
 
     // A shared snapshot pack: verified against the host's trust, its records checked against this host's code map, then imported.
-    private async Task<int> ImportPackAsync(INeo4jTransactionRunner runner, string packPath, string? trustPath)
+    // With --root, its freshness against the repository's commit is reported (PACK-staleness); with --rebuild-if-stale, a stale
+    // pack is set aside and the repository itself is read and imported instead.
+    private async Task<int> ImportPackAsync(INeo4jTransactionRunner runner, string packPath, string? trustPath, string? root, bool rebuildIfStale)
     {
+        if (rebuildIfStale && root is null) return Usage("codemap import --rebuild-if-stale needs --root <repository> to rebuild from.");
         if (trustPath is null || !File.Exists(trustPath)) return Usage("codemap import --pack needs --trust <trust.json>.");
         var watch = Stopwatch.StartNew();
         ModuleSnapshot snapshot;
@@ -117,15 +120,45 @@ internal sealed class CodeMapCommand(TextWriter output)
             output.WriteLine(JsonSerializer.Serialize(new { refused = packPath, problems = e.Problems }, Json));
             return 1;
         }
+        SnapshotFreshness? freshness = null;
+        int? behind = null;
+        if (root is not null && Head(root) is { } head)
+        {
+            freshness = pack.Freshness(head);
+            if (freshness.BuiltAt is { } built) behind = CommitsSince(root, built);
+        }
+        var rebuilt = false;
+        if (freshness?.Fresh == false && rebuildIfStale)
+        {
+            snapshot = Read(root, null).Build(Head(root!)!);
+            rebuilt = true;
+        }
         var read = watch.Elapsed;
         var result = await new Neo4jModuleSnapshotStore(runner).ImportAsync(snapshot, DateTimeOffset.UtcNow).ConfigureAwait(false);
         output.WriteLine(JsonSerializer.Serialize(new
         {
-            pack = pack.Id, packVersion = pack.Version, packDigest = pack.Digest, result.ModuleId, result.Source, result.Created, result.Changed,
+            pack = pack.Id, packVersion = pack.Version, packDigest = pack.Digest,
+            freshness = freshness is null ? null : new { freshness.BuiltAt, freshness.Head, freshness.Fresh, behind, freshness.Detail },
+            rebuilt, result.ModuleId, result.Source, result.Created, result.Changed,
             result.Unchanged, result.Closed, records = snapshot.Records.Count, digest = snapshot.Digest, readSeconds = Math.Round(read.TotalSeconds, 1),
             importSeconds = Math.Round((watch.Elapsed - read).TotalSeconds, 1),
         }, Json));
         return 0;
+    }
+
+    // How many commits the repository's head is past <commit>, or null when the repository does not have that commit.
+    private static int? CommitsSince(string root, string commit)
+    {
+        try
+        {
+            var start = new ProcessStartInfo("git") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var argument in new[] { "-C", root, "rev-list", "--count", commit + "..HEAD" }) start.ArgumentList.Add(argument);
+            using var process = Process.Start(start)!;
+            var count = process.StandardOutput.ReadToEnd().Trim();
+            process.WaitForExit();
+            return process.ExitCode == 0 && int.TryParse(count, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : null;
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return null; }
     }
 
     // C# from the repository with Roslyn, then each SCIP index into the same map.

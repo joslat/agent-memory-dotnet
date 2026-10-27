@@ -46,7 +46,14 @@ internal sealed class PackTools
         views = (mount.Memory.Resolution.Modules.FirstOrDefault(m => m.Id == p.Id)?.Views ?? p.Manifest.Views)
             .Select(v => new { id = v.Id, type = v.Type, search = v.Search is not null }),
         walkable = p.Manifest.Traversal is not null,
+        source = p.SnapshotSource, validUntil = p.ValidUntil, expired = Expired(p),
     }), Json);
+
+    // PACK-staleness: a pack past its validUntil is switched off while the server runs, as a host switches it off.
+    private static bool Expired(LoadedPack pack) => pack.ValidUntil is { } until && DateTimeOffset.UtcNow > until;
+
+    private static HashSet<string> ExpiredIds(PackMount mount) =>
+        mount.Packs.Where(Expired).Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
 
     [McpServerTool(Name = "pack_ask", ReadOnly = true), Description("Ask one view of a pack: a search view with a question or keywords, or any view with an exact record key. Returns the records as their type renders them, each with its pack provenance.")]
     public static async Task<string> Ask(PackMount mount,
@@ -57,6 +64,8 @@ internal sealed class PackTools
         [Description("At most this many records (the view's own limit when omitted)")] int? limit = null,
         CancellationToken cancellationToken = default)
     {
+        if (mount.Packs.FirstOrDefault(p => p.Id == pack) is { } loaded && Expired(loaded))
+            return JsonSerializer.Serialize(new { error = $"{pack} was valid until {loaded.ValidUntil:u}; it is switched off." }, Json);
         try { return Hits(await mount.Memory.AskAsync(pack, view, text, key, limit, cancellationToken).ConfigureAwait(false)); }
         catch (PackLoadException e) { return JsonSerializer.Serialize(new { error = string.Join(" ", e.Problems) }, Json); }
     }
@@ -72,7 +81,9 @@ internal sealed class PackTools
             .Concat((symbols ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => ContextAnchor.Symbol(s)))
             .Take(ContextAnchor.MaximumPerRequest).ToList();
         if (anchors.Count == 0) return JsonSerializer.Serialize(new { error = "Give at least one path or symbol to walk from." }, Json);
-        return Hits(await mount.Memory.WalkAsync(anchors, question, cancellationToken).ConfigureAwait(false));
+        var expired = ExpiredIds(mount);
+        var hits = await mount.Memory.WalkAsync(anchors, question, cancellationToken).ConfigureAwait(false);
+        return Hits([.. hits.Where(h => !expired.Contains(h.Module) && !(h.Pack?.Carrier?.Id is { } carrier && expired.Contains(carrier)))]);
     }
 
     private static string Hits(IReadOnlyList<PackHit> hits) => JsonSerializer.Serialize(hits.Select(h => new
