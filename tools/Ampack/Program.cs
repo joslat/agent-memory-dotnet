@@ -18,7 +18,10 @@ internal static class Program
           init <folder> --id <reverse.dns.id> [--kind knowledge|definition] [--version 0.1.0]
                                  start a pack folder (pack.json, an ontology, a view, .gitattributes, and for a
                                  knowledge pack one record)
-          lint <folder|file>     check paths, the JSON profile, pack.json and, once built, the files list
+          lint <folder|file> [--policy <trust.json>]
+                                 check paths, the JSON profile, pack.json and, once built, the files list; with
+                                 --policy, load a .ampack as a host does and give advice on what a host will do with
+                                 it later (no trial, no upgrade rule, links that need consent, validity ending soon)
           build <folder> [--out <file.ampack>] [--key <private.pem>] [--role publisher] [--stored]
                                  write META/files.json, optionally sign, and pack; prints the digest
           sign <folder> --key <private.pem> [--role publisher|curator|assurer]
@@ -194,7 +197,16 @@ internal static class Program
         }
         else problems.Add($"There is no {PackManifest.FileName}.");
         if (problems.Count == 0 && content.Files.ContainsKey(PackPaths.FilesList)) problems.AddRange(PackVerifier.CheckIntegrity(content).Problems);
-        return Report(problems, "Lint passed.");
+        if (problems.Count > 0 || o.Value("policy") is null) return Report(problems, "Lint passed.");
+        // Advice needs the pack as a host loads it: a built .ampack, against the host's trust.
+        var target = o.Positional(0, "folder or file");
+        if (!File.Exists(target)) throw new UsageException("Advice (--policy) reads a built .ampack; build the folder first.");
+        var inspection = AgentMemory.Extensibility.Ampack.PackInspection.Inspect(File.ReadAllBytes(target), Trust(o));
+        if (!inspection.Loaded) return Report(inspection.Problems, "");
+        var advice = AgentMemory.Extensibility.Ampack.PackAdvice.Of(inspection, DateTimeOffset.UtcNow);
+        Console.WriteLine(advice.Count == 0 ? "Lint passed; no advice." : $"Lint passed; {advice.Count} piece(s) of advice:");
+        foreach (var item in advice) Console.WriteLine($"  {item.Rule,-20} {item.Pack}: {item.Text}");
+        return 0;
     }
 
     private static int Build(Options o)
