@@ -65,6 +65,13 @@ internal static class Program
                                  with --http, the same over REST: GET /v1/meta, GET /v1/packs,
                                  POST /v1/packs/{id}/views/{view}/ask, POST /v1/walk (this machine only, unless
                                  --allow-remote)
+          evidence --activations <folder> --host-key <host.pub.pem> --pack <id> [--version <v>] --out <run-folder>
+                                 a host's trial decision for a pack (the latest, or of that version) as an AEF run:
+                                 the pack as its subject, the trial's tasks with and without it, the gate's decision,
+                                 and the signed record itself; an assurer seals and signs it (agenteval aef seal
+                                 --sealed-by ingest --key ...)
+          countersign <pack.ampack> --key <file|env:VAR|dpapi:FILE> --role <curator|assurer|publisher> --out <file>
+                                 sign a built pack again in another role, its content and digest unchanged
           test [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
                                  load the packs as a host does (every record checked), hold them in memory, and run
                                  each pack's own tests (evals/tests.json): views, searches and walks, offline;
@@ -95,6 +102,8 @@ internal static class Program
                 "migrate" => Migrate(options),
                 "set" => Set(options),
                 "test" => Test(options),
+                "evidence" => Evidence(options),
+                "countersign" => Countersign(options),
                 "serve" => ServePacks(options),
                 "install" => Install(options),
                 "uninstall" => Uninstall(options),
@@ -227,6 +236,35 @@ internal static class Program
         var output = o.Value("out") ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(folder))!, $"{integrity.List!.Id}-{integrity.List.Version}{PackReader.Extension}");
         File.WriteAllBytes(output, PackBuilder.Pack(files, compress: !o.Flag("stored")));
         Console.WriteLine($"{integrity.List!.Id} {integrity.List.Version}\n  digest  {digest}\n  files   {integrity.List.Files.Count}\n  signed  {files.Keys.Count(PackPaths.IsSignature)}\n  wrote   {output}");
+        return 0;
+    }
+
+    // PACK-evidence-aef: a host's trial decision as an AEF run.
+    private static int Evidence(Options o)
+    {
+        var records = new AgentMemory.Extensibility.Modules.PackActivationFolder(o.Required("activations"), File.ReadAllText(o.Required("host-key")));
+        var id = o.Required("pack");
+        var version = o.Value("version");
+        var decision = records.History(id).Where(d => version is null || d.Version == version).MaxBy(d => d.DecidedAt);
+        if (decision is null) return Report([$"No decision signed by this host for {id}{(version is null ? "" : " " + version)} in {o.Required("activations")}."], "");
+        var file = records.FileOf(decision);
+        var runId = AgentMemory.Extensibility.Ampack.PackTrialEvidence.WriteRun(decision, o.Required("out"), file is null ? null : File.ReadAllBytes(file),
+            typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "2.0.0");
+        Console.WriteLine($"{id} {decision.Version}: {(decision.Active ? "on" : "off")}, {decision.Reason}\n  run     {runId}\n  wrote   {o.Required("out")}");
+        return 0;
+    }
+
+    private static int Countersign(Options o)
+    {
+        var target = o.Positional(0, "pack file");
+        using var signer = Signer(o);
+        var role = o.Required("role");
+        var content = PackReader.ReadArchive(File.ReadAllBytes(target), target);
+        if (PackVerifier.CheckIntegrity(content).Problems is { Count: > 0 } problems) return Report(problems, "");
+        var files = content.Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
+        PackBuilder.Sign(files, signer, role, SigningTime());
+        File.WriteAllBytes(o.Required("out"), PackBuilder.Pack(files));
+        Console.WriteLine($"Countersigned as {role}: {o.Required("out")}");
         return 0;
     }
 

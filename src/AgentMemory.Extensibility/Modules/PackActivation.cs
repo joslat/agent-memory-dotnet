@@ -396,6 +396,7 @@ public sealed class PackActivationFolder : IPackActivations
     private readonly Dictionary<(string, string), PackActivation> _latest = [];
     private readonly Dictionary<(string, string, string, string), PackActivation> _latestByDigest = [];
     private readonly Dictionary<string, List<PackActivation>> _history = new(StringComparer.Ordinal);
+    private readonly Dictionary<PackActivation, string> _files = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>Reads every <c>*.dsse.json</c> in <paramref name="folder"/>; files that do not verify are listed in <see cref="Ignored"/>.</summary>
     public PackActivationFolder(string folder, string hostPublicKeyPem)
@@ -410,6 +411,7 @@ public sealed class PackActivationFolder : IPackActivations
             {
                 var activation = Open(File.ReadAllBytes(file), key);
                 if (activation is null) { ignored.Add(Path.GetFileName(file)); continue; }
+                _files[activation] = file;
                 var id = (activation.ModuleId, activation.Version);
                 if (!_latest.TryGetValue(id, out var known) || known.DecidedAt < activation.DecidedAt) _latest[id] = activation;
                 if (!_history.TryGetValue(activation.ModuleId, out var all)) _history[activation.ModuleId] = all = [];
@@ -422,6 +424,9 @@ public sealed class PackActivationFolder : IPackActivations
 
     /// <summary>Files that were not valid records signed by the host key.</summary>
     public IReadOnlyList<string> Ignored { get; }
+
+    /// <summary>The signed record a decision was read from (PACK-evidence-aef: it travels with the decision's evidence); null for one read elsewhere.</summary>
+    public string? FileOf(PackActivation activation) => _files.GetValueOrDefault(activation);
 
     /// <inheritdoc/>
     public PackActivation? Find(string moduleId, ModuleVersion version) => _latest.GetValueOrDefault((moduleId, version.ToString()));
