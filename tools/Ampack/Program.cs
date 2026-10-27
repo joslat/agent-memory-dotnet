@@ -25,6 +25,9 @@ internal static class Program
           verify <folder|file> --policy <trust.json> [--revocations <file>] [--ledger <ledger.json>] [--record] [--allow-downgrade]
                  [--explain]       with --explain, every step in order: what it checked, whether it held, and why
           inspect <folder|file>  identity, digest, files and signatures, without trusting them
+          diff <a> <b> [--policy <trust.json>] [--json]
+                                 what changed between two packs: identity, every declared value (ontology, views,
+                                 walk, trial, ...), every record by type and key, every file; --policy verifies both first
           keygen --out <folder> [--name <name>] [--prefix <id.prefix>] [--role publisher|curator|assurer|revoker]
                                  a P-256 key pair and a trust-policy entry for it
           revoke <out.json> --key <revoker.pem> --expires <RFC 3339> [--digests <sha256:…,…>] [--keys <keyId[@compromisedAt],…>]
@@ -63,6 +66,7 @@ internal static class Program
                 "sign" => Sign(options),
                 "verify" => Verify(options),
                 "inspect" => Inspect(options),
+                "diff" => DiffPacks(options),
                 "keygen" => Keygen(options),
                 "revoke" => Revoke(options),
                 "lock" => Lock(options),
@@ -436,6 +440,65 @@ internal static class Program
         return Encoding.UTF8.GetString(buffer.ToArray()).Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
     }
 
+    // PACK-toolset: ampack diff.
+    private static int DiffPacks(Options o)
+    {
+        var (first, second) = (o.Positional(0, "first pack"), o.Positional(1, "second pack"));
+        if (o.Value("policy") is not null)
+        {
+            var policy = Policy(o);
+            foreach (var path in new[] { first, second })
+                if (PackVerifier.Verify(PackReader.Read(path), policy, DateTimeOffset.UtcNow) is { IsVerified: false } refused)
+                    return Report(refused.Problems.Select(p => $"{path}: {p}"), "");
+        }
+        AgentMemory.Extensibility.Ampack.PackDiff diff;
+        try { diff = AgentMemory.Extensibility.Ampack.PackDiff.Compare(first, second); }
+        catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
+        if (o.Flag("json"))
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                before = new { id = diff.Before.Id, version = diff.Before.Version, digest = diff.Before.Digest },
+                after = new { id = diff.After.Id, version = diff.After.Version, digest = diff.After.Digest },
+                same = diff.Same, declarations = diff.Declarations, records = diff.Records, unchangedRecords = diff.UnchangedRecords, files = diff.Files,
+            }, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) } }));
+            return 0;
+        }
+        static string Mark(AgentMemory.Extensibility.Ampack.PackChange c) => c switch
+        {
+            AgentMemory.Extensibility.Ampack.PackChange.Added => "+", AgentMemory.Extensibility.Ampack.PackChange.Removed => "-", _ => "~",
+        };
+        Console.WriteLine($"{diff.Before.Id} {diff.Before.Version} -> {diff.After.Id} {diff.After.Version}{(diff.Same ? "  (the same pack)" : "")}");
+        Console.WriteLine($"  digest  {diff.Before.Digest} -> {diff.After.Digest}");
+        foreach (var group in diff.Declarations.GroupBy(d => d.File))
+        {
+            Console.WriteLine($"  {group.Key}");
+            foreach (var change in group)
+                Console.WriteLine($"    {Mark(change.Change)} {change.Path}: " + change.Change switch
+                {
+                    AgentMemory.Extensibility.Ampack.PackChange.Added => Short(change.After!),
+                    AgentMemory.Extensibility.Ampack.PackChange.Removed => Short(change.Before!),
+                    _ => $"{Short(change.Before!)} -> {Short(change.After!)}",
+                });
+        }
+        var counts = diff.Records.GroupBy(r => r.Change).ToDictionary(g => g.Key, g => g.Count());
+        Console.WriteLine($"  records  +{counts.GetValueOrDefault(AgentMemory.Extensibility.Ampack.PackChange.Added)} " +
+            $"-{counts.GetValueOrDefault(AgentMemory.Extensibility.Ampack.PackChange.Removed)} ~{counts.GetValueOrDefault(AgentMemory.Extensibility.Ampack.PackChange.Changed)}, {diff.UnchangedRecords} unchanged");
+        foreach (var record in diff.Records.Take(50))
+            Console.WriteLine($"    {Mark(record.Change)} {record.Type} '{record.Key}'" + (record.Change == AgentMemory.Extensibility.Ampack.PackChange.Changed
+                ? ": " + string.Join(", ", record.Properties) + (record.LinksChanged ? (record.Properties.Count > 0 ? ", links" : "links") : "") : ""));
+        if (diff.Records.Count > 50) Console.WriteLine($"    ... and {diff.Records.Count - 50} more (--json lists all)");
+        if (diff.Files.Count > 0)
+        {
+            Console.WriteLine("  files");
+            foreach (var file in diff.Files) Console.WriteLine($"    {Mark(file.Change)} {file.Path} ({file.Before?.ToString("N0") ?? "-"} -> {file.After?.ToString("N0") ?? "-"} bytes)");
+        }
+        return 0;
+    }
+
+    private static string Short(string json) => json.Length <= 80 ? json : json[..77] + "...";
+
     // verify --explain: one line per step, then its details.
     private static void Explain(PackStep step)
     {
@@ -464,7 +527,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json" };
     private readonly List<string> _positional = [];
     private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);

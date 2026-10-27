@@ -161,6 +161,38 @@ public sealed class AmpackCommandLineTests : IDisposable
     }
 
     [Fact]
+    public void Diff_names_what_changed_between_two_versions_of_the_real_martial_arts_pack()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory");
+        File.WriteAllText(At("trust.json"), PackAuthoring.TrustPolicy(File.ReadAllText(At("keys", "publisher.pub.pem")), "io.agentmemory"));
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "v1");
+        Done("build", "v1", "--out", "v1.ampack", "--key", At("keys", "publisher.key.pem"));
+        // 1.0.1: one kata's meaning changes, and the kata type gains a property.
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "v2");
+        var pack = JsonNode.Parse(File.ReadAllText(At("v2", "pack.json")))!.AsObject();
+        pack["version"] = "1.0.1";
+        File.WriteAllText(At("v2", "pack.json"), pack.ToJsonString() + "\n");
+        var kata = File.ReadAllText(At("v2", "records", "kata.jsonl"));
+        File.WriteAllText(At("v2", "records", "kata.jsonl"), kata.Replace("The first of the five Heian ('peaceful mind') kata.",
+            "The first of the five Heian kata.", StringComparison.Ordinal));
+        var ontology = JsonNode.Parse(File.ReadAllText(At("v2", "ontology.json")))!.AsObject();
+        var type = ontology["types"]!.AsArray().Select(t => t!.AsObject()).Single(t => t["name"]!.GetValue<string>() == "MartialArtsKata");
+        type["properties"]!.AsObject()["era"] = new JsonObject { ["type"] = "string", ["maxLength"] = 40 };
+        File.WriteAllText(At("v2", "ontology.json"), ontology.ToJsonString() + "\n");
+        Done("build", "v2", "--out", "v2.ampack", "--key", At("keys", "publisher.key.pem"));
+
+        var diff = Done("diff", "v1.ampack", "v2.ampack", "--policy", "trust.json");
+
+        diff.Should().Contain("io.agentmemory.packs.martialarts 1.0.0 -> io.agentmemory.packs.martialarts 1.0.1")
+            .And.Contain("~ version: \"1.0.0\" -> \"1.0.1\"")
+            .And.Contain("+ types[MartialArtsKata].properties.era")
+            .And.Contain("~ MartialArtsKata 'shotokan/heian-shodan': meaning")
+            .And.Contain("~1, ");
+        Done("diff", "v1.ampack", "v1.ampack").Should().Contain("(the same pack)");
+        JsonNode.Parse(Done("diff", "v1.ampack", "v2.ampack", "--json"))!["records"]!.AsArray().Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task Serve_answers_an_MCP_client_over_standard_input_and_output()
     {
         Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory");
