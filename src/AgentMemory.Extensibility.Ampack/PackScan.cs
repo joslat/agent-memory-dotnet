@@ -224,7 +224,7 @@ public static class PackScan
         Directory.CreateDirectory(folder);
         var at = scannedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture);
         var runId = $"scan.{packId}.{packVersion}.{scannedAt.UtcDateTime:yyyyMMddTHHmmssfffZ}";
-        if (runId.Length > 128 || runId.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or ':' or '-'))) runId = "scan." + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(runId)))[..40];
+        if (runId.Length > 128 || runId.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or ':' or '-'))) runId = "scan." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(runId))).ToLowerInvariant()[..40];
         List<(string Rule, string Category)> rules =
         [
             .. Rules.Select(r => (r.Rule, r.Category)),

@@ -215,7 +215,7 @@ public static class PackTrialEvidence
 
     /// <summary>[RES-4]: <c>r_</c> and the first 32 hex characters of the SHA-256 of runId, caseId, path and trial joined by U+001F.</summary>
     public static string ResultId(string runId, string caseId, string path, int? trial = null) =>
-        "r_" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\u001F', runId, caseId, path, trial?.ToString(CultureInfo.InvariantCulture) ?? ""))))[..32];
+        "r_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\u001F', runId, caseId, path, trial?.ToString(CultureInfo.InvariantCulture) ?? "")))).ToLowerInvariant()[..32];
 
     /// <summary>
     /// The exact sum of binary64 values rounded once, as [SUM-5] requires (and Python's <c>math.fsum</c> computes): Shewchuk's
@@ -267,7 +267,7 @@ public static class PackTrialEvidence
     private static string Id(string text)
     {
         var id = new string([.. text.Select(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or ':' or '-' ? c : '-')]);
-        return id.Length <= 128 ? id : id[..95] + "-" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..32];
+        return id.Length <= 128 ? id : id[..95] + "-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant()[..32];
     }
 
     // A typed reference: kind:name, the name printable ASCII, at most 256 characters.
