@@ -116,6 +116,13 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             fetchedSet.Pack.Manifest.Kind.Should().Be("set");
             fetchedSet.Receipt.Location.Should().Be(setPublication.Archive);
 
+            // A re-publication that fails after it rewrote the archive's rules (a reader probe outside the audience) puts every
+            // rule back from the server's own text: the buyer still fetches, the stranger is still refused (FED-review round 4).
+            (await FluentActions.Awaiting(() => SolidPacks.PublishAsync(supplier, archive, signer, [stranger], [])).Should().ThrowAsync<InvalidDataException>())
+                .Which.Message.Should().Contain("not in the audience").And.NotContain("WITHDRAWAL FAILED");
+            (await SolidPacks.FetchAsync(buyer, offered[0], buyerPolicy)).Pack.Digest.Should().Be(fetched.Pack.Digest);
+            (await stranger.SendAsync(HttpMethod.Get, publication.Archive)).Status.Should().Be(HttpStatusCode.Forbidden);
+
             // 1. An archive swapped in the Pod: a valid, signed pack, but not the bytes the receipt names.
             var swapped = Encoding.UTF8.GetString(source["records/kata.jsonl"]).Replace("peaceful mind", "calm mind", StringComparison.Ordinal);
             var changed = new Dictionary<string, byte[]>(source, StringComparer.Ordinal) { ["records/kata.jsonl"] = Encoding.UTF8.GetBytes(swapped) };

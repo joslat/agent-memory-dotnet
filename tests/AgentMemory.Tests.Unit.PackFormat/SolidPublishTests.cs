@@ -212,6 +212,7 @@ public sealed class SolidPublishTests
             var archive = FederatedPack(sample, Buyer, Other);
             var wide = await SolidPacks.PublishAsync(owner, archive, signer, [], []);
             var live = pod.Resources.ToDictionary(r => r.Key, r => r.Value.ToArray(), StringComparer.Ordinal);
+            var writesBefore = pod.Puts.Count;
             var former = Container + "for/" + SolidPacks.ReaderKey(Other) + ".ttl";
             var target = failing switch { "archive rules" => wide.Archive + ".acl", "receipt" => wide.Receipt, _ => former };
             var failed = false; // a transient failure: once, then the server answers again (and the undo goes through)
@@ -225,7 +226,47 @@ public sealed class SolidPublishTests
             await FluentActions.Awaiting(() => SolidPacks.PublishAsync(owner, archive, signer, [], [], [Buyer])).Should().ThrowAsync<HttpRequestException>();
 
             pod.Resources.Should().BeEquivalentTo(live, "the archive, the receipt, every catalog and every rule are as before");
+            pod.Puts.Skip(writesBefore).Should().NotContain(p => p.Url == wide.Archive, "the archive's bytes never changed, so they are never sent again");
         }
+    }
+
+    [Fact]
+    public async Task An_undo_that_cannot_put_bytes_back_still_puts_the_rules_back_and_says_so()
+    {
+        var sample = new SamplePack();
+        var (pod, owner, signer) = await Alices(sample);
+        using (owner)
+        using (signer)
+        {
+            var archive = FederatedPack(sample, Buyer, Other);
+            var wide = await SolidPacks.PublishAsync(owner, archive, signer, [], []);
+            var liveRules = pod.Resources[wide.Receipt + ".acl"].ToArray();
+            // The new receipt is written, then the next step fails, and putting the old receipt back fails too.
+            var receiptWrites = 0;
+            pod.Fail = r => r.Method == HttpMethod.Put && r.RequestUri!.ToString() == wide.Receipt && ++receiptWrites >= 2
+                || r.Method == HttpMethod.Put && r.RequestUri!.ToString().EndsWith(SolidPacks.ReaderKey(Buyer) + ".ttl.acl", StringComparison.Ordinal)
+                ? new HttpRequestException("The server answered 503.") : null;
+
+            (await FluentActions.Awaiting(() => SolidPacks.PublishAsync(owner, archive, signer, [], [], [Buyer])).Should().ThrowAsync<InvalidDataException>())
+                .Which.Message.Should().Contain("WITHDRAWAL FAILED").And.Contain(wide.Receipt);
+
+            pod.Resources[wide.Receipt + ".acl"].Should().Equal(liveRules, "the rules go back on their own, before the bytes");
+        }
+    }
+
+    [Fact]
+    public void Only_a_type_index_typed_exactly_as_this_tool_types_it_is_ever_taken_up()
+    {
+        string Typed(params string[] types) => $"<{TypeIndex}> a " + string.Join(", ", types.Select(t => $"<{Vocabulary.Solid}{t}>")) + " .\n";
+        bool Own(string text) => SolidPacks.IsOwnTypeIndex(Turtle.Parse(text, TypeIndex), TypeIndex);
+        var registration = $"<{TypeIndex}#ampack-catalog> a <{Vocabulary.Solid}TypeRegistration> ; <{Vocabulary.Solid}forClass> <{Vocabulary.Ampack}Catalog> ; <{Vocabulary.Solid}instanceContainer> <{Container}> .\n";
+
+        Own(Typed("TypeIndex", "ListedDocument")).Should().BeTrue();
+        Own(Typed("TypeIndex", "ListedDocument") + registration).Should().BeTrue();
+        Own(Typed("TypeIndex", "UnlistedDocument")).Should().BeFalse("a private index is someone else's");
+        Own(Typed("TypeIndex")).Should().BeFalse();
+        Own(Typed("TypeIndex", "ListedDocument") + registration.Replace("ampack/ns#Catalog", "ampack/ns#Other", StringComparison.Ordinal)).Should().BeFalse();
+        Own(Typed("TypeIndex", "ListedDocument") + $"<{TypeIndex}#mine> a <{Vocabulary.Solid}TypeRegistration> .\n").Should().BeFalse();
     }
 
     [Fact]

@@ -142,6 +142,15 @@ internal static partial class SolidPacks
                 await RefusedAsync(owner, catalogUrl, reader is null, strangers, cancellationToken).ConfigureAwait(false);
                 catalogs.Add(catalogUrl);
             }
+            // A reader reads its own catalog only: another reader's can list packs placed for that reader alone (FED-review
+            // round 4).
+            foreach (var reader in readers)
+                foreach (var other in catalogs.Where(c => c.StartsWith(container + "for/", StringComparison.Ordinal) && c != container + "for/" + ReaderKey(reader.WebId!) + ".ttl"))
+                {
+                    var response = await reader.SendAsync(HttpMethod.Get, other, limit: owner.Options.MaximumDocumentBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    if (response.Status is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
+                        throw new InvalidDataException($"{reader.WebId} read another reader's catalog {other} ({(int)response.Status}): the access rules do not hold.");
+                }
             // A placement narrower than an earlier one of the same pack: every other catalog drops it, written without it (never
             // removed, so it keeps its rules), and a former reader keeps no title of what it can no longer read.
             foreach (var other in await CatalogsInAsync(owner, container, cancellationToken).ConfigureAwait(false))
@@ -177,8 +186,19 @@ internal static partial class SolidPacks
     /// </summary>
     private sealed class Journal(SolidSession owner)
     {
-        private readonly List<(string Url, string MediaType, byte[]? Bytes, string? Acl, string? Rules)> _before = [];
-        private readonly HashSet<string> _recorded = new(StringComparer.Ordinal);
+        private sealed class Before(string url, string mediaType, byte[]? bytes, string? acl, string? rules)
+        {
+            internal string Url { get; } = url;
+            internal string MediaType { get; } = mediaType;
+            internal byte[]? Bytes { get; } = bytes;
+            internal string? Acl { get; } = acl;
+            internal string? Rules { get; } = rules;
+            internal bool BytesChanged { get; set; }
+            internal bool RulesChanged { get; set; }
+        }
+
+        private readonly List<Before> _before = [];
+        private readonly Dictionary<string, Before> _byUrl = new(StringComparer.Ordinal);
 
         /// <summary>Records a resource before its first change; returns its bytes, or null when it is not there.</summary>
         internal async Task<byte[]?> RecordAsync(string url, string mediaType, long limit, CancellationToken cancellationToken)
@@ -186,54 +206,81 @@ internal static partial class SolidPacks
             var current = await owner.SendAsync(HttpMethod.Get, url, limit: limit, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (current.Status == HttpStatusCode.NotFound)
             {
-                if (_recorded.Add(url)) _before.Add((url, mediaType, null, null, null));
+                Add(new Before(url, mediaType, null, null, null));
                 return null;
             }
             if (!current.IsSuccess) throw new InvalidDataException($"{url} gave {(int)current.Status}; it is not changed unless it can be put back.");
-            if (_recorded.Add(url))
+            if (!_byUrl.ContainsKey(url))
             {
                 var (acl, _) = await AccessResourceAsync(owner, url, cancellationToken).ConfigureAwait(false);
                 var rules = await owner.SendAsync(HttpMethod.Get, acl, accept: "text/turtle", limit: owner.Options.MaximumDocumentBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
                 if (!rules.IsSuccess && rules.Status != HttpStatusCode.NotFound)
                     throw new InvalidDataException($"The access rules of {url} gave {(int)rules.Status}; it is not changed unless they can be put back.");
-                _before.Add((url, mediaType, current.Body, acl, rules.IsSuccess ? SolidSession.Text(rules) : null));
+                Add(new Before(url, mediaType, current.Body, acl, rules.IsSuccess ? SolidSession.Text(rules) : null));
             }
             return current.Body;
         }
 
-        /// <summary>Puts everything back, newest first; returns what could not be put back.</summary>
+        private void Add(Before before)
+        {
+            if (_byUrl.TryAdd(before.Url, before)) _before.Add(before);
+        }
+
+        /// <summary>Notes, before the request, that a recorded resource's bytes or rules are about to change.</summary>
+        internal void Changing(string url, bool bytes = false, bool rules = false)
+        {
+            var before = _byUrl[url];
+            before.BytesChanged |= bytes;
+            before.RulesChanged |= rules;
+        }
+
+        /// <summary>
+        /// Puts everything back, newest first; returns what could not be put back. A resource that was not there is removed;
+        /// one that was gets its rules back first, then its bytes, each on its own, and only what changed (FED-review round 4:
+        /// a failed byte restore skipped the rules, and an unchanged archive was sent again).
+        /// </summary>
         internal async Task<List<string>> UndoAsync()
         {
             var stuck = new List<string>();
-            foreach (var (url, mediaType, bytes, acl, rules) in Enumerable.Reverse(_before))
+            foreach (var before in Enumerable.Reverse(_before))
             {
-                try
+                if (before.Bytes is null)
                 {
-                    if (bytes is null)
-                    {
-                        await DeleteAsync(owner, url, CancellationToken.None).ConfigureAwait(false);
-                        continue;
-                    }
-                    await PutAsync(owner, url, bytes, mediaType, CancellationToken.None).ConfigureAwait(false);
-                    if (rules is not null) await PutAsync(owner, acl!, Encoding.UTF8.GetBytes(rules), "text/turtle", CancellationToken.None).ConfigureAwait(false);
-                    else await DeleteAsync(owner, acl!, CancellationToken.None).ConfigureAwait(false);
+                    await Undo(before.Url, () => DeleteAsync(owner, before.Url, CancellationToken.None)).ConfigureAwait(false);
+                    continue;
                 }
-                catch (Exception e) when (e is not OutOfMemoryException) { stuck.Add(e is InvalidDataException ? e.Message : $"{url} ({e.GetType().Name})"); }
+                if (before.RulesChanged)
+                    await Undo(before.Acl!, () => before.Rules is { } rules
+                        ? PutAsync(owner, before.Acl!, Encoding.UTF8.GetBytes(rules), "text/turtle", CancellationToken.None)
+                        : DeleteAsync(owner, before.Acl!, CancellationToken.None)).ConfigureAwait(false);
+                if (before.BytesChanged)
+                    await Undo(before.Url, () => PutAsync(owner, before.Url, before.Bytes, before.MediaType, CancellationToken.None)).ConfigureAwait(false);
             }
             return stuck;
+
+            async Task Undo(string url, Func<Task> undo)
+            {
+                try { await undo().ConfigureAwait(false); }
+                catch (Exception e) when (e is not OutOfMemoryException) { stuck.Add(e is InvalidDataException ? e.Message : $"{url} ({e.GetType().Name})"); }
+            }
         }
     }
 
     // Places one resource so that its bytes are never readable under rules other than its own (FED-review round 3: a new
     // resource follows its container's and its ancestors' rules until its own are written): a new resource is created empty,
-    // its rules are written, and only then its bytes; one already there gets its rules first.
+    // its rules are written, and only then its bytes; one already there gets its rules first, and its bytes only if they differ.
     private static async Task<string> PlaceAsync(SolidSession owner, Journal journal, string url, byte[] bytes, string mediaType, long limit,
         string ownerWebId, IReadOnlyList<string>? readers, CancellationToken cancellationToken)
     {
         var before = await journal.RecordAsync(url, mediaType, limit, cancellationToken).ConfigureAwait(false);
         if (before is null) await PutAsync(owner, url, [], mediaType, cancellationToken).ConfigureAwait(false);
+        journal.Changing(url, rules: true);
         var model = await RestrictAsync(owner, url, ownerWebId, readers, cancellationToken).ConfigureAwait(false);
-        if (before is null || !before.AsSpan().SequenceEqual(bytes)) await PutAsync(owner, url, bytes, mediaType, cancellationToken).ConfigureAwait(false);
+        if (before is null || !before.AsSpan().SequenceEqual(bytes))
+        {
+            journal.Changing(url, bytes: true);
+            await PutAsync(owner, url, bytes, mediaType, cancellationToken).ConfigureAwait(false);
+        }
         return model;
     }
 
@@ -241,6 +288,7 @@ internal static partial class SolidPacks
     private static async Task RewriteAsync(SolidSession owner, Journal journal, string url, byte[] bytes, string mediaType, CancellationToken cancellationToken)
     {
         await journal.RecordAsync(url, mediaType, owner.Options.MaximumDocumentBytes, cancellationToken).ConfigureAwait(false);
+        journal.Changing(url, bytes: true);
         await PutAsync(owner, url, bytes, mediaType, cancellationToken).ConfigureAwait(false);
     }
 
@@ -467,12 +515,20 @@ internal static partial class SolidPacks
             + $"<{Vocabulary.Solid}instanceContainer> <{TurtleText.Iri(container)}> .\n", cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>A type index exactly as this tool writes it: typed, and at most its own catalog registration.</summary>
+    /// <summary>
+    /// A type index exactly as this tool writes it: typed <c>solid:TypeIndex</c> and <c>solid:ListedDocument</c> and nothing
+    /// else, with at most its own catalog registration (FED-review round 4: an index typed otherwise is someone else's).
+    /// </summary>
     internal static bool IsOwnTypeIndex(IReadOnlyList<RdfTriple>? triples, string index)
     {
+        if (triples is null) return false;
         var registration = Document(index) + "#ampack-catalog";
-        return triples is { Count: > 0 } && triples.All(t => t.Subject.IsIri(index) && t.Predicate == Turtle.Rdf + "type"
-            || t.Subject.IsIri(registration) && t.Predicate is Turtle.Rdf + "type" or Vocabulary.Solid + "forClass" or Vocabulary.Solid + "instanceContainer");
+        var types = triples.Where(t => t.Subject.IsIri(index)).Select(t => t.Predicate == Turtle.Rdf + "type" && t.Object.Kind == RdfTermKind.Iri ? t.Object.Value : "").ToHashSet();
+        return types.SetEquals([Vocabulary.Solid + "TypeIndex", Vocabulary.Solid + "ListedDocument"])
+            && triples.All(t => t.Subject.IsIri(index) || t.Subject.IsIri(registration) && (
+                t.Predicate == Turtle.Rdf + "type" && t.Object.IsIri(Vocabulary.Solid + "TypeRegistration")
+                || t.Predicate == Vocabulary.Solid + "forClass" && t.Object.IsIri(Vocabulary.Ampack + "Catalog")
+                || t.Predicate == Vocabulary.Solid + "instanceContainer" && t.Object.Kind == RdfTermKind.Iri));
     }
 
     /// <summary>The pack containers a type index registers for the catalog class (at most <see cref="MaximumContainers"/>).</summary>
