@@ -337,18 +337,26 @@ public static class PackTrialGate
             var manifest = registration.Manifest;
             var manifestDigest = DigestOf(manifest);
             var decision = activations.Find(manifest.Id, manifest.Version, manifestDigest, registration.PackDigest);
-            // Proven here unless the host chose otherwise for this namespace: a decision made from a certificate is set aside,
-            // and the latest decision from the host's own trial of exactly this content decides.
-            PackDecisionBasis? setAside = null;
-            if (decision?.Basis is { } basis && !(certificateTrust ?? []).Any(p => ModuleSetBuilder.Covers(p, manifest.Id)))
+            var certificatesCount = (certificateTrust ?? []).Any(p => ModuleSetBuilder.Covers(p, manifest.Id));
+            // Proven here unless the host chose otherwise for this namespace: a decision made from a certificate counts only
+            // there, only while that certificate travels with the pack and is trusted now (review 1, M1), and never over this
+            // host's own failed trial of exactly this content. Otherwise it is set aside, and the latest decision from the
+            // host's own trial of exactly this content decides.
+            string? setAside = null;
+            if (decision?.Basis is { } basis)
             {
-                setAside = basis;
-                decision = activations.History(manifest.Id)
+                var own = activations.History(manifest.Id)
                     .Where(a => a.Basis is null && a.Version == manifest.Version.ToString() && a.ManifestDigest == manifestDigest && a.PackDigest == registration.PackDigest)
                     .MaxBy(a => a.DecidedAt);
+                setAside = !certificatesCount
+                    ? $"it was admitted on {basis.Evaluator}'s certificate, but this host trusts certificates only where it chooses; here it needs its own trial"
+                    : !registration.TrustedCertificates.Contains(basis.Certificate, StringComparer.Ordinal)
+                        ? $"it was admitted on {basis.Evaluator}'s certificate, which no longer travels with it or is no longer trusted here; it needs a trial"
+                    : own is { Active: false } ? "" : null;
+                if (setAside is not null) decision = own;
             }
-            var reason = decision is not null ? (decision.Active ? Upgrade(activations, manifest, decision) : "its trial failed: " + decision.Reason)
-                : setAside is not null ? $"it was admitted on {setAside.Evaluator}'s certificate, but this host trusts certificates only where it chooses; here it needs its own trial"
+            var reason = decision is not null ? (decision.Active ? Upgrade(activations, manifest, decision, certificatesCount) : "its trial failed: " + decision.Reason)
+                : setAside is not null ? setAside
                 : activations.Find(manifest.Id, manifest.Version) is not null ? "its trial ran on other content; trial it again"
                 : "no trial on this host yet";
             if (reason is not null) off[manifest.Id] = new SwitchedOffModule(manifest.Id, manifest.Version.ToString(), reason);
@@ -369,9 +377,10 @@ public static class PackTrialGate
 
     // PACK-upgrade-gate: a passing upgrade that must not regress goes on only if its trial compared it with exactly the version
     // that passed here before (the latest earlier version with a passing decision); null when it may go on.
-    private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision) =>
+    // Outside certificate trust, a decision made from a certificate never counts as a version that passed here (review 1, M2).
+    private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision, bool certificatesCount) =>
         Settle(activations, decision, decision.Upgrade ?? manifest.Trial?.Upgrade,
-            new Dictionary<PackActivation, (string?, ModuleTrialUpgrade?)>(ReferenceEqualityComparer.Instance)).Refusal;
+            new Dictionary<PackActivation, (string?, ModuleTrialUpgrade?)>(ReferenceEqualityComparer.Instance), certificatesCount).Refusal;
 
     // Why a passing decision may not go on as an upgrade (or null), and the rule it is held to: the stricter of its own and
     // the one its predecessor was held to, so a rule carries down the whole chain, not one version (third review). The version
@@ -379,13 +388,14 @@ public static class PackTrialGate
     // a pass), a passing one that the gate itself allows, at an earlier version, or at this version with other content
     // decided earlier (on the same instant, the lower digest first); the highest, the latest.
     private static (string? Refusal, ModuleTrialUpgrade? Rule) Settle(IPackActivations activations, PackActivation decision, ModuleTrialUpgrade? rule,
-        Dictionary<PackActivation, (string?, ModuleTrialUpgrade?)> known)
+        Dictionary<PackActivation, (string?, ModuleTrialUpgrade?)> known, bool certificatesCount)
     {
         if (known.TryGetValue(decision, out var settled)) return settled;
         known[decision] = ("it is its own predecessor", rule); // never reached: predecessors come strictly before
         var version = ModuleVersion.Parse(decision.Version);
         var content = Content(decision);
         var active = activations.History(decision.ModuleId)
+            .Where(a => certificatesCount || a.Basis is null)
             .GroupBy(a => (a.Version, a.ManifestDigest, a.PackDigest))
             .Select(g => g.MaxBy(a => a.DecidedAt)!)
             .Select(a => (Decision: a, Version: ModuleVersion.TryParse(a.Version, out var v) ? v : null))
@@ -393,7 +403,7 @@ public static class PackTrialGate
                 && (a.Version.CompareTo(version) < 0 || a.Version.CompareTo(version) == 0
                     && (a.Decision.DecidedAt < decision.DecidedAt || a.Decision.DecidedAt == decision.DecidedAt && string.CompareOrdinal(Content(a.Decision), content) < 0)))
             .OrderByDescending(a => a.Version).ThenByDescending(a => a.Decision.DecidedAt).ThenByDescending(a => Content(a.Decision), StringComparer.Ordinal)
-            .Select(a => (a.Decision, Settled: Settle(activations, a.Decision, a.Decision.Upgrade, known)))
+            .Select(a => (a.Decision, Settled: Settle(activations, a.Decision, a.Decision.Upgrade, known, certificatesCount)))
             .FirstOrDefault(a => a.Settled.Refusal is null);
         var held = active.Decision is null ? rule : Stricter(rule, active.Settled.Rule);
         var result = (active.Decision is null ? null : Against(decision, held, active.Decision), held);

@@ -151,7 +151,10 @@ public static class PackCertificates
         var evaluatedAt = DateTimeOffset.FromUnixTimeSeconds(decision.DecidedAt.ToUnixTimeSeconds());
         var stem = PackAttestations.StemFor(signer.KeyId, evaluatedAt);
         var content = PackReader.ReadArchive(archive, "archive");
-        var files = new Dictionary<string, byte[]>(content.Files, StringComparer.Ordinal);
+        // A certificate issued again under the same stem replaces the earlier one and its run, never mixes with it (review 1, L3).
+        var files = content.Files.Where(f => f.Key != PackAttestations.CertificatePath(stem)
+                && !f.Key.StartsWith(PackPaths.AttestationsFolder + stem + PackAttestations.RunSuffix, StringComparison.Ordinal))
+            .ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
         string? runId = null, runHash = null;
         if (aefRunFolder is not null)
         {
@@ -175,9 +178,9 @@ public static class PackCertificates
     }
 
     /// <summary>
-    /// The decision a host makes from a certificate, where it trusts certificates: the latest trusted certificate that passed
-    /// and covers exactly the trial the pack declares (the same measure, baseline and confidence; every declared target checked
-    /// at the declared value and met; enough tasks). Null, with the reason, when none does. Sign it with the host's key
+    /// The decision a host makes from a certificate, where it trusts certificates: from the latest trusted certificate, when it
+    /// passed and covers exactly the trial the pack declares (the same measure, baseline and confidence; every declared target
+    /// checked at the declared value and met; enough tasks). Null, with the reason, when it does not. Sign it with the host's key
     /// (<see cref="PackActivationFolder.Write"/>); it counts only where <see cref="ModuleSetBuilder.TrustCertificatesFor"/> covers the pack.
     /// </summary>
     public static (PackActivation? Decision, string Reason) Admit(LoadedPack pack, DateTimeOffset decidedAt)
@@ -185,26 +188,24 @@ public static class PackCertificates
         ArgumentNullException.ThrowIfNull(pack);
         if (pack.Manifest.Trial is not { } trial) return (null, $"{pack.Id} declares no trial: it needs no admission.");
         if (pack.Certificates.Count == 0) return (null, $"{pack.Id} carries no evaluation certificate.");
-        var trusted = pack.Certificates.Where(c => c.Trusted).OrderByDescending(c => c.EvaluatedAt).ToList();
-        if (trusted.Count == 0) return (null, $"None of the {pack.Certificates.Count} certificate(s) {pack.Id} carries is from a key this host trusts as evaluator for it.");
-        var refusals = new List<string>();
-        foreach (var certificate in trusted)
+        // The latest trusted certificate decides, as the latest decision does for a host's own trials: a newer failure is not
+        // passed over for an older pass (review 1, L1).
+        var certificate = pack.Certificates.Where(c => c.Trusted).OrderByDescending(c => c.EvaluatedAt).FirstOrDefault();
+        if (certificate is null) return (null, $"None of the {pack.Certificates.Count} certificate(s) {pack.Id} carries is from a key this host trusts as evaluator for it.");
+        if (Covers(certificate, trial) is { } gap)
+            return (null, $"The latest trusted certificate, {certificate.Evaluator}'s of {certificate.EvaluatedAt:u}, does not admit it: {gap}.");
+        return (new PackActivation
         {
-            if (Covers(certificate, trial) is { } gap) { refusals.Add($"{certificate.Evaluator}'s certificate of {certificate.EvaluatedAt:u}: {gap}"); continue; }
-            return (new PackActivation
+            ModuleId = pack.Manifest.Id, Version = pack.Manifest.Version.ToString(), ManifestDigest = PackTrialGate.DigestOf(pack.Manifest),
+            PackDigest = pack.Digest, Active = true, DecidedAt = decidedAt, Checks = certificate.Checks, With = certificate.With, Without = certificate.Without,
+            Upgrade = trial.Upgrade,
+            Reason = $"certified by {certificate.Evaluator} on {certificate.EvaluatedAt:yyyy-MM-dd}: every target met on {certificate.With!.Tasks} tasks",
+            Basis = new PackDecisionBasis
             {
-                ModuleId = pack.Manifest.Id, Version = pack.Manifest.Version.ToString(), ManifestDigest = PackTrialGate.DigestOf(pack.Manifest),
-                PackDigest = pack.Digest, Active = true, DecidedAt = decidedAt, Checks = certificate.Checks, With = certificate.With, Without = certificate.Without,
-                Upgrade = trial.Upgrade,
-                Reason = $"certified by {certificate.Evaluator} on {certificate.EvaluatedAt:yyyy-MM-dd}: every target met on {certificate.With!.Tasks} tasks",
-                Basis = new PackDecisionBasis
-                {
-                    Kind = CertificateBasis, Certificate = certificate.Digest, Evaluator = certificate.Evaluator!, EvaluatorKey = certificate.EvaluatorKey!,
-                    EvaluatedAt = certificate.EvaluatedAt!.Value, TaskSource = certificate.TaskSource!, AefRunId = certificate.AefRunId, AefRunHash = certificate.AefRunHash,
-                },
-            }, "admitted on " + certificate.Evaluator + "'s certificate");
-        }
-        return (null, "No trusted certificate covers the trial this pack declares: " + string.Join("; ", refusals));
+                Kind = CertificateBasis, Certificate = certificate.Digest, Evaluator = certificate.Evaluator!, EvaluatorKey = certificate.EvaluatorKey!,
+                EvaluatedAt = certificate.EvaluatedAt!.Value, TaskSource = certificate.TaskSource!, AefRunId = certificate.AefRunId, AefRunHash = certificate.AefRunHash,
+            },
+        }, "admitted on " + certificate.Evaluator + "'s certificate");
     }
 
     // Why a certificate does not cover the declared trial, or null when it does.
@@ -258,15 +259,19 @@ public static class PackCertificates
         return evaluations;
     }
 
+    // What an untrusted certificate claims, read in the JSON profile and strictly; null for anything else. Never throws: an
+    // attestation is unsigned bytes anyone can add beside a pack, and it must not stop the pack from loading (review 1, H1).
     private static PackCertificate? Claimed(byte[] envelope)
     {
+        if (envelope.Length > Dsse.MaximumEnvelopeBytes || PackJson.Check(envelope) is not null) return null;
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(envelope);
-            return document.RootElement.TryGetProperty("payload", out var payload) && payload.ValueKind == System.Text.Json.JsonValueKind.String
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && document.RootElement.TryGetProperty("payload", out var payload) && payload.ValueKind == System.Text.Json.JsonValueKind.String
                 && Dsse.FromBase64(payload.GetString()!) is { } bytes ? PackCertificate.Read(bytes).Certificate : null;
         }
-        catch (System.Text.Json.JsonException) { return null; }
+        catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) { return null; }
     }
 
     private static PackTrialMeasurement Measurement(CertificateArm arm) =>

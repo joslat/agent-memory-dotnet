@@ -1193,9 +1193,10 @@ def main(argv):
         if certificate_path is not None:
             files = read_zip(archive)
             if certificate_path.startswith(ATTESTATIONS):
-                if certificate_path not in files:
+                named = CERT_FILE.fullmatch(certificate_path)
+                if named is None or certificate_path not in files:
                     raise Refused(f"the pack carries no {certificate_path}")
-                stem = CERT_FILE.fullmatch(certificate_path).group(1)
+                stem = named.group(1)
                 folder = f"{ATTESTATIONS}{stem}.aef/"
                 run = {p[len(folder):]: b for p, b in files.items() if p.startswith(folder)} or None
                 envelope = files[certificate_path]

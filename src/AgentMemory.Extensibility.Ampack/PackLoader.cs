@@ -293,7 +293,9 @@ public static class PackLoader
             Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles, ValidUntil = ValidUntil(pack, trust.Policy),
             Publication = PackPublication.Of(pack.Manifest.Federation),
             Card = PackCardInfo.Of(pack.Files),
-            Certificates = PackCertificates.Read(pack, trust.Policy, DateTimeOffset.UtcNow),
+            // Read under the same trust the pack verified under: what this host revoked before (its ledger) holds for evaluator
+            // keys too (review 1, H2).
+            Certificates = PackCertificates.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
         };
@@ -345,8 +347,13 @@ public static class PackLoader
         ArgumentNullException.ThrowIfNull(pack);
         if (pack.Kind == "snapshot")
             throw new PackLoadException([$"{pack.Id} is a snapshot pack: compose its definition, and import the snapshot with ToSnapshot."]);
-        return pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority, pack.ValidUntil)
+        var added = pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority, pack.ValidUntil)
             : builder.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), priority, pack.ValidUntil);
+        // The certificates this host trusts now, as it loaded the pack: a decision it made from a certificate counts only while
+        // that certificate travels with the pack and is still trusted (review 1, M1).
+        if (added.Modules.LastOrDefault(r => r.Manifest.Id == pack.Id && r.PackDigest == pack.Digest) is { } registration)
+            registration.TrustedCertificates = [.. pack.Certificates.Where(c => c.Trusted).Select(c => c.Digest)];
+        return added;
     }
 
     /// <summary>

@@ -260,6 +260,11 @@ internal sealed class ModuleRegistration(ModuleManifest manifest, string impleme
     public string? PackDigest { get; } = packDigest;
     /// <summary>For a pack that declares <c>validUntil</c>, when it expires: after it, its contributors go silent.</summary>
     public DateTimeOffset? ValidUntil { get; init; }
+    /// <summary>
+    /// For a pack, the digests of the evaluation certificates it carries that the host trusted as it loaded the pack: a decision
+    /// the host made from a certificate counts only if it names one of them.
+    /// </summary>
+    public IReadOnlyList<string> TrustedCertificates { get; set; } = [];
     public ModuleOptionsBinding? Options { get; private set; }
     public IReadOnlyList<Func<ModuleActivationContext, IContextContributor>> Contributors => _contributors;
     public IReadOnlyList<Func<ModuleActivationContext, IIngestionProvider>> Providers => _providers;

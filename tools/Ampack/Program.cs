@@ -431,7 +431,7 @@ internal static partial class Program
             catch (Exception e) when (e is InvalidDataException or FormatException) { }
         if (pack.Manifest.Federation is { } federation)
             Console.WriteLine($"  publisher {federation.Publisher}\n  for     {PackFederation.Describe(federation.Audience)}" + (federation.Purpose is { } why ? $"\n  purpose {Shown(why, 300)}" : ""));
-        ShowCardAndCertificates(pack, policy);
+        ShowCardAndCertificates(pack, ledger?.Apply(policy) ?? policy);
         if (o.Flag("record") && ledger is not null && ledgerPath is not null)
         {
             ledger.Record(pack.Id, pack.Version, pack.Digest);

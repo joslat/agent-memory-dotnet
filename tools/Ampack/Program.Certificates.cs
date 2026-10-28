@@ -58,7 +58,8 @@ internal static partial class Program
         var target = o.Positional(1, "pack.ampack");
         var content = PackReader.Read(target);
         var policy = Policy(o);
-        var verification = PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow);
+        // A set verifies whole, member by member, as the Python verifier and receipt verify do (review 1, H3).
+        var verification = PackVerifier.VerifyWhole(content, policy, DateTimeOffset.UtcNow);
         if (verification.Pack is not { } pack) return Report(verification.Problems, "");
         var chosen = o.Value("certificate");
         var certificates = PackAttestations.Certificates(pack.Attestations).Where(c => chosen is null || PackAttestations.CertificatePath(c.Stem) == chosen)
@@ -94,6 +95,12 @@ internal static partial class Program
         if (decision is null) return Report([reason], "");
         using var hostKey = ECDsa.Create();
         hostKey.ImportFromPem(File.ReadAllText(o.Required("host-key")));
+        // This host's own evidence comes first: a certificate never overrules its own failed trial of exactly this pack.
+        var own = new PackActivationFolder(o.Required("activations"), hostKey.ExportSubjectPublicKeyInfoPem()).History(pack.Manifest.Id)
+            .Where(a => a.Basis is null && a.Version == decision.Version && a.ManifestDigest == decision.ManifestDigest && a.PackDigest == decision.PackDigest)
+            .MaxBy(a => a.DecidedAt);
+        if (own is { Active: false })
+            return Report([$"This host's own trial of exactly this pack failed on {own.DecidedAt:u} ({Shown(own.Reason, 300)}); a certificate does not overrule it."], "");
         var file = PackActivationFolder.Write(o.Required("activations"), decision, hostKey);
         Console.WriteLine($"Admitted {pack.Id} {pack.Version}: {Shown(decision.Reason, 300)}\n  basis   certificate {decision.Basis!.Certificate[..23]}… by {Shown(decision.Basis.Evaluator, 200)} (key {Dsse.Short(decision.Basis.EvaluatorKey)})"
             + $"\n  signed  {file}\n  A host composes it only where it trusts certificates for its namespace (ModuleSetBuilder.TrustCertificatesFor); elsewhere it needs its own trial.");
@@ -116,12 +123,16 @@ internal static partial class Program
         PackGateCheck check;
         try { check = PackGateCheck.Of(packs, activations, Prefixes(o.Value("require-trials-for")), Prefixes(o.Value("trust-certificates-for"))); }
         catch (ArgumentException e) { throw new UsageException(e.Message); }
+        var trusting = Prefixes(o.Value("trust-certificates-for"));
         foreach (var id in check.On)
         {
             var pack = packs.First(p => p.Id == id);
             var decision = activations.Find(pack.Manifest.Id, pack.Manifest.Version, PackTrialGate.DigestOf(pack.Manifest), pack.Digest);
+            // On a certificate only where the gate let that decision count; otherwise the host's own trial switched it on.
+            var onCertificate = decision?.Basis is { } basis && trusting.Any(p => PackManifest.Covers(p, id))
+                && pack.Certificates.Any(c => c.Trusted && c.Digest == basis.Certificate);
             Console.WriteLine($"  on   {id} {pack.Version}" + (pack.Manifest.Trial is null ? "  (declares no trial)"
-                : decision?.Basis is { } basis ? $"  on {Shown(basis.Evaluator, 200)}'s certificate, trusted here for its namespace" : "  on this host's own trial"));
+                : onCertificate ? $"  on {Shown(decision!.Basis!.Evaluator, 200)}'s certificate, trusted here for its namespace" : "  on this host's own trial"));
         }
         foreach (var off in check.Off) Console.WriteLine($"  off  {off.ModuleId} {off.Version}  {Shown(off.Reason, 300)}");
         if (activations.Ignored.Count > 0) Console.WriteLine($"  ({activations.Ignored.Count} file(s) in {o.Required("activations")} are not records signed by this host and were ignored)");

@@ -211,6 +211,123 @@ public sealed class PackCertificateTests : IDisposable
         Gate(loaded, "io.agentmemory").Off.Should().ContainSingle().Which.Reason.Should().Contain("must compare against that version");
     }
 
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("1")]
+    [InlineData("\"x\"")]
+    [InlineData("{\"payload\":\"\\ud800\"}")]
+    [InlineData("{\"payload\":\"not base64!\"}")]
+    [InlineData("not json")]
+    public void An_unsigned_attestation_anyone_can_add_never_stops_the_pack_from_loading(string junk)
+    {
+        // Review 1, H1: attestations are outside what is signed; what one claims is read without ever throwing.
+        var (built, pack) = Built();
+        var files = new Dictionary<string, byte[]>(PackReader.ReadArchive(built, "built").Files, StringComparer.Ordinal)
+        {
+            ["META/attestations/abc.certificate.dsse.json"] = Encoding.UTF8.GetBytes(junk),
+        };
+        var archive = StrictZip.Write(files, compress: true);
+
+        var loaded = PackLoader.Load(archive, Trust());
+
+        loaded.Digest.Should().Be(pack.Digest);
+        var certificate = loaded.Certificates.Should().ContainSingle().Subject;
+        certificate.Trusted.Should().BeFalse();
+        certificate.Evaluator.Should().BeNull();
+        PackInspection.Inspect(archive, Trust()).Loaded.Should().BeTrue();
+        PackCertificates.Admit(loaded, Now).Decision.Should().BeNull();
+        PackAdvice.Of(loaded, Now).Select(a => a.Rule).Should().Contain("certificate.untrusted");
+    }
+
+    [Fact]
+    public void An_evaluator_key_this_host_revoked_before_is_not_trusted_even_when_this_run_names_no_revocation()
+    {
+        // Review 1, H2: the host's ledger keeps what it revoked; certificates are read under the same trust as the pack.
+        var (built, pack) = Built();
+        var certified = Certify(built, pack);
+        var path = Path.Combine(_folder, "ledger.json");
+        var kept = HostLedger.Load(path);
+        kept.Record([], [new RevokedKey(_evaluator.KeyId, null)]);
+        kept.Save(path);
+        var ledger = PackInstallLedger.Open(path);
+
+        var loaded = PackLoader.Load(certified, Trust(), ledger);
+
+        loaded.Certificates.Single().Trusted.Should().BeFalse();
+        loaded.Certificates.Single().Problems.Should().Contain(p => p.Contains("revoked"));
+        PackCertificates.Admit(loaded, Now).Decision.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_certificate_decision_counts_only_while_its_certificate_travels_with_the_pack_and_is_trusted_now()
+    {
+        // Review 1, M1: admitted on the evaluator's certificate; then the host stops trusting the evaluator, or the certificate
+        // is stripped from the pack. The record the host signed earlier no longer switches it on.
+        var (built, pack) = Built();
+        var certified = Certify(built, pack);
+        PackActivationFolder.Write(_folder, PackCertificates.Admit(PackLoader.Load(certified, Trust()), Now).Decision!, _host);
+
+        Gate(PackLoader.Load(certified, Trust()), "io.agentmemory").On.Should().Equal(Id);
+        Gate(PackLoader.Load(certified, Trust(evaluator: false)), "io.agentmemory").Off.Should().ContainSingle()
+            .Which.Reason.Should().Contain("no longer travels with it or is no longer trusted here");
+        Gate(PackLoader.Load(built, Trust()), "io.agentmemory").Off.Should().ContainSingle()
+            .Which.Reason.Should().Contain("no longer travels with it");
+        // The host's own passing trial still switches it on when the certificate is gone.
+        PackActivationFolder.Write(_folder, PackTrialGate.Decide(pack.Manifest, Arm(30), Arm(0), Earlier, pack.Digest), _host);
+        Gate(PackLoader.Load(built, Trust()), "io.agentmemory").On.Should().Equal(Id);
+    }
+
+    [Fact]
+    public void A_certificate_never_overrules_the_hosts_own_failed_trial_of_exactly_this_pack()
+    {
+        var (built, pack) = Built();
+        var loaded = PackLoader.Load(Certify(built, pack), Trust());
+        PackActivationFolder.Write(_folder, PackTrialGate.Decide(pack.Manifest, Arm(2), Arm(0), Earlier, pack.Digest), _host);
+        PackActivationFolder.Write(_folder, PackCertificates.Admit(loaded, Now).Decision!, _host);
+
+        Gate(loaded, "io.agentmemory").Off.Should().ContainSingle().Which.Reason.Should().StartWith("its trial failed");
+    }
+
+    [Fact]
+    public void Outside_certificate_trust_a_certificate_decision_is_never_the_version_that_passed_here()
+    {
+        // Review 1, M2: 1.0.0 passed on this host's own trial; 1.1.0 was admitted on a certificate where certificates are not
+        // trusted (it stays off); 1.2.0 declares no regression. It must compare against 1.0.0, not against 1.1.0.
+        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 }, "upgrade": { "noRegression": true } }""";
+        var (_, first) = Built(rule, version: "1.0.0");
+        PackActivationFolder.Write(_folder, PackTrialGate.Decide(first.Manifest, Arm(36), Arm(0), Earlier.AddMinutes(-10), first.Digest), _host);
+        var (middleBuilt, middle) = Built(rule, version: "1.1.0");
+        PackActivationFolder.Write(_folder, PackCertificates.Admit(PackLoader.Load(Certify(middleBuilt, middle), Trust()), Earlier.AddMinutes(-5)).Decision!, _host);
+        var (_, last) = Built(rule, version: "1.2.0");
+        var previous = new PackTrialPrevious { Version = "1.1.0", ManifestDigest = PackTrialGate.DigestOf(middle.Manifest), PackDigest = middle.Digest, With = Arm(24) };
+        PackActivationFolder.Write(_folder, PackTrialGate.Decide(last.Manifest, Arm(24), Arm(0), Earlier, last.Digest, previous), _host);
+
+        Gate(last).Off.Should().ContainSingle().Which.Reason.Should().Contain("1.0.0");
+    }
+
+    [Fact]
+    public void The_latest_trusted_certificate_decides_and_issuing_again_replaces_the_earlier_one()
+    {
+        // Review 1, L1 and L3: a newer failure is not passed over for an older pass; the same stem certified again replaces
+        // the certificate and the run beside it.
+        var (built, pack) = Built();
+        var older = Certify(built, pack, PackTrialGate.Decide(pack.Manifest, Arm(24), Arm(0), Earlier.AddDays(-30), pack.Digest));
+        var both = Certify(older, pack, PackTrialGate.Decide(pack.Manifest, Arm(4), Arm(0), Earlier, pack.Digest));
+
+        var loaded = PackLoader.Load(both, Trust());
+        loaded.Certificates.Should().HaveCount(2).And.OnlyContain(c => c.Trusted);
+        PackCertificates.Admit(loaded, Now).Reason.Should().Contain("did not pass");
+
+        var run = Directory.CreateDirectory(Path.Combine(_folder, "run")).FullName;
+        File.WriteAllText(Path.Combine(run, "run.json"), """{"runId":"r1"}""" + "\n");
+        File.WriteAllText(Path.Combine(run, "extra.ndjson"), "{}\n");
+        var withRun = PackCertificates.Issue(built, Trust(), Decision(pack), _evaluator.PrivateKeyPem, "Example Lab", "x", run);
+        var again = PackCertificates.Issue(withRun, Trust(), Decision(pack), _evaluator.PrivateKeyPem, "Example Lab", "x");
+        var replaced = PackLoader.Load(again, Trust());
+        replaced.Certificates.Should().ContainSingle().Which.Trusted.Should().BeTrue("the old run went with the old certificate");
+        PackReader.ReadArchive(again, "again").Files.Keys.Should().NotContain(k => k.Contains(".aef/", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Certificate_trust_needs_the_hosts_decisions_and_a_namespace()
     {

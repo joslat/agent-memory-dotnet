@@ -777,6 +777,7 @@ def main():
     }
     for name_, body in certificate_policies.items():
         (OUT / name_).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    federated_policy("trust-federated-buyer-evaluator.json", more=(evaluator_entry,))
     trial = {"measure": "test-impact", "tasks": 40, "baseline": "none", "targets": {"hitRate": 0.5}}
     certified = signed({**content, "evals/trial.json": json.dumps(trial).encode() + b"\n"})
 
@@ -872,6 +873,13 @@ def main():
         "certificate-key-expired": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-expired.json", "refused"),
         "certificate-key-revoked": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-revoked.json", "refused"),
         "certificate-key-assurer-not-evaluator": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-as-assurer.json", "refused"),
+        # Review 1, H3: a certified set verifies whole, member by member, before its certificate is read.
+        "certificate-set-valid": (carrying(certificate(federated_set), files_=federated_set), certificate_path, None,
+                                  "trust-federated-buyer-evaluator.json", "verified"),
+        "certificate-set-member-untrusted": (carrying(certificate(untrusted_member_set), files_=untrusted_member_set), certificate_path, None,
+                                             "trust-federated-buyer-evaluator.json", "refused"),
+        "certificate-path-of-a-run-file": (carrying(certificate(certified, aef=aef), run), f"META/attestations/{stem}.aef/run.json", None,
+                                           "trust-evaluator.json", "refused"),
         "certificate-policy-evaluator-also-publisher": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-also-publisher.json", "refused"),
         "certificate-by-the-publisher": (carrying(certificate(certified, signer=key)), certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-in-the-future": (carrying(certificate(certified, evaluated="2099-01-01T00:00:00Z")), certificate_path, None, "trust-evaluator.json", "refused"),
