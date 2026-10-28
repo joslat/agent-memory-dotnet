@@ -10,7 +10,7 @@ namespace Ampack;
 /// <c>ampack</c>: the memory pack tool. Every command that reads a pack verifies it first; nothing is written into a store
 /// here. Exit codes: 0 done, 1 refused (the reasons are printed), 2 wrong usage.
 /// </summary>
-internal static class Program
+internal static partial class Program
 {
     private const string Usage = """
         ampack <command> [options]
@@ -85,6 +85,23 @@ internal static class Program
                                  bytes, an audience no wider than the pack's (default: the pack's), and what was probed
           receipt verify <pack.ampack> <receipt> --location <url> --policy <trust.json> [--revocations <file>]
                                  verify the pack and its receipt as a host fetching it from that URL does
+          trust webid <WebID> [--key <keyId> --policy <trust.json> --prefix <id.prefix> [--role publisher] [--host-webid <WebID>]]
+                                 list the P-256 keys a WebID's profile asserts; with --key, bind that key to the WebID
+                                 in the trust policy (never trust on first use: name the key you checked)
+          solid bind-key --webid <WebID> --public <pub.pem>
+                                 assert a signing key in your own WebID profile (sec:assertionMethod, a P-256 JWK)
+          solid publish <pack.ampack> --webid <WebID> --key <...> [--audience <WebID,…>] [--probe-as <WebID>]
+                                 put a federated pack in your Pod for its audience (WAC), probe that anonymous is refused
+                                 (and that --probe-as reads the exact bytes), sign the receipt, update the catalogs and
+                                 the type index
+          solid discover --from <publisher WebID> [--webid <WebID>]
+                                 what a publisher offers you (or anyone): from its profile's type index to its catalogs
+          solid fetch --from <publisher WebID> --webid <WebID> --policy <trust.json> --store <folder> [--id <pack id>]
+                [--no-recheck] [--allow-downgrade]
+                                 fetch, re-check the publisher's key in its profile, verify pack and receipt as this host,
+                                 install, and log where it came from (<store>/federation.jsonl)
+          Solid commands log in with client credentials from AMPACK_SOLID_CLIENT_ID and AMPACK_SOLID_CLIENT_SECRET (a probe
+          identity's from AMPACK_PROBE_CLIENT_ID and AMPACK_PROBE_CLIENT_SECRET); --allow-loopback-http for a local server.
           test [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
                                  load the packs as a host does (every record checked), hold them in memory, and run
                                  each pack's own tests (evals/tests.json): views, searches and walks, offline;
@@ -124,13 +141,16 @@ internal static class Program
                 "uninstall" => Uninstall(options),
                 "list" => ListInstalled(options),
                 "receipt" => Receipt(options),
+                "solid" => Solid(options),
+                "trust" => TrustCommand(options),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}", 2),
             };
         }
         catch (UsageException e) { return Fail(e.Message, 2); }
         // A ledger another run holds is an operational failure, not a refusal (seventh review).
         catch (LedgerBusyException e) { return Fail(e.Message, 3); }
-        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or JsonException or System.Security.Cryptography.CryptographicException)
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or JsonException or System.Security.Cryptography.CryptographicException
+            or HttpRequestException or TaskCanceledException)
         {
             return Fail(e.Message, 1);
         }
@@ -813,7 +833,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "retire-revocations" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "retire-revocations", "allow-loopback-http", "no-recheck" };
     private readonly List<string> _positional = [];
     private readonly Dictionary<string, List<string>> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);

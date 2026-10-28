@@ -15,5 +15,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory.Packs.Format\AgentMemory.Packs.Format.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Solid\AgentMemory.Packs.Solid.csproj" />
   </ItemGroup>
 </Project>

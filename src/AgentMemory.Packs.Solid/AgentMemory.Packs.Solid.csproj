@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Federated memory packs on Solid Pods (strategy design FED-solid): WebID profiles and key binding, Solid-OIDC client
+       credentials with DPoP, WAC access rules, publication with a probe and a signed receipt, per-reader catalogs and the
+       type index; discovery and fetch with a deny-only re-check of the publisher's key. The format core verifies; this
+       adapter only moves bytes and reads the Web's documents, so no host depends on Solid. -->
+  <PropertyGroup>
+    <RootNamespace>AgentMemory.Packs.Solid</RootNamespace>
+    <AssemblyName>AgentMemory.Packs.Solid</AssemblyName>
+    <Description>Federated memory packs on Solid Pods: WebID-bound publishers, audiences, publication receipts and discovery.</Description>
+    <PackageTags>agent-memory;ai;memory;packs;solid;webid;federation</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.1.0</Version>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentMemory.Packs.Format\AgentMemory.Packs.Format.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ampack" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.PackFormat" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
+  </ItemGroup>
+</Project>

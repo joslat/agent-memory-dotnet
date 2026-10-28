@@ -20,5 +20,7 @@
     <InternalsVisibleTo Include="Ampack" />
     <InternalsVisibleTo Include="AgentMemory.Extensibility.Ampack" />
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+    <InternalsVisibleTo Include="AgentMemory.Packs.Solid" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
   </ItemGroup>
 </Project>

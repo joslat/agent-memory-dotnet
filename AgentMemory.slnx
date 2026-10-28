@@ -44,6 +44,7 @@
     <Project Path="src/AgentMemory.Packs.Coding/AgentMemory.Packs.Coding.csproj" />
     <Project Path="src/AgentMemory.Packs.Work/AgentMemory.Packs.Work.csproj" />
     <Project Path="src/AgentMemory.Packs.Format/AgentMemory.Packs.Format.csproj" />
+    <Project Path="src/AgentMemory.Packs.Solid/AgentMemory.Packs.Solid.csproj" />
     <Project Path="src/AgentMemory.Extensibility.Ampack/AgentMemory.Extensibility.Ampack.csproj" />
     <Project Path="src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.Nams.csproj" />
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
