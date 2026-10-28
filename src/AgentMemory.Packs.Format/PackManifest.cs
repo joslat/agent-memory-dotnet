@@ -30,9 +30,10 @@ internal sealed partial record PackManifest
 
     /// <summary>
     /// The extensions this reader understands. An extension in <c>extensions</c> is ignored unless the pack lists its name in
-    /// <c>extensions.critical</c>; a critical extension the reader does not understand refuses the pack. None yet.
+    /// <c>extensions.critical</c>; a critical extension the reader does not understand refuses the pack. The first one is the
+    /// federated profile (federated packs §3).
     /// </summary>
-    internal static readonly IReadOnlySet<string> UnderstoodExtensions = new HashSet<string>(StringComparer.Ordinal);
+    internal static readonly IReadOnlySet<string> UnderstoodExtensions = new HashSet<string>(StringComparer.Ordinal) { PackFederation.ExtensionName };
 
     internal required string Id { get; init; }
     internal required string Version { get; init; }
@@ -51,6 +52,8 @@ internal sealed partial record PackManifest
     internal string Code { get; init; } = "E0";
     /// <summary>Where the content came from (v1.2 §2, §11): repository, commit, built at; a snapshot names its commit here.</summary>
     internal PackOrigin? Source { get; init; }
+    /// <summary>The federated profile: publisher WebID, audience, purpose; null when the pack is not federated.</summary>
+    internal PackFederation? Federation { get; init; }
 
     /// <summary>
     /// Reverse-DNS: at least three lowercase segments, each starting with a letter, with inner hyphens, at most 64 characters.
@@ -125,10 +128,17 @@ internal sealed partial record PackManifest
                 return (null, $"{FileName} has a source.commit that is not 7 to 64 hexadecimal characters.");
             origin = new PackOrigin(Field("repository"), Field("commit"), builtAt);
         }
+        PackFederation? federation = null;
+        if (root.TryGetProperty("extensions", out var extensions))
+        {
+            var (read, federationProblem) = PackFederation.Read(extensions);
+            if (federationProblem is not null) return (null, federationProblem);
+            federation = read;
+        }
         return (new PackManifest
         {
             Id = id, Version = version, Kind = kind, Tier = tier, Licence = Text("licence"), Contains = contains, ContainableBy = containable,
-            ValidUntil = validUntil, Protection = protection, Code = code, Source = origin,
+            ValidUntil = validUntil, Protection = protection, Code = code, Source = origin, Federation = federation,
         }, null);
     }
 

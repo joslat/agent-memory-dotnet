@@ -3,9 +3,12 @@ using System.Text.Json;
 
 namespace AgentMemory.Packs.Format;
 
-/// <summary>One trusted key, scoped (v1.1 H3): the pack ids it may sign for, the roles it may sign in, and when.</summary>
+/// <summary>
+/// One trusted key, scoped (v1.1 H3): the pack ids it may sign for, the roles it may sign in, and when; and, for federated
+/// packs, the publisher WebID the operator bound it to after reading that WebID's profile (federated packs §4).
+/// </summary>
 internal sealed record TrustedKey(string KeyId, string PublicKeyPem, IReadOnlyList<string> IdPrefixes, IReadOnlyList<string> Roles,
-    DateTimeOffset? NotBefore, DateTimeOffset? NotAfter);
+    DateTimeOffset? NotBefore, DateTimeOffset? NotAfter, string? WebId = null);
 
 /// <summary>A revoked key. With <see cref="CompromisedAt"/>, signatures from before that moment may still count once a timestamp proves them.</summary>
 internal sealed record RevokedKey(string KeyId, DateTimeOffset? CompromisedAt);
@@ -34,6 +37,8 @@ internal sealed record TrustPolicy
     internal HostLedger? KeptFrom { get; init; }
     internal int KeptVersion { get; init; }
     internal IReadOnlyList<string> RequiredRoles { get; init; } = ["publisher"];
+    /// <summary>The WebIDs this host acts as (<c>host.webIds</c>): a federated pack loads only if its audience names one, or is public.</summary>
+    internal IReadOnlyList<string> HostWebIds { get; init; } = [];
 
     internal TrustedKey? Find(string keyId) => Keys.FirstOrDefault(k => k.KeyId == keyId);
 
@@ -107,7 +112,15 @@ internal sealed record TrustPolicy
                 // revocation of a revoker, decide what its own packs are worth (eighth review).
                 if (roles.Contains(Revocations.Role) && roles.Count > 1)
                     throw new InvalidDataException($"Key {Dsse.Short(keyId)} is a revoker and also signs packs; a revoker key holds that role alone.");
-                keys.Add(new TrustedKey(keyId, pem, prefixes, roles, Time(k, "notBefore"), Time(k, "notAfter")));
+                string? webId = null;
+                if (k.TryGetProperty("webId", out var webIdValue))
+                {
+                    webId = webIdValue.ValueKind == JsonValueKind.String ? webIdValue.GetString() : throw new FormatException("A key's webId is a string.");
+                    if (WebId.Problem(webId, $"Key {Dsse.Short(keyId)}'s webId") is { } webIdProblem) throw new InvalidDataException(webIdProblem);
+                    // A revoker signs revocation lists only, and revocation authority stays where v1.2 settled it.
+                    if (roles.Contains(Revocations.Role)) throw new InvalidDataException($"Key {Dsse.Short(keyId)} is a revoker; a WebID binds publishing keys only.");
+                }
+                keys.Add(new TrustedKey(keyId, pem, prefixes, roles, Time(k, "notBefore"), Time(k, "notAfter"), webId));
             }
         var revokedDigests = new List<string>();
         var revokedKeys = new List<RevokedKey>();
@@ -123,9 +136,20 @@ internal sealed record TrustPolicy
         }
         var required = root.TryGetProperty("requireRoles", out _) ? Strings(root, "requireRoles") : ["publisher"];
         if (required.Count == 0 || required.Any(r => !Dsse.Roles.Contains(r))) throw new InvalidDataException("requireRoles must name known roles.");
+        IReadOnlyList<string> hostWebIds = [];
+        if (root.TryGetProperty("host", out var host))
+        {
+            if (host.ValueKind != JsonValueKind.Object || host.EnumerateObject().Any(p => p.Name != "webIds"))
+                throw new InvalidDataException("'host' is an object holding only 'webIds'.");
+            hostWebIds = Strings(host, "webIds");
+            if (hostWebIds.Count is 0 or > 16) throw new InvalidDataException("host.webIds lists 1 to 16 WebIDs.");
+            if (hostWebIds.FirstOrDefault(w => !WebId.IsValid(w)) is not null) throw new InvalidDataException(WebId.Problem(null, "An entry of host.webIds"));
+            if (hostWebIds.Distinct(StringComparer.Ordinal).Count() != hostWebIds.Count) throw new InvalidDataException("host.webIds names a WebID twice.");
+        }
         return new TrustPolicy
         {
             Keys = keys, RevokedDigests = revokedDigests, RevokedKeys = revokedKeys, RevocationsExpire = expires, StaticRevocationsExpire = expires, RequiredRoles = required,
+            HostWebIds = hostWebIds,
         };
     }
 

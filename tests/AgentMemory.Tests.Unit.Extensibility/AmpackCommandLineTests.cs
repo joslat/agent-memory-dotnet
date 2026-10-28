@@ -213,6 +213,53 @@ public sealed class AmpackCommandLineTests : IDisposable
     }
 
     [Fact]
+    public void A_federated_pack_loads_only_for_its_audience_and_a_receipt_vouches_for_one_place_and_those_bytes()
+    {
+        const string publisher = "https://supplier-a.example/profile/card#org";
+        const string buyer = "https://buyer-b.example/profile/card#agent";
+        const string stranger = "https://stranger.example/profile/card#me";
+        const string location = "https://supplier-a.example/ampack/handoff.ampack";
+        var key = Done("keygen", "--out", "keys", "--name", "supplier", "--prefix", "io.supplier-a");
+        var entry = JsonNode.Parse(key[(key.IndexOf("Trust-policy entry:", StringComparison.Ordinal) + "Trust-policy entry:".Length)..])!.AsObject();
+        entry["webId"] = publisher;
+        void Trust(string file, string host) => File.WriteAllText(At(file), new JsonObject
+        {
+            ["format"] = "agentmemory.pack.trust/1.1", ["keys"] = new JsonArray(entry.DeepClone()), ["host"] = new JsonObject { ["webIds"] = new JsonArray(host) },
+        }.ToJsonString());
+        Trust("buyer.json", buyer);
+        Trust("stranger.json", stranger);
+        Done("init", "handoff", "--id", "io.supplier-a.handoff");
+        var manifest = JsonNode.Parse(File.ReadAllText(At("handoff", "pack.json")))!.AsObject();
+        manifest["extensions"] = new JsonObject
+        {
+            ["critical"] = new JsonArray("federation"),
+            ["federation"] = new JsonObject
+            {
+                ["format"] = "agentmemory.pack.federation/1", ["publisher"] = publisher, ["audience"] = new JsonArray(buyer), ["purpose"] = "Supply-chain handoff",
+            },
+        };
+        File.WriteAllText(At("handoff", "pack.json"), manifest.ToJsonString());
+        Done("build", "handoff", "--out", "handoff.ampack", "--key", At("keys", "supplier.key.pem"));
+
+        Done("verify", "handoff.ampack", "--policy", "buyer.json").Should().Contain("publisher " + publisher).And.Contain("for     " + buyer);
+        Refused("verify", "handoff.ampack", "--policy", "stranger.json").Should().Contain("this host is " + stranger);
+        Done("inspect", "handoff.ampack").Should().Contain("Federated: publisher " + publisher);
+
+        Done("receipt", "sign", "handoff.ampack", "--location", location, "--key", At("keys", "supplier.key.pem"),
+            "--denied", "anonymous," + stranger, "--allowed", buyer, "--out", "handoff.receipt.json").Should().Contain("for     " + buyer + " (wac)");
+        Done("receipt", "verify", "handoff.ampack", "handoff.receipt.json", "--location", location, "--policy", "buyer.json")
+            .Should().Contain("probed  denied anonymous, " + stranger + "; allowed " + buyer);
+        Refused("receipt", "verify", "handoff.ampack", "handoff.receipt.json", "--location", "https://mirror.example/handoff.ampack", "--policy", "buyer.json")
+            .Should().Contain("not at https://mirror.example/handoff.ampack");
+        Refused("receipt", "sign", "handoff.ampack", "--location", location, "--key", At("keys", "supplier.key.pem"), "--audience", "public", "--out", "wide.json")
+            .Should().Contain("can only narrow");
+
+        // The host's install path enforces the audience too: the buyer's store takes the pack, the stranger's refuses it.
+        Done("install", "handoff.ampack", "--store", "buyer-store", "--policy", "buyer.json").Should().Contain("Installed io.supplier-a.handoff");
+        Refused("install", "handoff.ampack", "--store", "stranger-store", "--policy", "stranger.json").Should().Contain("this host is " + stranger);
+    }
+
+    [Fact]
     public void A_key_from_the_environment_a_protected_file_or_an_external_signer_signs_as_a_file_key_does()
     {
         Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.example");

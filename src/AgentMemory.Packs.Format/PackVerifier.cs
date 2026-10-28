@@ -80,6 +80,16 @@ internal static class PackVerifier
             .. missingRoles.Select(r => $"missing: no valid {r} signature from a key the policy trusts for '{list!.Id}'"),
             $"required roles: {string.Join(", ", policy.RequiredRoles)}"]));
 
+        if (manifest.Federation is { } federation)
+        {
+            var federationProblems = FederationProblems(federation, signatures, policy);
+            problems.AddRange(federationProblems);
+            explain?.Invoke(new("federation", federationProblems.Count == 0, federationProblems.Count > 0 ? federationProblems : [
+                $"published by {federation.Publisher}, signed by a key this host bound to that WebID",
+                federation.IsPublic ? "for everyone" : $"for {federation.Audience!.Count} WebID(s); this host is one of them",
+                .. federation.Purpose is { } purpose ? [$"purpose: {purpose}"] : Array.Empty<string>()]));
+        }
+
         var ledgerRefusal = ledger?.Refusal(list!.Id, list.Version, digest, allowDowngrade);
         if (ledgerRefusal is not null) problems.Add(ledgerRefusal);
         if (ledger is not null)
@@ -88,6 +98,25 @@ internal static class PackVerifier
             ? new(null, problems)
             : new(new VerifiedPack(list!.Id, list.Version, digest, manifest!, signatures,
                 content.Files.Where(f => FilesList.IsListed(f.Key)).ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal)), []);
+    }
+
+    /// <summary>
+    /// The federated profile (federated packs §3): the publisher WebID is the signer's, by the host's own binding, and the host
+    /// is in the audience. A trusted key bound to another WebID cannot publish in this one's name.
+    /// </summary>
+    internal static List<string> FederationProblems(PackFederation federation, IReadOnlyList<PackSignature> signatures, TrustPolicy policy)
+    {
+        var problems = new List<string>();
+        var publishers = signatures.Where(s => s.Role == "publisher").Select(s => policy.Find(s.KeyId)).OfType<TrustedKey>().ToList();
+        foreach (var other in publishers.Where(k => k.WebId is not null && k.WebId != federation.Publisher))
+            problems.Add($"The pack names publisher {federation.Publisher}, but key {Dsse.Short(other.KeyId)} that signed it as publisher is bound to {other.WebId}.");
+        if (!publishers.Any(k => k.WebId == federation.Publisher))
+            problems.Add($"No publisher signature from a key this host bound to {federation.Publisher}: a federated pack needs one (trust entry 'webId').");
+        if (!federation.Admits(policy.HostWebIds))
+            problems.Add(policy.HostWebIds.Count == 0
+                ? "The pack is published for named WebIDs, and this host names none of its own (trust policy 'host.webIds')."
+                : $"The pack is published for {PackFederation.Describe(federation.Audience)}; this host is {string.Join(", ", policy.HostWebIds)}.");
+        return problems;
     }
 
     /// <summary>Steps 1–5: everything that needs no trust. <c>ampack lint</c> and <c>build</c> use it alone.</summary>

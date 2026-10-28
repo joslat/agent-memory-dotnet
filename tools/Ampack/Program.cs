@@ -79,6 +79,12 @@ internal static class Program
                                  verifies; with --aef, write the scan as an AEF run for an assurer to seal and sign
           countersign <pack.ampack> --key <file|env:VAR|dpapi:FILE> --role <curator|assurer|publisher> --out <file>
                                  sign a built pack again in another role, its content and digest unchanged
+          receipt sign <pack.ampack> --location <url> --key <...> --out <file> [--audience public|<WebID,…>]
+                 [--access wac|acp|public] [--denied anonymous,<WebID>,…] [--allowed <WebID>,…]
+                                 a publication receipt for a federated pack placed at a URL: that URL, those exact
+                                 bytes, an audience no wider than the pack's (default: the pack's), and what was probed
+          receipt verify <pack.ampack> <receipt> --location <url> --policy <trust.json> [--revocations <file>]
+                                 verify the pack and its receipt as a host fetching it from that URL does
           test [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
                                  load the packs as a host does (every record checked), hold them in memory, and run
                                  each pack's own tests (evals/tests.json): views, searches and walks, offline;
@@ -117,6 +123,7 @@ internal static class Program
                 "install" => Install(options),
                 "uninstall" => Uninstall(options),
                 "list" => ListInstalled(options),
+                "receipt" => Receipt(options),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}", 2),
             };
         }
@@ -347,6 +354,8 @@ internal static class Program
         }
         Console.WriteLine($"Verified {pack.Id} {pack.Version}\n  digest  {pack.Digest}\n  kind    {pack.Manifest.Kind}, tier {pack.Manifest.Tier}");
         foreach (var s in pack.Signatures) Console.WriteLine($"  signed  {s.Role} by {Dsse.Short(s.KeyId)} at {s.SignedAt:u}");
+        if (pack.Manifest.Federation is { } federation)
+            Console.WriteLine($"  publisher {federation.Publisher}\n  for     {PackFederation.Describe(federation.Audience)}" + (federation.Purpose is { } why ? $"\n  purpose {why}" : ""));
         if (o.Flag("record") && ledger is not null && ledgerPath is not null)
         {
             ledger.Record(pack.Id, pack.Version, pack.Digest);
@@ -363,6 +372,8 @@ internal static class Program
         if (content.Files.TryGetValue(PackPaths.FilesList, out var listBytes) && FilesList.Parse(listBytes) is ({ } list, _))
         {
             Console.WriteLine($"Pack    {list.Id} {list.Version}\nDigest  {FilesList.DigestOf(listBytes)}  (not verified)");
+            if (content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes) && PackManifest.Parse(manifestBytes).Manifest?.Federation is { } federation)
+                Console.WriteLine($"Federated: publisher {federation.Publisher}, for {PackFederation.Describe(federation.Audience)}  (not verified)");
             foreach (var f in list.Files) Console.WriteLine($"  {f.Length,10:N0}  {f.Path}");
         }
         else Console.WriteLine("Not built: no valid META/files.json.");
@@ -460,6 +471,45 @@ internal static class Program
     }
 
     // The reference signer for --signer: what a keychain, KMS or HSM command must do.
+    // Publication receipts (federated packs §5): one placement of a federated pack at a URL, signed apart from the pack.
+    private static int Receipt(Options o)
+    {
+        var action = o.Positional(0, "receipt action (sign or verify)");
+        var archivePath = o.Positional(1, "pack.ampack");
+        var location = o.Required("location");
+        var archive = File.ReadAllBytes(archivePath);
+        var content = PackReader.Read(archivePath);
+        if (action == "verify")
+        {
+            var policy = Policy(o);
+            var verified = PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow);
+            if (!verified.IsVerified) return Report(verified.Problems, "");
+            var (receipt, problems) = PublicationReceipt.Verify(File.ReadAllBytes(o.Positional(2, "receipt file")), verified.Pack!, archive, location, policy, DateTimeOffset.UtcNow);
+            if (receipt is null) return Report(problems, "");
+            Console.WriteLine($"Verified the placement of {receipt.Id} {receipt.Version} at {receipt.Location}\n  for     {PackFederation.Describe(receipt.Audience)} ({receipt.Access})"
+                + $"\n  probed  denied {string.Join(", ", receipt.Denied)}; allowed {string.Join(", ", receipt.Allowed)}\n  placed  {receipt.PublishedAt:u}");
+            return 0;
+        }
+        if (action != "sign") throw new UsageException("receipt sign or receipt verify.");
+        // The publisher's own pack: it must be whole and federated; the signer must be its publisher key.
+        var (integrity, list, listBytes, manifest) = PackVerifier.CheckIntegrity(content);
+        if (integrity.Count > 0) return Report(integrity, "");
+        if (manifest!.Federation is not { } federation) return Report(["The pack is not federated: a receipt is for a pack with a publisher and an audience."], "");
+        IReadOnlyList<string>? audience = o.Value("audience") is not { } given ? federation.Audience : given == PackFederation.Public ? null : List(given);
+        var access = o.Value("access") ?? (audience is null ? "public" : "wac");
+        if (!federation.IsPublic && (audience is null || audience.Any(a => !federation.Audience!.Contains(a))))
+            return Report(["The placement's audience is wider than the pack's: a placement can only narrow it."], "");
+        var digest = FilesList.DigestOf(listBytes!);
+        var receiptValue = new PublicationReceipt(list!.Id, list.Version, digest, location, FilesList.Hex(archive), audience, access,
+            List(o.Value("denied")), List(o.Value("allowed")), DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        using var signer = Signer(o);
+        var bytes = receiptValue.Sign(signer);
+        var outPath = o.Required("out");
+        File.WriteAllBytes(outPath, bytes);
+        Console.WriteLine($"Receipt {outPath}\n  pack    {list.Id} {list.Version} {digest}\n  at      {location}\n  for     {PackFederation.Describe(audience)} ({access})\n  signed  by {Dsse.Short(signer.KeyId)}");
+        return 0;
+    }
+
     private static int SignBytes(Options o)
     {
         using var input = Console.OpenStandardInput();
