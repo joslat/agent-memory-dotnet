@@ -64,3 +64,8 @@ HELD:AgentMemory.Packs.Architecture
 HELD:AgentMemory.Packs.Intent
 HELD:AgentMemory.Packs.Coding
 HELD:AgentMemory.Packs.Work
+# The memory pack format, its host bridge and the Solid adapter: internal APIs used by ampack and hosts; held until
+# the format ships with 2.0.
+HELD:AgentMemory.Packs.Format
+HELD:AgentMemory.Extensibility.Ampack
+HELD:AgentMemory.Packs.Solid

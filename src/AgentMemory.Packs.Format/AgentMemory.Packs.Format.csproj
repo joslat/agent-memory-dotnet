@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="Version">
 
   <!-- The memory pack format, v1.1 (strategy design PACK-format, PACK-redteam): read, check, build and sign `.ampack`
        files and pack folders. Base class library only, so any host and the `ampack` tool can carry it, and so the

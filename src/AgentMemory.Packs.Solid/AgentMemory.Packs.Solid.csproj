@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="Version">
 
   <!-- Federated memory packs on Solid Pods (strategy design FED-solid): WebID profiles and key binding, Solid-OIDC client
        credentials with DPoP, WAC access rules, publication with a probe and a signed receipt, per-reader catalogs and the
