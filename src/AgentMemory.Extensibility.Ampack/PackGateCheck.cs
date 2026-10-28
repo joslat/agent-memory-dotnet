@@ -12,8 +12,9 @@ namespace AgentMemory.Extensibility.Ampack;
 /// </summary>
 /// <param name="On">The packs that go on, by id.</param>
 /// <param name="Off">The packs that stay off, with the reason.</param>
+/// <param name="OnCertificate">Of the packs that go on, those on a decision the host made from a certificate, with what it rests on.</param>
 [Experimental("AMEXT001")]
-public sealed record PackGateCheck(IReadOnlyList<string> On, IReadOnlyList<SwitchedOffModule> Off)
+public sealed record PackGateCheck(IReadOnlyList<string> On, IReadOnlyList<SwitchedOffModule> Off, IReadOnlyDictionary<string, PackDecisionBasis> OnCertificate)
 {
     /// <summary>Applies the host's decisions to <paramref name="packs"/> as its module set would.</summary>
     /// <param name="packs">The loaded packs, as the host composes them.</param>
@@ -30,6 +31,12 @@ public sealed record PackGateCheck(IReadOnlyList<string> On, IReadOnlyList<Switc
         if (requireTrialsFor is { Count: > 0 }) builder.RequireTrialsFor([.. requireTrialsFor]);
         if (trustCertificatesFor is { Count: > 0 }) builder.TrustCertificatesFor([.. trustCertificatesFor]);
         var (on, off) = PackTrialGate.Apply(builder.Modules, activations, builder.MandatoryTrials, builder.CertificateTrust);
-        return new PackGateCheck([.. on.Select(r => r.Manifest.Id)], off);
+        // The decision that switched each one on, by the gate's own rule: a certificate's only where it counted.
+        var certified = new Dictionary<string, PackDecisionBasis>(StringComparer.Ordinal);
+        foreach (var registration in on.Where(r => r.Manifest.Trial is not null))
+            if (PackTrialGate.Counting(PackTrialGate.Of(activations, registration), builder.CertificateTrust.Any(p => ModuleSetBuilder.Covers(p, registration.Manifest.Id)))
+                    ?.Basis is { } basis)
+                certified[registration.Manifest.Id] = basis;
+        return new PackGateCheck([.. on.Select(r => r.Manifest.Id)], off, certified);
     }
 }

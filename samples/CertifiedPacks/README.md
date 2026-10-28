@@ -17,8 +17,9 @@ say what it is, and carry what an independent evaluator measured about it:
 - **Proven here is the default.** A host that declares trials (`ModuleSetBuilder.RequireTrials`) switches a pack on only
   after its own trial passed. Where it chooses, namespace by namespace, it may rely on a trusted certificate instead
   (`ModuleSetBuilder.TrustCertificatesFor`): it records a decision from the certificate, signed with its own key, naming
-  the certificate it relied on. An upgrade that must not regress still needs the host's own trial, because only the host
-  can compare against the version that passed on it.
+  the certificate it relied on. That decision counts only while the certificate is still the latest trusted one the pack
+  carries, and only where the host has not trialled that pack itself: its own decision, pass or fail, always decides. An upgrade that must not regress
+  still needs the host's own trial, because only the host can compare against the version that passed on it.
 
 ## Run it
 

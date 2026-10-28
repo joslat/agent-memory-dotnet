@@ -269,7 +269,7 @@ public sealed class PackCertificateTests : IDisposable
 
         Gate(PackLoader.Load(certified, Trust()), "io.agentmemory").On.Should().Equal(Id);
         Gate(PackLoader.Load(certified, Trust(evaluator: false)), "io.agentmemory").Off.Should().ContainSingle()
-            .Which.Reason.Should().Contain("no longer travels with it or is no longer trusted here");
+            .Which.Reason.Should().Contain("or is no longer trusted here");
         Gate(PackLoader.Load(built, Trust()), "io.agentmemory").Off.Should().ContainSingle()
             .Which.Reason.Should().Contain("no longer travels with it");
         // The host's own passing trial still switches it on when the certificate is gone.
@@ -303,6 +303,68 @@ public sealed class PackCertificateTests : IDisposable
         PackActivationFolder.Write(_folder, PackTrialGate.Decide(last.Manifest, Arm(24), Arm(0), Earlier, last.Digest, previous), _host);
 
         Gate(last).Off.Should().ContainSingle().Which.Reason.Should().Contain("1.0.0");
+    }
+
+    [Fact]
+    public void Where_the_host_trialled_the_pack_itself_its_own_decision_decides_and_a_later_admission_changes_nothing()
+    {
+        // Review 2, M1: 1.0.0 and 1.1.0 passed this host's own trials (1.1.0 compared against 1.0.0 on the same tasks). An
+        // admission of 1.1.0 on a certificate afterwards must not hide its own pass and switch the upgrade off.
+        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 }, "upgrade": { "noRegression": true } }""";
+        var (_, first) = Built(rule, version: "1.0.0");
+        PackActivationFolder.Write(_folder, PackTrialGate.Decide(first.Manifest, Arm(30), Arm(0), Earlier.AddMinutes(-10), first.Digest), _host);
+        var (built, next) = Built(rule, version: "1.1.0");
+        var previous = new PackTrialPrevious { Version = "1.0.0", ManifestDigest = PackTrialGate.DigestOf(first.Manifest), PackDigest = first.Digest, With = Arm(30) };
+        PackActivationFolder.Write(_folder, PackTrialGate.Decide(next.Manifest, Arm(30), Arm(0), Earlier, next.Digest, previous), _host);
+        var loaded = PackLoader.Load(Certify(built, next), Trust());
+        PackActivationFolder.Write(_folder, PackCertificates.Admit(loaded, Now).Decision!, _host);
+
+        var gate = PackGateCheck.Of([loaded], Activations(), trustCertificatesFor: ["io.agentmemory"]);
+
+        gate.On.Should().Equal(Id);
+        gate.OnCertificate.Should().BeEmpty("its own trial switched it on");
+    }
+
+    [Fact]
+    public void A_version_whose_own_trial_failed_is_never_the_version_that_passed_here_even_if_later_admitted_on_a_certificate()
+    {
+        // Review 2, M2: the upgrade gate resolves each version's decisions by the same rule as the gate itself.
+        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 }, "upgrade": { "noRegression": true } }""";
+        var (firstBuilt, first) = Built(rule, version: "1.0.0");
+        PackActivationFolder.Write(_folder, PackTrialGate.Decide(first.Manifest, Arm(2), Arm(0), Earlier.AddMinutes(-10), first.Digest), _host);
+        PackActivationFolder.Write(_folder, PackCertificates.Admit(PackLoader.Load(Certify(firstBuilt, first), Trust()), Earlier.AddMinutes(-5)).Decision!, _host);
+        var (_, next) = Built(rule, version: "1.1.0");
+        PackActivationFolder.Write(_folder, PackTrialGate.Decide(next.Manifest, Arm(30), Arm(0), Earlier, next.Digest), _host);
+
+        Gate(next, "io.agentmemory").On.Should().Equal(new[] { Id }, "nothing passed here before it, so there is nothing to compare against");
+    }
+
+    [Fact]
+    public void An_admission_counts_only_while_its_certificate_is_the_latest_trusted_one_the_pack_carries()
+    {
+        // Review 2, L3: a newer trusted certificate beside the one an admission named withdraws that admission until the host
+        // admits again (or trials the pack itself).
+        var (built, pack) = Built();
+        var older = Certify(built, pack, PackTrialGate.Decide(pack.Manifest, Arm(24), Arm(0), Earlier.AddDays(-30), pack.Digest));
+        PackActivationFolder.Write(_folder, PackCertificates.Admit(PackLoader.Load(older, Trust()), Earlier).Decision!, _host);
+        var both = PackLoader.Load(Certify(older, pack, PackTrialGate.Decide(pack.Manifest, Arm(4), Arm(0), Earlier.AddDays(-1), pack.Digest)), Trust());
+
+        Gate(PackLoader.Load(older, Trust()), "io.agentmemory").On.Should().Equal(Id);
+        Gate(both, "io.agentmemory").Off.Should().ContainSingle().Which.Reason.Should().Contain("no longer the latest trusted certificate");
+    }
+
+    [Fact]
+    public void A_pack_composed_as_a_family_member_or_as_code_relies_on_the_hosts_own_trials_only()
+    {
+        // Review 2, L5: said plainly, not as if the certificate had gone.
+        var (built, pack) = Built();
+        PackActivationFolder.Write(_folder, PackCertificates.Admit(PackLoader.Load(Certify(built, pack), Trust()), Now).Decision!, _host);
+        var builder = new ModuleSetBuilder().AddDefinitionPack(pack.Manifest, pack.Digest, "publisher");
+
+        var (on, off) = PackTrialGate.Apply(builder.Modules, Activations(), null, ["io.agentmemory"]);
+
+        on.Should().BeEmpty();
+        off.Should().ContainSingle().Which.Reason.Should().Contain("composed as part of a family or as compiled code");
     }
 
     [Fact]

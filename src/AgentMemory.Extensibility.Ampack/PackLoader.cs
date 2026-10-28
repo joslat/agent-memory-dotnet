@@ -349,10 +349,12 @@ public static class PackLoader
             throw new PackLoadException([$"{pack.Id} is a snapshot pack: compose its definition, and import the snapshot with ToSnapshot."]);
         var added = pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority, pack.ValidUntil)
             : builder.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), priority, pack.ValidUntil);
-        // The certificates this host trusts now, as it loaded the pack: a decision it made from a certificate counts only while
-        // that certificate travels with the pack and is still trusted (review 1, M1).
+        // The latest certificate this host trusts now, as it loaded the pack: a decision it made from a certificate counts only
+        // while that certificate travels with the pack, is trusted, and no newer trusted one stands beside it (review 1, M1;
+        // review 2, L3).
         if (added.Modules.LastOrDefault(r => r.Manifest.Id == pack.Id && r.PackDigest == pack.Digest) is { } registration)
-            registration.TrustedCertificates = [.. pack.Certificates.Where(c => c.Trusted).Select(c => c.Digest)];
+            registration.TrustedCertificates = pack.Certificates.Where(c => c.Trusted).OrderByDescending(c => c.EvaluatedAt).FirstOrDefault() is { } latest
+                ? [latest.Digest] : [];
         return added;
     }
 

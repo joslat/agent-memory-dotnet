@@ -335,26 +335,23 @@ public static class PackTrialGate
         foreach (var registration in registrations.Where(r => r.Manifest.Trial is not null))
         {
             var manifest = registration.Manifest;
-            var manifestDigest = DigestOf(manifest);
-            var decision = activations.Find(manifest.Id, manifest.Version, manifestDigest, registration.PackDigest);
             var certificatesCount = (certificateTrust ?? []).Any(p => ModuleSetBuilder.Covers(p, manifest.Id));
-            // Proven here unless the host chose otherwise for this namespace: a decision made from a certificate counts only
-            // there, only while that certificate travels with the pack and is trusted now (review 1, M1), and never over this
-            // host's own failed trial of exactly this content. Otherwise it is set aside, and the latest decision from the
-            // host's own trial of exactly this content decides.
+            var decisions = Of(activations, registration);
+            var decision = Counting(decisions, certificatesCount);
+            var certified = decisions.Where(a => a.Basis is not null).MaxBy(a => a.DecidedAt);
+            // Proven here unless the host chose otherwise for this namespace (review 1, M1; review 2, L3 and L5): a decision
+            // made from a certificate counts only there, only for a pack added on its own, and only while that certificate is
+            // the latest trusted one the pack carries. Otherwise the pack needs its own trial.
             string? setAside = null;
-            if (decision?.Basis is { } basis)
+            if (decision?.Basis is { } basis && registration.TrustedCertificates?.Contains(basis.Certificate, StringComparer.Ordinal) is not true)
             {
-                var own = activations.History(manifest.Id)
-                    .Where(a => a.Basis is null && a.Version == manifest.Version.ToString() && a.ManifestDigest == manifestDigest && a.PackDigest == registration.PackDigest)
-                    .MaxBy(a => a.DecidedAt);
-                setAside = !certificatesCount
-                    ? $"it was admitted on {basis.Evaluator}'s certificate, but this host trusts certificates only where it chooses; here it needs its own trial"
-                    : !registration.TrustedCertificates.Contains(basis.Certificate, StringComparer.Ordinal)
-                        ? $"it was admitted on {basis.Evaluator}'s certificate, which no longer travels with it or is no longer trusted here; it needs a trial"
-                    : own is { Active: false } ? "" : null;
-                if (setAside is not null) decision = own;
+                setAside = registration.TrustedCertificates is null
+                    ? $"it was admitted on {basis.Evaluator}'s certificate, but it is composed as part of a family or as compiled code, where this host relies on its own trials only"
+                    : $"it was admitted on {basis.Evaluator}'s certificate, which is no longer the latest trusted certificate it carries (or no longer travels with it, or is no longer trusted here); admit it again or trial it here";
+                decision = null;
             }
+            else if (decision is null && certified?.Basis is { } elsewhere)
+                setAside = $"it was admitted on {elsewhere.Evaluator}'s certificate, but this host trusts certificates only where it chooses; here it needs its own trial";
             var reason = decision is not null ? (decision.Active ? Upgrade(activations, manifest, decision, certificatesCount) : "its trial failed: " + decision.Reason)
                 : setAside is not null ? setAside
                 : activations.Find(manifest.Id, manifest.Version) is not null ? "its trial ran on other content; trial it again"
@@ -377,6 +374,23 @@ public static class PackTrialGate
 
     // PACK-upgrade-gate: a passing upgrade that must not regress goes on only if its trial compared it with exactly the version
     // that passed here before (the latest earlier version with a passing decision); null when it may go on.
+    // Every decision this host signed for exactly what a registration composes: its manifest and, for a pack, its content.
+    internal static IReadOnlyList<PackActivation> Of(IPackActivations activations, ModuleRegistration registration)
+    {
+        var manifestDigest = DigestOf(registration.Manifest);
+        var version = registration.Manifest.Version.ToString();
+        return [.. activations.History(registration.Manifest.Id).Where(a => a.Version == version && a.ManifestDigest == manifestDigest && a.PackDigest == registration.PackDigest)];
+    }
+
+    // Which of the host's decisions about exactly one content counts, the one rule the gate and the upgrade gate share
+    // (review 2): the host's own latest decision whenever it has one, pass or fail, so a certificate never hides or overrules
+    // what this host measured itself; otherwise, only where it trusts certificates, its latest decision made from one.
+    internal static PackActivation? Counting(IEnumerable<PackActivation> decisions, bool certificatesCount)
+    {
+        var all = decisions as IReadOnlyCollection<PackActivation> ?? [.. decisions];
+        return all.Where(a => a.Basis is null).MaxBy(a => a.DecidedAt) ?? (certificatesCount ? all.Where(a => a.Basis is not null).MaxBy(a => a.DecidedAt) : null);
+    }
+
     // Outside certificate trust, a decision made from a certificate never counts as a version that passed here (review 1, M2).
     private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision, bool certificatesCount) =>
         Settle(activations, decision, decision.Upgrade ?? manifest.Trial?.Upgrade,
@@ -395,9 +409,9 @@ public static class PackTrialGate
         var version = ModuleVersion.Parse(decision.Version);
         var content = Content(decision);
         var active = activations.History(decision.ModuleId)
-            .Where(a => certificatesCount || a.Basis is null)
             .GroupBy(a => (a.Version, a.ManifestDigest, a.PackDigest))
-            .Select(g => g.MaxBy(a => a.DecidedAt)!)
+            .Select(g => Counting(g, certificatesCount))
+            .OfType<PackActivation>()
             .Select(a => (Decision: a, Version: ModuleVersion.TryParse(a.Version, out var v) ? v : null))
             .Where(a => a.Decision.Active && a.Version is not null && Content(a.Decision) != content
                 && (a.Version.CompareTo(version) < 0 || a.Version.CompareTo(version) == 0
