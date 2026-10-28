@@ -32,6 +32,21 @@ from cryptography.hazmat.primitives.asymmetric import ec, utils
 
 FILES = "META/files.json"
 SIGNATURES = "META/signatures/"
+# Beside the signatures, outside the files list: evaluation certificates and the AEF runs they name (v1.2 §16).
+ATTESTATIONS = "META/attestations/"
+CERT_FILE = re.compile(r"META/attestations/([a-z0-9][a-z0-9-]{0,63})\.certificate\.dsse\.json")
+RUN_FILE = re.compile(r"META/attestations/([a-z0-9][a-z0-9-]{0,63})\.aef/.+")
+MAX_CERTIFICATES, MAX_RUN_FILES, MAX_RUN_BYTES = 8, 256, 8 << 20
+CERTIFICATE = "urn:agentmemory:pack:certificate:v1"
+MEASURES = {"test-impact", "retrieval"}
+BASELINES = {"host", "none"}
+TARGETS = {"hitRate", "precision", "lift", "precisionLift", "addedP95Ms", "noRegression.hitRate", "noRegression.precision"}
+CONFIDENCES = {900, 950, 975, 990}
+RUN_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
+MINIMUM_TASKS = 10
+# The pack card (v1.2 §15): card.json, read strictly when present.
+CARD = "card.json"
+CARD_FORMAT = "agentmemory.pack.card/1"
 FILES_FORMAT = "agentmemory.pack.files/1.1"
 PACK_FORMAT = "agentmemory.pack/1.2"
 # Every field pack.json may hold; anything the format does not define goes in "extensions" (PACK-strict).
@@ -66,7 +81,7 @@ DEVICES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", *(f"COM{i}" for i in
 ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){2,}")
 SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", re.ASCII)
 SIGNED_AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", re.ASCII)
-KEY_ROLES = {"publisher", "curator", "assurer", "revoker"}
+KEY_ROLES = {"publisher", "curator", "assurer", "evaluator", "revoker"}
 MAX_DEPTH = 64
 MAX_COMBINING_RUN = 30
 UNICODE_VERSION = "15.0.0"
@@ -561,9 +576,10 @@ def verify(files, policy, now):
     paths = [e["path"] for e in listing["files"]]
     if paths != sorted(paths) or len(set(paths)) != len(paths):
         raise Refused("META/files.json is not sorted or repeats a path")
-    content = {p: b for p, b in files.items() if p != FILES and not p.startswith(SIGNATURES)}
+    content = {p: b for p, b in files.items() if p != FILES and not p.startswith(SIGNATURES) and not p.startswith(ATTESTATIONS)}
     if set(content) != set(listed):
         raise Refused("the pack does not hold exactly the listed files")
+    attestation_checks(files)
     for p, e in listed.items():
         if len(content[p]) != e["length"] or hashlib.sha256(content[p]).hexdigest() != e["sha256"]:
             raise Refused(f"'{p}' does not match META/files.json")
@@ -596,6 +612,8 @@ def verify(files, policy, now):
             raise Refused(f"pack.json marks the extension '{name}' critical, and this verifier does not understand it")
     federation = read_federation(extensions)
     manifest_checks(manifest, content, now)
+    if CARD in content:
+        read_card(content[CARD])
     digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
     if digest in policy.get("revoked", {}).get("digests", []):
         raise Refused("the pack is revoked")
@@ -848,6 +866,209 @@ def verify_receipt(envelope_bytes, pid, version, digest, federation, archive, lo
     raise Refused("no valid receipt signature by a key bound to the pack's publisher")
 
 
+def utf16_length(text):
+    return len(text.encode("utf-16-le")) // 2
+
+
+def is_text(text, maximum):
+    """1 to `maximum` UTF-16 code units, no C0 or C1 control character but a line feed or a tab (as .NET's PackCard.IsText)."""
+    return isinstance(text, str) and 1 <= utf16_length(text) <= maximum \
+        and not any(c not in "\n\t" and (c < " " or "\x7f" <= c <= "\x9f") for c in text)
+
+
+def is_line(text, maximum):
+    return is_text(text, maximum) and "\n" not in text and "\t" not in text
+
+
+def read_card(data):
+    """The pack card (v1.2 §15), strictly: exactly its fields, each of its type and length."""
+    card = profile(data)
+    fields = {"format", "owner", "intendedUse", "limitations", "boundaries", "risks", "provenance", "audience", "domain", "references"}
+    if not isinstance(card, dict) or set(card) - fields:
+        raise Refused("card.json holds other fields than a pack card")
+    if card.get("format") != CARD_FORMAT:
+        raise Refused("card.json must name format 'agentmemory.pack.card/1'")
+    owner = card.get("owner")
+    if not isinstance(owner, dict) or set(owner) - {"name", "contact"} or not is_text(owner.get("name"), 200) \
+            or ("contact" in owner and not is_text(owner["contact"], 200)):
+        raise Refused("card.json names its owner as 'name' and, optionally, 'contact'")
+    for name, maximum, required in (("intendedUse", 2000, True), ("limitations", 2000, True), ("provenance", 2000, False),
+                                    ("audience", 500, False), ("domain", 100, False)):
+        if (required or name in card) and not is_text(card.get(name), maximum):
+            raise Refused(f"card.json: '{name}' is text of 1 to {maximum} characters")
+    for name, maximum in (("boundaries", 32), ("risks", 32), ("references", 16)):
+        items = card.get(name, [])
+        if not isinstance(items, list) or len(items) > maximum or not all(is_text(i, 500) for i in items) or len(set(items)) != len(items):
+            raise Refused(f"card.json: '{name}' is a list of at most {maximum} distinct texts")
+    return card
+
+
+def attestation_checks(files):
+    """What travels in META/attestations/: certificates and the AEF runs beside them, shaped and bounded (v1.2 §16)."""
+    stems, runs = set(), {}
+    for path in sorted(p for p in files if p.startswith(ATTESTATIONS)):
+        match = CERT_FILE.fullmatch(path)
+        if match:
+            stems.add(match.group(1))
+            if len(files[path]) > MAX_ENVELOPE:
+                raise Refused(f"'{path}' is larger than 64 KiB")
+            continue
+        run = RUN_FILE.fullmatch(path)
+        if not run:
+            raise Refused(f"'{path}' is not an attestation")
+        runs.setdefault(run.group(1), []).append(len(files[path]))
+    if len(stems) > MAX_CERTIFICATES:
+        raise Refused(f"the pack carries {len(stems)} certificates; at most {MAX_CERTIFICATES}")
+    for stem, sizes in runs.items():
+        if stem not in stems:
+            raise Refused(f"the AEF run {stem}.aef/ travels without its certificate")
+        if len(sizes) > MAX_RUN_FILES or sum(sizes) > MAX_RUN_BYTES:
+            raise Refused(f"the AEF run {stem}.aef/ is too large")
+
+
+def run_hash(run):
+    """An AEF run's run hash (AEF 1.0 SEAL-1 to SEAL-4)."""
+    lines = "".join(f"{hashlib.sha256(run[p]).hexdigest()}  {len(run[p])}  {p}\n" for p in sorted(run, key=lambda x: x.encode("utf-8"))
+                    if p not in ("seal.json", "attestation.dsse.json") and not p.startswith("overlays/"))
+    return hashlib.sha256(lines.encode("utf-8")).hexdigest()
+
+
+def run_id(run):
+    """The run id run.json names, read in the format's JSON profile (as .NET's PackAttestations.RunId), or None."""
+    try:
+        value = profile(run["run.json"]) if "run.json" in run and len(run["run.json"]) <= 1 << 20 else None
+    except Refused:
+        return None
+    return value.get("runId") if isinstance(value, dict) and isinstance(value.get("runId"), str) else None
+
+
+def one_of(value, names):
+    return isinstance(value, str) and value in names
+
+
+def as_int(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def read_arm(arm):
+    if not isinstance(arm, dict) or set(arm) != {"tasks", "hits", "offered", "correct", "p95Micros"} or any(as_int(arm[k]) is None for k in arm):
+        return None
+    t, h, o, c, p95 = arm["tasks"], arm["hits"], arm["offered"], arm["correct"], arm["p95Micros"]
+    return arm if 0 <= t <= 1_000_000 and 0 <= h <= t and 0 <= o <= 100_000_000 and 0 <= c <= o and 0 <= p95 <= 86_400_000_000 else None
+
+
+def read_certificate(payload):
+    """An evaluation certificate's statement (v1.2 §16), strictly, as .NET's PackCertificate.Read."""
+    st = profile(payload)
+    if not isinstance(st, dict) or set(st) != {"_type", "subject", "predicateType", "predicate"} or st["_type"] != STATEMENT \
+            or st["predicateType"] != CERTIFICATE:
+        raise Refused("the certificate is not an evaluation statement")
+    subject = st["subject"]
+    if not isinstance(subject, list) or len(subject) != 1 or not isinstance(subject[0], dict) or set(subject[0]) != {"name", "digest"} \
+            or subject[0]["name"] != FILES or not isinstance(subject[0]["digest"], dict) or set(subject[0]["digest"]) != {"sha256"} \
+            or not isinstance(subject[0]["digest"]["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", subject[0]["digest"]["sha256"]):
+        raise Refused("the certificate must name exactly one subject: META/files.json and its SHA-256")
+    pred = st["predicate"]
+    fields = {"id", "version", "evaluator", "tool", "evaluatedAt", "trial", "checks", "with", "without", "passed", "aef"}
+    if not isinstance(pred, dict) or set(pred) - fields:
+        raise Refused("the certificate's predicate holds other fields than this format defines")
+    if not (isinstance(pred.get("id"), str) and ID.fullmatch(pred["id"]) and len(pred["id"]) <= 64 and valid_version(pred.get("version"))):
+        raise Refused("the certificate names no valid pack id and version")
+    if not is_line(pred.get("evaluator"), 200):
+        raise Refused("the certificate names its evaluator as one line of 1 to 200 characters")
+    tool = pred.get("tool")
+    if not isinstance(tool, dict) or set(tool) != {"name", "version"} or not is_line(tool["name"], 100) or not is_line(tool["version"], 64):
+        raise Refused("the certificate names its tool and version")
+    if not isinstance(pred.get("evaluatedAt"), str) or not SIGNED_AT.fullmatch(pred["evaluatedAt"]):
+        raise Refused("the certificate has no evaluation time in UTC")
+    try:
+        evaluated_at = datetime.strptime(pred["evaluatedAt"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise Refused("the certificate has no evaluation time in UTC")
+    trial = pred.get("trial")
+    if not isinstance(trial, dict) or set(trial) - {"measure", "baseline", "confidenceMilli", "taskSource"} \
+            or not one_of(trial.get("measure"), MEASURES) or not one_of(trial.get("baseline"), BASELINES) or not is_line(trial.get("taskSource"), 500):
+        raise Refused("the certificate's trial names its measure, baseline and task source")
+    if "confidenceMilli" in trial and (as_int(trial["confidenceMilli"]) is None or trial["confidenceMilli"] not in CONFIDENCES):
+        raise Refused("the certificate's confidenceMilli is 900, 950, 975 or 990")
+    checks = pred.get("checks")
+    if not isinstance(checks, list) or not 1 <= len(checks) <= 16:
+        raise Refused("the certificate lists 1 to 16 checks")
+    for c in checks:
+        if not isinstance(c, dict) or set(c) - {"target", "requiredMilli", "observedMilli", "met", "estimateMilli"} \
+                or not one_of(c.get("target"), TARGETS) or as_int(c.get("requiredMilli")) is None or as_int(c.get("observedMilli")) is None \
+                or not isinstance(c.get("met"), bool) or ("estimateMilli" in c and as_int(c["estimateMilli"]) is None):
+            raise Refused("a certificate check names a known target, requiredMilli and observedMilli as integers, and met")
+    if len({c["target"] for c in checks}) != len(checks):
+        raise Refused("the certificate checks one target twice")
+    with_arm = read_arm(pred.get("with"))
+    if with_arm is None:
+        raise Refused("the certificate's 'with' arm is malformed")
+    without = None
+    if "without" in pred and (without := read_arm(pred["without"])) is None:
+        raise Refused("the certificate's 'without' arm is malformed")
+    if not isinstance(pred.get("passed"), bool):
+        raise Refused("the certificate says whether every target was met ('passed')")
+    if "aef" in pred:
+        aef = pred["aef"]
+        if not isinstance(aef, dict) or set(aef) != {"runId", "runHash"} or not isinstance(aef["runId"], str) or not RUN_ID.fullmatch(aef["runId"]) \
+                or not isinstance(aef["runHash"], str) or not re.fullmatch(r"[0-9a-f]{64}", aef["runHash"]):
+            raise Refused("the certificate's 'aef' names an AEF runId and its runHash")
+    # The verdict agrees with the record: passed exactly when every check held on enough tasks.
+    if pred["passed"] != (all(c["met"] for c in checks) and with_arm["tasks"] >= MINIMUM_TASKS):
+        raise Refused("the certificate's verdict disagrees with its checks")
+    if without is not None and without["tasks"] != with_arm["tasks"]:
+        raise Refused("the certificate's arms ran different numbers of tasks")
+    if trial["baseline"] == "host" and without is None:
+        raise Refused("a certificate measured against the host's retrieval records that arm")
+    return st, pred, evaluated_at
+
+
+def verify_certificate(envelope_bytes, pid, version, digest, policy, now, run=None):
+    """An evaluation certificate (v1.2 §16) for a verified pack: by a key the host trusts as evaluator for its id."""
+    if len(envelope_bytes) > MAX_ENVELOPE:
+        raise Refused("the certificate is larger than 64 KiB")
+    env = profile(envelope_bytes)
+    if not isinstance(env, dict) or set(env) != {"payloadType", "payload", "signatures"} or env["payloadType"] != PAYLOAD_TYPE \
+            or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES:
+        raise Refused("the certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures")
+    try:
+        payload = base64.b64decode(env["payload"], validate=True)
+    except (ValueError, binascii.Error):
+        raise Refused("the certificate's payload is not base64")
+    st, pred, evaluated_at = read_certificate(payload)
+    if "sha256:" + st["subject"][0]["digest"]["sha256"] != digest:
+        raise Refused("the certificate is for another pack")
+    if pred["id"] != pid or pred["version"] != version:
+        raise Refused("the certificate names another pack id or version")
+    if run is not None:
+        if "aef" not in pred:
+            raise Refused("an AEF run travels with the certificate, but the certificate names none")
+        if run_hash(run) != pred["aef"]["runHash"]:
+            raise Refused("the AEF run beside the certificate is not the run it names")
+        named = run_id(run)
+        if named is not None and named != pred["aef"]["runId"]:
+            raise Refused("the AEF run beside the certificate has another run id")
+    keys = {k["keyId"]: k for k in policy.get("keys", [])}
+    revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
+    digest_of_pae = hashlib.sha256(pae(payload)).digest()
+    for entry in env["signatures"]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("keyid"), str) or not isinstance(entry.get("sig"), str):
+            continue
+        key = keys.get(entry["keyid"])
+        if key is None:
+            continue
+        try:
+            sig = base64.b64decode(entry["sig"], validate=True)
+            public = serialization.load_pem_public_key(key["publicKey"].encode())
+            public.verify(sig, digest_of_pae, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
+        except (InvalidSignature, ValueError, binascii.Error):
+            continue
+        if key_refusal(key, "evaluator", pid, evaluated_at, now, revoked_keys) is None:
+            return pred
+    raise Refused("no valid certificate signature by a key this host trusts as evaluator for the pack")
+
+
 def valid_version(text):
     if not isinstance(text, str) or len(text) > MAX_VERSION:
         return False
@@ -884,6 +1105,8 @@ def load_policy(raw):
             raise Refused("a trusted key needs known roles")
         if "revoker" in roles and len(roles) > 1:
             raise Refused("a revoker key holds that role alone")
+        if "evaluator" in roles and len(roles) > 1:
+            raise Refused("an evaluator key holds that role alone")
         try:
             public = serialization.load_pem_public_key(key["publicKey"].encode())
             spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -944,6 +1167,11 @@ def main(argv):
     if (receipt_path is None) != (location is None):
         print("error: --receipt and --location go together")
         return 2
+    certificate_path = None
+    if "--certificate" in args:
+        i = args.index("--certificate")
+        certificate_path = args[i + 1]
+        del args[i:i + 2]
     pack_path, policy_path = args[0], args[1]
     now = datetime.now(timezone.utc)
     try:
@@ -962,6 +1190,19 @@ def main(argv):
             federation = read_federation(manifest.get("extensions", {}))
             verify_receipt(open(receipt_path, "rb").read(), pid, version, digest, federation, archive, location, policy, now)
             print(f"verified the placement of {pid} {version} at {location}")
+        if certificate_path is not None:
+            files = read_zip(archive)
+            if certificate_path.startswith(ATTESTATIONS):
+                if certificate_path not in files:
+                    raise Refused(f"the pack carries no {certificate_path}")
+                stem = CERT_FILE.fullmatch(certificate_path).group(1)
+                folder = f"{ATTESTATIONS}{stem}.aef/"
+                run = {p[len(folder):]: b for p, b in files.items() if p.startswith(folder)} or None
+                envelope = files[certificate_path]
+            else:
+                run, envelope = None, open(certificate_path, "rb").read()
+            pred = verify_certificate(envelope, pid, version, digest, policy, now, run)
+            print(f"verified the certificate of {pid} {version} by {pred['evaluator']}")
     except Refused as e:
         print(f"refused: {e}")
         return 1

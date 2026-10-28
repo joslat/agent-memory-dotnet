@@ -69,10 +69,18 @@ try {
 
     Step 'The supplier writes a knowledge pack for the buyer alone, and builds and signs it'
     # --publisher and --audience make it federated: who publishes it and who it is for, inside what is signed.
-    Ampack init handoff --id io.supplier.handoff --version 1.0.0 --publisher $webId.supplier --audience $webId.buyer --purpose 'Supply-chain handoff for PO-123' | Out-Null
+    Ampack init handoff --id io.supplier.handoff --version 1.0.0 --owner 'Supplier A logistics' --publisher $webId.supplier --audience $webId.buyer --purpose 'Supply-chain handoff for PO-123' | Out-Null
     $pack = Get-Content handoff/pack.json -Raw | ConvertFrom-Json -AsHashtable
     $pack.display = @{ title = 'PO-123 handoff'; description = 'What the buyer needs to know about purchase order PO-123.' }
     [IO.File]::WriteAllText((Join-Path $work 'handoff/pack.json'), ($pack | ConvertTo-Json -Depth 10 -Compress))
+    # The pack card: who answers for it, what it is for and not for, signed with the rest; the buyer's host shows it.
+    $card = Get-Content handoff/card.json -Raw | ConvertFrom-Json -AsHashtable
+    $card.owner.contact = $webId.supplier
+    $card.intendedUse = 'What the buyer''s agents need to know about purchase order PO-123: delivery, contact and pallets.'
+    $card.limitations = 'PO-123 only, as of the handoff; the supplier''s next handoff supersedes it. Not a contract.'
+    $card.boundaries = @('Do not share outside the buyer''s organisation.')
+    $card.risks = @('Delivery details can change until two days before delivery.')
+    [IO.File]::WriteAllText((Join-Path $work 'handoff/card.json'), ($card | ConvertTo-Json -Depth 5 -Compress))
     $notes = @(
         @{ type = 'HandoffNote'; key = 'po-123-delivery'; properties = @{ title = 'PO-123 delivery'; text = 'Confirmed for 15 November 2026 at the Basel dock, gate 4.' } },
         @{ type = 'HandoffNote'; key = 'po-123-contact'; properties = @{ title = 'PO-123 contact'; text = 'The supplier''s logistics desk handles changes until two days before delivery.' } },
@@ -96,6 +104,8 @@ try {
     Step "The buyer's host fetches, re-checks the key, verifies pack and receipt, and installs"
     Ampack -As buyer solid fetch --from $webId.supplier --webid $webId.buyer --policy buyer-trust.json --store buyer-store --allow-loopback-http
     Ampack list --store buyer-store
+    Write-Host '  the pack and its card, as the buyer''s host verifies them:'
+    Ampack verify (Get-ChildItem buyer-store -Recurse -Filter *.ampack | Select-Object -First 1).FullName --policy buyer-trust.json
     Ampack test --store buyer-store --policy buyer-trust.json
     Write-Host "  where it came from (buyer-store/federation.jsonl):"
     Get-Content buyer-store/federation.jsonl | ForEach-Object { Write-Host "  $_" }

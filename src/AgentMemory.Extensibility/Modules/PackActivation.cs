@@ -65,6 +65,35 @@ public sealed record PackTrialTask(int Offered, int Correct);
 public sealed record PackTrialCheck(string Target, double Required, double Observed, bool Met, double? Estimate = null);
 
 /// <summary>
+/// What a decision rests on when it is not the host's own trial (pack format v1.2 §16, certificate trust): an evaluation
+/// certificate the host verified, from a key it trusts as evaluator for the pack's id, and chose to rely on. A host composes
+/// such a decision only in namespaces where it trusts certificates (<see cref="ModuleSetBuilder.TrustCertificatesFor"/>);
+/// everywhere else only its own trial counts (proven here).
+/// </summary>
+[Experimental("AMEXT001")]
+public sealed record PackDecisionBasis
+{
+    /// <summary>The kind of basis this host used: <c>certificate</c>.</summary>
+    public required string Kind { get; init; }
+    /// <summary>The certificate relied on: <c>sha256:</c> over its envelope's exact bytes.</summary>
+    public required string Certificate { get; init; }
+    /// <summary>Who evaluated, as the certificate names it.</summary>
+    public required string Evaluator { get; init; }
+    /// <summary>The key that signed the certificate, trusted here as evaluator.</summary>
+    public required string EvaluatorKey { get; init; }
+    /// <summary>When the evaluator evaluated.</summary>
+    public required DateTimeOffset EvaluatedAt { get; init; }
+    /// <summary>Where the evaluator's tasks came from.</summary>
+    public required string TaskSource { get; init; }
+    /// <summary>The AEF run the certificate summarises: AEF's run id; null when it names none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AefRunId { get; init; }
+    /// <summary>That run's run hash (AEF 1.0 SEAL-4); null when it names none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AefRunHash { get; init; }
+}
+
+/// <summary>
 /// A host's decision about one pack, from its trial (pack format v1.1 §4, claim 2): on or off, the reason, and every check.
 /// Bound to the exact declarations by <see cref="ManifestDigest"/> and, for a pack, to its exact content by
 /// <see cref="PackDigest"/> (PACK-bind): a changed pack needs a new trial.
@@ -109,6 +138,12 @@ public sealed record PackActivation
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ModuleTrialUpgrade? Upgrade { get; init; }
+    /// <summary>
+    /// What the decision rests on when it is not this host's own trial: an evaluation certificate (certificate trust). Null for
+    /// a decision from the host's own trial, which every namespace accepts.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PackDecisionBasis? Basis { get; init; }
 }
 
 /// <summary>The activation records a host has, by pack.</summary>
@@ -284,11 +319,12 @@ public static class PackTrialGate
 
     /// <summary>
     /// The registrations that may compose, and the ones left off: a module that declares a trial needs a passing decision for
-    /// exactly its manifest and, when it came from a pack, exactly that pack; in a namespace where the host made trials
-    /// mandatory, a module that declares none is left off; a module that needs one left off is left off too.
+    /// exactly its manifest and, when it came from a pack, exactly that pack; a decision the host made from a certificate counts
+    /// only in a namespace where it trusts certificates, and elsewhere its latest own trial decides; in a namespace where the
+    /// host made trials mandatory, a module that declares none is left off; a module that needs one left off is left off too.
     /// </summary>
     internal static (IReadOnlyList<ModuleRegistration> On, IReadOnlyList<SwitchedOffModule> Off) Apply(IReadOnlyList<ModuleRegistration> registrations,
-        IPackActivations? activations, IReadOnlyList<string>? mandatory = null)
+        IPackActivations? activations, IReadOnlyList<string>? mandatory = null, IReadOnlyList<string>? certificateTrust = null)
     {
         if (activations is null) return (registrations, []);
         var off = new Dictionary<string, SwitchedOffModule>(StringComparer.Ordinal);
@@ -299,8 +335,20 @@ public static class PackTrialGate
         foreach (var registration in registrations.Where(r => r.Manifest.Trial is not null))
         {
             var manifest = registration.Manifest;
-            var decision = activations.Find(manifest.Id, manifest.Version, DigestOf(manifest), registration.PackDigest);
+            var manifestDigest = DigestOf(manifest);
+            var decision = activations.Find(manifest.Id, manifest.Version, manifestDigest, registration.PackDigest);
+            // Proven here unless the host chose otherwise for this namespace: a decision made from a certificate is set aside,
+            // and the latest decision from the host's own trial of exactly this content decides.
+            PackDecisionBasis? setAside = null;
+            if (decision?.Basis is { } basis && !(certificateTrust ?? []).Any(p => ModuleSetBuilder.Covers(p, manifest.Id)))
+            {
+                setAside = basis;
+                decision = activations.History(manifest.Id)
+                    .Where(a => a.Basis is null && a.Version == manifest.Version.ToString() && a.ManifestDigest == manifestDigest && a.PackDigest == registration.PackDigest)
+                    .MaxBy(a => a.DecidedAt);
+            }
             var reason = decision is not null ? (decision.Active ? Upgrade(activations, manifest, decision) : "its trial failed: " + decision.Reason)
+                : setAside is not null ? $"it was admitted on {setAside.Evaluator}'s certificate, but this host trusts certificates only where it chooses; here it needs its own trial"
                 : activations.Find(manifest.Id, manifest.Version) is not null ? "its trial ran on other content; trial it again"
                 : "no trial on this host yet";
             if (reason is not null) off[manifest.Id] = new SwitchedOffModule(manifest.Id, manifest.Version.ToString(), reason);
@@ -437,6 +485,27 @@ public sealed class PackActivationFolder : IPackActivations
 
     /// <inheritdoc/>
     public IReadOnlyList<PackActivation> History(string moduleId) => _history.TryGetValue(moduleId, out var all) ? all.AsReadOnly() : [];
+
+    /// <summary>
+    /// Signs <paramref name="decision"/> with the host's key and writes it into <paramref name="folder"/> as a DSSE envelope of
+    /// its in-toto statement, named by the pack, its version and the decision time; returns the file written.
+    /// </summary>
+    public static string Write(string folder, PackActivation decision, ECDsa hostKey)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
+        ArgumentNullException.ThrowIfNull(decision);
+        ArgumentNullException.ThrowIfNull(hostKey);
+        Directory.CreateDirectory(folder);
+        var file = Path.Combine(folder, $"{decision.ModuleId}@{decision.Version}-{decision.DecidedAt.UtcDateTime:yyyyMMddTHHmmssZ}{(decision.Basis is null ? "" : "-certificate")}.dsse.json");
+        var statement = Statement(decision);
+        var signature = hostKey.SignData(Pae(statement), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        File.WriteAllText(file, JsonSerializer.Serialize(new
+        {
+            payloadType = PayloadType, payload = Convert.ToBase64String(statement),
+            signatures = new[] { new { keyid = "host", sig = Convert.ToBase64String(signature) } },
+        }));
+        return file;
+    }
 
     /// <summary>The DSSE pre-authentication encoding of a payload.</summary>
     public static byte[] Pae(ReadOnlySpan<byte> payload)

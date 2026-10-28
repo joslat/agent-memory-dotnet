@@ -13,10 +13,18 @@ public sealed class PackAdviceTests
     private static readonly string MartialArts = Path.Combine(AppContext.BaseDirectory, "Packs", "MartialArts");
     private static readonly PackSigningKey Key = PackAuthoring.CreateKey();
 
-    private static LoadedPack Load(Action<JsonObject>? change = null, string? trial = null)
+    // DKP-4: a card that says who owns the pack and what it is for; the advice tests below are about everything else.
+    internal const string Card = """
+        { "format": "agentmemory.pack.card/1", "owner": { "name": "Example Dojo", "contact": "https://example.com/dojo" },
+          "intendedUse": "Techniques and lessons for one dojo's study coach.", "limitations": "Not medical or safety advice.",
+          "boundaries": ["Do not use it to grade students."], "risks": ["Lessons may lag the syllabus."] }
+        """;
+
+    private static LoadedPack Load(Action<JsonObject>? change = null, string? trial = null, string? card = Card)
     {
         var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(Directory.EnumerateFiles(MartialArts, "*", SearchOption.AllDirectories).ToDictionary(
             f => Path.GetRelativePath(MartialArts, f).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllBytes, StringComparer.Ordinal)), StringComparer.Ordinal);
+        if (card is not null) source["card.json"] = Encoding.UTF8.GetBytes(card.Replace("\r\n", "\n", StringComparison.Ordinal) + "\n");
         if (change is not null)
         {
             var manifest = JsonNode.Parse(source["pack.json"])!.AsObject();
@@ -84,6 +92,32 @@ public sealed class PackAdviceTests
 
         Rules(pack).Should().BeEmpty();
         Rules(pack, DateTimeOffset.UtcNow.AddDays(380)).Should().Equal("validity.soon");
+    }
+
+    [Fact]
+    public void A_pack_without_a_card_or_with_the_template_one_is_advised_and_a_real_card_is_read_back()
+    {
+        const string trial = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.3 }, "upgrade": { "noRegression": true } }""";
+
+        Rules(Load(trial: trial, card: null)).Should().Equal("card.missing");
+        Rules(Load(trial: trial, card: Card.Replace("Example Dojo", "Who owns this pack", StringComparison.Ordinal))).Should().Equal("card.template");
+        var pack = Load(trial: trial);
+        Rules(pack).Should().BeEmpty();
+        pack.Card.Should().NotBeNull();
+        pack.Card!.Owner.Should().Be("Example Dojo");
+        pack.Card.OwnerContact.Should().Be("https://example.com/dojo");
+        pack.Card.Boundaries.Should().Equal("Do not use it to grade students.");
+        pack.Card.IsTemplate.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_card_that_breaks_the_format_refuses_the_pack_it_is_signed_into()
+    {
+        // The card is listed and signed like any other file; a pack whose card is malformed does not build.
+        FluentActions.Invoking(() => Load(card: Card.Replace("\"Example Dojo\"", "\"Example\\u001b[2J Dojo\"", StringComparison.Ordinal)))
+            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("owner.name"));
+        FluentActions.Invoking(() => Load(card: Card.Replace("\"risks\"", "\"rating\": \"five\", \"risks\"", StringComparison.Ordinal)))
+            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("unknown field 'rating'"));
     }
 
     [Fact]

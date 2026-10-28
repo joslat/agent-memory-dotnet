@@ -265,6 +265,82 @@ public sealed class AmpackCommandLineTests : IDisposable
     }
 
     [Fact]
+    public void A_card_travels_in_the_pack_and_an_evaluator_s_certificate_beside_it_until_a_host_that_trusts_it_admits_the_pack()
+    {
+        // Three parties: the publisher, an independent evaluator (its own key, role evaluator), and the host.
+        JsonObject Entry(string output) => JsonNode.Parse(output[(output.IndexOf("Trust-policy entry:", StringComparison.Ordinal) + "Trust-policy entry:".Length)..])!.AsObject();
+        var publisher = Entry(Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.example"));
+        var evaluator = Entry(Done("keygen", "--out", "keys", "--name", "evaluator", "--prefix", "io.example", "--role", "evaluator"));
+        Done("keygen", "--out", "keys", "--name", "lab-host", "--prefix", "io.example");
+        Done("keygen", "--out", "keys", "--name", "host", "--prefix", "io.example");
+        File.WriteAllText(At("trust.json"), new JsonObject { ["format"] = "agentmemory.pack.trust/1.1", ["keys"] = new JsonArray(publisher.DeepClone(), evaluator) }.ToJsonString());
+        File.WriteAllText(At("publisher-only.json"), new JsonObject { ["format"] = "agentmemory.pack.trust/1.1", ["keys"] = new JsonArray(publisher.DeepClone()) }.ToJsonString());
+
+        // init writes a card from a template; lint says so until it is filled in.
+        Done("init", "notes", "--id", "io.example.notes", "--owner", "Example Team");
+        var card = JsonNode.Parse(File.ReadAllText(At("notes", "card.json")))!.AsObject();
+        card["owner"]!["name"]!.GetValue<string>().Should().Be("Example Team");
+        Directory.CreateDirectory(At("notes", "evals"));
+        File.WriteAllText(At("notes", "evals", "trial.json"), """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 } }""");
+        Done("build", "notes", "--out", "notes.ampack", "--key", At("keys", "publisher.key.pem"));
+        Done("lint", "notes.ampack", "--policy", "trust.json").Should().Contain("card.template");
+        card["intendedUse"] = "Notes for the example team's study coach.";
+        card["limitations"] = "Not for anyone else; may be out of date.";
+        card["boundaries"] = new JsonArray("Do not export the notes.");
+        File.WriteAllText(At("notes", "card.json"), card.ToJsonString());
+        Done("build", "notes", "--out", "notes.ampack", "--key", At("keys", "publisher.key.pem"));
+        var verified = Done("verify", "notes.ampack", "--policy", "trust.json");
+        verified.Should().Contain("card    Example Team: Notes for the example team's study coach.").And.Contain("boundaries: Do not export the notes.");
+        var digest = verified.Split('\n').Single(l => l.TrimStart().StartsWith("digest", StringComparison.Ordinal)).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[1];
+        var declarations = verified.Split('\n').Single(l => l.TrimStart().StartsWith("declarations", StringComparison.Ordinal)).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[1];
+        Done("inspect", "notes.ampack").Should().Contain("Card    Example Team");
+
+        // The evaluator ran the trial on its own tasks; its gate signed the decision with the lab's host key.
+        Refused("certify", "notes.ampack", "--policy", "trust.json", "--activations", "lab-decisions", "--activation-key", At("keys", "lab-host.pub.pem"),
+            "--key", At("keys", "evaluator.key.pem"), "--evaluator", "Example Lab", "--task-source", "40 changes", "--out", "x.ampack").Should().Contain("No trial decision for exactly this pack");
+        var pack = PackLoader.Load(At("notes.ampack"), PackTrust.Load(At("trust.json")));
+        PackTrialGate.DigestOf(pack.Manifest).Should().Be(declarations, "verify prints what a decision binds");
+        using (var labHost = System.Security.Cryptography.ECDsa.Create())
+        {
+            labHost.ImportFromPem(File.ReadAllText(At("keys", "lab-host.key.pem")));
+            var arm = new PackTrialMeasurement { Tasks = 40, Hits = 24, Offered = 120, Correct = 30, P95Ms = 12.5 };
+            PackActivationFolder.Write(At("lab-decisions"), PackTrialGate.Decide(pack.Manifest, arm, arm with { Hits = 0 }, DateTimeOffset.UtcNow.AddHours(-1), pack.Digest), labHost);
+        }
+        Done("certify", "notes.ampack", "--policy", "trust.json", "--activations", "lab-decisions", "--activation-key", At("keys", "lab-host.pub.pem"),
+            "--key", At("keys", "evaluator.key.pem"), "--evaluator", "Example Lab", "--task-source", "40 changes from the lab's repository", "--out", "certified.ampack")
+            .Should().Contain("Certified io.example.notes 0.1.0 (passed").And.Contain($"digest  {digest} (unchanged)");
+
+        // A host reads it: verified, by the evaluator's key, for this pack; inspection lists it unverified.
+        Done("certificate", "verify", "certified.ampack", "--policy", "trust.json")
+            .Should().Contain("by      Example Lab").And.Contain("result  passed: hitRate 0.6 (met 0.5)").And.Contain("40 tasks from 40 changes from the lab's repository")
+            .And.Contain("tool    agentmemory-pack-gate " + typeof(PackTrialGate).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0],
+                "the certificate names the version of the library that holds the gate");
+        Done("verify", "certified.ampack", "--policy", "trust.json").Should().Contain($"digest  {digest}").And.Contain("certificate passed, by Example Lab");
+        Done("inspect", "certified.ampack").Should().Contain("certificate  META/attestations/");
+        Refused("certificate", "verify", "certified.ampack", "--policy", "publisher-only.json").Should().Contain("not in the trust policy");
+        Done("verify", "certified.ampack", "--policy", "publisher-only.json").Should().Contain("not trusted here", "an untrusted certificate never refuses the pack");
+
+        // A host that trusts certificates for io.example admits it on the certificate, signed with its own key.
+        Refused("admit", "certified.ampack", "--policy", "publisher-only.json", "--host-key", At("keys", "host.key.pem"), "--activations", "host-decisions")
+            .Should().Contain("None of the 1 certificate(s)");
+        Done("admit", "certified.ampack", "--policy", "trust.json", "--host-key", At("keys", "host.key.pem"), "--activations", "host-decisions")
+            .Should().Contain("Admitted io.example.notes 0.1.0").And.Contain("basis   certificate sha256:").And.Contain("TrustCertificatesFor");
+        var record = Directory.EnumerateFiles(At("host-decisions")).Should().ContainSingle().Subject;
+        record.Should().EndWith("-certificate.dsse.json");
+        new PackActivationFolder(At("host-decisions"), File.ReadAllText(At("keys", "host.pub.pem"))).Find("io.example.notes", ModuleVersion.Parse("0.1.0"), declarations, digest)!
+            .Basis!.Evaluator.Should().Be("Example Lab");
+
+        // Both modes, from the host's signed decisions alone: proven here by default, the certificate only where trusted.
+        string[] gate = ["gate", "certified.ampack", "--policy", "trust.json", "--activations", "host-decisions", "--host-key", At("keys", "host.pub.pem")];
+        Done(gate).Should().Contain("off  io.example.notes 0.1.0  it was admitted on Example Lab's certificate").And.Contain("needs its own trial");
+        Done([.. gate, "--trust-certificates-for", "io.example"]).Should().Contain("on   io.example.notes 0.1.0  on Example Lab's certificate");
+        Ampack([.. gate, "--trust-certificates-for", "io..example"]).Exit.Should().Be(2);
+
+        // Lint tells the publisher what a host can do with it.
+        Done("lint", "certified.ampack", "--policy", "trust.json").Should().Contain("certificate.admits");
+    }
+
+    [Fact]
     public void A_key_from_the_environment_a_protected_file_or_an_external_signer_signs_as_a_file_key_does()
     {
         Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.example");

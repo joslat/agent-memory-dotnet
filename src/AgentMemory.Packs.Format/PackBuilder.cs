@@ -11,8 +11,8 @@ internal static class PackBuilder
     internal const string GitAttributes = "* -text -filter -diff\n";
 
     /// <summary>
-    /// The files with a fresh <c>META/files.json</c>. Existing signatures are kept only when the list did not change;
-    /// otherwise they no longer sign this content and are dropped.
+    /// The files with a fresh <c>META/files.json</c>. Existing signatures and attestations are kept only when the list did not
+    /// change; otherwise they no longer name this content and are dropped.
     /// </summary>
     internal static (Dictionary<string, byte[]> Files, bool SignaturesDropped) Build(IReadOnlyDictionary<string, byte[]> source)
     {
@@ -21,10 +21,10 @@ internal static class PackBuilder
         if (manifest is null) throw new InvalidDataException(problem);
         var listBytes = FilesList.Build(manifest.Id, manifest.Version, source);
         var unchanged = source.TryGetValue(PackPaths.FilesList, out var previous) && previous.AsSpan().SequenceEqual(listBytes);
-        var files = source.Where(f => FilesList.IsListed(f.Key) || (unchanged && PackPaths.IsSignature(f.Key)))
+        var files = source.Where(f => FilesList.IsListed(f.Key) || (unchanged && (PackPaths.IsSignature(f.Key) || PackPaths.IsAttestation(f.Key))))
             .ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
         files[PackPaths.FilesList] = listBytes;
-        return (files, !unchanged && source.Keys.Any(PackPaths.IsSignature));
+        return (files, !unchanged && source.Keys.Any(p => PackPaths.IsSignature(p) || PackPaths.IsAttestation(p)));
     }
 
     /// <summary>Adds (or replaces) this key's signature in <paramref name="role"/>.</summary>

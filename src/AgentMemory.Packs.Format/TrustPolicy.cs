@@ -22,7 +22,7 @@ internal sealed record TrustPolicy
     internal const string Format = "agentmemory.pack.trust/1.1";
 
     /// <summary>The roles a trusted key may hold: the three that sign packs, and <c>revoker</c>, which signs revocation documents only.</summary>
-    internal static readonly IReadOnlySet<string> KeyRoles = new HashSet<string>(Dsse.Roles, StringComparer.Ordinal) { Revocations.Role };
+    internal static readonly IReadOnlySet<string> KeyRoles = new HashSet<string>(Dsse.Roles, StringComparer.Ordinal) { Revocations.Role, PackCertificate.Role };
 
     internal IReadOnlyList<TrustedKey> Keys { get; init; } = [];
     internal IReadOnlyList<string> RevokedDigests { get; init; } = [];
@@ -112,6 +112,9 @@ internal sealed record TrustPolicy
                 // revocation of a revoker, decide what its own packs are worth (eighth review).
                 if (roles.Contains(Revocations.Role) && roles.Count > 1)
                     throw new InvalidDataException($"Key {Dsse.Short(keyId)} is a revoker and also signs packs; a revoker key holds that role alone.");
+                // An evaluator signs certificates only (v1.2 §16): the key that signs a pack never certifies it as well.
+                if (roles.Contains(PackCertificate.Role) && roles.Count > 1)
+                    throw new InvalidDataException($"Key {Dsse.Short(keyId)} is an evaluator and also signs packs; an evaluator key holds that role alone.");
                 string? webId = null;
                 if (k.TryGetProperty("webId", out var webIdValue))
                 {

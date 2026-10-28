@@ -61,7 +61,9 @@ public sealed class ModuleSet
     {
         if (builder.MandatoryTrials.Count != 0 && builder.Activations is null)
             throw new ModuleActivationException(["RequireTrialsFor makes trials mandatory, so it needs the host's decisions: call RequireTrials too."]);
-        var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations, builder.MandatoryTrials);
+        if (builder.CertificateTrust.Count != 0 && builder.Activations is null)
+            throw new ModuleActivationException(["TrustCertificatesFor accepts decisions made from certificates, so it needs the host's decisions: call RequireTrials too."]);
+        var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations, builder.MandatoryTrials, builder.CertificateTrust);
         var store = builder.Store;
         var provider = store?.Provider ?? "none";
         var profile = builder.Profile ?? ImplicitProfile(registrations, provider);

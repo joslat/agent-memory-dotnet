@@ -15,10 +15,10 @@ internal static partial class Program
     private const string Usage = """
         ampack <command> [options]
 
-          init <folder> --id <reverse.dns.id> [--kind knowledge|definition] [--version 0.1.0]
+          init <folder> --id <reverse.dns.id> [--kind knowledge|definition] [--version 0.1.0] [--owner <name>]
                [--publisher <WebID> --audience public|<WebID,…> [--purpose <text>]]
-                                 start a pack folder (pack.json, an ontology, a view, .gitattributes, and for a
-                                 knowledge pack one record); with --publisher, a federated pack for that audience
+                                 start a pack folder (pack.json, a pack card, an ontology, a view, .gitattributes, and
+                                 for a knowledge pack one record); with --publisher, a federated pack for that audience
           lint <folder|file> [--policy <trust.json>]
                                  check paths, the JSON profile, pack.json and, once built, the files list; with
                                  --policy, load a .ampack as a host does and give advice on what a host will do with
@@ -32,7 +32,7 @@ internal static partial class Program
           diff <a> <b> [--policy <trust.json>] [--json]
                                  what changed between two packs: identity, every declared value (ontology, views,
                                  walk, trial, ...), every record by type and key, every file; --policy verifies both first
-          keygen --out <folder> [--name <name>] [--prefix <id.prefix>] [--role publisher|curator|assurer|revoker]
+          keygen --out <folder> [--name <name>] [--prefix <id.prefix>] [--role publisher|curator|assurer|evaluator|revoker]
                  [--protect dpapi] [--policy <trust.json>]
                                  a P-256 key pair and a trust-policy entry for it; --protect dpapi keeps the
                                  private key encrypted for this Windows user (use it as --key dpapi:<file>);
@@ -86,6 +86,23 @@ internal static partial class Program
                                  bytes, an audience no wider than the pack's (default: the pack's), and what was probed
           receipt verify <pack.ampack> <receipt> --location <url> --policy <trust.json> [--revocations <file>]
                                  verify the pack and its receipt as a host fetching it from that URL does
+          certify <pack.ampack> --policy <trust.json> --activations <folder> --activation-key <host.pub.pem>
+                  --key <...> --evaluator <name> --task-source <text> [--aef <run-folder>] --out <file.ampack>
+                                 as an evaluator: sign an evaluation certificate from your own trial decision for exactly
+                                 this pack (evaluate --gate), with the AEF run beside it (ampack evidence, sealed by
+                                 AgentEval), and add it to the pack; its digest does not change
+          certificate verify <pack.ampack> --policy <trust.json> [--certificate META/attestations/<name> | <file>]
+                                 verify the pack and its certificates as a host does: a key the policy names as
+                                 evaluator for the pack's id, this exact pack, and the AEF run's hash when it travels with it
+          admit <pack.ampack> --policy <trust.json> --host-key <host.key.pem> --activations <folder>
+                                 for a host that trusts certificates for this pack's namespace: record a decision from the
+                                 latest trusted certificate covering the trial the pack declares, signed with the host's
+                                 key; it counts only where the host composes with TrustCertificatesFor (proven here,
+                                 the host's own trial, is the default everywhere else)
+          gate <pack.ampack>... --policy <trust.json> --activations <folder> --host-key <host.pub.pem>
+               [--require-trials-for <prefix,…>] [--trust-certificates-for <prefix,…>]
+                                 what this host's trial gate does with the packs, from its signed decisions alone: on or
+                                 off, and why (as a module set composing with RequireTrials); no store, no trial run
           trust webid <WebID> [--key <keyId> --policy <trust.json> --prefix <id.prefix> [--role publisher] [--host-webid <WebID>]]
                                  list the P-256 keys a WebID's profile asserts; with --key, bind that key to the WebID
                                  in the trust policy (never trust on first use: name the key you checked)
@@ -145,6 +162,10 @@ internal static partial class Program
                 "uninstall" => Uninstall(options),
                 "list" => ListInstalled(options),
                 "receipt" => Receipt(options),
+                "certify" => Certify(options),
+                "certificate" => CertificateCommand(options),
+                "admit" => Admit(options),
+                "gate" => Gate(options),
                 "solid" => Solid(options),
                 "trust" => TrustCommand(options),
                 _ => Fail($"Unknown command '{args[0]}'.\n\n{Usage}", 2),
@@ -213,7 +234,18 @@ internal static partial class Program
             ["type"] = prefix + "Note", ["key"] = "note-1",
             ["properties"] = new JsonObject { ["title"] = "First note", ["text"] = "Replace me." },
         };
+        // The pack card (§15): who owns it, what it is for and not for; lint advises until the template texts are replaced.
+        var card = new JsonObject
+        {
+            ["format"] = PackCard.Format,
+            ["owner"] = new JsonObject { ["name"] = o.Value("owner") ?? AgentMemory.Extensibility.Ampack.PackCardInfo.TemplateOwner },
+            ["intendedUse"] = AgentMemory.Extensibility.Ampack.PackCardInfo.TemplateUse,
+            ["limitations"] = AgentMemory.Extensibility.Ampack.PackCardInfo.TemplateLimitations,
+            ["boundaries"] = new JsonArray(), ["risks"] = new JsonArray(),
+        };
+        if (PackCard.Parse(System.Text.Encoding.UTF8.GetBytes(card.ToJsonString())).Problem is { } cardProblem) throw new UsageException(cardProblem);
         Write(folder, PackManifest.FileName, Pretty(manifest));
+        Write(folder, PackCard.FileName, Pretty(card));
         Write(folder, PackLayout.Ontology, Pretty(ontology));
         Write(folder, PackLayout.Views, Pretty(views));
         if (kind == "knowledge") Write(folder, "records/note.jsonl", record.ToJsonString() + "\n");
@@ -261,6 +293,7 @@ internal static partial class Program
             if (PackManifest.Parse(manifest).Problem is { } problem) problems.Add(problem);
         }
         else problems.Add($"There is no {PackManifest.FileName}.");
+        if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Problem is { } cardProblem) problems.Add(cardProblem);
         if (problems.Count == 0 && content.Files.ContainsKey(PackPaths.FilesList)) problems.AddRange(PackVerifier.CheckIntegrity(content).Problems);
         if (problems.Count > 0 || o.Value("policy") is null) return Report(problems, "Lint passed.");
         // Advice needs the pack as a host loads it: a built .ampack, against the host's trust.
@@ -281,7 +314,7 @@ internal static partial class Program
         var (files, dropped) = PackBuilder.Build(PackReader.ReadFolder(folder).Files);
         var integrity = PackVerifier.CheckIntegrity(new PackContent(files, folder));
         if (integrity.Problems.Count > 0) return Report(integrity.Problems, "");
-        if (dropped) Console.WriteLine("The content changed, so the old signatures were removed.");
+        if (dropped) Console.WriteLine("The content changed, so the old signatures and certificates were removed.");
         if (o.Value("key") is not null || o.Value("signer") is not null)
         {
             using var signer = Signer(o);
@@ -392,8 +425,13 @@ internal static partial class Program
         }
         Console.WriteLine($"Verified {pack.Id} {pack.Version}\n  digest  {pack.Digest}\n  kind    {pack.Manifest.Kind}, tier {pack.Manifest.Tier}");
         foreach (var s in pack.Signatures) Console.WriteLine($"  signed  {s.Role} by {Dsse.Short(s.KeyId)} at {s.SignedAt:u}");
+        // What a trial decision (and a certificate issued from one) binds besides the digest: the declarations it ran.
+        if (pack.Manifest.Kind is "knowledge" or "definition")
+            try { Console.WriteLine($"  declarations {AgentMemory.Extensibility.Modules.PackTrialGate.DigestOf(AgentMemory.Extensibility.Modules.ModuleManifest.Parse(Encoding.UTF8.GetString(PackLayout.ToModule(pack.Files).Manifest)))}"); }
+            catch (Exception e) when (e is InvalidDataException or FormatException) { }
         if (pack.Manifest.Federation is { } federation)
             Console.WriteLine($"  publisher {federation.Publisher}\n  for     {PackFederation.Describe(federation.Audience)}" + (federation.Purpose is { } why ? $"\n  purpose {Shown(why, 300)}" : ""));
+        ShowCardAndCertificates(pack, policy);
         if (o.Flag("record") && ledger is not null && ledgerPath is not null)
         {
             ledger.Record(pack.Id, pack.Version, pack.Digest);
@@ -412,10 +450,14 @@ internal static partial class Program
             Console.WriteLine($"Pack    {list.Id} {list.Version}\nDigest  {FilesList.DigestOf(listBytes)}  (not verified)");
             if (content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes) && PackManifest.Parse(manifestBytes).Manifest?.Federation is { } federation)
                 Console.WriteLine($"Federated: publisher {federation.Publisher}, for {PackFederation.Describe(federation.Audience)}  (not verified)");
+            if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Card is { } card)
+                Console.WriteLine($"Card    {Shown(card.OwnerName, 200)}: {Shown(card.IntendedUse, 200)}  (not verified)");
             foreach (var f in list.Files) Console.WriteLine($"  {f.Length,10:N0}  {f.Path}");
         }
         else Console.WriteLine("Not built: no valid META/files.json.");
         foreach (var path in content.Files.Keys.Where(PackPaths.IsSignature).Order(StringComparer.Ordinal)) Console.WriteLine($"  envelope  {path}");
+        foreach (var (stem, _) in PackAttestations.Certificates(content.Files))
+            Console.WriteLine($"  certificate  {PackAttestations.CertificatePath(stem)}{(PackAttestations.Run(content.Files, stem) is { } run ? $" (with an AEF run of {run.Count} files)" : "")}");
         return 0;
     }
 

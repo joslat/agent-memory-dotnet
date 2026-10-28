@@ -33,10 +33,11 @@ The script:
 2. Registers client credentials for each account on that local server, and passes them to `ampack` only through the
    environment of each call.
 3. **Supplier:** makes a signing key, asserts it in its WebID profile (`ampack solid bind-key`), writes a small knowledge
-   pack for the buyer alone, builds and signs it, and publishes it (`ampack solid publish`).
+   pack for the buyer alone with its card (who answers for it, what it is for and not for, what the buyer must not do with
+   it), builds and signs it, and publishes it (`ampack solid publish`).
 4. **Buyer's host:** binds the supplier's key after checking its id (`ampack trust webid`), discovers the pack from the
-   supplier's WebID (`ampack solid discover`), fetches, verifies and installs it (`ampack solid fetch`), and runs the
-   pack's own test.
+   supplier's WebID (`ampack solid discover`), fetches, verifies and installs it (`ampack solid fetch`), shows its card,
+   and runs the pack's own test.
 5. **Stranger and anyone else:** discover nothing; the stranger's fetch is refused.
 6. Stops the server (`-KeepServer` leaves it running at http://localhost:3000/).
 

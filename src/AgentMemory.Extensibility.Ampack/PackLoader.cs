@@ -158,6 +158,13 @@ public sealed record LoadedPack
     public DateTimeOffset? ValidUntil { get; init; }
     /// <summary>For a federated pack, who published it, for whom and why, as verified against the host's trust; otherwise null.</summary>
     public PackPublication? Publication { get; init; }
+    /// <summary>Its card (<c>card.json</c>, pack format v1.2 §15), as signed with it; null when it carries none.</summary>
+    public PackCardInfo? Card { get; init; }
+    /// <summary>
+    /// The evaluation certificates it carries (pack format v1.2 §16), trusted or not: each says who evaluated it, on what, with
+    /// what result. They inform; one admits the pack only where the host trusts certificates (<see cref="PackCertificates.Admit"/>).
+    /// </summary>
+    public IReadOnlyList<PackEvaluation> Certificates { get; init; } = [];
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
 }
@@ -285,6 +292,8 @@ public static class PackLoader
             Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Kind = pack.Manifest.Kind, Manifest = manifest,
             Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles, ValidUntil = ValidUntil(pack, trust.Policy),
             Publication = PackPublication.Of(pack.Manifest.Federation),
+            Card = PackCardInfo.Of(pack.Files),
+            Certificates = PackCertificates.Read(pack, trust.Policy, DateTimeOffset.UtcNow),
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
         };

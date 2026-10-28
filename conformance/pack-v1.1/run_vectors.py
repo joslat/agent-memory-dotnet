@@ -618,6 +618,39 @@ def main():
     raw["deflate-trailing-bytes"] = (write_deflated_zip(s, junk={record: b"\x00junk"}), "trust.json", "refused")
     raw["deflate-without-its-final-block"] = (write_deflated_zip(s, unfinished={record}), "trust.json", "refused")
 
+    # The pack card (v1.2 §15): card.json, read strictly by both verifiers. ampack init writes one into the base pack.
+    def with_card(card_):
+        return signed({**content, "card.json": json.dumps(card_, ensure_ascii=False).encode("utf-8") + b"\n"})
+    full_card = {"format": "agentmemory.pack.card/1", "owner": {"name": "Example Supplier", "contact": "https://example.com/contact"},
+                 "intendedUse": "Notes for one team.", "limitations": "Not for anything else.\nIt may be out of date.\tCheck the date.",
+                 "boundaries": ["Do not export the notes."], "risks": ["Stale notes."], "provenance": "Written by the team.",
+                 "audience": "The team.", "domain": "notes", "references": ["https://example.com/notes"]}
+    vectors["card-valid-full"] = (with_card(full_card), "trust.json", "verified")
+    vectors["card-absent"] = (signed({k: v for k, v in content.items() if k != "card.json"}), "trust.json", "verified")
+    vectors["card-unknown-field"] = (with_card({**full_card, "rating": "five stars"}), "trust.json", "refused")
+    vectors["card-without-intended-use"] = (with_card({k: v for k, v in full_card.items() if k != "intendedUse"}), "trust.json", "refused")
+    vectors["card-other-format"] = (with_card({**full_card, "format": "agentmemory.pack.card/2"}), "trust.json", "refused")
+    vectors["card-terminal-escape"] = (with_card({**full_card, "owner": {"name": "Example\u001b[31m Supplier"}}), "trust.json", "refused")
+    vectors["card-c1-control"] = (with_card({**full_card, "domain": "notes\u0085"}), "trust.json", "refused")
+    # Lengths in UTF-16 code units, as every text bound in the format: 1,000 astral characters are 2,000 units.
+    vectors["card-astral-at-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 1000}), "trust.json", "verified")
+    vectors["card-astral-over-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 1000 + "a"}), "trust.json", "refused")
+    vectors["card-boundary-repeated"] = (with_card({**full_card, "boundaries": ["Same.", "Same."]}), "trust.json", "refused")
+    vectors["card-owner-empty"] = (with_card({**full_card, "owner": {"name": ""}}), "trust.json", "refused")
+
+    # The attestations area (v1.2 §16): outside the files list, shaped and bounded; a certificate's content is not trusted here.
+    stem = "0123456789abcdef-20261028t120000z"
+    beside = signed(content)
+    raw["attestation-certificate-content-unchecked"] = (write_zip({**beside, f"META/attestations/{stem}.certificate.dsse.json": b"not even JSON"}),
+                                                        "trust.json", "verified")
+    raw["attestation-stray-file"] = (write_zip({**beside, "META/attestations/notes.txt": b"x"}), "trust.json", "refused")
+    raw["attestation-run-without-certificate"] = (write_zip({**beside, f"META/attestations/{stem}.aef/run.json": b"{}"}), "trust.json", "refused")
+    raw["attestation-certificate-too-large"] = (write_zip({**beside, f"META/attestations/{stem}.certificate.dsse.json": b" " * (64 * 1024 + 1)}),
+                                                "trust.json", "refused")
+    raw["attestation-nine-certificates"] = (write_zip({**beside, **{f"META/attestations/{i:016x}-20261028t120000z.certificate.dsse.json": b"{}"
+                                                                    for i in range(9)}}), "trust.json", "refused")
+    raw["attestation-uppercase-stem"] = (write_zip({**beside, "META/attestations/ABC.certificate.dsse.json": b"{}"}), "trust.json", "refused")
+
     results, failures = [], 0
     for name, (files, policy_file, expected, *document) in {**{k: (write_zip(v[0]), *v[1:]) for k, v in vectors.items()}, **raw}.items():
         path = VECTORS / f"{name}.ampack"
@@ -724,6 +757,171 @@ def main():
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
                         "sha256": hashlib.sha256(pack_bytes + receipt_bytes).hexdigest()})
+        print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
+    # Evaluation certificates (v1.2 §16): each verified by `ampack certificate verify` and by the Python verifier's --certificate.
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "evaluator", "--role", "evaluator", "--prefix", "io.example")
+    assert code == 0, text
+    evaluator_entry = json.loads(text[text.index("{"):])
+    evaluator = serialization.load_pem_private_key((work / "keys" / "evaluator.key.pem").read_bytes(), password=None)
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "host", "--prefix", "io.example")
+    assert code == 0, text
+    host = serialization.load_pem_private_key((work / "keys" / "host.key.pem").read_bytes(), password=None)
+    certificate_policies = {
+        "trust-evaluator.json": {"keys": [entry, evaluator_entry]},
+        "trust-evaluator-other-prefix.json": {"keys": [entry, dict(evaluator_entry, idPrefixes=["io.other"])]},
+        "trust-evaluator-expired.json": {"keys": [entry, dict(evaluator_entry, notAfter="2020-01-01T00:00:00Z")]},
+        "trust-evaluator-revoked.json": {"keys": [entry, evaluator_entry], "revoked": {"digests": [], "keys": [{"keyId": evaluator_entry["keyId"]}]}},
+        "trust-evaluator-as-assurer.json": {"keys": [entry, dict(evaluator_entry, roles=["assurer"])]},
+        # The key that signs a pack never certifies it too: an evaluator key holds that role alone, as a revoker's does.
+        "trust-evaluator-also-publisher.json": {"keys": [entry, dict(evaluator_entry, roles=["evaluator", "publisher"])]},
+    }
+    for name_, body in certificate_policies.items():
+        (OUT / name_).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    trial = {"measure": "test-impact", "tasks": 40, "baseline": "none", "targets": {"hitRate": 0.5}}
+    certified = signed({**content, "evals/trial.json": json.dumps(trial).encode() + b"\n"})
+
+    def certificate(files_, signer=None, evaluated="2026-10-27T12:00:00Z", checks=None, with_arm=None, without=None, passed=True, extra=None,
+                    aef=None, subjects=None, edit=None, pid_=None, version_=None, trial_=None, payload_override=None):
+        listing = json.loads(files_[py.FILES])
+        pred = {"id": pid_ or listing["id"], "version": version_ or listing["version"], "evaluator": "Kit evaluator",
+                "tool": {"name": "kit", "version": "1.0.0"}, "evaluatedAt": evaluated,
+                "trial": trial_ or {"measure": "test-impact", "baseline": "none", "taskSource": "the kit's synthetic tasks"},
+                "checks": checks or [{"target": "hitRate", "requiredMilli": 500, "observedMilli": 600, "met": True}],
+                "with": with_arm or {"tasks": 40, "hits": 24, "offered": 120, "correct": 30, "p95Micros": 12500}, "passed": passed, **(extra or {})}
+        if without is not None:
+            pred["without"] = without
+        if aef is not None:
+            pred["aef"] = aef
+        statement = {"_type": py.STATEMENT, "predicateType": py.CERTIFICATE, "predicate": pred,
+                     "subject": subjects or [{"name": py.FILES, "digest": {"sha256": hashlib.sha256(files_[py.FILES]).hexdigest()}}]}
+        payload = payload_override(statement) if payload_override else py.canonical(statement).encode()
+        who = signer or evaluator
+        spki = who.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        sig = who.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))
+        if edit:
+            payload = edit(payload)
+        return py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
+
+    certificate_path = f"META/attestations/{stem}.certificate.dsse.json"
+
+    def carrying(envelope, run=None, files_=certified):
+        out = {**files_, certificate_path: envelope}
+        for path_, bytes_ in (run or {}).items():
+            out[f"META/attestations/{stem}.aef/{path_}"] = bytes_
+        return write_zip(out)
+
+    run = {"run.json": json.dumps({"schemaVersion": "1.0", "runId": "trial.io.example.notes.1.0.0.20261028T120000000Z"}).encode(),
+           "results.ndjson": b'{"lane":"with-pack","passed":true}\n', "seal.json": b"{}", "attestation.dsse.json": b"{}"}
+    aef = {"runId": "trial.io.example.notes.1.0.0.20261028T120000000Z", "runHash": py.run_hash(run)}
+    tampered = {**run, "results.ndjson": b'{"lane":"with-pack","passed":false}\n'}
+    certified_bytes = write_zip(certified)
+    other = signed({**content, "evals/trial.json": json.dumps(trial).encode() + b"\n", "records/extra.jsonl": content[record]})
+
+    # One certificate signed by .NET itself: ampack certify from a host-signed trial decision for exactly this pack.
+    (work / "cert-pack.ampack").write_bytes(certified_bytes)
+    code, text = ampack("verify", str(work / "cert-pack.ampack"), "--policy", str(OUT / "trust-evaluator.json"))
+    assert code == 0, text
+    declarations = next(line.split()[1] for line in text.splitlines() if line.strip().startswith("declarations "))
+    pack_digest = "sha256:" + hashlib.sha256(certified[py.FILES]).hexdigest()
+    decision = {"ModuleId": pid, "Version": version, "ManifestDigest": declarations, "PackDigest": pack_digest, "Active": True,
+                "Reason": "every target met", "DecidedAt": "2026-10-27T12:00:00+00:00",
+                "Checks": [{"Target": "hitRate", "Required": 0.5, "Observed": 0.6, "Met": True, "Estimate": None}],
+                "With": {"Tasks": 40, "Hits": 24, "Offered": 120, "Correct": 30, "P95Ms": 12.5},
+                "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5}}
+    decision_payload = json.dumps({"_type": py.STATEMENT, "subject": [{"name": f"{pid}@{version}", "digest": {"sha256": pack_digest[7:]}}],
+                                   "predicateType": "urn:agentmemory:pack:trial:v1", "predicate": decision}).encode()
+    (work / "decisions").mkdir()
+    (work / "decisions" / "notes.dsse.json").write_text(json.dumps({
+        "payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(decision_payload).decode(),
+        "signatures": [{"keyid": "host", "sig": base64.b64encode(host.sign(py.pae(decision_payload), ec.ECDSA(hashes.SHA256()))).decode()}]}),
+        encoding="utf-8")
+    code, text = ampack("certify", str(work / "cert-pack.ampack"), "--policy", str(OUT / "trust-evaluator.json"),
+                        "--activations", str(work / "decisions"), "--activation-key", str(work / "keys" / "host.pub.pem"),
+                        "--key", str(work / "keys" / "evaluator.key.pem"), "--evaluator", "Kit evaluator (.NET)",
+                        "--task-source", "the kit's synthetic tasks", "--out", str(work / "cert-dotnet.ampack"))
+    assert code == 0, text
+    dotnet_certified = (work / "cert-dotnet.ampack").read_bytes()
+    dotnet_certificate = next(p for p in py.read_zip(dotnet_certified) if p.startswith(py.ATTESTATIONS))
+
+    certificates = {  # name -> (pack bytes, certificate inside the pack or None, certificate file or None, policy, expected)
+        "certificate-valid-python": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-valid-dotnet": (dotnet_certified, dotnet_certificate, None, "trust-evaluator.json", "verified"),
+        "certificate-as-a-separate-file": (certified_bytes, None, certificate(certified), "trust-evaluator.json", "verified"),
+        "certificate-honest-failure": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 400, "met": False}],
+                                                            passed=False)), certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-with-host-baseline": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "confidenceMilli": 950,
+                                                                                    "taskSource": "the kit's synthetic tasks"},
+                                                                without={"tasks": 40, "hits": 20, "offered": 120, "correct": 24, "p95Micros": 9000},
+                                                                checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 520, "met": True, "estimateMilli": 600},
+                                                                        {"target": "lift", "requiredMilli": 0, "observedMilli": 100, "met": True}])),
+                                           certificate_path, None, "trust-evaluator.json", "verified"),
+        # The AEF run beside the certificate: named by its run hash, exactly.
+        "certificate-aef-run-matches": (carrying(certificate(certified, aef=aef), run), certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-aef-run-named-elsewhere": (carrying(certificate(certified, aef=aef)), certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-aef-run-tampered": (carrying(certificate(certified, aef=aef), tampered), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-aef-run-not-named": (carrying(certificate(certified), run), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-aef-run-json-outside-profile": (carrying(certificate(certified, aef={**aef, "runHash": py.run_hash({**run, "run.json": b'{"runId":"another.run","runId":"another.run"}'})}),
+                                                     {**run, "run.json": b'{"runId":"another.run","runId":"another.run"}'}),
+                                                     certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-aef-run-other-id": (carrying(certificate(certified, aef={**aef, "runId": "another.run"}), run), certificate_path, None,
+                                         "trust-evaluator.json", "refused"),
+        # Whose certificate: a key the host names as evaluator for this pack's id, valid when it evaluated and now.
+        "certificate-key-not-trusted": (carrying(certificate(certified)), certificate_path, None, "trust.json", "refused"),
+        "certificate-key-other-prefix": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-other-prefix.json", "refused"),
+        "certificate-key-expired": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-expired.json", "refused"),
+        "certificate-key-revoked": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-revoked.json", "refused"),
+        "certificate-key-assurer-not-evaluator": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-as-assurer.json", "refused"),
+        "certificate-policy-evaluator-also-publisher": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-also-publisher.json", "refused"),
+        "certificate-by-the-publisher": (carrying(certificate(certified, signer=key)), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-in-the-future": (carrying(certificate(certified, evaluated="2099-01-01T00:00:00Z")), certificate_path, None, "trust-evaluator.json", "refused"),
+        # For exactly this pack.
+        "certificate-for-another-pack": (carrying(certificate(other)), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-other-version": (carrying(certificate(certified, version_="1.0.1")), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-two-subjects": (carrying(certificate(certified, subjects=[{"name": py.FILES, "digest": {"sha256": hashlib.sha256(certified[py.FILES]).hexdigest()}}] * 2)),
+                                     certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-edited-after-signing": (carrying(certificate(certified, edit=lambda b: b.replace(b'"observedMilli":600', b'"observedMilli":900'))),
+                                             certificate_path, None, "trust-evaluator.json", "refused"),
+        # A verdict that agrees with its record.
+        "certificate-passed-with-a-missed-check": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 400, "met": False}])),
+                                                   certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-passed-on-nine-tasks": (carrying(certificate(certified, with_arm={"tasks": 9, "hits": 9, "offered": 9, "correct": 9, "p95Micros": 1})),
+                                             certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-arms-differ": (carrying(certificate(certified, without={"tasks": 39, "hits": 1, "offered": 1, "correct": 1, "p95Micros": 1})),
+                                    certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-host-baseline-without-arm": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"})),
+                                                  certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-hits-above-tasks": (carrying(certificate(certified, with_arm={"tasks": 40, "hits": 41, "offered": 1, "correct": 1, "p95Micros": 1})),
+                                         certificate_path, None, "trust-evaluator.json", "refused"),
+        # Strict shape: integers only, known fields, known targets, one line of text.
+        "certificate-fraction-not-integer": (carrying(certificate(certified, payload_override=lambda st: json.dumps(st, separators=(",", ":")).replace(
+            '"requiredMilli":500', '"requiredMilli":0.5').encode())), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-extra-field": (carrying(certificate(certified, extra={"note": "x"})), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-unknown-target": (carrying(certificate(certified, checks=[{"target": "recall", "requiredMilli": 500, "observedMilli": 600, "met": True}])),
+                                       certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-confidence-unknown": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "none", "confidenceMilli": 800, "taskSource": "x"})),
+                                           certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-evaluator-two-lines": (carrying(certificate(certified, extra={"evaluator": "Kit\nevaluator"})), certificate_path, None,
+                                            "trust-evaluator.json", "refused"),
+    }
+    for name, (pack_bytes, inside, external, policy_file, expected) in certificates.items():
+        pack_path = VECTORS / f"{name}.ampack"
+        pack_path.write_bytes(pack_bytes)
+        target = inside
+        if external is not None:
+            target = str(VECTORS / f"{name}.certificate.dsse.json")
+            Path(target).write_bytes(external)
+        dn_code, dn_text = ampack("certificate", "verify", str(pack_path), "--policy", str(OUT / policy_file), "--certificate", target)
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(pack_path), str(OUT / policy_file),
+                             "--certificate", target],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
+        agree = dotnet == python == expected
+        failures += not agree
+        results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
+                        "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
+                        "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest()})
         print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
     (OUT / "results.json").write_text(json.dumps({"format": "agentmemory.pack.conformance/1.2", "vectors": results,
                                                   "agreed": len(results) - failures, "total": len(results)}, indent=1) + "\n", encoding="utf-8")

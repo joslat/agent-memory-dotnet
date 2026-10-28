@@ -33,9 +33,11 @@ public sealed class ModuleSetBuilder
     internal Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient>? ChatClient { get; private set; }
     internal IPackActivations? Activations { get; private set; }
     internal IReadOnlyList<string> MandatoryTrials => _mandatoryTrials;
+    internal IReadOnlyList<string> CertificateTrust => _certificateTrust;
     internal IReadOnlyList<ModuleConsentGrant> ConsentGrants => _consentGrants;
     private readonly List<ModuleConsentGrant> _consentGrants = [];
     private readonly List<string> _mandatoryTrials = [];
+    private readonly List<string> _certificateTrust = [];
 
     /// <summary>Adds a module from its assembly: the embedded manifest and its <see cref="IAgentMemoryModule"/>.</summary>
     public ModuleSetBuilder Add<TModule>() where TModule : IAgentMemoryModule, new() =>
@@ -188,6 +190,26 @@ public sealed class ModuleSetBuilder
             if (string.IsNullOrWhiteSpace(prefix) || prefix.Any(char.IsWhiteSpace) || prefix.StartsWith('.') || prefix.Contains("..", StringComparison.Ordinal))
                 throw new ArgumentException($"'{prefix}' is not a pack id prefix.", nameof(idPrefixes));
             _mandatoryTrials.Add(prefix);
+        }
+        return this;
+    }
+
+    /// <summary>
+    /// Trusts evaluation certificates in these namespaces (pack format v1.2 §16, certificate trust): a pack whose id is a
+    /// prefix or lies under it goes on with a decision this host made from a certificate it verified (<c>ampack admit</c>,
+    /// a key the trust policy names as evaluator for the pack's id). Everywhere else only the host's own trial counts (proven
+    /// here, the default), and a decision made from a certificate is set aside. Needs <see cref="RequireTrials"/>.
+    /// </summary>
+    /// <param name="idPrefixes">Pack id prefixes such as <c>io.example</c>; <c>io.example</c> covers <c>io.example.dojo</c>, not <c>io.examples</c>.</param>
+    public ModuleSetBuilder TrustCertificatesFor(params string[] idPrefixes)
+    {
+        ArgumentNullException.ThrowIfNull(idPrefixes);
+        if (idPrefixes.Length == 0) throw new ArgumentException("Name at least one pack id prefix.", nameof(idPrefixes));
+        foreach (var prefix in idPrefixes)
+        {
+            if (string.IsNullOrWhiteSpace(prefix) || prefix.Any(char.IsWhiteSpace) || prefix.StartsWith('.') || prefix.Contains("..", StringComparison.Ordinal))
+                throw new ArgumentException($"'{prefix}' is not a pack id prefix.", nameof(idPrefixes));
+            _certificateTrust.Add(prefix);
         }
         return this;
     }

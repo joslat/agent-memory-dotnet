@@ -1,0 +1,356 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+
+namespace AgentMemory.Packs.Format;
+
+/// <summary>What one arm of an evaluation measured: counts, and the p95 time in microseconds.</summary>
+internal sealed record CertificateArm(int Tasks, int Hits, int Offered, int Correct, long P95Micros);
+
+/// <summary>
+/// One target an evaluation checked, in thousandths (a rate of 0.304 is 304; a time target is in thousandths of a
+/// millisecond): what was required, what was used (a confidence bound when the trial asks for one), whether it held, and the
+/// plain estimate beside a bound. Canonical JSON in this format holds integers only.
+/// </summary>
+internal sealed record CertificateCheck(string Target, long RequiredMilli, long ObservedMilli, bool Met, long? EstimateMilli);
+
+/// <summary>
+/// An evaluation certificate (pack format v1.2 §16): an evaluator's signed statement of how one pack did on the evaluator's
+/// own tasks, against the trial the pack declares. A DSSE envelope of an in-toto Statement v1 whose subject is the pack's
+/// <c>META/files.json</c> and whose predicate names the evaluator and its tool, the trial (measure, baseline, confidence, where
+/// the tasks came from), every check, both arms, whether every target was met, and the AEF run it summarises, by AEF's own
+/// run id and run hash. It travels beside the pack in <c>META/attestations/</c>, outside the files list, so certificates can
+/// be added after release; a host trusts one only from a key it names as <c>evaluator</c> for the pack's id.
+/// </summary>
+internal sealed partial record PackCertificate(string Id, string Version, string PackDigest, string Evaluator, string Tool, string ToolVersion,
+    DateTimeOffset EvaluatedAt, string Measure, string Baseline, int? ConfidenceMilli, string TaskSource, IReadOnlyList<CertificateCheck> Checks,
+    CertificateArm With, CertificateArm? Without, bool Passed, string? AefRunId, string? AefRunHash)
+{
+    internal const string PredicateType = "urn:agentmemory:pack:certificate:v1";
+    /// <summary>The trust-policy role a key needs to issue certificates; it never signs packs.</summary>
+    internal const string Role = "evaluator";
+    /// <summary>A trial needs at least this many tasks, as the host's own gate does.</summary>
+    internal const int MinimumTasks = 10;
+    internal static readonly IReadOnlySet<string> Measures = new HashSet<string>(StringComparer.Ordinal) { "test-impact", "retrieval" };
+    internal static readonly IReadOnlySet<string> Baselines = new HashSet<string>(StringComparer.Ordinal) { "host", "none" };
+    internal static readonly IReadOnlySet<string> Targets = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "hitRate", "precision", "lift", "precisionLift", "addedP95Ms", "noRegression.hitRate", "noRegression.precision",
+    };
+    internal static readonly IReadOnlySet<int> Confidences = new HashSet<int> { 900, 950, 975, 990 };
+
+    /// <summary>Signs this certificate as its evaluator; what is signed is read back by the reader's own rules first.</summary>
+    internal byte[] Sign(PackSigner signer)
+    {
+        var trial = new JsonObject { ["measure"] = Measure, ["baseline"] = Baseline, ["taskSource"] = TaskSource };
+        if (ConfidenceMilli is { } confidence) trial["confidenceMilli"] = confidence;
+        var predicate = new JsonObject
+        {
+            ["id"] = Id, ["version"] = Version, ["evaluator"] = Evaluator,
+            ["tool"] = new JsonObject { ["name"] = Tool, ["version"] = ToolVersion },
+            ["evaluatedAt"] = EvaluatedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+            ["trial"] = trial,
+            ["checks"] = new JsonArray([.. Checks.Select(c =>
+            {
+                var check = new JsonObject { ["target"] = c.Target, ["requiredMilli"] = c.RequiredMilli, ["observedMilli"] = c.ObservedMilli, ["met"] = c.Met };
+                if (c.EstimateMilli is { } estimate) check["estimateMilli"] = estimate;
+                return (JsonNode)check;
+            })]),
+            ["with"] = Arm(With),
+            ["passed"] = Passed,
+        };
+        if (Without is { } without) predicate["without"] = Arm(without);
+        if (AefRunId is { } runId) predicate["aef"] = new JsonObject { ["runId"] = runId, ["runHash"] = AefRunHash };
+        var statement = new JsonObject
+        {
+            ["_type"] = Dsse.StatementType,
+            ["subject"] = new JsonArray(new JsonObject { ["name"] = PackPaths.FilesList, ["digest"] = new JsonObject { ["sha256"] = PackDigest[7..] } }),
+            ["predicateType"] = PredicateType,
+            ["predicate"] = predicate,
+        };
+        var payload = Jcs.Canonical(statement);
+        if (Read(payload).Problem is { } problem) throw new InvalidDataException(problem);
+        var signature = signer.Sign(Dsse.Pae(Dsse.PayloadType, payload));
+        return Jcs.Canonical(new JsonObject
+        {
+            ["payloadType"] = Dsse.PayloadType,
+            ["payload"] = Convert.ToBase64String(payload),
+            ["signatures"] = new JsonArray(new JsonObject { ["keyid"] = signer.KeyId, ["sig"] = Convert.ToBase64String(signature) }),
+        });
+    }
+
+    private static JsonObject Arm(CertificateArm arm) => new()
+    {
+        ["tasks"] = arm.Tasks, ["hits"] = arm.Hits, ["offered"] = arm.Offered, ["correct"] = arm.Correct, ["p95Micros"] = arm.P95Micros,
+    };
+
+    /// <summary>
+    /// Verifies a certificate for <paramref name="pack"/>: a valid signature by a key the host trusts as <c>evaluator</c> for
+    /// the pack's id, valid at the evaluation time; the pack's digest, id and version; and, when the AEF run it names travels
+    /// in the pack, that run's files hash to the run hash it names (AEF 1.0 SEAL-1 to SEAL-4). Returns the key that signed it.
+    /// </summary>
+    internal static (PackCertificate? Certificate, string? SignedBy, IReadOnlyList<string> Problems) Verify(ReadOnlySpan<byte> envelopeBytes, VerifiedPack pack,
+        TrustPolicy policy, DateTimeOffset now, IReadOnlyDictionary<string, byte[]>? run = null)
+    {
+        var problems = new List<string>();
+        if (envelopeBytes.Length > Dsse.MaximumEnvelopeBytes) return (null, null, [$"The certificate is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB."]);
+        if (PackJson.Check(envelopeBytes) is { } malformed) return (null, null, [$"The certificate {malformed}."]);
+        using var document = JsonDocument.Parse(envelopeBytes.ToArray());
+        var envelope = document.RootElement;
+        if (envelope.ValueKind != JsonValueKind.Object || envelope.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures"))
+            || Str(envelope, "payloadType") != Dsse.PayloadType || Str(envelope, "payload") is not { } payloadText
+            || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array
+            || signatures.GetArrayLength() is 0 or > Dsse.MaximumSignatures)
+            return (null, null, ["The certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures."]);
+        if (Dsse.FromBase64(payloadText) is not { } payload) return (null, null, ["The certificate's payload is not base64."]);
+        var (certificate, readProblem) = Read(payload);
+        if (certificate is null) return (null, null, [readProblem!]);
+
+        if (certificate.PackDigest != pack.Digest)
+            problems.Add($"The certificate is for {Dsse.Short(certificate.PackDigest[7..])}…, not this pack ({Dsse.Short(pack.Digest[7..])}…).");
+        if (certificate.Id != pack.Id || certificate.Version != pack.Version)
+            problems.Add($"The certificate names {certificate.Id} {certificate.Version}, not {pack.Id} {pack.Version}.");
+        if (run is not null)
+        {
+            if (certificate.AefRunHash is null) problems.Add("An AEF run travels with the certificate, but the certificate names none.");
+            else if (PackAttestations.RunHash(run) != certificate.AefRunHash) problems.Add("The AEF run beside the certificate is not the run it names (its run hash differs).");
+            else if (PackAttestations.RunId(run) is { } runId && runId != certificate.AefRunId)
+                problems.Add($"The AEF run beside the certificate is {runId}, not {certificate.AefRunId}.");
+        }
+
+        var hash = SHA256.HashData(Dsse.Pae(Dsse.PayloadType, payload));
+        string? signedBy = null;
+        var signatureProblems = new List<string>();
+        foreach (var entry in signatures.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object || Str(entry, "keyid") is not { } keyId || Str(entry, "sig") is not { } sigText)
+            { signatureProblems.Add("The certificate has a malformed signature entry."); continue; }
+            if (policy.Find(keyId) is not { } key) { signatureProblems.Add($"Key {Dsse.Short(keyId)} that signed the certificate is not in the trust policy."); continue; }
+            if (Dsse.FromBase64(sigText) is not { } sig || !Dsse.IsStrictDer(sig)) { signatureProblems.Add($"The certificate's signature by {Dsse.Short(keyId)} is not strict DER in base64."); continue; }
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportFromPem(key.PublicKeyPem);
+            if (!ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence)) { signatureProblems.Add($"The certificate's signature by {Dsse.Short(keyId)} does not verify."); continue; }
+            if (policy.Refusal(key, Role, pack.Id, certificate.EvaluatedAt, now) is { } refusal) { signatureProblems.Add("The certificate: " + refusal); continue; }
+            signedBy ??= keyId;
+        }
+        if (signedBy is null) problems.AddRange(signatureProblems.Count > 0 ? signatureProblems : ["The certificate carries no signature."]);
+        return problems.Count > 0 ? (null, null, problems) : (certificate, signedBy, []);
+    }
+
+    /// <summary>Reads the statement, strictly: exactly the fields this format defines, each of its type and range.</summary>
+    internal static (PackCertificate? Certificate, string? Problem) Read(byte[] payload)
+    {
+        if (PackJson.Check(payload) is { } malformed) return (null, $"The certificate's statement {malformed}.");
+        using var document = JsonDocument.Parse(payload);
+        var statement = document.RootElement;
+        if (statement.ValueKind != JsonValueKind.Object || statement.EnumerateObject().Any(p => p.Name is not ("_type" or "subject" or "predicateType" or "predicate")))
+            return (null, "The certificate's statement holds other fields than an in-toto Statement v1.");
+        if (Str(statement, "_type") != Dsse.StatementType) return (null, "The certificate does not carry an in-toto Statement v1.");
+        if (Str(statement, "predicateType") != PredicateType) return (null, $"The certificate's predicate type is not {PredicateType}.");
+        if (!statement.TryGetProperty("subject", out var subjects) || subjects.ValueKind != JsonValueKind.Array || subjects.GetArrayLength() != 1
+            || subjects[0].ValueKind != JsonValueKind.Object || Str(subjects[0], "name") != PackPaths.FilesList
+            || !subjects[0].TryGetProperty("digest", out var digest) || digest.ValueKind != JsonValueKind.Object || digest.EnumerateObject().Count() != 1
+            || Str(digest, "sha256") is not { Length: 64 } hex || !hex.All(char.IsAsciiHexDigitLower)
+            || subjects[0].EnumerateObject().Count() != 2)
+            return (null, $"The certificate must name exactly one subject: {PackPaths.FilesList} and its SHA-256.");
+        if (!statement.TryGetProperty("predicate", out var p) || p.ValueKind != JsonValueKind.Object
+            || p.EnumerateObject().Any(f => f.Name is not ("id" or "version" or "evaluator" or "tool" or "evaluatedAt" or "trial" or "checks" or "with" or "without" or "passed" or "aef")))
+            return (null, "The certificate's predicate holds other fields than this format defines.");
+        if (Str(p, "id") is not { } id || !PackManifest.IsValidId(id) || Str(p, "version") is not { } version || !SemVer.TryParse(version, out _))
+            return (null, "The certificate names no valid pack id and version.");
+        if (Str(p, "evaluator") is not { } evaluator || !PackCard.IsText(evaluator, 200) || evaluator.Contains('\n') || evaluator.Contains('\t'))
+            return (null, "The certificate names its evaluator as one line of 1 to 200 characters.");
+        if (!p.TryGetProperty("tool", out var tool) || tool.ValueKind != JsonValueKind.Object || tool.EnumerateObject().Any(f => f.Name is not ("name" or "version"))
+            || Str(tool, "name") is not { } toolName || !IsLine(toolName, 100) || Str(tool, "version") is not { } toolVersion || !IsLine(toolVersion, 64))
+            return (null, "The certificate names its tool as 'name' (1 to 100 characters) and 'version' (1 to 64).");
+        if (Str(p, "evaluatedAt") is not { } evaluatedText
+            || !DateTimeOffset.TryParseExact(evaluatedText, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var evaluatedAt))
+            return (null, "The certificate has no evaluation time in UTC (yyyy-MM-ddTHH:mm:ssZ).");
+        if (!p.TryGetProperty("trial", out var trial) || trial.ValueKind != JsonValueKind.Object
+            || trial.EnumerateObject().Any(f => f.Name is not ("measure" or "baseline" or "confidenceMilli" or "taskSource"))
+            || Str(trial, "measure") is not { } measure || !Measures.Contains(measure)
+            || Str(trial, "baseline") is not { } baseline || !Baselines.Contains(baseline)
+            || Str(trial, "taskSource") is not { } taskSource || !IsLine(taskSource, 500))
+            return (null, "The certificate's trial names its measure (test-impact or retrieval), its baseline (host or none) and where its tasks came from (1 to 500 characters).");
+        int? confidence = null;
+        if (trial.TryGetProperty("confidenceMilli", out var confidenceValue))
+        {
+            if (confidenceValue.ValueKind != JsonValueKind.Number || !confidenceValue.TryGetInt32(out var c) || !Confidences.Contains(c))
+                return (null, "The certificate's confidenceMilli is 900, 950, 975 or 990.");
+            confidence = c;
+        }
+        if (!p.TryGetProperty("checks", out var checksValue) || checksValue.ValueKind != JsonValueKind.Array || checksValue.GetArrayLength() is 0 or > 16)
+            return (null, "The certificate lists 1 to 16 checks.");
+        var checks = new List<CertificateCheck>();
+        foreach (var c in checksValue.EnumerateArray())
+        {
+            if (c.ValueKind != JsonValueKind.Object || c.EnumerateObject().Any(f => f.Name is not ("target" or "requiredMilli" or "observedMilli" or "met" or "estimateMilli"))
+                || Str(c, "target") is not { } target || !Targets.Contains(target)
+                || Long(c, "requiredMilli") is not { } required || Long(c, "observedMilli") is not { } observed
+                || !c.TryGetProperty("met", out var met) || met.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                return (null, "A certificate check names a known target, requiredMilli and observedMilli as integers, and met.");
+            long? estimate = null;
+            if (c.TryGetProperty("estimateMilli", out _))
+            {
+                if (Long(c, "estimateMilli") is not { } e) return (null, "A certificate check's estimateMilli is an integer.");
+                estimate = e;
+            }
+            checks.Add(new CertificateCheck(target, required, observed, met.ValueKind == JsonValueKind.True, estimate));
+        }
+        if (checks.Select(c => c.Target).Distinct(StringComparer.Ordinal).Count() != checks.Count) return (null, "The certificate checks one target twice.");
+        if (ReadArm(p, "with") is not { } with) return (null, "The certificate's 'with' arm is tasks, hits, offered, correct and p95Micros, consistent integers.");
+        CertificateArm? without = null;
+        if (p.TryGetProperty("without", out _) && (without = ReadArm(p, "without")) is null)
+            return (null, "The certificate's 'without' arm is tasks, hits, offered, correct and p95Micros, consistent integers.");
+        if (!p.TryGetProperty("passed", out var passedValue) || passedValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return (null, "The certificate says whether every target was met ('passed').");
+        string? runId = null, runHash = null;
+        if (p.TryGetProperty("aef", out var aef))
+        {
+            if (aef.ValueKind != JsonValueKind.Object || aef.EnumerateObject().Any(f => f.Name is not ("runId" or "runHash"))
+                || Str(aef, "runId") is not { } id2 || !RunIdPattern().IsMatch(id2) || Str(aef, "runHash") is not { Length: 64 } h || !h.All(char.IsAsciiHexDigitLower))
+                return (null, "The certificate's 'aef' names an AEF runId and its runHash (64 lowercase hexadecimal characters).");
+            (runId, runHash) = (id2, h);
+        }
+        var certificate = new PackCertificate(id, version, "sha256:" + hex, evaluator, toolName, toolVersion, evaluatedAt, measure, baseline, confidence,
+            taskSource, checks, with, without, passedValue.ValueKind == JsonValueKind.True, runId, runHash);
+        return ShapeProblem(certificate) is { } problem ? (null, problem) : (certificate, null);
+    }
+
+    // What signing and reading both require of a certificate's values.
+    private static string? ShapeProblem(PackCertificate c)
+    {
+        // The verdict agrees with the record: passed exactly when every check held on enough tasks.
+        var holds = c.Checks.All(k => k.Met) && c.With.Tasks >= MinimumTasks;
+        if (c.Passed != holds)
+            return c.Passed ? "The certificate says the pack passed, but a check failed or fewer than 10 tasks were run."
+                : "The certificate says the pack did not pass, but every check held on enough tasks.";
+        if (c.Without is { } without && without.Tasks != c.With.Tasks) return "The certificate's arms ran different numbers of tasks.";
+        if (c.Baseline == "host" && c.Without is null) return "A certificate measured against the host's retrieval records that arm.";
+        if (!c.PackDigest.StartsWith("sha256:", StringComparison.Ordinal) || c.PackDigest.Length != 71) return "The certificate's pack digest is not sha256:<hex>.";
+        return null;
+    }
+
+    private static CertificateArm? ReadArm(JsonElement predicate, string name)
+    {
+        if (!predicate.TryGetProperty(name, out var arm) || arm.ValueKind != JsonValueKind.Object
+            || arm.EnumerateObject().Any(f => f.Name is not ("tasks" or "hits" or "offered" or "correct" or "p95Micros"))
+            || Long(arm, "tasks") is not { } tasks || Long(arm, "hits") is not { } hits || Long(arm, "offered") is not { } offered
+            || Long(arm, "correct") is not { } correct || Long(arm, "p95Micros") is not { } p95)
+            return null;
+        return tasks is < 0 or > 1_000_000 || hits < 0 || hits > tasks || offered is < 0 or > 100_000_000 || correct < 0 || correct > offered
+            || p95 is < 0 or > 86_400_000_000
+            ? null : new CertificateArm((int)tasks, (int)hits, (int)offered, (int)correct, p95);
+    }
+
+    private static long? Long(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number) ? number : null;
+
+    // One line of text: no control characters at all.
+    private static bool IsLine(string text, int maximum) => PackCard.IsText(text, maximum) && !text.Contains('\n') && !text.Contains('\t');
+
+    private static string? Str(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    [GeneratedRegex("\\A[A-Za-z0-9._:-]{1,128}\\z", RegexOptions.CultureInvariant)]
+    private static partial Regex RunIdPattern();
+}
+
+/// <summary>
+/// The attestations area (pack format v1.2 §16): <c>META/attestations/&lt;stem&gt;.certificate.dsse.json</c>, and beside a
+/// certificate the AEF run it names, as files under <c>META/attestations/&lt;stem&gt;.aef/</c>. Outside the files list, so the
+/// pack's digest never changes; bounded and shaped exactly, so nothing else travels with a pack unlisted.
+/// </summary>
+internal static partial class PackAttestations
+{
+    internal const int MaximumCertificates = 8;
+    internal const int MaximumRunFiles = 256;
+    internal const long MaximumRunBytes = 8L << 20;
+    internal const string CertificateSuffix = ".certificate.dsse.json";
+    internal const string RunSuffix = ".aef/";
+
+    /// <summary>The certificate file for a stem.</summary>
+    internal static string CertificatePath(string stem) => PackPaths.AttestationsFolder + stem + CertificateSuffix;
+
+    /// <summary>A stem for a certificate: the evaluator key's first 16 hex digits and the evaluation time.</summary>
+    internal static string StemFor(string keyId, DateTimeOffset evaluatedAt) =>
+        keyId[..16] + "-" + evaluatedAt.UtcDateTime.ToString("yyyyMMdd't'HHmmss'z'", CultureInfo.InvariantCulture);
+
+    /// <summary>The certificates a pack carries, by stem, in stem order.</summary>
+    internal static IReadOnlyList<(string Stem, byte[] Envelope)> Certificates(IReadOnlyDictionary<string, byte[]> files) =>
+        [.. files.Where(f => CertificateFile().Match(f.Key).Success).Select(f => (Stem: CertificateFile().Match(f.Key).Groups[1].Value, f.Value))
+            .OrderBy(c => c.Stem, StringComparer.Ordinal)];
+
+    /// <summary>The AEF run beside a certificate, by its run-relative paths; null when none travels with it.</summary>
+    internal static IReadOnlyDictionary<string, byte[]>? Run(IReadOnlyDictionary<string, byte[]> files, string stem)
+    {
+        var folder = PackPaths.AttestationsFolder + stem + RunSuffix;
+        var run = files.Where(f => f.Key.StartsWith(folder, StringComparison.Ordinal)).ToDictionary(f => f.Key[folder.Length..], f => f.Value, StringComparer.Ordinal);
+        return run.Count == 0 ? null : run;
+    }
+
+    /// <summary>Every problem with the attestations a pack carries: their shape and their bounds. None of them is trusted here.</summary>
+    internal static IEnumerable<string> Problems(IReadOnlyDictionary<string, byte[]> files)
+    {
+        var attestations = files.Keys.Where(PackPaths.IsAttestation).Order(StringComparer.Ordinal).ToList();
+        var stems = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var path in attestations)
+        {
+            if (CertificateFile().Match(path) is { Success: true } certificate)
+            {
+                stems.Add(certificate.Groups[1].Value);
+                if (files[path].LongLength > Dsse.MaximumEnvelopeBytes) yield return $"'{path}' is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB.";
+            }
+            else if (!RunFile().IsMatch(path))
+                yield return $"'{path}' is not an attestation: {PackPaths.AttestationsFolder} holds <stem>{CertificateSuffix} and <stem>{RunSuffix}… only.";
+        }
+        if (stems.Count > MaximumCertificates) yield return $"The pack carries {stems.Count} certificates; at most {MaximumCertificates}.";
+        foreach (var group in attestations.Select(p => RunFile().Match(p)).Where(m => m.Success).GroupBy(m => m.Groups[1].Value, StringComparer.Ordinal))
+        {
+            if (!stems.Contains(group.Key)) yield return $"The AEF run {group.Key}{RunSuffix} travels without its certificate.";
+            var count = group.Count();
+            var bytes = group.Sum(m => files[m.Value].LongLength);
+            if (count > MaximumRunFiles || bytes > MaximumRunBytes)
+                yield return $"The AEF run {group.Key}{RunSuffix} holds {count} files and {bytes:N0} bytes; at most {MaximumRunFiles} files and {MaximumRunBytes:N0} bytes.";
+        }
+    }
+
+    /// <summary>
+    /// An AEF run's run hash (AEF 1.0 SEAL-1 to SEAL-4): the SHA-256 of its manifest, one line per sealed file (every file but
+    /// <c>seal.json</c>, <c>attestation.dsse.json</c> and <c>overlays/</c>), "&lt;sha256&gt;  &lt;size&gt;  &lt;path&gt;\n", ordered by the UTF-8
+    /// bytes of the path.
+    /// </summary>
+    internal static string RunHash(IReadOnlyDictionary<string, byte[]> run)
+    {
+        var manifest = new StringBuilder();
+        foreach (var (path, bytes) in run.Where(f => f.Key is not ("seal.json" or "attestation.dsse.json") && !f.Key.StartsWith("overlays/", StringComparison.Ordinal))
+                     .OrderBy(f => f.Key, StringComparer.Ordinal))
+            manifest.Append(FilesList.Hex(bytes)).Append("  ").Append(bytes.LongLength.ToString(CultureInfo.InvariantCulture)).Append("  ").Append(path).Append('\n');
+        return FilesList.Hex(Encoding.UTF8.GetBytes(manifest.ToString()));
+    }
+
+    /// <summary>
+    /// The run id <c>run.json</c> names, or null when it names none readably: read in the format's JSON profile, as every
+    /// verifier reads it, so a run.json in another encoding or with repeated keys cannot make two verifiers disagree.
+    /// </summary>
+    internal static string? RunId(IReadOnlyDictionary<string, byte[]> run)
+    {
+        if (!run.TryGetValue("run.json", out var bytes) || bytes.Length > 1 << 20 || PackJson.Check(bytes) is not null) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(bytes);
+            return document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("runId", out var id)
+                && id.ValueKind == JsonValueKind.String ? id.GetString() : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    [GeneratedRegex("\\AMETA/attestations/([a-z0-9][a-z0-9-]{0,63})\\.certificate\\.dsse\\.json\\z", RegexOptions.CultureInvariant)]
+    private static partial Regex CertificateFile();
+
+    [GeneratedRegex("\\AMETA/attestations/([a-z0-9][a-z0-9-]{0,63})\\.aef/.+\\z", RegexOptions.CultureInvariant)]
+    private static partial Regex RunFile();
+}

@@ -12,6 +12,7 @@ internal static partial class PackPaths
     internal const string FilesList = "META/files.json";
     internal const string LockFile = "META/lock.json";
     internal const string SignaturesFolder = "META/signatures/";
+    internal const string AttestationsFolder = "META/attestations/";
 
     /// <summary>Version-control files a pack folder may hold at its root; they are never part of the pack (v1.1 M1).</summary>
     internal static readonly IReadOnlySet<string> IgnoredAtRoot = new HashSet<string>(StringComparer.Ordinal) { ".git", ".gitattributes", ".gitignore" };
@@ -35,6 +36,12 @@ internal static partial class PackPaths
 
     /// <summary>Signatures live outside the files list: everything else must be listed.</summary>
     internal static bool IsSignature(string path) => path.StartsWith(SignaturesFolder, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Attestations live outside the files list too, beside the signatures (pack format v1.2 §16): statements others make about
+    /// the pack by its digest, such as evaluation certificates, which can be added after release without changing the pack.
+    /// </summary>
+    internal static bool IsAttestation(string path) => path.StartsWith(AttestationsFolder, StringComparison.Ordinal);
 
     /// <summary>Every problem with a set of paths: unsafe names and names that collide ignoring case.</summary>
     internal static IEnumerable<string> Problems(IEnumerable<string> paths)

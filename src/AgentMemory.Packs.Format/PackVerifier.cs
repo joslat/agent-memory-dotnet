@@ -4,7 +4,11 @@ namespace AgentMemory.Packs.Format;
 
 /// <summary>A pack that passed every check, with what the host needs next.</summary>
 internal sealed record VerifiedPack(string Id, string Version, string Digest, PackManifest Manifest, IReadOnlyList<PackSignature> Signatures,
-    IReadOnlyDictionary<string, byte[]> Files);
+    IReadOnlyDictionary<string, byte[]> Files)
+{
+    /// <summary>What travels beside the pack in <c>META/attestations/</c>, shaped and bounded but not trusted (§16).</summary>
+    internal IReadOnlyDictionary<string, byte[]> Attestations { get; init; } = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+}
 
 /// <summary>One step of a verification, as <c>ampack verify --explain</c> shows it: what it checked, whether it held, and the details.</summary>
 internal sealed record PackStep(string Name, bool Passed, IReadOnlyList<string> Lines);
@@ -97,7 +101,10 @@ internal static class PackVerifier
         return problems.Count > 0
             ? new(null, problems)
             : new(new VerifiedPack(list!.Id, list.Version, digest, manifest!, signatures,
-                content.Files.Where(f => FilesList.IsListed(f.Key)).ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal)), []);
+                content.Files.Where(f => FilesList.IsListed(f.Key)).ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal))
+            {
+                Attestations = content.Files.Where(f => PackPaths.IsAttestation(f.Key)).ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal),
+            }, []);
     }
 
     /// <summary>
@@ -145,6 +152,8 @@ internal static class PackVerifier
             if (bytes.LongLength == file.Length && FilesList.Hex(bytes) == file.Sha256) continue;
             problems.Add($"'{file.Path}' does not match {PackPaths.FilesList}{Cause(bytes, file)}.");
         }
+        // Beside the listed files, only signatures and attestations, each shaped and bounded (§16).
+        problems.AddRange(PackAttestations.Problems(content.Files));
         explain?.Invoke(new("content", problems.Count == 0, problems.Count > 0 ? problems
             : [$"exactly the listed files, each with its length and SHA-256 ({list.Files.Sum(f => f.Length):N0} bytes)"]));
         if (problems.Count > 0) return (problems, null, null, null);
@@ -203,6 +212,8 @@ internal static class PackVerifier
             foreach (var problem in CompositeProblems(manifest, files)) yield return problem;
         if (manifest.Protection != "open" && !all.Contains("META/seal.json"))
             yield return $"A pack marked {manifest.Protection} must carry META/seal.json.";
+        // The pack card is read strictly by every verifier, so it shows the same everywhere (§15).
+        if (files.TryGetValue(PackCard.FileName, out var card) && PackCard.Parse(card).Problem is { } cardProblem) yield return cardProblem;
     }
 
     /// <summary>A composite names the same members in pack.json, members.json and its lock (v1.2 §5).</summary>

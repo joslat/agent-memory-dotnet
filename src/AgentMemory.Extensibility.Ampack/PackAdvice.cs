@@ -54,6 +54,14 @@ public static class PackAdvice
             Add("federation.placement", publication.IsPublic
                 ? $"It is federated and public, published by {publication.Publisher}: a host fetching it from a Pod takes it only with a publication receipt for that place; a file installed directly claims no placement."
                 : $"It is federated for {publication.Audience!.Count} WebID(s), published by {publication.Publisher}: hosts outside that audience refuse it, and a host fetching it from a Pod takes it only with a publication receipt for that place.");
+        if (pack.Card is null && pack.Kind is "knowledge" or "definition")
+            Add("card.missing", "It has no pack card (card.json): owner, intended use, limitations and boundaries are what a host's operator reads before installing.");
+        else if (pack.Card is { IsTemplate: true })
+            Add("card.template", "Its card still holds the texts ampack init wrote: say who owns it, what it is for and what it is not for before it travels.");
+        if (pack.Certificates.Count > 0 && pack.Certificates.All(c => !c.Trusted))
+            Add("certificate.untrusted", $"It carries {pack.Certificates.Count} evaluation certificate(s), none from a key this host trusts as evaluator for it: they inform, and admit nothing.");
+        else if (manifest.Trial is not null && PackCertificates.Admit(pack, now).Decision is not null)
+            Add("certificate.admits", "A trusted certificate covers its declared trial: where this host trusts certificates for its namespace, it can go on without a trial here (ampack admit).");
         if (pack.Kind == "knowledge" && string.IsNullOrWhiteSpace(manifest.Display?.Description))
             Add("display.description", "It has no description: hosts and composers can show only its id.");
         if (manifest.Traversal is { } walk && walk.Anchors.Count == 0)

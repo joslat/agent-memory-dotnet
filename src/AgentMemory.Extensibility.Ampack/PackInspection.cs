@@ -45,6 +45,10 @@ public sealed record PackInspection
     public IReadOnlyDictionary<string, string> Declarations { get; init; } = new Dictionary<string, string>();
     /// <summary>For a federated pack, the publication its pack.json claims (verified only when <see cref="Loaded"/>); otherwise null.</summary>
     public PackPublication? Publication { get; init; }
+    /// <summary>The pack's card, as its signed card.json states it (read only when <see cref="Loaded"/>); otherwise null.</summary>
+    public PackCardInfo? Card => Pack?.Card;
+    /// <summary>The evaluation certificates the pack carries, trusted or not (read only when <see cref="Loaded"/>).</summary>
+    public IReadOnlyList<PackEvaluation> Certificates => Pack?.Certificates ?? [];
 
     /// <summary>Inspects an <c>.ampack</c> against a host's trust. Never throws for a bad pack: the checks and problems say why.</summary>
     public static PackInspection Inspect(byte[] archive, PackTrust trust)

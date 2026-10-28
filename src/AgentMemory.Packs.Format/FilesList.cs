@@ -17,7 +17,7 @@ internal sealed partial record FilesList(string Id, string Version, IReadOnlyLis
 {
     internal const string Format = "agentmemory.pack.files/1.1";
 
-    /// <summary>The canonical bytes for <paramref name="content"/>: every file but the list itself and the signatures.</summary>
+    /// <summary>The canonical bytes for <paramref name="content"/>: every file but the list itself, the signatures and the attestations.</summary>
     internal static byte[] Build(string id, string version, IReadOnlyDictionary<string, byte[]> content)
     {
         var files = new JsonArray();
@@ -27,8 +27,8 @@ internal sealed partial record FilesList(string Id, string Version, IReadOnlyLis
         return Jcs.Canonical(root);
     }
 
-    /// <summary>Whether a path belongs in the list: everything except the list and the signatures.</summary>
-    internal static bool IsListed(string path) => path != PackPaths.FilesList && !PackPaths.IsSignature(path);
+    /// <summary>Whether a path belongs in the list: everything except the list, the signatures and the attestations.</summary>
+    internal static bool IsListed(string path) => path != PackPaths.FilesList && !PackPaths.IsSignature(path) && !PackPaths.IsAttestation(path);
 
     /// <summary>The digest that names a pack: <c>sha256:</c> and the hex SHA-256 of the list's exact bytes.</summary>
     internal static string DigestOf(ReadOnlySpan<byte> listBytes) => "sha256:" + Hex(listBytes);
