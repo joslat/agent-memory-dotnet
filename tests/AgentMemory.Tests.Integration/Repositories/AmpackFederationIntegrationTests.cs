@@ -26,14 +26,18 @@ namespace AgentMemory.Tests.Integration.Repositories;
 /// by its id, discovers the pack from the supplier's WebID alone, fetches it, verifies pack and receipt, installs it through
 /// the normal path, imports it into Neo4j and finds a kata. A stranger and anyone else see nothing and the Pod refuses them
 /// the bytes. The host refuses an archive swapped in the Pod, an edited receipt, a copy offered from another place, and a key
-/// the supplier withdrew from its profile; none of those reaches the store.
+/// the supplier withdrew from its profile; none of those reaches the store. All of it on a server that enforces access with
+/// Web Access Control and on one that enforces it with Access Control Policies.
 /// </summary>
 public sealed partial class ModuleRecordWriteIntegrationTests
 {
-    [Fact]
-    public async Task AFederatedPackTravelsFromTheSuppliersPodIntoTheBuyersStoreAndEveryForgeryOrWrongPlaceIsRefused()
+    // Both access-control models Solid servers implement: Web Access Control and Access Control Policies.
+    [Theory]
+    [InlineData("wac")]
+    [InlineData("acp")]
+    public async Task AFederatedPackTravelsFromTheSuppliersPodIntoTheBuyersStoreAndEveryForgeryOrWrongPlaceIsRefused(string accessModel)
     {
-        await using var server = await SolidTestServer.StartAsync();
+        await using var server = await SolidTestServer.StartAsync(accessModel);
         var options = new SolidOptions { AllowLoopbackHttp = true };
         using var supplier = await server.LoginAsync("supplier", options);
         using var buyer = await server.LoginAsync("buyer", options);
@@ -54,6 +58,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         using var signer = PackSigner.FromPem(key.PrivateKeyPem);
 
         var publication = await SolidPacks.PublishAsync(supplier, archive, signer, [buyer], [stranger]);
+        publication.AccessModel.Should().Be(accessModel);
         publication.Denied.Should().Equal(PublicationReceipt.Anonymous, stranger.WebId);
         publication.Allowed.Should().Equal(buyer.WebId);
 
@@ -75,6 +80,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         {
             var fetched = await SolidPacks.FetchAsync(buyer, offered[0], buyerPolicy);
             fetched.Receipt.Location.Should().Be(publication.Archive);
+            fetched.Receipt.Access.Should().Be(accessModel, "the receipt names the access model that held under the probe");
             var store = PackStore.Open(Path.Combine(folder, "store"));
             var installed = store.Install(fetched.Archive, PackTrust.Parse(buyerPolicyJson));
             installed.Digest.Should().Be(fetched.Pack.Digest);
@@ -107,7 +113,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             // 3. A copy offered from another place, with the real receipt: the receipt vouches for one URL only.
             var copy = publication.Container + "copies/martialarts.ampack";
             await Put(supplier, copy, archive);
-            await Put(supplier, copy + ".acl", Encoding.UTF8.GetBytes(SolidPacks.AccessDocument(copy, supplier.WebId!, [buyer.WebId!])));
+            (await SolidPacks.RestrictAsync(supplier, copy, supplier.WebId!, [buyer.WebId!])).Should().Be(accessModel);
             await Refused(SolidPacks.FetchAsync(buyer, offered[0] with { Archive = copy }, buyerPolicy), "not at " + copy);
 
             // 4. The key withdrawn from the supplier's profile: the re-check refuses; without it the host's own binding decides.
@@ -173,8 +179,10 @@ public sealed partial class ModuleRecordWriteIntegrationTests
 
         internal string BaseUrl { get; }
 
-        internal static async Task<SolidTestServer> StartAsync()
+        internal static async Task<SolidTestServer> StartAsync(string accessModel)
         {
+            // WAC: the default in-memory server. ACP: the server's own file-backed ACP configuration, in a container folder.
+            var config = accessModel == "acp" ? "config/file-acp.json" : "config/default.json";
             // The server's base URL must be the URL clients use, so the host port is chosen first and bound as is.
             int port;
             using (var probe = new TcpListener(IPAddress.Loopback, 0)) { probe.Start(); port = ((IPEndPoint)probe.LocalEndpoint).Port; }
@@ -183,8 +191,8 @@ public sealed partial class ModuleRecordWriteIntegrationTests
                 .WithImage(Image)
                 .WithPortBinding(port, port)
                 .WithResourceMapping(Encoding.UTF8.GetBytes(seed), "/seed/seed.json")
-                .WithCommand("-p", port.ToString(System.Globalization.CultureInfo.InvariantCulture), "-b", $"http://localhost:{port}/", "-c", "config/default.json",
-                    "--seedConfig", "/seed/seed.json")
+                .WithCommand("-p", port.ToString(System.Globalization.CultureInfo.InvariantCulture), "-b", $"http://localhost:{port}/", "-c", config,
+                    "-f", "/tmp/data", "--seedConfig", "/seed/seed.json")
                 .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("Listening to server at"))
                 .Build();
             await container.StartAsync();

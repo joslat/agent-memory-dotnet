@@ -54,7 +54,7 @@ internal static partial class Program
             if (o.Value("probe-as") is { } probe) readers.Add(Login(o, probe, "AMPACK_PROBE"));
             IReadOnlyList<string>? audience = o.Value("audience") is { } given ? List(given) : null;
             var publication = SolidPacks.PublishAsync(owner, archive, signer, readers, [], audience).GetAwaiter().GetResult();
-            Console.WriteLine($"Published at {publication.Archive}\n  receipt {publication.Receipt}\n  denied  {string.Join(", ", publication.Denied)}"
+            Console.WriteLine($"Published at {publication.Archive}\n  access  {publication.AccessModel}\n  receipt {publication.Receipt}\n  denied  {string.Join(", ", publication.Denied)}"
                 + $"\n  allowed {(publication.Allowed.Count == 0 ? "(no reader probed)" : string.Join(", ", publication.Allowed))}");
             foreach (var catalog in publication.Catalogs) Console.WriteLine($"  catalog {catalog}");
             return 0;
@@ -100,7 +100,7 @@ internal static partial class Program
                     ["location"] = fetched.Location, ["receiptSha256"] = FilesList.Hex(fetched.ReceiptBytes), ["as"] = webId,
                 };
                 File.AppendAllText(Path.Combine(storeFolder, "federation.jsonl"), log.ToJsonString() + "\n");
-                Console.WriteLine($"Fetched and installed {installed.Id} {installed.Version}\n  from    {fetched.Location}\n  digest  {installed.Digest}\n  placed  for {PackFederation.Describe(fetched.Receipt.Audience)} at {fetched.Receipt.PublishedAt:u}");
+                Console.WriteLine($"Fetched and installed {installed.Id} {installed.Version}\n  from    {fetched.Location}\n  digest  {installed.Digest}\n  placed  for {PackFederation.Describe(fetched.Receipt.Audience)} ({fetched.Receipt.Access}) at {fetched.Receipt.PublishedAt:u}");
             }
             catch (Exception e) when (e is InvalidDataException or AgentMemory.Extensibility.Ampack.PackLoadException or HttpRequestException)
             {

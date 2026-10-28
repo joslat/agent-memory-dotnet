@@ -7,9 +7,10 @@
 .DESCRIPTION
   Needs Docker and the .NET 10 SDK. Starts the server in compose.yaml (test accounts only, in memory), builds ampack,
   and runs every step with it. Client credentials are registered on the local server and passed to ampack through the
-  environment of each call only. Use -KeepServer to leave the server running afterwards.
+  environment of each call only. -Access acp runs the server with Access Control Policies instead of Web Access Control;
+  the pack, the receipt and every check are the same. Use -KeepServer to leave the server running afterwards.
 #>
-param([switch] $KeepServer)
+param([ValidateSet('wac', 'acp')] [string] $Access = 'wac', [switch] $KeepServer)
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $repo = (Resolve-Path (Join-Path $here '../..')).Path
@@ -37,8 +38,9 @@ function Ampack {
 
 Push-Location $work
 try {
-    Step 'Start a local Solid server with three test accounts'
-    docker compose -f (Join-Path $here 'compose.yaml') up -d | Out-Null
+    Step "Start a local Solid server with three test accounts (access control: $Access)"
+    $env:SOLID_CONFIG = if ($Access -eq 'acp') { 'config/file-acp.json' } else { 'config/default.json' }
+    docker compose -f (Join-Path $here 'compose.yaml') up -d --force-recreate | Out-Null
     for ($i = 0; $i -lt 60; $i++) { try { Invoke-WebRequest "$base/" -Method Head | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
 
     Step 'Register client credentials for each account (as an operator would, once)'

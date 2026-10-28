@@ -171,6 +171,24 @@ public sealed class SolidAdapterTests
     }
 
     [Fact]
+    public void The_access_control_resource_applies_an_owner_policy_and_a_readers_policy_or_the_public_agent()
+    {
+        const string resource = "https://pod.example/alice/ampack/sha256-ab.ampack";
+        const string acp = "http://www.w3.org/ns/solid/acp#";
+        const string acl = "http://www.w3.org/ns/auth/acl#";
+        var named = Parse(SolidPacks.AccessControlResource(resource, Me, ["https://bob.example/card#me", "https://carol.example/card#me"]), resource + ".acr");
+        var everyone = Parse(SolidPacks.AccessControlResource(resource, Me, null), resource + ".acr");
+
+        named.Should().Contain(new RdfTriple(RdfTerm.Iri(resource + ".acr#root"), acp + "resource", RdfTerm.Iri(resource)));
+        named.Where(t => t.Subject.IsIri(resource + ".acr#root") && t.Predicate == acp + "accessControl").Select(t => t.Object.Value)
+            .Should().BeEquivalentTo(resource + ".acr#owner", resource + ".acr#readers");
+        named.Where(t => t.Predicate == acp + "agent").Select(t => t.Object.Value).Should().BeEquivalentTo(Me, "https://bob.example/card#me", "https://carol.example/card#me");
+        named.Where(t => t.Predicate == acp + "allow").Select(t => t.Object.Value).Should().BeEquivalentTo(acl + "Read", acl + "Write", acl + "Control", acl + "Read");
+        everyone.Should().Contain(t => t.Predicate == acp + "agent" && t.Object.IsIri(acp + "PublicAgent"));
+        FluentActions.Invoking(() => SolidPacks.AccessControlResource(resource, "https://evil.example/card> <x", null)).Should().Throw<InvalidDataException>();
+    }
+
+    [Fact]
     public void An_IRI_that_would_break_Turtle_is_never_written() =>
         FluentActions.Invoking(() => SolidPacks.AccessDocument("https://pod.example/x", "https://evil.example/card> <x", null))
             .Should().Throw<InvalidDataException>();

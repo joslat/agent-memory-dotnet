@@ -9,9 +9,24 @@ namespace AgentMemory.Packs.Solid;
 /// <summary>One pack a catalog lists: discovery hints only; the archive and its receipt are what is trusted.</summary>
 internal sealed record CatalogEntry(string Id, string Version, string Digest, string Archive, string Receipt, string? Title);
 
-/// <summary>A publication: where the archive and its receipt now are, who the probe found refused and admitted, and the catalogs.</summary>
-internal sealed record Publication(string Archive, string Receipt, byte[] ReceiptBytes, IReadOnlyList<string> Denied, IReadOnlyList<string> Allowed,
-    IReadOnlyList<string> Catalogs, string Container);
+/// <summary>
+/// A publication: where the archive and its receipt now are, which access model enforced it (<c>wac</c> or <c>acp</c>), who
+/// the probe found refused and admitted, and the catalogs.
+/// </summary>
+internal sealed record Publication(string Archive, string Receipt, byte[] ReceiptBytes, string AccessModel, IReadOnlyList<string> Denied,
+    IReadOnlyList<string> Allowed, IReadOnlyList<string> Catalogs, string Container);
+
+/// <summary>
+/// The two access-control models Solid servers implement (federated packs §7): Web Access Control (an <c>.acl</c> document
+/// per resource) and Access Control Policies (an access control resource, typed <c>acp:AccessControlResource</c>). Both are
+/// found the same way, through the resource's <c>Link rel="acl"</c>; the type of what it points at decides which one to write.
+/// </summary>
+internal static class AccessModels
+{
+    internal const string Wac = "wac";
+    internal const string Acp = "acp";
+    internal const string AcpNamespace = "http://www.w3.org/ns/solid/acp#";
+}
 
 /// <summary>A fetched pack: verified in full, and its placement verified by its receipt.</summary>
 internal sealed record FetchedPack(VerifiedPack Pack, byte[] Archive, PublicationReceipt Receipt, byte[] ReceiptBytes, string Location);
@@ -78,10 +93,11 @@ internal static class SolidPacks
         var receiptUrl = container + PublicationReceipt.FileNameFor(digest);
 
         await PutAsync(owner, archiveUrl, archive, ArchiveMediaType, cancellationToken).ConfigureAwait(false);
-        await RestrictAsync(owner, archiveUrl, webId, placed, cancellationToken).ConfigureAwait(false);
+        var model = await RestrictAsync(owner, archiveUrl, webId, placed, cancellationToken).ConfigureAwait(false);
         var (denied, allowed) = await ProbeAsync(owner, archiveUrl, archive, placed, readers, strangers, cancellationToken).ConfigureAwait(false);
 
-        var receipt = new PublicationReceipt(list!.Id, list.Version, digest, archiveUrl, FilesList.Hex(archive), placed, placed is null ? "public" : "wac",
+        // The receipt names how the store enforces the placement: public, or the access model that held under the probe.
+        var receipt = new PublicationReceipt(list!.Id, list.Version, digest, archiveUrl, FilesList.Hex(archive), placed, placed is null ? "public" : model,
             denied, allowed, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
         var receiptBytes = receipt.Sign(signer);
         await PutAsync(owner, receiptUrl, receiptBytes, ReceiptMediaType, cancellationToken).ConfigureAwait(false);
@@ -99,7 +115,7 @@ internal static class SolidPacks
             catalogs.Add(catalogUrl);
         }
         await RegisterAsync(owner, profile, storage, container, cancellationToken).ConfigureAwait(false);
-        return new Publication(archiveUrl, receiptUrl, receiptBytes, denied, allowed, catalogs, container);
+        return new Publication(archiveUrl, receiptUrl, receiptBytes, model, denied, allowed, catalogs, container);
     }
 
     // The probe (federated packs §5, "checked"): what the access rules actually do, tried with real identities.
@@ -165,12 +181,43 @@ internal static class SolidPacks
         return text.ToString();
     }
 
-    private static async Task RestrictAsync(SolidSession owner, string resource, string ownerWebId, IReadOnlyList<string>? readers, CancellationToken cancellationToken)
+    /// <summary>
+    /// Writes the access rules of one resource in the model its server uses, and returns that model (<c>wac</c> or <c>acp</c>).
+    /// The rules name the owner in full and the readers (or everyone) to read; the probe then checks what they actually do.
+    /// </summary>
+    internal static async Task<string> RestrictAsync(SolidSession owner, string resource, string ownerWebId, IReadOnlyList<string>? readers, CancellationToken cancellationToken = default)
     {
         var head = await owner.SendAsync(HttpMethod.Head, resource, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var acl = head.Links("acl").FirstOrDefault() ?? throw new InvalidDataException($"{resource} names no access-control document (Link rel=\"acl\"): WAC is the access binding built so far.");
-        if (SolidSession.Origin(acl) != SolidSession.Origin(resource)) throw new InvalidDataException("The access-control document is on another origin.");
-        await PutAsync(owner, acl, Encoding.UTF8.GetBytes(AccessDocument(resource, ownerWebId, readers)), "text/turtle", cancellationToken).ConfigureAwait(false);
+        var acl = head.Links("acl").FirstOrDefault() ?? throw new InvalidDataException($"{resource} names no access-control resource (Link rel=\"acl\"); WAC and ACP are the models supported.");
+        if (SolidSession.Origin(acl) != SolidSession.Origin(resource)) throw new InvalidDataException("The access-control resource is on another origin.");
+        var model = await ModelAsync(owner, acl, cancellationToken).ConfigureAwait(false);
+        var document = model == AccessModels.Acp ? AccessControlResource(resource, ownerWebId, readers) : AccessDocument(resource, ownerWebId, readers);
+        await PutAsync(owner, acl, Encoding.UTF8.GetBytes(document), "text/turtle", cancellationToken).ConfigureAwait(false);
+        return model;
+    }
+
+    // An ACP server types its access control resources acp:AccessControlResource (on every response, even a refusal);
+    // a WAC server's .acl document carries no such type.
+    private static async Task<string> ModelAsync(SolidSession owner, string acl, CancellationToken cancellationToken)
+    {
+        var head = await owner.SendAsync(HttpMethod.Head, acl, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return head.Links("type").Contains(AccessModels.AcpNamespace + "AccessControlResource") ? AccessModels.Acp : AccessModels.Wac;
+    }
+
+    /// <summary>
+    /// The access rules (ACP) of one resource: an access control resource whose controls apply a policy allowing the owner
+    /// read, write and control, and one allowing the readers (or the public agent) to read.
+    /// </summary>
+    internal static string AccessControlResource(string resource, string owner, IReadOnlyList<string>? readers)
+    {
+        const string acp = AccessModels.AcpNamespace;
+        var acl = Vocabulary.Acl;
+        var who = readers is null ? $"<{acp}PublicAgent>" : string.Join(", ", readers.Select(r => "<" + TurtleText.Iri(r) + ">"));
+        return $"<#root> a <{acp}AccessControlResource> ; <{acp}resource> <{TurtleText.Iri(resource)}> ; <{acp}accessControl> <#owner>, <#readers> .\n"
+            + $"<#owner> a <{acp}AccessControl> ; <{acp}apply> [ a <{acp}Policy> ; <{acp}allow> <{acl}Read>, <{acl}Write>, <{acl}Control> ; "
+            + $"<{acp}anyOf> [ a <{acp}Matcher> ; <{acp}agent> <{TurtleText.Iri(owner)}> ] ] .\n"
+            + $"<#readers> a <{acp}AccessControl> ; <{acp}apply> [ a <{acp}Policy> ; <{acp}allow> <{acl}Read> ; "
+            + $"<{acp}anyOf> [ a <{acp}Matcher> ; <{acp}agent> {who} ] ] .\n";
     }
 
     private static async Task RegisterAsync(SolidSession owner, WebIdProfile profile, string storage, string container, CancellationToken cancellationToken)

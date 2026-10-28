@@ -1,9 +1,10 @@
 # A local Solid server for the federated packs sample: three seeded test accounts (supplier, buyer, stranger), each with
-# a Pod and a WebID at http://localhost:3000/<name>/profile/card#me. In memory: everything is gone when it stops.
+# a Pod and a WebID at http://localhost:3000/<name>/profile/card#me. Access control is Web Access Control by default;
+# SOLID_CONFIG=config/file-acp.json runs the same server with Access Control Policies. Data lives in the container only.
 services:
   solid:
     image: solidproject/community-server:7.2.0
-    command: ["-p", "3000", "-b", "http://localhost:3000/", "-c", "config/default.json", "--seedConfig", "/seed/seed.json"]
+    command: ["-p", "3000", "-b", "http://localhost:3000/", "-c", "${SOLID_CONFIG:-config/default.json}", "-f", "/tmp/data", "--seedConfig", "/seed/seed.json"]
     ports:
       - "3000:3000"
     volumes:

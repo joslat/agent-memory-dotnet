@@ -28,7 +28,8 @@ pwsh samples/FederatedPacks/run.ps1
 The script:
 
 1. Starts a local [Community Solid Server](https://github.com/CommunitySolidServer/CommunitySolidServer) with three test
-   accounts (`supplier`, `buyer`, `stranger`), in memory, from [compose.yaml](compose.yaml).
+   accounts (`supplier`, `buyer`, `stranger`) from [compose.yaml](compose.yaml), enforcing access with Web Access Control,
+   or with Access Control Policies when you pass `-Access acp`.
 2. Registers client credentials for each account on that local server, and passes them to `ampack` only through the
    environment of each call.
 3. **Supplier:** makes a signing key, asserts it in its WebID profile (`ampack solid bind-key`), writes a small knowledge
@@ -44,5 +45,9 @@ The test accounts and passwords exist only on the local server; nothing leaves y
 ## Against a real Pod
 
 Drop `--allow-loopback-http`: every URL must then be `https`. Register client credentials for your WebID with your Pod
-provider, set `AMPACK_SOLID_CLIENT_ID` and `AMPACK_SOLID_CLIENT_SECRET`, and run the same commands. Access rules are
-written with Web Access Control (WAC); servers that only speak Access Control Policies (ACP) are not supported yet.
+provider, set `AMPACK_SOLID_CLIENT_ID` and `AMPACK_SOLID_CLIENT_SECRET`, and run the same commands.
+
+Solid servers enforce access with one of two models, and `ampack` writes whichever the server uses: Web Access Control
+(an `.acl` document per resource) or Access Control Policies (an access control resource). It tells them apart by what the
+resource's `Link rel="acl"` points at, then the probe checks that the rules actually hold, and the receipt records which
+model enforced them. `pwsh samples/FederatedPacks/run.ps1 -Access acp` runs the whole sample on an ACP server.
