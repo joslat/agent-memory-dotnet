@@ -492,7 +492,74 @@ def main():
                                      "trust.json", "refused")
     vectors["critical-names-nothing"] = (signed(manifest_with(extensions={"critical": ["io.example.absent"]})), "trust.json", "refused")
 
+    # Federated packs (federated packs §3-§5): the publisher WebID bound to the signing key by the host, the host inside the
+    # audience, and publication receipts for one URL and the exact archive bytes.
+    pub, buyer, stranger = ("https://supplier-a.example/profile/card#org", "https://buyer-b.example/profile/card#agent",
+                            "https://stranger.example/profile/card#me")
+
+    def federated_policy(name, webid=pub, host=(buyer,), more=()):
+        body = {"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, **({"webId": webid} if webid else {})), *more]}
+        if host:
+            body["host"] = {"webIds": list(host)}
+        (OUT / name).write_text(json.dumps(body, separators=(",", ":")), encoding="utf-8")
+    federated_policy("trust-federated-buyer.json")
+    federated_policy("trust-federated-stranger.json", host=(stranger,))
+    federated_policy("trust-federated-no-host.json", host=())
+    federated_policy("trust-federated-unbound.json", webid=None)
+    federated_policy("trust-federated-other-webid.json", webid="https://other.example/profile/card#org")
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "mirror", "--prefix", "io.example")
+    assert code == 0, text
+    mirror_entry = json.loads(text[text.index("{"):])
+    mirror = serialization.load_pem_private_key((work / "keys" / "mirror.key.pem").read_bytes(), password=None)
+    federated_policy("trust-federated-buyer-and-mirror.json", more=(dict(mirror_entry, webId="https://mirror.example/profile/card#org"),))
+    for name, body in {"trust-federated-host-empty.json": {"keys": [entry], "host": {"webIds": []}},
+                       "trust-federated-host-extra.json": {"keys": [entry], "host": {"webIds": [buyer], "name": "buyer"}},
+                       "trust-federated-webid-http.json": {"keys": [dict(entry, webId="http://supplier-a.example/p#me")]},
+                       "trust-federated-revoker-webid.json": {"keys": [entry, dict(revoker, webId=pub)]}}.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+
+    def federation(audience=(buyer,), critical=True, **extra):
+        f = {"format": "agentmemory.pack.federation/1", "publisher": pub, "audience": list(audience) if isinstance(audience, tuple) else audience, **extra}
+        return {"federation": f, **({"critical": ["federation"]} if critical else {})}
+    federated = signed(manifest_with(extensions=federation(purpose="Supply-chain handoff")))
+    vectors["federated-valid"] = (federated, "trust-federated-buyer.json", "verified")
+    vectors["federated-host-outside-audience"] = (federated, "trust-federated-stranger.json", "refused")
+    vectors["federated-host-names-no-webid"] = (federated, "trust-federated-no-host.json", "refused")
+    vectors["federated-public-host-names-no-webid"] = (signed(manifest_with(extensions=federation(audience="public"))), "trust-federated-no-host.json", "verified")
+    vectors["federated-key-unbound"] = (federated, "trust-federated-unbound.json", "refused")
+    vectors["federated-key-bound-elsewhere"] = (federated, "trust-federated-other-webid.json", "refused")
+    vectors["federated-not-critical"] = (signed(manifest_with(extensions=federation(critical=False))), "trust-federated-buyer.json", "refused")
+    vectors["federated-purpose-300"] = (signed(manifest_with(extensions=federation(purpose="x" * 300))), "trust-federated-buyer.json", "verified")
+    two_readers = signed(manifest_with(extensions=federation(audience=(buyer, stranger))))
+    vectors["federated-two-readers"] = (two_readers, "trust-federated-buyer.json", "verified")
+    for name, ext in {"federated-audience-empty": federation(audience=[]),
+                      "federated-audience-everyone": federation(audience="everyone"),
+                      "federated-audience-http": federation(audience=["http://buyer-b.example/profile/card#agent"]),
+                      "federated-audience-turtle-breaker": federation(audience=["https://buyer-b.example/profile/card>#agent"]),
+                      "federated-audience-two-fragments": federation(audience=["https://buyer-b.example/card#a#b"]),
+                      "federated-audience-twice": federation(audience=[buyer, buyer]),
+                      "federated-audience-65": federation(audience=[f"https://b{i}.example/p#me" for i in range(65)]),
+                      "federated-unknown-field": federation(maxScope="partners"),
+                      "federated-other-format": {"critical": ["federation"], "federation": {**federation()["federation"], "format": "agentmemory.pack.federation/2"}},
+                      "federated-no-audience": {"critical": ["federation"], "federation": {"format": "agentmemory.pack.federation/1", "publisher": pub}},
+                      "federated-publisher-not-webid": {"critical": ["federation"], "federation": {**federation()["federation"], "publisher": "urn:uuid:4f0c21a0"}},
+                      "federated-purpose-301": federation(purpose="x" * 301)}.items():
+        vectors[name] = (signed(manifest_with(extensions=ext)), "trust-federated-buyer.json", "refused")
+    for policy_name in ("trust-federated-host-empty.json", "trust-federated-host-extra.json", "trust-federated-webid-http.json",
+                        "trust-federated-revoker-webid.json"):
+        vectors["policy-" + policy_name[6:-5]] = (federated, policy_name, "refused")
+
     raw = {}
+    # A federated pack built and signed by ampack itself.
+    fed_folder = work / "fed-notes"
+    assert ampack("init", str(fed_folder), "--id", "io.example.handoff", "--version", "1.0.0")[0] == 0
+    fed_manifest = json.loads((fed_folder / "pack.json").read_text(encoding="utf-8"))
+    fed_manifest["extensions"] = federation()
+    (fed_folder / "pack.json").write_text(json.dumps(fed_manifest, separators=(",", ":")), encoding="utf-8")
+    code, text = ampack("build", str(fed_folder), "--key", str(work / "keys" / "publisher.key.pem"), "--out", str(work / "fed-dotnet.ampack"))
+    assert code == 0, text
+    fed_dotnet = (work / "fed-dotnet.ampack").read_bytes()
+    raw["federated-valid-dotnet"] = (fed_dotnet, "trust-federated-buyer.json", "verified")
     good = write_zip(signed(content))
     raw["prefix-bytes"] = (b"MZ-prefix" + good, "trust.json", "refused")
     raw["trailing-bytes"] = (good + b"\x00", "trust.json", "refused")
@@ -536,6 +603,74 @@ def main():
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[0] if pr.stdout.strip() else pr.stderr.strip()[-200:],
                         "sha256": hashlib.sha256(files).hexdigest()})
+        print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
+    # Publication receipts: each verified by `ampack receipt verify` and by the Python verifier's --receipt.
+    here = "https://supplier-a.example/ampack/handoff.ampack"
+    fed_bytes = write_zip(federated)
+
+    def receipt(pack_bytes, location=here, audience=(buyer,), access="wac", denied=("anonymous",), allowed=(buyer,),
+                published="2026-10-26T12:05:00Z", signer=None, archive_sha=None, subjects=None, extra=None, edit=None):
+        files_ = py.read_zip(pack_bytes)
+        listing = json.loads(files_[py.FILES])
+        pred = {"id": listing["id"], "version": listing["version"], "location": location,
+                "archiveSha256": archive_sha or hashlib.sha256(pack_bytes).hexdigest(),
+                "audience": list(audience) if isinstance(audience, tuple) else audience, "access": access,
+                "checked": {"denied": list(denied), "allowed": list(allowed)}, "publishedAt": published, **(extra or {})}
+        statement = {"_type": py.STATEMENT, "predicateType": "urn:agentmemory:pack:publication:v1", "predicate": pred,
+                     "subject": subjects or [{"name": py.FILES, "digest": {"sha256": hashlib.sha256(files_[py.FILES]).hexdigest()}}]}
+        payload = py.canonical(statement).encode()
+        who = signer or key
+        spki = who.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        sig = who.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))
+        if edit:
+            payload = edit(payload)
+        return py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
+    code, text = ampack("receipt", "sign", str(work / "fed-dotnet.ampack"), "--location", here, "--key", str(work / "keys" / "publisher.key.pem"),
+                        "--denied", "anonymous," + stranger, "--allowed", buyer, "--out", str(work / "fed-dotnet.receipt.json"))
+    assert code == 0, text
+    two_bytes = write_zip(two_readers)
+    receipts = {
+        "receipt-valid-python": (fed_bytes, receipt(fed_bytes), here, "trust-federated-buyer.json", "verified"),
+        "receipt-valid-dotnet": (fed_dotnet, (work / "fed-dotnet.receipt.json").read_bytes(), here, "trust-federated-buyer.json", "verified"),
+        "receipt-narrower-placement": (two_bytes, receipt(two_bytes), here, "trust-federated-buyer.json", "verified"),
+        "receipt-other-location": (fed_bytes, receipt(fed_bytes), "https://mirror.example/ampack/handoff.ampack", "trust-federated-buyer.json", "refused"),
+        "receipt-other-bytes": (fed_bytes, receipt(fed_bytes, archive_sha="0" * 64), here, "trust-federated-buyer.json", "refused"),
+        "receipt-wider-audience": (fed_bytes, receipt(fed_bytes, audience=(buyer, stranger)), here, "trust-federated-buyer.json", "refused"),
+        "receipt-public-placement-of-named-pack": (fed_bytes, receipt(fed_bytes, audience="public", access="public"), here, "trust-federated-buyer.json", "refused"),
+        "receipt-host-outside-placement": (two_bytes, receipt(two_bytes, audience=(stranger,)), here, "trust-federated-buyer.json", "refused"),
+        "receipt-signer-bound-elsewhere": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-buyer-and-mirror.json", "refused"),
+        "receipt-signer-untrusted": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-buyer.json", "refused"),
+        "receipt-edited-after-signing": (fed_bytes, receipt(fed_bytes, location="https://mirror.example/ampack/handoff.ampack",
+                                                             edit=lambda b: b.replace(b"https://mirror.example/ampack/handoff.ampack", here.encode())),
+                                         here, "trust-federated-buyer.json", "refused"),
+        "receipt-extra-field": (fed_bytes, receipt(fed_bytes, extra={"note": "x"}), here, "trust-federated-buyer.json", "refused"),
+        "receipt-access-public-with-names": (fed_bytes, receipt(fed_bytes, access="public"), here, "trust-federated-buyer.json", "refused"),
+        "receipt-access-unknown": (fed_bytes, receipt(fed_bytes, access="ftp"), here, "trust-federated-buyer.json", "refused"),
+        "receipt-in-the-future": (fed_bytes, receipt(fed_bytes, published="2099-01-01T00:00:00Z"), here, "trust-federated-buyer.json", "refused"),
+        "receipt-time-not-utc": (fed_bytes, receipt(fed_bytes, published="2026-10-26T12:05:00+00:00"), here, "trust-federated-buyer.json", "refused"),
+        "receipt-location-fragment": (fed_bytes, receipt(fed_bytes, location=here + "#x"), here + "#x", "trust-federated-buyer.json", "refused"),
+        "receipt-two-subjects": (fed_bytes, receipt(fed_bytes, subjects=[{"name": py.FILES, "digest": {"sha256": "0" * 64}}] * 2), here,
+                                 "trust-federated-buyer.json", "refused"),
+        "receipt-probe-not-webid": (fed_bytes, receipt(fed_bytes, allowed=("anonymous",)), here, "trust-federated-buyer.json", "refused"),
+        "receipt-for-unfederated-pack": ((VECTORS / "valid-dotnet.ampack").read_bytes(), receipt((VECTORS / "valid-dotnet.ampack").read_bytes()), here,
+                                         "trust-federated-buyer.json", "refused"),
+    }
+    for name, (pack_bytes, receipt_bytes, location, policy_file, expected) in receipts.items():
+        pack_path, receipt_path = VECTORS / f"{name}.ampack", VECTORS / f"{name}.receipt.dsse.json"
+        pack_path.write_bytes(pack_bytes)
+        receipt_path.write_bytes(receipt_bytes)
+        dn_code, dn_text = ampack("receipt", "verify", str(pack_path), str(receipt_path), "--location", location, "--policy", str(OUT / policy_file))
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(pack_path), str(OUT / policy_file),
+                             "--receipt", str(receipt_path), "--location", location],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
+        agree = dotnet == python == expected
+        failures += not agree
+        results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
+                        "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
+                        "sha256": hashlib.sha256(pack_bytes + receipt_bytes).hexdigest()})
         print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
     (OUT / "results.json").write_text(json.dumps({"format": "agentmemory.pack.conformance/1.2", "vectors": results,
                                                   "agreed": len(results) - failures, "total": len(results)}, indent=1) + "\n", encoding="utf-8")

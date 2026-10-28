@@ -1,9 +1,9 @@
 # Memory pack format v1.2: conformance vectors
 
-Two verifiers that share no code must reach the same verdict on every vector here (137 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
+Two verifiers that share no code must reach the same verdict on every vector here (183 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
 
 - `ampack verify` (.NET, `tools/Ampack`, library `src/AgentMemory.Packs.Format`)
-- `python/ampack_verify.py` (Python 3.10+ and `cryptography`)
+- `python/ampack_verify.py` (Python 3.10+ and `cryptography`); with `--receipt <file> --location <url>` it also verifies a publication receipt
 
 `run_vectors.py` builds the vectors and runs both verifiers:
 
@@ -34,6 +34,8 @@ list, DSSE signature, strict ZIP writers, stored and deflated), and derives tamp
 | Revokers that are not live (seventh review) | a list signed by a revoker the policy revokes: revoking nothing it verifies, revoking the pack it refuses (it still denies what it names, never decides about a revoker, brings no freshness) |
 | Revokers that come back (eighth review) | a list without a live signer that revokes a revoker still live is refused (a live revoker carries it forward); a policy whose revoker key also signs packs is refused |
 | One run, several lists (ninth review; Python's `apply_all` is a second implementation of the rule) | a rotated revoker's revocation of a revoker not carried forward (refused) and carried forward (verified); the named revoker revoking itself to dodge (refused); two revokers in a circle (refused); the same list twice (one list); a live list revoking the pack beside others (refused); a successor not yet valid named by a list without a live signer (refused) |
+| Federated packs (federated packs §3–§4) | a pack for one buyer, verified by that buyer; refused by a host outside the audience and by a host naming no WebID of its own; a public pack on such a host (accepted); a key the host did not bind to the publisher WebID, or bound to another; the extension not marked critical; an audience empty, `"everyone"`, plain http, with a Turtle-breaking `>`, with two fragments, a WebID twice, 65 WebIDs; an unknown field; another format; no audience; a publisher that is not a WebID; a purpose of 300 (accepted) and 301 characters; policies with an empty or extended `host`, an http `webId`, a revoker bound to a WebID; a federated pack built by .NET |
+| Publication receipts (federated packs §5; `ampack receipt verify` and `ampack_verify.py --receipt`) | a receipt signed by Python and one by `ampack receipt sign` (accepted); a placement narrower than the pack (accepted); another URL; other archive bytes; an audience wider than the pack's, or public for a named pack; a placement not for this host; a signer bound to another WebID, or not trusted; a payload edited after signing; an extra field; public access with named readers; an unknown access kind; a time in the future, or not in UTC; a location with a fragment; two subjects; `anonymous` among the allowed; a receipt for a pack that is not federated |
 | ZIP profile | bytes before the first entry; bytes after the end record; an archive comment; unsorted entries; the data-descriptor flag; a local header whose name differs from the central directory; bytes after a deflate stream's end; a deflate stream without its final block |
 
 `results.json` records each verdict and each verifier's reason. The `trust*.json` files hold public keys only; the signing

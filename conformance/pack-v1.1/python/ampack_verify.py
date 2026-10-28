@@ -6,7 +6,11 @@ scopes, roles, validity windows, revocations and their expiry), pack.json (field
 source), what each kind must hold, a composite's lock against its members, and a pack set with each member on its own.
 It must agree with `ampack verify` on every vector in ../vectors (see run_vectors.py).
 
-usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>...]      exit 0 verified, 1 refused
+It also checks the federated profile (federated packs §3-§5): the publisher WebID bound to the signing key by the host's
+policy, the host inside the audience, and a publication receipt for one URL and the exact archive bytes.
+
+usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>...] [--receipt <file> --location <url>]
+       exit 0 verified, 1 refused
 Needs: Python 3.10+, the `cryptography` package.
 """
 import base64
@@ -33,7 +37,14 @@ PACK_FORMAT = "agentmemory.pack/1.2"
 # Every field pack.json may hold; anything the format does not define goes in "extensions" (PACK-strict).
 PACK_FIELDS = {"format", "id", "version", "kind", "sdk", "requires", "display", "containableBy", "contains", "tier", "licence",
                "validUntil", "protection", "code", "source", "extensions"}
-UNDERSTOOD_EXTENSIONS = set()
+UNDERSTOOD_EXTENSIONS = {"federation"}
+FEDERATION_FORMAT = "agentmemory.pack.federation/1"
+PUBLICATION = "urn:agentmemory:pack:publication:v1"
+# One WebID grammar for every verifier (federated packs §3): https and a DNS host, or http for a loopback host; an optional
+# port; a path of characters that need no escaping in Turtle; at most one '#'; at most 512 characters.
+WEBID = re.compile(r"(?:https://[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*"
+                   r"|http://(?:localhost|127\.0\.0\.1|\[::1\]))(?::[0-9]{1,5})?/[A-Za-z0-9\-._~:/?#@!$&'()*+,;=%]*", re.ASCII)
+ACCESS_KINDS = {"wac", "acp", "public"}
 KINDS = {"knowledge", "definition", "snapshot", "composite", "set"}
 TIERS = {"open", "curated", "premium", "private", "hosted"}
 PROTECTIONS = {"open", "audience", "licensed", "attested", "hosted"}
@@ -574,6 +585,7 @@ def verify(files, policy, now):
             raise Refused(f"pack.json marks '{name}' critical, but holds no such extension")
         if name not in UNDERSTOOD_EXTENSIONS:
             raise Refused(f"pack.json marks the extension '{name}' critical, and this verifier does not understand it")
+    federation = read_federation(extensions)
     manifest_checks(manifest, content, now)
     digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
     if digest in policy.get("revoked", {}).get("digests", []):
@@ -584,7 +596,7 @@ def verify(files, policy, now):
 
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
-    roles = set()
+    roles, publisher_keys = set(), set()
     envelopes = sorted(p for p in files if p.startswith(SIGNATURES))
     if len(envelopes) > MAX_ENVELOPES:
         raise Refused(f"the pack carries {len(envelopes)} signature envelopes; at most {MAX_ENVELOPES}")
@@ -646,12 +658,175 @@ def verify(files, policy, now):
                 public.verify(base64.b64decode(s.get("sig") if isinstance(s.get("sig"), str) else "!", validate=True),
                               digest_of_pae, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
                 roles.add(role)
+                if role == "publisher":
+                    publisher_keys.add(key["keyId"])
             except (InvalidSignature, ValueError, binascii.Error):
                 continue
     missing = set(policy.get("requireRoles", ["publisher"])) - roles
     if missing:
         raise Refused("no valid signature in role " + ", ".join(sorted(missing)))
+    if federation is not None:
+        # The publisher WebID is the signer's by this host's binding; no key bound to another WebID signed as publisher.
+        bound = [keys[k].get("webId") for k in publisher_keys]
+        if any(w is not None and w != federation["publisher"] for w in bound):
+            raise Refused("a key bound to another WebID signed the pack as publisher")
+        if federation["publisher"] not in bound:
+            raise Refused("no publisher signature from a key this host bound to the pack's publisher")
+        host = policy.get("host", {}).get("webIds", [])
+        if federation["audience"] is not None and not any(h in federation["audience"] for h in host):
+            raise Refused("the pack is not published for this host")
     return pid, version, digest, manifest
+
+
+def valid_webid(text):
+    return isinstance(text, str) and 0 < len(text) <= 512 and WEBID.fullmatch(text) is not None and text.count("#") <= 1
+
+
+def read_audience(value, what):
+    """'public' (None), or 1 to 64 distinct WebIDs."""
+    if value == "public":
+        return None
+    if not isinstance(value, list) or not 1 <= len(value) <= 64 or not all(isinstance(v, str) for v in value):
+        raise Refused(f"{what} is \"public\" or a list of 1 to 64 WebIDs")
+    if not all(valid_webid(v) for v in value):
+        raise Refused(f"{what} names something that is not a WebID")
+    if len(set(value)) != len(value):
+        raise Refused(f"{what} names a WebID twice")
+    return value
+
+
+def read_federation(extensions):
+    """The federation extension of pack.json, or None. It must be critical, so a host that cannot enforce an audience refuses."""
+    if "federation" not in extensions:
+        return None
+    if "federation" not in extensions.get("critical", []):
+        raise Refused("pack.json carries the 'federation' extension without marking it critical")
+    f = extensions["federation"]
+    if not isinstance(f, dict):
+        raise Refused("pack.json has a malformed 'federation' extension")
+    if set(f) - {"format", "publisher", "audience", "purpose"}:
+        raise Refused("the 'federation' extension has an unknown field")
+    if f.get("format") != FEDERATION_FORMAT:
+        raise Refused(f"the 'federation' extension must name format '{FEDERATION_FORMAT}'")
+    if not valid_webid(f.get("publisher")):
+        raise Refused("the federation publisher is not a WebID")
+    if "audience" not in f:
+        raise Refused("the 'federation' extension names no audience")
+    audience = read_audience(f["audience"], "the federation audience")
+    if "purpose" in f and (not isinstance(f["purpose"], str) or not 1 <= len(f["purpose"]) <= 300):
+        raise Refused("the federation purpose is text of 1 to 300 characters")
+    return {"publisher": f["publisher"], "audience": audience}
+
+
+def key_refusal(key, role, pid, signed_at, now, revoked_keys):
+    """Why a signature by `key` does not count (as .NET's TrustPolicy.Refusal), or None."""
+    if role not in key["roles"]:
+        return f"the key may not sign as {role}"
+    if not any(pid == pre or pid.startswith(pre if pre.endswith(".") else pre + ".") for pre in key["idPrefixes"]):
+        return f"the key may not sign for '{pid}'"
+    not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
+    if not_before is not None and (signed_at < not_before or now < not_before):
+        return "the key was not yet valid"
+    if not_after is not None and (signed_at > not_after or now > not_after):
+        return "the key had expired"
+    if signed_at.timestamp() > now.timestamp() + 300:
+        return "the signature claims a time in the future"
+    if key["keyId"] in revoked_keys:
+        return "the key is revoked"
+    return None
+
+
+def verify_receipt(envelope_bytes, pid, version, digest, federation, archive, location, policy, now):
+    """A publication receipt (federated packs §5) for a verified pack fetched from `location` as `archive`."""
+    if federation is None:
+        raise Refused("a publication receipt is for a federated pack")
+    if len(envelope_bytes) > MAX_ENVELOPE:
+        raise Refused("the receipt is larger than 64 KiB")
+    env = profile(envelope_bytes)
+    if not isinstance(env, dict) or set(env) != {"payloadType", "payload", "signatures"} or env["payloadType"] != PAYLOAD_TYPE \
+            or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES:
+        raise Refused("the receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures")
+    try:
+        payload = base64.b64decode(env["payload"], validate=True)
+    except (ValueError, binascii.Error):
+        raise Refused("the receipt's payload is not base64")
+    st = profile(payload)
+    if not isinstance(st, dict) or set(st) != {"_type", "subject", "predicateType", "predicate"} or st["_type"] != STATEMENT \
+            or st["predicateType"] != PUBLICATION:
+        raise Refused("the receipt is not a publication statement")
+    subject = st["subject"]
+    if not isinstance(subject, list) or len(subject) != 1 or not isinstance(subject[0], dict) or set(subject[0]) != {"name", "digest"} \
+            or subject[0]["name"] != FILES or not isinstance(subject[0]["digest"], dict) or set(subject[0]["digest"]) != {"sha256"} \
+            or not isinstance(subject[0]["digest"]["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", subject[0]["digest"]["sha256"]):
+        raise Refused("the receipt must name exactly one subject: META/files.json and its SHA-256")
+    pred = st["predicate"]
+    fields = {"id", "version", "location", "archiveSha256", "audience", "access", "checked", "publishedAt"}
+    if not isinstance(pred, dict) or set(pred) - fields:
+        raise Refused("the receipt's predicate holds other fields than this format defines")
+    if not (isinstance(pred.get("id"), str) and ID.fullmatch(pred["id"]) and len(pred["id"]) <= 64 and valid_version(pred.get("version"))):
+        raise Refused("the receipt names no valid pack id and version")
+    if not isinstance(pred.get("location"), str):
+        raise Refused("the receipt names no location")
+    if not isinstance(pred.get("archiveSha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", pred["archiveSha256"]):
+        raise Refused("the receipt's archiveSha256 is not 64 lowercase hexadecimal characters")
+    if "audience" not in pred:
+        raise Refused("the receipt names no audience")
+    placed_for = read_audience(pred["audience"], "the receipt's audience")
+    if not isinstance(pred.get("access"), str):
+        raise Refused("the receipt names no access kind")
+    checked = pred.get("checked")
+    if not isinstance(checked, dict) or set(checked) != {"denied", "allowed"}:
+        raise Refused("the receipt's 'checked' is an object of 'denied' and 'allowed'")
+    for name, anonymous in (("denied", True), ("allowed", False)):
+        probes = checked[name]
+        if not isinstance(probes, list) or len(probes) > 64 or len(set(map(str, probes))) != len(probes) \
+                or not all(isinstance(x, str) and ((anonymous and x == "anonymous") or valid_webid(x)) for x in probes):
+            raise Refused(f"the receipt's checked.{name} is a list of at most 64 WebIDs")
+    if not isinstance(pred.get("publishedAt"), str) or not SIGNED_AT.fullmatch(pred["publishedAt"]):
+        raise Refused("the receipt has no publishing time in UTC")
+    try:
+        published_at = datetime.strptime(pred["publishedAt"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise Refused("the receipt has no publishing time in UTC")
+    if not valid_webid(pred["location"]) or "#" in pred["location"]:
+        raise Refused("the receipt's location is not an https URL in the WebID grammar, without a fragment")
+    if pred["access"] not in ACCESS_KINDS:
+        raise Refused("the receipt's access is wac, acp or public")
+    if (pred["access"] == "public") != (placed_for is None):
+        raise Refused("a receipt's access is public exactly when its audience is public")
+    # The placement against this pack, this URL, these bytes and this host.
+    if "sha256:" + subject[0]["digest"]["sha256"] != digest:
+        raise Refused("the receipt is for another pack")
+    if pred["id"] != pid or pred["version"] != version:
+        raise Refused("the receipt names another pack id or version")
+    if pred["location"] != location:
+        raise Refused("the receipt places the pack elsewhere than where it was fetched")
+    if pred["archiveSha256"] != hashlib.sha256(archive).hexdigest():
+        raise Refused("the archive fetched is not the archive the receipt names")
+    audience = federation["audience"]
+    if audience is not None and (placed_for is None or any(a not in audience for a in placed_for)):
+        raise Refused("the receipt grants a wider audience than the pack allows")
+    host = policy.get("host", {}).get("webIds", [])
+    if placed_for is not None and not any(h in placed_for for h in host):
+        raise Refused("the placement is not for this host")
+    keys = {k["keyId"]: k for k in policy.get("keys", [])}
+    revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
+    digest_of_pae = hashlib.sha256(pae(payload)).digest()
+    for entry in env["signatures"]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("keyid"), str) or not isinstance(entry.get("sig"), str):
+            continue
+        key = keys.get(entry["keyid"])
+        if key is None:
+            continue
+        try:
+            sig = base64.b64decode(entry["sig"], validate=True)
+            public = serialization.load_pem_public_key(key["publicKey"].encode())
+            public.verify(sig, digest_of_pae, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
+        except (InvalidSignature, ValueError, binascii.Error):
+            continue
+        if key_refusal(key, "publisher", pid, published_at, now, revoked_keys) is None and key.get("webId") == federation["publisher"]:
+            return pred
+    raise Refused("no valid receipt signature by a key bound to the pack's publisher")
 
 
 def valid_version(text):
@@ -702,6 +877,11 @@ def load_policy(raw):
         if key["keyId"] in seen:
             raise Refused("the trust policy lists a key twice")
         seen.add(key["keyId"])
+        if "webId" in key:
+            if not valid_webid(key["webId"]):
+                raise Refused("a trusted key's webId is not a WebID")
+            if "revoker" in roles:
+                raise Refused("a revoker key is never bound to a WebID")
         present_time(key, "notBefore")
         present_time(key, "notAfter")
     revoked = policy.get("revoked", {})
@@ -714,6 +894,12 @@ def load_policy(raw):
             raise Refused("the trust policy has a malformed revoked key")
         present_time(r, "compromisedAt")
     present_time(revoked, "expires")
+    if "host" in policy:
+        host = policy["host"]
+        if not isinstance(host, dict) or set(host) != {"webIds"} or not isinstance(host["webIds"], list) \
+                or not 1 <= len(host["webIds"]) <= 16 or not all(valid_webid(w) for w in host["webIds"]) \
+                or len(set(host["webIds"])) != len(host["webIds"]):
+            raise Refused("'host' is an object holding only 'webIds': 1 to 16 distinct WebIDs")
     if "requireRoles" in policy:
         required = policy["requireRoles"]
         if not isinstance(required, list) or not required or not all(isinstance(r, str) and r in ROLES for r in required):
@@ -726,17 +912,37 @@ def main(argv):
     if unicodedata.unidata_version != UNICODE_VERSION:
         print(f"error: this verifier decides with Unicode {UNICODE_VERSION} data; this Python has {unicodedata.unidata_version} (use Python 3.12)")
         return 2
-    pack_path, policy_path = argv[1], argv[2]
+    args = list(argv[1:])
+    receipt_path = location = None
+    if "--receipt" in args:
+        i = args.index("--receipt")
+        receipt_path = args[i + 1]
+        del args[i:i + 2]
+    if "--location" in args:
+        i = args.index("--location")
+        location = args[i + 1]
+        del args[i:i + 2]
+    if (receipt_path is None) != (location is None):
+        print("error: --receipt and --location go together")
+        return 2
+    pack_path, policy_path = args[0], args[1]
     now = datetime.now(timezone.utc)
     try:
         policy = load_policy(open(policy_path, "rb").read())
         documents = []
-        for name in argv[3:]:
+        for name in args[2:]:
             with open(name, "rb") as document:
                 documents.append(document.read(MAX_REVOCATIONS + 1))
         if documents:
             policy = apply_all(policy, documents, now)
-        pid, version, digest = verify_any(read_zip(open(pack_path, "rb").read()), policy, now)
+        archive = open(pack_path, "rb").read()
+        pid, version, digest = verify_any(read_zip(archive), policy, now)
+        if receipt_path is not None:
+            files = read_zip(archive)
+            _, _, _, manifest = verify(files, policy, now)
+            federation = read_federation(manifest.get("extensions", {}))
+            verify_receipt(open(receipt_path, "rb").read(), pid, version, digest, federation, archive, location, policy, now)
+            print(f"verified the placement of {pid} {version} at {location}")
     except Refused as e:
         print(f"refused: {e}")
         return 1
