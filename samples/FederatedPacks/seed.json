@@ -1,0 +1,5 @@
+[
+  { "email": "supplier@example.test", "password": "supplier-test-only", "pods": [{ "name": "supplier" }] },
+  { "email": "buyer@example.test", "password": "buyer-test-only", "pods": [{ "name": "buyer" }] },
+  { "email": "stranger@example.test", "password": "stranger-test-only", "pods": [{ "name": "stranger" }] }
+]

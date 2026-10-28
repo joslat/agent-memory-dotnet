@@ -1,0 +1,10 @@
+# A local Solid server for the federated packs sample: three seeded test accounts (supplier, buyer, stranger), each with
+# a Pod and a WebID at http://localhost:3000/<name>/profile/card#me. In memory: everything is gone when it stops.
+services:
+  solid:
+    image: solidproject/community-server:7.2.0
+    command: ["-p", "3000", "-b", "http://localhost:3000/", "-c", "config/default.json", "--seedConfig", "/seed/seed.json"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./seed.json:/seed/seed.json:ro
