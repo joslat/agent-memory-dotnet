@@ -39,7 +39,7 @@ public sealed class SolidSessionTests
         Base64Url.Encode("{\"alg\":\"ES256\"}"u8) + "." + Base64Url.Encode(JsonSerializer.SerializeToUtf8Bytes(claims)) + "." + Base64Url.Encode("sig"u8);
 
     // A pod with a profile, an issuer configuration and a token endpoint, answering as the arguments say.
-    private static Scripted Pod(string tokenWebId = WebIdOfAlice, string issuerNamed = Issuer, bool wantNonce = false)
+    private static Scripted Pod(string tokenWebId = WebIdOfAlice, string issuerNamed = Issuer, bool wantNonce = false, string? configuration = null)
     {
         var nonceAsked = false;
         return new Scripted(request =>
@@ -48,7 +48,7 @@ public sealed class SolidSessionTests
             if (url == "https://pod.example/alice/profile/card")
                 return Text($"<#me> <http://www.w3.org/ns/solid/terms#oidcIssuer> <{Issuer}> .");
             if (url == "https://pod.example/.well-known/openid-configuration")
-                return Text($$"""{"issuer":"{{issuerNamed}}","token_endpoint":"https://pod.example/.oidc/token"}""", "application/json");
+                return Text(configuration ?? $$"""{"issuer":"{{issuerNamed}}","token_endpoint":"https://pod.example/.oidc/token"}""", "application/json");
             if (url == "https://pod.example/.oidc/token")
             {
                 if (wantNonce && !nonceAsked)
@@ -86,6 +86,45 @@ public sealed class SolidSessionTests
         var act = () => SolidSession.LoginAsync(WebIdOfAlice, "id", "secret", handler: Pod(issuerNamed: "https://evil.example/"));
 
         await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*names another issuer*");
+    }
+
+    [Theory]
+    [InlineData("""{"issuer":42,"token_endpoint":"https://pod.example/.oidc/token"}""", "names another issuer")]
+    [InlineData("not json", "not a JSON object")]
+    [InlineData("""["https://pod.example/"]""", "not a JSON object")]
+    public async Task An_issuer_configuration_that_is_not_one_is_refused_never_a_crash(string configuration, string why) =>
+        await FluentActions.Awaiting(() => SolidSession.LoginAsync(WebIdOfAlice, "id", "secret", handler: Pod(configuration: configuration)))
+            .Should().ThrowAsync<InvalidDataException>().WithMessage($"*{why}*");
+
+    [Fact]
+    public void A_handler_that_follows_redirects_itself_is_refused()
+    {
+        using var follows = new HttpClientHandler();
+        using var stays = new HttpClientHandler { AllowAutoRedirect = false };
+
+        FluentActions.Invoking(() => SolidSession.Anonymous(handler: follows)).Should().Throw<ArgumentException>().WithMessage("*redirects*");
+        using var session = SolidSession.Anonymous(handler: stays);
+    }
+
+    [Theory]
+    [InlineData("https://10.0.0.5/x")]
+    [InlineData("https://169.254.169.254/latest/")]
+    [InlineData("https://[fd00::1]/x")]
+    [InlineData("https://127.0.0.1/x")]                        // loopback too, unless a local server is allowed
+    public void An_IP_address_is_never_reached(string url)
+    {
+        using var strict = SolidSession.Anonymous();
+
+        FluentActions.Invoking(() => strict.CheckUrl(url)).Should().Throw<InvalidDataException>().WithMessage("*IP address*");
+    }
+
+    [Fact]
+    public void A_local_test_server_may_be_reached_by_its_loopback_address()
+    {
+        using var local = SolidSession.Anonymous(new SolidOptions { AllowLoopbackHttp = true });
+
+        local.CheckUrl("http://127.0.0.1:3000/x");
+        FluentActions.Invoking(() => local.CheckUrl("https://10.0.0.5/x")).Should().Throw<InvalidDataException>();
     }
 
     [Fact]
@@ -196,25 +235,74 @@ public sealed class SolidSessionTests
     }
 
     [Fact]
-    public void A_readers_credentials_reach_only_the_publishers_own_origins()
+    public async Task A_readers_credentials_reach_a_storage_on_another_origin_only_when_it_names_the_publisher_as_its_owner()
     {
-        var profile = new WebIdProfile(WebIdOfAlice, [Issuer], ["https://storage.example/alice/"], null, []);
+        // Each storage root answers as a private one answers anyone: refused, with the links the Solid Protocol puts there.
+        var handler = new Scripted(request =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            if (request.RequestUri!.Host == "storage.example")
+                response.Headers.Add("Link", $"<{Vocabulary.Pim}Storage>; rel=\"type\", <{WebIdOfAlice}>; rel=\"{Vocabulary.Solid}owner\"");
+            if (request.RequestUri!.Host == "squat.example") response.Headers.Add("Link", $"<{Vocabulary.Pim}Storage>; rel=\"type\"");
+            return response;
+        });
+        using var session = SolidSession.Anonymous(handler: handler);
+        var profile = new WebIdProfile(WebIdOfAlice, [Issuer], ["https://storage.example/alice/", "https://squat.example/", "https://10.0.0.5/"], null, []);
+        var reach = new PublisherReach(session, profile);
 
-        SolidPacks.PublisherOrigins(profile).Should().BeEquivalentTo("https://pod.example", "https://storage.example");
+        (await reach.AllowsAsync("https://pod.example/alice/ampack/")).Should().BeTrue("the WebID document's own origin");
+        (await reach.AllowsAsync("https://storage.example/alice/ampack/")).Should().BeTrue("a storage that names Alice as its owner");
+        (await reach.AllowsAsync("https://storage.example/alice/ampack/for/x.ttl")).Should().BeTrue();
+        (await reach.AllowsAsync("https://storage.example/bob/ampack/")).Should().BeFalse("outside the storage Alice declared");
+        (await reach.AllowsAsync("https://squat.example/ampack/")).Should().BeFalse("a storage that names no owner");
+        (await reach.AllowsAsync("https://elsewhere.example/ampack/")).Should().BeFalse("no storage of Alice's is there");
+        await FluentActions.Awaiting(() => reach.AllowsAsync("https://10.0.0.5/ampack/")).Should().ThrowAsync<InvalidDataException>().WithMessage("*IP address*");
+        handler.Seen.Select(r => r.RequestUri!.Host).Should().Equal(["storage.example", "squat.example"], "each storage is asked once");
+        handler.Seen.Should().OnlyContain(r => r.Method == HttpMethod.Head && r.Headers.Authorization == null);
+    }
+
+    [Fact]
+    public void A_catalog_counts_only_for_the_publisher_it_names()
+    {
+        const string url = "https://pod.example/alice/ampack/public.ttl";
+        var triples = Turtle.Parse(Catalog.Write(url, WebIdOfAlice, []), url);
+
+        Catalog.IsBy(triples, url, WebIdOfAlice).Should().BeTrue();
+        Catalog.IsBy(triples, url, "https://pod.example/mallory/profile/card#me").Should().BeFalse("on a server with many Pods, another profile may point here");
+        Catalog.IsBy(triples, "https://pod.example/bob/ampack/public.ttl", WebIdOfAlice).Should().BeFalse();
+    }
+
+    /// <summary>The modes an ACP control denies, the agents it spares, and that it applies to every agent otherwise.</summary>
+    internal static (IReadOnlyList<string> Modes, IReadOnlyList<string> Spared) Denies(IReadOnlyList<RdfTriple> triples, string control)
+    {
+        const string acp = AccessModels.AcpNamespace;
+        var policy = triples.Single(t => t.Subject.IsIri(control) && t.Predicate == acp + "apply").Object;
+        var all = triples.Single(t => t.Subject == policy && t.Predicate == acp + "allOf").Object;
+        triples.Should().Contain(t => t.Subject == all && t.Predicate == acp + "agent" && t.Object.IsIri(acp + "PublicAgent"));
+        var none = triples.Single(t => t.Subject == policy && t.Predicate == acp + "noneOf").Object;
+        return ([.. triples.Where(t => t.Subject == policy && t.Predicate == acp + "deny").Select(t => t.Object.Value)],
+            [.. triples.Where(t => t.Subject == none && t.Predicate == acp + "agent").Select(t => t.Object.Value)]);
     }
 
     [Fact]
     public void Container_access_is_owner_only_in_both_models_and_covers_what_has_no_rules_of_its_own()
     {
         const string container = "https://pod.example/alice/ampack/";
+        const string acp = AccessModels.AcpNamespace;
         var wac = Turtle.Parse(SolidPacks.ContainerAccess(AccessModels.Wac, container, WebIdOfAlice), container + ".acl");
-        var acp = Turtle.Parse(SolidPacks.ContainerAccess(AccessModels.Acp, container, WebIdOfAlice), container + ".acr");
+        var acr = Turtle.Parse(SolidPacks.ContainerAccess(AccessModels.Acp, container, WebIdOfAlice), container + ".acr");
+        IEnumerable<string> Controls(string predicate) => acr.Where(t => t.Predicate == acp + predicate).Select(t => t.Object.Value[(container.Length + 5)..]);
 
         wac.Should().Contain(t => t.Predicate == Vocabulary.Acl + "default" && t.Object.IsIri(container));
         wac.Where(t => t.Predicate == Vocabulary.Acl + "agent").Select(t => t.Object.Value).Should().Equal(WebIdOfAlice);
         wac.Should().NotContain(t => t.Predicate == Vocabulary.Acl + "agentClass");
-        acp.Should().Contain(t => t.Predicate == AccessModels.AcpNamespace + "memberAccessControl");
-        acp.Where(t => t.Predicate == AccessModels.AcpNamespace + "agent").Select(t => t.Object.Value).Should().Equal(WebIdOfAlice);
+        // ACP adds what ancestors allow: the listing is denied to everyone but the owner, writing members likewise; reading a
+        // member is left to the member's own rules, which deny it to everyone but its readers.
+        Controls("accessControl").Should().BeEquivalentTo("owner", "noOtherReader", "noOtherWriter");
+        Controls("memberAccessControl").Should().BeEquivalentTo("owner", "noOtherWriter");
+        Denies(acr, container + ".acr#noOtherReader").Should().BeEquivalentTo((new[] { Vocabulary.Acl + "Read" }, new[] { WebIdOfAlice }));
+        Denies(acr, container + ".acr#noOtherWriter").Modes.Should().BeEquivalentTo(Vocabulary.Acl + "Write", Vocabulary.Acl + "Append", Vocabulary.Acl + "Control");
+        Denies(acr, container + ".acr#noOtherWriter").Spared.Should().Equal(WebIdOfAlice);
     }
 
     [Fact]

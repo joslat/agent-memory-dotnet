@@ -252,6 +252,16 @@ public sealed class AmpackCommandLineTests : IDisposable
         // The host's install path enforces the audience too: the buyer's store takes the pack, the stranger's refuses it.
         Done("install", "handoff.ampack", "--store", "buyer-store", "--policy", "buyer.json").Should().Contain("Installed io.supplier-a.handoff");
         Refused("install", "handoff.ampack", "--store", "stranger-store", "--policy", "stranger.json").Should().Contain("this host is " + stranger);
+
+        // Text a pack carries reaches the terminal without control or direction characters, in what is shown and in what a
+        // refusal quotes (FED-review round 2).
+        Done("init", "loud", "--id", "io.supplier-a.loud", "--publisher", publisher, "--audience", buyer, "--purpose", "Supply\u001b[31m‏chain");
+        Done("build", "loud", "--out", "loud.ampack", "--key", At("keys", "supplier.key.pem"));
+        Done("verify", "loud.ampack", "--policy", "buyer.json").Should().Contain("purpose Supply?[31m?chain").And.NotContain("\u001b").And.NotContain("‏");
+        var manifest = JsonNode.Parse(File.ReadAllText(At("loud", "pack.json")))!.AsObject();
+        manifest["note\u001b[2J"] = "x";
+        File.WriteAllText(At("loud", "pack.json"), manifest.ToJsonString());
+        Refused("build", "loud", "--out", "louder.ampack", "--key", At("keys", "supplier.key.pem")).Should().Contain("note?[2J").And.NotContain("\u001b");
     }
 
     [Fact]

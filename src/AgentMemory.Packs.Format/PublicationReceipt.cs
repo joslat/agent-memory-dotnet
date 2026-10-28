@@ -174,14 +174,15 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
             return "The receipt's audience is \"public\" or a list of 1 to 64 distinct WebIDs.";
         if ((ProbeProblem(r.Denied, allowAnonymous: true) ?? ProbeProblem(r.Allowed, allowAnonymous: false)) is { } probe) return probe;
         // The probe's record agrees with the placement (FED-review): anonymous is refused a placement for named readers and
-        // admitted to a public one; whoever read the bytes back is in the audience; nobody in the audience was refused.
+        // admitted to a public one, where nobody is refused (FED-review round 2); whoever read the bytes back is in the
+        // audience; nobody in the audience was refused.
         if (r.Audience is not null)
         {
             if (!r.Denied.Contains(Anonymous)) return "A receipt for named readers records that anonymous was refused.";
             if (r.Allowed.Any(a => !r.Audience.Contains(a))) return "A receipt records a reader outside its audience as allowed.";
             if (r.Denied.Any(r.Audience.Contains)) return "A receipt records a reader in its audience as refused.";
         }
-        else if (r.Denied.Contains(Anonymous)) return "A public receipt records that anonymous was refused.";
+        else if (r.Denied.Count > 0) return "A public receipt records nobody as refused.";
         // One grammar for every verifier: the WebID grammar, without a fragment (a resource, not an agent).
         if (!WebId.IsValid(r.Location) || r.Location.Contains('#'))
             return "The receipt's location is not an https URL (http only for localhost) in the WebID grammar, without a fragment.";

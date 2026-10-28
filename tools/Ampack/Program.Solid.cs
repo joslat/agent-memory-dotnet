@@ -8,8 +8,9 @@ namespace Ampack;
 /// <summary>
 /// Federated packs on Solid Pods (federated packs §4–§7): <c>ampack solid bind-key|publish|discover|fetch</c> and
 /// <c>ampack trust webid</c>. Client credentials come from the environment only (<c>AMPACK_SOLID_CLIENT_ID</c>,
-/// <c>AMPACK_SOLID_CLIENT_SECRET</c>; a probe identity's from <c>AMPACK_PROBE_CLIENT_ID</c>, <c>AMPACK_PROBE_CLIENT_SECRET</c>),
-/// never from arguments, and are never printed.
+/// <c>AMPACK_SOLID_CLIENT_SECRET</c>; a reader probe's from <c>AMPACK_PROBE_CLIENT_ID</c>, <c>AMPACK_PROBE_CLIENT_SECRET</c>; a
+/// stranger probe's from <c>AMPACK_STRANGER_CLIENT_ID</c>, <c>AMPACK_STRANGER_CLIENT_SECRET</c>), never from arguments, and are
+/// never printed.
 /// </summary>
 internal static partial class Program
 {
@@ -24,13 +25,17 @@ internal static partial class Program
 
     private static SolidOptions SolidOptions(Options o) => new() { AllowLoopbackHttp = o.Flag("allow-loopback-http") };
 
-    // Text from the Web (catalog titles, ids, URLs, profile IRIs) is shown, never trusted: control and bidirectional
-    // characters become '?', and it is cut to a length (FED-review: a title could carry terminal escapes).
+    // Text from the Web or from a pack (titles, purposes, ids, URLs, refusal messages that quote them) is shown, never
+    // trusted: control and bidirectional characters become '?', and it is cut to a length without splitting a character
+    // (FED-review: a title could carry terminal escapes).
     internal static string Shown(string text, int max = 200)
     {
-        var shown = new string([.. text.Take(max).Select(c => char.IsControl(c) || c is >= '\u202A' and <= '\u202E' or >= '\u2066' and <= '\u2069' ? '?' : c)]);
-        return text.Length > max && max >= 64 ? shown + "…" : shown;
+        var cut = text.Length > max ? max - (char.IsHighSurrogate(text[max - 1]) ? 1 : 0) : text.Length;
+        var shown = new string([.. text.Take(cut).Select(c => char.IsControl(c) || IsBidirectional(c) ? '?' : c)]);
+        return cut < text.Length && max >= 64 ? shown + "…" : shown;
     }
+
+    private static bool IsBidirectional(char c) => c is '\u061C' or '\u200E' or '\u200F' or >= '\u202A' and <= '\u202E' or >= '\u2066' and <= '\u2069';
 
     private static SolidSession Login(Options o, string webId, string prefix = "AMPACK_SOLID")
     {
@@ -112,7 +117,9 @@ internal static partial class Program
                 File.AppendAllText(Path.Combine(storeFolder, "federation.jsonl"), log.ToJsonString() + "\n");
                 Console.WriteLine($"Fetched and installed {installed.Id} {installed.Version}\n  from    {fetched.Location}\n  digest  {installed.Digest}\n  placed  for {PackFederation.Describe(fetched.Receipt.Audience)} ({fetched.Receipt.Access}) at {fetched.Receipt.PublishedAt:u}");
             }
-            catch (Exception e) when (e is InvalidDataException or AgentMemory.Extensibility.Ampack.PackLoadException or HttpRequestException)
+            // One entry that fails, however, leaves the others to be fetched (FED-review round 2).
+            catch (Exception e) when (e is InvalidDataException or AgentMemory.Extensibility.Ampack.PackLoadException or HttpRequestException or IOException
+                or TaskCanceledException or UriFormatException or JsonException)
             {
                 problems.Add($"{entry.Id} {entry.Version}: " + (e is AgentMemory.Extensibility.Ampack.PackLoadException load ? string.Join(" ", load.Problems) : e.Message));
             }

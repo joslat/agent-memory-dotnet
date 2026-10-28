@@ -25,9 +25,10 @@ namespace AgentMemory.Tests.Integration.Repositories;
 /// signing key in its WebID profile and publishes the real martial arts pack for one buyer; the buyer's host enrols the key
 /// by its id, discovers the pack from the supplier's WebID alone, fetches it, verifies pack and receipt, installs it through
 /// the normal path, imports it into Neo4j and finds a kata. A stranger and anyone else see nothing and the Pod refuses them
-/// the bytes. The host refuses an archive swapped in the Pod, an edited receipt, a copy offered from another place, and a key
-/// the supplier withdrew from its profile; none of those reaches the store. All of it on a server that enforces access with
-/// Web Access Control and on one that enforces it with Access Control Policies.
+/// the bytes, even though the supplier's Pod is shared with everyone signed in. A federated set travels the same way. The host
+/// refuses an archive swapped in the Pod, an edited receipt, a copy offered from another place, and a key the supplier
+/// withdrew from its profile; none of those reaches the store. All of it on a server that enforces access with Web Access
+/// Control and on one that enforces it with Access Control Policies.
 /// </summary>
 public sealed partial class ModuleRecordWriteIntegrationTests
 {
@@ -44,6 +45,11 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         using var stranger = await server.LoginAsync("stranger", options);
         var key = AgentMemory.Packs.Format.PackKey.Create();
         var method = await SolidPacks.BindKeyAsync(supplier, key.PublicKeyPem);
+        // A Pod-wide share above the pack container: everyone signed in may read all of the supplier's Pod. WAC lets a
+        // resource's own rules override it; ACP adds it to them, so the pack's own rules must deny it (FED-review round 2 M-A).
+        await ShareWithEveryoneSignedIn(supplier, $"{server.BaseUrl}/supplier/", accessModel);
+        await Put(supplier, $"{server.BaseUrl}/supplier/notes/shared.txt", "for everyone signed in"u8.ToArray());
+        (await stranger.SendAsync(HttpMethod.Get, $"{server.BaseUrl}/supplier/notes/shared.txt")).Status.Should().Be(HttpStatusCode.OK, "the share is in force");
 
         // The buyer's host reads the supplier's profile and binds the one key it names, for its namespace, to that WebID.
         var asserted = (await buyer.ProfileAsync(supplier.WebId!)).Keys.Should().ContainSingle().Subject;
@@ -73,6 +79,9 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             (await anyone.SendAsync(HttpMethod.Get, publication.Archive)).Status.Should().Be(HttpStatusCode.Unauthorized);
         }
         (await stranger.SendAsync(HttpMethod.Get, publication.Archive)).Status.Should().Be(HttpStatusCode.Forbidden);
+        (await stranger.SendAsync(HttpMethod.Get, publication.Receipt)).Status.Should().Be(HttpStatusCode.Forbidden);
+        (await stranger.SendAsync(HttpMethod.Get, publication.Catalogs[0])).Status.Should().Be(HttpStatusCode.Forbidden, "a reader's catalog is that reader's alone");
+        (await stranger.SendAsync(HttpMethod.Get, publication.Container)).Status.Should().Be(HttpStatusCode.Forbidden, "the pack container's listing is the owner's alone");
         using (var anyone = SolidSession.Anonymous(options))
             (await anyone.SendAsync(HttpMethod.Get, publication.Container)).Status.Should().Be(HttpStatusCode.Unauthorized, "the pack container's listing is the owner's alone");
 
@@ -98,6 +107,14 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             var kata = await new ModuleViews(loaded.Knowledge.Resolution, reader)
                 .EvaluateWithArgumentsAsync("kata", new() { Search = "Heian Shodan" }, new ModuleReadContext { Scope = MemoryScope.For("buyer") });
             kata.Items.Should().Contain(i => i.Record.Key == "shotokan/heian-shodan").Which.Record.Source.Pack!.Digest.Should().Be(fetched.Pack.Digest);
+
+            // A federated set carrying the pack: published with its member (FED-review round 2 M-D), found, fetched whole.
+            var setPublication = await SolidPacks.PublishAsync(supplier, FederatedSet(archive, key, supplier.WebId!, buyer.WebId!), signer, [buyer], [stranger]);
+            setPublication.Denied.Should().Equal(PublicationReceipt.Anonymous, stranger.WebId);
+            var setEntry = (await SolidPacks.DiscoverAsync(buyer, supplier.WebId!)).Should().HaveCount(2).And.ContainSingle(e => e.Id == "io.agentmemory.packs.bundle").Subject;
+            var fetchedSet = await SolidPacks.FetchAsync(buyer, setEntry, buyerPolicy);
+            fetchedSet.Pack.Manifest.Kind.Should().Be("set");
+            fetchedSet.Receipt.Location.Should().Be(setPublication.Archive);
 
             // 1. An archive swapped in the Pod: a valid, signed pack, but not the bytes the receipt names.
             var swapped = Encoding.UTF8.GetString(source["records/kata.jsonl"]).Replace("peaceful mind", "calm mind", StringComparison.Ordinal);
@@ -151,6 +168,43 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             },
         };
         source["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
+    }
+
+    // A federated set for one reader that carries the federated pack as its member, signed by the same key.
+    private static byte[] FederatedSet(byte[] member, AgentMemory.Packs.Format.PackKey key, string publisher, string reader)
+    {
+        var memberFiles = PackReader.ReadArchive(member, "member").Files;
+        var memberId = JsonNode.Parse(memberFiles["pack.json"])!["id"]!.GetValue<string>();
+        var manifest = new JsonObject { ["format"] = "agentmemory.pack/1.2", ["id"] = "io.agentmemory.packs.bundle", ["version"] = "1.0.0", ["kind"] = "set", ["contains"] = new JsonArray(memberId) };
+        var set = new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString()) };
+        Federate(set, publisher, reader);
+        foreach (var (path, bytes) in memberFiles) set[$"packs/{memberId}/{path}"] = bytes;
+        var (files, _) = PackBuilder.Build(set);
+        PackBuilder.Sign(files, key.PrivateKeyPem, "publisher", DateTimeOffset.UtcNow);
+        return PackBuilder.Pack(files);
+    }
+
+    // Everyone signed in may read the whole Pod: one more rule in the access resource of the storage root, kept beside the
+    // owner's own (the document is read and written back whole, so its relative IRIs keep their meaning).
+    private static async Task ShareWithEveryoneSignedIn(SolidSession owner, string storage, string accessModel)
+    {
+        var acl = (await owner.SendAsync(HttpMethod.Head, storage)).Links("acl").First();
+        var current = await owner.SendAsync(HttpMethod.Get, acl, accept: "text/turtle");
+        current.IsSuccess.Should().BeTrue($"the owner reads the access rules of {storage}");
+        const string acp = AccessModels.AcpNamespace;
+        const string a = Vocabulary.Acl;
+        string share;
+        if (accessModel == "acp")
+        {
+            var root = Turtle.Parse(SolidSession.Text(current), acl).First(t => t.Predicate is acp + "accessControl" or acp + "resource").Subject.Value;
+            share = $"\n<{root}> <{acp}memberAccessControl> <{acl}#signedIn> .\n<{acl}#signedIn> a <{acp}AccessControl> ; <{acp}apply> <{acl}#signedInPolicy> .\n"
+                + $"<{acl}#signedInPolicy> a <{acp}Policy> ; <{acp}allow> <{a}Read> ; <{acp}anyOf> <{acl}#signedInMatcher> .\n"
+                + $"<{acl}#signedInMatcher> a <{acp}Matcher> ; <{acp}agent> <{acp}AuthenticatedAgent> .\n";
+        }
+        else
+            share = $"\n<{acl}#signedIn> a <{a}Authorization> ; <{a}agentClass> <{a}AuthenticatedAgent> ; <{a}accessTo> <{storage}> ; <{a}default> <{storage}> ; <{a}mode> <{a}Read> .\n";
+        var written = await owner.SendAsync(HttpMethod.Put, acl, Encoding.UTF8.GetBytes(SolidSession.Text(current) + share), "text/turtle");
+        written.IsSuccess.Should().BeTrue($"writing the access rules of {storage} gave {(int)written.Status}");
     }
 
     private static byte[] TrustJson(AssertedKey key, string publisher, string host) => Encoding.UTF8.GetBytes(new JsonObject

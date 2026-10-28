@@ -156,7 +156,7 @@ internal static partial class Program
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or JsonException or System.Security.Cryptography.CryptographicException
             or HttpRequestException or TaskCanceledException)
         {
-            return Fail(e.Message, 1);
+            return Fail(Shown(e.Message, 4000), 1);
         }
     }
 
@@ -393,7 +393,7 @@ internal static partial class Program
         Console.WriteLine($"Verified {pack.Id} {pack.Version}\n  digest  {pack.Digest}\n  kind    {pack.Manifest.Kind}, tier {pack.Manifest.Tier}");
         foreach (var s in pack.Signatures) Console.WriteLine($"  signed  {s.Role} by {Dsse.Short(s.KeyId)} at {s.SignedAt:u}");
         if (pack.Manifest.Federation is { } federation)
-            Console.WriteLine($"  publisher {federation.Publisher}\n  for     {PackFederation.Describe(federation.Audience)}" + (federation.Purpose is { } why ? $"\n  purpose {why}" : ""));
+            Console.WriteLine($"  publisher {federation.Publisher}\n  for     {PackFederation.Describe(federation.Audience)}" + (federation.Purpose is { } why ? $"\n  purpose {Shown(why, 300)}" : ""));
         if (o.Flag("record") && ledger is not null && ledgerPath is not null)
         {
             ledger.Record(pack.Id, pack.Version, pack.Digest);
@@ -683,7 +683,7 @@ internal static partial class Program
                 {
                     ran++;
                     if (!result.Passed) failed++;
-                    Console.WriteLine($"  {(result.Passed ? "PASS" : "FAIL")}  {pack.Id}: {result.Name}: {result.Detail}");
+                    Console.WriteLine($"  {(result.Passed ? "PASS" : "FAIL")}  {pack.Id}: {Shown(result.Name)}: {Shown(result.Detail, 1000)}");
                 }
             }
             Console.WriteLine(ran == 0 ? "No tests to run." : $"{ran - failed} of {ran} passed.");
@@ -835,7 +835,7 @@ internal static partial class Program
     {
         var list = problems.ToList();
         if (list.Count == 0) { Console.WriteLine(success); return 0; }
-        foreach (var p in list) Console.Error.WriteLine("refused: " + p);
+        foreach (var p in list) Console.Error.WriteLine("refused: " + Shown(p, 4000));
         return 1;
     }
 

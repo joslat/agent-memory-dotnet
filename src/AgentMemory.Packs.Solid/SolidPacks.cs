@@ -39,8 +39,9 @@ internal static class AccessModels
 /// Federated packs on Solid Pods (federated packs §5–§7): bind a signing key in the publisher's WebID profile, publish a pack
 /// with access rules, a probe and a signed receipt, list it in per-reader catalogs, register the catalog type once; and, on
 /// the recipient's side, discover from the publisher's WebID alone, fetch, verify pack and receipt, and re-check both keys in
-/// the publisher's profile (deny only). A reader's credentials only ever reach the publisher's own origins. Access to a Pod is
-/// never trust: the result still goes through the host's install path.
+/// the publisher's profile (deny only). A reader's credentials only ever reach the publisher's own places: its WebID document's
+/// origin, and storages on other origins that name the WebID as their owner. Access to a Pod is never trust: the result still
+/// goes through the host's install path.
 /// </summary>
 internal static partial class SolidPacks
 {
@@ -50,6 +51,8 @@ internal static partial class SolidPacks
     internal const int MaximumContainers = 8;
     /// <summary>Most entries read from one catalog.</summary>
     internal const int MaximumEntries = 1_000;
+    /// <summary>Most storages on other origins asked whether a publisher owns them.</summary>
+    internal const int MaximumStorages = 4;
 
     // ---- The publisher's side ----
 
@@ -87,13 +90,14 @@ internal static partial class SolidPacks
             throw new InvalidDataException("The placement's audience is wider than the pack's: a placement can only narrow it.");
 
         // The pack must verify, set members included, against exactly the keys this profile asserts: what a recipient who
-        // enrolled from it will hold.
+        // enrolled from it will hold, for every id the archive carries (FED-review round 2 M-D: a set's members too).
         var profile = await owner.ProfileAsync(webId, cancellationToken).ConfigureAwait(false);
         if (profile.Keys.All(k => k.KeyId != signer.KeyId))
             throw new InvalidDataException($"Key {Dsse.Short(signer.KeyId)} is not asserted in {webId}'s profile; bind it first (ampack solid bind-key).");
+        var ids = content.Files.Keys.SelectMany(path => MemberIds().Matches(path).Select(m => m.Groups[1].Value)).Append(list!.Id).Distinct(StringComparer.Ordinal).ToList();
         var asserted = new TrustPolicy
         {
-            Keys = [.. profile.Keys.Select(k => new TrustedKey(k.KeyId, k.PublicKeyPem, [list!.Id], ["publisher"], null, null, webId))],
+            Keys = [.. profile.Keys.Select(k => new TrustedKey(k.KeyId, k.PublicKeyPem, ids, ["publisher"], null, null, webId))],
             HostWebIds = placed is null ? [] : [placed[0]],
         };
         var self = PackVerifier.VerifyWhole(content, asserted, DateTimeOffset.UtcNow);
@@ -104,11 +108,14 @@ internal static partial class SolidPacks
         var digest = self.Pack!.Digest;
         var archiveUrl = container + PublicationReceipt.ArchiveNameFor(digest);
         var receiptUrl = container + PublicationReceipt.FileNameFor(digest);
+        // Everything this publication writes is recorded before the request that writes it, a catalog with what it held before
+        // (FED-review round 2 M-C: a write the server made whose answer was lost is withdrawn too).
         var placedNow = new List<string>();
+        var catalogsBefore = new Dictionary<string, IReadOnlyList<CatalogEntry>?>(StringComparer.Ordinal);
         try
         {
-            await PutAsync(owner, archiveUrl, archive, ArchiveMediaType, cancellationToken).ConfigureAwait(false);
             placedNow.Add(archiveUrl);
+            await PutAsync(owner, archiveUrl, archive, ArchiveMediaType, cancellationToken).ConfigureAwait(false);
             await RestrictContainerAsync(owner, container, webId, cancellationToken).ConfigureAwait(false);
             var model = await RestrictAsync(owner, archiveUrl, webId, placed, cancellationToken).ConfigureAwait(false);
             var (denied, allowed) = await ProbeAsync(owner, archiveUrl, archive, placed, readers, strangers, cancellationToken).ConfigureAwait(false);
@@ -117,8 +124,8 @@ internal static partial class SolidPacks
             var receipt = new PublicationReceipt(list!.Id, list.Version, digest, archiveUrl, FilesList.Hex(archive), placed, placed is null ? "public" : model,
                 denied, allowed, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
             var receiptBytes = receipt.Sign(signer);
-            await PutAsync(owner, receiptUrl, receiptBytes, ReceiptMediaType, cancellationToken).ConfigureAwait(false);
             placedNow.Add(receiptUrl);
+            await PutAsync(owner, receiptUrl, receiptBytes, ReceiptMediaType, cancellationToken).ConfigureAwait(false);
             await RestrictAsync(owner, receiptUrl, webId, placed, cancellationToken).ConfigureAwait(false);
             await AnonymousProbeAsync(owner, receiptUrl, placed is null, cancellationToken).ConfigureAwait(false);
 
@@ -127,35 +134,81 @@ internal static partial class SolidPacks
             foreach (var reader in placed ?? [null!])
             {
                 var catalogUrl = reader is null ? container + "public.ttl" : container + "for/" + ReaderKey(reader) + ".ttl";
-                var existing = await owner.TurtleAsync(catalogUrl, cancellationToken: cancellationToken).ConfigureAwait(false);
-                var entries = (existing is null ? [] : Catalog.Read(existing)).Where(e => e.Digest != digest && !(e.Id == entry.Id && e.Version == entry.Version)).Append(entry).ToList();
+                var existing = await ReadCatalogAsync(owner, catalogUrl, cancellationToken).ConfigureAwait(false);
+                catalogsBefore[catalogUrl] = existing;
+                var entries = (existing ?? []).Where(e => e.Digest != digest && !(e.Id == entry.Id && e.Version == entry.Version)).Append(entry).ToList();
                 await PutAsync(owner, catalogUrl, Encoding.UTF8.GetBytes(Catalog.Write(catalogUrl, webId, entries)), "text/turtle", cancellationToken).ConfigureAwait(false);
                 await RestrictAsync(owner, catalogUrl, webId, reader is null ? null : [reader], cancellationToken).ConfigureAwait(false);
                 await AnonymousProbeAsync(owner, catalogUrl, reader is null, cancellationToken).ConfigureAwait(false);
                 catalogs.Add(catalogUrl);
             }
             if (placed is not null) await RestrictContainerAsync(owner, container + "for/", webId, cancellationToken).ConfigureAwait(false);
+            // A placement narrower than an earlier one of the same pack: every other catalog drops it, so a former reader keeps
+            // no title of what it can no longer read (FED-review round 2).
+            foreach (var other in await CatalogsInAsync(owner, container, cancellationToken).ConfigureAwait(false))
+            {
+                if (catalogs.Contains(other) || await ReadCatalogAsync(owner, other, cancellationToken).ConfigureAwait(false) is not { } listed
+                    || listed.All(e => e.Digest != digest)) continue;
+                catalogsBefore[other] = listed;
+                await WriteCatalogAsync(owner, other, webId, [.. listed.Where(e => e.Digest != digest)], cancellationToken).ConfigureAwait(false);
+            }
             await RegisterAsync(owner, profile, storage, container, cancellationToken).ConfigureAwait(false);
             return new Publication(archiveUrl, receiptUrl, receiptBytes, model, denied, allowed, catalogs, container);
         }
-        catch (Exception failure) when (failure is InvalidDataException or HttpRequestException or TaskCanceledException)
+        catch (Exception failure)
         {
-            // What this publication placed is withdrawn, and the withdrawal itself is checked: a pack whose access did not hold
-            // and that could not be removed is said so, loudly (FED-review M3).
-            var stuck = new List<string>();
-            foreach (var url in Enumerable.Reverse(placedNow))
-            {
-                try
-                {
-                    var removed = await owner.SendAsync(HttpMethod.Delete, url, cancellationToken: CancellationToken.None).ConfigureAwait(false);
-                    if (!removed.IsSuccess && removed.Status != HttpStatusCode.NotFound) stuck.Add($"{url} ({(int)removed.Status})");
-                }
-                catch (Exception e) when (e is HttpRequestException or TaskCanceledException or InvalidDataException) { stuck.Add($"{url} ({e.GetType().Name})"); }
-            }
+            // Whatever went wrong, what this publication placed is withdrawn and every catalog it changed is put back; the
+            // withdrawal itself is checked, and one that did not hold is said so, loudly (FED-review M3, round 2 M-C).
+            var stuck = await WithdrawAsync(owner, webId, placedNow, catalogsBefore).ConfigureAwait(false);
             if (stuck.Count > 0)
                 throw new InvalidDataException($"{failure.Message} WITHDRAWAL FAILED: remove these by hand, they may still be readable: {string.Join(", ", stuck)}.", failure);
             throw;
         }
+    }
+
+    // Puts every catalog back as it was and removes what was placed, newest first; returns what could not be undone.
+    private static async Task<List<string>> WithdrawAsync(SolidSession owner, string webId, List<string> placed,
+        Dictionary<string, IReadOnlyList<CatalogEntry>?> catalogsBefore)
+    {
+        var stuck = new List<string>();
+        foreach (var (url, before) in catalogsBefore)
+            await Undo(url, () => WriteCatalogAsync(owner, url, webId, before ?? [], CancellationToken.None)).ConfigureAwait(false);
+        foreach (var url in Enumerable.Reverse(placed))
+            await Undo(url, () => DeleteAsync(owner, url, CancellationToken.None)).ConfigureAwait(false);
+        return stuck;
+
+        async Task Undo(string url, Func<Task> undo)
+        {
+            try { await undo().ConfigureAwait(false); }
+            catch (Exception e) when (e is not OutOfMemoryException) { stuck.Add(e is InvalidDataException ? e.Message : $"{url} ({e.GetType().Name})"); }
+        }
+    }
+
+    private static async Task<IReadOnlyList<CatalogEntry>?> ReadCatalogAsync(SolidSession owner, string url, CancellationToken cancellationToken) =>
+        await owner.TurtleAsync(url, cancellationToken: cancellationToken).ConfigureAwait(false) is { } triples ? Catalog.Read(triples) : null;
+
+    // A catalog with no entries left is removed, with its access rules.
+    private static async Task WriteCatalogAsync(SolidSession owner, string url, string webId, IReadOnlyList<CatalogEntry> entries, CancellationToken cancellationToken)
+    {
+        if (entries.Count == 0) await DeleteAsync(owner, url, cancellationToken).ConfigureAwait(false);
+        else await PutAsync(owner, url, Encoding.UTF8.GetBytes(Catalog.Write(url, webId, entries)), "text/turtle", cancellationToken).ConfigureAwait(false);
+    }
+
+    // The catalogs of a pack container: its public one and each reader's, from the owner's listing of for/.
+    private static async Task<IReadOnlyList<string>> CatalogsInAsync(SolidSession owner, string container, CancellationToken cancellationToken)
+    {
+        var found = new List<string> { container + "public.ttl" };
+        if (await owner.TurtleAsync(container + "for/", cancellationToken: cancellationToken).ConfigureAwait(false) is { } listing)
+            found.AddRange(listing.Where(t => t.Predicate == Vocabulary.Ldp + "contains" && t.Object.Kind == RdfTermKind.Iri
+                    && t.Object.Value.StartsWith(container + "for/", StringComparison.Ordinal) && t.Object.Value.EndsWith(".ttl", StringComparison.Ordinal))
+                .Select(t => t.Object.Value).Distinct().Take(MaximumEntries));
+        return found;
+    }
+
+    private static async Task DeleteAsync(SolidSession owner, string url, CancellationToken cancellationToken)
+    {
+        var removed = await owner.SendAsync(HttpMethod.Delete, url, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (!removed.IsSuccess && removed.Status != HttpStatusCode.NotFound) throw new InvalidDataException($"{url} ({(int)removed.Status})");
     }
 
     // The probe (federated packs §5, "checked"): what the access rules actually do, tried with real identities.
@@ -164,9 +217,11 @@ internal static partial class SolidPacks
     {
         var denied = new List<string>();
         var allowed = new List<string>();
-        using (var anonymous = SolidSession.Anonymous(owner.Options))
+        // A refusal's body may be larger than a small archive; it is read to the document bound (FED-review round 2).
+        var refusal = Math.Max(archive.LongLength, owner.Options.MaximumDocumentBytes);
+        using (var anonymous = owner.AnonymousTwin())
         {
-            var response = await anonymous.SendAsync(HttpMethod.Get, url, limit: archive.LongLength, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var response = await anonymous.SendAsync(HttpMethod.Get, url, limit: audience is null ? archive.LongLength : refusal, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (audience is null && !(response.IsSuccess && response.Body.AsSpan().SequenceEqual(archive)))
                 throw new InvalidDataException($"The public placement is not readable anonymously ({(int)response.Status}).");
             if (audience is not null)
@@ -189,7 +244,7 @@ internal static partial class SolidPacks
         {
             var who = stranger.WebId ?? throw new ArgumentException("A stranger probe is a logged-in session.", nameof(strangers));
             if (audience is null || audience.Contains(who)) throw new InvalidDataException($"{who} probes as a stranger but the placement admits it.");
-            var response = await stranger.SendAsync(HttpMethod.Get, url, limit: archive.LongLength, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var response = await stranger.SendAsync(HttpMethod.Get, url, limit: refusal, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (response.Status is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
                 throw new InvalidDataException($"{who} read the placement ({(int)response.Status}): the access rules do not hold.");
             denied.Add(who);
@@ -200,7 +255,7 @@ internal static partial class SolidPacks
     // Anonymous must be refused a resource that is not public (or a container listing), and must read a public one.
     private static async Task AnonymousProbeAsync(SolidSession owner, string url, bool isPublic, CancellationToken cancellationToken)
     {
-        using var anonymous = SolidSession.Anonymous(owner.Options);
+        using var anonymous = owner.AnonymousTwin();
         var response = await anonymous.SendAsync(HttpMethod.Get, url, limit: owner.Options.MaximumDocumentBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
         var refused = response.Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
         if (isPublic ? !response.IsSuccess : !refused)
@@ -219,23 +274,44 @@ internal static partial class SolidPacks
 
     /// <summary>
     /// The access rules (ACP) of one resource: an access control resource whose controls apply a policy allowing the owner
-    /// read, write and control, and one allowing the readers (or the public agent) to read.
+    /// read, write and control, one allowing the readers (or the public agent) to read, and policies denying everyone else
+    /// those modes. ACP adds whatever ancestors' member controls allow and only a deny takes it away, so without them a
+    /// Pod-wide share above the pack container would reach the pack (FED-review round 2 M-A).
     /// </summary>
     internal static string AccessControlResource(string resource, string owner, IReadOnlyList<string>? readers)
     {
         const string acp = AccessModels.AcpNamespace;
         var acl = Vocabulary.Acl;
-        var who = readers is null ? $"<{acp}PublicAgent>" : string.Join(", ", readers.Select(r => "<" + TurtleText.Iri(r) + ">"));
-        return $"<#root> a <{acp}AccessControlResource> ; <{acp}resource> <{TurtleText.Iri(resource)}> ; <{acp}accessControl> <#owner>, <#readers> .\n"
-            + $"<#owner> a <{acp}AccessControl> ; <{acp}apply> [ a <{acp}Policy> ; <{acp}allow> <{acl}Read>, <{acl}Write>, <{acl}Control> ; "
-            + $"<{acp}anyOf> [ a <{acp}Matcher> ; <{acp}agent> <{TurtleText.Iri(owner)}> ] ] .\n"
-            + $"<#readers> a <{acp}AccessControl> ; <{acp}apply> [ a <{acp}Policy> ; <{acp}allow> <{acl}Read> ; "
-            + $"<{acp}anyOf> [ a <{acp}Matcher> ; <{acp}agent> {who} ] ] .\n";
+        var ownerIri = "<" + TurtleText.Iri(owner) + ">";
+        var named = readers?.Select(r => "<" + TurtleText.Iri(r) + ">").ToList();
+        var controls = named is null ? "<#owner>, <#readers>, <#noOtherWriter>" : "<#owner>, <#readers>, <#noOtherWriter>, <#noOtherReader>";
+        return $"<#root> a <{acp}AccessControlResource> ; <{acp}resource> <{TurtleText.Iri(resource)}> ; <{acp}accessControl> {controls} .\n"
+            + Allow("owner", $"<{acl}Read>, <{acl}Write>, <{acl}Control>", ownerIri)
+            + Allow("readers", $"<{acl}Read>", named is null ? $"<{acp}PublicAgent>" : string.Join(", ", named))
+            + DenyAllBut("noOtherWriter", $"<{acl}Write>, <{acl}Append>, <{acl}Control>", ownerIri)
+            + (named is null ? "" : DenyAllBut("noOtherReader", $"<{acl}Read>", string.Join(", ", named.Prepend(ownerIri))));
+    }
+
+    // An ACP control that allows these modes to these agents.
+    private static string Allow(string name, string modes, string agents)
+    {
+        const string acp = AccessModels.AcpNamespace;
+        return $"<#{name}> a <{acp}AccessControl> ; <{acp}apply> [ a <{acp}Policy> ; <{acp}allow> {modes} ; <{acp}anyOf> [ a <{acp}Matcher> ; <{acp}agent> {agents} ] ] .\n";
+    }
+
+    // An ACP control that denies these modes to every agent but these: all of the public agent, none of them.
+    private static string DenyAllBut(string name, string modes, string agents)
+    {
+        const string acp = AccessModels.AcpNamespace;
+        return $"<#{name}> a <{acp}AccessControl> ; <{acp}apply> [ a <{acp}Policy> ; <{acp}deny> {modes} ; "
+            + $"<{acp}allOf> [ a <{acp}Matcher> ; <{acp}agent> <{acp}PublicAgent> ] ; <{acp}noneOf> [ a <{acp}Matcher> ; <{acp}agent> {agents} ] ] .\n";
     }
 
     /// <summary>
     /// The owner-only rules of a pack container, in either model, for the container and (as its default) for whatever in it
     /// has no rules of its own: its listing would otherwise expose every digest and every reader's catalog name (FED-review M4).
+    /// In ACP the container denies everyone else its listing, and its members everyone else writing; reading a member stays
+    /// with the member's own rules, since a deny on members would also refuse their readers.
     /// </summary>
     internal static string ContainerAccess(string model, string container, string owner)
     {
@@ -243,9 +319,12 @@ internal static partial class SolidPacks
         if (model == AccessModels.Acp)
         {
             const string acp = AccessModels.AcpNamespace;
-            return $"<#root> a <{acp}AccessControlResource> ; <{acp}resource> <{TurtleText.Iri(container)}> ; <{acp}accessControl> <#owner> ; <{acp}memberAccessControl> <#owner> .\n"
-                + $"<#owner> a <{acp}AccessControl> ; <{acp}apply> [ a <{acp}Policy> ; <{acp}allow> <{acl}Read>, <{acl}Write>, <{acl}Control> ; "
-                + $"<{acp}anyOf> [ a <{acp}Matcher> ; <{acp}agent> <{TurtleText.Iri(owner)}> ] ] .\n";
+            var ownerIri = "<" + TurtleText.Iri(owner) + ">";
+            return $"<#root> a <{acp}AccessControlResource> ; <{acp}resource> <{TurtleText.Iri(container)}> ; "
+                + $"<{acp}accessControl> <#owner>, <#noOtherReader>, <#noOtherWriter> ; <{acp}memberAccessControl> <#owner>, <#noOtherWriter> .\n"
+                + Allow("owner", $"<{acl}Read>, <{acl}Write>, <{acl}Control>", ownerIri)
+                + DenyAllBut("noOtherReader", $"<{acl}Read>", ownerIri)
+                + DenyAllBut("noOtherWriter", $"<{acl}Write>, <{acl}Append>, <{acl}Control>", ownerIri);
         }
         return $"<#owner> a <{acl}Authorization> ; <{acl}agent> <{TurtleText.Iri(owner)}> ; <{acl}accessTo> <{TurtleText.Iri(container)}> ; "
             + $"<{acl}default> <{TurtleText.Iri(container)}> ; <{acl}mode> <{acl}Read>, <{acl}Write>, <{acl}Control> .\n";
@@ -275,9 +354,14 @@ internal static partial class SolidPacks
     private static async Task<(string Acl, string Model)> AccessResourceAsync(SolidSession owner, string resource, CancellationToken cancellationToken)
     {
         var head = await owner.SendAsync(HttpMethod.Head, resource, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (!head.IsSuccess) throw new InvalidDataException($"{resource} gave {(int)head.Status}; its access rules cannot be written.");
         var acl = head.Links("acl").FirstOrDefault() ?? throw new InvalidDataException($"{resource} names no access-control resource (Link rel=\"acl\"); WAC and ACP are the models supported.");
         if (SolidSession.Origin(acl) != SolidSession.Origin(resource)) throw new InvalidDataException("The access-control resource is on another origin.");
         var typed = await owner.SendAsync(HttpMethod.Head, acl, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // A WAC .acl not written yet answers 404; any other failure leaves the model unknown, and writing the wrong one would
+        // lock the readers out (FED-review round 2).
+        if (!typed.IsSuccess && typed.Status != HttpStatusCode.NotFound)
+            throw new InvalidDataException($"The access-control resource of {resource} gave {(int)typed.Status}; its model cannot be told.");
         return (acl, typed.Links("type").Contains(AccessModels.AcpNamespace + "AccessControlResource") ? AccessModels.Acp : AccessModels.Wac);
     }
 
@@ -289,7 +373,12 @@ internal static partial class SolidPacks
         {
             index = storage + "settings/publicTypeIndex.ttl";
             var created = $"<{TurtleText.Iri(index)}> a <{Vocabulary.Solid}TypeIndex>, <{Vocabulary.Solid}ListedDocument> .\n";
-            await PutAsync(owner, index, Encoding.UTF8.GetBytes(created), "text/turtle", cancellationToken).ConfigureAwait(false);
+            // Never over a document already there (FED-review round 2): only a new one is written.
+            var put = await owner.SendAsync(HttpMethod.Put, index, Encoding.UTF8.GetBytes(created), "text/turtle",
+                headers: new Dictionary<string, string> { ["If-None-Match"] = "*" }, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (put.Status == HttpStatusCode.PreconditionFailed)
+                throw new InvalidDataException($"{index} exists but {webId}'s profile does not name it as its public type index; link it (solid:publicTypeIndex) or remove it.");
+            if (!put.IsSuccess) throw new InvalidDataException($"Writing {index} gave {(int)put.Status}.");
             await RestrictAsync(owner, index, webId, null, cancellationToken).ConfigureAwait(false);
             await PatchAsync(owner, Document(webId), $"<{TurtleText.Iri(webId)}> <{Vocabulary.Solid}publicTypeIndex> <{TurtleText.Iri(index)}> .\n", cancellationToken).ConfigureAwait(false);
         }
@@ -341,31 +430,32 @@ internal static partial class SolidPacks
 
     /// <summary>
     /// What <paramref name="publisherWebId"/> offers this session: from its profile's public type index to its pack containers,
-    /// then this reader's own catalog and the public one. Only containers on the publisher's own origins (its WebID document's
-    /// and its storages') are read; entries are kept only when they name the archive and receipt by the digest, inside the
-    /// container, in canonical form.
+    /// then this reader's own catalog and the public one. Only the publisher's own places are read (<see cref="PublisherReach"/>);
+    /// a catalog counts only when it names this publisher as its own (on a server with many Pods, a profile could otherwise
+    /// point at another user's container); entries are kept only when they name the archive and receipt by the digest, inside
+    /// the container, in canonical form.
     /// </summary>
     internal static async Task<IReadOnlyList<CatalogEntry>> DiscoverAsync(SolidSession reader, string publisherWebId, CancellationToken cancellationToken = default)
     {
         var profile = await reader.ProfileAsync(publisherWebId, cancellationToken).ConfigureAwait(false);
-        var origins = PublisherOrigins(profile);
-        if (profile.PublicTypeIndex is not { } index || !IsCanonical(index) || !origins.Contains(SolidSession.Origin(index))) return [];
+        var reach = new PublisherReach(reader, profile);
+        if (profile.PublicTypeIndex is not { } index || !IsCanonical(index) || !await reach.AllowsAsync(index, cancellationToken).ConfigureAwait(false)) return [];
         var registrations = await reader.TurtleAsync(index, anonymous: true, cancellationToken).ConfigureAwait(false) ?? [];
         var found = new List<CatalogEntry>();
-        foreach (var container in Containers(registrations).Where(c => IsCanonical(c) && c.EndsWith('/') && origins.Contains(SolidSession.Origin(c))))
+        foreach (var container in Containers(registrations).Where(c => IsCanonical(c) && c.EndsWith('/')))
         {
-            reader.CheckUrl(container);
+            if (!await reach.AllowsAsync(container, cancellationToken).ConfigureAwait(false)) continue;
             var catalogs = new List<(string Url, bool Anonymous)> { (container + "public.ttl", true) };
             if (reader.WebId is { } me) catalogs.Insert(0, (container + "for/" + ReaderKey(me) + ".ttl", false));
             foreach (var (url, anonymous) in catalogs)
-                if (await reader.TurtleAsync(url, anonymous, cancellationToken).ConfigureAwait(false) is { } triples)
+                if (await reader.TurtleAsync(url, anonymous, cancellationToken).ConfigureAwait(false) is { } triples && Catalog.IsBy(triples, url, publisherWebId))
                     found.AddRange(Catalog.Read(triples).Where(e => IsCanonicalEntry(e, container)).Select(e => e with { Publisher = publisherWebId }));
         }
         return found.DistinctBy(e => e.Digest).ToList();
     }
 
     /// <summary>
-    /// Fetches one catalog entry and verifies it as this host: the archive and receipt on the publisher's own origins only;
+    /// Fetches one catalog entry and verifies it as this host: the archive and receipt in the publisher's own places only (<see cref="PublisherReach"/>);
     /// the pack in full (a set with every member) under <paramref name="policy"/>, naming the publisher discovery started from;
     /// the receipt for this URL and these bytes; and, unless <paramref name="recheck"/> is off, the keys that signed the pack
     /// and the receipt still asserted in the publisher's profile (deny only). Nothing is installed here.
@@ -376,10 +466,10 @@ internal static partial class SolidPacks
         var at = now ?? DateTimeOffset.UtcNow;
         var publisher = entry.Publisher ?? throw new ArgumentException("An entry names the publisher it was discovered from.", nameof(entry));
         var profile = await reader.ProfileAsync(publisher, cancellationToken).ConfigureAwait(false);
-        var origins = PublisherOrigins(profile);
+        var reach = new PublisherReach(reader, profile);
         foreach (var url in (string[])[entry.Archive, entry.Receipt])
-            if (!IsCanonical(url) || url.Contains('?', StringComparison.Ordinal) || !origins.Contains(SolidSession.Origin(url)))
-                throw new InvalidDataException($"{url} is not a canonical URL on {publisher}'s own origins; refused before any request.");
+            if (!IsCanonical(url) || url.Contains('?', StringComparison.Ordinal) || !await reach.AllowsAsync(url, cancellationToken).ConfigureAwait(false))
+                throw new InvalidDataException($"{url} is not a canonical URL in {publisher}'s own places; refused before any request.");
         var archiveResponse = await reader.SendAsync(HttpMethod.Get, entry.Archive, limit: reader.Options.MaximumArchiveBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
         if (!archiveResponse.IsSuccess) throw new InvalidDataException($"{entry.Archive} gave {(int)archiveResponse.Status}.");
         var receiptResponse = await reader.SendAsync(HttpMethod.Get, entry.Receipt, limit: Dsse.MaximumEnvelopeBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -400,15 +490,6 @@ internal static partial class SolidPacks
             if (withdrawn.Count > 0) throw new InvalidDataException($"{publisher} no longer asserts key {string.Join(", ", withdrawn)} that signed the pack or its receipt; refused.");
         }
         return new FetchedPack(pack, archive, receipt, receiptResponse.Body, archiveResponse.Url, signedBy!);
-    }
-
-    /// <summary>The origins a reader's credentials may reach for a publisher: its WebID document's and its storages'.</summary>
-    internal static IReadOnlySet<string> PublisherOrigins(WebIdProfile profile)
-    {
-        var origins = new HashSet<string>(StringComparer.Ordinal) { SolidSession.Origin(Document(profile.WebId)) };
-        foreach (var storage in profile.Storages)
-            if (Uri.TryCreate(storage, UriKind.Absolute, out _)) origins.Add(SolidSession.Origin(storage));
-        return origins;
     }
 
     /// <summary>
@@ -443,6 +524,40 @@ internal static partial class SolidPacks
 
     [GeneratedRegex("\\Asha256:[0-9a-f]{64}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex Digest();
+
+    // The id of each pack a set carries, at any depth: packs/<id>/ in an archive path.
+    [GeneratedRegex("(?:\\A|/)packs/([^/]+)/", RegexOptions.CultureInvariant)]
+    private static partial Regex MemberIds();
+}
+
+/// <summary>
+/// Where a reader's credentials may go for one publisher (FED-review round 2 M-B): its WebID document's origin, and a storage
+/// its profile names on another origin only when that storage's root says it is a storage and names the WebID as its owner
+/// (the Solid Protocol's <c>Link rel="type"</c> <c>pim:Storage</c> and <c>rel="solid:owner"</c>). A profile alone could name
+/// any host; this way it reaches only hosts that agree. Each storage is asked once, anonymously.
+/// </summary>
+internal sealed class PublisherReach(SolidSession session, WebIdProfile profile)
+{
+    private readonly Dictionary<string, bool> _owned = new(StringComparer.Ordinal);
+
+    internal async Task<bool> AllowsAsync(string url, CancellationToken cancellationToken = default)
+    {
+        session.CheckUrl(url);
+        if (SolidSession.Origin(url) == SolidSession.Origin(SolidPacks.Document(profile.WebId))) return true;
+        foreach (var declared in profile.Storages.Take(SolidPacks.MaximumStorages))
+        {
+            var root = declared.EndsWith('/') ? declared : declared + "/";
+            if (!SolidPacks.IsCanonical(root) || !url.StartsWith(root, StringComparison.Ordinal)) continue;
+            if (!_owned.TryGetValue(root, out var owned))
+            {
+                session.CheckUrl(root);
+                var head = await session.SendAsync(HttpMethod.Head, root, anonymous: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+                _owned[root] = owned = head.Links("type").Contains(Vocabulary.Pim + "Storage") && head.Links(Vocabulary.Solid + "owner").Contains(profile.WebId);
+            }
+            if (owned) return true;
+        }
+        return false;
+    }
 }
 
 /// <summary>A pack catalog in Turtle (federated packs §6): written by the publisher's tool, read as hints, never trusted.</summary>
@@ -468,6 +583,10 @@ internal static class Catalog
         }
         return text.ToString();
     }
+
+    /// <summary>Whether a catalog read from <paramref name="url"/> names <paramref name="publisher"/> as its publisher.</summary>
+    internal static bool IsBy(IReadOnlyList<RdfTriple> triples, string url, string publisher) =>
+        triples.Any(t => t.Subject.IsIri(url) && t.Predicate == Vocabulary.Dct + "publisher" && t.Object.IsIri(publisher));
 
     /// <summary>The entries of a catalog (at most <see cref="SolidPacks.MaximumEntries"/>), each subject's triples read once.</summary>
     internal static IReadOnlyList<CatalogEntry> Read(IReadOnlyList<RdfTriple> triples)

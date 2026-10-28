@@ -429,7 +429,8 @@ public sealed class FederationTests
             (Record([Buyer], [Stranger], [Buyer]), "anonymous was refused"),
             (Record([Buyer], [PublicationReceipt.Anonymous], [Stranger]), "outside its audience as allowed"),
             (Record([Buyer], [PublicationReceipt.Anonymous, Buyer], []), "in its audience as refused"),
-            (Record(null, [PublicationReceipt.Anonymous], []), "public receipt records that anonymous was refused"),
+            (Record(null, [PublicationReceipt.Anonymous], []), "public receipt records nobody as refused"),
+            (Record(null, [Stranger], []), "public receipt records nobody as refused"),
             (Record(["not a webid"], [PublicationReceipt.Anonymous], []), "not a WebID"),
         })
             FluentActions.Invoking(() => Sign(receipt, p.Sample.Key)).Should().Throw<InvalidDataException>().WithMessage($"*{why}*");

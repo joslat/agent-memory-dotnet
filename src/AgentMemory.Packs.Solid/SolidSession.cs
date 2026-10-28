@@ -66,6 +66,7 @@ internal sealed record SolidOptions
 internal sealed class SolidSession : IDisposable
 {
     private readonly HttpClient _http;
+    private readonly HttpMessageHandler? _handler;
     private readonly ECDsa _dpopKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private readonly string _jwk;
     private readonly Dictionary<string, string> _nonces = new(StringComparer.Ordinal);
@@ -78,24 +79,36 @@ internal sealed class SolidSession : IDisposable
     internal string? WebId { get; private set; }
 
     // A handler is given only by tests; whatever it is, this class follows redirects itself (FED-review: an injected client
-    // that followed them would skip the same-origin rule).
+    // that followed them would skip the same-origin rule, so one that would is refused).
     private SolidSession(HttpMessageHandler? handler, SolidOptions options)
     {
         Options = options;
+        _handler = handler;
         _http = new HttpClient(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) },
             disposeHandler: handler is null) { Timeout = options.Timeout };
         var q = _dpopKey.ExportParameters(false).Q;
         _jwk = $"{{\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":\"{Base64Url.Encode(q.X!)}\",\"y\":\"{Base64Url.Encode(q.Y!)}\"}}";
     }
 
-    internal static SolidSession Anonymous(SolidOptions? options = null, HttpMessageHandler? handler = null) => new(handler, options ?? new SolidOptions());
+    internal static SolidSession Anonymous(SolidOptions? options = null, HttpMessageHandler? handler = null) => new(Checked(handler), options ?? new SolidOptions());
+
+    /// <summary>An anonymous session with the same options and connection as this one: what a probe as anyone uses.</summary>
+    internal SolidSession AnonymousTwin() => new(_handler, Options);
+
+    private static HttpMessageHandler? Checked(HttpMessageHandler? handler)
+    {
+        for (var inner = handler; inner is not null; inner = (inner as DelegatingHandler)?.InnerHandler)
+            if (inner is HttpClientHandler { AllowAutoRedirect: true } or SocketsHttpHandler { AllowAutoRedirect: true })
+                throw new ArgumentException("The handler follows redirects itself, past the same-origin rule; turn AllowAutoRedirect off.", nameof(handler));
+        return handler;
+    }
 
     /// <summary>Logs in as <paramref name="webId"/> with client credentials registered for it at its OIDC issuer.</summary>
     internal static async Task<SolidSession> LoginAsync(string webId, string clientId, string clientSecret, SolidOptions? options = null,
         HttpMessageHandler? handler = null, CancellationToken cancellationToken = default)
     {
         if (WebIdGrammar.Problem(webId, "The WebID") is { } problem) throw new InvalidDataException(problem);
-        var session = new SolidSession(handler, options ?? new SolidOptions());
+        var session = new SolidSession(Checked(handler), options ?? new SolidOptions());
         try
         {
             var profile = await session.ProfileAsync(webId, cancellationToken).ConfigureAwait(false);
@@ -105,12 +118,12 @@ internal sealed class SolidSession : IDisposable
             var discovery = await session.SendAsync(HttpMethod.Get, issuer.TrimEnd('/') + "/.well-known/openid-configuration", accept: "application/json",
                 limit: session.Options.MaximumDocumentBytes, anonymous: true, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (!discovery.IsSuccess) throw new InvalidDataException($"The issuer {issuer} gave {(int)discovery.Status} for its configuration.");
-            using var configuration = JsonDocument.Parse(discovery.Body);
+            using var configuration = Json(discovery.Body, $"The configuration at {issuer}");
             var root = configuration.RootElement;
             // The issuer that answers must be the issuer the profile names (OpenID Connect Discovery §4.3).
-            if (!root.TryGetProperty("issuer", out var named) || named.GetString()?.TrimEnd('/') != issuer.TrimEnd('/'))
+            if (Str(root, "issuer")?.TrimEnd('/') != issuer.TrimEnd('/'))
                 throw new InvalidDataException($"The configuration at {issuer} names another issuer.");
-            var tokenEndpoint = root.TryGetProperty("token_endpoint", out var endpoint) ? endpoint.GetString() : null;
+            var tokenEndpoint = Str(root, "token_endpoint");
             if (tokenEndpoint is null) throw new InvalidDataException("The issuer names no token endpoint.");
             session.CheckUrl(tokenEndpoint);
             if (Origin(tokenEndpoint) != Origin(issuer)) throw new InvalidDataException("The token endpoint is on another origin than the issuer.");
@@ -146,19 +159,35 @@ internal sealed class SolidSession : IDisposable
             // Never echo the response: a token endpoint's error may repeat what it was sent.
             if (!response.IsSuccessStatusCode) throw new InvalidDataException($"The token endpoint refused the client credentials ({(int)response.StatusCode}).");
             RememberNonce(tokenEndpoint, response);
-            using var json = JsonDocument.Parse(body);
+            using var json = Json(body, "The token endpoint's answer");
             var root = json.RootElement;
-            if (!root.TryGetProperty("token_type", out var type) || !string.Equals(type.GetString(), "DPoP", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(Str(root, "token_type"), "DPoP", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("The token endpoint did not issue a DPoP-bound token.");
-            var token = root.TryGetProperty("access_token", out var accessToken) ? accessToken.GetString() : null;
+            var token = Str(root, "access_token");
             if (string.IsNullOrEmpty(token)) throw new InvalidDataException("The token endpoint issued no token.");
             // The token must be for the WebID this session claims (FED-review M2): credentials of another account, given with
             // a reader's WebID, would otherwise make a probe vouch for access that does not hold.
             if (TokenWebId(token) != webId) throw new InvalidDataException($"The token the issuer gave is not for {webId}; the client credentials belong to another WebID.");
-            var lifetime = root.TryGetProperty("expires_in", out var seconds) && seconds.TryGetInt32(out var s) ? s : 300;
+            var lifetime = root.TryGetProperty("expires_in", out var seconds) && seconds.ValueKind == JsonValueKind.Number && seconds.TryGetInt32(out var s) ? s : 300;
             return (token, DateTimeOffset.UtcNow.AddSeconds(lifetime));
         }
     }
+
+    // What a server answers is read as JSON or refused as such, never a crash (FED-review round 2).
+    private static JsonDocument Json(byte[] body, string what)
+    {
+        try
+        {
+            var document = JsonDocument.Parse(body);
+            if (document.RootElement.ValueKind == JsonValueKind.Object) return document;
+            document.Dispose();
+        }
+        catch (JsonException) { }
+        throw new InvalidDataException($"{what} is not a JSON object.");
+    }
+
+    private static string? Str(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     /// <summary>The <c>webid</c> claim of a Solid-OIDC access token (a JWT); null when it is not one or names none.</summary>
     internal static string? TokenWebId(string token)
@@ -296,12 +325,18 @@ internal sealed class SolidSession : IDisposable
         return signing + "." + Base64Url.Encode(signature);
     }
 
-    /// <summary>https only, or http to a loopback host when the options allow it; no user information.</summary>
+    /// <summary>
+    /// https only, or http to a loopback host when the options allow it; no user information; a host name, never an IP address
+    /// (FED-review round 2 M-B: an address taken from a Web document reaches whatever network this machine is on), except
+    /// loopback when the options allow a local server.
+    /// </summary>
     internal void CheckUrl(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo)
             || !(uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback && Options.AllowLoopbackHttp))
             throw new InvalidDataException($"{url} is not an https URL{(Options.AllowLoopbackHttp ? " (or http to this machine)" : "")}; refused.");
+        if (uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6 && !(uri.IsLoopback && Options.AllowLoopbackHttp))
+            throw new InvalidDataException($"{url} names an IP address, not a host name; refused.");
     }
 
     internal static string Origin(string url)

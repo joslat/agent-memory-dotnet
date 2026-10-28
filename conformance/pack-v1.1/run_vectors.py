@@ -25,7 +25,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "python"))
 import ampack_verify as py  # noqa: E402
 
-AMPACK = sys.argv[1]
+AMPACK = str(Path(sys.argv[1]).resolve())  # the vectors are built in a work folder: a relative path would not resolve there
 OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE
 VECTORS = OUT / "vectors"
 
@@ -681,6 +681,8 @@ def main():
         "receipt-audience-member-refused": (fed_bytes, receipt(fed_bytes, denied=("anonymous", buyer), allowed=()), here, "trust-federated-buyer.json", "refused"),
         "receipt-public-valid": (pub_bytes, receipt(pub_bytes, audience="public", access="public", denied=()), here, "trust-federated-buyer.json", "verified"),
         "receipt-public-anonymous-refused": (pub_bytes, receipt(pub_bytes, audience="public", access="public", denied=("anonymous",)), here, "trust-federated-buyer.json", "refused"),
+        # FED-review round 2: a public placement refuses nobody, so its receipt lists nobody as refused.
+        "receipt-public-webid-refused": (pub_bytes, receipt(pub_bytes, audience="public", access="public", denied=(stranger,)), here, "trust-federated-buyer.json", "refused"),
         # A second key of the same publisher: live (accepted), curator only, revoked, expired.
         "receipt-signed-by-second-bound-key": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-second-key.json", "verified"),
         "receipt-signer-curator-only": (fed_bytes, receipt(fed_bytes, signer=curator), here, "trust-federated-curator.json", "refused"),

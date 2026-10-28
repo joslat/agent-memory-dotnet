@@ -811,8 +811,8 @@ def verify_receipt(envelope_bytes, pid, version, digest, federation, archive, lo
             raise Refused("a receipt records a reader outside its audience as allowed")
         if any(d in placed_for for d in denied):
             raise Refused("a receipt records a reader in its audience as refused")
-    elif "anonymous" in denied:
-        raise Refused("a public receipt records that anonymous was refused")
+    elif denied:
+        raise Refused("a public receipt records nobody as refused")
     # The placement against this pack, this URL, these bytes and this host.
     if "sha256:" + subject[0]["digest"]["sha256"] != digest:
         raise Refused("the receipt is for another pack")

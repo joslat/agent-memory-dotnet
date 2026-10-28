@@ -4,7 +4,8 @@ namespace AgentMemory.Packs.Format;
 
 /// <summary>
 /// A WebID as the federated profile accepts it (federated packs §3), by one explicit grammar that every verifier applies the
-/// same way: <c>https://</c> and a DNS host, or <c>http://</c> for a loopback host only; an optional port; a path starting
+/// same way: <c>https://</c> and a host name of letters, digits, hyphens and dots (an IPv4 address matches it too; the Solid
+/// adapter refuses IP addresses before any request), or <c>http://</c> for a loopback host only; an optional port; a path starting
 /// with <c>/</c> of IRI characters that need no escaping in Turtle (no <c>&lt; &gt; " { } | \ ^ `</c>, spaces or non-ASCII),
 /// at most one <c>#</c>; at most 512 characters. WebIDs are compared as exact strings: two spellings of one address are two
 /// identities, so nothing is equal by normalisation.

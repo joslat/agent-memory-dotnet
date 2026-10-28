@@ -181,10 +181,16 @@ public sealed class SolidAdapterTests
 
         named.Should().Contain(new RdfTriple(RdfTerm.Iri(resource + ".acr#root"), acp + "resource", RdfTerm.Iri(resource)));
         named.Where(t => t.Subject.IsIri(resource + ".acr#root") && t.Predicate == acp + "accessControl").Select(t => t.Object.Value)
-            .Should().BeEquivalentTo(resource + ".acr#owner", resource + ".acr#readers");
-        named.Where(t => t.Predicate == acp + "agent").Select(t => t.Object.Value).Should().BeEquivalentTo(Me, "https://bob.example/card#me", "https://carol.example/card#me");
+            .Should().BeEquivalentTo(resource + ".acr#owner", resource + ".acr#readers", resource + ".acr#noOtherWriter", resource + ".acr#noOtherReader");
         named.Where(t => t.Predicate == acp + "allow").Select(t => t.Object.Value).Should().BeEquivalentTo(acl + "Read", acl + "Write", acl + "Control", acl + "Read");
+        // ACP adds whatever ancestors allow (a Pod-wide share), and only a deny takes it away: everyone but the owner and the
+        // readers is denied reading, everyone but the owner writing (FED-review round 2 M-A).
+        SolidSessionTests.Denies(named, resource + ".acr#noOtherReader").Should().BeEquivalentTo(
+            (new[] { acl + "Read" }, new[] { Me, "https://bob.example/card#me", "https://carol.example/card#me" }));
+        SolidSessionTests.Denies(named, resource + ".acr#noOtherWriter").Should().BeEquivalentTo((new[] { acl + "Write", acl + "Append", acl + "Control" }, new[] { Me }));
         everyone.Should().Contain(t => t.Predicate == acp + "agent" && t.Object.IsIri(acp + "PublicAgent"));
+        everyone.Should().NotContain(t => t.Subject.IsIri(resource + ".acr#noOtherReader"), "a public placement denies nobody reading");
+        SolidSessionTests.Denies(everyone, resource + ".acr#noOtherWriter").Spared.Should().Equal(Me);
         FluentActions.Invoking(() => SolidPacks.AccessControlResource(resource, "https://evil.example/card> <x", null)).Should().Throw<InvalidDataException>();
     }
 
