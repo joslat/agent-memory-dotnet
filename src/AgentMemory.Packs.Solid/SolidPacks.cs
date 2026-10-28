@@ -108,26 +108,27 @@ internal static partial class SolidPacks
         var digest = self.Pack!.Digest;
         var archiveUrl = container + PublicationReceipt.ArchiveNameFor(digest);
         var receiptUrl = container + PublicationReceipt.FileNameFor(digest);
-        // Everything this publication writes is recorded before the request that writes it, a catalog with what it held before
-        // (FED-review round 2 M-C: a write the server made whose answer was lost is withdrawn too).
-        var placedNow = new List<string>();
-        var catalogsBefore = new Dictionary<string, IReadOnlyList<CatalogEntry>?>(StringComparer.Ordinal);
+
+        // The catalog type is registered first: a failure later leaves the registration of an owner-only container, which shows
+        // nothing. The pack containers are there with owner-only rules before anything is placed in them (FED-review round 3).
+        await RegisterAsync(owner, profile, storage, container, cancellationToken).ConfigureAwait(false);
+        await EnsureContainerAsync(owner, container, webId, strangers, cancellationToken).ConfigureAwait(false);
+        if (placed is not null) await EnsureContainerAsync(owner, container + "for/", webId, strangers, cancellationToken).ConfigureAwait(false);
+
+        // Every resource this publication changes is recorded before the request that changes it, with its bytes and its access
+        // rules, so a failure of any kind puts each back exactly as it was (FED-review rounds 2-3).
+        var journal = new Journal(owner);
         try
         {
-            placedNow.Add(archiveUrl);
-            await PutAsync(owner, archiveUrl, archive, ArchiveMediaType, cancellationToken).ConfigureAwait(false);
-            await RestrictContainerAsync(owner, container, webId, cancellationToken).ConfigureAwait(false);
-            var model = await RestrictAsync(owner, archiveUrl, webId, placed, cancellationToken).ConfigureAwait(false);
+            var model = await PlaceAsync(owner, journal, archiveUrl, archive, ArchiveMediaType, owner.Options.MaximumArchiveBytes, webId, placed, cancellationToken).ConfigureAwait(false);
             var (denied, allowed) = await ProbeAsync(owner, archiveUrl, archive, placed, readers, strangers, cancellationToken).ConfigureAwait(false);
 
             // The receipt names how the store enforces the placement: public, or the access model that held under the probe.
             var receipt = new PublicationReceipt(list!.Id, list.Version, digest, archiveUrl, FilesList.Hex(archive), placed, placed is null ? "public" : model,
                 denied, allowed, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
             var receiptBytes = receipt.Sign(signer);
-            placedNow.Add(receiptUrl);
-            await PutAsync(owner, receiptUrl, receiptBytes, ReceiptMediaType, cancellationToken).ConfigureAwait(false);
-            await RestrictAsync(owner, receiptUrl, webId, placed, cancellationToken).ConfigureAwait(false);
-            await AnonymousProbeAsync(owner, receiptUrl, placed is null, cancellationToken).ConfigureAwait(false);
+            await PlaceAsync(owner, journal, receiptUrl, receiptBytes, ReceiptMediaType, Dsse.MaximumEnvelopeBytes, webId, placed, cancellationToken).ConfigureAwait(false);
+            await RefusedAsync(owner, receiptUrl, placed is null, strangers, cancellationToken).ConfigureAwait(false);
 
             var entry = new CatalogEntry(list.Id, list.Version, digest, archiveUrl, receiptUrl, Title(content));
             var catalogs = new List<string>();
@@ -135,64 +136,127 @@ internal static partial class SolidPacks
             {
                 var catalogUrl = reader is null ? container + "public.ttl" : container + "for/" + ReaderKey(reader) + ".ttl";
                 var existing = await ReadCatalogAsync(owner, catalogUrl, cancellationToken).ConfigureAwait(false);
-                catalogsBefore[catalogUrl] = existing;
                 var entries = (existing ?? []).Where(e => e.Digest != digest && !(e.Id == entry.Id && e.Version == entry.Version)).Append(entry).ToList();
-                await PutAsync(owner, catalogUrl, Encoding.UTF8.GetBytes(Catalog.Write(catalogUrl, webId, entries)), "text/turtle", cancellationToken).ConfigureAwait(false);
-                await RestrictAsync(owner, catalogUrl, webId, reader is null ? null : [reader], cancellationToken).ConfigureAwait(false);
-                await AnonymousProbeAsync(owner, catalogUrl, reader is null, cancellationToken).ConfigureAwait(false);
+                await PlaceAsync(owner, journal, catalogUrl, Encoding.UTF8.GetBytes(Catalog.Write(catalogUrl, webId, entries)), "text/turtle",
+                    owner.Options.MaximumDocumentBytes, webId, reader is null ? null : [reader], cancellationToken).ConfigureAwait(false);
+                await RefusedAsync(owner, catalogUrl, reader is null, strangers, cancellationToken).ConfigureAwait(false);
                 catalogs.Add(catalogUrl);
             }
-            if (placed is not null) await RestrictContainerAsync(owner, container + "for/", webId, cancellationToken).ConfigureAwait(false);
-            // A placement narrower than an earlier one of the same pack: every other catalog drops it, so a former reader keeps
-            // no title of what it can no longer read (FED-review round 2).
+            // A placement narrower than an earlier one of the same pack: every other catalog drops it, written without it (never
+            // removed, so it keeps its rules), and a former reader keeps no title of what it can no longer read.
             foreach (var other in await CatalogsInAsync(owner, container, cancellationToken).ConfigureAwait(false))
             {
-                if (catalogs.Contains(other) || await ReadCatalogAsync(owner, other, cancellationToken).ConfigureAwait(false) is not { } listed
-                    || listed.All(e => e.Digest != digest)) continue;
-                catalogsBefore[other] = listed;
-                await WriteCatalogAsync(owner, other, webId, [.. listed.Where(e => e.Digest != digest)], cancellationToken).ConfigureAwait(false);
+                if (catalogs.Contains(other)) continue;
+                IReadOnlyList<CatalogEntry>? listed;
+                try { listed = await ReadCatalogAsync(owner, other, cancellationToken).ConfigureAwait(false); }
+                catch (InvalidDataException e)
+                {
+                    throw new InvalidDataException($"{other} cannot be read, so this pack cannot be taken out of it ({e.Message}); fix or remove it, then publish again.", e);
+                }
+                if (listed is null || listed.All(e => e.Digest != digest)) continue;
+                await RewriteAsync(owner, journal, other, Encoding.UTF8.GetBytes(Catalog.Write(other, webId, [.. listed.Where(e => e.Digest != digest)])), "text/turtle",
+                    cancellationToken).ConfigureAwait(false);
             }
-            await RegisterAsync(owner, profile, storage, container, cancellationToken).ConfigureAwait(false);
             return new Publication(archiveUrl, receiptUrl, receiptBytes, model, denied, allowed, catalogs, container);
         }
         catch (Exception failure)
         {
-            // Whatever went wrong, what this publication placed is withdrawn and every catalog it changed is put back; the
-            // withdrawal itself is checked, and one that did not hold is said so, loudly (FED-review M3, round 2 M-C).
-            var stuck = await WithdrawAsync(owner, webId, placedNow, catalogsBefore).ConfigureAwait(false);
+            // Whatever went wrong, every resource is put back as it was; the undo itself is checked, and one that did not hold
+            // is said so, loudly.
+            var stuck = await journal.UndoAsync().ConfigureAwait(false);
             if (stuck.Count > 0)
-                throw new InvalidDataException($"{failure.Message} WITHDRAWAL FAILED: remove these by hand, they may still be readable: {string.Join(", ", stuck)}.", failure);
+                throw new InvalidDataException($"{failure.Message} WITHDRAWAL FAILED: put these back by hand, they may be readable or changed: {string.Join(", ", stuck)}.", failure);
             throw;
         }
     }
 
-    // Puts every catalog back as it was and removes what was placed, newest first; returns what could not be undone.
-    private static async Task<List<string>> WithdrawAsync(SolidSession owner, string webId, List<string> placed,
-        Dictionary<string, IReadOnlyList<CatalogEntry>?> catalogsBefore)
+    /// <summary>
+    /// What one publication changed, so that a failure of any kind puts each resource back exactly as it was: a resource that
+    /// was not there is removed with its rules; one that was gets its earlier bytes and its earlier rules back (FED-review round
+    /// 3: a failed re-publication must leave the live placement as it was, and a catalog put back keeps its rules).
+    /// </summary>
+    private sealed class Journal(SolidSession owner)
     {
-        var stuck = new List<string>();
-        foreach (var (url, before) in catalogsBefore)
-            await Undo(url, () => WriteCatalogAsync(owner, url, webId, before ?? [], CancellationToken.None)).ConfigureAwait(false);
-        foreach (var url in Enumerable.Reverse(placed))
-            await Undo(url, () => DeleteAsync(owner, url, CancellationToken.None)).ConfigureAwait(false);
-        return stuck;
+        private readonly List<(string Url, string MediaType, byte[]? Bytes, string? Acl, string? Rules)> _before = [];
+        private readonly HashSet<string> _recorded = new(StringComparer.Ordinal);
 
-        async Task Undo(string url, Func<Task> undo)
+        /// <summary>Records a resource before its first change; returns its bytes, or null when it is not there.</summary>
+        internal async Task<byte[]?> RecordAsync(string url, string mediaType, long limit, CancellationToken cancellationToken)
         {
-            try { await undo().ConfigureAwait(false); }
-            catch (Exception e) when (e is not OutOfMemoryException) { stuck.Add(e is InvalidDataException ? e.Message : $"{url} ({e.GetType().Name})"); }
+            var current = await owner.SendAsync(HttpMethod.Get, url, limit: limit, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (current.Status == HttpStatusCode.NotFound)
+            {
+                if (_recorded.Add(url)) _before.Add((url, mediaType, null, null, null));
+                return null;
+            }
+            if (!current.IsSuccess) throw new InvalidDataException($"{url} gave {(int)current.Status}; it is not changed unless it can be put back.");
+            if (_recorded.Add(url))
+            {
+                var (acl, _) = await AccessResourceAsync(owner, url, cancellationToken).ConfigureAwait(false);
+                var rules = await owner.SendAsync(HttpMethod.Get, acl, accept: "text/turtle", limit: owner.Options.MaximumDocumentBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (!rules.IsSuccess && rules.Status != HttpStatusCode.NotFound)
+                    throw new InvalidDataException($"The access rules of {url} gave {(int)rules.Status}; it is not changed unless they can be put back.");
+                _before.Add((url, mediaType, current.Body, acl, rules.IsSuccess ? SolidSession.Text(rules) : null));
+            }
+            return current.Body;
         }
+
+        /// <summary>Puts everything back, newest first; returns what could not be put back.</summary>
+        internal async Task<List<string>> UndoAsync()
+        {
+            var stuck = new List<string>();
+            foreach (var (url, mediaType, bytes, acl, rules) in Enumerable.Reverse(_before))
+            {
+                try
+                {
+                    if (bytes is null)
+                    {
+                        await DeleteAsync(owner, url, CancellationToken.None).ConfigureAwait(false);
+                        continue;
+                    }
+                    await PutAsync(owner, url, bytes, mediaType, CancellationToken.None).ConfigureAwait(false);
+                    if (rules is not null) await PutAsync(owner, acl!, Encoding.UTF8.GetBytes(rules), "text/turtle", CancellationToken.None).ConfigureAwait(false);
+                    else await DeleteAsync(owner, acl!, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception e) when (e is not OutOfMemoryException) { stuck.Add(e is InvalidDataException ? e.Message : $"{url} ({e.GetType().Name})"); }
+            }
+            return stuck;
+        }
+    }
+
+    // Places one resource so that its bytes are never readable under rules other than its own (FED-review round 3: a new
+    // resource follows its container's and its ancestors' rules until its own are written): a new resource is created empty,
+    // its rules are written, and only then its bytes; one already there gets its rules first.
+    private static async Task<string> PlaceAsync(SolidSession owner, Journal journal, string url, byte[] bytes, string mediaType, long limit,
+        string ownerWebId, IReadOnlyList<string>? readers, CancellationToken cancellationToken)
+    {
+        var before = await journal.RecordAsync(url, mediaType, limit, cancellationToken).ConfigureAwait(false);
+        if (before is null) await PutAsync(owner, url, [], mediaType, cancellationToken).ConfigureAwait(false);
+        var model = await RestrictAsync(owner, url, ownerWebId, readers, cancellationToken).ConfigureAwait(false);
+        if (before is null || !before.AsSpan().SequenceEqual(bytes)) await PutAsync(owner, url, bytes, mediaType, cancellationToken).ConfigureAwait(false);
+        return model;
+    }
+
+    // Rewrites a resource that is there, keeping its rules.
+    private static async Task RewriteAsync(SolidSession owner, Journal journal, string url, byte[] bytes, string mediaType, CancellationToken cancellationToken)
+    {
+        await journal.RecordAsync(url, mediaType, owner.Options.MaximumDocumentBytes, cancellationToken).ConfigureAwait(false);
+        await PutAsync(owner, url, bytes, mediaType, cancellationToken).ConfigureAwait(false);
+    }
+
+    // A pack container is there with owner-only rules before anything is placed in it (FED-review round 3: a container made by
+    // its first member's write was listable under inherited rules until it was restricted).
+    private static async Task EnsureContainerAsync(SolidSession owner, string container, string ownerWebId, IReadOnlyList<SolidSession> strangers,
+        CancellationToken cancellationToken)
+    {
+        var head = await owner.SendAsync(HttpMethod.Head, container, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (head.Status == HttpStatusCode.NotFound) await PutAsync(owner, container, [], "text/turtle", cancellationToken).ConfigureAwait(false);
+        else if (!head.IsSuccess) throw new InvalidDataException($"{container} gave {(int)head.Status}.");
+        await RestrictContainerAsync(owner, container, ownerWebId, strangers, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<IReadOnlyList<CatalogEntry>?> ReadCatalogAsync(SolidSession owner, string url, CancellationToken cancellationToken) =>
         await owner.TurtleAsync(url, cancellationToken: cancellationToken).ConfigureAwait(false) is { } triples ? Catalog.Read(triples) : null;
-
-    // A catalog with no entries left is removed, with its access rules.
-    private static async Task WriteCatalogAsync(SolidSession owner, string url, string webId, IReadOnlyList<CatalogEntry> entries, CancellationToken cancellationToken)
-    {
-        if (entries.Count == 0) await DeleteAsync(owner, url, cancellationToken).ConfigureAwait(false);
-        else await PutAsync(owner, url, Encoding.UTF8.GetBytes(Catalog.Write(url, webId, entries)), "text/turtle", cancellationToken).ConfigureAwait(false);
-    }
 
     // The catalogs of a pack container: its public one and each reader's, from the owner's listing of for/.
     private static async Task<IReadOnlyList<string>> CatalogsInAsync(SolidSession owner, string container, CancellationToken cancellationToken)
@@ -252,14 +316,24 @@ internal static partial class SolidPacks
         return (denied, allowed);
     }
 
-    // Anonymous must be refused a resource that is not public (or a container listing), and must read a public one.
-    private static async Task AnonymousProbeAsync(SolidSession owner, string url, bool isPublic, CancellationToken cancellationToken)
+    // Anonymous must be refused a resource that is not public (or a container listing), and must read a public one; every
+    // stranger must be refused what is not public (FED-review round 3: strangers were probed on the archive only).
+    private static async Task RefusedAsync(SolidSession owner, string url, bool isPublic, IReadOnlyList<SolidSession> strangers, CancellationToken cancellationToken)
     {
-        using var anonymous = owner.AnonymousTwin();
-        var response = await anonymous.SendAsync(HttpMethod.Get, url, limit: owner.Options.MaximumDocumentBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var refused = response.Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
-        if (isPublic ? !response.IsSuccess : !refused)
-            throw new InvalidDataException($"Anonymous {(isPublic ? "cannot read" : "read")} {url} ({(int)response.Status}): the access rules do not hold.");
+        using (var anonymous = owner.AnonymousTwin())
+        {
+            var response = await anonymous.SendAsync(HttpMethod.Get, url, limit: owner.Options.MaximumDocumentBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var refused = response.Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
+            if (isPublic ? !response.IsSuccess : !refused)
+                throw new InvalidDataException($"Anonymous {(isPublic ? "cannot read" : "read")} {url} ({(int)response.Status}): the access rules do not hold.");
+        }
+        if (isPublic) return;
+        foreach (var stranger in strangers)
+        {
+            var response = await stranger.SendAsync(HttpMethod.Get, url, limit: owner.Options.MaximumDocumentBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (response.Status is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
+                throw new InvalidDataException($"{stranger.WebId} read {url} ({(int)response.Status}): the access rules do not hold.");
+        }
     }
 
     /// <summary>The access rules (WAC) of one resource: the owner in full, the audience (or everyone, when public) to read.</summary>
@@ -342,11 +416,12 @@ internal static partial class SolidPacks
         return model;
     }
 
-    private static async Task RestrictContainerAsync(SolidSession owner, string container, string ownerWebId, CancellationToken cancellationToken)
+    private static async Task RestrictContainerAsync(SolidSession owner, string container, string ownerWebId, IReadOnlyList<SolidSession> strangers,
+        CancellationToken cancellationToken)
     {
         var (acl, model) = await AccessResourceAsync(owner, container, cancellationToken).ConfigureAwait(false);
         await PutAsync(owner, acl, Encoding.UTF8.GetBytes(ContainerAccess(model, container, ownerWebId)), "text/turtle", cancellationToken).ConfigureAwait(false);
-        await AnonymousProbeAsync(owner, container, isPublic: false, cancellationToken).ConfigureAwait(false);
+        await RefusedAsync(owner, container, isPublic: false, strangers, cancellationToken).ConfigureAwait(false);
     }
 
     // The access resource a server names for a resource (Link rel="acl"), on the resource's own origin, and its model: an ACP
@@ -376,9 +451,12 @@ internal static partial class SolidPacks
             // Never over a document already there (FED-review round 2): only a new one is written.
             var put = await owner.SendAsync(HttpMethod.Put, index, Encoding.UTF8.GetBytes(created), "text/turtle",
                 headers: new Dictionary<string, string> { ["If-None-Match"] = "*" }, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (put.Status == HttpStatusCode.PreconditionFailed)
+            // One this tool wrote but could not link (a run that stopped in between) is taken up; anything else there is the
+            // owner's and is never touched (FED-review round 3).
+            if (put.Status == HttpStatusCode.PreconditionFailed
+                && !IsOwnTypeIndex(await owner.TurtleAsync(index, cancellationToken: cancellationToken).ConfigureAwait(false), index))
                 throw new InvalidDataException($"{index} exists but {webId}'s profile does not name it as its public type index; link it (solid:publicTypeIndex) or remove it.");
-            if (!put.IsSuccess) throw new InvalidDataException($"Writing {index} gave {(int)put.Status}.");
+            if (!put.IsSuccess && put.Status != HttpStatusCode.PreconditionFailed) throw new InvalidDataException($"Writing {index} gave {(int)put.Status}.");
             await RestrictAsync(owner, index, webId, null, cancellationToken).ConfigureAwait(false);
             await PatchAsync(owner, Document(webId), $"<{TurtleText.Iri(webId)}> <{Vocabulary.Solid}publicTypeIndex> <{TurtleText.Iri(index)}> .\n", cancellationToken).ConfigureAwait(false);
         }
@@ -387,6 +465,14 @@ internal static partial class SolidPacks
         var registration = Document(index) + "#ampack-catalog";
         await PatchAsync(owner, Document(index), $"<{TurtleText.Iri(registration)}> a <{Vocabulary.Solid}TypeRegistration> ; <{Vocabulary.Solid}forClass> <{Vocabulary.Ampack}Catalog> ; "
             + $"<{Vocabulary.Solid}instanceContainer> <{TurtleText.Iri(container)}> .\n", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>A type index exactly as this tool writes it: typed, and at most its own catalog registration.</summary>
+    internal static bool IsOwnTypeIndex(IReadOnlyList<RdfTriple>? triples, string index)
+    {
+        var registration = Document(index) + "#ampack-catalog";
+        return triples is { Count: > 0 } && triples.All(t => t.Subject.IsIri(index) && t.Predicate == Turtle.Rdf + "type"
+            || t.Subject.IsIri(registration) && t.Predicate is Turtle.Rdf + "type" or Vocabulary.Solid + "forClass" or Vocabulary.Solid + "instanceContainer");
     }
 
     /// <summary>The pack containers a type index registers for the catalog class (at most <see cref="MaximumContainers"/>).</summary>
@@ -542,15 +628,15 @@ internal sealed class PublisherReach(SolidSession session, WebIdProfile profile)
 
     internal async Task<bool> AllowsAsync(string url, CancellationToken cancellationToken = default)
     {
-        session.CheckUrl(url);
+        if (!session.Reaches(url)) return false;
         if (SolidSession.Origin(url) == SolidSession.Origin(SolidPacks.Document(profile.WebId))) return true;
         foreach (var declared in profile.Storages.Take(SolidPacks.MaximumStorages))
         {
             var root = declared.EndsWith('/') ? declared : declared + "/";
             if (!SolidPacks.IsCanonical(root) || !url.StartsWith(root, StringComparison.Ordinal)) continue;
+            if (!session.Reaches(root)) continue;
             if (!_owned.TryGetValue(root, out var owned))
             {
-                session.CheckUrl(root);
                 var head = await session.SendAsync(HttpMethod.Head, root, anonymous: true, cancellationToken: cancellationToken).ConfigureAwait(false);
                 _owned[root] = owned = head.Links("type").Contains(Vocabulary.Pim + "Storage") && head.Links(Vocabulary.Solid + "owner").Contains(profile.WebId);
             }

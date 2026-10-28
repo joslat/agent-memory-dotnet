@@ -186,8 +186,12 @@ internal sealed class SolidSession : IDisposable
         throw new InvalidDataException($"{what} is not a JSON object.");
     }
 
-    private static string? Str(JsonElement root, string name) =>
-        root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    private static string? Str(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String) return null;
+        try { return value.GetString(); }
+        catch (InvalidOperationException) { return null; } // a string that is not valid UTF-8 (FED-review round 3)
+    }
 
     /// <summary>The <c>webid</c> claim of a Solid-OIDC access token (a JWT); null when it is not one or names none.</summary>
     internal static string? TokenWebId(string token)
@@ -200,7 +204,7 @@ internal sealed class SolidSession : IDisposable
             return claims.RootElement.ValueKind == JsonValueKind.Object && claims.RootElement.TryGetProperty("webid", out var webId)
                 && webId.ValueKind == JsonValueKind.String ? webId.GetString() : null;
         }
-        catch (JsonException) { return null; }
+        catch (Exception e) when (e is JsonException or InvalidOperationException) { return null; }
     }
 
     /// <summary>Reads and parses a WebID's profile document (anonymously, as anyone may).</summary>
@@ -326,17 +330,29 @@ internal sealed class SolidSession : IDisposable
     }
 
     /// <summary>
-    /// https only, or http to a loopback host when the options allow it; no user information; a host name, never an IP address
-    /// (FED-review round 2 M-B: an address taken from a Web document reaches whatever network this machine is on), except
-    /// loopback when the options allow a local server.
+    /// https only, or http to a loopback host when the options allow it; no user information; a host name on the Web, never an
+    /// IP address or this machine (FED-review rounds 2-3: an address taken from a Web document reaches whatever network this
+    /// machine is on), except loopback when the options allow a local server. A name that resolves to a private address is
+    /// not caught here; TLS to that name still has to hold.
     /// </summary>
     internal void CheckUrl(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo)
             || !(uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback && Options.AllowLoopbackHttp))
             throw new InvalidDataException($"{url} is not an https URL{(Options.AllowLoopbackHttp ? " (or http to this machine)" : "")}; refused.");
-        if (uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6 && !(uri.IsLoopback && Options.AllowLoopbackHttp))
-            throw new InvalidDataException($"{url} names an IP address, not a host name; refused.");
+        if ((uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6 || uri.IsLoopback) && !(uri.IsLoopback && Options.AllowLoopbackHttp))
+            throw new InvalidDataException($"{url} names an IP address or this machine, not a host on the Web; refused.");
+    }
+
+    /// <summary>Whether <see cref="CheckUrl"/> would let this session reach <paramref name="url"/>.</summary>
+    internal bool Reaches(string url)
+    {
+        try
+        {
+            CheckUrl(url);
+            return true;
+        }
+        catch (InvalidDataException) { return false; }
     }
 
     internal static string Origin(string url)

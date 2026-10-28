@@ -97,6 +97,21 @@ public sealed class SolidSessionTests
             .Should().ThrowAsync<InvalidDataException>().WithMessage($"*{why}*");
 
     [Fact]
+    public async Task An_issuer_configuration_that_is_not_UTF_8_is_refused_never_a_crash()
+    {
+        var bytes = Encoding.UTF8.GetBytes("{\"issuer\":\"https://pod.example/\",\"token_endpoint\":\"X\"}");
+        bytes[Array.IndexOf(bytes, (byte)'X')] = 0xFF;
+        var handler = new Scripted(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/alice/profile/card" => Text($"<#me> <http://www.w3.org/ns/solid/terms#oidcIssuer> <{Issuer}> ."),
+            "/.well-known/openid-configuration" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) },
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        });
+
+        await FluentActions.Awaiting(() => SolidSession.LoginAsync(WebIdOfAlice, "id", "secret", handler: handler)).Should().ThrowAsync<InvalidDataException>();
+    }
+
+    [Fact]
     public void A_handler_that_follows_redirects_itself_is_refused()
     {
         using var follows = new HttpClientHandler();
@@ -111,7 +126,8 @@ public sealed class SolidSessionTests
     [InlineData("https://169.254.169.254/latest/")]
     [InlineData("https://[fd00::1]/x")]
     [InlineData("https://127.0.0.1/x")]                        // loopback too, unless a local server is allowed
-    public void An_IP_address_is_never_reached(string url)
+    [InlineData("https://localhost/x")]                        // this machine by name, likewise
+    public void An_IP_address_or_this_machine_is_never_reached(string url)
     {
         using var strict = SolidSession.Anonymous();
 
@@ -124,7 +140,9 @@ public sealed class SolidSessionTests
         using var local = SolidSession.Anonymous(new SolidOptions { AllowLoopbackHttp = true });
 
         local.CheckUrl("http://127.0.0.1:3000/x");
+        local.CheckUrl("https://localhost:3443/x");
         FluentActions.Invoking(() => local.CheckUrl("https://10.0.0.5/x")).Should().Throw<InvalidDataException>();
+        local.Reaches("https://10.0.0.5/x").Should().BeFalse();
     }
 
     [Fact]
@@ -256,7 +274,7 @@ public sealed class SolidSessionTests
         (await reach.AllowsAsync("https://storage.example/bob/ampack/")).Should().BeFalse("outside the storage Alice declared");
         (await reach.AllowsAsync("https://squat.example/ampack/")).Should().BeFalse("a storage that names no owner");
         (await reach.AllowsAsync("https://elsewhere.example/ampack/")).Should().BeFalse("no storage of Alice's is there");
-        await FluentActions.Awaiting(() => reach.AllowsAsync("https://10.0.0.5/ampack/")).Should().ThrowAsync<InvalidDataException>().WithMessage("*IP address*");
+        (await reach.AllowsAsync("https://10.0.0.5/ampack/")).Should().BeFalse("an IP address is never the publisher's, and is never asked");
         handler.Seen.Select(r => r.RequestUri!.Host).Should().Equal(["storage.example", "squat.example"], "each storage is asked once");
         handler.Seen.Should().OnlyContain(r => r.Method == HttpMethod.Head && r.Headers.Authorization == null);
     }
