@@ -38,6 +38,7 @@
     <ProjectReference Include="../../src/AgentMemory.Packs.Repository/AgentMemory.Packs.Repository.csproj" />
     <ProjectReference Include="../../src/AgentMemory.Packs.Coding/AgentMemory.Packs.Coding.csproj" />
     <ProjectReference Include="../../src/AgentMemory.Extensibility.Ampack/AgentMemory.Extensibility.Ampack.csproj" />
+    <ProjectReference Include="../../src/AgentMemory.Packs.Solid/AgentMemory.Packs.Solid.csproj" />
     <ProjectReference Include="../../tools/AgentMemory.Cli/AgentMemory.Cli.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../samples/AgentMemory.Sample.CopilotAgent/AgentMemory.Sample.CopilotAgent.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
