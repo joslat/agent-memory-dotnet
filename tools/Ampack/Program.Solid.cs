@@ -24,6 +24,14 @@ internal static partial class Program
 
     private static SolidOptions SolidOptions(Options o) => new() { AllowLoopbackHttp = o.Flag("allow-loopback-http") };
 
+    // Text from the Web (catalog titles, ids, URLs, profile IRIs) is shown, never trusted: control and bidirectional
+    // characters become '?', and it is cut to a length (FED-review: a title could carry terminal escapes).
+    internal static string Shown(string text, int max = 200)
+    {
+        var shown = new string([.. text.Take(max).Select(c => char.IsControl(c) || c is >= '\u202A' and <= '\u202E' or >= '\u2066' and <= '\u2069' ? '?' : c)]);
+        return text.Length > max && max >= 64 ? shown + "…" : shown;
+    }
+
     private static SolidSession Login(Options o, string webId, string prefix = "AMPACK_SOLID")
     {
         var id = Environment.GetEnvironmentVariable(prefix + "_CLIENT_ID");
@@ -49,17 +57,19 @@ internal static partial class Program
         using var owner = Login(o, webId);
         using var signer = Signer(o);
         var readers = new List<SolidSession>();
+        var strangers = new List<SolidSession>();
         try
         {
             if (o.Value("probe-as") is { } probe) readers.Add(Login(o, probe, "AMPACK_PROBE"));
+            if (o.Value("probe-stranger") is { } stranger) strangers.Add(Login(o, stranger, "AMPACK_STRANGER"));
             IReadOnlyList<string>? audience = o.Value("audience") is { } given ? List(given) : null;
-            var publication = SolidPacks.PublishAsync(owner, archive, signer, readers, [], audience).GetAwaiter().GetResult();
+            var publication = SolidPacks.PublishAsync(owner, archive, signer, readers, strangers, audience).GetAwaiter().GetResult();
             Console.WriteLine($"Published at {publication.Archive}\n  access  {publication.AccessModel}\n  receipt {publication.Receipt}\n  denied  {string.Join(", ", publication.Denied)}"
                 + $"\n  allowed {(publication.Allowed.Count == 0 ? "(no reader probed)" : string.Join(", ", publication.Allowed))}");
             foreach (var catalog in publication.Catalogs) Console.WriteLine($"  catalog {catalog}");
             return 0;
         }
-        finally { foreach (var reader in readers) reader.Dispose(); }
+        finally { foreach (var session in readers.Concat(strangers)) session.Dispose(); }
     }
 
     private static int SolidDiscover(Options o)
@@ -68,7 +78,7 @@ internal static partial class Program
         using var reader = o.Value("webid") is { } webId ? Login(o, webId) : SolidSession.Anonymous(SolidOptions(o));
         var entries = SolidPacks.DiscoverAsync(reader, from).GetAwaiter().GetResult();
         if (entries.Count == 0) Console.WriteLine($"{from} offers {(reader.WebId is null ? "anonymous readers" : reader.WebId)} no packs.");
-        foreach (var e in entries) Console.WriteLine($"  {e.Id} {e.Version}  {e.Digest[..23]}…  {e.Title ?? ""}\n      {e.Archive}");
+        foreach (var e in entries) Console.WriteLine($"  {Shown(e.Id)} {Shown(e.Version)}  {Shown(e.Digest, 23)}…  {Shown(e.Title ?? "")}\n      {Shown(e.Archive)}");
         return 0;
     }
 
@@ -125,7 +135,7 @@ internal static partial class Program
         var profile = session.ProfileAsync(webId).GetAwaiter().GetResult();
         if (profile.Keys.Count == 0) return Report([$"{webId}'s profile asserts no P-256 key (sec:assertionMethod with a publicKeyJwk)."], "");
         Console.WriteLine($"{webId} asserts {profile.Keys.Count} key(s):");
-        foreach (var key in profile.Keys) Console.WriteLine($"  {key.KeyId}  ({key.Method})");
+        foreach (var key in profile.Keys) Console.WriteLine($"  {key.KeyId}  ({Shown(key.Method)})");
         if (o.Value("key") is not { } chosen)
         {
             Console.WriteLine("Nothing added: name the key you checked with the publisher, --key <keyId>.");

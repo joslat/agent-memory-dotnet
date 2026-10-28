@@ -230,6 +230,34 @@ internal static class PackVerifier
     }
 
     /// <summary>
+    /// A federated set's members (federated packs §3): each is federated itself, by the same publisher, for an audience within
+    /// the set's. Otherwise a member taken out of the set would load on a host the set was never published for (FED-review M5).
+    /// </summary>
+    internal static string? MemberFederationProblem(PackFederation set, VerifiedPack member)
+    {
+        if (member.Manifest.Federation is not { } own)
+            return $"The member {member.Id} of a federated set is not federated itself: out of the set it would reach any host.";
+        if (own.Publisher != set.Publisher) return $"The member {member.Id} names publisher {own.Publisher}, not the set's {set.Publisher}.";
+        if (!set.IsPublic && (own.Audience is null || own.Audience.Any(a => !set.Audience!.Contains(a))))
+            return $"The member {member.Id} is published for a wider audience than its set.";
+        return null;
+    }
+
+    /// <summary>
+    /// A pack verified in full: a single pack as <see cref="Verify"/> does, a set together with every member it carries. What
+    /// fetches and receipts rely on, so a set is never taken on its outer signature alone (FED-review H2).
+    /// </summary>
+    internal static PackVerification VerifyWhole(PackContent content, TrustPolicy policy, DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false)
+    {
+        var first = Verify(content, policy, now, ledger, allowDowngrade);
+        if (first.Pack is not { Manifest.Kind: "set" }) return first;
+        var (set, members) = VerifySet(content, policy, now, ledger, allowDowngrade);
+        var refused = members.Where(m => !m.Value.IsVerified).OrderBy(m => m.Key, StringComparer.Ordinal)
+            .SelectMany(m => m.Value.Problems.Select(p => $"packs/{m.Key}/: {p}")).ToList();
+        return !set.IsVerified ? set : refused.Count > 0 ? new PackVerification(null, refused) : set;
+    }
+
+    /// <summary>
     /// A pack set and each of its members, verified independently: the set's own signature binds the members together, and
     /// each member keeps its own list and signatures (v1.2 §5).
     /// </summary>
@@ -251,7 +279,9 @@ internal static class PackVerifier
         {
             var member = Verify(new PackContent(files, content.Source + "#" + id), policy, now, ledger, allowDowngrade);
             members[id] = member.Pack is { } verified && verified.Id != id
-                ? new PackVerification(null, [$"The member in packs/{id}/ is {verified.Id}."]) : member;
+                ? new PackVerification(null, [$"The member in packs/{id}/ is {verified.Id}."])
+                : member.Pack is { } inner && outer.Manifest.Federation is { } federation && MemberFederationProblem(federation, inner) is { } problem
+                    ? new PackVerification(null, [problem]) : member;
         }
         return (set, members);
     }

@@ -57,41 +57,45 @@ internal sealed record SolidOptions
 
 /// <summary>
 /// A session with Solid servers (federated packs §7): anonymous, or logged in as a WebID with Solid-OIDC client credentials.
-/// Tokens are DPoP-bound, each request carries a fresh ES256 proof (htm, htu, iat, jti, ath). Redirects are followed only
-/// within the same origin; plain http only for loopback when the options allow it; bodies are bounded before they are read.
-/// The client secret is used once, for the token, and kept nowhere else.
+/// The token must name that WebID (its <c>webid</c> claim), and the issuer must be the one the WebID's profile names. Tokens
+/// are DPoP-bound; each request carries a fresh ES256 proof (htm, htu, iat, jti, ath, and the server's nonce when it asks for
+/// one). Redirects are followed by this class only, within the same origin; plain http only for loopback when the options
+/// allow it; bodies are bounded before they are read. The client secret stays in memory for token renewals only, and no
+/// message ever repeats it or the token.
 /// </summary>
 internal sealed class SolidSession : IDisposable
 {
     private readonly HttpClient _http;
-    private readonly bool _ownsHttp;
     private readonly ECDsa _dpopKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private readonly string _jwk;
+    private readonly Dictionary<string, string> _nonces = new(StringComparer.Ordinal);
     private string? _accessToken;
     private DateTimeOffset _expires;
     private Func<CancellationToken, Task<(string Token, DateTimeOffset Expires)>>? _renew;
 
     internal SolidOptions Options { get; }
-    /// <summary>The WebID this session acts as; null when anonymous.</summary>
+    /// <summary>The WebID this session acts as, as its token names it; null when anonymous.</summary>
     internal string? WebId { get; private set; }
 
-    private SolidSession(HttpClient? http, SolidOptions options)
+    // A handler is given only by tests; whatever it is, this class follows redirects itself (FED-review: an injected client
+    // that followed them would skip the same-origin rule).
+    private SolidSession(HttpMessageHandler? handler, SolidOptions options)
     {
         Options = options;
-        _ownsHttp = http is null;
-        _http = http ?? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = options.Timeout };
+        _http = new HttpClient(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) },
+            disposeHandler: handler is null) { Timeout = options.Timeout };
         var q = _dpopKey.ExportParameters(false).Q;
         _jwk = $"{{\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":\"{Base64Url.Encode(q.X!)}\",\"y\":\"{Base64Url.Encode(q.Y!)}\"}}";
     }
 
-    internal static SolidSession Anonymous(SolidOptions? options = null, HttpClient? http = null) => new(http, options ?? new SolidOptions());
+    internal static SolidSession Anonymous(SolidOptions? options = null, HttpMessageHandler? handler = null) => new(handler, options ?? new SolidOptions());
 
     /// <summary>Logs in as <paramref name="webId"/> with client credentials registered for it at its OIDC issuer.</summary>
     internal static async Task<SolidSession> LoginAsync(string webId, string clientId, string clientSecret, SolidOptions? options = null,
-        HttpClient? http = null, CancellationToken cancellationToken = default)
+        HttpMessageHandler? handler = null, CancellationToken cancellationToken = default)
     {
         if (WebIdGrammar.Problem(webId, "The WebID") is { } problem) throw new InvalidDataException(problem);
-        var session = new SolidSession(http, options ?? new SolidOptions());
+        var session = new SolidSession(handler, options ?? new SolidOptions());
         try
         {
             var profile = await session.ProfileAsync(webId, cancellationToken).ConfigureAwait(false);
@@ -99,13 +103,18 @@ internal sealed class SolidSession : IDisposable
             var issuer = profile.Issuers[0];
             session.CheckUrl(issuer);
             var discovery = await session.SendAsync(HttpMethod.Get, issuer.TrimEnd('/') + "/.well-known/openid-configuration", accept: "application/json",
-                limit: session.Options.MaximumDocumentBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
+                limit: session.Options.MaximumDocumentBytes, anonymous: true, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (!discovery.IsSuccess) throw new InvalidDataException($"The issuer {issuer} gave {(int)discovery.Status} for its configuration.");
             using var configuration = JsonDocument.Parse(discovery.Body);
-            var tokenEndpoint = configuration.RootElement.GetProperty("token_endpoint").GetString() ?? throw new InvalidDataException("The issuer names no token endpoint.");
+            var root = configuration.RootElement;
+            // The issuer that answers must be the issuer the profile names (OpenID Connect Discovery §4.3).
+            if (!root.TryGetProperty("issuer", out var named) || named.GetString()?.TrimEnd('/') != issuer.TrimEnd('/'))
+                throw new InvalidDataException($"The configuration at {issuer} names another issuer.");
+            var tokenEndpoint = root.TryGetProperty("token_endpoint", out var endpoint) ? endpoint.GetString() : null;
+            if (tokenEndpoint is null) throw new InvalidDataException("The issuer names no token endpoint.");
             session.CheckUrl(tokenEndpoint);
             if (Origin(tokenEndpoint) != Origin(issuer)) throw new InvalidDataException("The token endpoint is on another origin than the issuer.");
-            session._renew = ct => session.TokenAsync(tokenEndpoint, clientId, clientSecret, ct);
+            session._renew = ct => session.TokenAsync(tokenEndpoint, clientId, clientSecret, webId, ct);
             (session._accessToken, session._expires) = await session._renew(cancellationToken).ConfigureAwait(false);
             session.WebId = webId;
             return session;
@@ -117,26 +126,52 @@ internal sealed class SolidSession : IDisposable
         }
     }
 
-    private async Task<(string Token, DateTimeOffset Expires)> TokenAsync(string tokenEndpoint, string clientId, string clientSecret, CancellationToken cancellationToken)
+    private async Task<(string Token, DateTimeOffset Expires)> TokenAsync(string tokenEndpoint, string clientId, string clientSecret, string webId,
+        CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint)
+        for (var attempt = 0; ; attempt++)
         {
-            Content = new FormUrlEncodedContent([new("grant_type", "client_credentials"), new("scope", "webid")]),
-        };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Basic",
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(Uri.EscapeDataString(clientId) + ":" + Uri.EscapeDataString(clientSecret))));
-        request.Headers.Add("DPoP", Proof("POST", tokenEndpoint, null));
-        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var body = await Bounded(response, Options.MaximumDocumentBytes, cancellationToken).ConfigureAwait(false);
-        // Never echo the response: a token endpoint's error may repeat what it was sent.
-        if (!response.IsSuccessStatusCode) throw new InvalidDataException($"The token endpoint refused the client credentials ({(int)response.StatusCode}).");
-        using var json = JsonDocument.Parse(body);
-        var root = json.RootElement;
-        if (!root.TryGetProperty("token_type", out var type) || !string.Equals(type.GetString(), "DPoP", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("The token endpoint did not issue a DPoP-bound token.");
-        var token = root.GetProperty("access_token").GetString() ?? throw new InvalidDataException("The token endpoint issued no token.");
-        var lifetime = root.TryGetProperty("expires_in", out var seconds) && seconds.TryGetInt32(out var s) ? s : 300;
-        return (token, DateTimeOffset.UtcNow.AddSeconds(lifetime));
+            using var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint)
+            {
+                Content = new FormUrlEncodedContent([new("grant_type", "client_credentials"), new("scope", "webid")]),
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Basic",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(Uri.EscapeDataString(clientId) + ":" + Uri.EscapeDataString(clientSecret))));
+            request.Headers.Add("DPoP", Proof("POST", tokenEndpoint, null, Nonce(tokenEndpoint)));
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var body = await Bounded(response, Options.MaximumDocumentBytes, cancellationToken).ConfigureAwait(false);
+            // RFC 9449 §8: a server that wants a nonce says so once; the request is made again with it.
+            if (attempt == 0 && response.StatusCode == HttpStatusCode.BadRequest && RememberNonce(tokenEndpoint, response) && Encoding.UTF8.GetString(body).Contains("use_dpop_nonce", StringComparison.Ordinal))
+                continue;
+            // Never echo the response: a token endpoint's error may repeat what it was sent.
+            if (!response.IsSuccessStatusCode) throw new InvalidDataException($"The token endpoint refused the client credentials ({(int)response.StatusCode}).");
+            RememberNonce(tokenEndpoint, response);
+            using var json = JsonDocument.Parse(body);
+            var root = json.RootElement;
+            if (!root.TryGetProperty("token_type", out var type) || !string.Equals(type.GetString(), "DPoP", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("The token endpoint did not issue a DPoP-bound token.");
+            var token = root.TryGetProperty("access_token", out var accessToken) ? accessToken.GetString() : null;
+            if (string.IsNullOrEmpty(token)) throw new InvalidDataException("The token endpoint issued no token.");
+            // The token must be for the WebID this session claims (FED-review M2): credentials of another account, given with
+            // a reader's WebID, would otherwise make a probe vouch for access that does not hold.
+            if (TokenWebId(token) != webId) throw new InvalidDataException($"The token the issuer gave is not for {webId}; the client credentials belong to another WebID.");
+            var lifetime = root.TryGetProperty("expires_in", out var seconds) && seconds.TryGetInt32(out var s) ? s : 300;
+            return (token, DateTimeOffset.UtcNow.AddSeconds(lifetime));
+        }
+    }
+
+    /// <summary>The <c>webid</c> claim of a Solid-OIDC access token (a JWT); null when it is not one or names none.</summary>
+    internal static string? TokenWebId(string token)
+    {
+        var parts = token.Split('.');
+        if (parts.Length != 3 || Base64Url.Decode(parts[1]) is not { } payload) return null;
+        try
+        {
+            using var claims = JsonDocument.Parse(payload);
+            return claims.RootElement.ValueKind == JsonValueKind.Object && claims.RootElement.TryGetProperty("webid", out var webId)
+                && webId.ValueKind == JsonValueKind.String ? webId.GetString() : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     /// <summary>Reads and parses a WebID's profile document (anonymously, as anyone may).</summary>
@@ -151,9 +186,10 @@ internal sealed class SolidSession : IDisposable
     }
 
     /// <summary>Reads an RDF document as Turtle; null when it is not there or not readable by this session.</summary>
-    internal async Task<IReadOnlyList<RdfTriple>?> TurtleAsync(string url, CancellationToken cancellationToken = default)
+    internal async Task<IReadOnlyList<RdfTriple>?> TurtleAsync(string url, bool anonymous = false, CancellationToken cancellationToken = default)
     {
-        var response = await SendAsync(HttpMethod.Get, url, accept: "text/turtle", limit: Options.MaximumDocumentBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var response = await SendAsync(HttpMethod.Get, url, accept: "text/turtle", limit: Options.MaximumDocumentBytes, anonymous: anonymous,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         if (response.Status is HttpStatusCode.NotFound or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized) return null;
         if (!response.IsSuccess) throw new InvalidDataException($"{url} gave {(int)response.Status}.");
         return Turtle.Parse(Text(response), response.Url);
@@ -166,14 +202,15 @@ internal sealed class SolidSession : IDisposable
     }
 
     /// <summary>
-    /// One request: authenticated with a fresh DPoP proof unless anonymous; same-origin redirects only (at most three); the
-    /// body read to at most <paramref name="limit"/> bytes, or refused.
+    /// One request: authenticated with a fresh DPoP proof unless anonymous (or the session is); same-origin redirects only (at
+    /// most three); the server's DPoP nonce honoured once; the body read to at most <paramref name="limit"/> bytes, or refused.
     /// </summary>
     internal async Task<SolidResponse> SendAsync(HttpMethod method, string url, byte[]? body = null, string? contentType = null, string? accept = null,
         long limit = 1 << 20, bool anonymous = false, IReadOnlyDictionary<string, string>? headers = null, CancellationToken cancellationToken = default)
     {
         CheckUrl(url);
         var origin = Origin(url);
+        var nonceRetried = false;
         for (var hop = 0; ; hop++)
         {
             using var request = new HttpRequestMessage(method, url);
@@ -184,13 +221,23 @@ internal sealed class SolidSession : IDisposable
             }
             if (accept is not null) request.Headers.Accept.ParseAdd(accept);
             foreach (var (name, value) in headers ?? new Dictionary<string, string>()) request.Headers.TryAddWithoutValidation(name, value);
-            if (!anonymous && _renew is not null)
+            var authenticated = !anonymous && _renew is not null;
+            if (authenticated)
             {
-                if (_expires - DateTimeOffset.UtcNow < TimeSpan.FromSeconds(30)) (_accessToken, _expires) = await _renew(cancellationToken).ConfigureAwait(false);
+                if (_expires - DateTimeOffset.UtcNow < TimeSpan.FromSeconds(30)) (_accessToken, _expires) = await _renew!(cancellationToken).ConfigureAwait(false);
                 request.Headers.Authorization = new AuthenticationHeaderValue("DPoP", _accessToken);
-                request.Headers.Add("DPoP", Proof(method.Method, url, _accessToken));
+                request.Headers.Add("DPoP", Proof(method.Method, url, _accessToken, Nonce(url)));
             }
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            // RFC 9449 §9: a resource server that wants a nonce answers 401 with it; the request is made once more.
+            if (authenticated && !nonceRetried && response.StatusCode == HttpStatusCode.Unauthorized && RememberNonce(url, response)
+                && response.Headers.WwwAuthenticate.Any(h => h.Parameter?.Contains("use_dpop_nonce", StringComparison.Ordinal) == true))
+            {
+                nonceRetried = true;
+                hop--;
+                continue;
+            }
+            if (authenticated) RememberNonce(url, response);
             if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308 && response.Headers.Location is { } location)
             {
                 var next = Iris.Resolve(url, location.OriginalString);
@@ -205,6 +252,15 @@ internal sealed class SolidSession : IDisposable
             var bytes = method == HttpMethod.Head ? [] : await Bounded(response, limit, cancellationToken).ConfigureAwait(false);
             return new SolidResponse(response.StatusCode, url, headerValues, bytes);
         }
+    }
+
+    private string? Nonce(string url) => _nonces.TryGetValue(Origin(url), out var nonce) ? nonce : null;
+
+    private bool RememberNonce(string url, HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("DPoP-Nonce", out var values) || values.FirstOrDefault() is not { Length: > 0 and <= 512 } nonce) return false;
+        _nonces[Origin(url)] = nonce;
+        return true;
     }
 
     private static async Task<byte[]> Bounded(HttpResponseMessage response, long limit, CancellationToken cancellationToken)
@@ -224,7 +280,7 @@ internal sealed class SolidSession : IDisposable
     }
 
     /// <summary>A DPoP proof (RFC 9449): ES256 over a header naming this session's key and the request's method and URL.</summary>
-    private string Proof(string method, string url, string? accessToken)
+    internal string Proof(string method, string url, string? accessToken, string? nonce = null)
     {
         var htu = url.Split('#')[0].Split('?')[0];
         var header = $"{{\"alg\":\"ES256\",\"jwk\":{_jwk},\"typ\":\"dpop+jwt\"}}";
@@ -232,7 +288,9 @@ internal sealed class SolidSession : IDisposable
         if (accessToken is not null) claims.Append("\"ath\":\"").Append(Base64Url.Encode(SHA256.HashData(Encoding.ASCII.GetBytes(accessToken)))).Append("\",");
         claims.Append("\"htm\":\"").Append(method).Append("\",\"htu\":").Append(JsonSerializer.Serialize(htu))
             .Append(",\"iat\":").Append(DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture))
-            .Append(",\"jti\":\"").Append(Guid.NewGuid().ToString("N")).Append("\"}");
+            .Append(",\"jti\":\"").Append(Guid.NewGuid().ToString("N")).Append('"');
+        if (nonce is not null) claims.Append(",\"nonce\":").Append(JsonSerializer.Serialize(nonce));
+        claims.Append('}');
         var signing = Base64Url.Encode(Encoding.UTF8.GetBytes(header)) + "." + Base64Url.Encode(Encoding.UTF8.GetBytes(claims.ToString()));
         var signature = _dpopKey.SignData(Encoding.ASCII.GetBytes(signing), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
         return signing + "." + Base64Url.Encode(signature);
@@ -255,6 +313,6 @@ internal sealed class SolidSession : IDisposable
     public void Dispose()
     {
         _dpopKey.Dispose();
-        if (_ownsHttp) _http.Dispose();
+        _http.Dispose();
     }
 }

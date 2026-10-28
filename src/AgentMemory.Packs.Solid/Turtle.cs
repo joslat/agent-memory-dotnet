@@ -54,7 +54,7 @@ internal sealed class Turtle
             if (_at >= _text.Length) return;
             if (Peek('@')) { Directive(); continue; }
             if (Keyword("PREFIX")) { PrefixBody(sparql: true); continue; }
-            if (Keyword("BASE")) { _base = Resolve(IriRef()); continue; }
+            if (Keyword("BASE")) { Skip(); _base = Resolve(IriRef()); continue; }
             Triples(0);
             Skip();
             Expect('.');
@@ -200,6 +200,7 @@ internal sealed class Turtle
     private RdfTerm Literal()
     {
         var value = String();
+        Skip(); // a language tag or a datatype may follow after white space
         if (Peek('@'))
         {
             _at++;
@@ -264,7 +265,7 @@ internal sealed class Turtle
     private string Code(int digits)
     {
         if (_at + digits > _text.Length || !int.TryParse(_text.AsSpan(_at, digits), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var code)
-            || code > 0x10FFFF || code is >= 0xD800 and <= 0xDFFF)
+            || code < 0 || code > 0x10FFFF || code is >= 0xD800 and <= 0xDFFF)
             throw Fail("a malformed \\u or \\U escape");
         _at += digits;
         return char.ConvertFromUtf32(code);
@@ -308,6 +309,7 @@ internal sealed class Turtle
         if (!_prefixes.TryGetValue(prefix, out var ns)) throw Fail($"the undeclared prefix '{prefix}:'");
         _at++;
         var local = new StringBuilder();
+        var trailingDots = 0; // unescaped dots at the end so far: an escaped one (\.) belongs to the name
         while (_at < _text.Length)
         {
             var c = _text[_at];
@@ -316,18 +318,21 @@ internal sealed class Turtle
                 if (_at + 1 >= _text.Length || "_~.-!$&'()*+,;=/?#@%".IndexOf(_text[_at + 1], StringComparison.Ordinal) < 0) throw Fail("a malformed escape in a local name");
                 local.Append(_text[_at + 1]);
                 _at += 2;
+                trailingDots = 0;
             }
             else if (c == '%')
             {
                 if (_at + 2 >= _text.Length || !char.IsAsciiHexDigit(_text[_at + 1]) || !char.IsAsciiHexDigit(_text[_at + 2])) throw Fail("a malformed percent escape");
                 local.Append(_text, _at, 3);
                 _at += 3;
+                trailingDots = 0;
             }
-            else if (IsNameChar(c) || c == ':' || c == '.') { local.Append(c); _at++; }
+            else if (IsNameChar(c) || c == ':' || c == '.') { local.Append(c); _at++; trailingDots = c == '.' ? trailingDots + 1 : 0; }
             else break;
         }
-        // A local name never ends with '.': that dot ends the statement.
-        while (local.Length > 0 && local[^1] == '.' && (local.Length < 2 || local[^2] != '\\')) { local.Length--; _at--; }
+        // A local name never ends with an unescaped '.': that dot ends the statement.
+        local.Length -= trailingDots;
+        _at -= trailingDots;
         return ns + local;
     }
 

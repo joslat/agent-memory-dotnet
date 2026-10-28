@@ -236,8 +236,15 @@ public sealed class FederationTests
 
     private static PublicationReceipt Receipt(Placement p, IReadOnlyList<string>? audience = null, string access = "wac", string location = Location,
         byte[]? archive = null, DateTimeOffset? at = null, bool everyone = false) =>
-        new(p.Pack.Id, p.Pack.Version, p.Pack.Digest, location, FilesList.Hex(archive ?? p.Archive), everyone ? null : audience ?? [Buyer], access,
-            [PublicationReceipt.Anonymous, Stranger], [Buyer], at ?? SamplePack.SignedAt.AddMinutes(1));
+        Placed(p, everyone ? null : audience ?? [Buyer], access, location, archive, at);
+
+    // The probe record a real publication would sign: anonymous refused unless public, the stranger refused unless in the
+    // audience, the buyer read the bytes back.
+    private static PublicationReceipt Placed(Placement p, IReadOnlyList<string>? audience, string access = "wac", string location = Location,
+        byte[]? archive = null, DateTimeOffset? at = null) =>
+        new(p.Pack.Id, p.Pack.Version, p.Pack.Digest, location, FilesList.Hex(archive ?? p.Archive), audience, access,
+            audience is null ? [] : audience.Contains(Stranger) ? [PublicationReceipt.Anonymous] : [PublicationReceipt.Anonymous, Stranger],
+            audience is null || audience.Contains(Buyer) ? [Buyer] : [], at ?? SamplePack.SignedAt.AddMinutes(1));
 
     private static byte[] Sign(PublicationReceipt receipt, PackKey key)
     {
@@ -254,9 +261,10 @@ public sealed class FederationTests
         var p = Place();
         var envelope = Sign(Receipt(p), p.Sample.Key);
 
-        var (receipt, problems) = PublicationReceipt.Verify(envelope, p.Pack, p.Archive, Location, p.Policy, SamplePack.Now);
+        var (receipt, signedBy, problems) = PublicationReceipt.Verify(envelope, p.Pack, p.Archive, Location, p.Policy, SamplePack.Now);
 
         problems.Should().BeEmpty();
+        signedBy.Should().Be(p.Sample.Key.KeyId, "a fetch re-checks the receipt's key in the publisher's profile too");
         receipt!.Location.Should().Be(Location);
         receipt.Audience.Should().Equal(Buyer);
         receipt.Denied.Should().Equal(PublicationReceipt.Anonymous, Stranger);
@@ -397,5 +405,75 @@ public sealed class FederationTests
         var changed = Encoding.UTF8.GetBytes(statement.Replace("\"predicate\":{", "\"predicate\":{" + insert, StringComparison.Ordinal));
 
         PublicationReceipt.Read(changed).Problem.Should().Contain(why);
+    }
+
+    [Theory]
+    [InlineData(150, true)]
+    [InlineData(151, false)]
+    public void A_purpose_counts_UTF16_units_as_both_verifiers_do(int emoji, bool ok)
+    {
+        var purpose = string.Concat(Enumerable.Repeat("\U0001F600", emoji));
+
+        Parse(Extension("\"public\"", extra: ",\"purpose\":\"" + purpose + "\"")).Problem.Should().Be(ok ? null : "The federation purpose is text of 1 to 300 characters.");
+    }
+
+    [Fact]
+    public void A_receipt_whose_probe_record_disagrees_with_its_placement_is_never_signed()
+    {
+        var p = Place();
+        PublicationReceipt Record(IReadOnlyList<string>? audience, IReadOnlyList<string> denied, IReadOnlyList<string> allowed) =>
+            new(p.Pack.Id, p.Pack.Version, p.Pack.Digest, Location, FilesList.Hex(p.Archive), audience, audience is null ? "public" : "wac", denied, allowed, SamplePack.SignedAt);
+
+        foreach (var (receipt, why) in new[]
+        {
+            (Record([Buyer], [Stranger], [Buyer]), "anonymous was refused"),
+            (Record([Buyer], [PublicationReceipt.Anonymous], [Stranger]), "outside its audience as allowed"),
+            (Record([Buyer], [PublicationReceipt.Anonymous, Buyer], []), "in its audience as refused"),
+            (Record(null, [PublicationReceipt.Anonymous], []), "public receipt records that anonymous was refused"),
+            (Record(["not a webid"], [PublicationReceipt.Anonymous], []), "not a WebID"),
+        })
+            FluentActions.Invoking(() => Sign(receipt, p.Sample.Key)).Should().Throw<InvalidDataException>().WithMessage($"*{why}*");
+    }
+
+    private static Dictionary<string, byte[]> FederatedSet(SamplePack sample, string memberAudience, bool memberFederated = true, PackKey? memberKey = null)
+    {
+        var member = new SamplePack("io.example.member", "1.0.0");
+        var memberSource = member.Source();
+        if (memberFederated)
+            memberSource["pack.json"] = SamplePack.Utf8($$"""{"format":"agentmemory.pack/1.2","id":"io.example.member","version":"1.0.0","kind":"knowledge","sdk":"[0.1,0.2)","tier":"open","licence":"MIT"{{Extension(memberAudience)}}}""");
+        var (memberFiles, _) = PackBuilder.Build(memberSource);
+        PackBuilder.Sign(memberFiles, (memberKey ?? sample.Key).PrivateKeyPem, "publisher", SamplePack.SignedAt);
+        var set = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["pack.json"] = SamplePack.Utf8($$"""{"format":"agentmemory.pack/1.2","id":"io.example.bundle","version":"1.0.0","kind":"set","contains":["io.example.member"]{{Extension($"[\"{Buyer}\"]")}}}"""),
+        };
+        foreach (var (path, bytes) in memberFiles) set["packs/io.example.member/" + path] = bytes;
+        var (files, _) = PackBuilder.Build(set);
+        PackBuilder.Sign(files, sample.Key.PrivateKeyPem, "publisher", SamplePack.SignedAt);
+        return files;
+    }
+
+    [Fact]
+    public void A_federated_sets_members_are_federated_by_the_same_publisher_for_no_wider_an_audience()
+    {
+        var sample = new SamplePack();
+        var policy = Policy(sample);
+        IReadOnlyList<string> Problems(Dictionary<string, byte[]> files) => PackVerifier.VerifyWhole(new PackContent(files, "set"), policy, SamplePack.Now).Problems;
+
+        Problems(FederatedSet(sample, $"[\"{Buyer}\"]")).Should().BeEmpty();
+        Problems(FederatedSet(sample, $"[\"{Buyer}\"]", memberFederated: false)).Should().ContainSingle(x => x.Contains("not federated itself"));
+        Problems(FederatedSet(sample, $"[\"{Buyer}\",\"{Stranger}\"]")).Should().ContainSingle(x => x.Contains("wider audience than its set"));
+    }
+
+    [Fact]
+    public void A_set_is_verified_with_every_member_so_a_receipt_never_vouches_for_an_untrusted_member()
+    {
+        var sample = new SamplePack();
+        var files = FederatedSet(sample, $"[\"{Buyer}\"]", memberKey: PackKey.Create());
+        var policy = Policy(sample);
+
+        PackVerifier.Verify(new PackContent(files, "set"), policy, SamplePack.Now).IsVerified.Should().BeTrue("the outer signature alone holds");
+        PackVerifier.VerifyWhole(new PackContent(files, "set"), policy, SamplePack.Now).Problems
+            .Should().ContainSingle(x => x.StartsWith("packs/io.example.member/", StringComparison.Ordinal) && x.Contains("No valid publisher signature"));
     }
 }

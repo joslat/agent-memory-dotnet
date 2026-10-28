@@ -53,7 +53,6 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
             },
             ["publishedAt"] = PublishedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
         };
-        if (ShapeProblem(this) is { } problem) throw new InvalidDataException(problem);
         var statement = new JsonObject
         {
             ["_type"] = Dsse.StatementType,
@@ -62,6 +61,8 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
             ["predicate"] = predicate,
         };
         var payload = Jcs.Canonical(statement);
+        // What is signed is read back by the reader's own rules first: a receipt nobody can verify is never signed (FED-review).
+        if (Read(payload).Problem is { } problem) throw new InvalidDataException(problem);
         var signature = signer.Sign(Dsse.Pae(Dsse.PayloadType, payload));
         return Jcs.Canonical(new JsonObject
         {
@@ -74,25 +75,26 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
     /// <summary>
     /// Verifies a receipt for <paramref name="pack"/>, fetched from <paramref name="fetchedFrom"/> as <paramref name="archive"/>:
     /// a valid signature by a key the host trusts as publisher for the pack's id and binds to the pack's publisher WebID; the
-    /// pack's digest; that URL and those bytes; an audience within the pack's; and this host inside it.
+    /// pack's digest; that URL and those bytes; an audience within the pack's; and this host inside it. Returns the key that
+    /// signed it too, so a fetch can re-check that key in the publisher's profile as it does the pack's (FED-review M1).
     /// </summary>
-    internal static (PublicationReceipt? Receipt, IReadOnlyList<string> Problems) Verify(ReadOnlySpan<byte> envelopeBytes, VerifiedPack pack,
+    internal static (PublicationReceipt? Receipt, string? SignedBy, IReadOnlyList<string> Problems) Verify(ReadOnlySpan<byte> envelopeBytes, VerifiedPack pack,
         ReadOnlySpan<byte> archive, string fetchedFrom, TrustPolicy policy, DateTimeOffset now)
     {
         var problems = new List<string>();
-        if (pack.Manifest.Federation is not { } federation) return (null, ["A publication receipt is for a federated pack; this pack names no publisher or audience."]);
-        if (envelopeBytes.Length > Dsse.MaximumEnvelopeBytes) return (null, [$"The receipt is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB."]);
-        if (PackJson.Check(envelopeBytes) is { } malformed) return (null, [$"The receipt {malformed}."]);
+        if (pack.Manifest.Federation is not { } federation) return (null, null, ["A publication receipt is for a federated pack; this pack names no publisher or audience."]);
+        if (envelopeBytes.Length > Dsse.MaximumEnvelopeBytes) return (null, null, [$"The receipt is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB."]);
+        if (PackJson.Check(envelopeBytes) is { } malformed) return (null, null, [$"The receipt {malformed}."]);
         using var document = JsonDocument.Parse(envelopeBytes.ToArray());
         var envelope = document.RootElement;
         if (envelope.ValueKind != JsonValueKind.Object || envelope.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures"))
             || Str(envelope, "payloadType") != Dsse.PayloadType || Str(envelope, "payload") is not { } payloadText
             || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array
             || signatures.GetArrayLength() is 0 or > Dsse.MaximumSignatures)
-            return (null, ["The receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures."]);
-        if (Dsse.FromBase64(payloadText) is not { } payload) return (null, ["The receipt's payload is not base64."]);
+            return (null, null, ["The receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures."]);
+        if (Dsse.FromBase64(payloadText) is not { } payload) return (null, null, ["The receipt's payload is not base64."]);
         var (receipt, readProblem) = Read(payload);
-        if (receipt is null) return (null, [readProblem!]);
+        if (receipt is null) return (null, null, [readProblem!]);
 
         if (receipt.PackDigest != pack.Digest) problems.Add($"The receipt is for {Dsse.Short(receipt.PackDigest[7..])}…, not this pack ({Dsse.Short(pack.Digest[7..])}…).");
         if (receipt.Id != pack.Id || receipt.Version != pack.Version) problems.Add($"The receipt names {receipt.Id} {receipt.Version}, not {pack.Id} {pack.Version}.");
@@ -106,7 +108,7 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
                 : $"The placement is for {PackFederation.Describe(receipt.Audience)}; this host is {string.Join(", ", policy.HostWebIds)}.");
 
         var hash = SHA256.HashData(Dsse.Pae(Dsse.PayloadType, payload));
-        var signed = false;
+        string? signedBy = null;
         var signatureProblems = new List<string>();
         foreach (var entry in signatures.EnumerateArray())
         {
@@ -119,10 +121,10 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
             if (!ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence)) { signatureProblems.Add($"The receipt's signature by {Dsse.Short(keyId)} does not verify."); continue; }
             if (policy.Refusal(key, "publisher", pack.Id, receipt.PublishedAt, now) is { } refusal) { signatureProblems.Add("The receipt: " + refusal); continue; }
             if (key.WebId != federation.Publisher) { signatureProblems.Add($"Key {Dsse.Short(keyId)} that signed the receipt is not bound to the pack's publisher {federation.Publisher}."); continue; }
-            signed = true;
+            signedBy ??= keyId;
         }
-        if (!signed) problems.AddRange(signatureProblems.Count > 0 ? signatureProblems : ["The receipt carries no signature."]);
-        return problems.Count > 0 ? (null, problems) : (receipt, []);
+        if (signedBy is null) problems.AddRange(signatureProblems.Count > 0 ? signatureProblems : ["The receipt carries no signature."]);
+        return problems.Count > 0 ? (null, null, problems) : (receipt, signedBy, []);
     }
 
     /// <summary>Reads the statement, strictly: exactly the fields this format defines, each of its type.</summary>
@@ -167,6 +169,19 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
     // What signing and reading both require of a receipt's values.
     private static string? ShapeProblem(PublicationReceipt r)
     {
+        if (r.Audience is not null && (r.Audience.Count is 0 or > PackFederation.MaximumAudience || r.Audience.Any(a => !WebId.IsValid(a))
+            || r.Audience.Distinct(StringComparer.Ordinal).Count() != r.Audience.Count))
+            return "The receipt's audience is \"public\" or a list of 1 to 64 distinct WebIDs.";
+        if ((ProbeProblem(r.Denied, allowAnonymous: true) ?? ProbeProblem(r.Allowed, allowAnonymous: false)) is { } probe) return probe;
+        // The probe's record agrees with the placement (FED-review): anonymous is refused a placement for named readers and
+        // admitted to a public one; whoever read the bytes back is in the audience; nobody in the audience was refused.
+        if (r.Audience is not null)
+        {
+            if (!r.Denied.Contains(Anonymous)) return "A receipt for named readers records that anonymous was refused.";
+            if (r.Allowed.Any(a => !r.Audience.Contains(a))) return "A receipt records a reader outside its audience as allowed.";
+            if (r.Denied.Any(r.Audience.Contains)) return "A receipt records a reader in its audience as refused.";
+        }
+        else if (r.Denied.Contains(Anonymous)) return "A public receipt records that anonymous was refused.";
         // One grammar for every verifier: the WebID grammar, without a fragment (a resource, not an agent).
         if (!WebId.IsValid(r.Location) || r.Location.Contains('#'))
             return "The receipt's location is not an https URL (http only for localhost) in the WebID grammar, without a fragment.";
@@ -175,6 +190,11 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
         if (!r.PackDigest.StartsWith("sha256:", StringComparison.Ordinal) || r.PackDigest.Length != 71) return "The receipt's pack digest is not sha256:<hex>.";
         return null;
     }
+
+    private static string? ProbeProblem(IReadOnlyList<string> probes, bool allowAnonymous) =>
+        probes.Count > PackFederation.MaximumAudience || probes.Any(p => !(allowAnonymous && p == Anonymous) && !WebId.IsValid(p))
+        || probes.Distinct(StringComparer.Ordinal).Count() != probes.Count
+            ? "The receipt's 'checked' lists at most 64 distinct WebIDs each ('anonymous' may be denied)." : null;
 
     private static IReadOnlyList<string>? Probes(JsonElement check, string name, bool allowAnonymous)
     {

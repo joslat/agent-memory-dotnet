@@ -73,6 +73,11 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             (await anyone.SendAsync(HttpMethod.Get, publication.Archive)).Status.Should().Be(HttpStatusCode.Unauthorized);
         }
         (await stranger.SendAsync(HttpMethod.Get, publication.Archive)).Status.Should().Be(HttpStatusCode.Forbidden);
+        using (var anyone = SolidSession.Anonymous(options))
+            (await anyone.SendAsync(HttpMethod.Get, publication.Container)).Status.Should().Be(HttpStatusCode.Unauthorized, "the pack container's listing is the owner's alone");
+
+        // Another account's credentials, given with the buyer's WebID, do not log in as the buyer: the token names its own WebID.
+        await FluentActions.Awaiting(() => server.LoginAsync("supplier", options, asWebId: buyer.WebId!)).Should().ThrowAsync<InvalidDataException>().WithMessage("*not for*");
 
         // Fetched and verified as the buyer's host, installed through the normal path, imported into Neo4j, and found.
         var folder = Directory.CreateTempSubdirectory("ampack-federated-").FullName;
@@ -104,14 +109,14 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             // 2. A receipt edited in the Pod: its signature no longer holds.
             var envelope = JsonNode.Parse(publication.ReceiptBytes)!.AsObject();
             var statement = JsonNode.Parse(Convert.FromBase64String(envelope["payload"]!.GetValue<string>()))!.AsObject();
-            statement["predicate"]!["checked"]!["allowed"] = new JsonArray(buyer.WebId!, stranger.WebId!);
+            statement["predicate"]!["publishedAt"] = "2026-01-01T00:00:00Z"; // a consistent receipt, only not the one signed
             envelope["payload"] = Convert.ToBase64String(Jcs.Canonical(statement));
             await Put(supplier, publication.Receipt, Jcs.Canonical(envelope));
             await Refused(SolidPacks.FetchAsync(buyer, offered[0], buyerPolicy), "does not verify");
             await Put(supplier, publication.Receipt, publication.ReceiptBytes);
 
             // 3. A copy offered from another place, with the real receipt: the receipt vouches for one URL only.
-            var copy = publication.Container + "copies/martialarts.ampack";
+            var copy = publication.Container + "copies/" + PublicationReceipt.ArchiveNameFor(fetched.Pack.Digest);
             await Put(supplier, copy, archive);
             (await SolidPacks.RestrictAsync(supplier, copy, supplier.WebId!, [buyer.WebId!])).Should().Be(accessModel);
             await Refused(SolidPacks.FetchAsync(buyer, offered[0] with { Archive = copy }, buyerPolicy), "not at " + copy);
@@ -226,8 +231,8 @@ public sealed partial class ModuleRecordWriteIntegrationTests
 
         internal string WebId(string account) => $"{BaseUrl}/{account}/profile/card#me";
 
-        internal Task<SolidSession> LoginAsync(string account, SolidOptions options) =>
-            SolidSession.LoginAsync(WebId(account), _credentials[account].Id, _credentials[account].Secret, options);
+        internal Task<SolidSession> LoginAsync(string account, SolidOptions options, string? asWebId = null) =>
+            SolidSession.LoginAsync(asWebId ?? WebId(account), _credentials[account].Id, _credentials[account].Secret, options);
 
         public async ValueTask DisposeAsync() => await _container.DisposeAsync();
     }

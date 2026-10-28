@@ -91,9 +91,11 @@ internal static partial class Program
           solid bind-key --webid <WebID> --public <pub.pem>
                                  assert a signing key in your own WebID profile (sec:assertionMethod, a P-256 JWK)
           solid publish <pack.ampack> --webid <WebID> --key <...> [--audience <WebID,…>] [--probe-as <WebID>]
-                                 put a federated pack in your Pod for its audience (WAC), probe that anonymous is refused
-                                 (and that --probe-as reads the exact bytes), sign the receipt, update the catalogs and
-                                 the type index
+                [--probe-stranger <WebID>]
+                                 put a federated pack in your Pod for its audience (WAC or ACP, whichever the server
+                                 uses), probe that anonymous is refused (that --probe-as reads the exact bytes, that
+                                 --probe-stranger is refused), sign the receipt, update the catalogs and the type index;
+                                 anything that does not hold withdraws what was placed
           solid discover --from <publisher WebID> [--webid <WebID>]
                                  what a publisher offers you (or anyone): from its profile's type index to its catalogs
           solid fetch --from <publisher WebID> --webid <WebID> --policy <trust.json> --store <folder> [--id <pack id>]
@@ -101,7 +103,8 @@ internal static partial class Program
                                  fetch, re-check the publisher's key in its profile, verify pack and receipt as this host,
                                  install, and log where it came from (<store>/federation.jsonl)
           Solid commands log in with client credentials from AMPACK_SOLID_CLIENT_ID and AMPACK_SOLID_CLIENT_SECRET (a probe
-          identity's from AMPACK_PROBE_CLIENT_ID and AMPACK_PROBE_CLIENT_SECRET); --allow-loopback-http for a local server.
+          identity's from AMPACK_PROBE_CLIENT_ID and AMPACK_PROBE_CLIENT_SECRET, a stranger's from AMPACK_STRANGER_CLIENT_ID and
+          AMPACK_STRANGER_CLIENT_SECRET); the token must name the WebID given; --allow-loopback-http for a local server.
           test [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
                                  load the packs as a host does (every record checked), hold them in memory, and run
                                  each pack's own tests (evals/tests.json): views, searches and walks, offline;
@@ -502,9 +505,10 @@ internal static partial class Program
         if (action == "verify")
         {
             var policy = Policy(o);
-            var verified = PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow);
+            // A set is verified with every member it carries, never on its outer signature alone (FED-review H2).
+            var verified = PackVerifier.VerifyWhole(content, policy, DateTimeOffset.UtcNow);
             if (!verified.IsVerified) return Report(verified.Problems, "");
-            var (receipt, problems) = PublicationReceipt.Verify(File.ReadAllBytes(o.Positional(2, "receipt file")), verified.Pack!, archive, location, policy, DateTimeOffset.UtcNow);
+            var (receipt, _, problems) = PublicationReceipt.Verify(File.ReadAllBytes(o.Positional(2, "receipt file")), verified.Pack!, archive, location, policy, DateTimeOffset.UtcNow);
             if (receipt is null) return Report(problems, "");
             Console.WriteLine($"Verified the placement of {receipt.Id} {receipt.Version} at {receipt.Location}\n  for     {PackFederation.Describe(receipt.Audience)} ({receipt.Access})"
                 + $"\n  probed  denied {string.Join(", ", receipt.Denied)}; allowed {string.Join(", ", receipt.Allowed)}\n  placed  {receipt.PublishedAt:u}");

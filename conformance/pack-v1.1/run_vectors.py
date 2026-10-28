@@ -512,6 +512,17 @@ def main():
     mirror_entry = json.loads(text[text.index("{"):])
     mirror = serialization.load_pem_private_key((work / "keys" / "mirror.key.pem").read_bytes(), password=None)
     federated_policy("trust-federated-buyer-and-mirror.json", more=(dict(mirror_entry, webId="https://mirror.example/profile/card#org"),))
+    # FED-review round 1: receipts signed by a second key of the same publisher, in each state a key can be in.
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "curator", "--role", "curator", "--prefix", "io.example")
+    assert code == 0, text
+    curator_entry = json.loads(text[text.index("{"):])
+    curator = serialization.load_pem_private_key((work / "keys" / "curator.key.pem").read_bytes(), password=None)
+    federated_policy("trust-federated-second-key.json", more=(dict(mirror_entry, webId=pub),))
+    federated_policy("trust-federated-curator.json", more=(dict(curator_entry, webId=pub),))
+    federated_policy("trust-federated-second-key-expired.json", more=(dict(mirror_entry, webId=pub, notAfter="2020-01-01T00:00:00Z"),))
+    revoked_policy = json.loads((OUT / "trust-federated-second-key.json").read_text(encoding="utf-8"))
+    revoked_policy["revoked"] = {"digests": [], "keys": [{"keyId": mirror_entry["keyId"]}]}
+    (OUT / "trust-federated-second-key-revoked.json").write_text(json.dumps(revoked_policy, separators=(",", ":")), encoding="utf-8")
     for name, body in {"trust-federated-host-empty.json": {"keys": [entry], "host": {"webIds": []}},
                        "trust-federated-host-extra.json": {"keys": [entry], "host": {"webIds": [buyer], "name": "buyer"}},
                        "trust-federated-webid-http.json": {"keys": [dict(entry, webId="http://supplier-a.example/p#me")]},
@@ -532,6 +543,28 @@ def main():
     vectors["federated-purpose-300"] = (signed(manifest_with(extensions=federation(purpose="x" * 300))), "trust-federated-buyer.json", "verified")
     two_readers = signed(manifest_with(extensions=federation(audience=(buyer, stranger))))
     vectors["federated-two-readers"] = (two_readers, "trust-federated-buyer.json", "verified")
+    # FED-review H1: the purpose counts UTF-16 units in both verifiers.
+    vectors["federated-purpose-150-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 150))), "trust-federated-buyer.json", "verified")
+    vectors["federated-purpose-151-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 151))), "trust-federated-buyer.json", "refused")
+
+    # FED-review M5 and H2: a federated set's members are federated, by its publisher, for no wider an audience; and every
+    # member verifies.
+    def fed_set(member_ext, member_key=None):
+        member_content = manifest_with(extensions=member_ext) if member_ext else dict(content)
+        mlb = files_list(pid, version, member_content)
+        mpath, menv = sign(mlb, pid, version, member_key or key)
+        set_manifest = {"format": "agentmemory.pack/1.2", "id": "io.example.bundle", "version": "1.0.0", "kind": "set", "contains": [pid],
+                        "extensions": federation()}
+        set_content = {"pack.json": (json.dumps(set_manifest) + chr(10)).encode(),
+                       **{f"packs/{pid}/{name}": data for name, data in {**member_content, py.FILES: mlb, mpath: menv}.items()}}
+        return signed(set_content, pid_="io.example.bundle")
+    federated_set = fed_set(federation())
+    vectors["set-federated-valid"] = (federated_set, "trust-federated-buyer.json", "verified")
+    vectors["set-federated-member-not-federated"] = (fed_set(None), "trust-federated-buyer.json", "refused")
+    vectors["set-federated-member-wider"] = (fed_set(federation(audience=(buyer, stranger))), "trust-federated-buyer.json", "refused")
+    untrusted_member_set = fed_set(federation(), member_key=mirror)
+    vectors["set-federated-member-untrusted"] = (untrusted_member_set, "trust-federated-buyer.json", "refused")
+    public_federated = signed(manifest_with(extensions=federation(audience="public")))
     for name, ext in {"federated-audience-empty": federation(audience=[]),
                       "federated-audience-everyone": federation(audience="everyone"),
                       "federated-audience-http": federation(audience=["http://buyer-b.example/profile/card#agent"]),
@@ -630,6 +663,9 @@ def main():
                         "--denied", "anonymous," + stranger, "--allowed", buyer, "--out", str(work / "fed-dotnet.receipt.json"))
     assert code == 0, text
     two_bytes = write_zip(two_readers)
+    pub_bytes = write_zip(public_federated)
+    set_bytes = write_zip(federated_set)
+    untrusted_set_bytes = write_zip(untrusted_member_set)
     receipts = {
         "receipt-valid-python": (fed_bytes, receipt(fed_bytes), here, "trust-federated-buyer.json", "verified"),
         "receipt-valid-dotnet": (fed_dotnet, (work / "fed-dotnet.receipt.json").read_bytes(), here, "trust-federated-buyer.json", "verified"),
@@ -637,8 +673,23 @@ def main():
         "receipt-other-location": (fed_bytes, receipt(fed_bytes), "https://mirror.example/ampack/handoff.ampack", "trust-federated-buyer.json", "refused"),
         "receipt-other-bytes": (fed_bytes, receipt(fed_bytes, archive_sha="0" * 64), here, "trust-federated-buyer.json", "refused"),
         "receipt-wider-audience": (fed_bytes, receipt(fed_bytes, audience=(buyer, stranger)), here, "trust-federated-buyer.json", "refused"),
-        "receipt-public-placement-of-named-pack": (fed_bytes, receipt(fed_bytes, audience="public", access="public"), here, "trust-federated-buyer.json", "refused"),
-        "receipt-host-outside-placement": (two_bytes, receipt(two_bytes, audience=(stranger,)), here, "trust-federated-buyer.json", "refused"),
+        "receipt-public-placement-of-named-pack": (fed_bytes, receipt(fed_bytes, audience="public", access="public", denied=()), here, "trust-federated-buyer.json", "refused"),
+        "receipt-host-outside-placement": (two_bytes, receipt(two_bytes, audience=(stranger,), allowed=()), here, "trust-federated-buyer.json", "refused"),
+        # FED-review round 1: the probe's record agrees with the placement.
+        "receipt-named-without-anonymous-refused": (fed_bytes, receipt(fed_bytes, denied=()), here, "trust-federated-buyer.json", "refused"),
+        "receipt-allowed-outside-audience": (fed_bytes, receipt(fed_bytes, allowed=(stranger,)), here, "trust-federated-buyer.json", "refused"),
+        "receipt-audience-member-refused": (fed_bytes, receipt(fed_bytes, denied=("anonymous", buyer), allowed=()), here, "trust-federated-buyer.json", "refused"),
+        "receipt-public-valid": (pub_bytes, receipt(pub_bytes, audience="public", access="public", denied=()), here, "trust-federated-buyer.json", "verified"),
+        "receipt-public-anonymous-refused": (pub_bytes, receipt(pub_bytes, audience="public", access="public", denied=("anonymous",)), here, "trust-federated-buyer.json", "refused"),
+        # A second key of the same publisher: live (accepted), curator only, revoked, expired.
+        "receipt-signed-by-second-bound-key": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-second-key.json", "verified"),
+        "receipt-signer-curator-only": (fed_bytes, receipt(fed_bytes, signer=curator), here, "trust-federated-curator.json", "refused"),
+        "receipt-signer-revoked": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-second-key-revoked.json", "refused"),
+        "receipt-signer-expired": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-second-key-expired.json", "refused"),
+        "receipt-subject-other-digest": (fed_bytes, receipt(fed_bytes, subjects=[{"name": py.FILES, "digest": {"sha256": "0" * 64}}]), here, "trust-federated-buyer.json", "refused"),
+        # FED-review H2: a set's receipt holds only when every member verifies.
+        "receipt-set-valid": (set_bytes, receipt(set_bytes), here, "trust-federated-buyer.json", "verified"),
+        "receipt-set-member-untrusted": (untrusted_set_bytes, receipt(untrusted_set_bytes), here, "trust-federated-buyer.json", "refused"),
         "receipt-signer-bound-elsewhere": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-buyer-and-mirror.json", "refused"),
         "receipt-signer-untrusted": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-buyer.json", "refused"),
         "receipt-edited-after-signing": (fed_bytes, receipt(fed_bytes, location="https://mirror.example/ampack/handoff.ampack",

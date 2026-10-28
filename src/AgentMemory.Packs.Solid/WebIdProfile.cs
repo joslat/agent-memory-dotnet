@@ -34,7 +34,9 @@ internal sealed record WebIdProfile(string WebId, IReadOnlyList<string> Issuers,
     internal static WebIdProfile Read(string webId, IReadOnlyList<RdfTriple> triples)
     {
         var me = RdfTerm.Iri(webId);
-        IEnumerable<RdfTerm> Objects(RdfTerm subject, string predicate) => triples.Where(t => t.Subject == subject && t.Predicate == predicate).Select(t => t.Object);
+        // Each subject's triples are found once (FED-review M6: a large profile would otherwise cost a scan per question).
+        var bySubject = triples.ToLookup(t => t.Subject);
+        IEnumerable<RdfTerm> Objects(RdfTerm subject, string predicate) => bySubject[subject].Where(t => t.Predicate == predicate).Select(t => t.Object);
         var issuers = Objects(me, Vocabulary.Solid + "oidcIssuer").Where(o => o.Kind == RdfTermKind.Iri).Select(o => o.Value).Distinct().ToList();
         var storages = Objects(me, Vocabulary.Pim + "storage").Where(o => o.Kind == RdfTermKind.Iri).Select(o => o.Value).Distinct().ToList();
         var typeIndex = Objects(me, Vocabulary.Solid + "publicTypeIndex").Where(o => o.Kind == RdfTermKind.Iri).Select(o => o.Value).FirstOrDefault();

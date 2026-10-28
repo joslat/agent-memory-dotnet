@@ -420,13 +420,22 @@ def verify_any(files, policy, now):
         members.setdefault(member, {})[inner] = data
     if sorted(members) != sorted(manifest.get("contains", [])):
         raise Refused("the set's pack.json names other members than it carries")
+    federation = read_federation(manifest.get("extensions", {}))
     for member, member_files in sorted(members.items()):
         try:
-            inner_id = verify(member_files, policy, now)[0]
+            inner_id, _, _, inner_manifest = verify(member_files, policy, now)
         except Refused as e:
             raise Refused(f"packs/{member}/: {e}")
         if inner_id != member:
             raise Refused(f"the member in packs/{member}/ is {inner_id}")
+        if federation is not None:
+            own = read_federation(inner_manifest.get("extensions", {}))
+            if own is None:
+                raise Refused(f"packs/{member}/: a member of a federated set is not federated itself")
+            if own["publisher"] != federation["publisher"]:
+                raise Refused(f"packs/{member}/: the member names another publisher than its set")
+            if federation["audience"] is not None and (own["audience"] is None or any(a not in federation["audience"] for a in own["audience"])):
+                raise Refused(f"packs/{member}/: the member is published for a wider audience than its set")
     return pid, version, digest
 
 
@@ -713,7 +722,7 @@ def read_federation(extensions):
     if "audience" not in f:
         raise Refused("the 'federation' extension names no audience")
     audience = read_audience(f["audience"], "the federation audience")
-    if "purpose" in f and (not isinstance(f["purpose"], str) or not 1 <= len(f["purpose"]) <= 300):
+    if "purpose" in f and (not isinstance(f["purpose"], str) or not 1 <= len(f["purpose"].encode("utf-16-le", "surrogatepass")) // 2 <= 300):
         raise Refused("the federation purpose is text of 1 to 300 characters")
     return {"publisher": f["publisher"], "audience": audience}
 
@@ -794,6 +803,16 @@ def verify_receipt(envelope_bytes, pid, version, digest, federation, archive, lo
         raise Refused("the receipt's access is wac, acp or public")
     if (pred["access"] == "public") != (placed_for is None):
         raise Refused("a receipt's access is public exactly when its audience is public")
+    denied, allowed = checked["denied"], checked["allowed"]
+    if placed_for is not None:
+        if "anonymous" not in denied:
+            raise Refused("a receipt for named readers records that anonymous was refused")
+        if any(a not in placed_for for a in allowed):
+            raise Refused("a receipt records a reader outside its audience as allowed")
+        if any(d in placed_for for d in denied):
+            raise Refused("a receipt records a reader in its audience as refused")
+    elif "anonymous" in denied:
+        raise Refused("a public receipt records that anonymous was refused")
     # The placement against this pack, this URL, these bytes and this host.
     if "sha256:" + subject[0]["digest"]["sha256"] != digest:
         raise Refused("the receipt is for another pack")
