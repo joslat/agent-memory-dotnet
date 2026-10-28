@@ -156,8 +156,24 @@ public sealed record LoadedPack
     /// family's and its set's, the host's revocation list expiry, and its signing keys' expiry, whichever comes first.
     /// </summary>
     public DateTimeOffset? ValidUntil { get; init; }
+    /// <summary>For a federated pack, who published it, for whom and why, as verified against the host's trust; otherwise null.</summary>
+    public PackPublication? Publication { get; init; }
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
+}
+
+/// <summary>
+/// A federated pack's publication (federated packs §3): the publisher's WebID, the WebIDs it is for (null when public), and
+/// why it is shared. A host loads such a pack only when a key it bound to that WebID signed it and the host is in the audience.
+/// </summary>
+[Experimental("AMEXT001")]
+public sealed record PackPublication(string Publisher, IReadOnlyList<string>? Audience, string? Purpose)
+{
+    /// <summary>Whether everyone may load it.</summary>
+    public bool IsPublic => Audience is null;
+
+    internal static PackPublication? Of(PackFederation? federation) =>
+        federation is null ? null : new PackPublication(federation.Publisher, federation.Audience, federation.Purpose);
 }
 
 /// <summary>A pack that cannot be loaded, with every reason.</summary>
@@ -268,6 +284,7 @@ public static class PackLoader
         {
             Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Kind = pack.Manifest.Kind, Manifest = manifest,
             Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles, ValidUntil = ValidUntil(pack, trust.Policy),
+            Publication = PackPublication.Of(pack.Manifest.Federation),
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
         };

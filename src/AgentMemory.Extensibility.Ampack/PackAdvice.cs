@@ -50,6 +50,10 @@ public static class PackAdvice
                     Add("trial.small", $"Its trial runs {trial.Tasks} tasks: a 95% bound on so few is wide; {FewTasks} or more tell a good pack from chance.");
             }
         }
+        if (pack.Publication is { } publication)
+            Add("federation.placement", publication.IsPublic
+                ? $"It is federated and public, published by {publication.Publisher}: a host fetching it from a Pod takes it only with a publication receipt for that place; a file installed directly claims no placement."
+                : $"It is federated for {publication.Audience!.Count} WebID(s), published by {publication.Publisher}: hosts outside that audience refuse it, and a host fetching it from a Pod takes it only with a publication receipt for that place.");
         if (pack.Kind == "knowledge" && string.IsNullOrWhiteSpace(manifest.Display?.Description))
             Add("display.description", "It has no description: hosts and composers can show only its id.");
         if (manifest.Traversal is { } walk && walk.Anchors.Count == 0)

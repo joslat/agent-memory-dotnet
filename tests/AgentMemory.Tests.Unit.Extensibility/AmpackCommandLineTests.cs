@@ -228,22 +228,17 @@ public sealed class AmpackCommandLineTests : IDisposable
         }.ToJsonString());
         Trust("buyer.json", buyer);
         Trust("stranger.json", stranger);
-        Done("init", "handoff", "--id", "io.supplier-a.handoff");
-        var manifest = JsonNode.Parse(File.ReadAllText(At("handoff", "pack.json")))!.AsObject();
-        manifest["extensions"] = new JsonObject
-        {
-            ["critical"] = new JsonArray("federation"),
-            ["federation"] = new JsonObject
-            {
-                ["format"] = "agentmemory.pack.federation/1", ["publisher"] = publisher, ["audience"] = new JsonArray(buyer), ["purpose"] = "Supply-chain handoff",
-            },
-        };
-        File.WriteAllText(At("handoff", "pack.json"), manifest.ToJsonString());
+        // init writes the federated extension itself, critical, and refuses an audience that is not WebIDs.
+        Ampack("init", "bad", "--id", "io.supplier-a.bad", "--publisher", publisher, "--audience", "not-a-webid").Exit.Should().Be(2);
+        Ampack("init", "bad2", "--id", "io.supplier-a.bad", "--audience", buyer).Exit.Should().Be(2, "an audience without a publisher is a usage error");
+        Done("init", "handoff", "--id", "io.supplier-a.handoff", "--publisher", publisher, "--audience", buyer, "--purpose", "Supply-chain handoff");
+        JsonNode.Parse(File.ReadAllText(At("handoff", "pack.json")))!["extensions"]!["critical"]![0]!.GetValue<string>().Should().Be("federation");
         Done("build", "handoff", "--out", "handoff.ampack", "--key", At("keys", "supplier.key.pem"));
 
         Done("verify", "handoff.ampack", "--policy", "buyer.json").Should().Contain("publisher " + publisher).And.Contain("for     " + buyer);
         Refused("verify", "handoff.ampack", "--policy", "stranger.json").Should().Contain("this host is " + stranger);
         Done("inspect", "handoff.ampack").Should().Contain("Federated: publisher " + publisher);
+        Done("lint", "handoff.ampack", "--policy", "buyer.json").Should().Contain("federated for 1 WebID(s), published by " + publisher);
 
         Done("receipt", "sign", "handoff.ampack", "--location", location, "--key", At("keys", "supplier.key.pem"),
             "--denied", "anonymous," + stranger, "--allowed", buyer, "--out", "handoff.receipt.json").Should().Contain("for     " + buyer + " (wac)");

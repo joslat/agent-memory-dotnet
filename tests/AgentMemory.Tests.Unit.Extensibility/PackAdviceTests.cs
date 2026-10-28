@@ -85,4 +85,42 @@ public sealed class PackAdviceTests
         Rules(pack).Should().BeEmpty();
         Rules(pack, DateTimeOffset.UtcNow.AddDays(380)).Should().Equal("validity.soon");
     }
+
+    [Fact]
+    public void A_federated_pack_carries_who_published_it_and_for_whom_through_loading_inspection_and_advice()
+    {
+        const string publisher = "https://pod.example/supplier/profile/card#me";
+        const string buyer = "https://pod.example/buyer/profile/card#me";
+        var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(Directory.EnumerateFiles(MartialArts, "*", SearchOption.AllDirectories).ToDictionary(
+            f => Path.GetRelativePath(MartialArts, f).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllBytes, StringComparer.Ordinal)), StringComparer.Ordinal);
+        var manifest = JsonNode.Parse(source["pack.json"])!.AsObject();
+        manifest["extensions"] = new JsonObject
+        {
+            ["critical"] = new JsonArray("federation"),
+            ["federation"] = new JsonObject { ["format"] = "agentmemory.pack.federation/1", ["publisher"] = publisher, ["audience"] = new JsonArray(buyer), ["purpose"] = "Study notes" },
+        };
+        source["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
+        var archive = PackAuthoring.Build(source, Key.PrivateKeyPem);
+        var policy = JsonNode.Parse(PackAuthoring.TrustPolicy(Key.PublicKeyPem, "io.agentmemory"))!.AsObject();
+        policy["keys"]![0]!["webId"] = publisher;
+        policy["host"] = new JsonObject { ["webIds"] = new JsonArray(buyer) };
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(policy.ToJsonString()));
+
+        var pack = PackLoader.Load(archive, trust);
+        var inspection = PackInspection.Inspect(archive, trust);
+
+        pack.Publication.Should().Be(new PackPublication(publisher, pack.Publication!.Audience, "Study notes"));
+        pack.Publication.Audience.Should().Equal(buyer);
+        inspection.Loaded.Should().BeTrue();
+        inspection.Publication!.Publisher.Should().Be(publisher);
+        inspection.Checks.Should().Contain(c => c.Name == "federation" && c.Passed);
+        PackAdvice.Of(pack, DateTimeOffset.UtcNow).Should().Contain(a => a.Rule == "federation.placement" && a.Text.Contains("for 1 WebID(s)"));
+
+        // A host outside the audience still sees the claim, unverified, and why it does not load.
+        policy["host"] = new JsonObject { ["webIds"] = new JsonArray("https://pod.example/stranger/profile/card#me") };
+        var stranger = PackInspection.Inspect(archive, PackTrust.Parse(Encoding.UTF8.GetBytes(policy.ToJsonString())));
+        stranger.Loaded.Should().BeFalse();
+        stranger.Publication!.Publisher.Should().Be(publisher);
+        stranger.Problems.Should().Contain(p => p.Contains("this host is https://pod.example/stranger/profile/card#me"));
+    }
 }

@@ -43,6 +43,8 @@ public sealed record PackInspection
     public PackMount? Mount { get; init; }
     /// <summary>The declaration files as text, by path (pack.json, ontology, views, traversal, trial, tests, members, lock).</summary>
     public IReadOnlyDictionary<string, string> Declarations { get; init; } = new Dictionary<string, string>();
+    /// <summary>For a federated pack, the publication its pack.json claims (verified only when <see cref="Loaded"/>); otherwise null.</summary>
+    public PackPublication? Publication { get; init; }
 
     /// <summary>Inspects an <c>.ampack</c> against a host's trust. Never throws for a bad pack: the checks and problems say why.</summary>
     public static PackInspection Inspect(byte[] archive, PackTrust trust)
@@ -54,15 +56,21 @@ public sealed record PackInspection
         catch (InvalidDataException e) { return new PackInspection { Checks = [new("archive", false, [e.Message])], Problems = [e.Message] }; }
         var checks = new List<PackCheck> { new("archive", true, [$"strict ZIP profile; {content.Files.Count} entries"]) };
         var verification = PackVerifier.Verify(content, trust.Policy, DateTimeOffset.UtcNow, explain: step => checks.Add(new(step.Name, step.Passed, step.Lines)));
+        if (verification.Pack is { Manifest.Kind: "set" } && PackVerifier.VerifyWhole(content, trust.Policy, DateTimeOffset.UtcNow) is { IsVerified: false } whole)
+        {
+            checks.Add(new("set members", false, whole.Problems));
+            verification = whole;
+        }
         (string, string, string)? identity = content.Files.TryGetValue(PackPaths.FilesList, out var listBytes) && FilesList.Parse(listBytes).List is { } list
             ? (list.Id, list.Version, FilesList.DigestOf(listBytes)) : null;
-        var kind = content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes) ? PackManifest.Parse(manifestBytes).Manifest?.Kind : null;
+        var parsed = content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes) ? PackManifest.Parse(manifestBytes).Manifest : null;
+        var kind = parsed?.Kind;
         var declarations = content.Files.Where(f => f.Key.EndsWith(".json", StringComparison.Ordinal) && FilesList.IsListed(f.Key)
                 && !f.Key.StartsWith("records/", StringComparison.Ordinal) && !f.Key.StartsWith("packs/", StringComparison.Ordinal))
             .OrderBy(f => f.Key, StringComparer.Ordinal).ToDictionary(f => f.Key, f => Encoding.UTF8.GetString(f.Value), StringComparer.Ordinal);
         var inspection = new PackInspection
         {
-            Identity = identity, Kind = kind, Checks = checks, Declarations = declarations,
+            Identity = identity, Kind = kind, Checks = checks, Declarations = declarations, Publication = PackPublication.Of(parsed?.Federation),
             Signers = verification.Pack?.Signatures.Select(s => $"{s.Role} · key {s.KeyId[..16]} · {s.SignedAt:u}").ToList() ?? [],
         };
         if (!verification.IsVerified) return inspection with { Problems = verification.Problems };

@@ -16,8 +16,9 @@ internal static partial class Program
         ampack <command> [options]
 
           init <folder> --id <reverse.dns.id> [--kind knowledge|definition] [--version 0.1.0]
+               [--publisher <WebID> --audience public|<WebID,…> [--purpose <text>]]
                                  start a pack folder (pack.json, an ontology, a view, .gitattributes, and for a
-                                 knowledge pack one record)
+                                 knowledge pack one record); with --publisher, a federated pack for that audience
           lint <folder|file> [--policy <trust.json>]
                                  check paths, the JSON profile, pack.json and, once built, the files list; with
                                  --policy, load a .ampack as a host does and give advice on what a host will do with
@@ -178,6 +179,20 @@ internal static partial class Program
             ["display"] = new JsonObject { ["title"] = prefix, ["description"] = "Describe what this pack knows." },
             ["tier"] = "open", ["licence"] = "CC-BY-4.0", ["protection"] = "open", ["code"] = "E0",
         };
+        // --publisher: a federated pack (federated packs §3), its extension written critical; it is checked as a host reads it.
+        if (o.Value("publisher") is { } publisher)
+        {
+            var audience = o.Value("audience") ?? throw new UsageException("--publisher needs --audience: public, or the WebIDs it is for (comma-separated).");
+            var federation = new JsonObject
+            {
+                ["format"] = PackFederation.Format, ["publisher"] = publisher,
+                ["audience"] = audience == PackFederation.Public ? PackFederation.Public : new JsonArray([.. List(audience).Select(a => (JsonNode)a)]),
+            };
+            if (o.Value("purpose") is { } purpose) federation["purpose"] = purpose;
+            manifest["extensions"] = new JsonObject { ["critical"] = new JsonArray((JsonNode)PackFederation.ExtensionName), [PackFederation.ExtensionName] = federation };
+            if (PackManifest.Parse(System.Text.Encoding.UTF8.GetBytes(manifest.ToJsonString())).Problem is { } problem) throw new UsageException(problem);
+        }
+        else if (o.Value("audience") is not null || o.Value("purpose") is not null) throw new UsageException("--audience and --purpose belong to a federated pack: give --publisher too.");
         static JsonObject Text(int maxLength) => new() { ["type"] = "string", ["required"] = true, ["maxLength"] = maxLength };
         var ontology = new JsonObject
         {

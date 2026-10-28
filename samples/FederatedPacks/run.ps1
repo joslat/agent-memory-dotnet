@@ -68,13 +68,10 @@ try {
     Ampack trust webid $webId.supplier --key $keyId --policy stranger-trust.json --prefix io.supplier --host-webid $webId.stranger --allow-loopback-http | Out-Null
 
     Step 'The supplier writes a knowledge pack for the buyer alone, and builds and signs it'
-    Ampack init handoff --id io.supplier.handoff --version 1.0.0 | Out-Null
+    # --publisher and --audience make it federated: who publishes it and who it is for, inside what is signed.
+    Ampack init handoff --id io.supplier.handoff --version 1.0.0 --publisher $webId.supplier --audience $webId.buyer --purpose 'Supply-chain handoff for PO-123' | Out-Null
     $pack = Get-Content handoff/pack.json -Raw | ConvertFrom-Json -AsHashtable
     $pack.display = @{ title = 'PO-123 handoff'; description = 'What the buyer needs to know about purchase order PO-123.' }
-    $pack.extensions = @{
-        critical = @('federation')
-        federation = @{ format = 'agentmemory.pack.federation/1'; publisher = $webId.supplier; audience = @($webId.buyer); purpose = 'Supply-chain handoff for PO-123' }
-    }
     [IO.File]::WriteAllText((Join-Path $work 'handoff/pack.json'), ($pack | ConvertTo-Json -Depth 10 -Compress))
     $notes = @(
         @{ type = 'HandoffNote'; key = 'po-123-delivery'; properties = @{ title = 'PO-123 delivery'; text = 'Confirmed for 15 November 2026 at the Basel dock, gate 4.' } },
