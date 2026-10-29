@@ -106,7 +106,8 @@ public sealed class TrialGateTests : IDisposable
     {
         // The code map's trial on this repository, each task at its commit's parent (round 3 re-run): offered and right per task.
         // Precision 0.351 against grep's 0.191. The floor over tasks put grep's upper limit at 0.319 and the bound at 0.029; at the
-        // effective size it is 0.066, the paired bound's value, and the declared precisionLift of 0.05 is met.
+        // effective size, with leave-one-task-out variances and Student's t on 38 degrees of freedom (review 4), it is 0.063, the
+        // paired bound's value, and the declared precisionLift of 0.05 is met.
         static PackTrialMeasurement Arm(string counts)
         {
             var tasks = counts.Split(' ').Select(c => new PackTrialTask(c[0] - '0', c[1] - '0')).ToList();
@@ -115,16 +116,18 @@ public sealed class TrialGateTests : IDisposable
         var with = Arm("30 31 20 21 32 22 21 31 22 20 11 31 31 21 20 10 00 00 20 21 00 20 22 21 11 11 10 21 30 30 30 10 00 21 11 11 30 20 31 11");
         var grep = Arm("30 31 31 31 31 31 30 30 32 30 31 31 31 31 30 30 30 30 30 30 30 30 30 31 31 31 30 21 31 30 31 30 00 31 30 30 31 30 32 21");
 
-        PackTrialGate.PrecisionDifferenceLower(with, grep, 1.6448536269514722).Should().BeApproximately(0.066, 0.001);
+        PackTrialGate.PrecisionDifferenceLower(with, grep, 1.6448536269514722).Should().BeApproximately(0.0633, 0.0005);
     }
 
     [Fact]
     public void Review3_the_difference_bound_never_collapses_where_no_design_effect_can_be_measured()
     {
-        // All right in one task, or on every task, against an arm that offered nothing: the arm's own bound over tasks, as before.
+        // All right in one task, or on every task, against an arm that offered nothing: the arm's own bound over tasks, the one its
+        // precision target uses, at Student's t (three tasks: two degrees of freedom).
         PackTrialGate.PrecisionDifferenceLower(Measured([new(3, 3)]), Measured([new(0, 0)]), 1.6448536269514722).Should().BeLessThan(0.3);
         PackTrialGate.PrecisionDifferenceLower(Measured([new(1, 1), new(1, 1), new(1, 1)]), Measured([new(0, 0), new(0, 0), new(0, 0)]), 1.6448536269514722)
-            .Should().BeApproximately(0.526, 0.001);
+            .Should().BeApproximately(PackTrialGate.ClusteredWilsonLower([new(1, 1), new(1, 1), new(1, 1)], 1.6448536269514722), 1e-12)
+            .And.BeApproximately(0.260, 0.001);
         var same = Measured([new(2, 1), new(3, 2), new(1, 0), new(2, 1), new(3, 2), new(1, 0)]);
         PackTrialGate.PrecisionDifferenceLower(same, same, 1.6448536269514722).Should().BeApproximately(0, 1e-9);
     }

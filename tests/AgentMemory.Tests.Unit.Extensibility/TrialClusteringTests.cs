@@ -51,9 +51,10 @@ public sealed class TrialClusteringTests
         }
         PackTrialGate.ClusteredWilsonLower([], Z95).Should().Be(0);
         PackTrialGate.ClusteredWilsonLower([new(5, 5)], Z95).Should().BeLessThan(0.3, "one task is one observation");
-        // The red team's case: two tasks, 201 files, all correct. No spread to measure: each task is one observation.
+        // The red team's case: two tasks, 201 files, all correct. No spread to measure: each task is one observation, and two
+        // observations have one degree of freedom (review 4: Student's t, counted over the tasks that offered anything).
         var allRight = Enumerable.Range(0, 40).Select(i => i switch { 0 => new PackTrialTask(200, 200), 1 => new PackTrialTask(1, 1), _ => new PackTrialTask(0, 0) }).ToList();
-        PackTrialGate.ClusteredWilsonLower(allRight, Z95).Should().BeApproximately(PackTrialGate.WilsonLower(2, 2, Z95), 1e-9).And.BeLessThan(0.6);
+        PackTrialGate.ClusteredWilsonLower(allRight, Z95).Should().BeApproximately(PackTrialGate.WilsonLower(2, 2, PackTrialGate.StudentT(Z95, 1)), 1e-9).And.BeLessThan(0.1);
     }
 
     [Fact]

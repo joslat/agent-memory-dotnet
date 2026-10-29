@@ -39,8 +39,9 @@ internal static class PackReader
         var chunk = new byte[81920];
         while ((read = stream.Read(chunk, 0, chunk.Length)) > 0)
         {
+            // Checked before the write (review 4: a device that never ends grew the buffer past the limit first).
+            if (buffer.Length + read > limits.MaxArchiveBytes) throw new InvalidDataException($"The archive is larger than {limits.MaxArchiveBytes} bytes.");
             buffer.Write(chunk, 0, read);
-            if (buffer.Length > limits.MaxArchiveBytes) throw new InvalidDataException($"The archive is larger than {limits.MaxArchiveBytes} bytes.");
         }
         return buffer.ToArray();
     }

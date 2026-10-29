@@ -99,7 +99,8 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
         if (receipt.PackDigest != pack.Digest) problems.Add($"The receipt is for {Dsse.Short(receipt.PackDigest[7..])}…, not this pack ({Dsse.Short(pack.Digest[7..])}…).");
         if (receipt.Id != pack.Id || receipt.Version != pack.Version) problems.Add($"The receipt names {receipt.Id} {receipt.Version}, not {pack.Id} {pack.Version}.");
         if (receipt.Location != fetchedFrom) problems.Add($"The receipt places the pack at {receipt.Location}, not at {fetchedFrom}, where it was fetched.");
-        if (receipt.ArchiveSha256 != FilesList.Hex(archive.ToArray())) problems.Add("The archive fetched is not the archive the receipt names (its SHA-256 differs).");
+        // Hashed in place (review 4: a copy of up to 512 MiB was made just to hash it).
+        if (receipt.ArchiveSha256 != FilesList.Hex(archive)) problems.Add("The archive fetched is not the archive the receipt names (its SHA-256 differs).");
         if (!federation.IsPublic && (receipt.Audience is null || receipt.Audience.Any(a => !federation.Audience!.Contains(a))))
             problems.Add("The receipt grants a wider audience than the pack allows: a placement can only narrow it.");
         if (receipt.Audience is not null && !receipt.Audience.Any(policy.HostWebIds.Contains))

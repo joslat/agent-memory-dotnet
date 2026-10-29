@@ -141,6 +141,12 @@ public static class PackCertificates
         if (decision.ManifestDigest != PackTrialGate.DigestOf(pack.Manifest)) problems.Add("The decision is for other declarations than this pack's.");
         if (decision.Basis is not null) problems.Add("The decision was itself made from a certificate: only a trial can be certified.");
         if (decision.With is not { } with) problems.Add("The decision carries no measurement.");
+        // Only a trial that measured each task as it stood before its change (review 4, L-4: the tool refused head, this did not):
+        // a head trial sees the tests the changes created, and a record that does not say may have.
+        if (decision.History != "parent")
+            problems.Add(decision.History == "head"
+                ? "The decision measured past changes against the repository as it is now (head), which sees the tests they created: trial with parent history before certifying."
+                : "The decision does not say how its tasks were drawn: trial with parent history before certifying.");
         // The gate's decision for the declared trial checks every declared target at the declared value; a certificate made from
         // anything else would misstate what was measured.
         foreach (var (target, value) in Declared(trial))

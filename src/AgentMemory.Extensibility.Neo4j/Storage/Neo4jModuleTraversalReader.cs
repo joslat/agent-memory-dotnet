@@ -140,7 +140,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 {
                     Status = ModuleReadStatus.Succeeded,
                     Edges = edges.AsReadOnly(),
-                    Errors = [.. past.Values.Select(h => $"{h.Key} has {h.Links} {relation.Name} links, more than {ModuleExpandQuery.MaximumLinks}: not expanded.")],
+                    Errors = [.. past.Values.Select(h => $"{h.Key} has more than {ModuleExpandQuery.MaximumLinks} {relation.Name} links: not expanded.")],
                 };
             }, cancellationToken).ConfigureAwait(false);
         }

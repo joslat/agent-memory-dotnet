@@ -14,8 +14,9 @@ one of them, or a gap in the spec. Two kinds of mutant, from a seeded generator 
   dots, depth 8 and 9, long segments), signed again;
 - envelope mutants: the signature envelope's JSON edited (fields added, key ids and signatures of odd shapes, spacing);
 - policy mutants: the trust policy edited (unknown fields at each level, key PEMs that are private or doubled or CRLF, odd
-  prefixes and times), the pack unchanged; and (review 3) the key's own bytes: a compressed or hybrid point, stray bits in
-  the last base64 character, a base64 character changed, lines re-wrapped within and past 76 characters.
+  prefixes and times), the pack unchanged; and (review 3, 4) a second key's own bytes, its id recomputed: a compressed or
+  hybrid point, stray bits in the last base64 character, a base64 character changed, lines re-wrapped (7 to 9 characters at
+  the line-count limit, 64, 76, 77, mixed widths, CRLF), a point off the curve, a coordinate not reduced modulo p.
 
 usage: python differential.py <path to Ampack executable> [<out folder>] [--count N] [--seed S]
 Run run_vectors.py first: it writes the valid pack this starts from. Writes differential-results.json; exits 1 on any
@@ -137,15 +138,21 @@ SPKI_33 = bytes.fromhex("3039301306072a8648ce3d020106082a8648ce3d030107032200")
 B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 
+P256 = 2**256 - 2**224 + 2**192 + 2**96 - 1
+B256 = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
+
+
 def mutate_key_body(pem, rng):
-    # The key's bytes and their base64, inside an otherwise well-formed block (review 3, H1: the policy mutants never reached
-    # the body, so the two verifiers' readings of a compressed point or stray bits went unseen).
+    """A second key's PEM, its DER (None when the base64 no longer decodes) and the operation (review 3, 4). The bytes and
+    their base64, inside an otherwise well-formed block: a compressed or hybrid point, stray bits in the last character, a
+    character changed, lines re-wrapped (widths 7 to 9 at the line-count limit, 64, 76, 77, mixed, CRLF), a point off the
+    curve, a coordinate not reduced modulo p."""
     lines = pem.strip().split("\n")
     body = "".join(lines[1:-1])
     der = base64.b64decode(body)
     point = der[len(SPKI_65):]
     x, y = point[1:33], point[33:65]
-    op = rng.choice(("compressed", "hybrid", "stray", "char", "wrap"))
+    op = rng.choice(("compressed", "hybrid", "stray", "char", "wrap", "crlf", "off-curve", "not-reduced"))
     if op == "compressed":
         body = base64.b64encode(SPKI_33 + bytes([2 + (y[-1] & 1)]) + x).decode()
     elif op == "hybrid":
@@ -157,8 +164,29 @@ def mutate_key_body(pem, rng):
     elif op == "char":
         i = rng.randrange(len(body.rstrip("=")))
         body = body[:i] + rng.choice(B64.replace(body[i], "")) + body[i + 1:]
-    width = rng.choice((76, 64, 77, 1, 120)) if op == "wrap" else 64
-    return "-----BEGIN PUBLIC KEY-----\n" + "".join(body[i:i + width] + "\n" for i in range(0, len(body), width)) + "-----END PUBLIC KEY-----\n"
+    elif op == "off-curve":
+        flipped = bytearray(y)
+        flipped[-1] ^= 1
+        body = base64.b64encode(SPKI_65 + b"\x04" + x + bytes(flipped)).decode()
+    elif op == "not-reduced":
+        small = next(v for v in range(1, 1000) if pow((v**3 - 3 * v + B256) % P256, (P256 + 1) // 4, P256) ** 2 % P256 == (v**3 - 3 * v + B256) % P256)
+        root = pow((small**3 - 3 * small + B256) % P256, (P256 + 1) // 4, P256)
+        body = base64.b64encode(SPKI_65 + b"\x04" + (small + P256).to_bytes(32, "big") + root.to_bytes(32, "big")).decode()
+    if op == "wrap":
+        widths = rng.choice(((7,), (8,), (9,), (64,), (76,), (77,), (1,), (120,), (50, 76, 64)))
+    else:
+        widths = (64,)
+    pieces, at, k = [], 0, 0
+    while at < len(body):
+        pieces.append(body[at:at + widths[k % len(widths)]])
+        at += widths[k % len(widths)]
+        k += 1
+    end = "\r\n" if op == "crlf" else "\n"
+    try:
+        decoded = base64.b64decode(body, validate=True)
+    except ValueError:
+        decoded = None
+    return "-----BEGIN PUBLIC KEY-----" + end + "".join(piece + end for piece in pieces) + "-----END PUBLIC KEY-----" + end, decoded, op
 
 
 def mutate_policy(policy_doc, rng, private_pem):
@@ -173,7 +201,12 @@ def mutate_policy(policy_doc, rng, private_pem):
         key["publicKey"] = rng.choice((private_pem, key["publicKey"] + key["publicKey"], key["publicKey"].replace("\n", "\r\n"),
                                        key["publicKey"].strip(), " " + key["publicKey"], key["publicKey"].replace("PUBLIC", "public")))
     elif op == "body":
-        key["publicKey"] = mutate_key_body(key["publicKey"], rng)
+        # A second key, its id recomputed, beside the signer's: a policy that one verifier loads and the other refuses then
+        # verifies in one and not the other (review 4: mutating the signer's own key hid that behind its key-id check).
+        pem, der, how = mutate_key_body(key["publicKey"], rng)
+        second = dict(key, publicKey=pem, keyId=hashlib.sha256(der).hexdigest() if der else "0" * 64)
+        doc["keys"].append(second)
+        doc["_op"] = "body:" + how
     elif op == "prefix":
         key["idPrefixes"] = [rng.choice(("io.Example", "io.example.", "io..example", "", "io.example\n", "io", "io.example.notes"))]
     elif op == "time":
@@ -239,7 +272,9 @@ def main():
             archive = kit.write_zip({**valid_files, envelope_name: mutate_envelope(valid_files[envelope_name], rng)})
         else:
             mutant_policy = work / f"policy-{n:04d}.json"
-            mutant_policy.write_text(json.dumps(mutate_policy(policy_doc, rng, private_pem)), encoding="utf-8")
+            mutated = mutate_policy(policy_doc, rng, private_pem)
+            target = mutated.pop("_op", None)
+            mutant_policy.write_text(json.dumps(mutated), encoding="utf-8")
             archive = valid
         path = work / f"mutant-{n:04d}.ampack"
         path.write_bytes(archive)

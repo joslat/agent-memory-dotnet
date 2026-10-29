@@ -101,6 +101,26 @@ def unpadded_pack(der):
     return bytes([0x30, 4 + len(r) + len(s), 0x02, len(r)]) + r + bytes([0x02, len(s)]) + s
 
 
+
+# Edits of a finished DSSE envelope that the one closed shape refuses (review 4): an extra field, an entry with an extra key, an
+# entry without a signature, a key id in upper case.
+SHAPES = ("envelope-extra-field", "entry-extra-key", "entry-without-sig", "keyid-uppercase")
+
+
+def reshaped(envelope_bytes, how):
+    envelope = json.loads(envelope_bytes)
+    entry = envelope["signatures"][0]
+    if how == "envelope-extra-field":
+        envelope["note"] = "x"
+    elif how == "entry-extra-key":
+        entry["x"] = 1
+    elif how == "entry-without-sig":
+        envelope["signatures"].append({"keyid": "a" * 64})
+    else:
+        entry["keyid"] = entry["keyid"].upper()
+    return py.canonical(envelope).encode()
+
+
 def main():
     # Review 1, M14: the Python verifier keeps instants to 100 ns, as .NET does; two lists 100 ns apart are not the same instant.
     assert py.instant("2026-10-29T00:00:00.0000001Z") > py.instant("2026-10-29T00:00:00Z")
@@ -291,6 +311,18 @@ def main():
         ["run-second-revokes-third.json", "run-third-revokes-second.json"])
     vectors["run-the-same-list-twice"] = (dict(base), "trust-two-live-revokers.json", "verified",
         ["run-second-revokes-third.json", "run-second-revokes-third.json"])
+    both = {"format": py.REVOCATIONS_FORMAT, "issuedAt": "2026-10-28T00:00:00Z", "expires": "2099-01-01T00:00:00Z", "digests": [],
+            "keys": sorted([{"keyId": second["keyId"]}, {"keyId": third["keyId"]}], key=lambda k: k["keyId"])}
+    def list_signed_by(document, key_path, key_id):
+        signer_ = serialization.load_pem_private_key(Path(key_path).read_bytes(), None)
+        payload = py.canonical(document).encode()
+        pae_ = f"DSSEv1 {len(py.REVOCATIONS_TYPE)} {py.REVOCATIONS_TYPE} {len(payload)} ".encode() + payload
+        return py.canonical({"payloadType": py.REVOCATIONS_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": key_id, "sig": base64.b64encode(signer_.sign(pae_, ec.ECDSA(hashes.SHA256()))).decode()}]})
+    (OUT / "run-both-revoked-by-second.json").write_text(list_signed_by(both, second_key, second["keyId"]), encoding="utf-8")
+    (OUT / "run-both-revoked-by-third.json").write_text(list_signed_by(both, third_key, third["keyId"]), encoding="utf-8")
+    vectors["run-one-list-signed-by-both-revokers-in-two-envelopes"] = (dict(base), "trust-two-live-revokers.json", "verified",
+        ["run-both-revoked-by-second.json", "run-both-revoked-by-third.json"])
     vectors["run-live-list-revoking-the-pack-beside-others"] = (dict(base), "trust-first-rotated-out.json", "refused",
         ["run-first-revokes-third.json", "run-second-revokes-third.json", "run-second-revokes-the-pack.json"])
     revoke("run-first-revokes-the-successor.json", "--key", first_key, "--expires", "2099-01-01T00:00:00Z", "--keys", second["keyId"])
@@ -737,6 +769,17 @@ def main():
         (OUT / f"trust-key-{name}.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, publicKey=pem)]},
                                                               separators=(",", ":")), encoding="utf-8")
         vectors[f"policy-key-{name}"] = (dict(base), f"trust-key-{name}.json", "refused")
+    p256 = 2**256 - 2**224 + 2**192 + 2**96 - 1
+    b256 = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
+    small_x = next(x for x in range(1, 1000) if pow((x**3 - 3 * x + b256) % p256, (p256 + 1) // 4, p256) ** 2 % p256 == (x**3 - 3 * x + b256) % p256)
+    small_y = pow((small_x**3 - 3 * small_x + b256) % p256, (p256 + 1) // 4, p256)
+    off_curve_y = bytearray(point[32:]); off_curve_y[-1] ^= 1
+    for name, der in {"off-curve": uncompressed[:27] + point[:32] + bytes(off_curve_y),
+                      "x-not-reduced": uncompressed[:27] + (small_x + p256).to_bytes(32, "big") + small_y.to_bytes(32, "big")}.items():
+        second_key = dict(entry, keyId=hashlib.sha256(der).hexdigest(), publicKey=pem_of(der))
+        (OUT / f"trust-second-key-{name}.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, second_key]},
+                                                                      separators=(",", ":")), encoding="utf-8")
+        vectors[f"policy-second-key-{name}"] = (dict(base), f"trust-second-key-{name}.json", "refused")
     vectors["revocations-empty-list-in-two-envelopes"] = (dict(base), "trust-with-revoker.json", "verified",
                                                           ["revocations-none.json", "revocations-none-reencoded.json"])
     (OUT / "revocations-none-reencoded.json").write_text("{ " + (OUT / "revocations-none.json").read_text(encoding="utf-8")[1:], encoding="utf-8")
@@ -745,6 +788,10 @@ def main():
     vectors["revocations-one-list-in-two-envelopes"] = (dict(base), "trust-with-revoker.json", "refused",
                                                          ["revocations-digest.json", "revocations-digest-reencoded.json"])
     vectors["revocations-65-lists"] = (dict(base), "trust-with-revoker.json", "refused", ["revocations-none.json"] * 65)
+    none_list = (OUT / "revocations-none.json").read_bytes()
+    for how in SHAPES:
+        (OUT / f"revocations-shape-{how}.json").write_bytes(reshaped(none_list, how))
+        vectors[f"revocations-shape-{how}"] = (dict(base), "trust-with-revoker.json", "refused", f"revocations-shape-{how}.json")
 
     # Review 2, L7: every shape in an envelope closed, in both verifiers.
     def signed_statement(content_, statement_extra=None, predicate_extra=None, envelope_extra=None):
@@ -815,6 +862,7 @@ def main():
     untrusted_set_bytes = write_zip(untrusted_member_set)
     receipts = {
         "receipt-valid-python": (fed_bytes, receipt(fed_bytes), here, "trust-federated-buyer.json", "verified"),
+        **{f"receipt-shape-{how}": (fed_bytes, reshaped(receipt(fed_bytes), how), here, "trust-federated-buyer.json", "refused") for how in SHAPES},
         "receipt-valid-dotnet": (fed_dotnet, (work / "fed-dotnet.receipt.json").read_bytes(), here, "trust-federated-buyer.json", "verified"),
         "receipt-narrower-placement": (two_bytes, receipt(two_bytes), here, "trust-federated-buyer.json", "verified"),
         "receipt-other-location": (fed_bytes, receipt(fed_bytes), "https://mirror.example/ampack/handoff.ampack", "trust-federated-buyer.json", "refused"),
@@ -965,6 +1013,7 @@ def main():
         "certificate-valid-python": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator.json", "verified"),
         "certificate-valid-dotnet": (dotnet_certified, dotnet_certificate, None, "trust-evaluator.json", "verified"),
         "certificate-as-a-separate-file": (certified_bytes, None, certificate(certified), "trust-evaluator.json", "verified"),
+        **{f"certificate-shape-{how}": (certified_bytes, None, reshaped(certificate(certified), how), "trust-evaluator.json", "refused") for how in SHAPES},
         "certificate-honest-failure": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 400, "met": False}],
                                                             passed=False)), certificate_path, None, "trust-evaluator.json", "verified"),
         "certificate-with-host-baseline": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "confidenceMilli": 950,

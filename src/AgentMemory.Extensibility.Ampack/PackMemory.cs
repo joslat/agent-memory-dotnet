@@ -28,7 +28,7 @@ public sealed record PackMount(IReadOnlyList<LoadedPack> Packs, PackMemory Memor
 /// </summary>
 /// <remarks>
 /// <b>The store's rules, not a second set.</b> Reads are admitted by <see cref="ModuleQueryAdmission"/>; filters, orders,
-/// key and link filters, fan-out, the neighbour cap and degrees follow the Neo4j reader's queries. Every pack record is shared
+/// key and link filters, fan-out, the link limit and degrees follow the Neo4j reader's queries. Every pack record is shared
 /// and live: a scope that excludes shared records reads nothing, and a read pinned to a clock is not applicable. A search
 /// scores as the store's full-text index does, BM25 per search property summed over the properties (k1 1.2, b 0.75), then
 /// orders by id; Lucene's lossy length norms can still order near-ties differently.
@@ -144,18 +144,19 @@ public sealed partial class PackMemory : IModuleTraversalReader
             {
                 case "set":
                     var set = PackFamilies.LoadSet(archive, trust);
-                    // A member its composite switches off, or one inside a composite switched off, is not mounted: a host composing the
-                    // family leaves it off by default (review 3).
-                    var switchedOff = new HashSet<string>(StringComparer.Ordinal);
-                    void SwitchOff(LoadedFamily family, bool on)
+                    // What a host composing the family composes by default (review 3, 4): a member is mounted when some path to it has
+                    // every composite on and the member enabled, as CompositeMembers composes it through the first such path; one
+                    // only ever reached switched off, or inside a composite switched off, is not.
+                    var composed = new HashSet<string>(StringComparer.Ordinal);
+                    void Compose(LoadedFamily family, bool on)
                     {
                         foreach (var member in family.Manifest.Members)
-                            if (!on || !member.Enabled) switchedOff.Add(member.Id);
+                            if (on && member.Enabled) composed.Add(member.Id);
                         foreach (var nested in family.Families)
-                            SwitchOff(nested, on && family.Manifest.Members.FirstOrDefault(m => m.Id == nested.Id)?.Enabled != false);
+                            Compose(nested, on && family.Manifest.Members.FirstOrDefault(m => m.Id == nested.Id)?.Enabled != false);
                     }
-                    foreach (var family in set.Families) SwitchOff(family, on: true);
-                    loaded.AddRange(set.AllPacks.Where(p => !switchedOff.Contains(p.Id) || set.Packs.Any(standalone => standalone.Id == p.Id)));
+                    foreach (var family in set.Families) Compose(family, on: true);
+                    loaded.AddRange(set.AllPacks.Where(p => composed.Contains(p.Id) || set.Packs.Any(standalone => standalone.Id == p.Id)));
                     familyMembers.UnionWith(set.Families.SelectMany(f => f.AllMembers).Select(p => p.Id));
                     break;
                 case "composite":
@@ -348,7 +349,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
         if (!Sees(context)) return Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.Succeeded });
         var (reachedModule, reachedType) = query.Direction == ModuleTraversalDirection.Out ? target : (module.Id, relation.From);
         var text = Resolution.Modules.Single(m => m.Id == reachedModule).Ontology!.Types.Single(t => t.Name == reachedType).TextProperties();
-        var words = query.Words.Take(ModuleExpandQuery.MaximumWords).Select(ModuleExpandQuery.Word).ToList();
+        var words = query.Words.Where(w => !ModuleAnchorQuery.IsBlank(w)).Select(ModuleExpandQuery.Word)
+            .Where(w => w.Length <= ModuleExpandQuery.MaximumWordLength).Distinct(StringComparer.Ordinal).Take(ModuleExpandQuery.MaximumWords).ToList();
         var fanOut = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut));
         var edges = new List<ModuleTraversalEdge>();
         var skipped = new List<string>();
@@ -363,7 +365,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 : _incoming.GetValueOrDefault((relation.Name, start.Id)) ?? []).DistinctBy(r => r.Id).ToList();
             if (links.Count > ModuleExpandQuery.MaximumLinks)
             {
-                skipped.Add($"{start.Key} has {links.Count} {relation.Name} links, more than {ModuleExpandQuery.MaximumLinks}: not expanded.");
+                skipped.Add($"{start.Key} has more than {ModuleExpandQuery.MaximumLinks} {relation.Name} links: not expanded.");
                 continue;
             }
             IEnumerable<(ModuleRecord Record, int Degree)> reached = query.Direction == ModuleTraversalDirection.Out

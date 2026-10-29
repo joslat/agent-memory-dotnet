@@ -13,9 +13,14 @@ internal static class ModuleTraversalQueries
 
     private static string In(string variable) => string.Format(System.Globalization.CultureInfo.InvariantCulture, Scope, variable);
 
-    // A stored value as the store's filter reads it: lower case (Cypher's folding, which meets every pair the walk's ASCII
-    // folding makes equal), with '\' as '/' (Cypher's '\\' is one backslash).
-    private static string Slashed(string value) => "replace(toLower(" + value + @"), '\\', '/')";
+    // A value as the store's filter reads it: lower case, I and J first made i and j, so that no locale changes them (review 4:
+    // under a Turkish or Azerbaijani locale toLower makes I a dotless i, under a Lithuanian one I and J before an accent gain a
+    // dot), and the other ASCII letters fold the same everywhere. Both sides go through it, so two values the walk's ASCII
+    // folding makes equal always meet, whatever else the locale folds: what differs between them is only ASCII case.
+    private static string Lower(string value) => "toLower(replace(replace(" + value + ", 'I', 'i'), 'J', 'j'))";
+
+    // A stored value as the store's filter reads it: Lower, with '\' as '/' (Cypher's '\\' is one backslash).
+    private static string Slashed(string value) => "replace(" + Lower(value) + @", '\\', '/')";
 
     /// <summary>
     /// Every live record in scope whose anchor property could match (review 2, 3): a superset of the walk's own matches, never
@@ -29,9 +34,9 @@ internal static class ModuleTraversalQueries
         var p = "n.`" + property + "`";
         var filter = match switch
         {
-            Modules.ModuleAnchorMatch.Exact => "ANY(v IN $values WHERE " + Slashed(p) + " CONTAINS toLower(v))",
-            Modules.ModuleAnchorMatch.Prefix => "ANY(f IN $folders WHERE " + Slashed(p) + " CONTAINS toLower(f))",
-            Modules.ModuleAnchorMatch.Glob => "(" + p + " CONTAINS '*' OR " + p + " CONTAINS '?' OR ANY(f IN $folders WHERE " + Slashed(p) + " CONTAINS toLower(f)))",
+            Modules.ModuleAnchorMatch.Exact => "ANY(v IN $values WHERE " + Slashed(p) + " CONTAINS " + Lower("v") + ")",
+            Modules.ModuleAnchorMatch.Prefix => "ANY(f IN $folders WHERE " + Slashed(p) + " CONTAINS " + Lower("f") + ")",
+            Modules.ModuleAnchorMatch.Glob => "(" + p + " CONTAINS '*' OR " + p + " CONTAINS '?' OR ANY(f IN $folders WHERE " + Slashed(p) + " CONTAINS " + Lower("f") + "))",
             _ => "ANY(s IN $names WHERE " + p + " CONTAINS s)",
         };
         return "MATCH (n:`" + label + "`) WHERE n.invalidated_at IS NULL AND " + In("n") + " AND " + p + " IS NOT NULL AND " + filter + " "
@@ -87,22 +92,25 @@ internal static class ModuleTraversalQueries
     /// <summary>
     /// In: the live sources in scope whose link points at any version of each live target, so links written before the target
     /// changed still count (every version shares its key identity, <c>key_id</c>, which is indexed), ranked (see
-    /// <see cref="Ranked"/>); a source's degree is how many links of the relation it has, its own links, counted up to
-    /// <c>$scan</c> without reading the targets, as the in-memory store counts a record's links.
+    /// <see cref="Ranked"/>); a source's degree is how many live keys in scope its links of the relation lead to, counted up to
+    /// <c>$scan</c>, as the in-memory store counts a record's links to the records it holds (pack format v1.2 §6.1).
     /// </summary>
     /// <remarks>
-    /// Review 3 counted distinct live targets in scope instead, reading every target of every neighbour: the walk's p95 rose from
-    /// 34 to 54 ms on this repository's code map, results unchanged. A pack's records link only to records that are live (each
-    /// import writes a new version of a record whose links changed), so the two counts agree on every pack; they differ only for
-    /// a record written by ingestion that still links to a key invalidated since, and there the record's own links are what it
-    /// says it covers. The spec defines the degree this way (pack format v1.2 §6.1).
+    /// Review 4, H1: counting the record's own links did not agree with the in-memory store across modules. A work item still
+    /// links to a code-map file a later import removed; memory, which holds only what is mounted, does not count it. A version
+    /// links each key once, so the links to live keys are the distinct keys: one <c>COUNT</c>, no subquery, and a link to a live
+    /// version needs no key lookup; only a link to a closed version asks whether its key still has a current version. (Review 3
+    /// first made this exact with a subquery per neighbour resolving every target's live version and de-duplicating: the walk's
+    /// p95 rose from 34 to 54 ms on this repository's code map.)
     /// </remarks>
     internal static string In(string source, string relation, string target) =>
         "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE x.invalidated_at IS NULL "
         + "CALL { WITH x MATCH (v:`" + target + "` {key_id:x.key_id}) "
         + "MATCH (s:`" + source + "`)-[:`" + relation + "`]->(v) WHERE s.invalidated_at IS NULL AND " + In("s") + " "
         + "RETURN DISTINCT s } "
-        + "CALL { WITH s MATCH (s)-[:`" + relation + "`]->() WITH 1 AS one LIMIT $scan RETURN count(*) AS degree } "
+        + "WITH fid, s, COUNT { (s)-[:`" + relation + "`]->(v) WHERE " + In("v") + " AND (v.invalidated_at IS NULL "
+        + "OR EXISTS { MATCH (k:ModuleKey {id:v.key_id}) WHERE k.current_id IS NOT NULL }) } AS links "
+        + "WITH fid, s, CASE WHEN links > $scan THEN $scan ELSE links END AS degree "
         + Ranked("s");
 
     /// <summary>

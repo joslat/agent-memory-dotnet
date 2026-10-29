@@ -68,26 +68,18 @@ internal static class TraversalWalk
 
     /// <summary>
     /// The anchors a walk takes (pack format v1.2 §6.1), the same for every entry point (review 3: serve cut to 32 before the
-    /// duplicates went): in request order, each value in NFC, those not blank (ASCII white space) and at most 512 characters,
+    /// duplicates went): in request order, each value in NFC by the format's own Unicode 15 tables, whatever the host's
+    /// globalization mode (review 4: under invariant globalization .NET left NFD text as it was), a value with an unpaired
+    /// surrogate dropped, those not blank (ASCII white space) and at most 512 characters,
     /// distinct by kind and value, the first 32.
     /// </summary>
     internal static List<ContextAnchor> Anchors(IEnumerable<ContextAnchor> anchors) =>
-        [.. anchors.Where(a => a is not null && !AnchorMatcher.IsBlank(a.Value) && WellFormed(a.Value))
-            .Select(a => a.Value.IsNormalized() ? a : a with { Value = a.Value.Normalize() })
+        [.. anchors.Where(a => a is not null && !AnchorMatcher.IsBlank(a.Value))
+            .Select(a => Unicode.Nfc.Normalize(a.Value) is { } nfc ? (nfc == a.Value ? a : a with { Value = nfc }) : null)
+            .OfType<ContextAnchor>()
             .Where(a => a.Value.Length <= ContextAnchor.MaximumLength)
             .DistinctBy(a => (a.Kind, a.Value)).Take(ContextAnchor.MaximumPerRequest)];
 
-    // No lone surrogate: such text has no NFC form (normalizing it throws), and no store holds it as a path or a name.
-    private static bool WellFormed(string value)
-    {
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (!char.IsSurrogate(value[i])) continue;
-            if (!char.IsHighSurrogate(value[i]) || i + 1 == value.Length || !char.IsLowSurrogate(value[i + 1])) return false;
-            i++;
-        }
-        return true;
-    }
 
     internal const double MinimumScore = 0.1;
 
@@ -296,8 +288,10 @@ internal static class TraversalWalk
     internal static string Short(string value)
     {
         var text = AnchorMatcher.Trimmed(value);
-        if (text.Contains(' ') && text.Contains('#') || text.EndsWith('#') || text.EndsWith(')') || text.EndsWith('.'))
-            text = AnchorMatcher.SimpleName(text) is { Length: > 0 } simple ? simple : text;
+        // A symbol when it looks like one and has a simple name (review 4: one without kept the whole text, not the path rule).
+        if ((text.Contains(' ') && text.Contains('#') || text.EndsWith('#') || text.EndsWith(')') || text.EndsWith('.'))
+            && AnchorMatcher.SimpleName(text) is { Length: > 0 } simple)
+            text = simple;
         else
         {
             var slash = text.LastIndexOf('/');

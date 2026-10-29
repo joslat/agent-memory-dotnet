@@ -148,6 +148,12 @@ public sealed record PackActivation
     /// </summary>
     public string? History { get; init; }
     /// <summary>
+    /// The statistic the bounds were computed with (<see cref="PackTrialGate.Statistic"/>), or null for a record from before it
+    /// was kept (review 4). An upgrade whose record names another one is not compared again with the current formula: its
+    /// verdict would change with the library, not with a trial.
+    /// </summary>
+    public string? Statistic { get; init; }
+    /// <summary>
     /// What the decision rests on when it is not this host's own trial: an evaluation certificate (certificate trust). Null for
     /// a decision from the host's own trial, which every namespace accepts.
     /// </summary>
@@ -186,6 +192,12 @@ public sealed record SwitchedOffModule(string ModuleId, string Version, string R
 [Experimental("AMEXT001")]
 public static class PackTrialGate
 {
+    /// <summary>
+    /// The statistic this library computes bounds with, as a decision records it: the precision bounds of review 4 (leave-one-task-out
+    /// variances, Student's t). Changing a formula changes this name.
+    /// </summary>
+    public const string Statistic = "agentmemory.trial.bounds/2026-10-29";
+
     /// <summary>The one-sided normal quantiles the trial's confidence may name.</summary>
     internal static readonly IReadOnlyDictionary<double, double> Confidences = new Dictionary<double, double>
     {
@@ -235,91 +247,139 @@ public static class PackTrialGate
 
     /// <summary>
     /// The lower confidence bound of a difference of precisions (items right over items offered) measured on the same tasks,
-    /// each task one cluster: Newcombe's construction, as for hit rates, from each arm's clustered Wilson limits
-    /// (<see cref="ClusteredWilsonLower"/>) and the correlation of the two arms' residuals task by task (review 2: the earlier
-    /// delta-method variance was 0 whenever every task's precision was the same, so the bound collapsed to the estimate). An
-    /// arm that offered nothing has a precision of 0 and no uncertainty. Without per-task results, plain Wilson limits and no
-    /// correlation. With them, never above the paired cluster-robust bound either (review 3).
+    /// each task one cluster (review 4): Newcombe's construction from each arm's limit at its effective sample size (the Wilson
+    /// bound at the design effect a leave-one-task-out variance gives) and the correlation of the two arms task by task, and
+    /// never above the paired bound from the leave-one-task-out variance of the difference; both at Student's t with one
+    /// degree of freedom fewer than the tasks either arm offered something on. Against an arm that offered nothing, the other arm's own bound
+    /// (<see cref="ClusteredWilsonLower"/>), the one its precision target uses. Without per-task results, plain Wilson limits
+    /// and no correlation.
     /// </summary>
+    /// <remarks>
+    /// By simulation (pack format v1.2 §7): a true difference equal to the target passes at most about 5% of the time at 95% in
+    /// most regimes, and up to 8.5% where every item of a task is right or wrong together and a few tasks offer many items;
+    /// the cluster-robust variance it replaces passed up to 16% there (review 4, M-1). Power on 40 tasks for a lift of 0.15
+    /// against a target of 0.05: 0.25 to 0.75.
+    /// </remarks>
     public static double PrecisionDifferenceLower(PackTrialMeasurement first, PackTrialMeasurement second, double z)
     {
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
+        if (second.Offered == 0)
+            return first.Offered == 0 ? 0 : first.PerTask is { Count: > 0 } alone ? ClusteredWilsonLower(alone, z) : WilsonLower(first.Correct, first.Offered, z);
+        if (first.Offered == 0)
+            return -(second.PerTask is { Count: > 0 } other ? ClusteredWilsonUpper(other, z) : WilsonUpper(second.Correct, second.Offered, z));
         var (r1, r2) = (first.Precision, second.Precision);
-        var l1 = first.Offered == 0 ? 0 : first.PerTask is { Count: > 0 } a1 ? EffectiveWilsonLower(a1, z) : WilsonLower(first.Correct, first.Offered, z);
-        var u2 = second.Offered == 0 ? 0 : second.PerTask is { Count: > 0 } b1 ? EffectiveWilsonUpper(b1, z) : WilsonUpper(second.Correct, second.Offered, z);
-        var rho = 0.0;
-        double? paired = null;
-        if (first.PerTask is { } a && second.PerTask is { } b && a.Count == b.Count && a.Count > 1 && first.Offered > 0 && second.Offered > 0)
-        {
-            var (o1, o2) = (a.Sum(t => (double)t.Offered), b.Sum(t => (double)t.Offered));
-            var n = a.Count;
-            double Residual(PackTrialTask t, double r, double o) => (t.Correct - r * t.Offered) / o;
-            var v1 = a.Sum(t => Math.Pow(Residual(t, r1, o1), 2));
-            var v2 = b.Sum(t => Math.Pow(Residual(t, r2, o2), 2));
-            var covariance = a.Zip(b).Sum(p => Residual(p.First, r1, o1) * Residual(p.Second, r2, o2));
-            rho = v1 > 0 && v2 > 0 ? Math.Clamp(covariance / Math.Sqrt(v1 * v2), -1, 1) : 0;
-            // The paired cluster-robust bound, from the task-by-task differences of the residuals.
-            paired = r1 - r2 - z * Math.Sqrt(n / (n - 1.0) * a.Zip(b).Sum(p => Math.Pow(Residual(p.First, r1, o1) - Residual(p.Second, r2, o2), 2)));
-        }
+        var (l1, u2) = (WilsonLower(first.Correct, first.Offered, z), WilsonUpper(second.Correct, second.Offered, z));
+        if (first.PerTask is not { } a || second.PerTask is not { } b || a.Count != b.Count || a.Count < 2)
+            return r1 - r2 - Math.Sqrt(Math.Pow(r1 - l1, 2) + Math.Pow(u2 - r2, 2));
+        var n = a.Count;
+        // Degrees of freedom: the tasks either arm offered something on, less one (a task neither answered says nothing).
+        var q = StudentT(z, a.Zip(b).Count(p => p.First.Offered > 0 || p.Second.Offered > 0) - 1);
+        l1 = EffectiveWilsonLower(a, q);
+        u2 = 1 - EffectiveWilsonLower(Flipped(b), q);
+        var (o1, o2) = (a.Sum(t => (double)t.Offered), b.Sum(t => (double)t.Offered));
+        double Residual(PackTrialTask t, double r, double o) => (t.Correct - r * t.Offered) / o;
+        var v1 = a.Sum(t => Math.Pow(Residual(t, r1, o1), 2));
+        var v2 = b.Sum(t => Math.Pow(Residual(t, r2, o2), 2));
+        var covariance = a.Zip(b).Sum(p => Residual(p.First, r1, o1) * Residual(p.Second, r2, o2));
+        var rho = v1 > 0 && v2 > 0 ? Math.Clamp(covariance / Math.Sqrt(v1 * v2), -1, 1) : 0;
         var newcombe = r1 - r2 - Math.Sqrt(Math.Max(0, Math.Pow(r1 - l1, 2) - 2 * rho * (r1 - l1) * (u2 - r2) + Math.Pow(u2 - r2, 2)));
+        // The paired bound: each task left out in turn, the spread of the difference that remains (review 4: the cluster-robust
+        // sum of squared residuals ran low where a few tasks carry most items).
+        var (left1, left2) = (LeftOut(a), LeftOut(b));
+        var differences = left1.Zip(left2, (x, y) => x - y).ToList();
+        var mean = differences.Average();
+        var paired = r1 - r2 - q * Math.Sqrt((n - 1.0) / n * differences.Sum(d => Math.Pow(d - mean, 2)));
         // The lower of the two (review 3): Newcombe's never collapses when every task's precision is the same, and the paired
         // bound stays honest when the arms are strongly correlated and each task's items are all right or all wrong.
-        return paired is { } bound ? Math.Min(newcombe, bound) : newcombe;
+        return Math.Min(newcombe, paired);
     }
 
     /// <summary>The upper bound mirroring <see cref="ClusteredWilsonLower"/>: one minus the lower bound of the items that were wrong.</summary>
     public static double ClusteredWilsonUpper(IReadOnlyList<PackTrialTask> tasks, double z)
     {
         ArgumentNullException.ThrowIfNull(tasks);
-        return tasks.Sum(t => t.Offered) == 0 ? 1 : 1 - ClusteredWilsonLower([.. tasks.Select(t => t with { Correct = t.Offered - t.Correct })], z);
+        return tasks.Sum(t => t.Offered) == 0 ? 1 : 1 - ClusteredWilsonLower(Flipped(tasks), z);
     }
 
     /// <summary>
-    /// The lower confidence bound of a ratio of items over tasks, with each task as one cluster (PACK-gate-stats-2): the lower
-    /// of two bounds. Over items: the cluster-robust variance of the ratio gives a design effect, the item count divided by it
-    /// is the effective sample size, and the Wilson bound is taken at that size. Over tasks: each task that offered anything is
-    /// one observation scored by its own precision, and the Wilson bound is taken over them (valid for a mean of values in
-    /// [0, 1]). The second keeps a few tasks from passing for many however many items one of them offered, and the two
-    /// together change smoothly as one item turns right or wrong (third review: two tasks gave 0.425 at 200 of 200 right and
-    /// 0.978 at 199). Items in one task are correlated, so this is never above the plain bound.
+    /// The lower confidence bound of a ratio of items over tasks, with each task as one cluster (PACK-gate-stats-2, review 4):
+    /// the lower of two bounds, both at Student's t with one degree of freedom fewer than the tasks that offered anything. Over items: the
+    /// leave-one-task-out variance of the ratio gives a design effect, the item count divided by it is the effective sample
+    /// size, and the Wilson bound is taken at that size. Over tasks: each task that offered anything is one observation scored
+    /// by its own precision, and the Wilson bound is taken over them, which is the honest bound when every item of a task is
+    /// right or wrong together. The second keeps a few tasks from passing for many however many items one of them offered,
+    /// and keeps the bound monotone where every item is right (third review: two tasks gave 0.425 at 200 of 200 right and
+    /// 0.978 at 199). Without it, where tasks are all right or all wrong and precision is high, a true precision equal to the
+    /// target passed up to 21% of the time at 95% (review 4).
     /// </summary>
     public static double ClusteredWilsonLower(IReadOnlyList<PackTrialTask> tasks, double z)
     {
         ArgumentNullException.ThrowIfNull(tasks);
-        var (items, overTasks) = ClusteredBounds(tasks, z);
+        var (items, overTasks) = ClusteredBounds(tasks, StudentT(z, tasks.Count(t => t.Offered > 0) - 1));
         return items is { } bound ? Math.Min(bound, overTasks) : overTasks;
     }
 
-    // The two bounds of ClusteredWilsonLower: over items at the effective size (null where no design effect can be measured:
-    // one task answered, or a precision of 0 or 1, leaves no spread between tasks), and over tasks.
-    private static (double? Items, double OverTasks) ClusteredBounds(IReadOnlyList<PackTrialTask> tasks, double z)
+    // The two bounds of ClusteredWilsonLower at quantile q: over items at the effective size (null where no design effect can
+    // be measured: one task answered, or a precision of 0 or 1, leaves no spread between tasks), and over tasks.
+    private static (double? Items, double OverTasks) ClusteredBounds(IReadOnlyList<PackTrialTask> tasks, double q)
     {
         var offered = tasks.Sum(t => (double)t.Offered);
         if (offered == 0) return (null, 0);
         var p = tasks.Sum(t => (double)t.Correct) / offered;
         var answered = tasks.Where(t => t.Offered > 0).ToList();
-        var overTasks = WilsonLower(answered.Average(t => (double)t.Correct / t.Offered), answered.Count, z);
+        var overTasks = WilsonLower(answered.Average(t => (double)t.Correct / t.Offered), answered.Count, q);
         if (answered.Count < 2 || p is 0 or 1) return (null, overTasks);
-        var residuals = tasks.Sum(t => Math.Pow(t.Correct - p * t.Offered, 2));
-        var clustered = answered.Count / (answered.Count - 1.0) * residuals / (offered * offered);
-        var designEffect = Math.Max(1, clustered / (p * (1 - p) / offered));
-        return (WilsonLower(p, offered / designEffect, z), overTasks);
+        var left = LeftOut(tasks);
+        var mean = left.Average();
+        var jackknife = (tasks.Count - 1.0) / tasks.Count * left.Sum(r => Math.Pow(r - mean, 2));
+        var designEffect = Math.Max(1, jackknife / (p * (1 - p) / offered));
+        return (WilsonLower(p, offered / designEffect, q), overTasks);
     }
 
-    // A confidence limit of one arm's pooled precision for Newcombe's construction (review 3, after the trial re-run): the bound
-    // over items at the effective size, without the floor over tasks, which bounds the mean of per-task precisions, another
-    // quantity. In the difference that floor inflated one arm's margin and evened out two: the bound was far too strict where
-    // tasks offer few items (a true lift of 0 passed 1% of the time at a nominal 5%, and a real lift of 0.15 was found one time
-    // in seven) and too lenient where arms were strongly correlated. Where no design effect can be measured, the bound over tasks.
-    private static double EffectiveWilsonLower(IReadOnlyList<PackTrialTask> tasks, double z)
+    // The pooled precision with each task left out in turn; a task whose removal leaves nothing keeps the whole estimate.
+    private static List<double> LeftOut(IReadOnlyList<PackTrialTask> tasks)
     {
-        var (items, overTasks) = ClusteredBounds(tasks, z);
+        var (offered, correct) = (tasks.Sum(t => (double)t.Offered), tasks.Sum(t => (double)t.Correct));
+        var whole = offered == 0 ? 0 : correct / offered;
+        return [.. tasks.Select(t => offered - t.Offered > 0 ? (correct - t.Correct) / (offered - t.Offered) : whole)];
+    }
+
+    private static List<PackTrialTask> Flipped(IReadOnlyList<PackTrialTask> tasks) => [.. tasks.Select(t => t with { Correct = t.Offered - t.Correct })];
+
+    // One arm's limit for Newcombe's construction in a difference (review 3, 4): the bound over items at the effective size,
+    // without the floor over tasks, which bounds the mean of per-task precisions, another quantity, and in a difference made
+    // the bound far too strict where tasks offer few items (a true lift of 0 passed 1% of the time at a nominal 5%). The paired
+    // structure keeps the difference honest where the floor was needed for one arm. Where no design effect can be measured,
+    // the bound over tasks.
+    private static double EffectiveWilsonLower(IReadOnlyList<PackTrialTask> tasks, double q)
+    {
+        var (items, overTasks) = ClusteredBounds(tasks, q);
         return items ?? overTasks;
     }
 
-    private static double EffectiveWilsonUpper(IReadOnlyList<PackTrialTask> tasks, double z) =>
-        tasks.Sum(t => t.Offered) == 0 ? 1 : 1 - EffectiveWilsonLower([.. tasks.Select(t => t with { Correct = t.Offered - t.Correct })], z);
+    /// <summary>
+    /// Student's t quantile for one of the trial's confidences (its normal quantile <paramref name="z"/>) at the given degrees
+    /// of freedom: from a table for 1 to 60 (exact to six decimals), the Cornish-Fisher expansion beyond (within 5e-7).
+    /// </summary>
+    internal static double StudentT(double z, int degrees)
+    {
+        var v = Math.Max(1, degrees);
+        if (v <= 60)
+            foreach (var (key, row) in StudentQuantiles)
+                if (Math.Abs(key - z) < 1e-6) return row[v - 1];
+        var (z3, z5, z7) = (Math.Pow(z, 3), Math.Pow(z, 5), Math.Pow(z, 7));
+        return z + (z3 + z) / (4.0 * v) + (5 * z5 + 16 * z3 + 3 * z) / (96.0 * v * v) + (3 * z7 + 19 * z5 + 17 * z3 - 15 * z) / (384.0 * v * v * v);
+    }
+
+    // Student's t quantiles at the four confidences, for 1 to 60 degrees of freedom (computed with mpmath, 30 digits).
+    private static readonly IReadOnlyDictionary<double, double[]> StudentQuantiles = new Dictionary<double, double[]>
+    {
+        [1.2815516] = [3.077684, 1.885618, 1.637744, 1.533206, 1.475884, 1.439756, 1.414924, 1.396815, 1.383029, 1.372184, 1.363430, 1.356217, 1.350171, 1.345030, 1.340606, 1.336757, 1.333379, 1.330391, 1.327728, 1.325341, 1.323188, 1.321237, 1.319460, 1.317836, 1.316345, 1.314972, 1.313703, 1.312527, 1.311434, 1.310415, 1.309464, 1.308573, 1.307737, 1.306952, 1.306212, 1.305514, 1.304854, 1.304230, 1.303639, 1.303077, 1.302543, 1.302035, 1.301552, 1.301090, 1.300649, 1.300228, 1.299825, 1.299439, 1.299069, 1.298714, 1.298373, 1.298045, 1.297730, 1.297426, 1.297134, 1.296853, 1.296581, 1.296319, 1.296066, 1.295821],
+        [1.6448536] = [6.313752, 2.919986, 2.353363, 2.131847, 2.015048, 1.943180, 1.894579, 1.859548, 1.833113, 1.812461, 1.795885, 1.782288, 1.770933, 1.761310, 1.753050, 1.745884, 1.739607, 1.734064, 1.729133, 1.724718, 1.720743, 1.717144, 1.713872, 1.710882, 1.708141, 1.705618, 1.703288, 1.701131, 1.699127, 1.697261, 1.695519, 1.693889, 1.692360, 1.690924, 1.689572, 1.688298, 1.687094, 1.685954, 1.684875, 1.683851, 1.682878, 1.681952, 1.681071, 1.680230, 1.679427, 1.678660, 1.677927, 1.677224, 1.676551, 1.675905, 1.675285, 1.674689, 1.674116, 1.673565, 1.673034, 1.672522, 1.672029, 1.671553, 1.671093, 1.670649],
+        [1.9599640] = [12.706205, 4.302653, 3.182446, 2.776445, 2.570582, 2.446912, 2.364624, 2.306004, 2.262157, 2.228139, 2.200985, 2.178813, 2.160369, 2.144787, 2.131450, 2.119905, 2.109816, 2.100922, 2.093024, 2.085963, 2.079614, 2.073873, 2.068658, 2.063899, 2.059539, 2.055529, 2.051831, 2.048407, 2.045230, 2.042272, 2.039513, 2.036933, 2.034515, 2.032245, 2.030108, 2.028094, 2.026192, 2.024394, 2.022691, 2.021075, 2.019541, 2.018082, 2.016692, 2.015368, 2.014103, 2.012896, 2.011741, 2.010635, 2.009575, 2.008559, 2.007584, 2.006647, 2.005746, 2.004879, 2.004045, 2.003241, 2.002465, 2.001717, 2.000995, 2.000298],
+        [2.3263479] = [31.820516, 6.964557, 4.540703, 3.746947, 3.364930, 3.142668, 2.997952, 2.896459, 2.821438, 2.763769, 2.718079, 2.680998, 2.650309, 2.624494, 2.602480, 2.583487, 2.566934, 2.552380, 2.539483, 2.527977, 2.517648, 2.508325, 2.499867, 2.492159, 2.485107, 2.478630, 2.472660, 2.467140, 2.462021, 2.457262, 2.452824, 2.448678, 2.444794, 2.441150, 2.437723, 2.434494, 2.431447, 2.428568, 2.425841, 2.423257, 2.420803, 2.418470, 2.416250, 2.414134, 2.412116, 2.410188, 2.408345, 2.406581, 2.404892, 2.403272, 2.401718, 2.400225, 2.398790, 2.397410, 2.396081, 2.394801, 2.393568, 2.392377, 2.391229, 2.390119],
+    };
 
     // The Wilson score lower bound at proportion p over a (possibly fractional) effective sample size n.
     private static double WilsonLower(double p, double n, double z)
@@ -385,6 +445,13 @@ public static class PackTrialGate
         if (with.PerTask is { } perTask && (perTask.Count != with.Tasks || perTask.Sum(t => t.Offered) != with.Offered
                 || perTask.Sum(t => t.Correct) != with.Correct || perTask.Any(t => t.Correct < 0 || t.Correct > t.Offered)))
             throw new ArgumentException("PerTask holds one entry per task, 0 <= correct <= offered, summing to Offered and Correct.", nameof(with));
+        // The previous version's measurement is checked as the two arms are (review 4: inconsistent numbers gave a wrong bound,
+        // which was then signed).
+        if (previous?.With is { } earlier && (earlier.Tasks < 0 || earlier.Hits < 0 || earlier.Hits > earlier.Tasks || earlier.Offered < 0
+                || earlier.Correct < 0 || earlier.Correct > earlier.Offered || earlier.PerTask is { } earlierTasks && (earlierTasks.Count != earlier.Tasks
+                || earlierTasks.Sum(t => t.Offered) != earlier.Offered || earlierTasks.Sum(t => t.Correct) != earlier.Correct
+                || earlierTasks.Any(t => t.Correct < 0 || t.Correct > t.Offered))))
+            throw new ArgumentException("The previous version's measurement hits at most its tasks, is right at most as often as it offered, and its PerTask sums to it.", nameof(previous));
         // The previous version is earlier, or the same version with other content (a replacement is an upgrade too).
         if (previous is not null && (!ModuleVersion.TryParse(previous.Version, out var before) || before.CompareTo(manifest.Version) > 0
                 || before.CompareTo(manifest.Version) == 0 && previous.ManifestDigest == DigestOf(manifest) && previous.PackDigest == packDigest
@@ -445,7 +512,7 @@ public static class PackTrialGate
         {
             ModuleId = manifest.Id, Version = manifest.Version.ToString(), ManifestDigest = DigestOf(manifest), PackDigest = packDigest,
             Active = enough && failed.Count == 0, Reason = reason, DecidedAt = decidedAt, Checks = checks, With = with, Without = without,
-            Previous = previous, Upgrade = trial.Upgrade, Confidence = trial.Confidence,
+            Previous = previous, Upgrade = trial.Upgrade, Confidence = trial.Confidence, Statistic = trial.Confidence is null ? null : Statistic,
         };
     }
 
@@ -582,6 +649,9 @@ public static class PackTrialGate
         if (decision.With is not { } with) return "its record carries no measurement to compare";
         // The same test as the decision's own (review 2): bounds when it declared a confidence and the tolerance is above 0.
         double? z = decision.Confidence is { } c && Confidences.TryGetValue(c, out var q) && tolerance > 0 ? q : null;
+        // Bounds from another statistic are not recomputed with this one (review 4): the upgrade waits for a trial under it.
+        if (z is not null && decision.Statistic != Statistic)
+            return $"its trial's bounds were computed with {decision.Statistic ?? "an earlier statistic"}, not {Statistic}: trial it again";
         var hitDrop = z is { } zh ? HitDifferenceLower(with, previous.With, zh) : with.HitRate - previous.With.HitRate;
         var precisionDrop = z is { } zp ? PrecisionDifferenceLower(with, previous.With, zp) : with.Precision - previous.With.Precision;
         return hitDrop >= -tolerance - 1e-9 && precisionDrop >= -tolerance - 1e-9 ? null

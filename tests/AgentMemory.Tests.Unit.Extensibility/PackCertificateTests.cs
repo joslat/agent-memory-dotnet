@@ -462,7 +462,8 @@ public sealed class PackCertificateTests : IDisposable
 
     private static PackTrialMeasurement Arm(int hits) => new() { Tasks = 40, Hits = hits, Offered = 120, Correct = 30, P95Ms = 12.5 };
 
-    private static PackActivation Decision(LoadedPack pack) => PackTrialGate.Decide(pack.Manifest, Arm(24), Arm(0), Earlier, pack.Digest);
+    // A trial at each commit's parent: the only kind certified (review 4).
+    private static PackActivation Decision(LoadedPack pack) => PackTrialGate.Decide(pack.Manifest, Arm(24), Arm(0), Earlier, pack.Digest) with { History = "parent" };
 
     private static PackDecisionBasis Basis() => new()
     {
@@ -470,8 +471,21 @@ public sealed class PackCertificateTests : IDisposable
         EvaluatedAt = Earlier, TaskSource = "elsewhere",
     };
 
+    // A decision that does not say how its tasks were drawn is taken as a trial at each commit's parent here; the refusal of the
+    // others is tested on its own (Only_a_trial_at_each_commits_parent_is_certified).
     private byte[] Certify(byte[] built, LoadedPack pack, PackActivation? decision = null) =>
-        PackCertificates.Issue(built, Trust(), decision ?? Decision(pack), _evaluator.PrivateKeyPem, "Example Lab", "40 changes from the lab's repository");
+        PackCertificates.Issue(built, Trust(), (decision ?? Decision(pack)) is { History: null } unsaid ? unsaid with { History = "parent" } : decision ?? Decision(pack),
+            _evaluator.PrivateKeyPem, "Example Lab", "40 changes from the lab's repository");
+
+    [Fact]
+    public void Only_a_trial_at_each_commits_parent_is_certified()
+    {
+        // Review 4, L-4: the library refuses what the tool refused, a trial that saw the future and one that does not say.
+        var (built, pack) = Built();
+        foreach (var (history, says) in new[] { ("head", "head"), ((string?)null, "does not say") })
+            FluentActions.Invoking(() => PackCertificates.Issue(built, Trust(), Decision(pack) with { History = history }, _evaluator.PrivateKeyPem, "Example Lab", "x"))
+                .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(problem => problem.Contains(says));
+    }
 
     private static IReadOnlyList<string> Refused(Func<object> act) => FluentActions.Invoking(act).Should().Throw<PackLoadException>().Which.Problems;
 

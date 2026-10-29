@@ -211,11 +211,20 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         }
 
         // The record says how the tasks were drawn (review 2): head sees the future, and certify refuses it.
-        var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest, previous) with { History = history };
-        // One writer for every signed record (review 1, M5): named so two decisions never share a file, written whole or not at all.
-        var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
-        // The decision is signed and kept before the store is put back, so a failed restore never loses the run (review 3).
-        await restore().ConfigureAwait(false);
+        PackActivation decision;
+        string record;
+        try
+        {
+            decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest, previous) with { History = history };
+            // One writer for every signed record (review 1, M5): named so two decisions never share a file, written whole or not at all.
+            record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
+        }
+        finally
+        {
+            // The decision is signed and kept before the store is put back, so a failed restore never loses the run (review 3),
+            // and the store is put back whatever happens to the decision (review 4: an unwritable folder left it at a parent).
+            await restore().ConfigureAwait(false);
+        }
 
         output.WriteLine($"  with     hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered}), p95 {withArm.P95Ms:0.0} ms");
         output.WriteLine($"  without  {(trial.Baseline == "host" ? "grep" : "nothing")}: hit {withoutArm.HitRate:0.000} ({withoutArm.Hits}/{withoutArm.Tasks}), precision {withoutArm.Precision:0.000} ({withoutArm.Correct}/{withoutArm.Offered}), p95 {withoutArm.P95Ms:0.0} ms");

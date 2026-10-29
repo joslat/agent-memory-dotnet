@@ -82,7 +82,8 @@ public sealed record ModuleExpandQuery
     /// <summary>
     /// Most links of one relation a record may have and still be expanded through it (red-team M3, review 2): every neighbour of
     /// a record within it is ranked, in the format's order, so two stores choose the same; a record past it is not expanded,
-    /// and the store says so. Counted over every link the store holds for the relation, live or not.
+    /// and the store says so. Counted as distinct live records in scope at the other end: for an outgoing hop, what the
+    /// starting record's own links lead to; for an incoming one, the records that link to any version of it (review 3, 4).
     /// </summary>
     public const int MaximumLinks = 16_384;
     /// <summary>

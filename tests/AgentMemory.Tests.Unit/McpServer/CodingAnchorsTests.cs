@@ -34,13 +34,17 @@ public sealed class CodingAnchorsTests
     }
 
     [Fact]
-    public void Api_anchors_are_validated_and_deduplicated()
+    public void Api_anchors_are_validated_and_passed_to_the_walk_as_given()
     {
+        // Review 4: the walk's own intake drops blank and long values, takes NFC and removes duplicates, the same for every host;
+        // this host validated, de-duplicated and refused 33 first, and so differed. It now checks the shape and bounds the request.
         CodingAnchors.From(null).Should().BeEmpty();
         CodingAnchors.From([new() { Kind = "path", Value = "./src/A.cs" }, new() { Kind = "path", Value = "src/A.cs" }, new() { Kind = "symbol", Value = "A" }])
-            .Select(a => (a.Kind, a.Value)).Should().Equal((ContextAnchorKind.Path, "src/A.cs"), (ContextAnchorKind.Symbol, "A"));
+            .Select(a => (a.Kind, a.Value)).Should().Equal((ContextAnchorKind.Path, "src/A.cs"), (ContextAnchorKind.Path, "src/A.cs"), (ContextAnchorKind.Symbol, "A"));
+        CodingAnchors.From([new() { Kind = "path", Value = "src/A.cs\u00A0" }]).Single().Value.Should().Be("src/A.cs\u00A0", "only ASCII white space is trimmed");
         FluentActions.Invoking(() => CodingAnchors.From([new() { Kind = "url", Value = "x" }])).Should().Throw<ArgumentException>();
-        FluentActions.Invoking(() => CodingAnchors.From([.. Enumerable.Range(0, 33).Select(i => new CodingAnchorInput { Kind = "path", Value = $"f{i}" })]))
+        CodingAnchors.From([.. Enumerable.Range(0, 33).Select(i => new CodingAnchorInput { Kind = "path", Value = $"f{i}" })]).Should().HaveCount(33);
+        FluentActions.Invoking(() => CodingAnchors.From([.. Enumerable.Range(0, CodingAnchors.Maximum + 1).Select(i => new CodingAnchorInput { Kind = "path", Value = $"f{i}" })]))
             .Should().Throw<ArgumentException>();
         CodingAnchors.Question([ContextAnchor.Path("src/A.cs")]).Should().Be("Before changing src/A.cs: what decisions, requirements, tests and lessons govern it?");
     }
@@ -50,7 +54,7 @@ public sealed class CodingAnchorsTests
     {
         var recall = CodingToolDefinitions.All.Single(t => t.Name == "recall").InputSchema;
         recall.GetProperty("properties").TryGetProperty("anchors", out var anchors).Should().BeTrue();
-        anchors.GetProperty("maxItems").GetInt32().Should().Be(32);
+        anchors.GetProperty("maxItems").GetInt32().Should().Be(CodingAnchors.Maximum);
         recall.GetProperty("required").EnumerateArray().Select(r => r.GetString()).Should().NotContain("anchors");
         CodingToolDefinitions.All.Single(t => t.Name == "governs").InputSchema.GetProperty("required").EnumerateArray()
             .Select(r => r.GetString()).Should().Equal("session", "anchors");

@@ -457,6 +457,30 @@ public sealed class AmpackCommandLineTests : IDisposable
     }
 
     [Fact]
+    public void Review3_and_4_a_typo_or_a_wrong_shape_is_refused_before_anything_is_written()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory", "--policy", "trust.json");
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "martialarts");
+        Done("build", "martialarts", "--out", "martialarts.ampack", "--key", At("keys", "publisher.key.pem"));
+
+        // A store a command only reads is there already: a mistyped one is refused, and nothing is created.
+        Ampack("list", "--store", "sotre").Exit.Should().Be(2);
+        Ampack("verify", "martialarts.ampack", "--policy", "trust.json", "--store", "sotre").Exit.Should().Be(2);
+        Ampack("ledger", "--retire-revocations", "--store", "sotre").Exit.Should().Be(2);
+        Directory.Exists(At("sotre")).Should().BeFalse("no command that only reads a store creates one");
+        // A ledger named but missing needs --record, with revocation lists too, and ledger itself never starts one.
+        Ampack("verify", "martialarts.ampack", "--policy", "trust.json", "--ledger", "ledgr.json", "--revocations", "none.json").Exit.Should().Be(2);
+        Ampack("ledger", "--retire-revocations", "--ledger", "ledgr.json").Exit.Should().Be(2);
+        File.Exists(At("ledgr.json")).Should().BeFalse();
+        // Arguments are counted per subaction, not by the command's largest count.
+        Ampack("receipt", "sign", "martialarts.ampack", "extra.ampack", "--location", "https://example.com/p.ampack", "--key", At("keys", "publisher.key.pem"))
+            .Exit.Should().Be(2);
+        // --allow-remote applies the remote rules on loopback too: a bearer token is asked for.
+        Ampack("serve", "martialarts.ampack", "--policy", "trust.json", "--http", "http://localhost:5199/", "--allow-remote").Output
+            .Should().Contain("bearer token");
+    }
+
+    [Fact]
     public async Task Serve_answers_over_REST_with_the_same_answers_as_its_MCP_tools()
     {
         Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory", "--policy", "trust.json");

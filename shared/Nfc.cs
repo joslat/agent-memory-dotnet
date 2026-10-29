@@ -1,5 +1,11 @@
 
+// One namespace per assembly that compiles this file (review 4, H2): the format checks with it, and the walk normalizes anchors
+// with it, so both read text by the same Unicode 15 tables whatever the host's globalization mode.
+#if AGENTMEMORY_PACKS_FORMAT
 namespace AgentMemory.Packs.Format;
+#else
+namespace AgentMemory.Extensibility.Unicode;
+#endif
 
 /// <summary>
 /// Whether a string is in Unicode Normalization Form C, with the same verdict on every host: this class normalizes by itself
@@ -24,6 +30,19 @@ internal static class Nfc
     /// code point assigned later would otherwise read one way here and another there (fourth review).
     /// </summary>
     internal static bool IsNormalized(string value) => Check(value);
+
+    /// <summary>
+    /// The NFC of <paramref name="value"/> by the tables, or null when it holds an unpaired surrogate, which has no NFC (review
+    /// 4: the walk took anchors in NFC with the platform's normalizer, which under invariant globalization leaves text as it is).
+    /// </summary>
+    internal static string? Normalize(string value)
+    {
+        if (Check(value)) return value;
+        if (CodePoints(value) is not { } input) return null;
+        var builder = new System.Text.StringBuilder(value.Length);
+        foreach (var cp in Normalize(input)) builder.Append(char.ConvertFromUtf32(cp));
+        return builder.ToString();
+    }
 
     /// <summary>
     /// The longest run of non-starters the string would hold once normalized to NFKD, as the Stream-Safe Text Format counts

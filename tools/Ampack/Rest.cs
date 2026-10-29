@@ -41,6 +41,10 @@ internal static class Rest
         if (token is { Length: < 32 }) throw new UsageException($"{TokenVariable} is shorter than 32 characters.");
         if (remote && token is null)
             throw new UsageException($"Serving beyond this machine needs a bearer token: set {TokenVariable} (at least 32 characters); every request then sends Authorization: Bearer <token>. Put a TLS proxy in front.");
+        // Packs published for named WebIDs need the token on loopback too (review 4): a proxy on this machine that adds no
+        // forwarding header is indistinguishable from a local client, so the address alone cannot keep them local.
+        if (token is null && mount.Packs.FirstOrDefault(p => p.Publication is { IsPublic: false }) is { } named)
+            throw new UsageException($"{named.Id} is published for named WebIDs only: serving it over HTTP needs a bearer token, on this machine too (set {TokenVariable}).");
         if (remote && mount.Packs.FirstOrDefault(p => p.Publication is { IsPublic: false }) is { } restricted)
             throw new UsageException($"{restricted.Id} is published for named WebIDs only: it is not served beyond this machine.");
         var expected = token is null ? null : System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(token));
@@ -109,9 +113,11 @@ internal static class Rest
         finally { context.Response.Close(); }
     }
 
-    // A request a proxy forwarded: it came from elsewhere, whatever address the connection has.
-    private static bool Forwarded(HttpListenerRequest request) =>
-        request.Headers["Forwarded"] is not null || request.Headers["X-Forwarded-For"] is not null || request.Headers["X-Real-IP"] is not null;
+    // A request a proxy forwarded: it came from elsewhere, whatever address the connection has. Best effort: a proxy that adds
+    // none of these headers is not seen, which is why packs for named WebIDs need the token on loopback too.
+    private static readonly string[] ForwardingHeaders = ["Forwarded", "Via", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP"];
+
+    private static bool Forwarded(HttpListenerRequest request) => ForwardingHeaders.Any(h => request.Headers[h] is not null);
 
     // The bearer token, compared in constant time by its hash.
     private static bool Authorized(HttpListenerRequest request, byte[] expected) =>

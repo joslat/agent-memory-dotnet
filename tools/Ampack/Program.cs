@@ -545,7 +545,8 @@ internal static partial class Program
         if (pack.Manifest.Kind == "set")
         {
             // A set verifies as a whole and member by member: each keeps its own list and signatures.
-            var (whole, members) = PackVerifier.VerifySet(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"));
+            // The set as a whole was just verified: passed on, not done again (review 4).
+            var (whole, members) = PackVerifier.VerifySet(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"), verified: result);
             // The set as a whole first: a file outside any member folder, or members other than it names, refuses it.
             if (!whole.IsVerified) return Report(whole.Problems, "");
             var refused = members.Where(m => !m.Value.IsVerified).SelectMany(m => m.Value.Problems.Select(p => $"packs/{m.Key}/: {p}")).ToList();
@@ -816,19 +817,22 @@ internal static partial class Program
         return trust;
     }
 
-    // A ledger named with --ledger is there, unless this run starts it (--record, or revocation lists to keep): a mistyped path
-    // was read as an empty ledger, and a rolled-back pack verified (review 2).
+    // A ledger named with --ledger is there, unless this run starts it with --record: a mistyped path was read as an empty
+    // ledger, and a rolled-back pack verified (review 2). Revocation lists do not start one (review 3), and a --store is there
+    // before anything reads its ledger (review 4: serve, test and ledger made a mistyped store's ledger.json first); install
+    // and solid fetch open the store they fill before they get here.
     private static void CheckLedger(Options o)
     {
-        // Revocation lists do not start one either (review 3: a mistyped path with --revocations made an empty ledger).
         if (o.Value("ledger") is { } path && !File.Exists(path) && !o.Flag("record"))
             throw new UsageException($"There is no ledger at {path}. Give the right path, or --record to start one.");
+        if (o.Value("store") is { } store) ExistingStore(store);
     }
 
     // A host that stops using revocation lists forgets the newest list's freshness; what it revoked stays revoked.
     private static int Ledger(Options o)
     {
         var path = LedgerPath(o) ?? throw new UsageException("ledger needs --ledger <ledger.json> or --store <folder>.");
+        CheckLedger(o);
         if (!o.Flag("retire-revocations")) throw new UsageException("ledger takes --retire-revocations.");
         if (o.PositionalFrom(0).Any()) throw new UsageException("ledger takes no file arguments.");
         var ledger = HostLedger.Load(path);

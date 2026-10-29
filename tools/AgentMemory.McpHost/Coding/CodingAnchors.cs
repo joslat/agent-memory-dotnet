@@ -17,7 +17,9 @@ internal sealed record CodingAnchorInput
 /// </summary>
 internal static partial class CodingAnchors
 {
-    public const int Maximum = 32;
+    // A bound on the request, not the walk's limit: the walk takes the first 32 distinct valid anchors, as every host does
+    // (review 4: refusing a request of 33, or a value blank by Unicode's white space, made this host differ from the others).
+    public const int Maximum = 256;
     public const int MaximumLength = 512;
     private const int FromPromptMaximum = 12;
 
@@ -25,17 +27,18 @@ internal static partial class CodingAnchors
     public static IReadOnlyList<ContextAnchor> From(IReadOnlyList<CodingAnchorInput>? input)
     {
         if (input is null || input.Count == 0) return [];
-        if (input.Count > Maximum) throw new ArgumentException("Too many anchors.");
+        if (input.Count > Maximum) throw new ArgumentException($"At most {Maximum} anchors a request.");
+        // As given: the walk drops blank, long and unpaired-surrogate values, takes each in NFC, and removes duplicates.
         return [.. input.Select(a =>
         {
-            CodingInput.RequireText(a.Value, MaximumLength, "anchor");
+            if (a.Value is null) throw new ArgumentException("An anchor has a value.");
             return a.Kind switch
             {
                 "path" => ContextAnchor.Path(a.Value, "api"),
                 "symbol" => ContextAnchor.Symbol(a.Value, "api"),
                 _ => throw new ArgumentException("An anchor kind is path or symbol."),
             };
-        }).DistinctBy(a => (a.Kind, a.Value))];
+        })];
     }
 
     /// <summary>The question a governs call asks: the anchors themselves, so the gate weighs what governs them.</summary>

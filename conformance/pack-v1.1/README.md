@@ -1,6 +1,6 @@
 # Memory pack format v1.2: conformance vectors
 
-Two verifiers that share no code must reach the same verdict on every vector here (292 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
+Two verifiers that share no code must reach the same verdict on every vector here (307 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
 
 - `ampack verify` (.NET, `tools/Ampack`, library `src/AgentMemory.Packs.Format`)
 - `python/ampack_verify.py` (Python 3.12, whose Unicode 15.0 data matches the .NET tables, and `cryptography`); with `--receipt <file> --location <url>` it also verifies a publication receipt, and with `--certificate <META/attestations/… or file>` an evaluation certificate (`ampack certificate verify` on the .NET side)
@@ -18,7 +18,9 @@ the trust policy edited (unknown fields, private or doubled PEMs, odd prefixes a
 `run_vectors.py` writes, is seeded so a run repeats, and writes `differential-results-seed-<seed>.json`. 29 Oct 2026:
 1,200 mutants over two seeds, 100 of each kind per seed, no disagreement; 214 verified by both. After review 3 (canonical
 P-256 keys, one envelope shape, typed composite members): 1,000 mutants on seed 20261029, no disagreement; 181 verified by both. With the key's own bytes mutated too (compressed and
-hybrid points, stray bits, a changed character, lines re-wrapped): 600 on seed 31, no disagreement; 102 verified by both.
+hybrid points, stray bits, a changed character, lines re-wrapped): 600 on seed 31, no disagreement; 102 verified by both. After review 4 (a second key's bytes, its id recomputed, so a policy
+one verifier loads and the other refuses would show; points off the curve or not reduced; widths 7 to 9, mixed, CRLF): 1,200
+on seed 41, no disagreement; 209 verified by both.
 
 ```
 python conformance/pack-v1.1/differential.py tools/Ampack/bin/Debug/net10.0/Ampack.exe --count 600 --seed 20261029

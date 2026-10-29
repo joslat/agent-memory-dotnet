@@ -145,26 +145,42 @@ def canonical_p256(pem):
 
 
 def read_regular(path, cap, what):
-    """A regular file's bytes, at most cap of them, read as .NET's PackReader reads a pack or a revocation list (review 3): never
-    through a link, never a pipe or device (whose size reads as 0 and whose stream may never end), and bounded while read."""
+    """A file's bytes, at most cap of them, read as .NET's PackReader reads a pack or a revocation list (review 3, 4): never
+    through a link and never a folder; a pipe or a device, whose size reads as 0 and whose stream may never end, is read with
+    the same bound, as .NET reads it."""
     try:
         status = os.lstat(path)
     except OSError as e:
         raise Refused(f"{what} cannot be read: {e.strerror}")
     if stat.S_ISLNK(status.st_mode) or getattr(status, "st_file_attributes", 0) & 0x400:  # 0x400: a Windows reparse point
         raise Refused(f"{what} is a link")
-    if not stat.S_ISREG(status.st_mode):
-        raise Refused(f"{what} is not a regular file")
+    if stat.S_ISDIR(status.st_mode):
+        raise Refused(f"{what} is a folder")
     if status.st_size > cap:
         raise Refused(f"{what} is larger than {cap >> 20} MiB")
-    with open(path, "rb") as handle:
-        data = handle.read(status.st_size + 1)  # what the file reports, and one byte to see it did not grow
-        while len(data) <= cap:
-            more = handle.read(1 << 20)
-            if not more:
-                return data
-            data += more
+    # A file that cannot be read (locked, removed meanwhile) is refused, as .NET refuses it, not a defect (review 4).
+    try:
+        with open(path, "rb") as handle:
+            chunks = [handle.read(status.st_size + 1)]  # what the file reports, and one byte to see it did not grow
+            total = len(chunks[0])
+            while total <= cap:
+                more = handle.read(1 << 20)
+                if not more:
+                    return b"".join(chunks)
+                chunks.append(more)
+                total += len(more)
+    except OSError as e:
+        raise Refused(f"{what} cannot be read: {e.strerror}")
     raise Refused(f"{what} is larger than {cap >> 20} MiB")
+
+
+def read_file(path, what):
+    """A small file the command names (a policy, a receipt, a certificate): refused, not a defect, when it cannot be read."""
+    try:
+        with open(path, "rb") as handle:
+            return handle.read()
+    except OSError as e:
+        raise Refused(f"{what} cannot be read: {e.strerror}")
 
 
 def strict_b64(text):
@@ -725,13 +741,6 @@ def verify(files, policy, now):
     for p, b in content.items():
         if p.endswith(".json"):
             profile(b, integers_only=(p == "META/lock.json"))
-        elif p.endswith(".jsonl") and b:
-            if not b.endswith(b"\n"):
-                raise Refused(f"'{p}' does not end with a line feed")
-            for line in b[:-1].split(b"\n"):
-                if not line:
-                    raise Refused(f"'{p}' has an empty line")
-                profile(line)
     manifest = profile(content.get("pack.json", b"null"))
     if not isinstance(manifest, dict) or manifest.get("format") != PACK_FORMAT or manifest.get("id") != pid or manifest.get("version") != version:
         raise Refused("pack.json does not name the same pack as META/files.json")
@@ -856,6 +865,19 @@ def verify(files, policy, now):
         host = policy.get("host", {}).get("webIds", [])
         if federation["audience"] is not None and not any(h in federation["audience"] for h in host):
             raise Refused("the pack is not published for this host")
+    # Records are parsed only once the signatures hold, as .NET parses them (review 1, L3; review 4: Python parsed every line
+    # of an unsigned pack first), each line found in place rather than split into copies.
+    for p, b in content.items():
+        if p.endswith(".jsonl") and b:
+            if not b.endswith(b"\n"):
+                raise Refused(f"'{p}' does not end with a line feed")
+            start = 0
+            while start < len(b):
+                stop = b.index(b"\n", start)
+                if stop == start:
+                    raise Refused(f"'{p}' has an empty line")
+                profile(b[start:stop])
+                start = stop + 1
     return pid, version, digest, manifest
 
 
@@ -1362,22 +1384,22 @@ def main(argv):
     pack_path, policy_path = args[0], args[1]
     now = datetime.now(timezone.utc)
     try:
-        policy = load_policy(open(policy_path, "rb").read())
+        policy = load_policy(read_file(policy_path, "the trust policy"))
         documents = []
         for name in args[2:]:
             documents.append(read_regular(name, MAX_REVOCATIONS, "the revocation document"))
         if documents:
             policy = apply_all(policy, documents, now)
         archive = read_regular(pack_path, MAX_ARCHIVE, "the archive")
-        pid, version, digest = verify_any(read_zip(archive), policy, now)
+        # Unpacked once, for the pack, its receipt and its certificate (review 4: up to three times, two held at once).
+        files = read_zip(archive)
+        pid, version, digest = verify_any(files, policy, now)
         if receipt_path is not None:
-            files = read_zip(archive)
             _, _, _, manifest = verify(files, policy, now)
             federation = read_federation(manifest.get("extensions", {}))
-            verify_receipt(open(receipt_path, "rb").read(), pid, version, digest, federation, archive, location, policy, now)
+            verify_receipt(read_file(receipt_path, "the receipt"), pid, version, digest, federation, archive, location, policy, now)
             print(f"verified the placement of {pid} {version} at {location}")
         if certificate_path is not None:
-            files = read_zip(archive)
             if certificate_path.startswith(ATTESTATIONS):
                 named = CERT_FILE.fullmatch(certificate_path)
                 if named is None or certificate_path not in files:
@@ -1387,7 +1409,7 @@ def main(argv):
                 run = {p[len(folder):]: b for p, b in files.items() if p.startswith(folder)} or None
                 envelope = files[certificate_path]
             else:
-                run, envelope = None, open(certificate_path, "rb").read()
+                run, envelope = None, read_file(certificate_path, "the certificate")
             pred = verify_certificate(envelope, pid, version, digest, policy, now, run)
             print(f"verified the certificate of {pid} {version} by {pred['evaluator']}")
     except Refused as e:

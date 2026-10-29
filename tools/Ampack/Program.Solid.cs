@@ -92,11 +92,12 @@ internal static partial class Program
     {
         var from = o.Required("from");
         var webId = o.Required("webid");
+        // The store first: a fetch installs into it, so this is where one may start (every other command needs it to exist).
+        var storeFolder = o.Required("store");
+        var store = AgentMemory.Extensibility.Ampack.PackStore.Open(storeFolder);
         var policy = Policy(o);
         if (!policy.HostWebIds.Contains(webId))
             throw new UsageException($"{webId} is not one of this host's WebIDs in the trust policy (host.webIds): a host fetches as itself.");
-        var storeFolder = o.Required("store");
-        var store = AgentMemory.Extensibility.Ampack.PackStore.Open(storeFolder);
         using var reader = Login(o, webId);
         var entries = SolidPacks.DiscoverAsync(reader, from).GetAwaiter().GetResult();
         if (o.Value("id") is { } wanted) entries = [.. entries.Where(e => e.Id == wanted)];

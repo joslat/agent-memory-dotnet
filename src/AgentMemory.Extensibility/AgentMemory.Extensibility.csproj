@@ -69,5 +69,7 @@
     <Compile Include="../../shared/ManagedEmbeddedResources.cs" Link="Shared/ManagedEmbeddedResources.cs" />
     <Compile Include="../../shared/StopWordFilter.cs" Link="Shared/StopWordFilter.cs" />
     <Compile Include="../../shared/PackNamespace.cs" Link="Shared/PackNamespace.cs" />
+    <Compile Include="../../shared/Nfc.cs" Link="Shared/Nfc.cs" />
+    <Compile Include="../../shared/NfcTables.cs" Link="Shared/NfcTables.cs" />
   </ItemGroup>
 </Project>
