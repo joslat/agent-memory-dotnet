@@ -22,6 +22,7 @@ import binascii
 import functools
 import json
 import math
+import os
 import re
 import struct
 import sys
@@ -75,6 +76,7 @@ REVOCATIONS_FORMAT = "agentmemory.pack.revocations/1.2"
 REVOCATIONS_TYPE = "application/vnd.agentmemory.revocations+json"
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 KEY_ID = re.compile(r"[0-9a-f]{64}")
+PUBLIC_PEM = re.compile(r"-----BEGIN PUBLIC KEY-----\r?\n(?:[A-Za-z0-9+/=]{1,76}\r?\n){1,16}-----END PUBLIC KEY-----(?:\r?\n)?", re.ASCII)
 INSTANT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?(?:Z|[+-][0-9]{2}:[0-9]{2})", re.ASCII)
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 STATEMENT = "https://in-toto.io/Statement/v1"
@@ -107,8 +109,23 @@ def safe_path(path):
     return len(parts) <= 8 and all(SEGMENT.fullmatch(p) and not p.endswith(".") and p.split(".")[0].upper() not in DEVICES for p in parts)
 
 
+MEMBER_FIELDS = {"id", "version", "priority", "enabled", "contains"}
+KEY_ID = re.compile(r"[0-9a-f]{64}", re.ASCII)
+
+
+def strict_b64(text):
+    """The bytes of strict base64 (the alphabet, padding, no whitespace), or None."""
+    try:
+        return base64.b64decode(text, validate=True)
+    except (ValueError, binascii.Error):
+        return None
+MAX_ARCHIVE = 512 * 1024 * 1024  # as .NET's PackLimits.MaxArchiveBytes (review 2: Python had no cap)
+
+
 def read_zip(data):
     """The strict ZIP profile: contiguous, sorted, local equals central, stored or deflate, nothing optional."""
+    if len(data) > MAX_ARCHIVE:
+        raise Refused(f"the archive is larger than {MAX_ARCHIVE >> 20} MiB")
     if len(data) < 22 or data[-22:-18] != b"PK\x05\x06":
         raise Refused("the archive does not end with the end record")
     _, disk, cd_disk, n, total, cd_size, cd_start, comment = struct.unpack("<IHHHHIIH", data[-22:])
@@ -191,7 +208,9 @@ def instant(text):
     head, _, rest = text.partition(".")
     seventh = 0
     if rest:
-        digits = "".join(c for c in rest if c.isdigit())
+        # The fraction is the leading run of digits; what follows is the offset, kept as written (review 2: joining every
+        # digit took the offset's too, and a fraction with a numeric offset crashed where .NET reads it).
+        digits = re.match(r"[0-9]*", rest).group(0)
         seventh = int(digits[6]) if len(digits) >= 7 else 0
         text = head + "." + (digits + "000000")[:6] + rest[len(digits):]
     # An offset's minutes are below 60, as .NET reads them (fromisoformat takes +05:60).
@@ -206,7 +225,7 @@ def instant(text):
         precise = Instant(parsed.year, parsed.month, parsed.day, parsed.hour, parsed.minute, parsed.second, parsed.microsecond, tzinfo=parsed.tzinfo)
         precise.seventh = seventh
         return precise
-    except (ValueError, OverflowError):
+    except (ValueError, OverflowError, AttributeError, TypeError):
         return None
 
 
@@ -451,6 +470,9 @@ def composite_checks(manifest, content):
     try:
         members_doc = profile(content["members.json"])
         if not isinstance(members_doc, dict) or set(members_doc) != {"members"}:  # review 1, L6: nothing but its members
+            raise Refused("members.json is malformed")
+        # Each member holds what a composite member is and nothing else, as the loader reads it (review 2, L6).
+        if not isinstance(members_doc["members"], list) or not all(isinstance(m, dict) and set(m) <= MEMBER_FIELDS for m in members_doc["members"]):
             raise Refused("members.json is malformed")
         named = [m["id"] for m in members_doc["members"]]
     except (Refused, KeyError, TypeError):
@@ -705,6 +727,14 @@ def verify(files, policy, now):
         # Review 1, L7 (as .NET): an envelope with no entries, or whose statement is not a pack role's for this list, refuses.
         if not env["signatures"]:
             raise Refused(f"{path} holds no signature")
+        # Review 2, L7 (as .NET): closed shapes. The envelope holds its three fields; each entry a key id (64 lowercase hex) and
+        # a signature (strict base64, 1 to 72 bytes), and nothing else.
+        if set(env) != {"payloadType", "payload", "signatures"}:
+            raise Refused(f"{path} holds a field a DSSE envelope does not have")
+        for s in env["signatures"]:
+            if not (isinstance(s, dict) and set(s) == {"keyid", "sig"} and isinstance(s["keyid"], str) and KEY_ID.fullmatch(s["keyid"])
+                    and isinstance(s["sig"], str) and 0 < len(strict_b64(s["sig"]) or b"") <= 72):
+                raise Refused(f"{path} has a signature entry that is not a key id and a signature")
         try:
             payload = base64.b64decode(env["payload"], validate=True)
         except ValueError:
@@ -713,6 +743,12 @@ def verify(files, policy, now):
             st = profile(payload)
             pred = st["predicate"]
             role = pred["role"]
+            # Closed, as .NET reads them (review 2, L7).
+            if set(st) != {"_type", "subject", "predicateType", "predicate"} or set(pred) != {"role", "id", "version", "signedAt"} \
+                    or not isinstance(st["subject"], list) or not st["subject"] or not isinstance(st["subject"][0], dict) \
+                    or set(st["subject"][0]) != {"name", "digest"} or not isinstance(st["subject"][0]["digest"], dict) \
+                    or set(st["subject"][0]["digest"]) != {"sha256"}:
+                raise Refused(f"{path} does not sign this pack")
             ok = (st["_type"] == STATEMENT and len(st["subject"]) == 1 and st["subject"][0]["name"] == FILES
                   and st["subject"][0]["digest"]["sha256"] == list_hex
                   and role in ROLES and st["predicateType"] == f"urn:agentmemory:pack:{role}:v1"
@@ -1185,6 +1221,9 @@ def load_policy(raw):
             raise Refused("a revoker key holds that role alone")
         if "evaluator" in roles and len(roles) > 1:
             raise Refused("an evaluator key holds that role alone")
+        # One PUBLIC KEY block and nothing else, as .NET reads it (review 2: a private key, or several blocks, read differently).
+        if not isinstance(key["publicKey"], str) or not PUBLIC_PEM.fullmatch(key["publicKey"]):
+            raise Refused("a trusted key's publicKey is not one PEM 'PUBLIC KEY' block and nothing else")
         try:
             public = serialization.load_pem_public_key(key["publicKey"].encode())
             spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -1272,7 +1311,11 @@ def main(argv):
                 documents.append(document.read(MAX_REVOCATIONS + 1))
         if documents:
             policy = apply_all(policy, documents, now)
-        archive = open(pack_path, "rb").read()
+        with open(pack_path, "rb") as handle:
+            # The size first: read(n) would reserve n bytes up front, and a file past the cap is never read.
+            if os.fstat(handle.fileno()).st_size > MAX_ARCHIVE:
+                raise Refused(f"the archive is larger than {MAX_ARCHIVE >> 20} MiB")
+            archive = handle.read()
         pid, version, digest = verify_any(read_zip(archive), policy, now)
         if receipt_path is not None:
             files = read_zip(archive)

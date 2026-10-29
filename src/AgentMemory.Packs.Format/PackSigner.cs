@@ -23,6 +23,7 @@ internal abstract class PackSigner : IDisposable
     {
         // Review 1, L9: whatever the signer printed, the stored signature is minimal DER, as both verifiers require.
         var signature = StrictDer(SignData(data));
+        if (!Dsse.IsStrictDer(signature)) throw new InvalidDataException("The signer returned a signature no verifier accepts as strict DER.");
         using var key = ECDsa.Create();
         key.ImportFromPem(PublicKeyPem);
         if (!IsP256(key)) throw new InvalidDataException("The public key is not a P-256 key.");
@@ -44,7 +45,9 @@ internal abstract class PackSigner : IDisposable
         {
             var reader = new AsnReader(signature, AsnEncodingRules.BER);
             var sequence = reader.ReadSequence();
-            var (r, s) = (sequence.ReadInteger(), sequence.ReadInteger());
+            // Each integer read as unsigned (review 2: a signer that drops the sign pad writes r or s as a negative integer).
+            var r = new BigInteger(sequence.ReadIntegerBytes().Span, isUnsigned: true, isBigEndian: true);
+            var s = new BigInteger(sequence.ReadIntegerBytes().Span, isUnsigned: true, isBigEndian: true);
             sequence.ThrowIfNotEmpty();
             reader.ThrowIfNotEmpty();
             var writer = new AsnWriter(AsnEncodingRules.DER);

@@ -78,18 +78,28 @@ internal static class PackReader
         return new(read, root);
     }
 
-    // A file's bytes, at most `limit` of them: more is refused.
+    // A file's bytes, at most `limit` of them: more is refused. Read into an array of the size the file reports, held once
+    // (review 2, I1); a file that grows while it is read continues into a bounded buffer.
     private static byte[] Bounded(string file, long limit, string path)
     {
         using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.SequentialScan);
-        using var buffer = new MemoryStream();
+        var reported = stream.CanSeek ? stream.Length : 0;
+        if (reported > limit) throw new InvalidDataException($"'{path}' is larger than {limit} bytes.");
+        var bytes = new byte[reported];
+        var read = 0;
+        while (read < bytes.Length && stream.Read(bytes, read, bytes.Length - read) is var n and > 0) read += n;
+        if (read < bytes.Length) Array.Resize(ref bytes, read);
         var chunk = new byte[81920];
-        int n;
-        while ((n = stream.Read(chunk, 0, chunk.Length)) > 0)
+        var more = stream.Read(chunk, 0, chunk.Length);
+        if (more == 0) return bytes;
+        using var buffer = new MemoryStream();
+        buffer.Write(bytes);
+        do
         {
-            if (buffer.Length + n > limit) throw new InvalidDataException($"'{path}' is larger than {limit} bytes.");
-            buffer.Write(chunk, 0, n);
+            if (buffer.Length + more > limit) throw new InvalidDataException($"'{path}' is larger than {limit} bytes.");
+            buffer.Write(chunk, 0, more);
         }
+        while ((more = stream.Read(chunk, 0, chunk.Length)) > 0);
         return buffer.ToArray();
     }
 

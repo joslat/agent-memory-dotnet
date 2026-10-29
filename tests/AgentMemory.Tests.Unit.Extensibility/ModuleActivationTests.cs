@@ -106,6 +106,36 @@ public sealed class ModuleActivationTests
     }
 
     [Fact]
+    public async Task APackTheGateSwitchesOffKeepsItsContributorSlotAndEveryOtherContributorStillReachesTheCompiler()
+    {
+        // Review 2: the slots indexed the gated-on contributors only, so a pack switched off ahead of another shifted every
+        // later slot and each compile threw. The off pack is added first, and declares a trial no decision passes.
+        var folder = Directory.CreateTempSubdirectory("gate-slots-").FullName;
+        try
+        {
+            using var host = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var services = Services();
+            services.AddAgentMemoryModules(m => m
+                .Add(Manifest(Topics, extra: ""","trial":{"measure":"test-impact","targets":{"hitRate":0.5}}"""),
+                    b => b.AddContextContributor(_ => new Contributor(Topics + ":open") { Text = "topic" }))
+                .Add(Manifest(Reviews), b => b.AddContextContributor(_ => new Contributor(Reviews + ":open") { Text = "Review the Lyon plan" }))
+                .RequireTrials(new PackActivationFolder(folder, host.ExportSubjectPublicKeyInfoPem())));
+            using var provider = Build(services);
+
+            provider.GetRequiredService<ModuleSet>().SwitchedOff.Should().ContainSingle().Which.ModuleId.Should().Be(Topics);
+            using var scope = provider.CreateScope();
+            var envelope = await scope.ServiceProvider.GetRequiredService<IContextCompiler>()
+                .CompileAsync(new ContextRequest { SessionId = "s", Owner = "owner", Query = "what is next?" });
+
+            envelope.Sections.Should().ContainSingle().Which.Items.Single().Text.Should().Be("Review the Lyon plan");
+            envelope.Sections[0].Binding!.ModuleId.Should().Be(Reviews);
+            scope.ServiceProvider.GetServices<IContextContributor>().Select(c => c.Descriptor.Id)
+                .Should().Equal(Topics + ".switched-off-1", Reviews + ":open");
+        }
+        finally { Directory.Delete(folder, recursive: true); }
+    }
+
+    [Fact]
     public async Task AHostSetPriorityReordersAModulesContributorsAndJoinsTheFingerprint()
     {
         // Extensibility 0.13 §D: DemoBrain's stack order becomes priority, whatever priority the module chose.
@@ -186,6 +216,33 @@ public sealed class ModuleActivationTests
         using var scope = provider.CreateScope();
         FluentActions.Invoking(() => scope.ServiceProvider.GetRequiredService<IContextCompiler>())
             .Should().Throw<ModuleActivationException>("everything built on the set fails closed");
+    }
+
+    [Fact]
+    public void AProfileWithTrialsLeavesAFailedPackOffInsteadOfStoppingTheHost()
+    {
+        // Review 1, M3, tested in review 2: the profile names both modules; the gate switches one off; the host still starts.
+        var profile = ModuleCompositionProfile.Parse($$$"""
+            {"format":"agentmemory.modules/v1alpha1","stores":{"memory":{"provider":"none"}},
+             "modules":[{"id":"{{{Topics}}}","version":"[1,2)","store":"memory","manifest":"topics.json"},
+                        {"id":"{{{Reviews}}}","version":"[1,2)","store":"memory","manifest":"reviews.json"}]}
+            """);
+        var folder = Directory.CreateTempSubdirectory("profile-trials-").FullName;
+        try
+        {
+            using var host = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var services = Services();
+            services.AddAgentMemoryModules(m => m.UseProfile(profile)
+                .Add(Manifest(Topics, extra: ""","trial":{"measure":"test-impact","targets":{"hitRate":0.5}}"""), _ => { })
+                .Add(Manifest(Reviews), _ => { })
+                .RequireTrials(new PackActivationFolder(folder, host.ExportSubjectPublicKeyInfoPem())));
+            using var provider = Build(services);
+
+            var set = provider.GetRequiredService<ModuleSet>();
+            set.Modules.Select(m => m.Manifest.Id).Should().Equal(Reviews);
+            set.SwitchedOff.Should().ContainSingle().Which.ModuleId.Should().Be(Topics);
+        }
+        finally { Directory.Delete(folder, recursive: true); }
     }
 
     [Fact]

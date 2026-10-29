@@ -105,11 +105,13 @@ public sealed class PackStore
         }
         File.Move(temporary, target, overwrite: true);
         var installed = new InstalledPack(id, version, digest, kind, file, DateTimeOffset.UtcNow) { Members = members };
-        foreach (var replaced in _installed.Where(p => p.Id == id && p.File != installed.File).ToList())
-            File.Delete(Path.Combine(_root, replaced.File));
+        // The index first, then the old files (review 2: an index that failed to save named a file already deleted); a name
+        // that differs only by case is the same file on most systems, and was just overwritten, so it is not deleted.
+        var replaced = _installed.Where(p => p.Id == id && !string.Equals(p.File, installed.File, StringComparison.OrdinalIgnoreCase)).ToList();
         _installed.RemoveAll(p => p.Id == id);
         _installed.Add(installed);
         Save();
+        foreach (var old in replaced) File.Delete(Path.Combine(_root, old.File));
         return installed;
     }
 
@@ -120,9 +122,9 @@ public sealed class PackStore
         using var held = Hold();
         _installed = Read(_root);
         var removed = _installed.Where(p => p.Id == id).ToList();
-        foreach (var pack in removed) File.Delete(Path.Combine(_root, pack.File));
         _installed.RemoveAll(p => p.Id == id);
         if (removed.Count > 0) Save();
+        foreach (var pack in removed) File.Delete(Path.Combine(_root, pack.File));
         return removed.Count > 0;
     }
 
@@ -131,7 +133,7 @@ public sealed class PackStore
 
     // Where an installed pack lies, always derived from its id and version: an index edited by hand cannot point the store at
     // another file to read or delete (review 1, M8).
-    private static string FileFor(string id, string version) => $"{PacksFolder}/{id}@{version}{PackLoader.Extension}";
+    private static string FileFor(string id, string version) => $"{PacksFolder}/{id}@{AgentMemory.Extensibility.Modules.PackActivationFolder.VersionInName(version)}{PackLoader.Extension}";
 
     private static List<InstalledPack> Read(string root)
     {
@@ -195,6 +197,12 @@ public sealed class PackStore
         };
         var path = Path.Combine(_root, IndexFile);
         File.WriteAllText(path + ".partial", index.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
-        File.Move(path + ".partial", path, overwrite: true);
+        // Another process reading the index holds it open on Windows for a moment: the replace is tried again, as the ledger's.
+        for (var attempt = 0; ; attempt++)
+        {
+            try { File.Move(path + ".partial", path, overwrite: true); return; }
+            catch (IOException) when (attempt < 40) { Thread.Sleep(25); }
+            catch (UnauthorizedAccessException) when (attempt < 40) { Thread.Sleep(25); }
+        }
     }
 }

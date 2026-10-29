@@ -10,8 +10,8 @@ namespace AgentMemory.Tests.Unit.PackFormat;
 /// <summary>
 /// The first full ampack review's low findings in the format, each fixed and held here: folders that differ only by case,
 /// a folder reader bounded while it walks, records parsed only once the signatures hold, sets that carry sets, composites
-/// with records, envelopes that sign nothing here, revocation lists told apart by what they sign, signer keys by curve, and a
-/// malformed ledger named as malformed when it is saved.
+/// with records, envelopes that sign nothing here, revocation lists told apart by what they sign, signer keys by curve, catalogs
+/// pruned by version, and (found on the way) a malformed ledger named as malformed when it is saved.
 /// </summary>
 public sealed class Review1LowFindingsTests : IDisposable
 {
@@ -181,7 +181,7 @@ public sealed class Review1LowFindingsTests : IDisposable
     }
 
     [Fact]
-    public void L11_saving_over_a_malformed_ledger_says_it_is_malformed()
+    public void Saving_over_a_malformed_ledger_says_it_is_malformed()
     {
         var path = Path.Combine(_root, "ledger.json");
         File.WriteAllText(path, "{\"format\":1}");

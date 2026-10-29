@@ -187,6 +187,9 @@ internal sealed class Turtle
             // The end of the text, or a statement's dot (not a decimal's), before ')': the collection was never closed.
             if (_at >= _text.Length || Peek('.') && (_at + 1 >= _text.Length || !char.IsAsciiDigit(_text[_at + 1]))) throw Fail("an unclosed collection");
             items.Add(Object(depth + 1));
+            // Each item becomes two triples: counted as it is read, not after the closing ')' (review 2: a million-item
+            // collection was gathered whole before the triple cap applied).
+            if (_triples.Count + 2 * items.Count > MaximumTriples) throw Fail($"more than {MaximumTriples.ToString("N0", CultureInfo.InvariantCulture)} triples");
         }
         if (items.Count == 0) return RdfTerm.Iri(Rdf + "nil");
         var head = NewBlank();

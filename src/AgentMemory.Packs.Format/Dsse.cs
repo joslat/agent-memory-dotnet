@@ -105,6 +105,11 @@ internal static class Dsse
         { problems.Add($"{file} is not a DSSE envelope of an in-toto statement."); return (valid, problems, true); }
 
         if (signatures.GetArrayLength() > MaximumSignatures) { problems.Add($"{file} holds more than {MaximumSignatures} signatures."); return (valid, problems, true); }
+        // Review 2, L7: closed shapes, so nothing unsigned rides in an envelope. The envelope holds its three fields; every entry
+        // a key id (64 lowercase hex) and a signature (strict base64, at most 72 bytes: a P-256 DER signature), and nothing else.
+        if (envelope.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures")))
+        { problems.Add($"{file} holds a field a DSSE envelope does not have."); return (valid, problems, true); }
+        if (signatures.EnumerateArray().Any(e => !IsEntry(e))) { problems.Add($"{file} has a signature entry that is not a key id and a signature."); return (valid, problems, true); }
         // Review 1, L7: an envelope signs this pack or it does not belong here. One with no signature entries, or whose statement
         // is not a pack role's statement for this list, is unlisted content riding beside the pack: it refuses the pack.
         if (signatures.GetArrayLength() == 0) { problems.Add($"{file} holds no signature."); return (valid, problems, true); }
@@ -116,12 +121,9 @@ internal static class Dsse
         var hash = SHA256.HashData(Pae(PayloadType, payload));
         foreach (var entry in signatures.EnumerateArray())
         {
-            if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("keyid", out var keyIdElement) || keyIdElement.ValueKind != JsonValueKind.String
-                || !entry.TryGetProperty("sig", out var sigElement) || sigElement.ValueKind != JsonValueKind.String)
-            { problems.Add($"{file} has a malformed signature entry."); continue; }
-            var keyId = keyIdElement.GetString()!;
+            var keyId = entry.GetProperty("keyid").GetString()!;
             if (policy.Find(keyId) is not { } key) { problems.Add($"{file}: key {Short(keyId)} is not in the trust policy."); continue; }
-            if (FromBase64(sigElement.GetString()) is not { } sig) { problems.Add($"{file}: the signature is not base64."); continue; }
+            var sig = FromBase64(entry.GetProperty("sig").GetString())!;
             if (!IsStrictDer(sig)) { problems.Add($"{file}: the signature by {Short(keyId)} is not strict DER."); continue; }
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportFromPem(key.PublicKeyPem);
@@ -133,6 +135,13 @@ internal static class Dsse
         }
         return (valid, problems, false);
     }
+
+    // A signature entry's shape (review 2, L7): exactly a key id and a signature, each of the form the format writes.
+    private static bool IsEntry(JsonElement entry) =>
+        entry.ValueKind == JsonValueKind.Object && entry.EnumerateObject().All(p => p.Name is "keyid" or "sig")
+        && entry.TryGetProperty("keyid", out var keyId) && keyId.ValueKind == JsonValueKind.String && keyId.GetString() is { Length: 64 } id
+        && id.All(char.IsAsciiHexDigitLower)
+        && entry.TryGetProperty("sig", out var sig) && sig.ValueKind == JsonValueKind.String && FromBase64(sig.GetString()) is { Length: > 0 and <= 72 };
 
     /// <summary>Largest signature envelope: one statement and a few signatures fit many times over.</summary>
     internal const int MaximumEnvelopeBytes = 64 * 1024;
@@ -147,15 +156,19 @@ internal static class Dsse
         using var document = JsonDocument.Parse(payload);
         var statement = document.RootElement;
         if (Str(statement, "_type") != StatementType) return (null, "does not carry an in-toto Statement v1.");
+        // Closed, as the envelope (review 2, L7): the statement, its subject and the predicate hold what the format writes.
+        if (!Closed(statement, "_type", "subject", "predicateType", "predicate")) return (null, "holds a statement field the format does not define.");
         if (!statement.TryGetProperty("subject", out var subjects) || subjects.ValueKind != JsonValueKind.Array || subjects.GetArrayLength() != 1)
             return (null, "must name exactly one subject.");
         var subject = subjects[0];
         if (Str(subject, "name") != PackPaths.FilesList || !subject.TryGetProperty("digest", out var digest) || Str(digest, "sha256") != filesListHex)
             return (null, $"signs another {PackPaths.FilesList} than this pack's.");
+        if (!Closed(subject, "name", "digest") || !Closed(digest, "sha256")) return (null, "holds a subject field the format does not define.");
         if (!statement.TryGetProperty("predicate", out var predicate) || Str(predicate, "role") is not { } roleName || !Roles.Contains(roleName))
             return (null, "names no known role.");
         if (Str(statement, "predicateType") != PredicateType(roleName))
             return (null, "has a predicate type that does not match its role.");
+        if (!Closed(predicate, "role", "id", "version", "signedAt")) return (null, "holds a predicate field the format does not define.");
         if (Str(predicate, "id") != list.Id || Str(predicate, "version") != list.Version)
             return (null, "was made for another pack id or version.");
         if (Str(predicate, "signedAt") is not { } signedAtText
@@ -204,6 +217,9 @@ internal static class Dsse
         try { return Convert.FromBase64String(text); }
         catch (FormatException) { return null; }
     }
+
+    private static bool Closed(JsonElement element, params string[] fields) =>
+        element.ValueKind == JsonValueKind.Object && element.EnumerateObject().All(p => fields.Contains(p.Name, StringComparer.Ordinal));
 
     private static string? Str(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

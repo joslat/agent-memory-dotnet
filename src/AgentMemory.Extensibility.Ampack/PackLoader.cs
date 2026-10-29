@@ -318,8 +318,8 @@ public static class PackLoader
     internal static LoadedPack Narrowed(LoadedPack pack, DateTimeOffset? until)
     {
         var earliest = Earliest([pack.ValidUntil, until]);
-        if (pack.Knowledge is { } knowledge) knowledge.ValidUntil = earliest;
-        return pack with { ValidUntil = earliest };
+        // A copy of the knowledge pack, never the one other loaded copies share (review 2: a pack in two families expired early).
+        return pack with { ValidUntil = earliest, Knowledge = pack.Knowledge?.WithValidUntil(earliest) };
     }
 
     internal static DateTimeOffset? Earliest(IEnumerable<DateTimeOffset?> times)

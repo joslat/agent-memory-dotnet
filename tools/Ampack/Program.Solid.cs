@@ -155,7 +155,10 @@ internal static partial class Program
     private static int TrustAdd(Options o)
     {
         var path = o.Required("policy");
-        var pem = File.ReadAllText(o.Required("public"));
+        var pem = File.ReadAllText(o.Required("public")).Trim() + "\n";
+        // Review 2: never a private key into a policy that gets shared, and one key per entry.
+        if (!TrustPolicy.IsPublicKeyPem(pem))
+            throw new UsageException($"{o.Required("public")} is not one PEM public key: give the .pub.pem file, never the private key.");
         var keyId = PackKey.KeyIdOf(pem);
         var roles = List(o.Value("role") ?? "publisher");
         if (o.Value("webid") is not null && roles.Contains("revoker")) throw new UsageException("A revoker key is never bound to a WebID.");
@@ -164,7 +167,7 @@ internal static partial class Program
         if (keys.Any(k => k?["keyId"]?.GetValue<string>() == keyId)) throw new UsageException($"Key {Dsse.Short(keyId)} is already in {path}.");
         var entry = new JsonObject
         {
-            ["keyId"] = keyId, ["publicKey"] = pem.Trim() + "\n", ["idPrefixes"] = new JsonArray([.. List(o.Required("prefix")).Select(p => (JsonNode)p)]),
+            ["keyId"] = keyId, ["publicKey"] = pem, ["idPrefixes"] = new JsonArray([.. List(o.Required("prefix")).Select(p => (JsonNode)p)]),
             ["roles"] = new JsonArray([.. roles.Select(r => (JsonNode)r)]),
         };
         if (o.Value("webid") is { } webId) entry["webId"] = webId;

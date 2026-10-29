@@ -51,6 +51,9 @@ internal static class AnchorMatcher
         _ => 0,
     };
 
+    /// <summary>A path as matching compares it (review 2: stores filter with it too): trimmed, '/' for '\', no leading './' or '/'.</summary>
+    internal static string Normalized(string value) => Path(value);
+
     // Repository-relative with forward slashes: "./src\a.cs" and "src/a.cs" are the same file; a dot file keeps its dot.
     private static string Path(string value)
     {

@@ -112,7 +112,8 @@ public static class PackTests
                 new ContextRequest { SessionId = "pack-tests", Owner = "pack-tests", Query = test.Question ?? "", Anchors = test.Anchors },
                 cancellationToken).ConfigureAwait(false);
             if (walk.Problems.Count > 0 && walk.Items.Count == 0) return new(packId, test.Name, false, [], "the walk refused: " + string.Join("; ", walk.Problems));
-            found = [.. walk.Items.Select(i => i.Record.Key)];
+            // Judged on what a host offers, not on every record the walk reached (review 2).
+            found = [.. PackMemory.Offered(memory.Resolution, walk.Items).Select(i => i.Record.Key)];
         }
         var window = test.Top is { } top ? found.Take(top).ToList() : found;
         var missing = test.Expect.Where(k => !window.Contains(k)).ToList();

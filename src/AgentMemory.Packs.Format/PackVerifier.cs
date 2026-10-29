@@ -246,6 +246,8 @@ internal static class PackVerifier
             yield return $"{PackPaths.LockFile} pins other members than the composite contains.";
     }
 
+    private static readonly HashSet<string> MemberFields = new(StringComparer.Ordinal) { "id", "version", "priority", "enabled", "contains" };
+
     private static string[]? MemberIds(byte[] membersBytes)
     {
         try
@@ -253,7 +255,10 @@ internal static class PackVerifier
             using var document = System.Text.Json.JsonDocument.Parse(membersBytes);
             // Review 1, L6: members.json holds its members and nothing else, as every reader takes it (spec §2).
             if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object || document.RootElement.EnumerateObject().Any(p => p.Name != "members")) return null;
-            return [.. document.RootElement.GetProperty("members").EnumerateArray().Select(m => m.GetProperty("id").GetString()!)];
+            var members = document.RootElement.GetProperty("members").EnumerateArray().ToList();
+            // Each member holds what a composite member is and nothing else, as the loader reads it (review 2, L6).
+            if (members.Any(m => m.ValueKind != System.Text.Json.JsonValueKind.Object || m.EnumerateObject().Any(p => !MemberFields.Contains(p.Name)))) return null;
+            return [.. members.Select(m => m.GetProperty("id").GetString()!)];
         }
         catch (Exception e) when (e is System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException) { return null; }
     }

@@ -11,7 +11,7 @@ internal sealed class ModuleSetScope(ModuleSet set, IServiceProvider services)
     private IReadOnlyList<IContextContributor>? _contributors;
     private IReadOnlyList<IIngestionProvider>? _providers;
 
-    public IContextContributor Contributor(int index) => (_contributors ??= set.CreateContributors(services))[index];
+    public IContextContributor Contributor(int index) => (_contributors ??= set.CreateSlots(services))[index];
 
     public IReadOnlyList<IIngestionProvider> Providers => _providers ??= set.CreateProviders(services);
 }

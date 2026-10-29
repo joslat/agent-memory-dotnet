@@ -443,6 +443,20 @@ public sealed class PackCertificateTests : IDisposable
         Activations().History(Id).Should().HaveCount(2);
     }
 
+    [Fact]
+    public void Review2_the_serve_gate_counts_a_certificate_for_a_pack_alone_but_never_for_a_family_member()
+    {
+        var (built, pack) = Built();
+        var loaded = PackLoader.Load(Certify(built, pack), Trust());
+        PackActivationFolder.Write(_folder, PackCertificates.Admit(loaded, Now).Decision!, _host);
+
+        PackGateCheck.Of([loaded], Activations(), trustCertificatesFor: ["io.agentmemory"]).On.Should().Equal(Id);
+        // A family's members are composed with AddFamily, where only the host's own trials count: so they are here too.
+        var asMember = PackGateCheck.Of([loaded], Activations(), trustCertificatesFor: ["io.agentmemory"], familyMembers: new HashSet<string> { Id });
+        asMember.On.Should().BeEmpty();
+        asMember.Off.Should().ContainSingle().Which.ModuleId.Should().Be(Id);
+    }
+
     private static readonly DateTimeOffset Now = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     private static readonly DateTimeOffset Earlier = Now.AddHours(-2);
 

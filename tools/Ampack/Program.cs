@@ -8,14 +8,15 @@ namespace Ampack;
 
 /// <summary>
 /// <c>ampack</c>: the memory pack tool. Every command that reads a pack verifies it first; nothing is written into a store
-/// here. Exit codes: 0 done, 1 refused (the reasons are printed), 2 wrong usage.
+/// here. Exit codes: 0 done, 1 refused (the reasons are printed), 2 wrong usage, 3 the environment is busy (a ledger another
+/// run holds, a port in use), 4 an unexpected error.
 /// </summary>
 internal static partial class Program
 {
     private const string Usage = """
         ampack <command> [options]          ampack <command> --help          ampack --version
         Exit codes: 0 done; 1 refused (a pack, a file or a check that does not hold); 2 usage (including an option the
-        command does not take); 3 the ledger is held by another run; 4 an unexpected error.
+        command does not take); 3 busy (the ledger is held by another run, or the port is in use); 4 an unexpected error.
 
           init <folder> --id <reverse.dns.id> [--kind knowledge|definition] [--version 0.1.0] [--owner <name>]
                [--publisher <WebID> --audience public|<WebID,…> [--purpose <text>]]
@@ -152,6 +153,7 @@ internal static partial class Program
             var options = Options.Parse(args.Skip(1));
             if (options.Flag("help") || args.Skip(1).Contains("-h")) return CommandHelp(args[0]);
             CheckOptions(args[0], options);
+            CheckPositionals(args[0], options);
             return args[0] switch
             {
                 "init" => Init(options),
@@ -189,9 +191,11 @@ internal static partial class Program
         catch (UsageException e) { return Fail(e.Message, 2); }
         // A ledger another run holds is an operational failure, not a refusal (seventh review).
         catch (LedgerBusyException e) { return Fail(e.Message, 3); }
+        // A port another process holds is the environment, not a refusal of anything given (review 2).
+        catch (System.Net.HttpListenerException e) { return Fail($"The server could not start: {Shown(e.Message, 1000)}", 3); }
         // Input that does not hold (a malformed file, a link header, a URL, a value of the wrong JSON type) is a refusal.
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or JsonException or System.Security.Cryptography.CryptographicException
-            or HttpRequestException or TaskCanceledException or FormatException or InvalidOperationException or KeyNotFoundException or System.Net.HttpListenerException)
+            or HttpRequestException or TaskCanceledException or FormatException or InvalidOperationException or KeyNotFoundException)
         {
             return Fail(Shown(e.Message, 4000), 1);
         }
@@ -252,6 +256,23 @@ internal static partial class Program
         ["solid"] = ["allow-loopback-http", "webid", "audience", "probe-as", "probe-stranger", "from", "id", "no-recheck", "store", "allow-downgrade", .. SignerOptions, .. TrustOptions],
         ["trust"] = ["allow-loopback-http", "key", "prefix", "role", "host-webid", "policy", "public", "webid"],
     }.ToDictionary(c => c.Key, c => new HashSet<string>(c.Value, StringComparer.Ordinal), StringComparer.Ordinal);
+
+    // The most arguments each command takes besides its options; absent means any number (review 2: `ampack verify a b`
+    // checked a and ignored b).
+    private static readonly Dictionary<string, int> MaxPositionals = new(StringComparer.Ordinal)
+    {
+        ["init"] = 1, ["lint"] = 1, ["build"] = 1, ["sign"] = 1, ["verify"] = 1, ["inspect"] = 1, ["diff"] = 2, ["keygen"] = 0,
+        ["revoke"] = 1, ["ledger"] = 0, ["sign-bytes"] = 0, ["migrate"] = 1, ["evidence"] = 0, ["scan"] = 1, ["countersign"] = 1,
+        ["install"] = 1, ["uninstall"] = 1, ["list"] = 0, ["receipt"] = 3, ["certify"] = 1, ["certificate"] = 2, ["admit"] = 1,
+        ["solid"] = 2, ["trust"] = 2,
+    };
+
+    private static void CheckPositionals(string command, Options options)
+    {
+        if (MaxPositionals.TryGetValue(command, out var most) && options.PositionalCount > most)
+            throw new UsageException($"{command} takes {(most == 0 ? "no arguments" : $"at most {most} argument{(most == 1 ? "" : "s")}")} besides its options; "
+                + $"{options.PositionalCount} were given. ampack {command} --help shows them.");
+    }
 
     private static void CheckOptions(string command, Options options)
     {
@@ -436,7 +457,8 @@ internal static partial class Program
         var records = new AgentMemory.Extensibility.Modules.PackActivationFolder(o.Required("activations"), File.ReadAllText(o.Required("host-key")));
         var id = o.Required("pack");
         var version = o.Value("version");
-        var decision = records.History(id).Where(d => version is null || d.Version == version).MaxBy(d => d.DecidedAt);
+        // The host's own trial, the latest: never an admission it made from someone else's certificate (review 2).
+        var decision = records.History(id).Where(d => d.Basis is null && (version is null || d.Version == version)).MaxBy(d => d.DecidedAt);
         if (decision is null) return Report([$"No decision signed by this host for {id}{(version is null ? "" : " " + version)} in {o.Required("activations")}."], "");
         var file = records.FileOf(decision);
         var runId = AgentMemory.Extensibility.Ampack.PackTrialEvidence.WriteRun(decision, o.Required("out"), file is null ? null : File.ReadAllBytes(file),
@@ -721,7 +743,11 @@ internal static partial class Program
         var digest = FilesList.DigestOf(listBytes!);
         using var signer = Signer(o);
         // Only a key that signed this pack as its publisher places it (review 1, L13); a host also checks the WebID binding.
-        if (!content.Files.ContainsKey(Dsse.PathFor("publisher", signer.KeyId)))
+        // Review 2: a signature by that key that verifies, as publisher, not only a file of that name.
+        var envelopeName = Dsse.PathFor("publisher", signer.KeyId);
+        var onlyThisKey = new TrustPolicy { Keys = [new TrustedKey(signer.KeyId, signer.PublicKeyPem, [list!.Id], ["publisher"], null, null)] };
+        if (!content.Files.TryGetValue(envelopeName, out var envelopeBytes)
+            || !Dsse.Verify(envelopeName, envelopeBytes, FilesList.Hex(listBytes!), list, onlyThisKey, DateTimeOffset.UtcNow).Valid.Any(v => v.Role == "publisher"))
             return Report([$"Key {Dsse.Short(signer.KeyId)} did not sign this pack as its publisher: a receipt is signed with the publisher's key."], "");
         var receiptValue = new PublicationReceipt(list!.Id, list.Version, digest, location, FilesList.Hex(archive), audience, access,
             List(o.Value("denied")), List(o.Value("allowed")), DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
@@ -753,6 +779,7 @@ internal static partial class Program
     // added: whatever the command and whatever lists a run is given, nothing revoked here comes back.
     private static TrustPolicy Policy(Options o)
     {
+        CheckLedger(o);
         var policy = TrustPolicy.Parse(File.ReadAllBytes(o.Required("policy")));
         var ledgerPath = LedgerPath(o);
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
@@ -766,12 +793,21 @@ internal static partial class Program
     // The same, as the loader's trust.
     private static AgentMemory.Extensibility.Ampack.PackTrust Trust(Options o)
     {
+        CheckLedger(o);
         var trust = AgentMemory.Extensibility.Ampack.PackTrust.Load(o.Required("policy"));
         var ledger = LedgerPath(o) is { } path ? AgentMemory.Extensibility.Ampack.PackInstallLedger.Open(path) : null;
         var documents = o.Values("revocations").Select(r => PackReader.ReadArchiveFile(r, Revocations.DocumentLimits)).ToList();
         trust = trust.WithRevocations(documents, ledger, out var notApplied);
         foreach (var note in notApplied) Console.Error.WriteLine("Note: " + note);
         return trust;
+    }
+
+    // A ledger named with --ledger is there, unless this run starts it (--record, or revocation lists to keep): a mistyped path
+    // was read as an empty ledger, and a rolled-back pack verified (review 2).
+    private static void CheckLedger(Options o)
+    {
+        if (o.Value("ledger") is { } path && !File.Exists(path) && !o.Flag("record") && o.Values("revocations").Count == 0)
+            throw new UsageException($"There is no ledger at {path}. Give the right path, or --record to start one.");
     }
 
     // A host that stops using revocation lists forgets the newest list's freshness; what it revoked stays revoked.
@@ -854,16 +890,16 @@ internal static partial class Program
     }
 
     // --activations with --host-key: the host's trial gate decides what is served, as it decides what composes (review 1, M1).
-    private static Func<IReadOnlyList<AgentMemory.Extensibility.Ampack.LoadedPack>, IReadOnlyCollection<string>>? ServeGate(Options o)
+    private static Func<IReadOnlyList<AgentMemory.Extensibility.Ampack.LoadedPack>, IReadOnlySet<string>, IReadOnlyCollection<string>>? ServeGate(Options o)
     {
         if (o.Value("activations") is not { } folder)
             return o.Value("host-key") is null ? null : throw new UsageException("--host-key goes with --activations.");
         var activations = new AgentMemory.Extensibility.Modules.PackActivationFolder(folder, File.ReadAllText(o.Required("host-key")));
         static string[] Prefixes(string? value) => value is null ? [] : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return packs =>
+        return (packs, familyMembers) =>
         {
             var check = AgentMemory.Extensibility.Ampack.PackGateCheck.Of([.. packs.Where(p => p.Kind != "snapshot")], activations,
-                Prefixes(o.Value("require-trials-for")), Prefixes(o.Value("trust-certificates-for")));
+                Prefixes(o.Value("require-trials-for")), Prefixes(o.Value("trust-certificates-for")), familyMembers);
             foreach (var off in check.Off) Console.Error.WriteLine($"ampack serve: {off.ModuleId} {off.Version} stays off: {off.Reason}");
             return [.. check.Off.Select(off => off.ModuleId)];
         };
@@ -910,6 +946,11 @@ internal static partial class Program
         if (Directory.Exists(signatures))
             foreach (var stale in Directory.EnumerateFiles(signatures))
                 if (!files.ContainsKey("META/signatures/" + Path.GetFileName(stale))) File.Delete(stale);
+        // Certificates and their runs too, as the archive drops them (review 2: the folder kept them for the old digest).
+        var attestations = Path.Combine(folder, "META", "attestations");
+        if (Directory.Exists(attestations))
+            foreach (var stale in Directory.EnumerateFiles(attestations, "*", SearchOption.AllDirectories))
+                if (!files.ContainsKey("META/attestations/" + Path.GetRelativePath(attestations, stale).Replace(Path.DirectorySeparatorChar, '/'))) File.Delete(stale);
         foreach (var (path, bytes) in files.Where(f => f.Key.StartsWith("META/", StringComparison.Ordinal) && f.Key != PackPaths.LockFile))
             Write(folder, path, bytes);
     }
@@ -1060,6 +1101,8 @@ internal sealed class UsageException(string message) : Exception(message);
 internal sealed class Options
 {
     private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "retire-revocations", "allow-loopback-http", "no-recheck", "help" };
+    // The options that take several values, each given on its own.
+    private static readonly HashSet<string> Repeatable = new(StringComparer.Ordinal) { "revocations" };
     private readonly List<string> _positional = [];
     private readonly Dictionary<string, List<string>> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);
@@ -1074,7 +1117,11 @@ internal sealed class Options
             var name = list[i][2..];
             if (Flags.Contains(name)) { options._flags.Add(name); continue; }
             if (i + 1 >= list.Count) throw new UsageException($"--{name} needs a value.");
+            // Review 2: a value is never the next option (--ledger --record ledger.json read "--record" as the ledger path), and
+            // an option given twice is a mistake unless it takes several values.
+            if (list[i + 1].StartsWith("--", StringComparison.Ordinal)) throw new UsageException($"--{name} needs a value; {list[i + 1]} is an option.");
             if (!options._values.TryGetValue(name, out var values)) options._values[name] = values = [];
+            else if (!Repeatable.Contains(name)) throw new UsageException($"--{name} is given twice; it takes one value.");
             values.Add(list[++i]);
         }
         return options;
@@ -1084,6 +1131,9 @@ internal sealed class Options
         index < _positional.Count ? _positional[index] : throw new UsageException($"Missing the {what}.");
 
     internal IEnumerable<string> PositionalFrom(int index) => _positional.Skip(index);
+
+    /// <summary>How many arguments that are not options were given.</summary>
+    internal int PositionalCount => _positional.Count;
     internal string? Value(string name) => _values.TryGetValue(name, out var values) ? values[^1] : null;
     /// <summary>Every value an option was given, in order (an option given more than once, such as --revocations).</summary>
     internal IReadOnlyList<string> Values(string name) => _values.TryGetValue(name, out var values) ? values : [];

@@ -65,7 +65,8 @@ public sealed partial class ContextCompiler : IContextCompiler
     public ContextCompiler(IEnumerable<IContextContributor> contributors, IMemoryIsolationPolicy isolationPolicy,
         TimeProvider timeProvider, ILogger<ContextCompiler> logger)
     {
-        _contributors = (contributors ?? throw new ArgumentNullException(nameof(contributors)))
+        // A switched-off module's slots are not contributors (review 2).
+        _contributors = (contributors ?? throw new ArgumentNullException(nameof(contributors))).Where(c => c is not Modules.SwitchedOffContributor)
             .OrderBy(c => c.Descriptor.Priority).ThenBy(c => c.Descriptor.Id, StringComparer.Ordinal).ToArray();
         _isolationPolicy = isolationPolicy;
         _timeProvider = timeProvider;
@@ -77,7 +78,8 @@ public sealed partial class ContextCompiler : IContextCompiler
     /// CoreMemoryContextContributor; other contributors require distinct ids owned by the supplied modules.</remarks>
     public ContextCompiler(Modules.ModuleResolution resolution, IEnumerable<IContextContributor> contributors,
         IMemoryIsolationPolicy isolationPolicy, TimeProvider timeProvider, ILogger<ContextCompiler> logger)
-        : this(Bind(resolution, contributors), isolationPolicy, timeProvider, logger)
+        : this(Bind(resolution, (contributors ?? throw new ArgumentNullException(nameof(contributors))).Where(c => c is not Modules.SwitchedOffContributor)),
+            isolationPolicy, timeProvider, logger)
     {
         Resolution = resolution;
     }

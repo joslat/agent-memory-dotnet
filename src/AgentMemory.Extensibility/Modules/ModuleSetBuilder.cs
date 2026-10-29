@@ -231,14 +231,14 @@ public sealed class ModuleSetBuilder
     /// Whether <paramref name="prefix"/> covers <paramref name="id"/>: equal, or a whole leading run of its segments. The same
     /// rule as a trust policy's <c>idPrefixes</c> (pack format v1.1 H3).
     /// </summary>
-    internal static bool Covers(string prefix, string id) => AgentMemory.Shared.PackNamespace.Covers(prefix, id);
+    internal static bool Covers(string prefix, string id) => PackIds.PackNamespace.Covers(prefix, id);
 
     /// <summary>
     /// Whether <paramref name="prefix"/> is a pack id prefix, by the same rule as a trust policy's (review 1, L17): one or more
     /// lowercase id segments, optionally ending with a dot, at most 64 characters. A prefix that could never cover an id (say,
     /// upper case) is refused rather than leaving its namespace silently ungated.
     /// </summary>
-    internal static bool IsValidPrefix(string? prefix) => AgentMemory.Shared.PackNamespace.IsValidPrefix(prefix);
+    internal static bool IsValidPrefix(string? prefix) => PackIds.PackNamespace.IsValidPrefix(prefix);
 
     /// <summary>The configuration module options bind from; by default the host's registered <see cref="IConfiguration"/>.</summary>
     public ModuleSetBuilder UseConfiguration(IConfiguration configuration)

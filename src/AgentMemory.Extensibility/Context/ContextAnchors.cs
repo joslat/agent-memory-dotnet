@@ -24,7 +24,8 @@ public static class ContextAnchors
     {
         ArgumentNullException.ThrowIfNull(anchors);
         var previous = Ambient.Value;
-        Ambient.Value = anchors.Where(a => a is not null).Take(ContextAnchor.MaximumPerRequest).ToList().AsReadOnly();
+        // The first MaximumPerRequest distinct anchors, as the walk takes them (review 2: duplicates used up places here first).
+        Ambient.Value = anchors.Where(a => a is not null && !string.IsNullOrWhiteSpace(a.Value) && a.Value.Length <= ContextAnchor.MaximumLength).DistinctBy(a => (a.Kind, a.Value)).Take(ContextAnchor.MaximumPerRequest).ToList().AsReadOnly();
         return new Restore(previous);
     }
 

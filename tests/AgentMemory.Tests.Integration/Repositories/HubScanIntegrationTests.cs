@@ -14,8 +14,9 @@ using Neo4j.Driver;
 namespace AgentMemory.Tests.Integration.Repositories;
 
 /// <summary>
-/// The neighbour cap on a real Neo4j (red-team M3, PACK-review 1.4): under a type that 3,000 tests test, one expansion reads at
-/// most 1,024 of them, and the profile of the store's own plan shows no step that touched all 3,000.
+/// Hubs on a real Neo4j (red-team M3, review 2): under a type that 3,000 tests test, one expansion ranks every one of them, so
+/// it chooses what any store would (the first by key among equal ranks); a record past the link limit is not expanded, and the
+/// check that finds it reads the store's degree, not the links.
 /// </summary>
 public sealed partial class ModuleRecordWriteIntegrationTests
 {
@@ -35,42 +36,54 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     }
 
     [Fact]
-    public async Task AnExpansionFromAHubReadsAtMostTheScanCapNotEveryLink()
+    public async Task AnExpansionRanksEveryLinkOfAHubWithinTheLimitAndTheHubCheckReadsTheDegreeNotTheLinks()
     {
         const int tests = 3000;
         var store = new Neo4jModuleSnapshotStore(fixture.TransactionRunner);
         var at = DateTimeOffset.UtcNow.AddMinutes(12);
         await store.ImportAsync(NoCodeMap("git:clear"), at.AddSeconds(-1));
-        (await store.ImportAsync(HubSnapshot(tests), at)).Created.Should().Be(tests + 4);
-
-        using var services = Policies();
-        var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, KnowledgePack.ResolutionOf(CodeMapPack.Manifest),
-            services.GetRequiredService<IMemoryIsolationPolicy>());
-        var context = new ModuleReadContext { Scope = MemoryScope.For("lea") };
-        var file = (await reader.MatchAsync(new() { ModuleId = CodeMapPack.Id, Type = CodeMapPack.FileType, Property = "path",
-            Match = ModuleAnchorMatch.Exact, Values = ["src/Hub/Hub.cs"] }, context)).Records.Should().ContainSingle().Subject;
-        var hub = (await reader.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_DEFINES",
-            Direction = ModuleTraversalDirection.Out, FromIds = [file.Id] }, context)).Edges.Should().ContainSingle().Subject.To;
-        var step = await reader.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_TESTS",
-            Direction = ModuleTraversalDirection.In, FromIds = [hub.Id], FanOut = 6 }, context);
-        step.Status.Should().Be(ModuleReadStatus.Succeeded, string.Join("; ", step.Errors));
-        step.Edges.Should().HaveCount(6);
-
-        // The store's own plan: no step pulled all 3,000 links of the hub, in either direction.
-        var parameters = new Dictionary<string, object?>
+        try
         {
-            ["owner"] = null, ["shared"] = true, ["fanOut"] = 6, ["words"] = Array.Empty<string>(), ["text"] = new[] { "name" },
-            ["scan"] = ModuleExpandQuery.MaximumScan,
-        };
-        var into = await MostRowsAsync(ModuleTraversalQueries.In(CodeMapPack.TestType, "CODEMAP_TESTS", CodeMapPack.SymbolType),
-            new(parameters) { ["ids"] = new[] { hub.Id } });
-        into.Should().BeLessThanOrEqualTo(ModuleExpandQuery.MaximumScan + 1, "an In expansion reads at most the cap of the hub's tests");
-        var test = step.Edges[0].To;
-        var outOf = await MostRowsAsync(ModuleTraversalQueries.Out(CodeMapPack.TestType, "CODEMAP_TESTS", CodeMapPack.SymbolType),
-            new(parameters) { ["ids"] = new[] { test.Id } });
-        outOf.Should().BeLessThanOrEqualTo(ModuleExpandQuery.MaximumScan + 1, "the hub's degree is counted up to the cap, not over every link");
+            (await store.ImportAsync(HubSnapshot(tests), at)).Created.Should().Be(tests + 4);
 
-        await store.ImportAsync(NoCodeMap("git:clear"), at.AddSeconds(1));
+            using var services = Policies();
+            var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, KnowledgePack.ResolutionOf(CodeMapPack.Manifest),
+                services.GetRequiredService<IMemoryIsolationPolicy>());
+            var context = new ModuleReadContext { Scope = MemoryScope.For("lea") };
+            var file = (await reader.MatchAsync(new() { ModuleId = CodeMapPack.Id, Type = CodeMapPack.FileType, Property = "path",
+                Match = ModuleAnchorMatch.Exact, Values = ["src/Hub/Hub.cs"] }, context)).Records.Should().ContainSingle().Subject;
+            var hub = (await reader.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_DEFINES",
+                Direction = ModuleTraversalDirection.Out, FromIds = [file.Id] }, context)).Edges.Should().ContainSingle().Subject.To;
+            var step = await reader.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_TESTS",
+                Direction = ModuleTraversalDirection.In, FromIds = [hub.Id], FanOut = 6 }, context);
+            step.Status.Should().Be(ModuleReadStatus.Succeeded, string.Join("; ", step.Errors));
+            step.Errors.Should().BeEmpty("3,000 links are within the limit");
+
+            // Every test ranks alike (no question words, one link each), so the six are the first six by key, as in any store.
+            var firstSix = await ScalarsAsync($"MATCH (t:`{CodeMapPack.TestType}`) WHERE t.invalidated_at IS NULL RETURN t.key AS key ORDER BY key LIMIT 6");
+            step.Edges.Select(e => e.To.Key).Should().Equal(firstSix);
+
+            // Past the limit a record is not expanded; finding that reads the hub's degree, not its 3,000 links.
+            var parameters = new Dictionary<string, object?> { ["ids"] = new[] { hub.Id }, ["maxLinks"] = 100 };
+            var hubs = ModuleTraversalQueries.InHubs("CODEMAP_TESTS", CodeMapPack.SymbolType);
+            (await RowCountAsync(hubs, parameters)).Should().Be(1, "3,000 links are past a limit of 100");
+            (await MostRowsAsync(hubs, parameters)).Should().BeLessThan(tests, "the check counts the degree without reading every link");
+        }
+        finally { await store.ImportAsync(NoCodeMap("git:clear"), at.AddSeconds(1)); }
+    }
+
+    private async Task<IReadOnlyList<string>> ScalarsAsync(string query)
+    {
+        await using var session = fixture.Driver.AsyncSession();
+        var cursor = await session.RunAsync(query);
+        return [.. (await cursor.ToListAsync()).Select(r => global::Neo4j.Driver.ValueExtensions.As<string>(r["key"]))];
+    }
+
+    private async Task<int> RowCountAsync(string query, Dictionary<string, object?> parameters)
+    {
+        await using var session = fixture.Driver.AsyncSession();
+        var cursor = await session.RunAsync(query, parameters);
+        return (await cursor.ToListAsync()).Count;
     }
 
     // The most rows any step of the store's plan produced, from PROFILE.

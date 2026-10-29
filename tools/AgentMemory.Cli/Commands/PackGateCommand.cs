@@ -51,6 +51,25 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             output.WriteLine("error: --variant is mediocre, weak or absent.");
             return 2;
         }
+        // The host key is read before the run, not after it (review 2: an hour of trial could end at a key it cannot open),
+        // in PEM, or encrypted with the passphrase in AMPACK_KEY_PASSPHRASE as ampack keygen --passphrase-env writes it.
+        using var hostKey = ECDsa.Create();
+        try
+        {
+            var pem = await File.ReadAllTextAsync(hostKeyPath).ConfigureAwait(false);
+            if (pem.Contains("ENCRYPTED PRIVATE KEY", StringComparison.Ordinal))
+                hostKey.ImportFromEncryptedPem(pem, Environment.GetEnvironmentVariable("AMPACK_KEY_PASSPHRASE")
+                    ?? throw new CryptographicException("the host key is encrypted: set AMPACK_KEY_PASSPHRASE"));
+            else hostKey.ImportFromPem(pem);
+        }
+        catch (Exception e) when (e is CryptographicException or ArgumentException)
+        {
+            output.WriteLine($"error: {hostKeyPath} is not a host signing key: {e.Message}");
+            return 2;
+        }
+        // A weakened variant is an experiment, not a version of the pack: its decisions are kept apart, where no gate reads
+        // them, so it can never stand in an upgrade chain as "the version that passed here" (review 2, M10).
+        if (variant is not null) activationsFolder = Path.Combine(activationsFolder, "variants");
         // With --pack, the declaration under trial is the one the verified .ampack carries, not the compiled one.
         var declared = CodeMapPack.Manifest;
         string? packDigest = null;
@@ -145,12 +164,23 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             // is gone), and grep reads that tree too; the truth is the tests the change touched that already existed.
             var runner = with.GetRequiredService<INeo4jTransactionRunner>();
             var importer = new CodeMapCommand(TextWriter.Null);
-            foreach (var task in tasks.AsEnumerable().Reverse())
+            output.WriteLine("  note     the store's code map is set to each task's parent in turn, then back to this repository as it is now; "
+                + "its history keeps those versions, so run trials against a scratch database where as-of reads matter");
+            try
             {
-                using var tree = ParentTree.Extract(root, task.Parent);
-                if (await importer.ImportAsync(runner, tree.Path, "git:" + task.Parent).ConfigureAwait(false) != 0)
-                    throw new InvalidOperationException($"the code map of {task.Parent[..10]} did not import.");
-                await MeasureTaskAsync(tree.Path, task).ConfigureAwait(false);
+                foreach (var task in tasks.AsEnumerable().Reverse())
+                {
+                    using var tree = ParentTree.Extract(root, task.Parent);
+                    if (await importer.ImportAsync(runner, tree.Path, "git:" + task.Parent).ConfigureAwait(false) != 0)
+                        throw new InvalidOperationException($"the code map of {task.Parent[..10]} did not import.");
+                    await MeasureTaskAsync(tree.Path, task).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                // Review 2: the host's code map is left as the repository is now, not at the newest task's parent.
+                if (await importer.ImportAsync(runner, root, null).ConfigureAwait(false) != 0)
+                    output.WriteLine("  warning  the code map could not be re-imported from the repository as it is now: run codemap import --root");
             }
             foreach (var run in new[] { withRun, emptyRun, grepRun, oldRun }) run.Order(tasks);
         }
@@ -166,9 +196,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             output.WriteLine($"  previous {before.Version} ({before.Digest[..23]}…): hit {beforeArm.HitRate:0.000} ({beforeArm.Hits}/{beforeArm.Tasks}), precision {beforeArm.Precision:0.000} ({beforeArm.Correct}/{beforeArm.Offered})");
         }
 
-        var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest, previous);
-        using var hostKey = ECDsa.Create();
-        hostKey.ImportFromPem(await File.ReadAllTextAsync(hostKeyPath).ConfigureAwait(false));
+        // The record says how the tasks were drawn (review 2): head sees the future, and certify refuses it.
+        var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest, previous) with { History = history };
         // One writer for every signed record (review 1, M5): named so two decisions never share a file, written whole or not at all.
         var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
 
@@ -305,18 +334,47 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         public static ParentTree Extract(string repo, string commit)
         {
             var folder = Directory.CreateTempSubdirectory("agentmemory-trial-").FullName;
-            var start = new ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
-            foreach (var arg in new[] { "-C", repo, "archive", "--format=tar", commit, "--", ":(glob)**/*.cs", ":(glob)**/*.csproj" }) start.ArgumentList.Add(arg);
-            using var git = Process.Start(start) ?? throw new InvalidOperationException("git did not start.");
-            var errors = git.StandardError.ReadToEndAsync();
-            System.Formats.Tar.TarFile.ExtractToDirectory(git.StandardOutput.BaseStream, folder, overwriteFiles: false);
-            // The reader stops at the end-of-archive marker; git still writes the record padding after it (up to 10 KiB), and
-            // blocks on a full pipe if nobody reads it, so the rest is drained before waiting (it hung on 06f83658 otherwise).
-            git.StandardOutput.BaseStream.CopyTo(Stream.Null);
-            git.WaitForExit();
-            if (git.ExitCode == 0) return new ParentTree(folder);
-            Directory.Delete(folder, recursive: true);
-            throw new InvalidOperationException($"git archive {commit[..10]} failed: {errors.Result.Trim()}");
+            try
+            {
+                var start = new ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+                // The whole tree, filtered here (review 2: a pathspec that matches nothing makes git archive fail, as for a parent
+                // without a Directory.Build.props). Kept: what the code map reads at HEAD, sources, projects and the
+                // Directory.Build.props files that turn on implicit usings (without them, calls through List<T>, Task or LINQ do
+                // not bind and their links drop out of the parent's map).
+                foreach (var arg in new[] { "-C", repo, "archive", "--format=tar", commit }) start.ArgumentList.Add(arg);
+                using var git = Process.Start(start) ?? throw new InvalidOperationException("git did not start.");
+                var errors = git.StandardError.ReadToEndAsync();
+                using (var reader = new System.Formats.Tar.TarReader(git.StandardOutput.BaseStream, leaveOpen: true))
+                    while (reader.GetNextEntry() is { } entry)
+                    {
+                        if (entry.EntryType is not (System.Formats.Tar.TarEntryType.RegularFile or System.Formats.Tar.TarEntryType.V7RegularFile)) continue;
+                        var name = entry.Name.Replace('\\', '/');
+                        if (!(name.EndsWith(".cs", StringComparison.Ordinal) || name.EndsWith(".csproj", StringComparison.Ordinal)
+                              || name.EndsWith("/Directory.Build.props", StringComparison.Ordinal) || name == "Directory.Build.props")) continue;
+                        if (name.Split('/').Any(part => part is "" or "." or "..")) continue;
+                        var target = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, name));
+                        if (!target.StartsWith(System.IO.Path.GetFullPath(folder) + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+                        // A name this file system cannot hold (Windows-invalid, or a case twin) is left out, as a checkout leaves it.
+                        try
+                        {
+                            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
+                            entry.ExtractToFile(target, overwrite: false);
+                        }
+                        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
+                    }
+                // The reader stops at the end-of-archive marker; git still writes the record padding after it (up to 10 KiB), and
+                // blocks on a full pipe if nobody reads it, so the rest is drained before waiting (it hung on 06f83658 otherwise).
+                git.StandardOutput.BaseStream.CopyTo(Stream.Null);
+                git.WaitForExit();
+                if (git.ExitCode != 0) throw new InvalidOperationException($"git archive {commit[..10]} failed: {errors.Result.Trim()}");
+                return new ParentTree(folder);
+            }
+            catch
+            {
+                try { Directory.Delete(folder, recursive: true); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                throw;
+            }
         }
 
         public void Dispose()

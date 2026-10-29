@@ -313,8 +313,9 @@ def main():
     vectors["files-entry-length-true"] = (relisted(lambda e: e.__setitem__("length", True)), "trust.json", "refused")
     vectors["signature-outside-the-alphabet"] = (signed_with(content, sig_text=lambda s: s[:10] + "*" + s[10:]), "trust.json", "refused")
     vectors["payload-base64-with-a-line-break"] = (signed_with(content, payload_text=lambda s: s[:40] + "\n" + s[40:]), "trust.json", "refused")
-    vectors["second-signature-entry-not-base64"] = (signed_with(content, extra_signatures=[{"keyid": entry["keyId"], "sig": "abc"}]), "trust.json", "verified")
-    vectors["second-signature-entry-without-sig"] = (signed_with(content, extra_signatures=[{"keyid": entry["keyId"]}]), "trust.json", "verified")
+    # Review 2, L7: an entry is a key id and a signature, shaped as the format writes them, or the envelope refuses the pack.
+    vectors["second-signature-entry-not-base64"] = (signed_with(content, extra_signatures=[{"keyid": entry["keyId"], "sig": "abc"}]), "trust.json", "refused")
+    vectors["second-signature-entry-without-sig"] = (signed_with(content, extra_signatures=[{"keyid": entry["keyId"]}]), "trust.json", "refused")
     vectors["signed-at-without-leading-zero"] = (signed_with(content, signed_at="2026-1-05T12:00:00Z"), "trust.json", "refused")
     vectors["signed-at-lowercase"] = (signed_with(content, signed_at="2026-10-26t12:00:00z"), "trust.json", "refused")
     vectors["valid-until-offset-beyond-14-hours"] = (signed(edited(validUntil="2099-01-01T00:00:00+15:00")), "trust.json", "refused")
@@ -378,7 +379,7 @@ def main():
     vectors["files-list-a-number"] = ({**content, py.FILES: b"5"}, "trust.json", "refused")
     vectors["files-list-an-array"] = ({**content, py.FILES: b"[{}]"}, "trust.json", "refused")
     # The signatures array is not signed: anyone may append an entry, and a malformed one only fails to count.
-    vectors["signature-entry-keyid-a-list"] = (signed_with(content, extra_signatures=({"keyid": ["x"], "sig": "AAAA"},)), "trust.json", "verified")
+    vectors["signature-entry-keyid-a-list"] = (signed_with(content, extra_signatures=({"keyid": ["x"], "sig": "AAAA"},)), "trust.json", "refused")
     from cryptography.hazmat.primitives.asymmetric import rsa
     rsa_public = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key()
     rsa_pem = rsa_public.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
@@ -684,6 +685,61 @@ def main():
     raw["attestation-nine-certificates"] = (write_zip({**beside, **{f"META/attestations/{i:016x}-20261028t120000z.certificate.dsse.json": b"{}"
                                                                     for i in range(9)}}), "trust.json", "refused")
     raw["attestation-uppercase-stem"] = (write_zip({**beside, "META/attestations/ABC.certificate.dsse.json": b"{}"}), "trust.json", "refused")
+
+    # Review 2: the rules of round 1 and 2 held to agreement by both verifiers, not only by .NET unit tests.
+    vectors["folders-differ-only-by-case"] = (signed({**content, "assets/Icons/a.png": b"x", "assets/icons/b.png": b"y"}), "trust.json", "refused")
+    vectors["file-named-like-a-folder"] = (signed({**content, "notes": b"x", "notes/a.json": b'{}\n'}), "trust.json", "refused")
+    set_manifest = json.loads(bundle_content["pack.json"])
+    def set_of(set_id, members):
+        files = {"pack.json": (json.dumps({**set_manifest, "id": set_id, "contains": sorted(members)}, indent=2) + chr(10)).encode()}
+        for member_id, member_files in members.items():
+            files.update({f"packs/{member_id}/{name}": data for name, data in member_files.items()})
+        return signed(files, pid_=set_id)
+    vectors["set-inside-a-set"] = (set_of("io.example.outer", {"io.example.bundle": dict(bundle)}), "trust.json", "refused")
+    same_id = json.loads(content["pack.json"])
+    same_id_content = {**content, "pack.json": (json.dumps({**same_id, "id": "io.example.bundle"}, indent=2) + chr(10)).encode()}
+    vectors["set-member-with-the-set-id"] = (set_of("io.example.bundle", {"io.example.bundle": signed(same_id_content, pid_="io.example.bundle")}),
+                                             "trust.json", "refused")
+    vectors["composite-with-records"] = (family_with(**{"records/x.jsonl": b'{"key":"x"}\n'}), "trust.json", "refused")
+    vectors["composite-member-extra-field"] = (family_with(**{"members.json": (json.dumps({"members": [{"id": pid, "version": "[1,2)", "note": "x"}]}) + chr(10)).encode()}),
+                                               "trust.json", "refused")
+    vectors["valid-until-fraction-with-offset"] = (signed(edited(validUntil="2099-01-01T00:00:00.5+01:00")), "trust.json", "verified")
+    vectors["valid-until-seven-digit-fraction"] = (signed(edited(validUntil="2099-01-01T00:00:00.1234567Z")), "trust.json", "verified")
+    (OUT / "trust-key-window-fraction-offset.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [
+        dict(entry, notBefore="2020-01-01T00:00:00.25-05:30", notAfter="2099-01-01T00:00:00.5+01:00")]}, separators=(",", ":")), encoding="utf-8")
+    vectors["key-window-fraction-with-offset"] = (dict(base), "trust-key-window-fraction-offset.json", "verified")
+    private_pem = (work / "keys" / "publisher.key.pem").read_text(encoding="utf-8")
+    # A private key never lands in the tree: this policy lives in the work folder, which is git-ignored and removed after the run.
+    (work / "trust-private-key.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, publicKey=private_pem)]},
+                                                            separators=(",", ":")), encoding="utf-8")
+    vectors["policy-with-a-private-key"] = (dict(base), ".work/trust-private-key.json", "refused")
+    (OUT / "trust-two-key-blocks.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [
+        dict(entry, publicKey=entry["publicKey"].rstrip("\n") + "\n" + entry["publicKey"])]}, separators=(",", ":")), encoding="utf-8")
+    vectors["policy-with-two-key-blocks"] = (dict(base), "trust-two-key-blocks.json", "refused")
+    digest_list = (OUT / "revocations-digest.json").read_text(encoding="utf-8")
+    (OUT / "revocations-digest-reencoded.json").write_text("{ " + digest_list[1:], encoding="utf-8")
+    vectors["revocations-one-list-in-two-envelopes"] = (dict(base), "trust-with-revoker.json", "refused",
+                                                         ["revocations-digest.json", "revocations-digest-reencoded.json"])
+    vectors["revocations-65-lists"] = (dict(base), "trust-with-revoker.json", "refused", ["revocations-none.json"] * 65)
+
+    # Review 2, L7: every shape in an envelope closed, in both verifiers.
+    def signed_statement(content_, statement_extra=None, predicate_extra=None, envelope_extra=None):
+        lb = files_list(pid, version, content_)
+        statement = {"_type": py.STATEMENT, "subject": [{"name": py.FILES, "digest": {"sha256": hashlib.sha256(lb).hexdigest()}}],
+                     "predicateType": "urn:agentmemory:pack:publisher:v1",
+                     "predicate": {"id": pid, "version": version, "role": "publisher", "signedAt": "2026-10-26T12:00:00Z", **(predicate_extra or {})},
+                     **(statement_extra or {})}
+        payload = py.canonical(statement).encode()
+        spki = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        kid = hashlib.sha256(spki).hexdigest()
+        signature = base64.b64encode(key.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))).decode()
+        envelope = py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                                 "signatures": [{"keyid": kid, "sig": signature}], **(envelope_extra or {})}).encode()
+        return {**content_, py.FILES: lb, f"{py.SIGNATURES}publisher-{kid[:16]}.dsse.json": envelope}
+    vectors["envelope-closed-shapes-hold"] = (signed_statement(content), "trust.json", "verified")
+    vectors["envelope-extra-field"] = (signed_statement(content, envelope_extra={"note": "x"}), "trust.json", "refused")
+    vectors["statement-extra-field"] = (signed_statement(content, statement_extra={"note": "x"}), "trust.json", "refused")
+    vectors["predicate-extra-field"] = (signed_statement(content, predicate_extra={"note": "x"}), "trust.json", "refused")
 
     results, failures = [], 0
     for name, (files, policy_file, expected, *document) in {**{k: (write_zip(v[0]), *v[1:]) for k, v in vectors.items()}, **raw}.items():

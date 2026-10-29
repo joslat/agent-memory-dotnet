@@ -56,7 +56,12 @@ internal static class Rest
             try { context = listener.GetContext(); }
             catch (HttpListenerException) when (stop.IsCancellationRequested) { break; }
             catch (ObjectDisposedException) { break; }
+            // One client's broken request never ends the server (review 2): the next one is accepted.
+            catch (HttpListenerException) when (listener.IsListening) { continue; }
             if (!gate.Wait(0)) { Refuse(context, 503, "The server is busy; try again."); continue; }
+            // A server bound to this machine answers this machine only, whatever Host header a request names (review 2: http.sys
+            // routes by the Host header, so a localhost prefix could be reached from elsewhere).
+            if (uri.IsLoopback && !context.Request.IsLocal) { gate.Release(); Refuse(context, 403, "This server answers this machine only."); continue; }
             if (expected is not null && !Authorized(context.Request, expected)) { gate.Release(); Refuse(context, 401, "A bearer token is required."); continue; }
             _ = Task.Run(async () =>
             {
@@ -107,6 +112,7 @@ internal static class Rest
         && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
             System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(header["Bearer ".Length..])), expected);
 
+    // Runs on the accept loop, so nothing a client does to its connection may escape it (review 2: a reset killed the server).
     private static void Refuse(HttpListenerContext context, int status, string message)
     {
         try
@@ -118,8 +124,12 @@ internal static class Rest
             context.Response.ContentLength64 = bytes.Length;
             context.Response.OutputStream.Write(bytes);
         }
-        catch (HttpListenerException) { }
-        finally { context.Response.Close(); }
+        catch (Exception e) when (e is HttpListenerException or IOException or ObjectDisposedException or InvalidOperationException) { }
+        finally
+        {
+            try { context.Response.Close(); }
+            catch (Exception e) when (e is HttpListenerException or IOException or ObjectDisposedException or InvalidOperationException) { }
+        }
     }
 
     private static async Task<(int, string)> AskAsync(PackMount mount, string pack, string view, JsonObject body, CancellationToken cancellationToken)

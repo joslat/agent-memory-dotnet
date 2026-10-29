@@ -13,6 +13,7 @@
     <IsPackable>false</IsPackable>
     <!-- The ampack tool ships as a NativeAOT binary; the analyzers keep this library free of reflection. -->
     <IsAotCompatible>true</IsAotCompatible>
+    <DefineConstants>$(DefineConstants);AGENTMEMORY_PACKS_FORMAT</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

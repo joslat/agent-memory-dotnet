@@ -107,7 +107,11 @@ internal static class ModuleJson
     internal static int? PositiveInteger(JsonElement parent, string name, string path)
     {
         if (!parent.TryGetProperty(name, out var value)) return null;
-        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var number) || number <= 0)
+        // An integral number is an integer, written 2 or 2.0, as JSON Schema's integer reads it (review 2: the editor schema
+        // passed 2.0 and the runtime refused it).
+        if (value.ValueKind != JsonValueKind.Number || !(value.TryGetInt32(out var number)
+                || value.TryGetDouble(out var real) && real == Math.Floor(real) && real is >= 1 and <= int.MaxValue && (number = (int)real) > 0)
+            || number <= 0)
             throw Error(path + "." + name, "expected positive 32-bit integer");
         return number;
     }

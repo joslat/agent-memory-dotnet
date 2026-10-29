@@ -153,8 +153,12 @@
     "traversal": {
       "type": "object",
       "additionalProperties": false,
-      "description": "How the module joins traversal context: which of its records a turn's anchors (the file or symbol in hand) match, which of its own links a walk may follow, and how many of the records reached it offers to the gate.",
+      "description": "How the module joins traversal context: which of its records a turn's anchors (the file or symbol in hand) match, which of its own links a walk may follow, and how many of the records reached it offers to the gate. It declares at least one anchor or one relation; anchors are unique by (type, property), relations by (name, direction), and the validator checks that they name owned types, string properties and owned relations.",
       "minProperties": 1,
+      "anyOf": [
+        { "required": ["anchors"], "properties": { "anchors": { "minItems": 1 } } },
+        { "required": ["relations"], "properties": { "relations": { "minItems": 1 } } }
+      ],
       "properties": {
         "anchors": {
           "type": "array",

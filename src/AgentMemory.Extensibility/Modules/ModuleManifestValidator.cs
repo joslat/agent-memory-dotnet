@@ -266,6 +266,9 @@ internal sealed class ModuleManifestValidator
             if (relation is null) { Error(path + ".relations", "null relation declaration"); continue; }
             var at = path + ".relations." + relation.Name;
             if (!owned.Contains(relation.Name ?? "")) Error(at, "traversal may follow owned relations only");
+            // Review 2: a walk never goes into core entities, so such a relation would only spend reads.
+            else if (ontology.Relations.First(r => r?.Name == relation.Name).To?.StartsWith("core:", StringComparison.Ordinal) == true)
+                Error(at, "traversal does not walk into core entities");
             if (!Enum.IsDefined(relation.Direction)) Error(at + ".direction", "unknown direction");
             if (!seenRelations.Add((relation.Name, relation.Direction))) Error(at, "duplicate relation and direction");
             if (!(relation.Weight > 0 && relation.Weight <= 1)) Error(at + ".weight", "weight must be greater than 0 and at most 1");

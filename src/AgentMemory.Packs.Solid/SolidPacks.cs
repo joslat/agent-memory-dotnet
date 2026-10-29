@@ -136,7 +136,7 @@ internal static partial class SolidPacks
             {
                 var catalogUrl = reader is null ? container + "public.ttl" : container + "for/" + ReaderKey(reader) + ".ttl";
                 var existing = await ReadCatalogAsync(owner, catalogUrl, cancellationToken).ConfigureAwait(false);
-                var entries = Catalog.Pruned((existing ?? []).Where(e => e.Digest != digest && !(e.Id == entry.Id && e.Version == entry.Version)).Append(entry).ToList());
+                var entries = Catalog.Pruned((existing ?? []).Where(e => e.Digest != digest && !(e.Id == entry.Id && e.Version == entry.Version)).Append(entry).ToList(), keep: entry);
                 await PlaceAsync(owner, journal, catalogUrl, Encoding.UTF8.GetBytes(Catalog.Write(catalogUrl, webId, entries)), "text/turtle",
                     owner.Options.MaximumDocumentBytes, webId, reader is null ? null : [reader], cancellationToken).ConfigureAwait(false);
                 await RefusedAsync(owner, catalogUrl, reader is null, strangers, cancellationToken).ConfigureAwait(false);
@@ -303,8 +303,16 @@ internal static partial class SolidPacks
         await RestrictContainerAsync(owner, container, ownerWebId, strangers, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<IReadOnlyList<CatalogEntry>?> ReadCatalogAsync(SolidSession owner, string url, CancellationToken cancellationToken) =>
-        await owner.TurtleAsync(url, cancellationToken: cancellationToken).ConfigureAwait(false) is { } triples ? Catalog.Read(triples) : null;
+    // Read to be written back: a catalog past the limit (another writer's) is refused, never cut and written back without the
+    // entries past it (review 2).
+    private static async Task<IReadOnlyList<CatalogEntry>?> ReadCatalogAsync(SolidSession owner, string url, CancellationToken cancellationToken)
+    {
+        if (await owner.TurtleAsync(url, cancellationToken: cancellationToken).ConfigureAwait(false) is not { } triples) return null;
+        var entries = Catalog.Read(triples, MaximumEntries + 1);
+        return entries.Count > MaximumEntries
+            ? throw new InvalidDataException($"The catalog {url} lists more than {MaximumEntries} packs; prune it before publishing, or its other entries would be lost.")
+            : entries;
+    }
 
     // The catalogs of a pack container: its public one and each reader's, from the owner's listing of for/.
     private static async Task<IReadOnlyList<string>> CatalogsInAsync(SolidSession owner, string container, CancellationToken cancellationToken)
@@ -735,27 +743,33 @@ internal static class Catalog
     /// entries, so a longer catalog would hide packs without a word. The oldest versions of packs listed more than once go
     /// first; a catalog of that many distinct packs is refused rather than cut.
     /// </summary>
-    internal static List<CatalogEntry> Pruned(List<CatalogEntry> entries)
+    // keep: the entry being written, which is never the one dropped (review 2: publishing an older version into a full catalog
+    // dropped the entry just published). Versions are compared within one pack only: the pack listed most often loses its
+    // oldest version first.
+    internal static List<CatalogEntry> Pruned(List<CatalogEntry> entries, CatalogEntry? keep = null)
     {
-        if (entries.Count <= SolidPacks.MaximumEntries) return entries;
-        var byAge = entries.GroupBy(e => e.Id, StringComparer.Ordinal)
-            .SelectMany(g => g.OrderByDescending(e => SemVer.TryParse(e.Version, out var v) ? v : null).Skip(1))
-            .OrderBy(e => SemVer.TryParse(e.Version, out var v) ? v : null).ToList();
-        var drop = byAge.Take(entries.Count - SolidPacks.MaximumEntries).ToHashSet();
-        if (entries.Count - drop.Count > SolidPacks.MaximumEntries)
-            throw new InvalidDataException($"A catalog lists at most {SolidPacks.MaximumEntries} packs; this one would list {entries.Count - drop.Count} distinct packs. Withdraw some first.");
-        return [.. entries.Where(e => !drop.Contains(e))];
+        var kept = new List<CatalogEntry>(entries);
+        while (kept.Count > SolidPacks.MaximumEntries)
+        {
+            var counts = kept.GroupBy(e => e.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+            var victim = kept.Where(e => !ReferenceEquals(e, keep) && counts[e.Id] > 1)
+                .OrderByDescending(e => counts[e.Id]).ThenBy(e => e.Id, StringComparer.Ordinal)
+                .ThenBy(e => SemVer.TryParse(e.Version, out var v) ? v : null).FirstOrDefault()
+                ?? throw new InvalidDataException($"A catalog lists at most {SolidPacks.MaximumEntries} packs; this one would list {counts.Count} distinct packs. Withdraw some first.");
+            kept.Remove(victim);
+        }
+        return kept;
     }
 
     /// <summary>The entries of a catalog (at most <see cref="SolidPacks.MaximumEntries"/>), each subject's triples read once.</summary>
-    internal static IReadOnlyList<CatalogEntry> Read(IReadOnlyList<RdfTriple> triples)
+    internal static IReadOnlyList<CatalogEntry> Read(IReadOnlyList<RdfTriple> triples, int limit = SolidPacks.MaximumEntries)
     {
         var bySubject = triples.ToLookup(t => t.Subject);
         string? Value(RdfTerm subject, string predicate, RdfTermKind kind = RdfTermKind.Literal) =>
             bySubject[subject].FirstOrDefault(t => t.Predicate == predicate && t.Object.Kind == kind)?.Object.Value;
         var entries = new List<CatalogEntry>();
         foreach (var pack in triples.Where(t => t.Predicate == Turtle.Rdf + "type" && t.Object.IsIri(Vocabulary.Ampack + "Pack") && t.Subject.Kind == RdfTermKind.Iri)
-                     .Select(t => t.Subject).Distinct().Take(SolidPacks.MaximumEntries))
+                     .Select(t => t.Subject).Distinct().Take(limit))
         {
             var id = Value(pack, Vocabulary.Dct + "identifier");
             var version = Value(pack, Vocabulary.Ampack + "version");

@@ -21,13 +21,23 @@ public sealed record PackGateCheck(IReadOnlyList<string> On, IReadOnlyList<Switc
     /// <param name="activations">The host's signed decisions.</param>
     /// <param name="requireTrialsFor">Namespaces where a pack that declares no trial stays off.</param>
     /// <param name="trustCertificatesFor">Namespaces where a decision the host made from an evaluation certificate counts.</param>
+    /// <param name="familyMembers">
+    /// The ids of packs that are members of a family (a composite in a set): a host composes those with AddFamily, where only
+    /// its own trials count for them, never a certificate, and so does this check (review 2: serve counted certificates for
+    /// them and served what a host keeps off).
+    /// </param>
     public static PackGateCheck Of(IReadOnlyList<LoadedPack> packs, IPackActivations activations, IReadOnlyList<string>? requireTrialsFor = null,
-        IReadOnlyList<string>? trustCertificatesFor = null)
+        IReadOnlyList<string>? trustCertificatesFor = null, IReadOnlySet<string>? familyMembers = null)
     {
         ArgumentNullException.ThrowIfNull(packs);
         ArgumentNullException.ThrowIfNull(activations);
         var builder = new ModuleSetBuilder();
-        foreach (var pack in packs) builder.AddPack(pack);
+        foreach (var pack in packs)
+        {
+            builder.AddPack(pack);
+            if (familyMembers?.Contains(pack.Id) == true && builder.Modules.LastOrDefault(r => r.Manifest.Id == pack.Id) is { } member)
+                member.TrustedCertificates = null;
+        }
         if (requireTrialsFor is { Count: > 0 }) builder.RequireTrialsFor([.. requireTrialsFor]);
         if (trustCertificatesFor is { Count: > 0 }) builder.TrustCertificatesFor([.. trustCertificatesFor]);
         var (on, off) = PackTrialGate.Apply(builder.Modules, activations, builder.MandatoryTrials, builder.CertificateTrust);

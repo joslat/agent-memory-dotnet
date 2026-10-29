@@ -50,9 +50,13 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
         if (!declared) return Refused("The anchor property is not declared for traversal.");
         if (!TryScope(context, out var scope)) return Refused("An owner scope is required by the host isolation policy.");
         var type = module!.Ontology!.Types.Single(t => t.Name == query.Type);
-        var values = query.Values.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim().Replace('\\', '/').ToLowerInvariant()).Distinct().ToArray();
-        if (values.Length == 0) return new() { Status = ModuleReadStatus.Succeeded };
-        var statement = query.Match == ModuleAnchorMatch.Exact ? ModuleTraversalQueries.MatchExact(type.Name, query.Property) : ModuleTraversalQueries.MatchAny(type.Name, query.Property);
+        var anchors = query.Values.Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
+        if (anchors.Count == 0) return new() { Status = ModuleReadStatus.Succeeded };
+        // The anchors as the walk compares them, and what the candidates must hold (review 2): the walk then matches exactly.
+        var values = anchors.Select(a => ModuleAnchorQuery.NormalizedPath(a).ToLowerInvariant()).Where(v => v.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
+        var folders = values.SelectMany(Folders).Distinct(StringComparer.Ordinal).ToArray();
+        var names = anchors.Select(a => ModuleAnchorQuery.SimpleName(a) is { Length: > 0 } simple ? simple : a.Trim()).Distinct(StringComparer.Ordinal).ToArray();
+        var statement = ModuleTraversalQueries.MatchCandidates(type.Name, query.Property, query.Match);
         try
         {
             return await _runner.ReadAsync(async transaction =>
@@ -61,7 +65,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 var rows = await RowsAsync(transaction, statement, new Dictionary<string, object?>
                 {
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared, ["values"] = values,
-                    ["take"] = Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit)
+                    ["folders"] = folders, ["names"] = names, ["take"] = Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit)
                 }, cancellationToken).ConfigureAwait(false);
                 return new ModuleReadResult
                 {
@@ -94,16 +98,26 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
         var statement = query.Direction == ModuleTraversalDirection.Out
             ? ModuleTraversalQueries.Out(relation.From, relation.Name, targetLabel)
             : ModuleTraversalQueries.In(relation.From, relation.Name, targetLabel);
+        var hubs = query.Direction == ModuleTraversalDirection.Out
+            ? ModuleTraversalQueries.OutHubs(relation.From, relation.Name)
+            : ModuleTraversalQueries.InHubs(relation.Name, targetLabel);
         try
         {
             return await _runner.ReadAsync(async transaction =>
             {
                 if (await NotReadyAsync(transaction, cancellationToken).ConfigureAwait(false))
                     return StepRefused("Module migrations are pending or inconsistent; apply them explicitly before reads.");
+                // Past the link limit a record is not expanded, and the walk is told (review 2).
+                var ids = query.FromIds.Distinct(StringComparer.Ordinal).ToArray();
+                var skipped = await RowsAsync(transaction, hubs, new Dictionary<string, object?>
+                {
+                    ["ids"] = ids, ["maxLinks"] = ModuleExpandQuery.MaximumLinks,
+                }, cancellationToken).ConfigureAwait(false);
+                var past = skipped.ToDictionary(r => r["fid"].As<string>(), r => (Key: r["key"].As<string>(), Links: r["links"].As<long>()), StringComparer.Ordinal);
                 var rows = await RowsAsync(transaction, statement, new Dictionary<string, object?>
                 {
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared,
-                    ["ids"] = query.FromIds.Distinct(StringComparer.Ordinal).ToArray(),
+                    ["ids"] = ids.Where(id => !past.ContainsKey(id)).ToArray(),
                     ["fanOut"] = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut)),
                     ["words"] = Words(query.Words), ["text"] = reached.Type.TextProperties().ToArray(),
                     ["scan"] = ModuleExpandQuery.MaximumScan
@@ -116,7 +130,8 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                         FromId = r["fid"].As<string>(),
                         To = Neo4jModuleReader.Record(reached.Module, reached.Type, r["row"].As<Dictionary<string, object>>(), []),
                         Degree = (int)Math.Clamp(r["degree"].As<long>(), 1, int.MaxValue)
-                    }).ToList().AsReadOnly()
+                    }).ToList().AsReadOnly(),
+                    Errors = [.. past.Values.Select(h => $"{h.Key} has {h.Links} {relation.Name} links, more than {ModuleExpandQuery.MaximumLinks}: not expanded.")],
                 };
             }, cancellationToken).ConfigureAwait(false);
         }
@@ -150,10 +165,18 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
 
     private volatile bool _ready;
 
-    // The question's words as the query matches them: lower case, at most 40 characters, at most ModuleExpandQuery.MaximumWords.
+    // The question's words as the query matches them: lower case, at most MaximumWordLength characters (as the walk's words
+    // are, so both stores and the walk count the same), at most ModuleExpandQuery.MaximumWords.
     private static string[] Words(IReadOnlyList<string> words) =>
-        [.. words.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim().ToLowerInvariant()).Where(w => w.Length <= 40)
+        [.. words.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim().ToLowerInvariant()).Where(w => w.Length <= ModuleExpandQuery.MaximumWordLength)
             .Distinct(StringComparer.Ordinal).Take(ModuleExpandQuery.MaximumWords)];
+
+    // An anchor's folders, at '/' boundaries, and the anchor itself: src/a/b.cs -> src, src/a, src/a/b.cs.
+    private static IEnumerable<string> Folders(string path)
+    {
+        for (var i = path.IndexOf('/'); i > 0; i = path.IndexOf('/', i + 1)) yield return path[..i];
+        yield return path.TrimEnd('/');
+    }
 
     private static ModuleReadResult Refused(string error) => new() { Status = ModuleReadStatus.Refused, Errors = [error] };
     private static ModuleReadResult NotApplicable() => new() { Status = ModuleReadStatus.NotApplicable, Errors = ["Traversal reads live records only."] };

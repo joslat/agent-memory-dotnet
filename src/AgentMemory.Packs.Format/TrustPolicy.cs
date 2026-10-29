@@ -101,6 +101,9 @@ internal sealed partial record TrustPolicy
                 var pem = k.GetProperty("publicKey").GetString() ?? throw new FormatException("A key's publicKey is a string.");
                 var keyId = k.GetProperty("keyId").GetString() ?? throw new FormatException("A key's keyId is a string.");
                 if (keys.Any(known => known.KeyId == keyId)) throw new InvalidDataException($"Key {Dsse.Short(keyId)} is listed twice.");
+                // One PUBLIC KEY block and nothing else, as both verifiers read it (review 2): the PEM reader also takes a private
+                // key, which then sits in a policy that gets shared, and the two readers took several blocks differently.
+                if (!IsPublicKeyPem(pem)) throw new InvalidDataException($"Key {Dsse.Short(keyId)}: publicKey must be one PEM 'PUBLIC KEY' block and nothing else.");
                 if (PackKey.KeyIdOf(pem) != keyId) throw new InvalidDataException($"Key {Dsse.Short(keyId)}: the id is not the SHA-256 of its public key.");
                 // P-256 only, as the format signs and as the Python verifier reads a policy (fourth review: .NET took any curve).
                 using (var curve = System.Security.Cryptography.ECDsa.Create())
@@ -183,6 +186,13 @@ internal sealed partial record TrustPolicy
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\A[0-9a-f]{64}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
     private static partial System.Text.RegularExpressions.Regex KeyIdPattern();
+
+    /// <summary>Whether <paramref name="pem"/> is exactly one PEM <c>PUBLIC KEY</c> block (base64 lines, LF or CRLF), and nothing else.</summary>
+    internal static bool IsPublicKeyPem(string pem) => PublicKeyPemPattern().IsMatch(pem);
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\A-----BEGIN PUBLIC KEY-----\r?\n(?:[A-Za-z0-9+/=]{1,76}\r?\n){1,16}-----END PUBLIC KEY-----(?:\r?\n)?\z",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex PublicKeyPemPattern();
 
     // A list of strings: absent is empty; anything but an array of strings makes the policy malformed.
     private static IReadOnlyList<string> Strings(JsonElement element, string name)

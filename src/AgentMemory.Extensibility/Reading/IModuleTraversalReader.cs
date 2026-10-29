@@ -12,8 +12,9 @@ namespace AgentMemory.Extensibility.Reading;
 public interface IModuleTraversalReader
 {
     /// <summary>
-    /// The live records of one type whose anchor property may match the anchors. Exact and prefix matches are filtered by the
-    /// store; glob and name matches return the records whose property is set, up to the limit, for the walk to match.
+    /// The live records of one type whose anchor property may match the anchors: every record that matches by the walk's rules
+    /// (pack format v1.2 §6.1), and possibly others the walk then drops; never cut before matching, up to the limit (review 2:
+    /// the first 512 records holding the property were returned, so matches past them never seeded).
     /// </summary>
     Task<ModuleReadResult> MatchAsync(ModuleAnchorQuery query, ModuleReadContext context, CancellationToken cancellationToken = default);
 
@@ -25,8 +26,8 @@ public interface IModuleTraversalReader
 [Experimental("AMEXT001")]
 public sealed record ModuleAnchorQuery
 {
-    /// <summary>Most records one anchor query returns.</summary>
-    public const int MaximumLimit = 2048;
+    /// <summary>Most records one anchor query returns: a snapshot's whole size, so a match is never cut off before it is matched.</summary>
+    public const int MaximumLimit = 250_000;
 
     /// <summary>The module that owns the type.</summary>
     public required string ModuleId { get; init; }
@@ -40,6 +41,15 @@ public sealed record ModuleAnchorQuery
     public required IReadOnlyList<string> Values { get; init; }
     /// <summary>Most records returned.</summary>
     public int Limit { get; init; } = 512;
+
+    /// <summary>
+    /// A path as the walk compares it, which a store's own filter must keep to (pack format v1.2 §6.1): trimmed, '/' for '',
+    /// without leading './' or '/'; compared without case.
+    /// </summary>
+    public static string NormalizedPath(string value) => Context.Traversal.AnchorMatcher.Normalized(value);
+
+    /// <summary>The simple name of a SCIP symbol, as a name anchor matches it (pack format v1.2 §6.1).</summary>
+    public static string SimpleName(string symbol) => Context.Traversal.AnchorMatcher.SimpleName(symbol);
 }
 
 /// <summary>One hop through one owned link from a set of live records.</summary>
@@ -58,12 +68,17 @@ public sealed record ModuleExpandQuery
     public int FanOut { get; init; } = 8;
     /// <summary>Most question words one expansion ranks by.</summary>
     public const int MaximumWords = 16;
-    /// <summary>
-    /// Most neighbours of one starting record the store reads and ranks (red-team M3): beyond it, in id order, a hub's other
-    /// neighbours are not read at all, so its degree no longer sets a hop's cost. Far above any fan-out, so ranking is unchanged
-    /// for every record with fewer neighbours.
-    /// </summary>
+    /// <summary>The longest question word a walk ranks by; a store counts the same words (review 2).</summary>
+    public const int MaximumWordLength = 40;
+    /// <summary>The count at which a degree stops (a record's specificity is 1 over its degree, counted up to this).</summary>
     public const int MaximumScan = 1024;
+
+    /// <summary>
+    /// Most links of one relation a record may have and still be expanded through it (red-team M3, review 2): every neighbour of
+    /// a record within it is ranked, in the format's order, so two stores choose the same; a record past it is not expanded,
+    /// and the store says so. Counted over every link the store holds for the relation, live or not.
+    /// </summary>
+    public const int MaximumLinks = 16_384;
     /// <summary>
     /// The question's words, lower case (CMP-4). When a starting record leads to more than the fan-out, the reader keeps first the
     /// records whose text (<see cref="Modules.ModuleType.TextProperties"/>) holds most of them, then the most specific: those

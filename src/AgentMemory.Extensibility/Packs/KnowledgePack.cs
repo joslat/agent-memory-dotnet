@@ -35,6 +35,14 @@ public sealed class KnowledgePack
     /// </summary>
     public DateTimeOffset? ValidUntil { get; internal set; }
 
+    // A copy that stops being valid at until: the instance others hold is never changed under them (review 2).
+    internal KnowledgePack WithValidUntil(DateTimeOffset? until)
+    {
+        var copy = (KnowledgePack)MemberwiseClone();
+        copy.ValidUntil = until;
+        return copy;
+    }
+
     private KnowledgePack(ModuleManifest manifest, VerifiedBundle bundle, IReadOnlyList<ModuleProposal> proposals, ReadOnlyMemory<byte>? icon)
     { Manifest = manifest; Bundle = bundle; Proposals = proposals; Icon = icon; }
 

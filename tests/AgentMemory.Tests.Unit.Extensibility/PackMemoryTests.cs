@@ -104,6 +104,36 @@ public sealed class PackMemoryTests
     }
 
     [Fact]
+    public async Task Review2_a_record_past_the_link_limit_is_not_expanded_and_the_walk_says_so()
+    {
+        const string hub = "scip-dotnet nuget Acme.Hub . Acme/Hub/Hub#";
+        var builder = new CodeMapBuilder();
+        builder.AddProject("src/Hub/Hub.csproj", "Acme.Hub");
+        builder.AddFile("src/Hub/Hub.cs", "src/Hub/Hub.csproj");
+        builder.AddFile("tests/HubTests.cs", null);
+        builder.AddSymbol(hub, "Hub", "Acme.Hub.Hub", CodeMapSymbolKind.Class, "Acme.Hub", "src/Hub/Hub.cs", 1, ["Run"]);
+        for (var i = 0; i <= ModuleExpandQuery.MaximumLinks; i++)
+            builder.AddTest($"scip-dotnet nuget Acme.Hub.Tests . Acme/Hub/Tests/HubTests#Case{i:00000}().", $"HubTests.Case{i:00000}",
+                "tests/HubTests.cs", 10 + i, "xunit", [hub]);
+        var memory = PackMemory.From([], [builder.Build("git:hub")]);
+        var context = new ModuleReadContext { Scope = MemoryScope.For("lea") };
+        var file = (await memory.MatchAsync(new() { ModuleId = CodeMapPack.Id, Type = CodeMapPack.FileType, Property = "path",
+            Match = ModuleAnchorMatch.Exact, Values = ["src/Hub/Hub.cs"] }, context)).Records.Should().ContainSingle().Subject;
+        var symbol = (await memory.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_DEFINES",
+            Direction = ModuleTraversalDirection.Out, FromIds = [file.Id] }, context)).Edges.Should().ContainSingle().Subject.To;
+
+        var step = await memory.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_TESTS",
+            Direction = ModuleTraversalDirection.In, FromIds = [symbol.Id] }, context);
+
+        step.Status.Should().Be(ModuleReadStatus.Succeeded);
+        step.Edges.Should().BeEmpty();
+        step.Errors.Should().ContainSingle().Which.Should().Contain("not expanded");
+        var walk = await TraversalWalk.RunAsync(memory.Resolution, memory,
+            new ContextRequest { SessionId = "s", Owner = "lea", Query = "", Anchors = [ContextAnchor.Path("src/Hub/Hub.cs")] }, CancellationToken.None);
+        walk.Problems.Should().Contain(p => p.Contains("not expanded"));
+    }
+
+    [Fact]
     public void Review1_M9_a_knowledge_pack_carries_its_validUntil_to_the_module_it_composes_as()
     {
         var source = Source();

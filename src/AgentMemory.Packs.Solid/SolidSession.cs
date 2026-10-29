@@ -244,16 +244,25 @@ internal sealed class SolidSession : IDisposable
         // Review 1, M13: one deadline for the whole request, body included. HttpClient's timeout stops at the headers, so a server
         // that trickled a profile or an archive one byte at a time would otherwise hold a command for ever.
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(RequestDeadline);
+        var allowed = Deadline(Math.Max(limit, body?.Length ?? 0));
+        deadline.CancelAfter(allowed);
         try { return await SendWithinAsync(method, url, body, contentType, accept, limit, anonymous, headers, deadline.Token).ConfigureAwait(false); }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new InvalidDataException($"{url} did not answer in full within {RequestDeadline.TotalMinutes:0} minutes; refused.");
+            throw new InvalidDataException($"{url} did not answer in full within {allowed.TotalMinutes:0} minutes; refused.");
         }
     }
 
-    /// <summary>The longest one request may take, its body included.</summary>
+    /// <summary>The longest one small request may take, its body included.</summary>
     internal static readonly TimeSpan RequestDeadline = TimeSpan.FromMinutes(5);
+
+    /// <summary>The slowest transfer a request is allowed, so a large pack has time in proportion to its size limit.</summary>
+    internal const long MinimumBytesPerSecond = 256 * 1024;
+
+    // Review 2: five minutes, or the time the largest body allowed takes at MinimumBytesPerSecond, whichever is longer (a fixed
+    // five minutes refused a 300 MiB pack below about 8 Mbit/s).
+    internal static TimeSpan Deadline(long bytes) =>
+        TimeSpan.FromSeconds(Math.Max(RequestDeadline.TotalSeconds, (double)Math.Max(0, bytes) / MinimumBytesPerSecond));
 
     private async Task<SolidResponse> SendWithinAsync(HttpMethod method, string url, byte[]? body, string? contentType, string? accept,
         long limit, bool anonymous, IReadOnlyDictionary<string, string>? headers, CancellationToken cancellationToken)

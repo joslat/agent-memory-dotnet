@@ -1,6 +1,12 @@
 using System.Text.RegularExpressions;
 
-namespace AgentMemory.Shared;
+// One namespace per assembly that compiles this file, so the two copies never share a full name where both are visible
+// (review 2: the format and the host both grant internals to the same assemblies).
+#if AGENTMEMORY_PACKS_FORMAT
+namespace AgentMemory.Packs.Format.PackIds;
+#else
+namespace AgentMemory.Extensibility.PackIds;
+#endif
 
 /// <summary>
 /// The pack id namespace rules, one source compiled into both the pack format and the module host (review 1, L16): which

@@ -138,7 +138,11 @@ public sealed class ModuleSet
             })];
         var fingerprint = Convert.ToHexString(SHA256.HashData(canonical)).ToLowerInvariant();
         var set = new ModuleSet(resolution, modules.AsReadOnly(), composition.CompositionFingerprint!, fingerprint, store,
-            registrations, switchedOff) { ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly() };
+            registrations, switchedOff)
+        {
+            ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(),
+            Slots = [.. builder.Modules.SelectMany(m => Enumerable.Repeat(m.Manifest.Id, m.Contributors.Count))],
+        };
         var log = services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>();
         log?.LogInformation("Module set {Fingerprint} active: {Modules}.", fingerprint,
             string.Join(", ", modules.Select(m => m.Manifest.Id + "@" + m.Manifest.Version)));
@@ -158,6 +162,33 @@ public sealed class ModuleSet
             ? new PrioritizedContributor(c, p.Value) : c)
           .Select(c => _registrations.FirstOrDefault(r => r.ValidUntil is not null && ModuleIdentity.IsOwnedId(r.Manifest.Id, c.Descriptor.Id)) is { } expiring
             ? new ExpiringContributor(c, expiring.ValidUntil!.Value, services.GetService<TimeProvider>() ?? TimeProvider.System) : c)];
+
+    /// <summary>
+    /// The module of each contributor slot the host registered (<see cref="CountContributors"/>: every contributor of every
+    /// module added, gated on or not), in registration order.
+    /// </summary>
+    internal IReadOnlyList<string> Slots { get; private init; } = [];
+
+    /// <summary>
+    /// This scope's contributor for every slot: a module the trial gate switched off keeps its slots, each an inert contributor
+    /// the compiler drops, so every other slot stays on its own module's contributor (review 2: the slots indexed a list of
+    /// the gated-on modules' contributors only, so one pack switched off shifted the rest and every compile threw).
+    /// </summary>
+    internal IReadOnlyList<IContextContributor> CreateSlots(IServiceProvider services)
+    {
+        var created = CreateContributors(services);
+        var byModule = new Dictionary<string, Queue<IContextContributor>>(StringComparer.Ordinal);
+        var next = 0;
+        foreach (var registration in _registrations)
+        {
+            var mine = byModule.TryGetValue(registration.Manifest.Id, out var queue) ? queue : byModule[registration.Manifest.Id] = new();
+            for (var i = 0; i < registration.Contributors.Count; i++) mine.Enqueue(created[next++]);
+        }
+        var inert = new Dictionary<string, int>(StringComparer.Ordinal);
+        return [.. Slots.Select(module => byModule.TryGetValue(module, out var queue) && queue.Count > 0 ? queue.Dequeue()
+            : new SwitchedOffContributor(module, inert[module] = inert.GetValueOrDefault(module) + 1,
+                SwitchedOff.FirstOrDefault(o => o.ModuleId == module)?.Reason ?? "the module is not active"))];
+    }
 
     /// <summary>Host-set contributor priorities by module (<see cref="ModuleSetBuilder.Prioritize"/>).</summary>
     internal IReadOnlyDictionary<string, int> Priorities { get; init; } = new Dictionary<string, int>().AsReadOnly();
@@ -198,9 +229,25 @@ public sealed class ModuleSet
         Create(services, r => r.Providers, (module, provider) => Owned(module, "ingestion provider", provider.Descriptor?.Id));
 
     /// <summary>Creates a reader bound to one active module, through the bound store.</summary>
-    internal IModuleReader CreateReader(IServiceProvider services, string moduleId) =>
-        (Store ?? throw new InvalidOperationException($"Module '{moduleId}' reads, but no module store is bound (UseStore)."))
-        .CreateReader(services, Resolution, moduleId);
+    internal IModuleReader CreateReader(IServiceProvider services, string moduleId)
+    {
+        var reader = (Store ?? throw new InvalidOperationException($"Module '{moduleId}' reads, but no module store is bound (UseStore)."))
+            .CreateReader(services, Resolution, moduleId);
+        // A view may read its dependencies' types: an expired dependency's records leave its answers too (review 2, M2's twin).
+        return Live(services) is { } live ? new LiveReader(reader, live) : reader;
+    }
+
+    // Drops the records of modules that are not live now, whatever the store returned.
+    private sealed class LiveReader(IModuleReader inner, Func<string, bool> live) : IModuleReader
+    {
+        public string CallerModuleId => inner.CallerModuleId;
+
+        public async Task<ModuleReadResult> FindAsync(ModuleQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
+        {
+            var result = await inner.FindAsync(query, context, cancellationToken).ConfigureAwait(false);
+            return result.Records.All(r => live(r.ModuleId)) ? result : result with { Records = [.. result.Records.Where(r => live(r.ModuleId))] };
+        }
+    }
 
     /// <summary>The traversal walk shared by every module's traversal contributor in one service scope (CMP-1).</summary>
     internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
@@ -213,7 +260,9 @@ public sealed class ModuleSet
         var expiring = _registrations.Where(r => r.ValidUntil is not null).ToDictionary(r => r.Manifest.Id, r => r.ValidUntil!.Value, StringComparer.Ordinal);
         if (expiring.Count == 0) return null;
         var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
-        return id => !expiring.TryGetValue(id, out var until) || clock.GetUtcNow() < until;
+        // Valid through the instant itself, off after it, as every twin reads validUntil (review 2: the walk dropped a pack at
+        // the instant its contributors and serve still kept).
+        return id => !expiring.TryGetValue(id, out var until) || clock.GetUtcNow() <= until;
     }
 
     /// <summary>The modules that add ingestion providers, which need a store binding.</summary>

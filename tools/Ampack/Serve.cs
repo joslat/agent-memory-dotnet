@@ -89,7 +89,8 @@ internal sealed class PackTools
             .Take(ContextAnchor.MaximumPerRequest).ToList();
         if (anchors.Count == 0) return JsonSerializer.Serialize(new { error = "Give at least one path or symbol to walk from." }, Json);
         var expired = ExpiredIds(mount);
-        var hits = await mount.Memory.WalkAsync(anchors, question, cancellationToken).ConfigureAwait(false);
+        // An expired pack takes no part in the walk at all (review 2), and the carriers' filter below still holds.
+        var hits = await mount.Memory.WalkAsync(anchors, question, live: id => !expired.Contains(id), cancellationToken).ConfigureAwait(false);
         return Hits([.. hits.Where(h => !expired.Contains(h.Module) && !(h.Pack?.Carrier?.Id is { } carrier && expired.Contains(carrier)))]);
     }
 

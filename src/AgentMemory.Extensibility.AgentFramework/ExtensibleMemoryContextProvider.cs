@@ -174,7 +174,8 @@ public partial class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvide
         // The CORE contributor is not a module. It exists for hosts that compile context instead of
         // inheriting it; if its presence flipped this provider into compile-and-append, core memory
         // would be rendered twice -- once by the base, once by the compiler.
-        _hasModuleContributors = moduleContributors.Any(c => !string.Equals(
+        // A switched-off module's slot is not a contributor either (review 2): with only those, core would render twice.
+        _hasModuleContributors = moduleContributors.Any(c => c is not Modules.SwitchedOffContributor && !string.Equals(
             c.Descriptor.Id, CoreMemoryContextContributor.ContributorId, StringComparison.Ordinal));
     }
 

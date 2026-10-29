@@ -93,6 +93,56 @@ public sealed class ModuleEditorSchemaTests
         RuntimeAccepts("module", json).Should().Be(accepted);
     }
 
+    // Review 2: the edges the schema and the validator must agree on, beyond the counts above.
+    [Theory]
+    [InlineData("anchors-16", true)]
+    [InlineData("anchors-17", false)]
+    [InlineData("tasks-9", false)]
+    [InlineData("tasks-10", true)]
+    [InlineData("tasks-200", true)]
+    [InlineData("tasks-201", false)]
+    [InlineData("tolerance-0", true)]
+    [InlineData("tolerance-negative", false)]
+    [InlineData("traversal-without-anchors-or-relations", false)]
+    [InlineData("traversal-with-empty-anchors", false)]
+    [InlineData("hops-written-2.0", true)]
+    public void TraversalAndTrialEdgesHaveTheSameEditorAndRuntimeContract(string edge, bool accepted)
+    {
+        JsonNode Anchor(int i) => new JsonObject { ["type"] = "ReviewItem", ["property"] = "p" + i };
+        var properties = new JsonObject();
+        for (var i = 0; i < 17; i++) properties["p" + i] = new JsonObject { ["type"] = "string" };
+        var traversal = new JsonObject { ["anchors"] = new JsonArray(Anchor(0)) };
+        var trial = new JsonObject { ["measure"] = "test-impact", ["targets"] = new JsonObject { ["hitRate"] = 0.5 } };
+        switch (edge)
+        {
+            case "anchors-16": traversal["anchors"] = new JsonArray([.. Enumerable.Range(0, 16).Select(Anchor)]); break;
+            case "anchors-17": traversal["anchors"] = new JsonArray([.. Enumerable.Range(0, 17).Select(Anchor)]); break;
+            case "tasks-9": trial["tasks"] = 9; break;
+            case "tasks-10": trial["tasks"] = 10; break;
+            case "tasks-200": trial["tasks"] = 200; break;
+            case "tasks-201": trial["tasks"] = 201; break;
+            case "tolerance-0": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = 0 }; break;
+            case "tolerance-negative": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = -0.01 }; break;
+            case "traversal-without-anchors-or-relations": traversal = new JsonObject { ["maxItems"] = 3 }; break;
+            case "traversal-with-empty-anchors": traversal = new JsonObject { ["anchors"] = new JsonArray() }; break;
+            case "hops-written-2.0": traversal["hops"] = JsonValue.Create(2.0m); break;
+        }
+        var root = new JsonObject
+        {
+            ["format"] = "agentmemory.module/v1alpha1", ["id"] = "com.example.reviews", ["version"] = "1.0.0", ["sdk"] = "[0.1,0.2)",
+            ["ontology"] = new JsonObject
+            {
+                ["labelPrefix"] = "Review",
+                ["types"] = new JsonArray(new JsonObject { ["name"] = "ReviewItem", ["properties"] = properties, ["render"] = "{p0}" }),
+            },
+            ["traversal"] = traversal, ["trial"] = trial,
+        };
+        var json = root.ToJsonString();
+        if (edge == "hops-written-2.0") json.Should().Contain("\"hops\":2.0");
+        EditorAccepts("module", json).Should().Be(accepted, "the editor schema");
+        RuntimeAccepts("module", json).Should().Be(accepted, "the runtime");
+    }
+
     [Theory]
     [InlineData("module")]
     [InlineData("modules")]

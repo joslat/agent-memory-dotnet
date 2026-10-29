@@ -45,6 +45,48 @@ public sealed class TrialGateTests : IDisposable
 
     private const string GoldenTrialledDigest = "jcs-sha256:4f8b018552e494ff47e9c0b4889937d22914ff93a04faf88161b5fb7daa7df51";
 
+    /// <summary>Review 2: the same pin over a full manifest (ontology, views, traversal, trial), the code map pack's own.</summary>
+    [Fact]
+    public void TheCodeMapDeclarationsDigestIsPinned() =>
+        PackTrialGate.DigestOf(AgentMemory.Packs.CodeMap.CodeMapPack.Manifest).Should().Be(GoldenCodeMapDigest,
+            "the SDK's manifest serialization changed, or the code map's declarations did: see the remarks on PackTrialGate.DigestOf");
+
+    private const string GoldenCodeMapDigest = "jcs-sha256:a52acb6a7bd3c6350156593f8c8087314be544bec87e7e0b1d5d12355987cd16";
+
+    [Fact]
+    public void Review2_with_a_confidence_no_regression_at_tolerance_0_is_a_point_check_and_above_it_a_bound()
+    {
+        ModuleManifest Upgrade(double tolerance) => Manifest(Base,
+            $$$""","trial":{"measure":"test-impact","tasks":40,"confidence":0.95,"targets":{"hitRate":0.5},"upgrade":{"noRegression":true,"tolerance":{{{tolerance.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}}}""");
+        var arm = Arm(32, 30, 60, 10);
+        var previous = new PackTrialPrevious { Version = "0.9.0", ManifestDigest = "jcs-sha256:" + new string('a', 64), With = arm };
+
+        var equal = PackTrialGate.Decide(Upgrade(0), arm, Arm(0, 0, 0, 0), Now, previous: previous);
+        equal.Checks.Where(c => c.Target.StartsWith("noRegression", StringComparison.Ordinal)).Should().OnlyContain(c => c.Met,
+            "an upgrade as good as its predecessor passes at the default tolerance (review 2: no measurement could show it with the bound)");
+        equal.Confidence.Should().Be(0.95, "the record carries the confidence, so the upgrade chain checks the same way");
+
+        // Above 0, a non-inferiority test: without per-task results the arms are taken as independent, which is wide on 40 tasks.
+        var loose = PackTrialGate.Decide(Upgrade(0.05), arm, Arm(0, 0, 0, 0), Now, previous: previous);
+        loose.Checks.Single(c => c.Target == "noRegression.hitRate").Estimate.Should().Be(0);
+        loose.Checks.Single(c => c.Target == "noRegression.hitRate").Observed.Should().BeLessThan(-0.05);
+    }
+
+    [Fact]
+    public void Review2_the_precision_difference_bound_never_collapses_to_its_estimate()
+    {
+        // Three tasks offered one item each, all right; seven offered nothing; the baseline offered nothing at all.
+        var tasks = Enumerable.Range(0, 10).Select(i => i < 3 ? new PackTrialTask(1, 1) : new PackTrialTask(0, 0)).ToList();
+        var with = new PackTrialMeasurement { Tasks = 10, Hits = 3, Offered = 3, Correct = 3, P95Ms = 1, PerTask = tasks };
+        var without = new PackTrialMeasurement { Tasks = 10, Hits = 0, Offered = 0, Correct = 0, P95Ms = 0, PerTask = [.. Enumerable.Repeat(new PackTrialTask(0, 0), 10)] };
+        var z = 1.959963984540054;
+
+        var bound = PackTrialGate.PrecisionDifferenceLower(with, without, z);
+
+        bound.Should().BeApproximately(PackTrialGate.ClusteredWilsonLower(tasks, z), 1e-9, "against an arm that offered nothing, the bound is the arm's own");
+        bound.Should().BeLessThan(0.6, "three items cannot show a precision lift near 1 with 95% confidence (it was 1.000)");
+    }
+
     private static PackTrialMeasurement Arm(int hits, int correct, int offered, double p95) =>
         new() { Tasks = 40, Hits = hits, Correct = correct, Offered = offered, P95Ms = p95 };
 

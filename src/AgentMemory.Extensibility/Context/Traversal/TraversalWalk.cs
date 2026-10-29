@@ -143,19 +143,26 @@ internal static class TraversalWalk
                 reads++;
                 var found = await Within(token => reader.MatchAsync(new ModuleAnchorQuery
                 {
-                    ModuleId = module.Id, Type = declared.Type, Property = declared.Property, Match = declared.Match, Values = values
+                    ModuleId = module.Id, Type = declared.Type, Property = declared.Property, Match = declared.Match, Values = values,
+                    Limit = ModuleAnchorQuery.MaximumLimit,
                 }, context, token)).ConfigureAwait(false);
                 if (found is null) break;
                 if (found.Status != ModuleReadStatus.Succeeded) { problems.AddRange(found.Errors.Select(e => module.Id + ": " + e)); continue; }
+                if (found.Records.Count >= ModuleAnchorQuery.MaximumLimit)
+                    problems.Add($"{module.Id}: more than {ModuleAnchorQuery.MaximumLimit} records may match {declared.Type}.{declared.Property}; the rest are not seeds.");
+                // Every record that matches, offered best match first and then in the format's order (review 2: offered in the
+                // store's order, which differed between stores, so which records the caps kept differed too).
+                var seeds = new List<TraversalItem>();
                 foreach (var record in found.Records)
                 {
                     var value = record.Properties.TryGetValue(declared.Property, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
                     var (quality, anchor, pattern) = AnchorMatcher.Best(declared.Match, value, values);
                     if (quality <= 0) continue;
                     var via = Short(anchor!) + (string.Equals(pattern, anchor, StringComparison.OrdinalIgnoreCase)
-                        ? "" : " matches " + declared.Property + " " + Strict(pattern!));
-                    Offer(new TraversalItem(record, quality, via, 0, Matches(record)));
+                        ? "" : " matches " + declared.Property + " " + Capped(pattern!));
+                    seeds.Add(new TraversalItem(record, quality, via, 0, Matches(record)));
                 }
+                foreach (var seed in seeds.OrderByDescending(i => i.Score).ThenBy(i => i.Record, TraversalOrder.Records)) Offer(seed);
             }
 
         // Hops: owned links, in their declared direction, from what the last hop reached.
@@ -187,6 +194,9 @@ internal static class TraversalWalk
                     }, context, token)).ConfigureAwait(false);
                     if (step is null) break;
                     if (step.Status != ModuleReadStatus.Succeeded) { problems.AddRange(step.Errors.Select(e => module.Id + ": " + e)); continue; }
+                    // A record past the store's link limit is not expanded, and the walk says so.
+                    problems.AddRange(step.Errors.Select(e => module.Id + ": " + e));
+                    var reached = new List<(TraversalItem Item, ModuleRecord From)>();
                     foreach (var edge in step.Edges)
                     {
                         if (!starting.TryGetValue(edge.FromId, out var parent)) continue;
@@ -195,7 +205,12 @@ internal static class TraversalWalk
                         var verb = Verb(module, declared.Name);
                         var via = parent.Via + " → " + (declared.Direction == ModuleTraversalDirection.Out
                             ? verb + " " + Label(edge.To) : Label(edge.To) + " " + verb + " it");
-                        var item = new TraversalItem(edge.To, score, via, hop, Matches(edge.To), 1.0 / Math.Max(1, edge.Degree));
+                        reached.Add((new TraversalItem(edge.To, score, via, hop, Matches(edge.To), 1.0 / Math.Max(1, edge.Degree)), parent.Record));
+                    }
+                    // Offered in the format's order, whatever order the store answered in (review 2).
+                    foreach (var (item, _) in reached.OrderByDescending(r => r.Item.Score).ThenByDescending(r => r.Item.Matches)
+                                 .ThenByDescending(r => r.Item.Specificity).ThenBy(r => r.Item.Record, TraversalOrder.Records).ThenBy(r => r.From, TraversalOrder.Records))
+                    {
                         if (Offer(item)) next.Add(item);
                         if (best.Count >= MaximumVisited) break;
                     }
@@ -210,7 +225,7 @@ internal static class TraversalWalk
             .SetTag(ModuleTelemetry.TraversalElapsedMs, Math.Round(spent.Elapsed.TotalMilliseconds, 1))
             .SetTag(ModuleTelemetry.TraversalStoppedBy, spent.StoppedBy ?? "none");
         return new([.. best.Values.OrderByDescending(i => i.Rank).ThenByDescending(i => i.Specificity).ThenBy(i => i.Hops)
-            .ThenBy(i => i.Record.Id, StringComparer.Ordinal)], problems.AsReadOnly(), spent);
+            .ThenBy(i => i.Record, TraversalOrder.Records)], problems.AsReadOnly(), spent);
     }
 
     /// <summary>
@@ -260,6 +275,14 @@ internal static class TraversalWalk
         return text.Length <= 80 ? text : text[..77] + "...";
     }
 
+    // A pattern in a reason: strict and at most 80 characters, kept whole otherwise (review 2: a name match put whole SCIP
+    // symbols, or any stored value, into reasons).
+    internal static string Capped(string value)
+    {
+        var text = Strict(value.Trim());
+        return text.Length <= 80 ? text : text[..77] + "...";
+    }
+
     /// <summary>Letters, digits, spaces and the punctuation of paths, symbols and globs; anything else becomes '_'.</summary>
     internal static string Strict(string text) =>
         string.Create(text.Length, text, static (span, source) =>
@@ -269,6 +292,23 @@ internal static class TraversalWalk
         });
 
     private const string StrictPunctuation = "._-/:#*()<>,+@ ";
+}
+
+/// <summary>
+/// The format's order of records (pack format v1.2 §6.1): module id, then type, then key, each by UTF-16 code unit, then the
+/// version id. Every tie in a walk is broken by it, in every store, so two hosts offer the same records (review 2: ties were
+/// broken by store-internal ids, which differ between stores).
+/// </summary>
+[Experimental("AMEXT001")]
+internal static class TraversalOrder
+{
+    internal static readonly IComparer<ModuleRecord> Records = Comparer<ModuleRecord>.Create(static (a, b) =>
+    {
+        var c = string.CompareOrdinal(a.ModuleId, b.ModuleId);
+        if (c == 0) c = string.CompareOrdinal(a.Type, b.Type);
+        if (c == 0) c = string.CompareOrdinal(a.Key, b.Key);
+        return c != 0 ? c : string.CompareOrdinal(a.Id, b.Id);
+    });
 }
 
 /// <summary>One walk per request, shared by every module's traversal contributor in it (CMP-1).</summary>
@@ -301,7 +341,8 @@ internal static partial class TraversalWords
     internal static IReadOnlyList<string> Of(string? question) =>
         string.IsNullOrWhiteSpace(question) ? []
         : [.. Word().Matches(CaseChange().Replace(question, "$1 $2").ToLowerInvariant()).Select(m => m.Value)
-            .Where(w => w.Length >= 3 && !Common.Contains(w)).Distinct(StringComparer.Ordinal).Take(ModuleExpandQuery.MaximumWords)];
+            .Where(w => w.Length is >= 3 and <= ModuleExpandQuery.MaximumWordLength && !Common.Contains(w)).Distinct(StringComparer.Ordinal)
+            .Take(ModuleExpandQuery.MaximumWords)];
 
     [System.Text.RegularExpressions.GeneratedRegex("([a-z0-9])([A-Z])")]
     private static partial System.Text.RegularExpressions.Regex CaseChange();

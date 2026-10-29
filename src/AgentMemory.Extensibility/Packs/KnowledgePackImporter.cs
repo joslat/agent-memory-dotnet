@@ -84,6 +84,9 @@ public sealed class KnowledgePackImporter
     public async Task<KnowledgePackImportResult> ImportAsync(KnowledgePack pack, bool allowDowngrade = false, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pack);
+        // A pack past its validUntil writes nothing, on this path too (review 2, M9).
+        if (pack.ValidUntil is { } until && _clock.GetUtcNow() > until)
+            throw new KnowledgePackException([$"{pack.Id} {pack.Version} was valid until {until:u}; it is not imported."]);
         var state = await _store.GetStateAsync(pack.Manifest, cancellationToken).ConfigureAwait(false);
         if (!allowDowngrade && state.Version is { } stored && ModuleVersion.Parse(stored).CompareTo(pack.Manifest.Version) > 0)
             throw new KnowledgePackException([$"The store holds {pack.Id} {stored}, newer than {pack.Version}; ask for a downgrade explicitly."]);

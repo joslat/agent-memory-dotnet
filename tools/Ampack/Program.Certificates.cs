@@ -26,6 +26,9 @@ internal static partial class Program
         var decision = records.Find(pack.Id, AgentMemory.Extensibility.Modules.ModuleVersion.Parse(pack.Version), PackTrialGate.DigestOf(pack.Manifest), pack.Digest);
         if (decision is null)
             return Report([$"No trial decision for exactly this pack ({pack.Id} {pack.Version}, {pack.Digest[..23]}…) signed by that key in {o.Required("activations")}: run the trial first."], "");
+        // A certificate travels to others: never from a trial that saw the future (review 2).
+        if (decision.History == "head")
+            return Report([$"That decision measured past changes against the repository as it is now (--history head), which sees the tests they created: trial with --history parent before certifying."], "");
         using var signer = Signer(o);
         byte[] certified;
         try

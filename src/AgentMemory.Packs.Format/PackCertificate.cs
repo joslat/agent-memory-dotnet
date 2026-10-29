@@ -33,7 +33,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     /// <summary>The trust-policy role a key needs to issue certificates; it never signs packs.</summary>
     internal const string Role = "evaluator";
     /// <summary>A trial needs at least this many tasks, as the host's own gate does.</summary>
-    internal const int MinimumTasks = AgentMemory.Shared.PackNamespace.MinimumTrialTasks;
+    internal const int MinimumTasks = PackIds.PackNamespace.MinimumTrialTasks;
     internal static readonly IReadOnlySet<string> Measures = new HashSet<string>(StringComparer.Ordinal) { "test-impact", "retrieval" };
     internal static readonly IReadOnlySet<string> Baselines = new HashSet<string>(StringComparer.Ordinal) { "host", "none" };
     internal static readonly IReadOnlySet<string> Targets = new HashSet<string>(StringComparer.Ordinal)

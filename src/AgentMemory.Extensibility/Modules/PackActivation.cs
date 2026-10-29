@@ -138,6 +138,15 @@ public sealed record PackActivation
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ModuleTrialUpgrade? Upgrade { get; init; }
+
+    /// <summary>The confidence the trial declared, so the upgrade chain checks no regression with the same bounds (review 2).</summary>
+    public double? Confidence { get; init; }
+
+    /// <summary>
+    /// How the trial drew its tasks: <c>parent</c> (each at its commit's parent, as it stood before the change), <c>head</c> (the
+    /// repository as it is now, which sees the future) or null when the runner did not say (review 2).
+    /// </summary>
+    public string? History { get; init; }
     /// <summary>
     /// What the decision rests on when it is not this host's own trial: an evaluation certificate (certificate trust). Null for
     /// a decision from the host's own trial, which every namespace accepts.
@@ -226,28 +235,37 @@ public static class PackTrialGate
 
     /// <summary>
     /// The lower confidence bound of a difference of precisions (items right over items offered) measured on the same tasks,
-    /// each task one cluster (review 1, M4): the cluster-robust delta-method variance of each ratio, minus their covariance
-    /// across the paired tasks. Without per-task results, binomial variances of each arm, taken as independent.
+    /// each task one cluster: Newcombe's construction, as for hit rates, from each arm's clustered Wilson limits
+    /// (<see cref="ClusteredWilsonLower"/>) and the correlation of the two arms' residuals task by task (review 2: the earlier
+    /// delta-method variance was 0 whenever every task's precision was the same, so the bound collapsed to the estimate). An
+    /// arm that offered nothing has a precision of 0 and no uncertainty. Without per-task results, plain Wilson limits and no
+    /// correlation.
     /// </summary>
     public static double PrecisionDifferenceLower(PackTrialMeasurement first, PackTrialMeasurement second, double z)
     {
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
         var (r1, r2) = (first.Precision, second.Precision);
-        double variance;
-        if (first.PerTask is { } a && second.PerTask is { } b && a.Count == b.Count && a.Count > 1)
+        var l1 = first.Offered == 0 ? 0 : first.PerTask is { Count: > 0 } a1 ? ClusteredWilsonLower(a1, z) : WilsonLower(first.Correct, first.Offered, z);
+        var u2 = second.Offered == 0 ? 0 : second.PerTask is { Count: > 0 } b1 ? ClusteredWilsonUpper(b1, z) : WilsonUpper(second.Correct, second.Offered, z);
+        var rho = 0.0;
+        if (first.PerTask is { } a && second.PerTask is { } b && a.Count == b.Count && a.Count > 1 && first.Offered > 0 && second.Offered > 0)
         {
             var (o1, o2) = (a.Sum(t => (double)t.Offered), b.Sum(t => (double)t.Offered));
-            var n = a.Count;
-            double Residual(PackTrialTask t, double r, double o) => o == 0 ? 0 : (t.Correct - r * t.Offered) / o;
-            var v1 = n / (n - 1.0) * a.Sum(t => Math.Pow(Residual(t, r1, o1), 2));
-            var v2 = n / (n - 1.0) * b.Sum(t => Math.Pow(Residual(t, r2, o2), 2));
-            var covariance = n / (n - 1.0) * a.Zip(b).Sum(p => Residual(p.First, r1, o1) * Residual(p.Second, r2, o2));
-            variance = Math.Max(0, v1 + v2 - 2 * covariance);
+            double Residual(PackTrialTask t, double r, double o) => (t.Correct - r * t.Offered) / o;
+            var v1 = a.Sum(t => Math.Pow(Residual(t, r1, o1), 2));
+            var v2 = b.Sum(t => Math.Pow(Residual(t, r2, o2), 2));
+            var covariance = a.Zip(b).Sum(p => Residual(p.First, r1, o1) * Residual(p.Second, r2, o2));
+            rho = v1 > 0 && v2 > 0 ? Math.Clamp(covariance / Math.Sqrt(v1 * v2), -1, 1) : 0;
         }
-        else
-            variance = (first.Offered == 0 ? 0 : r1 * (1 - r1) / first.Offered) + (second.Offered == 0 ? 0 : r2 * (1 - r2) / second.Offered);
-        return r1 - r2 - z * Math.Sqrt(variance);
+        return r1 - r2 - Math.Sqrt(Math.Max(0, Math.Pow(r1 - l1, 2) - 2 * rho * (r1 - l1) * (u2 - r2) + Math.Pow(u2 - r2, 2)));
+    }
+
+    /// <summary>The upper bound mirroring <see cref="ClusteredWilsonLower"/>: one minus the lower bound of the items that were wrong.</summary>
+    public static double ClusteredWilsonUpper(IReadOnlyList<PackTrialTask> tasks, double z)
+    {
+        ArgumentNullException.ThrowIfNull(tasks);
+        return tasks.Sum(t => t.Offered) == 0 ? 1 : 1 - ClusteredWilsonLower([.. tasks.Select(t => t with { Correct = t.Offered - t.Correct })], z);
     }
 
     /// <summary>
@@ -380,9 +398,13 @@ public static class PackTrialGate
         // An upgrade does not do worse than the version it replaces, on the same tasks, beyond the declared tolerance.
         if (trial.Upgrade is { NoRegression: true } upgrade && previous is not null)
         {
-            checks.Add(Difference("noRegression.hitRate", -upgrade.Tolerance, with.HitRate - previous.With.HitRate, q => HitDifferenceLower(with, previous.With, q)));
-            checks.Add(Difference("noRegression.precision", -upgrade.Tolerance, with.Precision - previous.With.Precision,
-                q => PrecisionDifferenceLower(with, previous.With, q)));
+            // With a declared confidence and a tolerance above 0, no regression is a non-inferiority test: the lower bound
+            // clears -tolerance. At tolerance 0 no measurement could show it, so the estimate must not drop (review 2: an
+            // upgrade as good as its predecessor failed at the default tolerance).
+            PackTrialCheck NoRegression(string name, double estimate, Func<double, double> lower) => upgrade.Tolerance > 0
+                ? Difference(name, -upgrade.Tolerance, estimate, lower) : new(name, 0, Math.Round(estimate, 3), estimate >= -1e-9);
+            checks.Add(NoRegression("noRegression.hitRate", with.HitRate - previous.With.HitRate, q => HitDifferenceLower(with, previous.With, q)));
+            checks.Add(NoRegression("noRegression.precision", with.Precision - previous.With.Precision, q => PrecisionDifferenceLower(with, previous.With, q)));
         }
         var enough = with.Tasks >= ModuleTrial.MinimumTasks;
         var failed = checks.Where(c => !c.Met).ToList();
@@ -395,7 +417,7 @@ public static class PackTrialGate
         {
             ModuleId = manifest.Id, Version = manifest.Version.ToString(), ManifestDigest = DigestOf(manifest), PackDigest = packDigest,
             Active = enough && failed.Count == 0, Reason = reason, DecidedAt = decidedAt, Checks = checks, With = with, Without = without,
-            Previous = previous, Upgrade = trial.Upgrade,
+            Previous = previous, Upgrade = trial.Upgrade, Confidence = trial.Confidence,
         };
     }
 
@@ -530,8 +552,10 @@ public static class PackTrialGate
         if (previous.Version != active.Version || previous.ManifestDigest != active.ManifestDigest || previous.PackDigest != active.PackDigest)
             return $"its trial compared against {previous.Version}, but {active.Version} ({Short(active.PackDigest ?? active.ManifestDigest)}) is the version that passed here";
         if (decision.With is not { } with) return "its record carries no measurement to compare";
-        var hitDrop = with.HitRate - previous.With.HitRate;
-        var precisionDrop = with.Precision - previous.With.Precision;
+        // The same test as the decision's own (review 2): bounds when it declared a confidence and the tolerance is above 0.
+        double? z = decision.Confidence is { } c && Confidences.TryGetValue(c, out var q) && tolerance > 0 ? q : null;
+        var hitDrop = z is { } zh ? HitDifferenceLower(with, previous.With, zh) : with.HitRate - previous.With.HitRate;
+        var precisionDrop = z is { } zp ? PrecisionDifferenceLower(with, previous.With, zp) : with.Precision - previous.With.Precision;
         return hitDrop >= -tolerance - 1e-9 && precisionDrop >= -tolerance - 1e-9 ? null
             : $"it does worse than {active.Version} beyond the tolerance {tolerance.ToString(CultureInfo.InvariantCulture)} (hit rate {Math.Round(hitDrop, 3).ToString(CultureInfo.InvariantCulture)}, "
               + $"precision {Math.Round(precisionDrop, 3).ToString(CultureInfo.InvariantCulture)})";
@@ -594,6 +618,17 @@ public sealed class PackActivationFolder : IPackActivations
     public IReadOnlyList<PackActivation> History(string moduleId) => _history.TryGetValue(moduleId, out var all) ? all.AsReadOnly() : [];
 
     /// <summary>
+    /// A version as it appears in a file name: itself up to 64 characters, else <c>v</c> and the first 16 hex digits of its
+    /// SHA-256, so a long SemVer (up to 256 characters) never makes a name longer than a file system takes (review 2).
+    /// </summary>
+    public static string VersionInName(string version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        return version.Length <= 64 ? version
+            : "v" + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(version)))[..16].ToLowerInvariant();
+    }
+
+    /// <summary>
     /// Signs <paramref name="decision"/> with the host's key and writes it into <paramref name="folder"/> as a DSSE envelope of
     /// its in-toto statement, named by the pack, its version and the decision time; returns the file written.
     /// </summary>
@@ -615,7 +650,7 @@ public sealed class PackActivationFolder : IPackActivations
         // then moved into place without overwriting), so a crash cannot leave a truncated record that silently drops a failure.
         var decided = decision.PackDigest ?? decision.ManifestDigest;
         var content = decided[(decided.IndexOf(':', StringComparison.Ordinal) + 1)..];
-        var name = $"{decision.ModuleId}@{decision.Version}-{decision.DecidedAt.UtcDateTime:yyyyMMddTHHmmssfffffffZ}-{content[..12]}-"
+        var name = $"{decision.ModuleId}@{VersionInName(decision.Version)}-{decision.DecidedAt.UtcDateTime:yyyyMMddTHHmmssfffffffZ}-{content[..12]}-"
             + $"{Convert.ToHexString(SHA256.HashData(statement))[..8].ToLowerInvariant()}{(decision.Basis is null ? "" : "-certificate")}.dsse.json";
         var file = Path.Combine(folder, name);
         var partial = Path.Combine(folder, "." + name + "." + Guid.NewGuid().ToString("N") + ".partial");
