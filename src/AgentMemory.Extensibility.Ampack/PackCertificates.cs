@@ -84,6 +84,8 @@ public sealed record PackEvaluation
     public double? Confidence { get; internal init; }
     /// <summary>Where the evaluator's tasks came from.</summary>
     public string? TaskSource { get; internal init; }
+    /// <summary>The statistic its checks were computed with; a host derives the verdict again under its own.</summary>
+    public string? Statistic { get; internal init; }
     /// <summary>Every check, as the gate records it.</summary>
     public IReadOnlyList<PackTrialCheck> Checks { get; internal init; } = [];
     /// <summary>The arm with the pack.</summary>
@@ -152,6 +154,20 @@ public static class PackCertificates
         foreach (var (target, value) in Declared(trial))
             if (decision.Checks.FirstOrDefault(c => c.Target == target) is not { } check || Milli(check.Required) != Milli(value))
                 problems.Add($"The decision does not check {target} at the declared {value.ToString(CultureInfo.InvariantCulture)}: it is not the gate's decision for this pack's trial.");
+        // The evidence travels with the verdict (review 5, root RB): each arm's per-task results and cap, so every host derives
+        // the verdict again under its own statistic; the checks are derived here under this one, never copied.
+        if (new[] { decision.With, decision.Without }.OfType<PackTrialMeasurement>().Any(arm => arm.PerTask is null))
+            problems.Add("The decision's arms carry no per-task results: a certificate carries the evidence a host checks again; trial it again.");
+        IReadOnlyList<PackTrialCheck> checks = [];
+        if (problems.Count == 0)
+        {
+            try { checks = PackTrialGate.Recheck(decision); }
+            catch (ArgumentException e) { problems.Add($"The decision's checks cannot be derived from what it carries: {e.Message}"); }
+        }
+        var enough = decision.With is { } measured && measured.Tasks >= ModuleTrial.MinimumTasks;
+        var passed = decision.Active && enough && checks.All(c => c.Met);
+        if (problems.Count == 0 && !decision.Active && enough && checks.All(c => c.Met))
+            problems.Add($"The decision failed, but its evidence meets every target under {PackTrialGate.Statistic}: a verdict is never given this way; trial it again.");
         if (problems.Count > 0) throw new PackLoadException(problems);
 
         var evaluatedAt = DateTimeOffset.FromUnixTimeSeconds(decision.DecidedAt.ToUnixTimeSeconds());
@@ -172,9 +188,9 @@ public static class PackCertificates
             foreach (var (path, bytes) in run) files[PackPaths.AttestationsFolder + stem + PackAttestations.RunSuffix + path] = bytes;
         }
         var certificate = new PackCertificate(pack.Id, pack.Version, pack.Digest, evaluator, tool, toolVersion, evaluatedAt, trial.Measure, trial.Baseline,
-            trial.Confidence is { } c ? (int)Math.Round(c * 1000) : null, taskSource,
-            [.. decision.Checks.Select(k => new CertificateCheck(k.Target, Milli(k.Required), Milli(k.Observed), k.Met, k.Estimate is { } e ? Milli(e) : null))],
-            Arm(decision.With!), decision.Without is { } without ? Arm(without) : null, decision.Active, runId, runHash);
+            trial.Confidence is { } c ? (int)Math.Round(c * 1000) : null, taskSource, PackTrialGate.Statistic,
+            [.. checks.Select(k => new CertificateCheck(k.Target, Milli(k.Required), Milli(k.Observed), k.Met, k.Estimate is { } e ? Milli(e) : null))],
+            Arm(decision.With!), decision.Without is { } without ? Arm(without) : null, passed, runId, runHash);
         byte[] envelope;
         try { envelope = certificate.Sign(signer); }
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
@@ -207,7 +223,7 @@ public static class PackCertificates
         if (certificate is null) return (null, $"None of the {pack.Certificates.Count} certificate(s) {pack.Id} carries is from a key this host trusts as evaluator for it.");
         if (Covers(certificate, trial) is { } gap)
             return (null, $"The latest trusted certificate, {certificate.Evaluator}'s of {certificate.EvaluatedAt:u}, does not admit it: {gap}.");
-        return (new PackActivation
+        var admitted = new PackActivation
         {
             ModuleId = pack.Manifest.Id, Version = pack.Manifest.Version.ToString(), ManifestDigest = PackTrialGate.DigestOf(pack.Manifest),
             PackDigest = pack.Digest, Active = true, DecidedAt = decidedAt, Checks = certificate.Checks, With = certificate.With, Without = certificate.Without,
@@ -218,7 +234,12 @@ public static class PackCertificates
                 Kind = CertificateBasis, Certificate = certificate.Digest, Evaluator = certificate.Evaluator!, EvaluatorKey = certificate.EvaluatorKey!,
                 EvaluatedAt = certificate.EvaluatedAt!.Value, TaskSource = certificate.TaskSource!, AefRunId = certificate.AefRunId, AefRunHash = certificate.AefRunHash,
             },
-        }, "admitted on " + certificate.Evaluator + "'s certificate");
+            Confidence = certificate.Confidence, Statistic = certificate.Statistic,
+        };
+        // The evaluator's verdict counts only where this host's own statistic, on the evidence the certificate carries, agrees.
+        if (PackTrialGate.Unmet(admitted) is { } unmet)
+            return (null, $"The latest trusted certificate, {certificate.Evaluator}'s of {certificate.EvaluatedAt:u}, does not admit it: its evidence does not meet its targets under {PackTrialGate.Statistic} ({unmet}).");
+        return (admitted, "admitted on " + certificate.Evaluator + "'s certificate");
     }
 
     // Why a certificate does not cover the declared trial, or null when it does.
@@ -264,7 +285,7 @@ public static class PackCertificates
             evaluations.Add(claimed is null ? evaluation : evaluation with
             {
                 Evaluator = claimed.Evaluator, EvaluatedAt = claimed.EvaluatedAt, Tool = $"{claimed.Tool} {claimed.ToolVersion}", Measure = claimed.Measure,
-                Baseline = claimed.Baseline, Confidence = claimed.ConfidenceMilli / 1000.0, TaskSource = claimed.TaskSource, Passed = claimed.Passed,
+                Baseline = claimed.Baseline, Confidence = claimed.ConfidenceMilli / 1000.0, TaskSource = claimed.TaskSource, Statistic = claimed.Statistic, Passed = claimed.Passed,
                 Checks = [.. claimed.Checks.Select(c => new PackTrialCheck(c.Target, c.RequiredMilli / 1000.0, c.ObservedMilli / 1000.0, c.Met, c.EstimateMilli / 1000.0))],
                 With = Measurement(claimed.With), Without = claimed.Without is { } w ? Measurement(w) : null, AefRunId = claimed.AefRunId, AefRunHash = claimed.AefRunHash,
             });
@@ -287,10 +308,14 @@ public static class PackCertificates
         catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) { return null; }
     }
 
-    private static PackTrialMeasurement Measurement(CertificateArm arm) =>
-        new() { Tasks = arm.Tasks, Hits = arm.Hits, Offered = arm.Offered, Correct = arm.Correct, P95Ms = arm.P95Micros / 1000.0 };
+    private static PackTrialMeasurement Measurement(CertificateArm arm) => new()
+    {
+        Tasks = arm.Tasks, Hits = arm.Hits, Offered = arm.Offered, Correct = arm.Correct, P95Ms = arm.P95Micros / 1000.0,
+        MaximumOffered = arm.MaximumOffered, PerTask = [.. arm.PerTask.Select(t => new PackTrialTask(t.Offered, t.Correct))],
+    };
 
-    private static CertificateArm Arm(PackTrialMeasurement m) => new(m.Tasks, m.Hits, m.Offered, m.Correct, (long)Math.Round(m.P95Ms * 1000, MidpointRounding.AwayFromZero));
+    private static CertificateArm Arm(PackTrialMeasurement m) => new(m.Tasks, m.Hits, m.Offered, m.Correct, (long)Math.Round(m.P95Ms * 1000, MidpointRounding.AwayFromZero),
+        m.MaximumOffered ?? ModuleTraversal.MaximumOffered, [.. m.PerTask!.Select(t => new CertificateTask(t.Offered, t.Correct))]);
 
     private static long Milli(double value) => checked((long)Math.Round(value * 1000, MidpointRounding.AwayFromZero));
 

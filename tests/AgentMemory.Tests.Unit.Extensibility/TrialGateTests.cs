@@ -58,7 +58,7 @@ public sealed class TrialGateTests : IDisposable
     {
         ModuleManifest Upgrade(double tolerance) => Manifest(Base,
             $$$""","trial":{"measure":"test-impact","tasks":40,"confidence":0.95,"targets":{"hitRate":0.5},"upgrade":{"noRegression":true,"tolerance":{{{tolerance.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}}}""");
-        var arm = Arm(32, 30, 60, 10);
+        var arm = Arm(30, 32, 60, 10);
         var previous = new PackTrialPrevious { Version = "0.9.0", ManifestDigest = "jcs-sha256:" + new string('a', 64), With = arm };
 
         var equal = PackTrialGate.Decide(Upgrade(0), arm, Arm(0, 0, 0, 0), Now, previous: previous);
@@ -66,7 +66,8 @@ public sealed class TrialGateTests : IDisposable
             "an upgrade as good as its predecessor passes at the default tolerance (review 2: no measurement could show it with the bound)");
         equal.Confidence.Should().Be(0.95, "the record carries the confidence, so the upgrade chain checks the same way");
 
-        // Above 0, a non-inferiority test: without per-task results the arms are taken as independent, which is wide on 40 tasks.
+        // Above 0, a non-inferiority test: two versions that agree on every task leave the unseen task the upgrade could break,
+        // so on 40 tasks a tolerance of 0.05 cannot be shown (review 5, M4).
         var loose = PackTrialGate.Decide(Upgrade(0.05), arm, Arm(0, 0, 0, 0), Now, previous: previous);
         loose.Checks.Single(c => c.Target == "noRegression.hitRate").Estimate.Should().Be(0);
         loose.Checks.Single(c => c.Target == "noRegression.hitRate").Observed.Should().BeLessThan(-0.05);
@@ -79,11 +80,9 @@ public sealed class TrialGateTests : IDisposable
         var tasks = Enumerable.Range(0, 10).Select(i => i < 3 ? new PackTrialTask(1, 1) : new PackTrialTask(0, 0)).ToList();
         var with = new PackTrialMeasurement { Tasks = 10, Hits = 3, Offered = 3, Correct = 3, P95Ms = 1, PerTask = tasks };
         var without = new PackTrialMeasurement { Tasks = 10, Hits = 0, Offered = 0, Correct = 0, P95Ms = 0, PerTask = [.. Enumerable.Repeat(new PackTrialTask(0, 0), 10)] };
-        var z = 1.959963984540054;
+        var bound = PackTrialGate.PrecisionDifferenceLower(with, without, 0.975);
 
-        var bound = PackTrialGate.PrecisionDifferenceLower(with, without, z);
-
-        bound.Should().BeApproximately(PackTrialGate.ClusteredWilsonLower(tasks, z), 1e-9, "against an arm that offered nothing, the bound is the arm's own");
+        bound.Should().BeApproximately(PackTrialGate.PrecisionLower(tasks, 16, 0.975), 1e-9, "against an arm that offered nothing, the bound is the arm's own");
         bound.Should().BeLessThan(0.6, "three items cannot show a precision lift near 1 with 95% confidence (it was 1.000)");
     }
 
@@ -92,54 +91,72 @@ public sealed class TrialGateTests : IDisposable
     {
         // The pack is right on the easy half and wrong on the hard half; so is the baseline, less sharply. Newcombe's margin
         // shrank to the difference of two floored margins here (0.104); the paired cluster-robust bound is 0.011.
-        var with = Measured([.. Enumerable.Repeat(new PackTrialTask(8, 8), 5), .. Enumerable.Repeat(new PackTrialTask(8, 2), 5)]);
-        var grep = Measured([.. Enumerable.Repeat(new PackTrialTask(3, 2), 5), .. Enumerable.Repeat(new PackTrialTask(3, 1), 5)]);
+        var with = Measured([.. Enumerable.Repeat(new PackTrialTask(8, 8), 5), .. Enumerable.Repeat(new PackTrialTask(8, 2), 5)], cap: 8);
+        var grep = Measured([.. Enumerable.Repeat(new PackTrialTask(3, 2), 5), .. Enumerable.Repeat(new PackTrialTask(3, 1), 5)], cap: 3);
 
-        var bound = PackTrialGate.PrecisionDifferenceLower(with, grep, 1.6448536269514722);
+        var bound = PackTrialGate.PrecisionDifferenceLower(with, grep, 0.95);
 
         bound.Should().BeLessThan(0.05, "a precisionLift target of 0.1 must not pass at 95% on these ten tasks");
-        bound.Should().BeGreaterThan(-0.2);
+        bound.Should().BeGreaterThan(-0.25);
     }
 
     [Fact]
-    public void Review3_a_real_trial_with_few_items_a_task_is_not_held_back_by_the_floor_over_tasks()
+    public void Review5_the_code_maps_real_trial_under_the_hedged_statistic()
     {
-        // The code map's trial on this repository, each task at its commit's parent (round 3 re-run): offered and right per task.
-        // Precision 0.351 against grep's 0.191. The floor over tasks put grep's upper limit at 0.319 and the bound at 0.029; at the
-        // effective size, with leave-one-task-out variances and Student's t on 38 degrees of freedom (review 4), it is 0.063, the
-        // paired bound's value, and the declared precisionLift of 0.05 is met.
+        // The code map's trial on this repository, each task at its commit's parent (round 3 re-run): offered and right per task,
+        // three a task at most in both arms. Precision 0.351 against grep's 0.191. Round 4's statistic bounded the lift at 0.063
+        // and met the declared 0.05; the harness then showed it passing a lift equal to its target up to 15% of the time. With one
+        // unseen task at the worst both caps allow (review 5), the bound is 0.018: forty tasks do not show a lift of 0.05.
         static PackTrialMeasurement Arm(string counts)
         {
             var tasks = counts.Split(' ').Select(c => new PackTrialTask(c[0] - '0', c[1] - '0')).ToList();
-            return Measured(tasks);
+            return Measured(tasks, cap: 3);
         }
         var with = Arm("30 31 20 21 32 22 21 31 22 20 11 31 31 21 20 10 00 00 20 21 00 20 22 21 11 11 10 21 30 30 30 10 00 21 11 11 30 20 31 11");
         var grep = Arm("30 31 31 31 31 31 30 30 32 30 31 31 31 31 30 30 30 30 30 30 30 30 30 31 31 31 30 21 31 30 31 30 00 31 30 30 31 30 32 21");
 
-        PackTrialGate.PrecisionDifferenceLower(with, grep, 1.6448536269514722).Should().BeApproximately(0.0633, 0.0005);
+        PackTrialGate.PrecisionDifferenceLower(with, grep, 0.95).Should().BeApproximately(0.0176, 0.0005);
+        PackTrialGate.PrecisionLower(with.PerTask!, 3, 0.95).Should().BeApproximately(0.2446, 0.0005, "below the declared 0.25");
+        PackTrialGate.RateLower(with.Hits, with.Tasks, 0.95).Should().BeApproximately(0.4088, 0.0005, "above the declared 0.35");
     }
 
     [Fact]
     public void Review3_the_difference_bound_never_collapses_where_no_design_effect_can_be_measured()
     {
-        // All right in one task, or on every task, against an arm that offered nothing: the arm's own bound over tasks, the one its
-        // precision target uses, at Student's t (three tasks: two degrees of freedom).
-        PackTrialGate.PrecisionDifferenceLower(Measured([new(3, 3)]), Measured([new(0, 0)]), 1.6448536269514722).Should().BeLessThan(0.3);
-        PackTrialGate.PrecisionDifferenceLower(Measured([new(1, 1), new(1, 1), new(1, 1)]), Measured([new(0, 0), new(0, 0), new(0, 0)]), 1.6448536269514722)
-            .Should().BeApproximately(PackTrialGate.ClusteredWilsonLower([new(1, 1), new(1, 1), new(1, 1)], 1.6448536269514722), 1e-12)
-            .And.BeApproximately(0.260, 0.001);
-        var same = Measured([new(2, 1), new(3, 2), new(1, 0), new(2, 1), new(3, 2), new(1, 0)]);
-        PackTrialGate.PrecisionDifferenceLower(same, same, 1.6448536269514722).Should().BeApproximately(0, 1e-9);
+        // All right in one task, or on every task, against an arm that offered nothing: the arm's own bound, the one its
+        // precision target uses.
+        PackTrialGate.PrecisionDifferenceLower(Measured([new(3, 3)]), Measured([new(0, 0)]), 0.95).Should().BeLessThan(0.3);
+        PackTrialGate.PrecisionDifferenceLower(Measured([new(1, 1), new(1, 1), new(1, 1)]), Measured([new(0, 0), new(0, 0), new(0, 0)]), 0.95)
+            .Should().BeApproximately(PackTrialGate.PrecisionLower([new(1, 1), new(1, 1), new(1, 1)], 16, 0.95), 1e-12).And.BeLessThan(0.3);
+        // Two arms the same on every task: below 0, by the unseen task the first could break (review 5, M4).
+        var same = Measured([new(2, 1), new(3, 2), new(1, 0), new(2, 1), new(3, 2), new(1, 0)], cap: 3);
+        PackTrialGate.PrecisionDifferenceLower(same, same, 0.95).Should().BeLessThan(0);
     }
 
-    private static PackTrialMeasurement Measured(IReadOnlyList<PackTrialTask> tasks) => new()
+    private static PackTrialMeasurement Measured(IReadOnlyList<PackTrialTask> tasks, int? cap = null) => new()
     {
         Tasks = tasks.Count, Hits = tasks.Count(t => t.Correct > 0), Offered = tasks.Sum(t => t.Offered), Correct = tasks.Sum(t => t.Correct), P95Ms = 1,
-        PerTask = tasks,
+        PerTask = tasks, MaximumOffered = cap,
     };
 
-    private static PackTrialMeasurement Arm(int hits, int correct, int offered, double p95) =>
-        new() { Tasks = 40, Hits = hits, Correct = correct, Offered = offered, P95Ms = p95 };
+    // Forty tasks with these totals: the items spread evenly, one right item on each of the first `hits` tasks and the rest of
+    // the right items on them too, so the per-task results agree with the totals.
+    // Impossible totals get no per-task results, so the gate's own checks answer for them.
+    private static PackTrialMeasurement Arm(int hits, int correct, int offered, double p95)
+    {
+        var tasks = Enumerable.Range(0, 40).Select(i => offered < 0 ? 0 : offered / 40 + (i < offered % 40 ? 1 : 0)).ToArray();
+        if (hits < 0 || hits > 40 || correct < hits || correct > offered || correct > tasks.Take(hits).Sum() || tasks.Take(hits).Any(o => o == 0) || hits == 0 && correct > 0)
+            return new() { Tasks = 40, Hits = hits, Correct = correct, Offered = offered, P95Ms = p95 };
+        var right = new int[40];
+        for (var i = 0; i < hits; i++) right[i] = 1;
+        for (var (left, i) = (correct - hits, 0); left > 0; i = (i + 1) % Math.Max(1, hits))
+            if (right[i] < tasks[i]) { right[i]++; left--; }
+        return new()
+        {
+            Tasks = 40, Hits = hits, Correct = correct, Offered = offered, P95Ms = p95,
+            PerTask = [.. tasks.Select((o, i) => new PackTrialTask(o, right[i]))], MaximumOffered = Math.Max(1, tasks.Max()),
+        };
+    }
 
     [Fact]
     public void A_pack_goes_on_only_when_every_target_is_met()
@@ -159,12 +176,12 @@ public sealed class TrialGateTests : IDisposable
         var careful = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","confidence":0.95,"targets":{"hitRate":0.5,"precisionLift":0.05}}""");
         careful.Validate().Should().BeEmpty();
 
-        // 22 of 40 is 0.55, but its one-sided 95% Wilson lower bound is about 0.42: not enough for 0.5.
+        // 22 of 40 is 0.55, but its one-sided 95% Clopper-Pearson bound is about 0.41: not enough for 0.5.
         var lucky = PackTrialGate.Decide(careful, Arm(22, 40, 100, 60), Arm(20, 20, 100, 30), Now);
         lucky.Active.Should().BeFalse();
         var hit = lucky.Checks.Single(c => c.Target == "hitRate");
         hit.Estimate.Should().Be(0.55);
-        hit.Observed.Should().BeApproximately(0.422, 0.001);
+        hit.Observed.Should().BeApproximately(0.409, 0.001);
         // Precision 0.40 against the baseline's 0.20: lift 0.20, met.
         lucky.Checks.Single(c => c.Target == "precisionLift").Met.Should().BeTrue();
 
@@ -173,11 +190,11 @@ public sealed class TrialGateTests : IDisposable
     }
 
     [Fact]
-    public void The_Wilson_bound_matches_its_formula()
+    public void The_rate_bound_is_Clopper_Pearsons()
     {
-        PackTrialGate.WilsonLower(0, 10, 1.6448536).Should().Be(0);
-        PackTrialGate.WilsonLower(30, 40, 1.6448536).Should().BeApproximately(0.6240, 0.001);
-        PackTrialGate.WilsonLower(40, 40, 1.6448536).Should().BeApproximately(0.9366, 0.001);
+        PackTrialGate.RateLower(0, 10, 0.95).Should().Be(0);
+        PackTrialGate.RateLower(30, 40, 0.95).Should().BeApproximately(0.6129, 0.0005);
+        PackTrialGate.RateLower(40, 40, 0.95).Should().BeApproximately(Math.Pow(0.05, 1.0 / 40), 1e-9);
     }
 
     [Fact]
@@ -202,11 +219,11 @@ public sealed class TrialGateTests : IDisposable
         var check = bounded.Checks.Single(c => c.Target == "lift");
         check.Estimate.Should().Be(0.1);
         check.Observed.Should().BeLessThan(0.05);
-        // Paired results narrow the bound: the same tasks hit in both arms are not counted as independent evidence.
-        IReadOnlyList<PackTrialTask> Tasks(int hits) => [.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(2, i < hits ? 1 : 0))];
-        var paired = PackTrialGate.HitDifferenceLower(withArm with { PerTask = Tasks(24), Offered = 80, Correct = 24 },
-            withoutArm with { PerTask = Tasks(20), Offered = 80, Correct = 20 }, 1.6448536);
-        paired.Should().BeGreaterThan(PackTrialGate.HitDifferenceLower(withArm, withoutArm, 1.6448536));
+        // The bound is paired: arms that hit the same tasks are surer of their difference than arms that hit different ones.
+        IReadOnlyList<PackTrialTask> Tasks(int hits, bool last) => [.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(2, (last ? i >= 40 - hits : i < hits) ? 1 : 0))];
+        PackTrialMeasurement Of(IReadOnlyList<PackTrialTask> tasks) => new() { Tasks = 40, Hits = tasks.Count(t => t.Correct > 0), Offered = 80, Correct = tasks.Sum(t => t.Correct), P95Ms = 1, PerTask = tasks };
+        PackTrialGate.HitDifferenceLower(Of(Tasks(24, false)), Of(Tasks(20, false)), 0.95)
+            .Should().BeGreaterThan(PackTrialGate.HitDifferenceLower(Of(Tasks(24, false)), Of(Tasks(20, true)), 0.95));
         // A large, consistent lift still passes at 95%.
         PackTrialGate.Decide(careful, Arm(36, 40, 80, 20), Arm(12, 20, 90, 10), Now).Active.Should().BeTrue();
     }
@@ -223,7 +240,8 @@ public sealed class TrialGateTests : IDisposable
     [Fact]
     public void A_trial_with_too_few_tasks_decides_nothing()
     {
-        var thin = PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60) with { Tasks = 5, Hits = 5 }, Arm(0, 0, 0, 30) with { Tasks = 5 }, Now);
+        var thin = PackTrialGate.Decide(Trialled, Measured([.. Enumerable.Repeat(new PackTrialTask(2, 1), 5)]) with { P95Ms = 60 },
+            Measured([.. Enumerable.Repeat(new PackTrialTask(0, 0), 5)]) with { P95Ms = 30 }, Now);
         thin.Active.Should().BeFalse();
         thin.Reason.Should().Contain("needs 10");
     }

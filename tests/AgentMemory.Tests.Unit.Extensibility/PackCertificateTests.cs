@@ -144,8 +144,8 @@ public sealed class PackCertificateTests : IDisposable
         var (built, pack) = Built();
         using var signer = PackSigner.FromPem(_evaluator.PrivateKeyPem);
         var certificate = new PackCertificate(Id, pack.Version, pack.Digest, "Other Lab", "other-tool", "1.0", Earlier, measure, baseline, confidence,
-            "its own tasks", [new CertificateCheck(target, required, 600, true, null)], new CertificateArm(40, 24, 120, 30, 12500),
-            new CertificateArm(40, 0, 0, 0, 2500), true, null, null);
+            "its own tasks", PackTrialGate.Statistic, [new CertificateCheck(target, required, 600, true, null)], ArmOf(40, 24, 120, 30, 12500),
+            ArmOf(40, 0, 0, 0, 2500), true, null, null);
         var files = new Dictionary<string, byte[]>(PackReader.ReadArchive(built, "built").Files, StringComparer.Ordinal)
         {
             [PackAttestations.CertificatePath(PackAttestations.StemFor(signer.KeyId, Earlier))] = certificate.Sign(signer),
@@ -460,7 +460,30 @@ public sealed class PackCertificateTests : IDisposable
     private static readonly DateTimeOffset Now = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     private static readonly DateTimeOffset Earlier = Now.AddHours(-2);
 
-    private static PackTrialMeasurement Arm(int hits) => new() { Tasks = 40, Hits = hits, Offered = 120, Correct = 30, P95Ms = 12.5 };
+    // An arm with consistent per-task evidence: items spread evenly, one right item on each of the first `hits` tasks and the
+    // rest of the right items on them too; the cap is the most any task offers.
+    private static CertificateArm ArmOf(int tasks, int hits, int offered, int correct, long p95)
+    {
+        var o = Enumerable.Range(0, tasks).Select(i => offered / Math.Max(1, tasks) + (i < offered % Math.Max(1, tasks) ? 1 : 0)).ToArray();
+        if (hits > tasks || correct < hits || correct > o.Take(hits).Sum() || o.Take(hits).Any(x => x == 0))
+            throw new ArgumentException($"No arm of {tasks} tasks has {hits} hits and {correct} of {offered} items right.");
+        var c = new int[tasks];
+        for (var i = 0; i < hits; i++) c[i] = 1;
+        for (var (left, i) = (correct - hits, 0); left > 0 && hits > 0; i = (i + 1) % hits)
+            if (c[i] < o[i]) { c[i]++; left--; }
+        return new(tasks, hits, offered, correct, p95, Math.Max(1, o.DefaultIfEmpty(0).Max()), [.. o.Select((x, i) => new CertificateTask(x, c[i]))]);
+    }
+
+    // Forty tasks of three items with the per-task evidence a certificate carries (review 5).
+    private static PackTrialMeasurement Arm(int hits)
+    {
+        var arm = ArmOf(40, hits, 120, Math.Clamp(30, hits, 3 * hits), 12_500);
+        return new()
+        {
+            Tasks = 40, Hits = hits, Offered = 120, Correct = arm.Correct, P95Ms = 12.5, MaximumOffered = arm.MaximumOffered,
+            PerTask = [.. arm.PerTask.Select(t => new PackTrialTask(t.Offered, t.Correct))],
+        };
+    }
 
     // A trial at each commit's parent: the only kind certified (review 4).
     private static PackActivation Decision(LoadedPack pack) => PackTrialGate.Decide(pack.Manifest, Arm(24), Arm(0), Earlier, pack.Digest) with { History = "parent" };

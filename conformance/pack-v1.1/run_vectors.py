@@ -9,6 +9,7 @@ usage: python run_vectors.py <path to Ampack executable> [<out folder>]
 import base64
 import hashlib
 import json
+import re
 import os
 import shutil
 import struct
@@ -106,6 +107,46 @@ def unpadded_pack(der):
 # entry without a signature, a key id in upper case.
 SHAPES = ("envelope-extra-field", "entry-extra-key", "entry-without-sig", "keyid-uppercase")
 
+# Review 5, L6 (root RJ): a refused vector proves its rule only if it is refused for that rule. Each vector named here must be
+# refused by both verifiers with the reason given (a pattern on each one's output); one refused for another reason fails.
+REASONS = {
+    "json-file-over-1-mib": ("larger than 1 MiB", "larger than 1 MiB"),
+    "jsonl-line-over-1-mib": ("longer than 1 MiB", "longer than 1 MiB"),
+    "files-list-over-2-mib": ("larger than 2 MiB", "larger than 2 MiB"),
+    "unsigned-with-wide-json": ("No valid publisher signature", "no valid signature in role publisher"),
+    "run-merged-signers-control-rotated-out-alone": ("no live signer", "without a live signer revokes a revoker"),
+    # The closed shapes: beside a valid entry, each refused for its shape, not for an unknown key.
+    **{f"revocations-shape-{how}": ("not a DSSE envelope of a revocation document", "not a DSSE envelope of a revocation document") for how in SHAPES},
+    **{f"receipt-shape-{how}": ("not a DSSE envelope", "not a DSSE envelope") for how in SHAPES},
+    **{f"certificate-shape-{how}": ("not a DSSE envelope", "not a DSSE envelope") for how in SHAPES},
+}
+
+
+def refused_for(name, dotnet_text, python_text):
+    """Whether a vector named in REASONS was refused for its own rule by both verifiers (true for every other vector)."""
+    if name not in REASONS:
+        return True
+    dn, pyn = REASONS[name]
+    return re.search(dn, dotnet_text, re.I) is not None and re.search(pyn, python_text, re.I) is not None
+
+
+def arm_(tasks, hits, offered, correct, p95, cap=None):
+    """A certificate arm with consistent per-task evidence (review 5): items spread evenly, one right item on each of the first
+    `hits` tasks and the rest of the right items on them too; the cap is the most any task offers unless given."""
+    per = [[offered // tasks + (1 if i < offered % tasks else 0), 0] for i in range(tasks)] if tasks else []
+    if hits > tasks or correct < hits or correct > sum(e[0] for e in per[:hits]) or any(e[0] == 0 for e in per[:hits]):
+        raise ValueError(f"no arm of {tasks} tasks has {hits} hits and {correct} of {offered} items right")
+    for i in range(min(hits, tasks)):
+        per[i][1] = 1
+    left, i = correct - hits, 0
+    while left > 0 and hits > 0:
+        if per[i][1] < per[i][0]:
+            per[i][1] += 1
+            left -= 1
+        i = (i + 1) % hits
+    return {"tasks": tasks, "hits": hits, "offered": offered, "correct": correct, "p95Micros": p95,
+            "maximumOffered": cap or max([1] + [e[0] for e in per]), "perTask": per}
+
 
 def reshaped(envelope_bytes, how):
     envelope = json.loads(envelope_bytes)
@@ -117,7 +158,9 @@ def reshaped(envelope_bytes, how):
     elif how == "entry-without-sig":
         envelope["signatures"].append({"keyid": "a" * 64})
     else:
-        entry["keyid"] = entry["keyid"].upper()
+        # Review 5, L6: beside the valid entry, so only the closed shape refuses it (upper-casing the one entry refused it
+        # without that rule too: no trusted key had that id).
+        envelope["signatures"].append(dict(entry, keyid=entry["keyid"].upper()))
     return py.canonical(envelope).encode()
 
 
@@ -187,6 +230,19 @@ def main():
     vectors["duplicate-key-record"] = (signed({**content, record: b'{"key":"a","key":"b"}\n'}), "trust.json", "refused")
     vectors["device-name-path"] = (signed({**content, "records/CON.jsonl": b'{"key":"c"}\n'}), "trust.json", "refused")
     vectors["pack-json-names-other-id"] = (signed(content, pid_="io.example.other"), "trust.json", "refused")
+    # Review 5, H1: authenticate first, and bounded parsing after: a listed JSON file and a JSONL line at most 1 MiB, the signed
+    # list at most 2 MiB (4,096 entries of the longest paths fit). At the bound and one byte over, each signed.
+    mib = 1 << 20
+    ontology = content["ontology.json"]
+    vectors["json-file-at-1-mib"] = (signed({**content, "ontology.json": ontology[:-1] + b" " * (mib - len(ontology)) + b"\n"}), "trust.json", "verified")
+    vectors["json-file-over-1-mib"] = (signed({**content, "ontology.json": ontology[:-1] + b" " * (mib + 1 - len(ontology)) + b"\n"}), "trust.json", "refused")
+    line = b'{"key":"long","text":"'
+    vectors["jsonl-line-at-1-mib"] = (signed({**content, "records/long.jsonl": line + b"a" * (mib - len(line) - 2) + b'"}\n'}), "trust.json", "verified")
+    vectors["jsonl-line-over-1-mib"] = (signed({**content, "records/long.jsonl": line + b"a" * (mib - len(line) - 1) + b'"}\n'}), "trust.json", "refused")
+    vectors["files-list-over-2-mib"] = ({**base, py.FILES: b"[" + b"{}," * (2 * mib // 3) + b"{}]"}, "trust.json", "refused")
+    # Unsigned, with a JSON file a verifier that parsed first would spend most of a second on: refused at its signatures.
+    vectors["unsigned-with-wide-json"] = ({**{p: b for p, b in signed({**content, "ontology.json": b"[" + b"{}," * (300 * 1024) + b"{}]\n"}).items()
+                                              if not p.startswith(py.SIGNATURES)}}, "trust.json", "refused")
 
     # PACK-conformance-v12: pack.json's fields and kinds, as both verifiers check them.
     def edited(**fields):
@@ -323,6 +379,20 @@ def main():
     (OUT / "run-both-revoked-by-third.json").write_text(list_signed_by(both, third_key, third["keyId"]), encoding="utf-8")
     vectors["run-one-list-signed-by-both-revokers-in-two-envelopes"] = (dict(base), "trust-two-live-revokers.json", "verified",
         ["run-both-revoked-by-second.json", "run-both-revoked-by-third.json"])
+    # Review 5, L6: one list's signers are merged across its envelopes, in either order. A list with no live signer may revoke
+    # packs and keys for the run (it fails closed), but not a live revoker: that refuses the run. So one list revoking the live
+    # third revoker arrives in two envelopes, the rotated-out revoker's and the live second's. It verifies only if the live
+    # envelope's signer counts wherever it comes; the rotated-out envelope alone refuses (the control).
+    revokes_third = {"format": py.REVOCATIONS_FORMAT, "issuedAt": "2026-10-28T00:00:00Z", "expires": "2099-01-01T00:00:00Z", "digests": [],
+                     "keys": [{"keyId": third["keyId"]}]}
+    (OUT / "run-third-revoked-by-first.json").write_text(list_signed_by(revokes_third, first_key, revoker["keyId"]), encoding="utf-8")
+    (OUT / "run-third-revoked-by-second.json").write_text(list_signed_by(revokes_third, second_key, second["keyId"]), encoding="utf-8")
+    vectors["run-merged-signers-live-envelope-second"] = (dict(base), "trust-first-rotated-out.json", "verified",
+        ["run-third-revoked-by-first.json", "run-third-revoked-by-second.json"])
+    vectors["run-merged-signers-live-envelope-first"] = (dict(base), "trust-first-rotated-out.json", "verified",
+        ["run-third-revoked-by-second.json", "run-third-revoked-by-first.json"])
+    vectors["run-merged-signers-control-rotated-out-alone"] = (dict(base), "trust-first-rotated-out.json", "refused",
+        ["run-third-revoked-by-first.json"])
     vectors["run-live-list-revoking-the-pack-beside-others"] = (dict(base), "trust-first-rotated-out.json", "refused",
         ["run-first-revokes-third.json", "run-second-revokes-third.json", "run-second-revokes-the-pack.json"])
     revoke("run-first-revokes-the-successor.json", "--key", first_key, "--expires", "2099-01-01T00:00:00Z", "--keys", second["keyId"])
@@ -825,7 +895,7 @@ def main():
         # Exit 1 is a refusal; anything else but 0 is a crash, which agrees with nothing.
         dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
         python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
-        agree = dotnet == python == expected
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
         failures += not agree
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[0] if pr.stdout.strip() else pr.stderr.strip()[-200:],
@@ -914,7 +984,7 @@ def main():
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
         dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
         python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
-        agree = dotnet == python == expected
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
         failures += not agree
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
@@ -950,7 +1020,8 @@ def main():
                 "tool": {"name": "kit", "version": "1.0.0"}, "evaluatedAt": evaluated,
                 "trial": trial_ or {"measure": "test-impact", "baseline": "none", "taskSource": "the kit's synthetic tasks"},
                 "checks": checks or [{"target": "hitRate", "requiredMilli": 500, "observedMilli": 600, "met": True}],
-                "with": with_arm or {"tasks": 40, "hits": 24, "offered": 120, "correct": 30, "p95Micros": 12500}, "passed": passed, **(extra or {})}
+                "statistic": "agentmemory.trial.hedged/2026-10-29",
+                "with": with_arm or arm_(40, 24, 120, 30, 12500), "passed": passed, **(extra or {})}
         if without is not None:
             pred["without"] = without
         if aef is not None:
@@ -990,8 +1061,11 @@ def main():
     decision = {"ModuleId": pid, "Version": version, "ManifestDigest": declarations, "PackDigest": pack_digest, "Active": True,
                 "Reason": "every target met", "DecidedAt": "2026-10-27T12:00:00+00:00",
                 "Checks": [{"Target": "hitRate", "Required": 0.5, "Observed": 0.6, "Met": True, "Estimate": None}],
-                "With": {"Tasks": 40, "Hits": 24, "Offered": 120, "Correct": 30, "P95Ms": 12.5},
-                "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5},
+                "With": {"Tasks": 40, "Hits": 24, "Offered": 120, "Correct": 30, "P95Ms": 12.5, "MaximumOffered": 3,
+                         "PerTask": [{"Offered": o_, "Correct": c_} for o_, c_ in arm_(40, 24, 120, 30, 12500)["perTask"]]},
+                "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5, "MaximumOffered": 3,
+                            "PerTask": [{"Offered": 0, "Correct": 0}] * 40},
+                "Statistic": "agentmemory.trial.hedged/2026-10-29",
                 # Review 3: certify takes only a trial at each commit's parent.
                 "History": "parent"}
     decision_payload = json.dumps({"_type": py.STATEMENT, "subject": [{"name": f"{pid}@{version}", "digest": {"sha256": pack_digest[7:]}}],
@@ -1018,7 +1092,7 @@ def main():
                                                             passed=False)), certificate_path, None, "trust-evaluator.json", "verified"),
         "certificate-with-host-baseline": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "confidenceMilli": 950,
                                                                                     "taskSource": "the kit's synthetic tasks"},
-                                                                without={"tasks": 40, "hits": 20, "offered": 120, "correct": 24, "p95Micros": 9000},
+                                                                without=arm_(40, 20, 120, 24, 9000),
                                                                 checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 520, "met": True, "estimateMilli": 600},
                                                                         {"target": "lift", "requiredMilli": 0, "observedMilli": 100, "met": True}])),
                                            certificate_path, None, "trust-evaluator.json", "verified"),
@@ -1058,14 +1132,32 @@ def main():
         # A verdict that agrees with its record.
         "certificate-passed-with-a-missed-check": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 400, "met": False}])),
                                                    certificate_path, None, "trust-evaluator.json", "refused"),
-        "certificate-passed-on-nine-tasks": (carrying(certificate(certified, with_arm={"tasks": 9, "hits": 9, "offered": 9, "correct": 9, "p95Micros": 1})),
+        "certificate-passed-on-nine-tasks": (carrying(certificate(certified, with_arm=arm_(9, 9, 9, 9, 1))),
                                              certificate_path, None, "trust-evaluator.json", "refused"),
-        "certificate-arms-differ": (carrying(certificate(certified, without={"tasks": 39, "hits": 1, "offered": 1, "correct": 1, "p95Micros": 1})),
+        "certificate-arms-differ": (carrying(certificate(certified, without=arm_(39, 1, 1, 1, 1))),
                                     certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-host-baseline-without-arm": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"})),
                                                   certificate_path, None, "trust-evaluator.json", "refused"),
-        "certificate-hits-above-tasks": (carrying(certificate(certified, with_arm={"tasks": 40, "hits": 41, "offered": 1, "correct": 1, "p95Micros": 1})),
+        "certificate-hits-above-tasks": (carrying(certificate(certified, with_arm={**arm_(40, 1, 40, 1, 1), "hits": 41})),
                                          certificate_path, None, "trust-evaluator.json", "refused"),
+        # Review 5, root RB: the evidence travels with the verdict, consistent with it, so every host derives the verdict again.
+        "certificate-without-per-task": (carrying(certificate(certified, with_arm={k: v for k, v in arm_(40, 24, 120, 30, 12500).items() if k != "perTask"})),
+                                         certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-per-task-sums-disagree": (carrying(certificate(certified, with_arm={**arm_(40, 24, 120, 30, 12500), "correct": 31})),
+                                               certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-per-task-hits-disagree": (carrying(certificate(certified, with_arm={**arm_(40, 24, 120, 30, 12500), "hits": 23})),
+                                               certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-per-task-above-cap": (carrying(certificate(certified, with_arm={**arm_(40, 24, 120, 30, 12500), "maximumOffered": 2})),
+                                           certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-cap-above-sixteen": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, cap=17))),
+                                          certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-more-than-200-tasks": (carrying(certificate(certified, with_arm=arm_(201, 24, 201, 24, 12500))),
+                                            certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-two-hundred-tasks": (carrying(certificate(certified, with_arm=arm_(200, 120, 600, 150, 12500))),
+                                          certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-without-statistic": (carrying(certificate(certified, payload_override=lambda st: py.canonical(
+            {**st, "predicate": {k: v for k, v in st["predicate"].items() if k != "statistic"}}).encode())),
+                                          certificate_path, None, "trust-evaluator.json", "refused"),
         # Strict shape: integers only, known fields, known targets, one line of text.
         "certificate-fraction-not-integer": (carrying(certificate(certified, payload_override=lambda st: json.dumps(st, separators=(",", ":")).replace(
             '"requiredMilli":500', '"requiredMilli":0.5').encode())), certificate_path, None, "trust-evaluator.json", "refused"),
@@ -1090,7 +1182,7 @@ def main():
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
         dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
         python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
-        agree = dotnet == python == expected
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
         failures += not agree
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],

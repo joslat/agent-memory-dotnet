@@ -50,14 +50,14 @@ internal static partial class Program
     {
         var webId = o.Required("webid");
         using var owner = Login(o, webId);
-        var method = SolidPacks.BindKeyAsync(owner, File.ReadAllText(o.Required("public"))).GetAwaiter().GetResult();
+        var method = SolidPacks.BindKeyAsync(owner, Text(o.Required("public"), "The public key")).GetAwaiter().GetResult();
         Console.WriteLine($"Key asserted in {webId}'s profile\n  method  {method}");
         return 0;
     }
 
     private static int SolidPublish(Options o)
     {
-        var archive = File.ReadAllBytes(o.Positional(1, "pack.ampack"));
+        var archive = PackReader.ReadArchiveFile(o.Positional(1, "pack.ampack"));
         var webId = o.Required("webid");
         using var owner = Login(o, webId);
         using var signer = Signer(o);
@@ -141,7 +141,7 @@ internal static partial class Program
 
     // Review 1, I8: the trust policy kept from the command line, read back as a host reads it before it is written.
     private static JsonObject PolicyNode(string path) =>
-        File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new UsageException($"{path} is not a JSON object.")
+        File.Exists(path) ? JsonNode.Parse(Text(path, "The trust policy", MaximumPolicyBytes))?.AsObject() ?? throw new UsageException($"{path} is not a JSON object.")
             : new JsonObject { ["format"] = "agentmemory.pack.trust/1.1", ["keys"] = new JsonArray() };
 
     private static void SavePolicy(string path, JsonObject policy)
@@ -156,7 +156,7 @@ internal static partial class Program
     private static int TrustAdd(Options o)
     {
         var path = o.Required("policy");
-        var pem = File.ReadAllText(o.Required("public")).Trim() + "\n";
+        var pem = Text(o.Required("public"), "The public key").Trim() + "\n";
         // Review 2: never a private key into a policy that gets shared, and one key per entry.
         if (!TrustPolicy.IsPublicKeyPem(pem))
             throw new UsageException($"{o.Required("public")} is not one PEM public key: give the .pub.pem file, never the private key.");
@@ -181,7 +181,7 @@ internal static partial class Program
     private static int TrustList(Options o)
     {
         var path = o.Required("policy");
-        var policy = TrustPolicy.Parse(File.ReadAllBytes(path));
+        var policy = TrustPolicy.Parse(PackReader.ReadFile(path, MaximumPolicyBytes, "The trust policy"));
         Console.WriteLine($"{path}: {policy.Keys.Count} key(s); requires {string.Join(", ", policy.RequiredRoles)}");
         foreach (var key in policy.Keys)
             Console.WriteLine($"  {key.KeyId}  {string.Join(",", key.Roles)}  for {string.Join(", ", key.IdPrefixes)}"

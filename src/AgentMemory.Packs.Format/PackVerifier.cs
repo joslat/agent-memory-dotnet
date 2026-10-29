@@ -20,42 +20,41 @@ internal sealed record PackVerification(VerifiedPack? Pack, IReadOnlyList<string
 }
 
 /// <summary>
-/// Verifies a pack before anything in it is parsed into a store (v1.1 FIG. 2, step 200), in this order:
+/// Verifies a pack before anything in it is parsed into a store (v1.1 FIG. 2, step 200), authenticating first (review 5, H1:
+/// every listed JSON file was parsed before any signature was checked, so an unsigned pack cost a host a full parse). Before
+/// the signatures nothing is parsed but the signed list and the signature envelopes, each bounded:
 /// <list type="number">
 /// <item>every path keeps the grammar;</item>
-/// <item><c>META/files.json</c> is canonical and well formed;</item>
-/// <item>the pack holds exactly the listed files, each with its length and SHA-256 (CRLF and Git LFS are named as causes);</item>
-/// <item>every JSON file keeps the JSON profile (JSONL files too, read once the signatures hold);</item>
-/// <item><c>pack.json</c> names the same id and version as the list;</item>
-/// <item>the digest is not revoked and the revocations are fresh;</item>
+/// <item><c>META/files.json</c>, at most 2 MiB, is canonical and well formed;</item>
+/// <item>the pack holds exactly the listed files, each with its length and SHA-256 (CRLF and Git LFS are named as causes), and
+/// only shaped and bounded attestations beside them;</item>
 /// <item>every required role has a valid signature from a key scoped to this id;</item>
-/// <item>the host ledger allows this id, version and digest.</item>
 /// </list>
-/// Integrity failures stop before the signatures are read; everything else is reported together.
+/// and only then, for a pack whose signatures hold:
+/// <list type="number">
+/// <item>every listed JSON file, at most 1 MiB, and every JSONL line, at most 1 MiB, keeps the JSON profile;</item>
+/// <item><c>pack.json</c> names the same id and version as the list, and the kind holds what it must;</item>
+/// <item>the digest is not revoked, the revocations are fresh, and the pack is still valid;</item>
+/// <item>a federated pack's publisher and audience hold, and the host ledger allows this id, version and digest.</item>
+/// </list>
+/// A step that fails stops what depends on it; the problems of the steps after the signatures are reported together.
 /// </summary>
 internal static class PackVerifier
 {
+    /// <summary>The largest signed list read before any signature holds: 4,096 entries of the longest paths fit.</summary>
+    internal const int MaximumFilesListBytes = 2 << 20;
+    /// <summary>The largest listed JSON file, and the longest JSONL line, a verifier parses (review 5, H1: a parse tree is many
+    /// times the bytes, in either verifier).</summary>
+    internal const int MaximumJsonBytes = 1 << 20;
+
     // explain: when given, told the outcome of every step in order (ampack verify --explain); the verdict is the same.
     internal static PackVerification Verify(PackContent content, TrustPolicy policy, DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false,
         Action<PackStep>? explain = null)
     {
-        // Record files are read only once the signatures hold: parsing is the costly step, linear in up to 256 MiB, so an
-        // untrusted pack never gets it (review 1, L3). The verdict is the same either way.
-        var (integrity, list, listBytes, manifest) = CheckIntegrity(content, explain, records: false);
+        var (integrity, list, listBytes) = CheckSigned(content, explain);
         if (integrity.Count > 0) return new(null, integrity);
-        var problems = new List<string>();
         // What this host revoked before still holds, whatever lists this run was given (fifth review).
         if (ledger is not null) policy = ledger.Apply(policy);
-
-        var digest = FilesList.DigestOf(listBytes!);
-        var lifetime = new List<string>();
-        if (policy.RevokedDigests.Contains(digest)) lifetime.Add($"The pack {digest} is revoked.");
-        if (manifest!.ValidUntil is { } until && until < now) lifetime.Add($"The pack was valid until {until:u}.");
-        if (policy.RevocationsExpire is { } expires && expires < now) lifetime.Add($"The host's revocation list expired at {expires:u}; refresh it before verifying.");
-        problems.AddRange(lifetime);
-        explain?.Invoke(new("revocation and expiry", lifetime.Count == 0, lifetime.Count > 0 ? lifetime : [
-            $"{digest} is not revoked" + (policy.RevocationsExpire is { } fresh ? $"; the revocation list is fresh until {fresh:u}" : ""),
-            manifest.ValidUntil is { } validUntil ? $"valid until {validUntil:u}" : "no validUntil"]));
 
         var signatures = new List<PackSignature>();
         var junk = new List<string>();
@@ -70,29 +69,36 @@ internal static class PackVerifier
             signatures.AddRange(valid);
             (malformed ? junk : envelopeProblems).AddRange(invalid);
         }
-        problems.AddRange(envelopeProblems);
         var missingRoles = policy.RequiredRoles.Where(r => signatures.All(s => s.Role != r)).ToList();
-        foreach (var role in missingRoles)
-            problems.Add($"No valid {role} signature: a pack is refused unless a key the host trusts for '{list!.Id}' signed it as {role}.");
-        // Invalid extra envelopes are reported, but they do not refuse a pack whose required signatures hold.
-        if (missingRoles.Count == 0)
-            problems.RemoveAll(p => p.StartsWith(PackPaths.SignaturesFolder, StringComparison.Ordinal));
-        // A file that is not an envelope at all is unlisted content travelling with the pack: refused (PACK-review 1.9).
-        problems.AddRange(junk);
         explain?.Invoke(new("signatures", missingRoles.Count == 0 && junk.Count == 0, [
             .. signatures.Select(s => $"counted: {s.Role} by key {Dsse.Short(s.KeyId)} at {s.SignedAt:u} ({s.File})"),
             .. envelopeProblems.Select(p => (missingRoles.Count == 0 ? "ignored (the required roles hold): " : "not counted: ") + p),
             .. junk.Select(p => "refuses the pack: " + p),
             .. missingRoles.Select(r => $"missing: no valid {r} signature from a key the policy trusts for '{list!.Id}'"),
             $"required roles: {string.Join(", ", policy.RequiredRoles)}"]));
-        // A pack whose signatures do not hold is refused already: its records are not parsed.
-        if (missingRoles.Count == 0 && junk.Count == 0)
-        {
-            var recordProblems = LineProblems(content).ToList();
-            problems.AddRange(recordProblems);
-            explain?.Invoke(new("records", recordProblems.Count == 0, recordProblems.Count > 0 ? recordProblems
-                : ["every JSONL file: UTF-8, LF, one JSON value per line, no repeated key, NFC strings, integers within 2^53"]));
-        }
+        // A pack whose signatures do not hold is refused here, before anything else in it is parsed. Invalid extra envelopes are
+        // reported only then; a file that is not an envelope at all is unlisted content travelling with the pack (PACK-review 1.9).
+        if (missingRoles.Count > 0 || junk.Count > 0)
+            return new(null, [
+                .. missingRoles.Count > 0 ? envelopeProblems : [],
+                .. missingRoles.Select(role => $"No valid {role} signature: a pack is refused unless a key the host trusts for '{list!.Id}' signed it as {role}."),
+                .. junk]);
+
+        var (problems, manifest) = CheckContent(content, list!, explain, records: false);
+        if (manifest is null) return new(null, problems);
+        var recordProblems = LineProblems(content).ToList();
+        problems.AddRange(recordProblems);
+        explain?.Invoke(new("records", recordProblems.Count == 0, recordProblems.Count > 0 ? recordProblems
+            : ["every JSONL file: UTF-8, LF, one JSON value per line of at most 1 MiB, no repeated key, NFC strings, integers within 2^53"]));
+        var digest = FilesList.DigestOf(listBytes!);
+        var lifetime = new List<string>();
+        if (policy.RevokedDigests.Contains(digest)) lifetime.Add($"The pack {digest} is revoked.");
+        if (manifest.ValidUntil is { } until && until < now) lifetime.Add($"The pack was valid until {until:u}.");
+        if (policy.RevocationsExpire is { } expires && expires < now) lifetime.Add($"The host's revocation list expired at {expires:u}; refresh it before verifying.");
+        problems.AddRange(lifetime);
+        explain?.Invoke(new("revocation and expiry", lifetime.Count == 0, lifetime.Count > 0 ? lifetime : [
+            $"{digest} is not revoked" + (policy.RevocationsExpire is { } fresh ? $"; the revocation list is fresh until {fresh:u}" : ""),
+            manifest.ValidUntil is { } validUntil ? $"valid until {validUntil:u}" : "no validUntil"]));
 
         if (manifest.Federation is { } federation)
         {
@@ -110,7 +116,7 @@ internal static class PackVerifier
             explain?.Invoke(new("ledger", ledgerRefusal is null, [ledgerRefusal ?? $"{list!.Id} {list.Version} with {digest[..23]}… is allowed by the ledger"]));
         return problems.Count > 0
             ? new(null, problems)
-            : new(new VerifiedPack(list!.Id, list.Version, digest, manifest!, signatures,
+            : new(new VerifiedPack(list!.Id, list.Version, digest, manifest, signatures,
                 content.Files.Where(f => FilesList.IsListed(f.Key)).ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal))
             {
                 Attestations = content.Files.Where(f => PackPaths.IsAttestation(f.Key)).ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal),
@@ -136,22 +142,38 @@ internal static class PackVerifier
         return problems;
     }
 
-    /// <summary>Steps 1–5: everything that needs no trust. <c>ampack lint</c> and <c>build</c> use it alone.</summary>
+    /// <summary>Every check that needs no trust, in order. <c>ampack lint</c> and <c>build</c> use it alone, on their own input.</summary>
     internal static (List<string> Problems, FilesList? List, byte[]? ListBytes, PackManifest? Manifest) CheckIntegrity(PackContent content,
         Action<PackStep>? explain = null, bool records = true)
     {
+        var (problems, list, listBytes) = CheckSigned(content, explain);
+        if (problems.Count > 0) return (problems, null, null, null);
+        var (rest, manifest) = CheckContent(content, list!, explain, records);
+        return manifest is null ? (rest, null, null, null) : (rest, list, listBytes, manifest);
+    }
+
+    // Before any signature holds: the paths, the signed list (bounded), the pack holding exactly what it lists, and shaped,
+    // bounded attestations beside it. Nothing else is parsed.
+    private static (List<string> Problems, FilesList? List, byte[]? ListBytes) CheckSigned(PackContent content, Action<PackStep>? explain)
+    {
         var problems = PackPaths.Problems(content.Files.Keys).ToList();
         explain?.Invoke(new("paths", problems.Count == 0, problems.Count > 0 ? problems : [$"{content.Files.Count} files, every path in the grammar"]));
-        if (problems.Count > 0) return (problems, null, null, null);
+        if (problems.Count > 0) return (problems, null, null);
         if (!content.Files.TryGetValue(PackPaths.FilesList, out var listBytes))
         {
             explain?.Invoke(new("files list", false, [$"There is no {PackPaths.FilesList}: build the pack first."]));
-            return ([$"There is no {PackPaths.FilesList}: build the pack first."], null, null, null);
+            return ([$"There is no {PackPaths.FilesList}: build the pack first."], null, null);
+        }
+        if (listBytes.Length > MaximumFilesListBytes)
+        {
+            var large = $"{PackPaths.FilesList} is larger than {MaximumFilesListBytes >> 20} MiB.";
+            explain?.Invoke(new("files list", false, [large]));
+            return ([large], null, null);
         }
         var (list, listProblem) = FilesList.Parse(listBytes);
         explain?.Invoke(new("files list", list is not null, list is null ? [listProblem!]
             : [$"{list.Id} {list.Version}, {list.Files.Count} files; RFC 8785 canonical", $"digest {FilesList.DigestOf(listBytes)}"]));
-        if (list is null) return ([listProblem!], null, null, null);
+        if (list is null) return ([listProblem!], null, null);
 
         var listed = list.Files.ToDictionary(f => f.Path, StringComparer.Ordinal);
         foreach (var path in content.Files.Keys.Where(p => FilesList.IsListed(p) && !listed.ContainsKey(p)).Order(StringComparer.Ordinal))
@@ -166,19 +188,26 @@ internal static class PackVerifier
         problems.AddRange(PackAttestations.Problems(content.Files));
         explain?.Invoke(new("content", problems.Count == 0, problems.Count > 0 ? problems
             : [$"exactly the listed files, each with its length and SHA-256 ({list.Files.Sum(f => f.Length):N0} bytes)"]));
-        if (problems.Count > 0) return (problems, null, null, null);
+        return problems.Count > 0 ? (problems, null, null) : (problems, list, listBytes);
+    }
 
+    // Once the signatures hold (or for lint and build, on their own input): the JSON profile, each listed JSON file at most
+    // MaximumJsonBytes; pack.json and the kind.
+    private static (List<string> Problems, PackManifest? Manifest) CheckContent(PackContent content, FilesList list, Action<PackStep>? explain, bool records)
+    {
+        var problems = new List<string>();
         foreach (var (path, bytes) in content.Files.Where(f => FilesList.IsListed(f.Key) && f.Key.EndsWith(".json", StringComparison.Ordinal))
                      .OrderBy(f => f.Key, StringComparer.Ordinal))
-            if (PackJson.Check(bytes, integersOnly: path == PackPaths.LockFile) is { } problem) problems.Add($"'{path}' {problem}.");
+            if (bytes.Length > MaximumJsonBytes) problems.Add($"'{path}' is larger than {MaximumJsonBytes >> 20} MiB: a JSON file in a pack is at most that.");
+            else if (PackJson.Check(bytes, integersOnly: path == PackPaths.LockFile) is { } problem) problems.Add($"'{path}' {problem}.");
         if (records) problems.AddRange(LineProblems(content));
         explain?.Invoke(new("JSON profile", problems.Count == 0, problems.Count > 0 ? problems
-            : [records ? "every JSON and JSONL file: UTF-8, LF, no repeated key, NFC strings, integers within 2^53"
-                : "every JSON file: UTF-8, LF, no repeated key, NFC strings, integers within 2^53 (JSONL files once the signatures hold)"]));
+            : [records ? "every JSON file (at most 1 MiB) and JSONL line (at most 1 MiB): UTF-8, LF, no repeated key, NFC strings, integers within 2^53"
+                : "every JSON file, at most 1 MiB: UTF-8, LF, no repeated key, NFC strings, integers within 2^53 (JSONL files next)"]));
         var profileProblems = problems.Count;
         if (!content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes))
             problems.Add($"There is no {PackManifest.FileName}.");
-        else
+        else if (manifestBytes.Length <= MaximumJsonBytes)
         {
             var (manifest, manifestProblem) = PackManifest.Parse(manifestBytes);
             if (manifest is null) problems.Add(manifestProblem!);
@@ -189,18 +218,17 @@ internal static class PackVerifier
                 problems.AddRange(KindProblems(manifest, content.Files));
                 explain?.Invoke(new("pack.json and kind", problems.Count == profileProblems, problems.Count > profileProblems ? problems.Skip(profileProblems).ToList()
                     : [$"{manifest.Kind} pack, tier {manifest.Tier}, protection {manifest.Protection}, code {manifest.Code}"]));
-                if (problems.Count == 0) return (problems, list, listBytes, manifest);
-                return (problems, null, null, null);
+                return problems.Count == 0 ? (problems, manifest) : (problems, null);
             }
         }
         explain?.Invoke(new("pack.json and kind", false, problems.Skip(profileProblems).ToList()));
-        return (problems, null, null, null);
+        return (problems, null);
     }
 
     // Every listed JSONL file, line by line, in the JSON profile.
     private static IEnumerable<string> LineProblems(PackContent content) =>
         content.Files.Where(f => FilesList.IsListed(f.Key) && f.Key.EndsWith(".jsonl", StringComparison.Ordinal)).OrderBy(f => f.Key, StringComparer.Ordinal)
-            .Select(f => PackJson.CheckLines(f.Value) is { } problem ? $"'{f.Key}' {problem}." : null).OfType<string>();
+            .Select(f => PackJson.CheckLines(f.Value, MaximumJsonBytes) is { } problem ? $"'{f.Key}' {problem}." : null).OfType<string>();
 
     /// <summary>What each kind must and must not hold (v1.2 §3).</summary>
     private static IEnumerable<string> KindProblems(PackManifest manifest, IReadOnlyDictionary<string, byte[]> files)

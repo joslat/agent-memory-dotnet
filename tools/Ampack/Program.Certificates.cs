@@ -16,13 +16,13 @@ internal static partial class Program
     private static int Certify(Options o)
     {
         var target = o.Positional(0, "pack.ampack");
-        var archive = File.ReadAllBytes(target);
+        var archive = PackReader.ReadArchiveFile(target);
         var trust = Trust(o);
         LoadedPack pack;
         try { pack = PackLoader.Load(archive, trust); }
         catch (PackLoadException e) { return Report(e.Problems, ""); }
         // The evaluator's own trial decision for exactly this pack, signed by the key it ran the gate with.
-        var records = new PackActivationFolder(o.Required("activations"), File.ReadAllText(o.Required("host-key")));
+        var records = new PackActivationFolder(o.Required("activations"), Text(o.Required("host-key"), "The host key"));
         var decision = records.Find(pack.Id, AgentMemory.Extensibility.Modules.ModuleVersion.Parse(pack.Version), PackTrialGate.DigestOf(pack.Manifest), pack.Digest);
         if (decision is null)
             return Report([$"No trial decision for exactly this pack ({pack.Id} {pack.Version}, {pack.Digest[..23]}…) signed by that key in {o.Required("activations")}: run the trial first."], "");
@@ -73,7 +73,7 @@ internal static partial class Program
         if (chosen is not null && certificates.Count == 0)
         {
             if (chosen.StartsWith(PackPaths.AttestationsFolder, StringComparison.Ordinal)) return Report([$"The pack carries no {chosen}."], "");
-            certificates.Add((chosen, File.ReadAllBytes(chosen), null));
+            certificates.Add((chosen, PackReader.ReadFile(chosen, Dsse.MaximumEnvelopeBytes, "The certificate"), null));
         }
         if (certificates.Count == 0) return Report([$"{pack.Id} {pack.Version} carries no evaluation certificate."], "");
         var problems = new List<string>();
@@ -95,7 +95,7 @@ internal static partial class Program
     {
         var target = o.Positional(0, "pack.ampack");
         LoadedPack pack;
-        try { pack = PackLoader.Load(File.ReadAllBytes(target), Trust(o)); }
+        try { pack = PackLoader.Load(PackReader.ReadArchiveFile(target), Trust(o)); }
         catch (PackLoadException e) { return Report(e.Problems, ""); }
         var (decision, reason) = PackCertificates.Admit(pack, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
         if (decision is null) return Report([reason], "");
@@ -121,11 +121,11 @@ internal static partial class Program
         var packs = new List<LoadedPack>();
         foreach (var path in o.PositionalFrom(0))
         {
-            try { packs.Add(PackLoader.Load(File.ReadAllBytes(path), trust)); }
+            try { packs.Add(PackLoader.Load(PackReader.ReadArchiveFile(path), trust)); }
             catch (PackLoadException e) { return Report(e.Problems.Select(p => $"{path}: {p}"), ""); }
         }
         if (packs.Count == 0) throw new UsageException("gate needs at least one pack.");
-        var activations = new PackActivationFolder(o.Required("activations"), File.ReadAllText(o.Required("host-key")));
+        var activations = new PackActivationFolder(o.Required("activations"), Text(o.Required("host-key"), "The host key"));
         static string[] Prefixes(string? value) => value is null ? [] : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         PackGateCheck check;
         try { check = PackGateCheck.Of(packs, activations, Prefixes(o.Value("require-trials-for")), Prefixes(o.Value("trust-certificates-for"))); }

@@ -165,6 +165,11 @@ public sealed class PackFormatTests
         {
             [PackPaths.FilesList] = FilesList.Build("io.example.other", "1.0.0", source),
         };
+        // Signed, so the check is reached: pack.json is read only once the signatures hold (review 5, H1).
+        PackBuilder.Sign(files, sample.Key.PrivateKeyPem, "publisher", SamplePack.SignedAt);
         sample.Verify(files).Problems.Should().ContainSingle().Which.Should().Contain("names io.example.notes");
+        // Unsigned, it is refused at its signatures, before pack.json is read.
+        files.Remove(files.Keys.Single(k => k.StartsWith(PackPaths.SignaturesFolder, StringComparison.Ordinal)));
+        sample.Verify(files).Problems.Should().ContainSingle().Which.Should().Contain("No valid publisher signature");
     }
 }

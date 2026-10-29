@@ -25,9 +25,23 @@ public sealed class ExplainTests
         var (result, steps) = Explained(_sample.Signed());
 
         result.IsVerified.Should().BeTrue();
-        // Records are parsed last, once the signatures hold (review 1, L3).
-        steps.Select(s => s.Name).Should().Equal("paths", "files list", "content", "JSON profile", "pack.json and kind", "revocation and expiry", "signatures", "records");
+        // Authenticate first (review 5, H1): before the signatures only the signed list and the envelopes are parsed; the JSON
+        // profile, pack.json and the records once they hold (review 1, L3).
+        steps.Select(s => s.Name).Should().Equal("paths", "files list", "content", "signatures", "JSON profile", "pack.json and kind", "records", "revocation and expiry");
         steps.Should().OnlyContain(s => s.Passed && s.Lines.Count > 0);
+    }
+
+    [Fact]
+    public void An_unsigned_pack_is_refused_at_its_signatures_and_nothing_after_them_is_parsed()
+    {
+        // Review 5, H1: a pack without a valid signature never reaches the JSON profile, whatever its JSON files hold.
+        var files = _sample.Signed().Where(f => !f.Key.StartsWith(PackPaths.SignaturesFolder, StringComparison.Ordinal)).ToDictionary(f => f.Key, f => f.Value);
+
+        var (result, steps) = Explained(files);
+
+        result.IsVerified.Should().BeFalse();
+        steps.Select(s => s.Name).Should().Equal("paths", "files list", "content", "signatures");
+        steps.Last().Passed.Should().BeFalse();
     }
 
     [Fact]

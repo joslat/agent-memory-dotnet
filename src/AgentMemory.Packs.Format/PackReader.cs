@@ -16,18 +16,33 @@ internal static class PackReader
     /// An <c>.ampack</c> file's bytes, its size checked against the archive limit before one byte is read (PACK-harden,
     /// review 4.14), and it must be a plain file, not a link.
     /// </summary>
-    internal static byte[] ReadArchiveFile(string path, PackLimits? limits = null)
+    internal static byte[] ReadArchiveFile(string path, PackLimits? limits = null) =>
+        ReadFile(path, (limits ?? PackLimits.Default).MaxArchiveBytes, "The archive");
+
+    /// <summary>
+    /// A file's bytes, at most <paramref name="maximum"/> of them, for every input a tool or host reads (review 5, L1, L2: six
+    /// commands read packs, and the verifiers read receipts, certificates and policies, whole and through links): never
+    /// through a link nor from a folder, checked before it is opened and again on what was opened (review 5, L3: a link swapped
+    /// in between); a pipe or a device, whose length reads as 0, is read with the same bound, checked before each block is kept.
+    /// </summary>
+    /// <exception cref="FileNotFoundException">There is no file there.</exception>
+    /// <exception cref="InvalidDataException">It is a link or a folder, larger than <paramref name="maximum"/>, or changed as it was opened.</exception>
+    internal static byte[] ReadFile(string path, long maximum, string what)
     {
-        limits ??= PackLimits.Default;
         var file = new FileInfo(path);
-        if (!file.Exists) throw new FileNotFoundException($"No pack at {path}.", path);
-        if (file.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new InvalidDataException($"{path} is a link or reparse point.");
-        if (file.Length > limits.MaxArchiveBytes) throw new InvalidDataException($"The archive is larger than {limits.MaxArchiveBytes} bytes.");
+        if (Directory.Exists(path)) throw new InvalidDataException($"{what} at {path} is a folder.");
+        if (!file.Exists) throw new FileNotFoundException($"No file at {path}.", path);
+        if (file.Attributes.HasFlag(FileAttributes.ReparsePoint) || file.LinkTarget is not null) throw new InvalidDataException($"{what} at {path} is a link or reparse point.");
+        if (file.Length > maximum) throw new InvalidDataException($"{what} is larger than {maximum} bytes.");
         using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.SequentialScan);
+        // What was opened is what was checked: still no link, and the same length or a stream that reports none.
+        var opened = new FileInfo(file.FullName);
+        if (opened.Attributes.HasFlag(FileAttributes.ReparsePoint) || opened.LinkTarget is not null || stream.CanSeek && stream.Length != file.Length && file.Length != 0)
+            throw new InvalidDataException($"{what} at {path} changed while it was opened.");
         // A plain file is read into an array of exactly its size, once (review 1, I1: a growing buffer and its copy held two to
         // three times the archive). Anything that reads past its reported length (a pipe or a device reports 0 and never ends,
         // red team 12; or a file growing as it is read) falls back to a bounded read.
-        var exact = new byte[file.Length];
+        var exact = new byte[Math.Min(file.Length, maximum)];
         var filled = 0;
         int read;
         while (filled < exact.Length && (read = stream.Read(exact, filled, exact.Length - filled)) > 0) filled += read;
@@ -35,12 +50,16 @@ internal static class PackReader
         if (filled == exact.Length && stream.Read(more, 0, 1) == 0) return exact;
         using var buffer = new MemoryStream();
         buffer.Write(exact, 0, filled);
-        if (filled == exact.Length) buffer.Write(more, 0, 1);
+        if (filled == exact.Length)
+        {
+            buffer.Write(more, 0, 1);
+            if (buffer.Length > maximum) throw new InvalidDataException($"{what} is larger than {maximum} bytes.");
+        }
         var chunk = new byte[81920];
         while ((read = stream.Read(chunk, 0, chunk.Length)) > 0)
         {
             // Checked before the write (review 4: a device that never ends grew the buffer past the limit first).
-            if (buffer.Length + read > limits.MaxArchiveBytes) throw new InvalidDataException($"The archive is larger than {limits.MaxArchiveBytes} bytes.");
+            if (buffer.Length + read > maximum) throw new InvalidDataException($"{what} is larger than {maximum} bytes.");
             buffer.Write(chunk, 0, read);
         }
         return buffer.ToArray();

@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using AgentMemory.Extensibility.Modules;
 
 namespace AgentMemory.Extensibility.Ampack;
 
@@ -48,6 +49,9 @@ public static class PackAdvice
                     Add("trial.upgrade", "Its trial has no upgrade rule: unless an earlier version set one on that host, a later version could do worse than this one and still go on. Declare upgrade.noRegression.");
                 if (trial.Tasks < FewTasks)
                     Add("trial.small", $"Its trial runs {trial.Tasks} tasks: a 95% bound on so few is wide; {FewTasks} or more tell a good pack from chance.");
+                // What the declared trial can never show, at the pack's own cap (review 5): better said now than at a host.
+                foreach (var note in PackTrialGate.Unreachable(trial, manifest.Traversal?.MaxItems ?? ModuleTraversal.MaximumOffered))
+                    Add("trial.unreachable", note);
             }
         }
         if (pack.Publication is { } publication)

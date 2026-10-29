@@ -91,6 +91,16 @@ public sealed class PackConsentTests
     }
 
     [Fact]
+    public async Task Packs_in_memory_take_the_hosts_own_grants_as_a_host_does()
+    {
+        // Review 5, L5: ampack serve took only the grants a snapshot carries; a host's own grant walks the relation there too.
+        var memory = PackMemory.From([], [Codebase(consents: false), Ledger(consents: false)], [new ModuleConsentGrant("com.example.work", "com.example.code")]);
+        var hits = await memory.WalkAsync([ContextAnchor.Path("src/Store.cs")], "why is the store exact", CancellationToken.None);
+
+        hits.Should().Contain(h => h.Type == "WorkItem" && h.Key == "A-1");
+    }
+
+    [Fact]
     public void A_grant_joins_the_set_fingerprint()
     {
         static ModuleSet Compose(Action<ModuleSetBuilder> more)

@@ -55,6 +55,13 @@ public sealed class OneIntakeTests
     }
 
     [Fact]
+    public void A_question_is_taken_in_NFC()
+    {
+        // Review 5, L4: "cafe" and a combining accent gave the word "cafe", the precomposed form "caf".
+        TraversalWords.Of("cafe\u0301 Walk").Should().Equal(TraversalWords.Of("caf\u00E9 Walk")).And.Equal("caf", "walk");
+    }
+
+    [Fact]
     public void Admission_refuses_text_that_is_not_in_NFC()
     {
         var file = new ModuleProposal { Type = CodeMapPack.FileType, Key = "src/U\u0308ber.cs", Source = new() { Pack = new() { Id = "p", Version = "1.0.0", Digest = "sha256:" + new string('a', 64), File = "records/files.jsonl", Line = 1 }, Excerpt = "x" } };

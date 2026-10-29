@@ -293,7 +293,8 @@ internal static class TraversalWalk
     private static string Label(ModuleRecord record)
     {
         foreach (var property in (string[])["name", "path"])
-            if (record.Properties.TryGetValue(property, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text)
+            // Not blank after trimming (review 5: a name of spaces gave an empty reason).
+            if (record.Properties.TryGetValue(property, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { } text && !AnchorMatcher.IsBlank(text))
                 return Short(text);
         return Short(record.Key);
     }
@@ -378,9 +379,11 @@ internal static partial class TraversalWords
         "the and for with from that this into when are not but its has have was were make made add adds fix fixes test tests one two three all any only now new also than then them they their our out off"
             .Split(' '), StringComparer.Ordinal);
 
+    // The question in NFC by the format's own tables first (review 5: "cafe" and a combining accent gave the word "cafe", the
+    // precomposed form "caf"), as given when it has none (an unpaired surrogate).
     internal static IReadOnlyList<string> Of(string? question) =>
         string.IsNullOrWhiteSpace(question) ? []
-        : [.. Word().Matches(AnchorMatcher.Folded(CaseChange().Replace(question, "$1 $2"))).Select(m => m.Value)
+        : [.. Word().Matches(AnchorMatcher.Folded(CaseChange().Replace(Unicode.Nfc.Normalize(question) ?? question, "$1 $2"))).Select(m => m.Value)
             .Where(w => w.Length is >= 3 and <= ModuleExpandQuery.MaximumWordLength && !Common.Contains(w)).Distinct(StringComparer.Ordinal)
             .Take(ModuleExpandQuery.MaximumWords)];
 

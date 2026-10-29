@@ -69,13 +69,16 @@ internal static partial class Program
           list --store <folder>  the installed packs
           serve [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
                 [--http <http://localhost:5199/> [--allow-remote]] [--activations <folder> --host-key <host.pub.pem>]
+                [--grant <module>=<into>]...
                                  mount the packs in memory and serve them over MCP on standard input and output:
                                  pack_list, pack_ask (a view: search text or a key), pack_walk (from files and symbols);
                                  with --http, the same over REST: GET /v1/meta, GET /v1/packs,
                                  POST /v1/packs/{id}/views/{view}/ask, POST /v1/walk (this machine only, unless
                                  --allow-remote: then every request sends Authorization: Bearer $AMPACK_SERVE_TOKEN,
-                                 packs published for named WebIDs stay local, and TLS comes from a proxy in front);
-                                 with --activations, packs the host's trial gate keeps off are not served
+                                 packs published for named WebIDs stay local, and TLS comes from a proxy in front;
+                                 on this machine too, packs published for named WebIDs need $AMPACK_SERVE_TOKEN);
+                                 with --activations, packs the host's trial gate keeps off are not served; with
+                                 --grant, the host's consent grants, as GrantConsent gives them to a host
           evidence --activations <folder> --host-key <host.pub.pem> --pack <id> [--version <v>] --out <run-folder>
                                  a host's trial decision for a pack (the latest, or of that version) as an AEF run:
                                  the pack as its subject, the trial's tasks with and without it, the gate's decision,
@@ -244,7 +247,7 @@ internal static partial class Program
         ["evidence"] = ["activations", "host-key", "pack", "version", "out"],
         ["scan"] = ["aef", .. TrustOptions],
         ["countersign"] = ["out", "role", .. SignerOptions],
-        ["serve"] = ["store", "http", "allow-remote", "activations", "host-key", "require-trials-for", "trust-certificates-for", .. TrustOptions],
+        ["serve"] = ["store", "http", "allow-remote", "activations", "host-key", "require-trials-for", "trust-certificates-for", "grant", .. TrustOptions],
         ["install"] = ["store", "allow-downgrade", .. TrustOptions],
         ["uninstall"] = ["store"],
         ["list"] = ["store"],
@@ -398,14 +401,14 @@ internal static partial class Program
         if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new UsageException($"{output} is not empty.");
         IReadOnlyDictionary<string, byte[]> bundle;
         if (File.Exists(source))
-            bundle = new Dictionary<string, byte[]>(StringComparer.Ordinal) { [PackLayout.ModuleManifestFile] = File.ReadAllBytes(source) };
+            bundle = new Dictionary<string, byte[]>(StringComparer.Ordinal) { [PackLayout.ModuleManifestFile] = PackReader.ReadFile(source, PackLimits.Default.MaxFileBytes, "The manifest") };
         else
         {
             var root = new DirectoryInfo(source);
             if (!root.Exists) throw new UsageException($"No bundle at {source}.");
             bundle = root.EnumerateFiles("*", SearchOption.AllDirectories)
                 .Where(f => !f.Name.StartsWith("agentmemory.module.", StringComparison.Ordinal))
-                .ToDictionary(f => Path.GetRelativePath(root.FullName, f.FullName).Replace(Path.DirectorySeparatorChar, '/'), f => File.ReadAllBytes(f.FullName), StringComparer.Ordinal);
+                .ToDictionary(f => Path.GetRelativePath(root.FullName, f.FullName).Replace(Path.DirectorySeparatorChar, '/'), f => PackReader.ReadFile(f.FullName, PackLimits.Default.MaxFileBytes, "A bundle file"), StringComparer.Ordinal);
         }
         var files = PackLayout.FromModule(bundle);
         foreach (var (path, bytes) in files) Write(output, path, bytes);
@@ -436,7 +439,7 @@ internal static partial class Program
         // Advice needs the pack as a host loads it: a built .ampack, against the host's trust.
         var target = o.Positional(0, "folder or file");
         if (!File.Exists(target)) throw new UsageException("Advice (--policy) reads a built .ampack; build the folder first.");
-        var inspection = AgentMemory.Extensibility.Ampack.PackInspection.Inspect(File.ReadAllBytes(target), Trust(o));
+        var inspection = AgentMemory.Extensibility.Ampack.PackInspection.Inspect(PackReader.ReadArchiveFile(target), Trust(o));
         if (!inspection.Loaded) return Report(inspection.Problems, "");
         var advice = AgentMemory.Extensibility.Ampack.PackAdvice.Of(inspection, DateTimeOffset.UtcNow);
         Console.WriteLine(advice.Count == 0 ? "Lint passed; no advice." : $"Lint passed; {advice.Count} piece(s) of advice:");
@@ -468,14 +471,14 @@ internal static partial class Program
     // PACK-evidence-aef: a host's trial decision as an AEF run.
     private static int Evidence(Options o)
     {
-        var records = new AgentMemory.Extensibility.Modules.PackActivationFolder(o.Required("activations"), File.ReadAllText(o.Required("host-key")));
+        var records = new AgentMemory.Extensibility.Modules.PackActivationFolder(o.Required("activations"), Text(o.Required("host-key"), "The host key"));
         var id = o.Required("pack");
         var version = o.Value("version");
         // The host's own trial, the latest: never an admission it made from someone else's certificate (review 2).
         var decision = records.History(id).Where(d => d.Basis is null && (version is null || d.Version == version)).MaxBy(d => d.DecidedAt);
         if (decision is null) return Report([$"No decision signed by this host for {id}{(version is null ? "" : " " + version)} in {o.Required("activations")}."], "");
         var file = records.FileOf(decision);
-        var runId = AgentMemory.Extensibility.Ampack.PackTrialEvidence.WriteRun(decision, o.Required("out"), file is null ? null : File.ReadAllBytes(file),
+        var runId = AgentMemory.Extensibility.Ampack.PackTrialEvidence.WriteRun(decision, o.Required("out"), file is null ? null : PackReader.ReadFile(file, PackAttestations.MaximumRunBytes, "The evidence file"),
             typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "2.0.0");
         Console.WriteLine($"{id} {decision.Version}: {(decision.Active ? "on" : "off")}, {decision.Reason}\n  run     {runId}\n  wrote   {o.Required("out")}");
         return 0;
@@ -508,7 +511,7 @@ internal static partial class Program
         var target = o.Positional(0, "pack file");
         using var signer = Signer(o);
         var role = o.Required("role");
-        var content = PackReader.ReadArchive(File.ReadAllBytes(target), target);
+        var content = PackReader.ReadArchive(PackReader.ReadArchiveFile(target), target);
         if (PackVerifier.CheckIntegrity(content).Problems is { Count: > 0 } problems) return Report(problems, "");
         var files = content.Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
         PackBuilder.Sign(files, signer, role, SigningTime());
@@ -633,7 +636,7 @@ internal static partial class Program
         // --policy: the entry added to a trust policy file (created when missing), which is then read back as a host reads it.
         if (o.Value("policy") is { } policyPath)
         {
-            var policy = File.Exists(policyPath) ? JsonNode.Parse(File.ReadAllText(policyPath))?.AsObject() ?? throw new UsageException($"{policyPath} is not a JSON object.")
+            var policy = File.Exists(policyPath) ? JsonNode.Parse(Text(policyPath, "The trust policy", MaximumPolicyBytes))?.AsObject() ?? throw new UsageException($"{policyPath} is not a JSON object.")
                 : new JsonObject { ["format"] = TrustPolicy.Format, ["keys"] = new JsonArray() };
             if (policy["keys"] is not JsonArray keys) policy["keys"] = keys = new JsonArray();
             keys.Add(entry.DeepClone());
@@ -680,7 +683,7 @@ internal static partial class Program
     private static PackSigner Signer(Options o)
     {
         if (o.Value("signer") is { } command)
-            return PackSigner.FromCommand(command, File.ReadAllText(o.Value("public") ?? throw new UsageException("--signer needs --public <pub.pem>, the key it signs with.")));
+            return PackSigner.FromCommand(command, Text(o.Value("public") ?? throw new UsageException("--signer needs --public <pub.pem>, the key it signs with."), "The public key"));
         return PackSigner.FromPem(PrivatePem(o.Required("key")));
     }
 
@@ -694,10 +697,10 @@ internal static partial class Program
         else if (key.StartsWith("dpapi:", StringComparison.Ordinal))
         {
             if (!OperatingSystem.IsWindows()) throw new UsageException("dpapi: keys are Windows only; elsewhere use an encrypted key (keygen --passphrase-env) or --signer.");
-            pem = Encoding.UTF8.GetString(System.Security.Cryptography.ProtectedData.Unprotect(File.ReadAllBytes(key[6..]), null,
+            pem = Encoding.UTF8.GetString(System.Security.Cryptography.ProtectedData.Unprotect(PackReader.ReadFile(key[6..], MaximumKeyBytes, "The key"), null,
                 System.Security.Cryptography.DataProtectionScope.CurrentUser));
         }
-        else pem = File.ReadAllText(key);
+        else pem = Text(key, "The key");
         if (!pem.Contains("-----BEGIN ENCRYPTED PRIVATE KEY-----", StringComparison.Ordinal)) return pem;
         var passphrase = Environment.GetEnvironmentVariable("AMPACK_KEY_PASSPHRASE");
         if (string.IsNullOrEmpty(passphrase)) throw new UsageException("The key is encrypted: set AMPACK_KEY_PASSPHRASE to its passphrase.");
@@ -740,7 +743,7 @@ internal static partial class Program
             // A set is verified with every member it carries, never on its outer signature alone (FED-review H2).
             var verified = PackVerifier.VerifyWhole(content, policy, DateTimeOffset.UtcNow);
             if (!verified.IsVerified) return Report(verified.Problems, "");
-            var (receipt, _, problems) = PublicationReceipt.Verify(File.ReadAllBytes(o.Positional(2, "receipt file")), verified.Pack!, archive, location, policy, DateTimeOffset.UtcNow);
+            var (receipt, _, problems) = PublicationReceipt.Verify(PackReader.ReadFile(o.Positional(2, "receipt file"), Dsse.MaximumEnvelopeBytes, "The receipt"), verified.Pack!, archive, location, policy, DateTimeOffset.UtcNow);
             if (receipt is null) return Report(problems, "");
             Console.WriteLine($"Verified the placement of {receipt.Id} {receipt.Version} at {receipt.Location}\n  for     {PackFederation.Describe(receipt.Audience)} ({receipt.Access})"
                 + $"\n  probed  denied {string.Join(", ", receipt.Denied)}; allowed {string.Join(", ", receipt.Allowed)}\n  placed  {receipt.PublishedAt:u}");
@@ -795,7 +798,7 @@ internal static partial class Program
     private static TrustPolicy Policy(Options o)
     {
         CheckLedger(o);
-        var policy = TrustPolicy.Parse(File.ReadAllBytes(o.Required("policy")));
+        var policy = TrustPolicy.Parse(PackReader.ReadFile(o.Required("policy"), MaximumPolicyBytes, "The trust policy"));
         var ledgerPath = LedgerPath(o);
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
         var documents = o.Values("revocations").Select(r => PackReader.ReadArchiveFile(r, Revocations.DocumentLimits)).ToList();
@@ -898,7 +901,11 @@ internal static partial class Program
         var gate = ServeGate(o);
         try
         {
-            var mount = AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust, gate);
+            // The host's consent grants (review 5: serve took none, so a relation a host walks was refused here).
+            var grants = o.Values("grant").Select(g => g.Split('=') is [var module, var into] && module.Length > 0 && into.Length > 0
+                ? new AgentMemory.Extensibility.Modules.ModuleConsentGrant(module, into)
+                : throw new UsageException($"--grant {g}: give <module>=<into>, the module whose relation reaches into the other's records.")).ToList();
+            var mount = AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust, gate, grants);
             // Review 1, I9: a pack that declares a trial, served with no gate, is said to be served ungated.
             if (gate is null)
                 foreach (var pack in mount.Packs.Where(p => p.Manifest.Trial is not null))
@@ -913,7 +920,7 @@ internal static partial class Program
     {
         if (o.Value("activations") is not { } folder)
             return o.Value("host-key") is null ? null : throw new UsageException("--host-key goes with --activations.");
-        var activations = new AgentMemory.Extensibility.Modules.PackActivationFolder(folder, File.ReadAllText(o.Required("host-key")));
+        var activations = new AgentMemory.Extensibility.Modules.PackActivationFolder(folder, Text(o.Required("host-key"), "The host key"));
         static string[] Prefixes(string? value) => value is null ? [] : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return (packs, familyMembers) =>
         {
@@ -1094,6 +1101,12 @@ internal static partial class Program
     }
 
     private static string Short(string json) => json.Length <= 80 ? json : json[..77] + "...";
+
+    // Every file a command names is read bounded, never through a link (review 5, L1: six commands read whole, `ampack lint
+    // /dev/zero` about 2 GB): packs at the archive limit, these at theirs.
+    private const int MaximumPolicyBytes = 4 << 20, MaximumKeyBytes = 64 * 1024;
+
+    private static string Text(string path, string what, int maximum = MaximumKeyBytes) => Encoding.UTF8.GetString(PackReader.ReadFile(path, maximum, what));
 
     // verify --explain: one line per step, then its details.
     private static void Explain(PackStep step)

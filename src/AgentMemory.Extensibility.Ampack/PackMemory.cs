@@ -58,7 +58,11 @@ public sealed partial class PackMemory : IModuleTraversalReader
     /// none of them holds is left out, as the store leaves it out.
     /// </summary>
     /// <exception cref="KnowledgePackException">The modules do not resolve together.</exception>
-    public static PackMemory From(IEnumerable<KnowledgePack> knowledge, IEnumerable<ModuleSnapshot>? snapshots = null)
+    /// <param name="knowledge">The knowledge packs.</param>
+    /// <param name="snapshots">The snapshots, each with its definition and dependencies.</param>
+    /// <param name="grants">The host's consent grants (PACK-consent), beside the snapshots' own: a relation into a module that does
+    /// not list the walking one in containableBy is walked only with one, as the host walks it (review 5: serve took none).</param>
+    public static PackMemory From(IEnumerable<KnowledgePack> knowledge, IEnumerable<ModuleSnapshot>? snapshots = null, IEnumerable<ModuleConsentGrant>? grants = null)
     {
         ArgumentNullException.ThrowIfNull(knowledge);
         var packs = knowledge.ToList();
@@ -69,7 +73,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
         var resolution = ModuleResolver.Resolve([.. manifests.Values], ModuleSet.SdkVersion, ModuleHostFeatures.Known);
         if (!resolution.Succeeded) throw new KnowledgePackException(resolution.Errors);
         // PACK-consent: links into another module's records need its consent or the host's grant, as the store requires.
-        resolution = resolution with { ConsentGrants = [.. shots.SelectMany(s => s.ConsentGrants).Distinct()] };
+        resolution = resolution with { ConsentGrants = [.. shots.SelectMany(s => s.ConsentGrants).Concat(grants ?? []).Distinct()] };
         var refused = shots.SelectMany(s => s.Records.SelectMany(r => r.Links.Select(l => s.Module.Ontology?.Relations.SingleOrDefault(x => x.Name == l.Relation && x.From == r.Type)))
                 .OfType<ModuleRelation>().Distinct().Select(relation => resolution.ConsentRefusal(s.Module, relation)))
             .OfType<string>().Distinct(StringComparer.Ordinal).ToList();
@@ -129,11 +133,15 @@ public sealed partial class PackMemory : IModuleTraversalReader
     /// imports each snapshot into the definition beside it, and holds every knowledge pack and snapshot in memory.
     /// </summary>
     /// <exception cref="PackLoadException">A pack is refused, a composite comes alone, or a snapshot's definition is missing.</exception>
-    public static PackMount Mount(IEnumerable<byte[]> archives, PackTrust trust) => Mount(archives, trust, null);
+    public static PackMount Mount(IEnumerable<byte[]> archives, PackTrust trust) => Mount(archives, trust, off: null);
+
+    /// <summary>Mounts the packs as <see cref="Mount(IEnumerable{byte[]}, PackTrust)"/> does, with the host's consent grants.</summary>
+    public static PackMount Mount(IEnumerable<byte[]> archives, PackTrust trust, IEnumerable<ModuleConsentGrant> grants) => Mount(archives, trust, null, grants);
 
     // off: given the loaded packs, the ids a host's gate keeps off; they, and snapshots of a definition kept off, are not
     // mounted (review 1, M1: ampack serve honours the gate).
-    internal static PackMount Mount(IEnumerable<byte[]> archives, PackTrust trust, Func<IReadOnlyList<LoadedPack>, IReadOnlySet<string>, IReadOnlyCollection<string>>? off)
+    internal static PackMount Mount(IEnumerable<byte[]> archives, PackTrust trust, Func<IReadOnlyList<LoadedPack>, IReadOnlySet<string>, IReadOnlyCollection<string>>? off,
+        IEnumerable<ModuleConsentGrant>? grants = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
         ArgumentNullException.ThrowIfNull(trust);
@@ -176,7 +184,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 throw new PackLoadException([$"{shot.Id} is a snapshot of {of}: mount that definition pack beside it."]);
             snapshots.Add(shot.ToSnapshot(definition, [.. definition.Modules.Keys.Where(definitions.ContainsKey).Select(d => definitions[d])]));
         }
-        try { return new PackMount(loaded, From(loaded.Select(p => p.Knowledge).OfType<KnowledgePack>(), snapshots)); }
+        try { return new PackMount(loaded, From(loaded.Select(p => p.Knowledge).OfType<KnowledgePack>(), snapshots, grants)); }
         catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
     }
 

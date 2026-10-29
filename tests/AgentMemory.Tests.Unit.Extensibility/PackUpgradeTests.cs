@@ -30,8 +30,9 @@ public sealed class PackUpgradeTests : IDisposable
         """{"format":"agentmemory.module/v1alpha1","id":"com.example.map","version":""" + "\"" + version + "\""
         + ""","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0.5}""" + upgrade + "}}");
 
-    private static PackTrialMeasurement Arm(int hits, int correct = 10, int offered = 20) =>
-        new() { Tasks = 40, Hits = hits, Correct = correct, Offered = offered, P95Ms = 10 };
+    // Precision 0.5 unless given; as many right items as hits at least (a hit is a right item).
+    private static PackTrialMeasurement Arm(int hits, int? correct = null, int? offered = null) =>
+        new() { Tasks = 40, Hits = hits, Correct = correct ?? hits, Offered = offered ?? 2 * (correct ?? hits), P95Ms = 10 };
 
     private static readonly PackTrialMeasurement Nothing = new() { Tasks = 40, Hits = 0, Correct = 0, Offered = 0, P95Ms = 5 };
 
@@ -62,7 +63,7 @@ public sealed class PackUpgradeTests : IDisposable
         upgrade.Checks.Single(c => c.Target == "hitRate").Met.Should().BeTrue("it meets its own target; the regression is what stops it");
         upgrade.Previous!.Version.Should().Be("1.0.0");
 
-        PackTrialGate.Decide(Manifest("1.1.0"), Arm(30, correct: 10, offered: 21), Nothing, Now, previous: Previous(passed, Arm(30)))
+        PackTrialGate.Decide(Manifest("1.1.0"), Arm(30, correct: 30, offered: 63), Nothing, Now, previous: Previous(passed, Arm(30)))
             .Active.Should().BeFalse("a precision drop of 0.024 is beyond the 0.02 tolerance");
     }
 
@@ -71,7 +72,7 @@ public sealed class PackUpgradeTests : IDisposable
     {
         var passed = PackTrialGate.Decide(Manifest("1.0.0"), Arm(30), Nothing, Now);
 
-        var upgrade = PackTrialGate.Decide(Manifest("1.1.0"), Arm(30, correct: 20, offered: 41), Nothing, Now, previous: Previous(passed, Arm(30, correct: 20, offered: 40)));
+        var upgrade = PackTrialGate.Decide(Manifest("1.1.0"), Arm(30, correct: 30, offered: 61), Nothing, Now, previous: Previous(passed, Arm(30, correct: 30, offered: 60)));
 
         upgrade.Active.Should().BeTrue(upgrade.Reason);
         upgrade.Checks.Should().Contain(c => c.Target == "noRegression.precision" && c.Met);
@@ -184,6 +185,56 @@ public sealed class PackUpgradeTests : IDisposable
         Write(PackTrialGate.Decide(Manifest("1.1.0"), Arm(31), Nothing, Now.AddMinutes(2)));
 
         Compose(Manifest("1.1.0")).Modules.Should().ContainSingle("no version passes here now, so 1.1.0 is a first version");
+    }
+
+    // Forty tasks of three items, one right item on each of the first `hits`: the per-task results paired bounds need.
+    private static PackTrialMeasurement Tasked(int hits) => new()
+    {
+        Tasks = 40, Hits = hits, Correct = hits, Offered = 120, P95Ms = 10, MaximumOffered = 3,
+        PerTask = [.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(3, i < hits ? 1 : 0))],
+    };
+
+    private const string Careful = ""","upgrade":{"noRegression":true,"tolerance":0.05},"confidence":0.95""";
+
+    [Fact]
+    public void Review5_the_chain_carries_the_confidence_too()
+    {
+        // M6: 1.0.0 asks for no regression within 0.05 at 95%; 1.1.0 declares neither. On the same tasks it hits 2 fewer of 40,
+        // -0.05 on its estimate, which estimates alone would let through; held to its predecessor's confidence, the bound is
+        // below -0.05, so it stays off.
+        var passed = PackTrialGate.Decide(Manifest("1.0.0", Careful), Tasked(30), Nothing, Now);
+        passed.Active.Should().BeTrue(passed.Reason);
+        Write(passed);
+        var upgrade = PackTrialGate.Decide(Manifest("1.1.0", upgrade: ""), Tasked(28), Nothing, Now.AddMinutes(1), previous: Previous(passed, Tasked(30)));
+        upgrade.Active.Should().BeTrue("it declares no rule of its own, and meets its target");
+        Write(upgrade);
+
+        Compose(Manifest("1.1.0", upgrade: "")).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("beyond the tolerance 0.05");
+    }
+
+    [Fact]
+    public void Review5_a_record_from_an_earlier_statistic_is_checked_again_from_its_evidence()
+    {
+        // M7: a record the round-4 statistic decided is neither trusted nor set aside: its verdict is derived again from what it
+        // carries. 1.1.0 passed against 1.0.0 under that statistic and its evidence holds under this one, so it stays the version
+        // that passed here: 1.2.0, compared only against 1.0.0, stays off (it went on: 1.1.0 waited for a new trial and the
+        // chain skipped it). Two versions that agree on forty tasks bound their difference at -0.066, so the tolerance is 0.1.
+        const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.1},"confidence":0.95""";
+        var first = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), Nothing, Now);
+        Write(first);
+        var second = PackTrialGate.Decide(Manifest("1.1.0", rule), Tasked(30), Nothing, Now.AddMinutes(1), previous: Previous(first, Tasked(30)));
+        second.Active.Should().BeTrue(second.Reason);
+        Write(second with { Statistic = "agentmemory.trial.bounds/2026-10-29" });
+        Compose(Manifest("1.1.0", rule)).Modules.Should().ContainSingle();
+        Write(PackTrialGate.Decide(Manifest("1.2.0", rule), Tasked(30), Nothing, Now.AddMinutes(2), previous: Previous(first, Tasked(30))));
+        Compose(Manifest("1.2.0", rule)).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("but 1.1.0").And.Contain("is the version that passed here");
+
+        // Where it does not, the pass is taken back (never given): 24 hits of 40 bound the hit rate below 0.5 at 95%.
+        var weak = PackTrialGate.Decide(Manifest("2.0.0", Careful), Tasked(24), Nothing, Now.AddMinutes(2));
+        weak.Active.Should().BeFalse();
+        Write(weak with { Active = true, Reason = "every target met", Statistic = "agentmemory.trial.bounds/2026-10-29" });
+        Compose(Manifest("2.0.0", Careful)).SwitchedOff.Should().ContainSingle().Which.Reason.Should()
+            .Contain("does not meet its targets under " + PackTrialGate.Statistic).And.Contain("hitRate");
     }
 
     private ModuleSet ComposePack(ModuleManifest manifest, string packDigest)

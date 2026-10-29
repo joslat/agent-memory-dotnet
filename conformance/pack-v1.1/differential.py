@@ -139,6 +139,7 @@ B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 
 P256 = 2**256 - 2**224 + 2**192 + 2**96 - 1
+P256_ORDER = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551
 B256 = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
 
 
@@ -203,7 +204,10 @@ def mutate_policy(policy_doc, rng, private_pem):
     elif op == "body":
         # A second key, its id recomputed, beside the signer's: a policy that one verifier loads and the other refuses then
         # verifies in one and not the other (review 4: mutating the signer's own key hid that behind its key-id check).
-        pem, der, how = mutate_key_body(key["publicKey"], rng)
+        # Its own key pair (review 5, L6: a mutation of the signer's bytes could collide with the signer's id), derived from
+        # the seed so a run is repeatable.
+        own = ec.derive_private_key(rng.randrange(1, P256_ORDER), ec.SECP256R1()).public_key()
+        pem, der, how = mutate_key_body(own.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode(), rng)
         second = dict(key, publicKey=pem, keyId=hashlib.sha256(der).hexdigest() if der else "0" * 64)
         doc["keys"].append(second)
         doc["_op"] = "body:" + how

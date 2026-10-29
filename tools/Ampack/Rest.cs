@@ -19,7 +19,9 @@ namespace Ampack;
 /// Loopback only unless the host says otherwise; request bodies are capped; nothing writes. Beyond this machine
 /// (<c>--allow-remote</c>, review 1, M1): every request carries <c>Authorization: Bearer</c> with the token in
 /// <c>AMPACK_SERVE_TOKEN</c> (at least 32 characters), packs published for named WebIDs are not served, and TLS is the job of a
-/// reverse proxy in front. At most <see cref="MaximumConcurrent"/> requests are answered at once; more get 503.
+/// reverse proxy in front. On this machine too, packs published for named WebIDs are served only with the token (review 4: a
+/// proxy here that adds no authentication would hand them to anyone who reaches it). At most <see cref="MaximumConcurrent"/>
+/// requests are answered at once; more get 503.
 /// </summary>
 internal static class Rest
 {

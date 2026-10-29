@@ -19,6 +19,7 @@ Needs: Python 3.12 (its Unicode 15.0 data decides NFC exactly as .NET's tables d
 import base64
 import hashlib
 import binascii
+import errno
 import functools
 import json
 import math
@@ -97,6 +98,9 @@ INT64_MAX = 2 ** 63 - 1
 # Bounds before any signature holds (fifth review): every check then costs at most what was read.
 MAX_ENVELOPE, MAX_SIGNATURES, MAX_ENVELOPES, MAX_VERSION, MAX_REVOCATIONS = 64 * 1024, 16, 16, 256, 4 << 20
 MAX_FILES, MAX_FILE, MAX_TOTAL, MAX_RATIO = 4096, 64 << 20, 256 << 20, 250
+# Review 5, H1, as .NET's PackVerifier: the signed list read before any signature holds, and each listed JSON file and JSONL
+# line parsed after (a parse tree is many times the bytes).
+MAX_FILES_LIST, MAX_JSON = 2 << 20, 1 << 20
 
 
 class Refused(Exception):
@@ -145,42 +149,56 @@ def canonical_p256(pem):
 
 
 def read_regular(path, cap, what):
-    """A file's bytes, at most cap of them, read as .NET's PackReader reads a pack or a revocation list (review 3, 4): never
-    through a link and never a folder; a pipe or a device, whose size reads as 0 and whose stream may never end, is read with
-    the same bound, as .NET reads it."""
+    """A file's bytes, at most cap of them (review 3, 4, 5): never through a link and never a folder, checked on the handle that
+    is read rather than on the path before it is opened (review 5, L3: a local writer could swap a link in between). A pipe or a
+    device, whose size reads as 0 and whose stream may never end, is read with the same bound, as .NET reads it. A file that
+    cannot be read is refused, not a defect."""
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        status = os.lstat(path)
+        before = os.lstat(path)
+        if stat.S_ISLNK(before.st_mode) or getattr(before, "st_file_attributes", 0) & 0x400:  # 0x400: a Windows reparse point
+            raise Refused(f"{what} is a link")
+        fd = os.open(path, flags)
+    except OSError as e:
+        # With O_NOFOLLOW, a link swapped in after the check fails to open (ELOOP): it is refused as a link.
+        raise Refused(f"{what} is a link" if e.errno == getattr(errno, "ELOOP", None) else f"{what} cannot be read: {e.strerror}")
+    try:
+        status = os.fstat(fd)
+        if stat.S_ISDIR(status.st_mode):
+            raise Refused(f"{what} is a folder")
+        # Where there is no O_NOFOLLOW (Windows), the file opened is the one checked: the same identity as the path's.
+        if not getattr(os, "O_NOFOLLOW", 0):
+            after = os.lstat(path)
+            if (after.st_ino, after.st_dev) != (status.st_ino, status.st_dev) or stat.S_ISLNK(after.st_mode) \
+                    or getattr(after, "st_file_attributes", 0) & 0x400:
+                raise Refused(f"{what} changed while it was opened")
+        if status.st_size > cap:
+            raise Refused(f"{what} is larger than {cap >> 20 if cap >= 1 << 20 else cap >> 10} {'MiB' if cap >= 1 << 20 else 'KiB'}")
+        # A pipe was opened without blocking, so that opening one with no writer does not hang; it is read blocking, to its end.
+        if (stat.S_ISFIFO(status.st_mode) or stat.S_ISCHR(status.st_mode)) and hasattr(os, "set_blocking"):
+            os.set_blocking(fd, True)
+        chunks, total = [], 0
+        while total <= cap:
+            more = os.read(fd, min(1 << 20, cap + 1 - total))
+            if not more:
+                return b"".join(chunks)
+            chunks.append(more)
+            total += len(more)
     except OSError as e:
         raise Refused(f"{what} cannot be read: {e.strerror}")
-    if stat.S_ISLNK(status.st_mode) or getattr(status, "st_file_attributes", 0) & 0x400:  # 0x400: a Windows reparse point
-        raise Refused(f"{what} is a link")
-    if stat.S_ISDIR(status.st_mode):
-        raise Refused(f"{what} is a folder")
-    if status.st_size > cap:
-        raise Refused(f"{what} is larger than {cap >> 20} MiB")
-    # A file that cannot be read (locked, removed meanwhile) is refused, as .NET refuses it, not a defect (review 4).
-    try:
-        with open(path, "rb") as handle:
-            chunks = [handle.read(status.st_size + 1)]  # what the file reports, and one byte to see it did not grow
-            total = len(chunks[0])
-            while total <= cap:
-                more = handle.read(1 << 20)
-                if not more:
-                    return b"".join(chunks)
-                chunks.append(more)
-                total += len(more)
-    except OSError as e:
-        raise Refused(f"{what} cannot be read: {e.strerror}")
-    raise Refused(f"{what} is larger than {cap >> 20} MiB")
+    finally:
+        os.close(fd)
+    raise Refused(f"{what} is larger than {cap >> 20 if cap >= 1 << 20 else cap >> 10} {'MiB' if cap >= 1 << 20 else 'KiB'}")
 
 
-def read_file(path, what):
-    """A small file the command names (a policy, a receipt, a certificate): refused, not a defect, when it cannot be read."""
-    try:
-        with open(path, "rb") as handle:
-            return handle.read()
-    except OSError as e:
-        raise Refused(f"{what} cannot be read: {e.strerror}")
+# The most a document the command names may hold, read before anything parses it (review 5, L2: read whole, then checked).
+MAX_POLICY = 4 << 20       # a trust policy with its revocations
+MAX_SMALL = 64 * 1024      # a receipt or a certificate envelope, as MAX_ENVELOPE
+
+
+def read_file(path, what, cap=MAX_SMALL):
+    """A small file the command names (a policy, a receipt, a certificate), bounded and read as read_regular reads a pack."""
+    return read_regular(path, cap, what)
 
 
 def strict_b64(text):
@@ -709,6 +727,9 @@ def verify(files, policy, now):
     if FILES not in files:
         raise Refused("there is no META/files.json")
     list_bytes = files[FILES]
+    # Review 5, H1: authenticate first. Before any signature holds, nothing is parsed but this list and the envelopes, each bounded.
+    if len(list_bytes) > MAX_FILES_LIST:
+        raise Refused(f"META/files.json is larger than {MAX_FILES_LIST >> 20} MiB")
     listing = profile(list_bytes, integers_only=True)
     if not isinstance(listing, dict):
         raise Refused("META/files.json is not a v1.1 files list")
@@ -738,37 +759,6 @@ def verify(files, policy, now):
     for p, e in listed.items():
         if len(content[p]) != e["length"] or hashlib.sha256(content[p]).hexdigest() != e["sha256"]:
             raise Refused(f"'{p}' does not match META/files.json")
-    for p, b in content.items():
-        if p.endswith(".json"):
-            profile(b, integers_only=(p == "META/lock.json"))
-    manifest = profile(content.get("pack.json", b"null"))
-    if not isinstance(manifest, dict) or manifest.get("format") != PACK_FORMAT or manifest.get("id") != pid or manifest.get("version") != version:
-        raise Refused("pack.json does not name the same pack as META/files.json")
-    unknown = sorted(set(manifest) - PACK_FIELDS)
-    if unknown:
-        raise Refused(f"pack.json has an unknown field '{unknown[0]}'")
-    extensions = manifest.get("extensions", {})
-    if not isinstance(extensions, dict):
-        raise Refused("pack.json has a malformed 'extensions'")
-    critical = extensions.get("critical", [])
-    if not isinstance(critical, list) or not all(isinstance(c, str) for c in critical) or len(set(critical)) != len(critical):
-        raise Refused("pack.json has a malformed 'extensions.critical'")
-    for name in critical:
-        if name == "critical" or name not in extensions:
-            raise Refused(f"pack.json marks '{name}' critical, but holds no such extension")
-        if name not in UNDERSTOOD_EXTENSIONS:
-            raise Refused(f"pack.json marks the extension '{name}' critical, and this verifier does not understand it")
-    federation = read_federation(extensions)
-    manifest_checks(manifest, content, now)
-    if CARD in content:
-        read_card(content[CARD])
-    digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
-    if digest in policy.get("revoked", {}).get("digests", []):
-        raise Refused("the pack is revoked")
-    expires = policy_time(policy.get("revoked", {}).get("expires"))
-    if expires is not None and expires < now:
-        raise Refused("the host's revocation list has expired")
-
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
     roles, publisher_keys = set(), set()
@@ -855,6 +845,40 @@ def verify(files, policy, now):
     missing = set(policy.get("requireRoles", ["publisher"])) - roles
     if missing:
         raise Refused("no valid signature in role " + ", ".join(sorted(missing)))
+    # Once the signatures hold: the JSON profile (a JSON file at most 1 MiB), pack.json, the kind, the card, the lifetime.
+    for p, b in sorted(content.items()):
+        if p.endswith(".json"):
+            if len(b) > MAX_JSON:
+                raise Refused(f"'{p}' is larger than {MAX_JSON >> 20} MiB")
+            profile(b, integers_only=(p == "META/lock.json"))
+    manifest = profile(content.get("pack.json", b"null"))
+    if not isinstance(manifest, dict) or manifest.get("format") != PACK_FORMAT or manifest.get("id") != pid or manifest.get("version") != version:
+        raise Refused("pack.json does not name the same pack as META/files.json")
+    unknown = sorted(set(manifest) - PACK_FIELDS)
+    if unknown:
+        raise Refused(f"pack.json has an unknown field '{unknown[0]}'")
+    extensions = manifest.get("extensions", {})
+    if not isinstance(extensions, dict):
+        raise Refused("pack.json has a malformed 'extensions'")
+    critical = extensions.get("critical", [])
+    if not isinstance(critical, list) or not all(isinstance(c, str) for c in critical) or len(set(critical)) != len(critical):
+        raise Refused("pack.json has a malformed 'extensions.critical'")
+    for name in critical:
+        if name == "critical" or name not in extensions:
+            raise Refused(f"pack.json marks '{name}' critical, but holds no such extension")
+        if name not in UNDERSTOOD_EXTENSIONS:
+            raise Refused(f"pack.json marks the extension '{name}' critical, and this verifier does not understand it")
+    federation = read_federation(extensions)
+    manifest_checks(manifest, content, now)
+    if CARD in content:
+        read_card(content[CARD])
+    digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
+    if digest in policy.get("revoked", {}).get("digests", []):
+        raise Refused("the pack is revoked")
+    expires = policy_time(policy.get("revoked", {}).get("expires"))
+    if expires is not None and expires < now:
+        raise Refused("the host's revocation list has expired")
+
     if federation is not None:
         # The publisher WebID is the signer's by this host's binding; no key bound to another WebID signed as publisher.
         bound = [keys[k].get("webId") for k in publisher_keys]
@@ -876,6 +900,8 @@ def verify(files, policy, now):
                 stop = b.index(b"\n", start)
                 if stop == start:
                     raise Refused(f"'{p}' has an empty line")
+                if stop - start > MAX_JSON:
+                    raise Refused(f"'{p}' has a line longer than {MAX_JSON >> 20} MiB")
                 profile(b[start:stop])
                 start = stop + 1
     return pid, version, digest, manifest
@@ -1127,11 +1153,28 @@ def as_int(value):
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+CERTIFICATE_MAX_TASKS = 200      # a trial runs 10 to 200 tasks
+CERTIFICATE_MAX_OFFERED = 16     # the format's traversal limit
+
+
 def read_arm(arm):
-    if not isinstance(arm, dict) or set(arm) != {"tasks", "hits", "offered", "correct", "p95Micros"} or any(as_int(arm[k]) is None for k in arm):
+    """An arm with its evidence (review 5, root RB): counts, each task's [offered, correct] within the arm's cap, summing to the
+    counts, with a right item on exactly its hits."""
+    fields = {"tasks", "hits", "offered", "correct", "p95Micros", "maximumOffered"}
+    if not isinstance(arm, dict) or set(arm) != fields | {"perTask"} or any(as_int(arm[k]) is None for k in fields):
         return None
-    t, h, o, c, p95 = arm["tasks"], arm["hits"], arm["offered"], arm["correct"], arm["p95Micros"]
-    return arm if 0 <= t <= 1_000_000 and 0 <= h <= t and 0 <= o <= 100_000_000 and 0 <= c <= o and 0 <= p95 <= 86_400_000_000 else None
+    t, h, o, c, p95, cap = arm["tasks"], arm["hits"], arm["offered"], arm["correct"], arm["p95Micros"], arm["maximumOffered"]
+    if not (0 <= t <= CERTIFICATE_MAX_TASKS and 1 <= cap <= CERTIFICATE_MAX_OFFERED and 0 <= p95 <= 86_400_000_000):
+        return None
+    per = arm["perTask"]
+    if not isinstance(per, list) or len(per) != t:
+        return None
+    for entry in per:
+        if not isinstance(entry, list) or len(entry) != 2 or any(as_int(x) is None for x in entry) or not 0 <= entry[1] <= entry[0] <= cap:
+            return None
+    if sum(e[0] for e in per) != o or sum(e[1] for e in per) != c or sum(1 for e in per if e[1] > 0) != h:
+        return None
+    return arm
 
 
 def read_certificate(payload):
@@ -1146,7 +1189,7 @@ def read_certificate(payload):
             or not isinstance(subject[0]["digest"]["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", subject[0]["digest"]["sha256"]):
         raise Refused("the certificate must name exactly one subject: META/files.json and its SHA-256")
     pred = st["predicate"]
-    fields = {"id", "version", "evaluator", "tool", "evaluatedAt", "trial", "checks", "with", "without", "passed", "aef"}
+    fields = {"id", "version", "evaluator", "tool", "evaluatedAt", "trial", "statistic", "checks", "with", "without", "passed", "aef"}
     if not isinstance(pred, dict) or set(pred) - fields:
         raise Refused("the certificate's predicate holds other fields than this format defines")
     if not (isinstance(pred.get("id"), str) and ID.fullmatch(pred["id"]) and len(pred["id"]) <= 64 and valid_version(pred.get("version"))):
@@ -1166,6 +1209,8 @@ def read_certificate(payload):
     if not isinstance(trial, dict) or set(trial) - {"measure", "baseline", "confidenceMilli", "taskSource"} \
             or not one_of(trial.get("measure"), MEASURES) or not one_of(trial.get("baseline"), BASELINES) or not is_line(trial.get("taskSource"), 500):
         raise Refused("the certificate's trial names its measure, baseline and task source")
+    if not is_line(pred.get("statistic"), 100):
+        raise Refused("the certificate names the statistic its checks were computed with")
     if "confidenceMilli" in trial and (as_int(trial["confidenceMilli"]) is None or trial["confidenceMilli"] not in CONFIDENCES):
         raise Refused("the certificate's confidenceMilli is 900, 950, 975 or 990")
     checks = pred.get("checks")
@@ -1384,7 +1429,7 @@ def main(argv):
     pack_path, policy_path = args[0], args[1]
     now = datetime.now(timezone.utc)
     try:
-        policy = load_policy(read_file(policy_path, "the trust policy"))
+        policy = load_policy(read_file(policy_path, "the trust policy", MAX_POLICY))
         documents = []
         for name in args[2:]:
             documents.append(read_regular(name, MAX_REVOCATIONS, "the revocation document"))

@@ -198,14 +198,17 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             }
             foreach (var run in new[] { withRun, emptyRun, grepRun, oldRun }) run.Order(tasks);
         }
+        // Each arm's cap, fixed before it ran: the pack's maxItems, grep's cut (review 5: every bound assumes one unseen task at it).
         var (withArm, details) = withRun.Arm(tasks.Count);
+        withArm = withArm with { MaximumOffered = manifest.Traversal?.MaxItems };
         var (emptyArm, _) = emptyRun.Arm(tasks.Count);
         // Without the pack: the host's own retrieval when the trial names it, timed like the host without the pack.
-        var withoutArm = trial.Baseline == "host" ? grepRun.Arm(tasks.Count).Arm with { P95Ms = emptyArm.P95Ms } : emptyArm;
+        var withoutArm = trial.Baseline == "host" ? grepRun.Arm(tasks.Count).Arm with { P95Ms = emptyArm.P95Ms, MaximumOffered = GrepTop } : emptyArm;
         PackTrialPrevious? previous = null;
         if (before is not null)
         {
             var (beforeArm, _) = oldRun.Arm(tasks.Count);
+            beforeArm = beforeArm with { MaximumOffered = before.Manifest.Traversal?.MaxItems };
             previous = new PackTrialPrevious { Version = before.Version, ManifestDigest = PackTrialGate.DigestOf(before.Manifest), PackDigest = before.Digest, With = beforeArm };
             output.WriteLine($"  previous {before.Version} ({before.Digest[..23]}…): hit {beforeArm.HitRate:0.000} ({beforeArm.Hits}/{beforeArm.Tasks}), precision {beforeArm.Precision:0.000} ({beforeArm.Correct}/{beforeArm.Offered})");
         }
@@ -282,9 +285,12 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         if (types.Count == 0) return new TaskOutcome(task, [], 0, 0, null);
         var mention = new Regex(@"\b(" + string.Join("|", types.Order(StringComparer.Ordinal).Select(Regex.Escape)) + @")\b");
         var top = _grepTests.Select(t => (File: t, Count: mention.Matches(Text(t)).Count)).Where(x => x.Count > 0)
-            .OrderByDescending(x => x.Count).ThenBy(x => x.File, StringComparer.Ordinal).Take(3).Select(x => x.File).ToList();
+            .OrderByDescending(x => x.Count).ThenBy(x => x.File, StringComparer.Ordinal).Take(GrepTop).Select(x => x.File).ToList();
         return new TaskOutcome(task, top, top.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), 0, null);
     }
+
+    // How many test files the grep baseline offers a task: its cut, and its arm's cap for the bounds (review 5, root RB).
+    private const int GrepTop = 3;
 
     private string? _grepRoot;
     private List<string> _grepTests = [];

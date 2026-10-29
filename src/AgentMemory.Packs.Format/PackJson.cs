@@ -28,8 +28,9 @@ internal static class PackJson
         catch (InvalidOperationException e) { return "is not valid JSON: " + e.Message; }
     }
 
-    /// <summary>Why a JSONL file breaks the profile (each non-empty line one value; the file ends with LF), or null.</summary>
-    internal static string? CheckLines(ReadOnlySpan<byte> utf8)
+    /// <summary>Why a JSONL file breaks the profile (each non-empty line one value of at most <paramref name="maximumLineBytes"/>;
+    /// the file ends with LF), or null.</summary>
+    internal static string? CheckLines(ReadOnlySpan<byte> utf8, int maximumLineBytes = int.MaxValue)
     {
         if (utf8.Length == 0) return null;
         if (utf8[^1] != (byte)'\n') return "does not end with a line feed";
@@ -38,6 +39,7 @@ internal static class PackJson
         {
             var slice = utf8[range];
             if (slice.Length == 0) return $"line {line} is empty";
+            if (slice.Length > maximumLineBytes) return $"line {line} is longer than {maximumLineBytes >> 20} MiB";
             if (Check(slice) is { } problem) return $"line {line} {problem}";
             line++;
         }

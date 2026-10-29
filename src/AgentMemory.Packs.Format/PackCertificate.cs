@@ -7,8 +7,14 @@ using System.Text.RegularExpressions;
 
 namespace AgentMemory.Packs.Format;
 
-/// <summary>What one arm of an evaluation measured: counts, and the p95 time in microseconds.</summary>
-internal sealed record CertificateArm(int Tasks, int Hits, int Offered, int Correct, long P95Micros);
+/// <summary>
+/// What one arm of an evaluation measured: counts, the p95 time in microseconds, the most items it could offer one task, and
+/// each task's offered and right items: the evidence a host derives the verdict from again (review 5, root RB).
+/// </summary>
+internal sealed record CertificateArm(int Tasks, int Hits, int Offered, int Correct, long P95Micros, int MaximumOffered, IReadOnlyList<CertificateTask> PerTask);
+
+/// <summary>One task of an arm: the items offered, and how many were right.</summary>
+internal sealed record CertificateTask(int Offered, int Correct);
 
 /// <summary>
 /// One target an evaluation checked, in thousandths (a rate of 0.304 is 304; a time target is in thousandths of a
@@ -26,7 +32,7 @@ internal sealed record CertificateCheck(string Target, long RequiredMilli, long 
 /// be added after release; a host trusts one only from a key it names as <c>evaluator</c> for the pack's id.
 /// </summary>
 internal sealed partial record PackCertificate(string Id, string Version, string PackDigest, string Evaluator, string Tool, string ToolVersion,
-    DateTimeOffset EvaluatedAt, string Measure, string Baseline, int? ConfidenceMilli, string TaskSource, IReadOnlyList<CertificateCheck> Checks,
+    DateTimeOffset EvaluatedAt, string Measure, string Baseline, int? ConfidenceMilli, string TaskSource, string Statistic, IReadOnlyList<CertificateCheck> Checks,
     CertificateArm With, CertificateArm? Without, bool Passed, string? AefRunId, string? AefRunHash)
 {
     internal const string PredicateType = "urn:agentmemory:pack:certificate:v1";
@@ -41,6 +47,10 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         "hitRate", "precision", "lift", "precisionLift", "addedP95Ms", "noRegression.hitRate", "noRegression.precision",
     };
     internal static readonly IReadOnlySet<int> Confidences = new HashSet<int> { 900, 950, 975, 990 };
+    /// <summary>The most tasks a trial runs, so a certificate's per-task evidence is bounded (a trial declares 10 to 200).</summary>
+    internal const int MaximumTasks = 200;
+    /// <summary>The most items one task may offer, the format's traversal limit.</summary>
+    internal const int MaximumOffered = 16;
 
     /// <summary>Signs this certificate as its evaluator; what is signed is read back by the reader's own rules first.</summary>
     internal byte[] Sign(PackSigner signer)
@@ -53,6 +63,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             ["tool"] = new JsonObject { ["name"] = Tool, ["version"] = ToolVersion },
             ["evaluatedAt"] = EvaluatedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
             ["trial"] = trial,
+            ["statistic"] = Statistic,
             ["checks"] = new JsonArray([.. Checks.Select(c =>
             {
                 var check = new JsonObject { ["target"] = c.Target, ["requiredMilli"] = c.RequiredMilli, ["observedMilli"] = c.ObservedMilli, ["met"] = c.Met };
@@ -85,6 +96,8 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     private static JsonObject Arm(CertificateArm arm) => new()
     {
         ["tasks"] = arm.Tasks, ["hits"] = arm.Hits, ["offered"] = arm.Offered, ["correct"] = arm.Correct, ["p95Micros"] = arm.P95Micros,
+        ["maximumOffered"] = arm.MaximumOffered,
+        ["perTask"] = new JsonArray([.. arm.PerTask.Select(t => (JsonNode)new JsonArray(t.Offered, t.Correct))]),
     };
 
     /// <summary>
@@ -157,7 +170,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             || subjects[0].EnumerateObject().Count() != 2)
             return (null, $"The certificate must name exactly one subject: {PackPaths.FilesList} and its SHA-256.");
         if (!statement.TryGetProperty("predicate", out var p) || p.ValueKind != JsonValueKind.Object
-            || p.EnumerateObject().Any(f => f.Name is not ("id" or "version" or "evaluator" or "tool" or "evaluatedAt" or "trial" or "checks" or "with" or "without" or "passed" or "aef")))
+            || p.EnumerateObject().Any(f => f.Name is not ("id" or "version" or "evaluator" or "tool" or "evaluatedAt" or "trial" or "statistic" or "checks" or "with" or "without" or "passed" or "aef")))
             return (null, "The certificate's predicate holds other fields than this format defines.");
         if (Str(p, "id") is not { } id || !PackManifest.IsValidId(id) || Str(p, "version") is not { } version || !SemVer.TryParse(version, out _))
             return (null, "The certificate names no valid pack id and version.");
@@ -175,6 +188,8 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             || Str(trial, "baseline") is not { } baseline || !Baselines.Contains(baseline)
             || Str(trial, "taskSource") is not { } taskSource || !IsLine(taskSource, 500))
             return (null, "The certificate's trial names its measure (test-impact or retrieval), its baseline (host or none) and where its tasks came from (1 to 500 characters).");
+        if (Str(p, "statistic") is not { } statistic || !IsLine(statistic, 100))
+            return (null, "The certificate names the statistic its checks were computed with (one line of 1 to 100 characters).");
         int? confidence = null;
         if (trial.TryGetProperty("confidenceMilli", out var confidenceValue))
         {
@@ -201,10 +216,12 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             checks.Add(new CertificateCheck(target, required, observed, met.ValueKind == JsonValueKind.True, estimate));
         }
         if (checks.Select(c => c.Target).Distinct(StringComparer.Ordinal).Count() != checks.Count) return (null, "The certificate checks one target twice.");
-        if (ReadArm(p, "with") is not { } with) return (null, "The certificate's 'with' arm is tasks, hits, offered, correct and p95Micros, consistent integers.");
+        const string ArmShape = "arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (1 to 16) and perTask, one [offered, correct] a task "
+            + "within the cap, summing to offered and correct, with a right item on exactly its hits.";
+        if (ReadArm(p, "with") is not { } with) return (null, "The certificate's 'with' " + ArmShape);
         CertificateArm? without = null;
         if (p.TryGetProperty("without", out _) && (without = ReadArm(p, "without")) is null)
-            return (null, "The certificate's 'without' arm is tasks, hits, offered, correct and p95Micros, consistent integers.");
+            return (null, "The certificate's 'without' " + ArmShape);
         if (!p.TryGetProperty("passed", out var passedValue) || passedValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             return (null, "The certificate says whether every target was met ('passed').");
         string? runId = null, runHash = null;
@@ -216,7 +233,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             (runId, runHash) = (id2, h);
         }
         var certificate = new PackCertificate(id, version, "sha256:" + hex, evaluator, toolName, toolVersion, evaluatedAt, measure, baseline, confidence,
-            taskSource, checks, with, without, passedValue.ValueKind == JsonValueKind.True, runId, runHash);
+            taskSource, statistic, checks, with, without, passedValue.ValueKind == JsonValueKind.True, runId, runHash);
         return ShapeProblem(certificate) is { } problem ? (null, problem) : (certificate, null);
     }
 
@@ -237,13 +254,24 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     private static CertificateArm? ReadArm(JsonElement predicate, string name)
     {
         if (!predicate.TryGetProperty(name, out var arm) || arm.ValueKind != JsonValueKind.Object
-            || arm.EnumerateObject().Any(f => f.Name is not ("tasks" or "hits" or "offered" or "correct" or "p95Micros"))
+            || arm.EnumerateObject().Any(f => f.Name is not ("tasks" or "hits" or "offered" or "correct" or "p95Micros" or "maximumOffered" or "perTask"))
             || Long(arm, "tasks") is not { } tasks || Long(arm, "hits") is not { } hits || Long(arm, "offered") is not { } offered
-            || Long(arm, "correct") is not { } correct || Long(arm, "p95Micros") is not { } p95)
+            || Long(arm, "correct") is not { } correct || Long(arm, "p95Micros") is not { } p95 || Long(arm, "maximumOffered") is not { } cap
+            || !arm.TryGetProperty("perTask", out var perTaskValue) || perTaskValue.ValueKind != JsonValueKind.Array)
             return null;
-        return tasks is < 0 or > 1_000_000 || hits < 0 || hits > tasks || offered is < 0 or > 100_000_000 || correct < 0 || correct > offered
-            || p95 is < 0 or > 86_400_000_000
-            ? null : new CertificateArm((int)tasks, (int)hits, (int)offered, (int)correct, p95);
+        if (tasks is < 0 or > MaximumTasks || cap is < 1 or > MaximumOffered || p95 is < 0 or > 86_400_000_000 || perTaskValue.GetArrayLength() != tasks)
+            return null;
+        var perTask = new List<CertificateTask>((int)tasks);
+        foreach (var entry in perTaskValue.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() != 2 || entry[0].ValueKind != JsonValueKind.Number || entry[1].ValueKind != JsonValueKind.Number
+                || !entry[0].TryGetInt64(out var o) || !entry[1].TryGetInt64(out var c) || c < 0 || c > o || o > cap)
+                return null;
+            perTask.Add(new CertificateTask((int)o, (int)c));
+        }
+        // The totals are the evidence's own: a hit is a task with a right item (review 5, L9).
+        return perTask.Sum(t => (long)t.Offered) != offered || perTask.Sum(t => (long)t.Correct) != correct || perTask.Count(t => t.Correct > 0) != hits
+            ? null : new CertificateArm((int)tasks, (int)hits, (int)offered, (int)correct, p95, (int)cap, perTask);
     }
 
     private static long? Long(JsonElement element, string name) =>
