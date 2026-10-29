@@ -37,10 +37,16 @@ internal static class Nfc
     /// </summary>
     internal static string? Normalize(string value)
     {
-        if (Check(value)) return value;
+        var low = true;
+        foreach (var c in value)
+            if (c >= 0x300) { low = false; break; }
+        if (low) return value; // below U+0300 nothing decomposes or combines
         if (CodePoints(value) is not { } input) return null;
+        // Normalized once (review 5: a check first normalized it, then this did again).
+        var output = Normalize(input);
+        if (output.SequenceEqual(input)) return value;
         var builder = new System.Text.StringBuilder(value.Length);
-        foreach (var cp in Normalize(input)) builder.Append(char.ConvertFromUtf32(cp));
+        foreach (var cp in output) builder.Append(char.ConvertFromUtf32(cp));
         return builder.ToString();
     }
 
@@ -97,13 +103,19 @@ internal static class Nfc
     {
         var decomposed = new List<int>(input.Count + 8);
         foreach (var cp in input) Decompose(cp, decomposed);
-        // Canonical ordering: a stable sort of each run of non-starters by combining class.
-        for (var i = 1; i < decomposed.Count; i++)
+        // Canonical ordering: a stable sort of each run of non-starters by combining class, in O(k log k) for a run of k (review
+        // 5: an insertion sort made a long run of alternating marks quadratic, for every caller, text a host writes among them).
+        for (var start = 0; start < decomposed.Count; start++)
         {
-            var cls = Class(decomposed[i]);
-            if (cls == 0) continue;
-            for (var j = i; j > 0 && Class(decomposed[j - 1]) > cls; j--)
-                (decomposed[j - 1], decomposed[j]) = (decomposed[j], decomposed[j - 1]);
+            if (Class(decomposed[start]) == 0) continue;
+            var end = start + 1;
+            while (end < decomposed.Count && Class(decomposed[end]) != 0) end++;
+            if (end - start > 1)
+            {
+                var run = decomposed.GetRange(start, end - start).Select(cp => (Cp: cp, Class: Class(cp))).OrderBy(p => p.Class).ToList();
+                for (var k = 0; k < run.Count; k++) decomposed[start + k] = run[k].Cp;
+            }
+            start = end;
         }
         if (decomposed.Count == 0) return decomposed;
         // Canonical composition: each character composes with the last starter unless something between blocks it.

@@ -9,6 +9,14 @@ internal static class ModuleLedgerQueries
     internal const string Labels = "CALL db.labels() YIELD label RETURN label";
     internal const string Relations = "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType";
     internal const string Ledger = "MATCH (m:" + ModuleBookkeepingSchema.Label + ") WHERE m.module_id IN $moduleIds OR m.module_id = $sdkId RETURN properties(m) AS row";
+
+    // Labels, relationship types and ledger rows in one statement (performance, review 4): each subquery is the query above
+    // it, so the rows are the same; one round trip instead of three on every readiness check. SHOW commands stand alone.
+    internal const string Catalog =
+        "CALL { CALL db.labels() YIELD label RETURN collect(label) AS labels } "
+        + "CALL { CALL db.relationshipTypes() YIELD relationshipType RETURN collect(relationshipType) AS relations } "
+        + "CALL { MATCH (m:" + ModuleBookkeepingSchema.Label + ") WHERE m.module_id IN $moduleIds OR m.module_id = $sdkId RETURN collect(properties(m)) AS rows } "
+        + "RETURN labels, relations, rows";
     internal const string CreateLedger = "CREATE CONSTRAINT " + ModuleBookkeepingSchema.ConstraintName
         + " IF NOT EXISTS FOR (m:" + ModuleBookkeepingSchema.Label + ") REQUIRE (m.module_id, m.key) IS UNIQUE";
     internal const string CreateKeys = "CREATE CONSTRAINT " + ModuleBookkeepingSchema.KeyConstraintName

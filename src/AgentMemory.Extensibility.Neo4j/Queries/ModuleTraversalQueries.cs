@@ -49,20 +49,34 @@ internal static class ModuleTraversalQueries
     /// limit has its live targets counted, at most <c>$over</c> of them.
     /// </summary>
     internal static string OutHubs(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WITH fid, s WHERE COUNT { (s)-[:`" + relation + "`]->() } > $maxLinks "
-        + "CALL { WITH s MATCH (s)-[:`" + relation + "`]->(old:`" + target + "`) MATCH (t:`" + target + "` {key_id:old.key_id}) "
-        + "WHERE t.invalidated_at IS NULL AND " + In("t") + " WITH DISTINCT t LIMIT $over RETURN count(t) AS links } "
-        + "WITH fid, s, links WHERE links > $maxLinks RETURN fid, s.key AS key, links";
+        "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) " + OutLinks(relation, target)
+        + " WITH fid, s, links WHERE links > $maxLinks RETURN fid, s.key AS key, links";
 
     /// <summary>In: the starting records with more than <c>$maxLinks</c> live sources in scope linking to any version (see <see cref="OutHubs"/>).</summary>
     internal static string InHubs(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) "
+        "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) " + InLinks(source, relation, target)
+        + " WITH fid, x, links WHERE links > $maxLinks RETURN fid, x.key AS key, links";
+
+    // The link count the limit is checked against, as the in-memory store counts it (review 2, 3): the store's degree first,
+    // read without the links; only past the limit the distinct live records in scope at the other end, at most $over of them.
+    // Under the limit, the degree itself (an upper bound of the live count, so the record is within the limit either way).
+    // Each branch gives a row only when its condition holds: the exact count runs in a subquery of its own, past the filter, since
+    // an ungrouped count over no rows is still one row, of 0 (the differential guard: every record under the limit came back
+    // twice, and the fan-out cut kept half as many neighbours).
+    private static string OutLinks(string relation, string target) =>
+        "CALL { WITH s WITH s, COUNT { (s)-[:`" + relation + "`]->() } AS raw "
+        + "CALL { WITH s, raw WITH s, raw WHERE raw > $maxLinks "
+        + "CALL { WITH s MATCH (s)-[:`" + relation + "`]->(old:`" + target + "`) MATCH (t:`" + target + "` {key_id:old.key_id}) "
+        + "WHERE t.invalidated_at IS NULL AND " + In("t") + " WITH DISTINCT t LIMIT $over RETURN count(t) AS links } RETURN links "
+        + "UNION ALL WITH s, raw WITH raw WHERE raw <= $maxLinks RETURN raw AS links } RETURN links }";
+
+    private static string InLinks(string source, string relation, string target) =>
         // Each version bound first, then its degree counted with an open end, which the store reads without the links.
-        + "CALL { WITH x MATCH (v:`" + target + "` {key_id:x.key_id}) RETURN sum(COUNT { (v)<-[:`" + relation + "`]-() }) AS degree } "
-        + "WITH fid, x, degree WHERE degree > $maxLinks "
+        "CALL { WITH x CALL { WITH x MATCH (v:`" + target + "` {key_id:x.key_id}) RETURN sum(COUNT { (v)<-[:`" + relation + "`]-() }) AS raw } "
+        + "CALL { WITH x, raw WITH x, raw WHERE raw > $maxLinks "
         + "CALL { WITH x MATCH (v:`" + target + "` {key_id:x.key_id}) MATCH (s:`" + source + "`)-[:`" + relation + "`]->(v) "
-        + "WHERE s.invalidated_at IS NULL AND " + In("s") + " WITH DISTINCT s LIMIT $over RETURN count(s) AS links } "
-        + "WITH fid, x, links WHERE links > $maxLinks RETURN fid, x.key AS key, links";
+        + "WHERE s.invalidated_at IS NULL AND " + In("s") + " WITH DISTINCT s LIMIT $over RETURN count(s) AS links } RETURN links "
+        + "UNION ALL WITH x, raw WITH raw WHERE raw <= $maxLinks RETURN raw AS links } RETURN links }";
 
     /// <summary>
     /// Out: each live source's link targets, as their live versions (a link may point at an older version of its target; the
@@ -71,15 +85,20 @@ internal static class ModuleTraversalQueries
     /// </summary>
     /// <remarks>
     /// <b>Every target of a source within the link limit is ranked</b> (review 2): a record past <c>$maxLinks</c> is left out
-    /// before this read (<see cref="OutHubs"/>), so the cost stays bounded, and the targets ranked are all of them.
+    /// in the same statement (<see cref="OutLinks"/>, review 4: a statement of its own before), so the cost stays bounded, and the
+    /// targets ranked are all of them. Every row carries the starting record's key and link count; one past the limit returns
+    /// that row alone, with no record.
     /// </remarks>
     internal static string Out(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE s.invalidated_at IS NULL "
+        "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE s.invalidated_at IS NULL " + OutLinks(relation, target) + " "
+        + "CALL { WITH fid, s, links WITH fid, s, links WHERE links <= $maxLinks "
         + "CALL { WITH s MATCH (s)-[:`" + relation + "`]->(old:`" + target + "`) " + Live("old", "t", target) + " "
         + "WITH t WHERE " + In("t") + " RETURN DISTINCT t } "
         + "CALL { WITH t MATCH (:`" + target + "` {key_id:t.key_id})<-[:`" + relation + "`]-(o:`" + source + "`) "
         + "WHERE o.invalidated_at IS NULL AND " + In("o") + " WITH DISTINCT o LIMIT $scan RETURN count(o) AS degree } "
-        + Ranked("t");
+        + Ranked("t") + " "
+        + "UNION ALL WITH fid, s, links WITH links WHERE links > $maxLinks RETURN null AS row, null AS degree, null AS hits } "
+        + "RETURN fid, s.key AS key, links, row, degree, hits";
 
     // The live version of a linked record (review 3, performance): the record itself when the link points at it, else the live
     // version of its key, by the indexed key identity. A key has at most one live version, so the two agree; the first needs
@@ -104,14 +123,17 @@ internal static class ModuleTraversalQueries
     /// p95 rose from 34 to 54 ms on this repository's code map.)
     /// </remarks>
     internal static string In(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE x.invalidated_at IS NULL "
+        "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE x.invalidated_at IS NULL " + InLinks(source, relation, target) + " "
+        + "CALL { WITH fid, x, links WITH fid, x, links WHERE links <= $maxLinks "
         + "CALL { WITH x MATCH (v:`" + target + "` {key_id:x.key_id}) "
         + "MATCH (s:`" + source + "`)-[:`" + relation + "`]->(v) WHERE s.invalidated_at IS NULL AND " + In("s") + " "
         + "RETURN DISTINCT s } "
         + "WITH fid, s, COUNT { (s)-[:`" + relation + "`]->(v) WHERE " + In("v") + " AND (v.invalidated_at IS NULL "
-        + "OR EXISTS { MATCH (k:ModuleKey {id:v.key_id}) WHERE k.current_id IS NOT NULL }) } AS links "
-        + "WITH fid, s, CASE WHEN links > $scan THEN $scan ELSE links END AS degree "
-        + Ranked("s");
+        + "OR EXISTS { MATCH (k:ModuleKey {id:v.key_id}) WHERE k.current_id IS NOT NULL }) } AS own "
+        + "WITH fid, s, CASE WHEN own > $scan THEN $scan ELSE own END AS degree "
+        + Ranked("s") + " "
+        + "UNION ALL WITH fid, x, links WITH links WHERE links > $maxLinks RETURN null AS row, null AS degree, null AS hits } "
+        + "RETURN fid, x.key AS key, links, row, degree, hits";
 
     /// <summary>
     /// Per starting record, the reached records ranked by how many of the question's <c>$words</c> their text (the <c>$text</c>
@@ -137,7 +159,7 @@ internal static class ModuleTraversalQueries
         + "WITH fid, ranked, edge, edge IS NOT NULL AND any(r IN ranked WHERE r.hits = edge.hits AND r.degree = edge.degree AND r.node.key =~ $wide) AS wide "
         + "UNWIND range(0, size(ranked) - 1) AS i WITH fid, ranked[i] AS r, i, edge, wide "
         + "WHERE i < $fanOut OR (wide AND r.hits = edge.hits AND r.degree = edge.degree) "
-        + "RETURN fid, properties(r.node) AS row, r.degree AS degree, r.hits AS hits";
+        + "RETURN properties(r.node) AS row, r.degree AS degree, r.hits AS hits";
 
     /// <summary>The pattern of a key that holds a character at or above U+D800, where code-point and UTF-16 orders can differ.</summary>
     internal const string WideKey = @"(?s).*[\x{D800}-\x{10FFFF}].*";

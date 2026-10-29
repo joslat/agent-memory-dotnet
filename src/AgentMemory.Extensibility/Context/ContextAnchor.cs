@@ -24,19 +24,19 @@ public sealed record ContextAnchor(ContextAnchorKind Kind, string Value)
     /// host that built the record itself).
     /// </summary>
     public static ContextAnchor Path(string path, string? source = null) =>
-        new(ContextAnchorKind.Path, Normalize(path)) { Source = source };
+        new(ContextAnchorKind.Path, Normalized(ContextAnchorKind.Path, path ?? throw new ArgumentNullException(nameof(path)))) { Source = source };
 
     /// <summary>A symbol anchor: a SCIP identity or a simple name, ASCII white space trimmed.</summary>
     public static ContextAnchor Symbol(string symbol, string? source = null) =>
-        new(ContextAnchorKind.Symbol, Traversal.AnchorMatcher.Trimmed(symbol ?? throw new ArgumentNullException(nameof(symbol)))) { Source = source };
+        new(ContextAnchorKind.Symbol, Normalized(ContextAnchorKind.Symbol, symbol ?? throw new ArgumentNullException(nameof(symbol)))) { Source = source };
 
-    private static string Normalize(string path)
-    {
-        ArgumentNullException.ThrowIfNull(path);
-        var value = Traversal.AnchorMatcher.Trimmed(path).Replace('\\', '/');
-        while (value.StartsWith("./", StringComparison.Ordinal)) value = value[2..];
-        return value;
-    }
+    /// <summary>
+    /// A value as the walk's intake normalizes it (pack format v1.2 §6.1), so a factory and the record's own constructor give the
+    /// walk the same anchor (review 5): a path ASCII-trimmed, backslashes as forward slashes, leading <c>./</c> and <c>/</c>
+    /// removed until nothing changes; a symbol ASCII-trimmed.
+    /// </summary>
+    internal static string Normalized(ContextAnchorKind kind, string value) =>
+        kind == ContextAnchorKind.Path ? Traversal.AnchorMatcher.Normalized(value) : Traversal.AnchorMatcher.Trimmed(value);
 }
 
 /// <summary>What an anchor names.</summary>

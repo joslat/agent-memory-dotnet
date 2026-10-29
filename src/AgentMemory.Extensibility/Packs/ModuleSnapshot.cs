@@ -32,7 +32,10 @@ public sealed record ModuleSnapshot
     /// Every record of the module at that source, as plain assertions. A record's <see cref="ProposalSource.Pack"/> may name the
     /// file and line it came from; the import stamps the module, the source and the snapshot's digest on each.
     /// </summary>
-    public required IReadOnlyList<ModuleProposal> Records { get; init; }
+    /// <remarks>Taken in NFC as they are set (review 5): every producer's records, read from a repository, a ledger or files,
+    /// reach a store in the one normal form a walk compares in, the form a pack's JSON profile requires.</remarks>
+    public required IReadOnlyList<ModuleProposal> Records { get => _records; init => _records = ModuleText.InNfc(value); }
+    private readonly IReadOnlyList<ModuleProposal> _records = [];
     /// <summary>
     /// The signed snapshot pack that carried these records, when they arrived in one: stamped on every record the import writes,
     /// beside the definition and the source (PACK-bind), so a record says who signed it. Null for a snapshot the host built.

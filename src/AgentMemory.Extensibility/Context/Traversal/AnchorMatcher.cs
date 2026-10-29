@@ -84,12 +84,20 @@ internal static class AnchorMatcher
     internal static string Normalized(string value) => Path(value);
 
     // Repository-relative with forward slashes: "./src\a.cs" and "src/a.cs" are the same file; a dot file keeps its dot. Every
-    // leading "./" goes, then every leading "/".
+    // leading "./" goes, then every leading "/", repeated until nothing changes, so a normalized path normalizes to itself
+    // (review 5: "./ a" gave " a", which a second pass changed again).
     private static string Path(string value)
     {
-        var path = Trimmed(value).Replace('\\', '/');
-        while (path.StartsWith("./", StringComparison.Ordinal)) path = path[2..];
-        return path.TrimStart('/');
+        string path = value, previous;
+        do
+        {
+            previous = path;
+            path = Trimmed(path).Replace('\\', '/');
+            while (path.StartsWith("./", StringComparison.Ordinal)) path = path[2..];
+            path = path.TrimStart('/');
+        }
+        while (path != previous);
+        return path;
     }
 
     private static double PrefixQuality(string prefix, string anchor)

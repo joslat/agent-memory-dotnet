@@ -99,32 +99,26 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
         var statement = query.Direction == ModuleTraversalDirection.Out
             ? ModuleTraversalQueries.Out(relation.From, relation.Name, targetLabel)
             : ModuleTraversalQueries.In(relation.From, relation.Name, targetLabel);
-        var hubs = query.Direction == ModuleTraversalDirection.Out
-            ? ModuleTraversalQueries.OutHubs(relation.From, relation.Name, targetLabel)
-            : ModuleTraversalQueries.InHubs(relation.From, relation.Name, targetLabel);
         try
         {
             return await _runner.ReadAsync(async transaction =>
             {
                 if (await NotReadyAsync(transaction, cancellationToken).ConfigureAwait(false))
                     return StepRefused("Module migrations are pending or inconsistent; apply them explicitly before reads.");
-                // Past the link limit a record is not expanded, and the walk is told (review 2).
+                // Past the link limit a record is not expanded, and the walk is told (review 2); the check is in the same statement
+                // as the expansion (review 4, performance).
                 var ids = query.FromIds.Distinct(StringComparer.Ordinal).ToArray();
-                var skipped = await RowsAsync(transaction, hubs, new Dictionary<string, object?>
-                {
-                    ["ids"] = ids, ["maxLinks"] = ModuleExpandQuery.MaximumLinks, ["over"] = ModuleExpandQuery.MaximumLinks + 1,
-                    ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared,
-                }, cancellationToken).ConfigureAwait(false);
-                var past = skipped.ToDictionary(r => r["fid"].As<string>(), r => (Key: r["key"].As<string>(), Links: r["links"].As<long>()), StringComparer.Ordinal);
                 var rows = await RowsAsync(transaction, statement, new Dictionary<string, object?>
                 {
-                    ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared,
-                    ["ids"] = ids.Where(id => !past.ContainsKey(id)).ToArray(),
+                    ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared, ["ids"] = ids,
+                    ["maxLinks"] = ModuleExpandQuery.MaximumLinks, ["over"] = ModuleExpandQuery.MaximumLinks + 1,
                     ["fanOut"] = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut)),
                     ["words"] = Words(query.Words), ["text"] = reached.Type.TextProperties().ToArray(), ["fold"] = Fold,
                     ["scan"] = ModuleExpandQuery.MaximumScan, ["wide"] = ModuleTraversalQueries.WideKey
                 }, cancellationToken).ConfigureAwait(false);
-                // The fan-out cut in the format's order, here, over a superset of what it keeps (review 3; see ModuleTraversalQueries.Ranked).
+                var past = rows.Where(r => r["links"].As<long>() > ModuleExpandQuery.MaximumLinks)
+                    .GroupBy(r => r["fid"].As<string>(), StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First()["key"].As<string>(), StringComparer.Ordinal);
+                rows = [.. rows.Where(r => r["links"].As<long>() <= ModuleExpandQuery.MaximumLinks && r["row"] is not null)];
                 var fanOut = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut));
                 var edges = rows.Select(r => (Hits: r["hits"].As<long>(), Edge: new ModuleTraversalEdge
                     {
@@ -140,7 +134,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 {
                     Status = ModuleReadStatus.Succeeded,
                     Edges = edges.AsReadOnly(),
-                    Errors = [.. past.Values.Select(h => $"{h.Key} has more than {ModuleExpandQuery.MaximumLinks} {relation.Name} links: not expanded.")],
+                    Errors = [.. past.Values.Select(key => $"{key} has more than {ModuleExpandQuery.MaximumLinks} {relation.Name} links: not expanded.")],
                 };
             }, cancellationToken).ConfigureAwait(false);
         }

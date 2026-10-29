@@ -38,7 +38,9 @@ public sealed partial class ModuleMigrator
         ArgumentNullException.ThrowIfNull(resolution);
         _runner = runner;
         _resolution = resolution;
-        _compilation = ModuleMigrationCompilation.Compile(resolution, scripts);
+        // Compiled once per resolution when there are no handwritten scripts (review 4, performance): a pure function of the
+        // resolution, which a module set resolves once, and readers build a migrator for every request.
+        _compilation = scripts is { Count: 0 } ? Compiled.GetValue(resolution, r => ModuleMigrationCompilation.Compile(r, [])) : ModuleMigrationCompilation.Compile(resolution, scripts);
         if (resolution.Modules.Any(m => m.Id == ModuleBookkeepingSchema.NamespaceLedgerId))
             throw new ArgumentException("The SDK bookkeeping identity cannot be used by an application module.", nameof(resolution));
         _claims = _compilation.Claims;
@@ -46,6 +48,8 @@ public sealed partial class ModuleMigrator
         _executor = new ModuleMigrationExecutor(runner, _clock);
         _readParameters = new { moduleIds = resolution.Modules.Select(m => m.Id).ToArray(), sdkId = ModuleBookkeepingSchema.NamespaceLedgerId };
     }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModuleResolution, ModuleMigrationCompilation> Compiled = new();
 
     /// <summary>Reads schema and ledger without creating constraints, claims or intent rows.</summary>
     public async Task<ModuleMigrationPlan> PlanAsync(CancellationToken cancellationToken = default)

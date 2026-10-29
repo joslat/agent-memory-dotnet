@@ -45,6 +45,7 @@ public static class ModuleProposalAdmission
         if (type?.Scope == "shared" && (request.Trigger != IngestionTrigger.OnRequest || provider.Trigger != IngestionTrigger.OnRequest))
             errors.Add("type.scope: shared writes require an explicit OnRequest provider selection.");
         if (!ValidIdentity(proposal.Key)) errors.Add("key: must be nonempty and contain no control characters.");
+        if (!ModuleText.IsNfc(proposal.Key)) errors.Add("key: text must be in Unicode NFC.");
         if (proposal.Kind is not (ProposalKind.Assert or ProposalKind.Invalidate)) errors.Add("kind: unknown proposal operation.");
         if (proposal.Source?.Pack is not null) errors.Add("source.pack: only the knowledge pack importer writes pack sources.");
         ValidateSource(proposal.Source, messages, errors);
@@ -67,6 +68,7 @@ public static class ModuleProposalAdmission
         if (type is null) errors.Add("type: must name a type the pack declares.");
         else if (type.Scope != "shared") errors.Add("type.scope: knowledge pack records are shared.");
         if (!ValidIdentity(proposal.Key) || proposal.Key.Length > 200) errors.Add("key: must be 1-200 characters without control characters.");
+        if (!ModuleText.IsNfc(proposal.Key)) errors.Add("key: text must be in Unicode NFC.");
         if (proposal.Kind != ProposalKind.Assert || proposal.Replaces is not { Count: 0 }) errors.Add("kind: a seed record is a plain assertion.");
         if (proposal.Source is not { Pack: not null, MessageIds.Count: 0 } || string.IsNullOrWhiteSpace(proposal.Source.Excerpt))
             errors.Add("source: a seed record carries pack provenance and no messages.");
@@ -88,6 +90,7 @@ public static class ModuleProposalAdmission
         if (proposal.Replaces.Count > MaximumReplaces) errors.Add($"replaces: at most {MaximumReplaces} records.");
         if (proposal.Replaces.Any(key => !ValidIdentity(key)) || proposal.Replaces.Distinct(StringComparer.Ordinal).Count() != proposal.Replaces.Count)
             errors.Add("replaces: keys must be distinct, nonempty and contain no control characters.");
+        if (proposal.Replaces.Any(key => !ModuleText.IsNfc(key))) errors.Add("replaces: text must be in Unicode NFC.");
         if (proposal.Replaces.Contains(proposal.Key, StringComparer.Ordinal))
             errors.Add("replaces: a record's own key is a new version, not a replacement.");
     }
@@ -127,6 +130,7 @@ public static class ModuleProposalAdmission
                 if (declared.Type == "string")
                 {
                     var text = pair.Value.GetString()!;
+                    if (!ModuleText.IsNfc(text)) errors.Add(path + ": text must be in Unicode NFC.");
                     if (declared.MaxLength is { } max && text.Length > max) errors.Add(path + ": exceeds maximum length.");
                     if (declared.Values.Count > 0 && !declared.Values.Contains(text, StringComparer.Ordinal)) errors.Add(path + ": value is not in the declared enumeration.");
                 }
@@ -155,6 +159,7 @@ public static class ModuleProposalAdmission
             var relation = module?.Ontology?.Relations.FirstOrDefault(r => r.Name == link.Relation && r.From == proposal.Type);
             if (relation is null) { errors.Add("links: relation must be declared for the proposal's owned type."); continue; }
             if (!ValidIdentity(link.Target)) errors.Add("links: target identity or name cannot be empty or contain control characters.");
+            else if (!ModuleText.IsNfc(link.Target)) errors.Add("links: a target must be in Unicode NFC.");
             if (link.TargetKind is not (LinkTargetKind.Identity or LinkTargetKind.EntityName)
                 || (link.TargetKind == LinkTargetKind.EntityName && relation.To != "core:Entity"))
                 errors.Add("links: target selector is unsupported for this relation.");

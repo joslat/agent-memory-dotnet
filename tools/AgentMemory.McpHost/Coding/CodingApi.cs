@@ -64,7 +64,8 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
                 case "governs":
                     // CMP-1: recall whose question is the anchors themselves, so the gate weighs what governs them.
                     var governs = Read<GovernsInput>(arguments);
-                    var anchors = CodingAnchors.From(governs.Anchors);
+                    // What the walk takes, not what was given (review 5: blank and duplicate anchors reached the question and the echo).
+                    var anchors = ContextAnchors.Taken(CodingAnchors.From(governs.Anchors));
                     if (anchors.Count == 0) return Error(400, "invalid_input");
                     var governed = await memory.RecallWithModulesAsync(identity, governs.Session, CodingAnchors.Question(anchors), anchors,
                         cancellationToken).ConfigureAwait(false);

@@ -19,6 +19,18 @@ public static class ContextAnchors
     /// <summary>The anchors of the innermost open scope; empty outside any.</summary>
     public static IReadOnlyList<ContextAnchor> Current => Ambient.Value ?? [];
 
+    /// <summary>
+    /// The anchors exactly as a walk takes them (pack format v1.2 §6.1): each value normalized (a path ASCII-trimmed, slashes,
+    /// no leading './' or '/'; a symbol trimmed), in NFC by the format's own tables, blank, overlong and unpaired-surrogate
+    /// values dropped, distinct, the first 32. What an entry point echoes or asks about is this list (review 5: one built its
+    /// question from the anchors as given).
+    /// </summary>
+    public static IReadOnlyList<ContextAnchor> Taken(IEnumerable<ContextAnchor> anchors)
+    {
+        ArgumentNullException.ThrowIfNull(anchors);
+        return Traversal.TraversalWalk.Anchors(anchors).AsReadOnly();
+    }
+
     /// <summary>Opens a scope with these anchors until the returned handle is disposed; the outer scope comes back after.</summary>
     public static IDisposable Begin(IEnumerable<ContextAnchor> anchors)
     {

@@ -57,6 +57,34 @@ public sealed class NfcTests
         disagreements.Should().BeEmpty(string.Join(" | ", disagreements.Take(10)));
     }
 
+    [Fact]
+    public void Normalize_gives_the_platforms_NFC_and_the_same_instance_when_nothing_changes()
+    {
+        var random = new Random(51);
+        int[] pool = ['a', 'U', 0x00DC, 0x0308, 0x0301, 0x0323, 0x1100, 0x1161, 0x11A8, 0xAC00, 0x0958, 0x212B, 0x1D15E, 0x2F800];
+        for (var run = 0; run < 50_000; run++)
+        {
+            var builder = new StringBuilder();
+            for (var n = random.Next(1, 7); n > 0; n--) builder.Append(char.ConvertFromUtf32(pool[random.Next(pool.Length)]));
+            var s = builder.ToString();
+            var nfc = Nfc.Normalize(s);
+            nfc.Should().Be(s.Normalize(NormalizationForm.FormC), string.Join(" ", s.EnumerateRunes().Select(r => r.Value.ToString("X4"))));
+            if (nfc == s) ReferenceEquals(nfc, s).Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public void A_long_run_of_marks_is_put_in_canonical_order_without_quadratic_work()
+    {
+        // Review 5: an insertion sort made 32,000 alternating marks about 10^8 swaps; text a host writes is not limited to runs of 30.
+        var s = "a" + string.Concat(Enumerable.Range(0, 60_000).Select(i => i % 2 == 0 ? "́" : "̣"));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var nfc = Nfc.Normalize(s);
+        watch.Stop();
+        nfc.Should().Be(s.Normalize(NormalizationForm.FormC));
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+    }
+
     [Theory]
     [InlineData(new[] { 0x63, 0x61, 0x66, 0xE9 }, true)]
     [InlineData(new[] { 0x63, 0x61, 0x66, 0x65, 0x301 }, false)]

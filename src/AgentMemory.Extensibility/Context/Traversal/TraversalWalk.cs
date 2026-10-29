@@ -68,17 +68,31 @@ internal static class TraversalWalk
 
     /// <summary>
     /// The anchors a walk takes (pack format v1.2 §6.1), the same for every entry point (review 3: serve cut to 32 before the
-    /// duplicates went): in request order, each value in NFC by the format's own Unicode 15 tables, whatever the host's
+    /// duplicates went; review 5: every step here, for every entry point): in request order, each value normalized as a path
+    /// or a symbol (<see cref="ContextAnchor.Normalized"/>), then in NFC by the format's own Unicode 15 tables, whatever the host's
     /// globalization mode (review 4: under invariant globalization .NET left NFD text as it was), a value with an unpaired
     /// surrogate dropped, those not blank (ASCII white space) and at most 512 characters,
     /// distinct by kind and value, the first 32.
     /// </summary>
-    internal static List<ContextAnchor> Anchors(IEnumerable<ContextAnchor> anchors) =>
-        [.. anchors.Where(a => a is not null && !AnchorMatcher.IsBlank(a.Value))
-            .Select(a => Unicode.Nfc.Normalize(a.Value) is { } nfc ? (nfc == a.Value ? a : a with { Value = nfc }) : null)
-            .OfType<ContextAnchor>()
-            .Where(a => a.Value.Length <= ContextAnchor.MaximumLength)
-            .DistinctBy(a => (a.Kind, a.Value)).Take(ContextAnchor.MaximumPerRequest)];
+    internal static List<ContextAnchor> Anchors(IEnumerable<ContextAnchor> anchors)
+    {
+        var taken = new List<ContextAnchor>();
+        var seen = new HashSet<(ContextAnchorKind, string)>();
+        foreach (var anchor in anchors)
+        {
+            if (anchor?.Value is not { } raw) continue;
+            // Bound before the work (review 5: a long run of combining marks cost seconds to normalize): NFC shortens UTF-16
+            // text at most 4 to 1 under Unicode 15, so a value over 4 x 512 units cannot be 512 or fewer after it.
+            if (raw.Length > 4 * ContextAnchor.MaximumLength) continue;
+            // Every step here, whichever entry point built the anchor (review 5: the factories normalized, the constructor did not).
+            var value = ContextAnchor.Normalized(anchor.Kind, raw);
+            if (value.Length == 0 || Unicode.Nfc.Normalize(value) is not { } nfc || nfc.Length > ContextAnchor.MaximumLength) continue;
+            if (!seen.Add((anchor.Kind, nfc))) continue;
+            taken.Add(nfc == anchor.Value ? anchor : anchor with { Value = nfc });
+            if (taken.Count == ContextAnchor.MaximumPerRequest) break;
+        }
+        return taken;
+    }
 
 
     internal const double MinimumScore = 0.1;

@@ -50,6 +50,16 @@ public sealed class CodingAnchorsTests
     }
 
     [Fact]
+    public void The_MCP_host_gives_the_walk_what_any_host_gives_it()
+    {
+        // Root RA, review 5: what this host asks about and echoes is the walk's own intake, the same as a host building the records.
+        string[] raw = ["./src\\A.cs", "src/A.cs", "   ", "src/U\u0308ber.cs", "src/\u00DCber.cs"];
+        var mcp = ContextAnchors.Taken(CodingAnchors.From([.. raw.Select(v => new CodingAnchorInput { Kind = "path", Value = v })]));
+        var host = ContextAnchors.Taken(raw.Select(v => new ContextAnchor(ContextAnchorKind.Path, v)));
+        mcp.Select(a => a.Value).Should().Equal(host.Select(a => a.Value)).And.Equal("src/A.cs", "src/\u00DCber.cs");
+    }
+
+    [Fact]
     public void Recall_takes_optional_anchors_and_governs_requires_them()
     {
         var recall = CodingToolDefinitions.All.Single(t => t.Name == "recall").InputSchema;
