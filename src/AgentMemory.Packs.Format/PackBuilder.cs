@@ -19,6 +19,9 @@ internal static class PackBuilder
         if (!source.TryGetValue(PackManifest.FileName, out var manifestBytes)) throw new InvalidDataException($"There is no {PackManifest.FileName}.");
         var (manifest, problem) = PackManifest.Parse(manifestBytes);
         if (manifest is null) throw new InvalidDataException(problem);
+        // A reader may read a later minor as far as it knows it; a writer signs only what it understands (§2.1).
+        if (manifest.FormatMinor > PackManifest.Minor)
+            throw new InvalidDataException($"{PackManifest.FileName} has format agentmemory.pack/1.{manifest.FormatMinor}; this builder writes {PackManifest.Format}.");
         var listBytes = FilesList.Build(manifest.Id, manifest.Version, source);
         var unchanged = source.TryGetValue(PackPaths.FilesList, out var previous) && previous.AsSpan().SequenceEqual(listBytes);
         var files = source.Where(f => FilesList.IsListed(f.Key) || (unchanged && (PackPaths.IsSignature(f.Key) || PackPaths.IsAttestation(f.Key))))
@@ -43,6 +46,8 @@ internal static class PackBuilder
         var envelope = Dsse.Sign(listBytes, list.Id, list.Version, role, signedAt, signer);
         var path = Dsse.PathFor(role, signer.KeyId);
         files[path] = envelope;
+        // A timestamp token is over the envelope it sits beside; a new envelope leaves the old token naming nothing (§2.1).
+        files.Remove(path + PackPaths.TimestampSuffix);
         return path;
     }
 

@@ -464,7 +464,7 @@ internal static partial class Program
         var digest = FilesList.DigestOf(files[PackPaths.FilesList]);
         var output = o.Value("out") ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(folder))!, $"{integrity.List!.Id}-{integrity.List.Version}{PackReader.Extension}");
         File.WriteAllBytes(output, PackBuilder.Pack(files, compress: !o.Flag("stored")));
-        Console.WriteLine($"{integrity.List!.Id} {integrity.List.Version}\n  digest  {digest}\n  files   {integrity.List.Files.Count}\n  signed  {files.Keys.Count(PackPaths.IsSignature)}\n  wrote   {output}");
+        Console.WriteLine($"{integrity.List!.Id} {integrity.List.Version}\n  digest  {digest}\n  files   {integrity.List.Files.Count}\n  signed  {files.Keys.Count(p => PackPaths.IsSignature(p) && !PackPaths.IsTimestamp(p))}\n  wrote   {output}");
         return 0;
     }
 
@@ -591,14 +591,19 @@ internal static partial class Program
         if (content.Files.TryGetValue(PackPaths.FilesList, out var listBytes) && FilesList.Parse(listBytes) is ({ } list, _))
         {
             Console.WriteLine($"Pack    {list.Id} {list.Version}\nDigest  {FilesList.DigestOf(listBytes)}  (not verified)");
-            if (content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes) && PackManifest.Parse(manifestBytes).Manifest?.Federation is { } federation)
+            var manifest = content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes) ? PackManifest.Parse(manifestBytes).Manifest : null;
+            if (manifest is { FormatMinor: > PackManifest.Minor })
+                Console.WriteLine($"Format  agentmemory.pack/1.{manifest.FormatMinor}, newer than this tool's {PackManifest.Format}: read as far as it knows it" +
+                    (manifest.IgnoredFields.Count > 0 ? $"; ignored {string.Join(", ", manifest.IgnoredFields)}" : ""));
+            if (manifest?.Federation is { } federation)
                 Console.WriteLine($"Federated: publisher {federation.Publisher}, for {PackFederation.Describe(federation.Audience)}  (not verified)");
             if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Card is { } card)
                 Console.WriteLine($"Card    {Shown(card.OwnerName, 200)}: {Shown(card.IntendedUse, 200)}  (not verified)");
             foreach (var f in list.Files) Console.WriteLine($"  {f.Length,10:N0}  {f.Path}");
         }
         else Console.WriteLine("Not built: no valid META/files.json.");
-        foreach (var path in content.Files.Keys.Where(PackPaths.IsSignature).Order(StringComparer.Ordinal)) Console.WriteLine($"  envelope  {path}");
+        foreach (var path in content.Files.Keys.Where(PackPaths.IsSignature).Order(StringComparer.Ordinal))
+            Console.WriteLine($"  {(PackPaths.IsTimestamp(path) ? "timestamp" : "envelope")}  {path}");
         foreach (var (stem, _) in PackAttestations.Certificates(content.Files))
             Console.WriteLine($"  certificate  {PackAttestations.CertificatePath(stem)}{(PackAttestations.Run(content.Files, stem) is { } run ? $" (with an AEF run of {run.Count} files)" : "")}");
         return 0;

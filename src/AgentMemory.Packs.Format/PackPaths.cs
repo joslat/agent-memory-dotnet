@@ -41,6 +41,15 @@ internal static partial class PackPaths
     internal static bool IsSignature(string path) => path.StartsWith(SignaturesFolder, StringComparison.Ordinal);
 
     /// <summary>
+    /// What names a timestamp token: <c>&lt;envelope&gt;.tsr</c> beside its envelope in <c>META/signatures/</c>, reserved for
+    /// trusted time (v1.2 §2.1, review 1 M15, format 1.3). A reader that does not judge time accepts it, bounded, and ignores it.
+    /// </summary>
+    internal const string TimestampSuffix = ".tsr";
+
+    /// <summary>Whether a signature-folder file is a timestamp token rather than an envelope.</summary>
+    internal static bool IsTimestamp(string path) => IsSignature(path) && path.EndsWith(TimestampSuffix, StringComparison.Ordinal);
+
+    /// <summary>
     /// Attestations live outside the files list too, beside the signatures (pack format v1.2 §16): statements others make about
     /// the pack by its digest, such as evaluation certificates, which can be added after release without changing the pack.
     /// </summary>

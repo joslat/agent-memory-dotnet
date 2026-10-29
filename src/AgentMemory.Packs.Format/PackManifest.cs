@@ -13,6 +13,15 @@ internal sealed partial record PackManifest
 {
     internal const string FileName = "pack.json";
     internal const string Format = "agentmemory.pack/1.2";
+
+    /// <summary>
+    /// The minor this reader implements (v1.2 §2.1, review 1 M18): it reads a 1.2 pack strictly and a later 1.x pack as far as it
+    /// knows it, ignoring fields it does not know unless the pack names them in <c>critical</c>. Earlier minors were drafts.
+    /// </summary>
+    internal const int Minor = 2;
+
+    /// <summary>The most names <c>critical</c> holds.</summary>
+    internal const int MaximumCritical = 64;
     internal static readonly IReadOnlySet<string> Tiers = new HashSet<string>(StringComparer.Ordinal) { "open", "curated", "premium", "private", "hosted" };
     internal static readonly IReadOnlySet<string> Kinds = new HashSet<string>(StringComparer.Ordinal) { "knowledge", "definition", "snapshot", "composite", "set" };
     internal static readonly IReadOnlySet<string> Protections = new HashSet<string>(StringComparer.Ordinal) { "open", "audience", "licensed", "attested", "hosted" };
@@ -25,7 +34,7 @@ internal sealed partial record PackManifest
     internal static readonly IReadOnlySet<string> Fields = new HashSet<string>(StringComparer.Ordinal)
     {
         "format", "id", "version", "kind", "sdk", "requires", "display", "containableBy", "contains", "tier", "licence", "validUntil",
-        "protection", "code", "source", "extensions",
+        "protection", "code", "source", "extensions", "critical",
     };
 
     /// <summary>
@@ -54,6 +63,20 @@ internal sealed partial record PackManifest
     internal PackOrigin? Source { get; init; }
     /// <summary>The federated profile: publisher WebID, audience, purpose; null when the pack is not federated.</summary>
     internal PackFederation? Federation { get; init; }
+    /// <summary>The pack's minor: <see cref="Minor"/>, or a later one this reader reads as far as it knows it (§2.1).</summary>
+    internal int FormatMinor { get; init; } = Minor;
+    /// <summary>Fields of a later minor this reader does not know and ignored; empty for a pack of this reader's minor.</summary>
+    internal IReadOnlyList<string> IgnoredFields { get; init; } = [];
+
+    /// <summary>
+    /// The minor of a pack format name, or null when this reader does not read it: <c>agentmemory.pack/1.</c> and a minor
+    /// from 2 to 999 without leading zeros (§2.1). Earlier minors were drafts; another major is another format.
+    /// </summary>
+    internal static int? MinorOf(string format)
+    {
+        var match = MinorPattern().Match(format);
+        return match.Success && int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) is var minor && minor >= Minor ? minor : null;
+    }
 
     /// <summary>
     /// Reverse-DNS: at least three lowercase segments, each starting with a letter, with inner hyphens, at most 64 characters.
@@ -86,8 +109,13 @@ internal sealed partial record PackManifest
             if (value.ValueKind != JsonValueKind.Array || value.EnumerateArray().Any(v => v.ValueKind != JsonValueKind.String)) return null;
             return [.. value.EnumerateArray().Select(v => v.GetString()!)];
         }
-        if (root.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => !Fields.Contains(n)) is { } unknown)
-            return (null, $"{FileName} has an unknown field '{unknown}'; a field this format does not define goes in 'extensions'.");
+        // The pack's minor decides how strict this reader is (§2.1): at its own minor every field is known, so an unknown one
+        // refuses; at a later minor a field it does not know is ignored, unless the pack names it critical.
+        var minor = root.TryGetProperty("format", out var named) && named.ValueKind == JsonValueKind.String ? MinorOf(named.GetString()!) : null;
+        var unknown = root.EnumerateObject().Select(p => p.Name).Where(n => !Fields.Contains(n)).ToList();
+        if (unknown.Count > 0 && !(minor > Minor))
+            return (null, $"{FileName} has an unknown field '{unknown[0]}'; a field this format does not define goes in 'extensions'.");
+        if (Critical(root) is { } criticalProblem) return (null, criticalProblem);
         if (Extensions(root) is { } extensionProblem) return (null, extensionProblem);
         // A field of the wrong type is refused, never read as absent (an expiry as a number would never expire).
         foreach (var name in (string[])["format", "id", "version", "kind", "sdk", "tier", "licence", "validUntil", "protection", "code"])
@@ -99,7 +127,7 @@ internal sealed partial record PackManifest
         if (root.TryGetProperty("display", out var shown) && shown.TryGetProperty("icon", out var icon) && icon.ValueKind != JsonValueKind.String)
             return (null, $"{FileName} has a display.icon that is not a string.");
         if (Text("format") is not { } format) return (null, $"{FileName} names no format.");
-        if (format != Format) return (null, $"{FileName} has format '{format}'; this reader knows '{Format}'.");
+        if (minor is null) return (null, $"{FileName} has format '{format}'; this reader knows '{Format}' and reads the later 1.x minors.");
         if (Text("id") is not { } id || !IsValidId(id)) return (null, $"{FileName} has no valid reverse-DNS id.");
         if (Text("version") is not { } version || !SemVer.TryParse(version, out _)) return (null, $"{FileName} has no valid SemVer version.");
         if (Text("kind") is not { } kind || !Kinds.Contains(kind)) return (null, $"{FileName} needs a kind: {string.Join(", ", Kinds)}.");
@@ -147,7 +175,28 @@ internal sealed partial record PackManifest
         {
             Id = id, Version = version, Kind = kind, Tier = tier, Licence = Text("licence"), Contains = contains, ContainableBy = containable,
             ValidUntil = validUntil, Protection = protection, Code = code, Source = origin, Federation = federation,
+            FormatMinor = minor.Value, IgnoredFields = unknown,
         }, null);
+    }
+
+    // critical (§2.1): 1 to 64 distinct names of fields this pack.json holds that a reader must understand. One this reader
+    // does not understand refuses the pack at any minor: a pack of a later minor names here what an older reader must not skip.
+    private static string? Critical(JsonElement root)
+    {
+        if (!root.TryGetProperty("critical", out var critical)) return null;
+        if (critical.ValueKind != JsonValueKind.Array || critical.GetArrayLength() is 0 or > MaximumCritical
+            || critical.EnumerateArray().Any(c => c.ValueKind != JsonValueKind.String))
+            return $"{FileName} has a malformed 'critical': a list of 1 to {MaximumCritical} field names.";
+        var names = critical.EnumerateArray().Select(c => c.GetString()!).ToList();
+        if (names.Distinct(StringComparer.Ordinal).Count() != names.Count) return $"{FileName} lists a critical field twice.";
+        foreach (var name in names)
+        {
+            if (name == "critical" || !root.TryGetProperty(name, out _))
+                return $"{FileName} marks '{name}' critical, but holds no such field.";
+            if (!Fields.Contains(name))
+                return $"{FileName} marks the field '{name}' critical, and this reader of {Format} does not understand it.";
+        }
+        return null;
     }
 
     // extensions: an object; "critical", when present, lists names of other members, each once; a critical one this reader
@@ -176,6 +225,9 @@ internal sealed partial record PackManifest
 
     [GeneratedRegex("\\A[0-9a-f]{7,64}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex CommitPattern();
+
+    [GeneratedRegex("\\Aagentmemory\\.pack/1\\.([1-9][0-9]{0,2})\\z", RegexOptions.CultureInvariant)]
+    private static partial Regex MinorPattern();
 }
 
 /// <summary>Where a pack's content came from: the repository, the commit, and when it was built; each optional.</summary>

@@ -84,9 +84,15 @@ internal static class PackVerifier
         var signatures = new List<PackSignature>();
         var junk = new List<string>();
         var envelopeProblems = new List<string>();
-        var envelopes = content.Files.Keys.Where(PackPaths.IsSignature).Order(StringComparer.Ordinal).ToList();
+        var envelopes = content.Files.Keys.Where(p => PackPaths.IsSignature(p) && !PackPaths.IsTimestamp(p)).Order(StringComparer.Ordinal).ToList();
         // Bounded: every envelope is checked against one hash of the files list (fifth review).
         if (envelopes.Count > Dsse.MaximumEnvelopes) junk.Add($"The pack carries {envelopes.Count} signature envelopes; at most {Dsse.MaximumEnvelopes}.");
+        // Timestamp tokens (§2.1, reserved for format 1.3): one beside each envelope at most, as small as an envelope, not judged
+        // by this reader. Anything else under META/signatures/ is junk, as before.
+        var tokens = content.Files.Keys.Where(PackPaths.IsTimestamp).Order(StringComparer.Ordinal).ToList();
+        foreach (var token in tokens)
+            if (!envelopes.Contains(token[..^PackPaths.TimestampSuffix.Length])) junk.Add($"{token} is a timestamp token beside no envelope.");
+            else if (content.Files[token].Length > Dsse.MaximumEnvelopeBytes) junk.Add($"{token} is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB: a timestamp token is small.");
         var listHex = FilesList.Hex(listBytes);
         foreach (var file in envelopes.Take(Dsse.MaximumEnvelopes))
         {
@@ -100,6 +106,7 @@ internal static class PackVerifier
             .. envelopeProblems.Select(p => (missingRoles.Count == 0 ? "ignored (the required roles hold): " : "not counted: ") + p),
             .. junk.Select(p => "refuses the pack: " + p),
             .. missingRoles.Select(r => $"missing: no valid {r} signature from a key the policy trusts for '{list.Id}'"),
+            .. tokens.Count > 0 ? [$"timestamp tokens beside {tokens.Count} envelope(s): kept, not judged (trusted time is format 1.3)"] : (string[])[],
             $"required roles: {string.Join(", ", policy.RequiredRoles)}"]));
         // A pack whose signatures do not hold is refused here, before anything else in it is parsed. Invalid extra envelopes are
         // reported only then; a file that is not an envelope at all is unlisted content travelling with the pack (PACK-review 1.9).
@@ -248,7 +255,11 @@ internal static class PackVerifier
             {
                 problems.AddRange(KindProblems(manifest, content.Files));
                 explain?.Invoke(new("pack.json and kind", problems.Count == profileProblems, problems.Count > profileProblems ? problems.Skip(profileProblems).ToList()
-                    : [$"{manifest.Kind} pack, tier {manifest.Tier}, protection {manifest.Protection}, code {manifest.Code}"]));
+                    : [$"{manifest.Kind} pack, tier {manifest.Tier}, protection {manifest.Protection}, code {manifest.Code}",
+                        .. manifest.FormatMinor > PackManifest.Minor
+                            ? [$"format 1.{manifest.FormatMinor}, newer than this reader's {PackManifest.Format}: read as far as it knows it" +
+                                (manifest.IgnoredFields.Count > 0 ? $"; ignored {string.Join(", ", manifest.IgnoredFields)}, none named critical" : "")]
+                            : (string[])[]]));
                 return problems.Count == 0 ? (problems, manifest) : (problems, null);
             }
         }

@@ -55,9 +55,16 @@ CARD = "card.json"
 CARD_FORMAT = "agentmemory.pack.card/1"
 FILES_FORMAT = "agentmemory.pack.files/1.1"
 PACK_FORMAT = "agentmemory.pack/1.2"
-# Every field pack.json may hold; anything the format does not define goes in "extensions" (PACK-strict).
+# Readable minors (v1.2 §2.1, review 1 M18): this verifier reads 1.2 strictly and a later 1.x as far as it knows it; a field of a
+# later minor it does not know is ignored unless the pack names it in "critical". Earlier minors were drafts.
+PACK_MINOR = 2
+PACK_FORMAT_RE = re.compile(r"agentmemory\.pack/1\.([1-9][0-9]{0,2})")
+MAX_CRITICAL = 64
+# Every field pack.json may hold at this minor; anything the format does not define goes in "extensions" (PACK-strict).
 PACK_FIELDS = {"format", "id", "version", "kind", "sdk", "requires", "display", "containableBy", "contains", "tier", "licence",
-               "validUntil", "protection", "code", "source", "extensions"}
+               "validUntil", "protection", "code", "source", "extensions", "critical"}
+# A timestamp token beside its envelope (<envelope>.tsr), reserved for trusted time (format 1.3): accepted, bounded, not judged.
+TIMESTAMP_SUFFIX = ".tsr"
 UNDERSTOOD_EXTENSIONS = {"federation"}
 FEDERATION_FORMAT = "agentmemory.pack.federation/1"
 PUBLICATION = "urn:agentmemory:pack:publication:v1"
@@ -765,9 +772,15 @@ def verify(files, policy, now):
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
     roles, publisher_keys, reasons = set(), set(), []
-    envelopes = sorted(p for p in files if p.startswith(SIGNATURES))
+    envelopes = sorted(p for p in files if p.startswith(SIGNATURES) and not p.endswith(TIMESTAMP_SUFFIX))
     if len(envelopes) > MAX_ENVELOPES:
         raise Refused(f"the pack carries {len(envelopes)} signature envelopes; at most {MAX_ENVELOPES}")
+    # Timestamp tokens (§2.1, reserved for format 1.3): one beside each envelope at most, as small as an envelope, not judged here.
+    for token in sorted(p for p in files if p.startswith(SIGNATURES) and p.endswith(TIMESTAMP_SUFFIX)):
+        if token[:-len(TIMESTAMP_SUFFIX)] not in envelopes:
+            raise Refused(f"{token} is a timestamp token beside no envelope")
+        if len(files[token]) > MAX_ENVELOPE:
+            raise Refused(f"{token} is larger than {MAX_ENVELOPE // 1024} KiB")
     list_hex = hashlib.sha256(list_bytes).hexdigest()
     for path in envelopes:
         # A file under META/signatures/ that is not an envelope at all is unlisted content: it refuses the pack.
@@ -852,11 +865,18 @@ def verify(files, policy, now):
                 raise Refused(f"'{p}' is larger than {MAX_JSON >> 20} MiB")
             profile(b, integers_only=(p == "META/lock.json"))
     manifest = profile(content.get("pack.json", b"null"))
-    if not isinstance(manifest, dict) or manifest.get("format") != PACK_FORMAT or manifest.get("id") != pid or manifest.get("version") != version:
-        raise Refused("pack.json does not name the same pack as META/files.json")
+    if not isinstance(manifest, dict):
+        raise Refused("pack.json is not an object")
+    # The pack's minor decides how strict this verifier is (§2.1), as in .NET: an unknown field refuses at its own minor.
+    minor = format_minor(manifest.get("format"))
     unknown = sorted(set(manifest) - PACK_FIELDS)
-    if unknown:
+    if unknown and not (minor is not None and minor > PACK_MINOR):
         raise Refused(f"pack.json has an unknown field '{unknown[0]}'")
+    critical_fields(manifest)
+    if minor is None:
+        raise Refused(f"pack.json has a format this verifier does not read; it knows {PACK_FORMAT} and reads the later 1.x minors")
+    if manifest.get("id") != pid or manifest.get("version") != version:
+        raise Refused("pack.json does not name the same pack as META/files.json")
     extensions = manifest.get("extensions", {})
     if not isinstance(extensions, dict):
         raise Refused("pack.json has a malformed 'extensions'")
@@ -905,6 +925,28 @@ def verify(files, policy, now):
                 profile(b[start:stop])
                 start = stop + 1
     return pid, version, digest, manifest
+
+
+def format_minor(value):
+    """The minor of a pack format name, or None when this verifier does not read it: 1.2 up to 1.999, no leading zeros (§2.1)."""
+    match = PACK_FORMAT_RE.fullmatch(value) if isinstance(value, str) else None
+    return int(match.group(1)) if match and int(match.group(1)) >= PACK_MINOR else None
+
+
+def critical_fields(manifest):
+    """pack.json's "critical" (§2.1): 1 to 64 distinct names of fields it holds; one this verifier does not know refuses."""
+    if "critical" not in manifest:
+        return
+    names = manifest["critical"]
+    if not isinstance(names, list) or not 1 <= len(names) <= MAX_CRITICAL or not all(isinstance(n, str) for n in names):
+        raise Refused(f"pack.json has a malformed 'critical': a list of 1 to {MAX_CRITICAL} field names")
+    if len(set(names)) != len(names):
+        raise Refused("pack.json lists a critical field twice")
+    for name in names:
+        if name == "critical" or name not in manifest:
+            raise Refused(f"pack.json marks '{name}' critical, but holds no such field")
+        if name not in PACK_FIELDS:
+            raise Refused(f"pack.json marks the field '{name}' critical, and this verifier of {PACK_FORMAT} does not understand it")
 
 
 def valid_webid(text):

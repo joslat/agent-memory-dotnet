@@ -123,6 +123,21 @@ REASONS = {
     "archive-deflate-empty-declares-content": ("compression ratio above 250", "breaks a size rule"),
     "archive-4097-files": ("more than 4096 files", "more than 4096 files"),
     "certificate-under-another-stem": ("not as its evaluator's key and evaluation time", "not as its evaluator's key and evaluation time"),
+    # Readable minors (review 1, M18): each refused for the versioning rule, beside controls that verify.
+    "minor-later-unknown-field-critical": ("does not understand it", "does not understand it"),
+    "minor-own-unknown-field-critical": ("unknown field 'timestamps'", "unknown field 'timestamps'"),
+    "minor-later-unknown-kind": ("needs a kind", "needs a known kind"),
+    "minor-earlier": ("reads the later 1.x minors", "reads the later 1.x minors"),
+    "minor-leading-zero": ("reads the later 1.x minors", "reads the later 1.x minors"),
+    "minor-major-two": ("reads the later 1.x minors", "reads the later 1.x minors"),
+    "minor-four-digits": ("reads the later 1.x minors", "reads the later 1.x minors"),
+    "critical-names-absent-field": ("holds no such field", "holds no such field"),
+    "critical-names-itself": ("holds no such field", "holds no such field"),
+    "critical-twice": ("critical field twice", "critical field twice"),
+    "critical-empty": ("malformed 'critical'", "malformed 'critical'"),
+    "critical-not-a-list": ("malformed 'critical'", "malformed 'critical'"),
+    "timestamp-token-beside-nothing": ("beside no envelope", "beside no envelope"),
+    "timestamp-token-over-64-kib": ("larger than 64 KiB", "larger than 64 KiB"),
     # The closed shapes: beside a valid entry, each refused for its shape, not for an unknown key.
     **{f"revocations-shape-{how}": ("not a DSSE envelope of a revocation document", "not a DSSE envelope of a revocation document") for how in SHAPES},
     **{f"receipt-shape-{how}": ("not a DSSE envelope", "not a DSSE envelope") for how in SHAPES},
@@ -645,6 +660,34 @@ def main():
     vectors["critical-extension"] = (signed(manifest_with(extensions={"io.example.cache": {"ttl": 3600}, "critical": ["io.example.cache"]})),
                                      "trust.json", "refused")
     vectors["critical-names-nothing"] = (signed(manifest_with(extensions={"critical": ["io.example.absent"]})), "trust.json", "refused")
+
+    # Readable minors (v1.2 §2.1, review 1 M18). A later 1.x is read as far as the reader knows it: a field it does not know is
+    # ignored unless the pack names it in "critical"; at the reader's own minor an unknown field refuses, critical or not; the
+    # values of known fields stay closed at every minor; earlier minors, another major and odd spellings are not read.
+    later, stamp = "agentmemory.pack/1.3", {"authority": "https://tsa.example/", "policy": "1.2.3.4"}
+    vectors["minor-later-known-fields"] = (signed(manifest_with(format=later)), "trust.json", "verified")
+    vectors["minor-later-unknown-field-ignored"] = (signed(manifest_with(format=later, timestamps=stamp)), "trust.json", "verified")
+    vectors["minor-later-unknown-field-critical"] = (signed(manifest_with(format=later, timestamps=stamp, critical=["timestamps"])), "trust.json", "refused")
+    vectors["minor-own-unknown-field-critical"] = (signed(manifest_with(timestamps=stamp, critical=["timestamps"])), "trust.json", "refused")
+    vectors["minor-later-unknown-kind"] = (signed(manifest_with(format=later, kind="dataset")), "trust.json", "refused")
+    for name, spelled in (("minor-earlier", "agentmemory.pack/1.1"), ("minor-leading-zero", "agentmemory.pack/1.02"),
+                          ("minor-major-two", "agentmemory.pack/2.0"), ("minor-four-digits", "agentmemory.pack/1.1000")):
+        vectors[name] = (signed(manifest_with(format=spelled)), "trust.json", "refused")
+    vectors["critical-known-field"] = (signed(manifest_with(critical=["kind", "sdk"])), "trust.json", "verified")
+    vectors["critical-names-absent-field"] = (signed(manifest_with(critical=["validUntil"])), "trust.json", "refused")
+    vectors["critical-names-itself"] = (signed(manifest_with(critical=["critical"])), "trust.json", "refused")
+    vectors["critical-twice"] = (signed(manifest_with(critical=["kind", "kind"])), "trust.json", "refused")
+    vectors["critical-empty"] = (signed(manifest_with(critical=[])), "trust.json", "refused")
+    vectors["critical-not-a-list"] = (signed(manifest_with(critical="kind")), "trust.json", "refused")
+
+    # The timestamp-token slot reserved for trusted time (format 1.3, review 1 M15): <envelope>.tsr beside its envelope is kept and
+    # not judged by a 1.2 reader, so a 1.3 pack that carries tokens still opens; one beside nothing, or too large, is junk.
+    stamped = signed(content)
+    envelope_path = next(p_ for p_ in stamped if p_.startswith(py.SIGNATURES))
+    token = bytes([0x30, 0x82, 0x01, 0x00]) + bytes(256)
+    vectors["timestamp-token-beside-envelope"] = ({**stamped, envelope_path + ".tsr": token}, "trust.json", "verified")
+    vectors["timestamp-token-beside-nothing"] = ({**stamped, py.SIGNATURES + "other.dsse.json.tsr": token}, "trust.json", "refused")
+    vectors["timestamp-token-over-64-kib"] = ({**stamped, envelope_path + ".tsr": token + bytes(64 * 1024)}, "trust.json", "refused")
 
     # Federated packs (federated packs §3-§5): the publisher WebID bound to the signing key by the host, the host inside the
     # audience, and publication receipts for one URL and the exact archive bytes.
