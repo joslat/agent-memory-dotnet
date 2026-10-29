@@ -439,3 +439,6 @@ FodyWeavers.xsd
 # Knowledge pack signatures are written at pack time (eng/pack-knowledge-packs.py), never committed.
 packs/**/agentmemory/agentmemory.module.files.json
 packs/**/agentmemory/agentmemory.module.sig
+
+# The conformance kit works in .work while it runs: throwaway private keys live there (review 1, L14).
+conformance/pack-v1.1/.work/

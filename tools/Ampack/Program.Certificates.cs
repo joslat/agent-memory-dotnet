@@ -22,7 +22,7 @@ internal static partial class Program
         try { pack = PackLoader.Load(archive, trust); }
         catch (PackLoadException e) { return Report(e.Problems, ""); }
         // The evaluator's own trial decision for exactly this pack, signed by the key it ran the gate with.
-        var records = new PackActivationFolder(o.Required("activations"), File.ReadAllText(o.Required("activation-key")));
+        var records = new PackActivationFolder(o.Required("activations"), File.ReadAllText(o.Required("host-key")));
         var decision = records.Find(pack.Id, AgentMemory.Extensibility.Modules.ModuleVersion.Parse(pack.Version), PackTrialGate.DigestOf(pack.Manifest), pack.Digest);
         if (decision is null)
             return Report([$"No trial decision for exactly this pack ({pack.Id} {pack.Version}, {pack.Digest[..23]}…) signed by that key in {o.Required("activations")}: run the trial first."], "");
@@ -94,7 +94,7 @@ internal static partial class Program
         var (decision, reason) = PackCertificates.Admit(pack, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
         if (decision is null) return Report([reason], "");
         using var hostKey = ECDsa.Create();
-        hostKey.ImportFromPem(File.ReadAllText(o.Required("host-key")));
+        hostKey.ImportFromPem(PrivatePem(o.Required("host-signing-key")));
         // This host's own evidence comes first: where it trialled exactly this pack, that decides, pass or fail, and a decision
         // from a certificate would never count (review 2).
         var own = new PackActivationFolder(o.Required("activations"), hostKey.ExportSubjectPublicKeyInfoPem()).History(pack.Manifest.Id)

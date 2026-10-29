@@ -61,6 +61,16 @@ internal sealed partial record PackManifest
     /// </summary>
     internal static bool IsValidId(string id) => id.Length <= 64 && IdPattern().IsMatch(id);
 
+    /// <summary>
+    /// Whether <paramref name="prefix"/> is a pack id prefix: one or more id segments (lowercase, as an id's), optionally ending
+    /// with a dot; at most 64 characters. A prefix outside it could never cover an id, so it is refused, never ignored
+    /// (review 1, H3 and L17); the host's trial and certificate namespaces use the same rule.
+    /// </summary>
+    internal static bool IsValidPrefix(string prefix) => prefix.Length is > 0 and <= 64 && PrefixPattern().IsMatch(prefix);
+
+    [GeneratedRegex(@"\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*\.?\z", RegexOptions.CultureInvariant)]
+    private static partial Regex PrefixPattern();
+
     /// <summary>Whether <paramref name="prefix"/> covers <paramref name="id"/>: the same id, or a parent namespace of it.</summary>
     internal static bool Covers(string prefix, string id) =>
         id == prefix || id.StartsWith(prefix.EndsWith('.') ? prefix : prefix + ".", StringComparison.Ordinal);

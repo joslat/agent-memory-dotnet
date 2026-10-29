@@ -25,6 +25,10 @@ internal sealed class Turtle
 {
     internal const int MaximumTriples = 100_000;
     internal const int MaximumNesting = 64;
+    /// <summary>The longest IRI a term may resolve to (a WebID is at most 512 characters).</summary>
+    internal const int MaximumIri = 4096;
+    /// <summary>The longest string a literal may hold.</summary>
+    internal const int MaximumLiteral = 64 * 1024;
     internal const string Rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
     internal const string Xsd = "http://www.w3.org/2001/XMLSchema#";
 
@@ -34,8 +38,21 @@ internal sealed class Turtle
     private string _base;
     private int _at;
     private int _blank;
+    // Review 1, H4: every term a document makes is counted. Prefixes and a base expand short names into long IRIs, so without
+    // a budget a 1 MiB profile could ask for gigabytes (a 600 KB @base and many short terms); with it, at most 16 times the
+    // document plus 1 MiB of characters are ever built from it.
+    private long _budget;
 
-    private Turtle(string text, string baseIri) { _text = text; _base = baseIri; }
+    private Turtle(string text, string baseIri) { _text = text; _base = baseIri; _budget = 16L * text.Length + 1024 * 1024; }
+
+    // A term as built: within its own cap and within the document's budget.
+    private string Counted(string term, int maximum = MaximumIri)
+    {
+        if (term.Length > maximum) throw Fail($"a term longer than {maximum.ToString("N0", CultureInfo.InvariantCulture)} characters");
+        _budget -= term.Length;
+        if (_budget < 0) throw Fail("terms that expand far beyond the document's own size");
+        return term;
+    }
 
     /// <summary>Reads <paramref name="text"/> as Turtle, resolving relative IRIs against <paramref name="baseIri"/>.</summary>
     /// <exception cref="InvalidDataException">The text is not Turtle this reader accepts.</exception>
@@ -54,7 +71,7 @@ internal sealed class Turtle
             if (_at >= _text.Length) return;
             if (Peek('@')) { Directive(); continue; }
             if (Keyword("PREFIX")) { PrefixBody(sparql: true); continue; }
-            if (Keyword("BASE")) { Skip(); _base = Resolve(IriRef()); continue; }
+            if (Keyword("BASE")) { Skip(); _base = Counted(Resolve(IriRef())); continue; }
             Triples(0);
             Skip();
             Expect('.');
@@ -65,7 +82,7 @@ internal sealed class Turtle
     {
         _at++;
         if (Word("prefix")) PrefixBody(sparql: false);
-        else if (Word("base")) { Skip(); _base = Resolve(IriRef()); Skip(); Expect('.'); }
+        else if (Word("base")) { Skip(); _base = Counted(Resolve(IriRef())); Skip(); Expect('.'); }
         else throw Fail("an unknown directive");
     }
 
@@ -78,7 +95,7 @@ internal sealed class Turtle
         if (name.Length > 0 && !IsPrefixName(name)) throw Fail("a malformed prefix name");
         Expect(':');
         Skip();
-        _prefixes[name] = Resolve(IriRef());
+        _prefixes[name] = Counted(Resolve(IriRef()));
         if (!sparql) { Skip(); Expect('.'); }
     }
 
@@ -234,11 +251,12 @@ internal sealed class Turtle
                 // A long string may end with one or two of its quote characters before the closing three.
                 while (_at + 3 < _text.Length && _text[_at + 3] == quote) { value.Append(quote); _at++; }
                 _at += 3;
-                return value.ToString();
+                return Counted(value.ToString(), MaximumLiteral);
             }
-            if (!isLong && c == quote) { _at++; return value.ToString(); }
+            if (!isLong && c == quote) { _at++; return Counted(value.ToString(), MaximumLiteral); }
             if (!isLong && c is '\n' or '\r') throw Fail("a line break in a short string");
             if (c == '\\') { value.Append(Escape(stringEscape: true)); continue; }
+            if (value.Length >= MaximumLiteral) throw Fail($"a string longer than {MaximumLiteral.ToString("N0", CultureInfo.InvariantCulture)} characters");
             value.Append(c);
             _at++;
         }
@@ -299,7 +317,7 @@ internal sealed class Turtle
 
     private string Iri()
     {
-        if (Peek('<')) return Resolve(IriRef());
+        if (Peek('<')) return Counted(Resolve(IriRef()));
         // A prefixed name: PN_PREFIX? ':' PN_LOCAL?
         var start = _at;
         while (_at < _text.Length && _text[_at] != ':' && IsNameChar(_text[_at])) _at++;
@@ -333,7 +351,9 @@ internal sealed class Turtle
         // A local name never ends with an unescaped '.': that dot ends the statement.
         local.Length -= trailingDots;
         _at -= trailingDots;
-        return ns + local;
+        // Measured before it is built: a long prefix times many short names is exactly the expansion the budget bounds.
+        if (ns.Length + local.Length > MaximumIri) throw Fail($"a term longer than {MaximumIri.ToString("N0", CultureInfo.InvariantCulture)} characters");
+        return Counted(ns + local);
     }
 
     private string IriRef()
@@ -347,6 +367,7 @@ internal sealed class Turtle
             if (c == '>') { _at++; return value.ToString(); }
             if (c == '\\') { value.Append(Escape(stringEscape: false)); continue; }
             if (c <= ' ' || c is '<' or '"' or '{' or '}' or '|' or '^' or '`') throw Fail("a character an IRI may not hold");
+            if (value.Length >= MaximumIri) throw Fail($"an IRI longer than {MaximumIri.ToString("N0", CultureInfo.InvariantCulture)} characters");
             value.Append(c);
             _at++;
         }
@@ -354,7 +375,7 @@ internal sealed class Turtle
 
     private void Add(RdfTerm subject, string predicate, RdfTerm obj)
     {
-        if (_triples.Count >= MaximumTriples) throw Fail($"more than {MaximumTriples:N0} triples");
+        if (_triples.Count >= MaximumTriples) throw Fail($"more than {MaximumTriples.ToString("N0", CultureInfo.InvariantCulture)} triples");
         _triples.Add(new RdfTriple(subject, predicate, obj));
     }
 

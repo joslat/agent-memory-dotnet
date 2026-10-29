@@ -265,6 +265,82 @@ public sealed class AmpackCommandLineTests : IDisposable
     }
 
     [Fact]
+    public void An_option_a_command_does_not_take_is_a_usage_error_and_help_and_version_answer()
+    {
+        // Review 1, H2: a typo must never drop a trust input silently (--revocation for --revocations).
+        var (exit, output) = Ampack("install", "x.ampack", "--store", "s", "--policy", "t.json", "--revocation", "r.json");
+        exit.Should().Be(2);
+        output.Should().Contain("ampack install takes no --revocation; did you mean --revocations?");
+        Ampack("verify", "x.ampack", "--policy", "t.json", "--legder", "l.json").Output.Should().Contain("did you mean --ledger?");
+        Ampack("gate", "x.ampack", "--require-trial-for", "io.x").Exit.Should().Be(2);
+        Ampack("verify", "x.ampack", "--policy", "t.json", "--record").Output.Should().Contain("--record writes the ledger");
+        // ampack <command> --help and ampack --version.
+        var (helpExit, help) = Ampack("verify", "--help");
+        helpExit.Should().Be(0);
+        help.Should().Contain("verify <folder|file> --policy").And.Contain("Options: --allow-downgrade, --explain, --ledger");
+        Ampack("--version").Output.Should().StartWith("ampack ").And.Contain("agentmemory.pack/1.2");
+        // An unexpected failure is said in one line with exit 4, never a stack trace; malformed input is a refusal (1).
+        File.WriteAllText(At("array.json"), "[]");
+        var (policyExit, policyOutput) = Ampack("verify", "x.ampack", "--policy", "array.json");
+        policyExit.Should().Be(1);
+        policyOutput.Should().NotContain("   at ");
+    }
+
+    [Fact]
+    public void A_key_kept_encrypted_signs_only_with_its_passphrase_and_only_its_owner_reads_the_file()
+    {
+        // Review 1, M12: keygen --passphrase-env writes an encrypted PKCS#8 key; every command opens it with AMPACK_KEY_PASSPHRASE.
+        var passphrase = new Dictionary<string, string> { ["KEY_PASSPHRASE"] = "correct horse battery staple" };
+        var (exit, output) = Ampack(passphrase, "keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.example", "--passphrase-env", "KEY_PASSPHRASE");
+        exit.Should().Be(0, output);
+        File.ReadAllText(At("keys", "publisher.key.pem")).Should().Contain("BEGIN ENCRYPTED PRIVATE KEY");
+        if (!OperatingSystem.IsWindows())
+            File.GetUnixFileMode(At("keys", "publisher.key.pem")).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        Done("init", "notes", "--id", "io.example.notes");
+        Ampack("build", "notes", "--out", "notes.ampack", "--key", At("keys", "publisher.key.pem")).Output.Should().Contain("AMPACK_KEY_PASSPHRASE");
+        Ampack(new Dictionary<string, string> { ["AMPACK_KEY_PASSPHRASE"] = "wrong" }, "build", "notes", "--out", "notes.ampack", "--key", At("keys", "publisher.key.pem"))
+            .Exit.Should().Be(2);
+        Ampack(new Dictionary<string, string> { ["AMPACK_KEY_PASSPHRASE"] = "correct horse battery staple" }, "build", "notes", "--out", "notes.ampack", "--key", At("keys", "publisher.key.pem"))
+            .Exit.Should().Be(0);
+        Ampack(new Dictionary<string, string> { ["SHORT"] = "short" }, "keygen", "--out", "keys2", "--passphrase-env", "SHORT").Exit.Should().Be(2);
+        // The default prefix is said, not silent.
+        Done("keygen", "--out", "keys3").Should().Contain("Prefix  io.example (the default");
+    }
+
+    [Fact]
+    public void A_receipt_is_signed_only_with_a_key_that_signed_the_pack_as_its_publisher()
+    {
+        // Review 1, L13.
+        const string publisher = "https://supplier-a.example/profile/card#org";
+        Done("keygen", "--out", "keys", "--name", "supplier", "--prefix", "io.supplier-a");
+        Done("keygen", "--out", "keys", "--name", "other", "--prefix", "io.supplier-a");
+        Done("init", "handoff", "--id", "io.supplier-a.handoff", "--publisher", publisher, "--audience", "https://buyer-b.example/profile/card#agent");
+        Done("build", "handoff", "--out", "handoff.ampack", "--key", At("keys", "supplier.key.pem"));
+
+        Refused("receipt", "sign", "handoff.ampack", "--location", "https://supplier-a.example/a.ampack", "--key", At("keys", "other.key.pem"), "--out", "r.json")
+            .Should().Contain("did not sign this pack as its publisher");
+        Done("receipt", "sign", "handoff.ampack", "--location", "https://supplier-a.example/a.ampack", "--key", At("keys", "supplier.key.pem"), "--out", "r.json",
+            "--denied", "anonymous", "--allowed", "https://buyer-b.example/profile/card#agent");
+    }
+
+    [Fact]
+    public void Text_from_a_pack_reaches_the_terminal_shown_in_explain_scan_and_diff()
+    {
+        // Review 1, M11: the commands used to vet a suspect pack never pass its control characters through.
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.example");
+        Done("init", "loud", "--id", "io.example.loud");
+        var record = Directory.EnumerateFiles(At("loud", "records")).Single();
+        File.WriteAllText(record, "{\"type\":\"LoudNote\",\"key\":\"n\\u001b[2J1\",\"properties\":{\"title\":\"t\",\"text\":\"x\\u001b]0;owned\\u0007\"}}\n");
+        Done("build", "loud", "--out", "loud.ampack", "--key", At("keys", "publisher.key.pem"));
+        Done("init", "quiet", "--id", "io.example.loud");
+        Done("build", "quiet", "--out", "quiet.ampack", "--key", At("keys", "publisher.key.pem"));
+
+        foreach (var output in new[] { Ampack("scan", "loud.ampack").Output, Ampack("diff", "quiet.ampack", "loud.ampack").Output,
+            Ampack("verify", "loud.ampack", "--policy", "nothing.json", "--explain").Output })
+            output.Should().NotContain("\u001b").And.NotContain("\u0007");
+    }
+
+    [Fact]
     public void A_card_travels_in_the_pack_and_an_evaluator_s_certificate_beside_it_until_a_host_that_trusts_it_admits_the_pack()
     {
         // Three parties: the publisher, an independent evaluator (its own key, role evaluator), and the host.
@@ -296,7 +372,7 @@ public sealed class AmpackCommandLineTests : IDisposable
         Done("inspect", "notes.ampack").Should().Contain("Card    Example Team");
 
         // The evaluator ran the trial on its own tasks; its gate signed the decision with the lab's host key.
-        Refused("certify", "notes.ampack", "--policy", "trust.json", "--activations", "lab-decisions", "--activation-key", At("keys", "lab-host.pub.pem"),
+        Refused("certify", "notes.ampack", "--policy", "trust.json", "--activations", "lab-decisions", "--host-key", At("keys", "lab-host.pub.pem"),
             "--key", At("keys", "evaluator.key.pem"), "--evaluator", "Example Lab", "--task-source", "40 changes", "--out", "x.ampack").Should().Contain("No trial decision for exactly this pack");
         var pack = PackLoader.Load(At("notes.ampack"), PackTrust.Load(At("trust.json")));
         PackTrialGate.DigestOf(pack.Manifest).Should().Be(declarations, "verify prints what a decision binds");
@@ -306,7 +382,7 @@ public sealed class AmpackCommandLineTests : IDisposable
             var arm = new PackTrialMeasurement { Tasks = 40, Hits = 24, Offered = 120, Correct = 30, P95Ms = 12.5 };
             PackActivationFolder.Write(At("lab-decisions"), PackTrialGate.Decide(pack.Manifest, arm, arm with { Hits = 0 }, DateTimeOffset.UtcNow.AddHours(-1), pack.Digest), labHost);
         }
-        Done("certify", "notes.ampack", "--policy", "trust.json", "--activations", "lab-decisions", "--activation-key", At("keys", "lab-host.pub.pem"),
+        Done("certify", "notes.ampack", "--policy", "trust.json", "--activations", "lab-decisions", "--host-key", At("keys", "lab-host.pub.pem"),
             "--key", At("keys", "evaluator.key.pem"), "--evaluator", "Example Lab", "--task-source", "40 changes from the lab's repository", "--out", "certified.ampack")
             .Should().Contain("Certified io.example.notes 0.1.0 (passed").And.Contain($"digest  {digest} (unchanged)");
 
@@ -321,9 +397,9 @@ public sealed class AmpackCommandLineTests : IDisposable
         Done("verify", "certified.ampack", "--policy", "publisher-only.json").Should().Contain("not trusted here", "an untrusted certificate never refuses the pack");
 
         // A host that trusts certificates for io.example admits it on the certificate, signed with its own key.
-        Refused("admit", "certified.ampack", "--policy", "publisher-only.json", "--host-key", At("keys", "host.key.pem"), "--activations", "host-decisions")
+        Refused("admit", "certified.ampack", "--policy", "publisher-only.json", "--host-signing-key", At("keys", "host.key.pem"), "--activations", "host-decisions")
             .Should().Contain("None of the 1 certificate(s)");
-        Done("admit", "certified.ampack", "--policy", "trust.json", "--host-key", At("keys", "host.key.pem"), "--activations", "host-decisions")
+        Done("admit", "certified.ampack", "--policy", "trust.json", "--host-signing-key", At("keys", "host.key.pem"), "--activations", "host-decisions")
             .Should().Contain("Admitted io.example.notes 0.1.0").And.Contain("basis   certificate sha256:").And.Contain("TrustCertificatesFor");
         var record = Directory.EnumerateFiles(At("host-decisions")).Should().ContainSingle().Subject;
         record.Should().EndWith("-certificate.dsse.json");

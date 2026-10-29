@@ -98,7 +98,7 @@ try {
     Step 'The evaluator turns its signed decision into an AEF run and signs a certificate that travels beside the pack'
     Ampack evidence --activations lab-decisions --host-key keys/lab-host.pub.pem --pack io.agentmemory.packs.codemap --out run
     if ($AgentEval) { & $AgentEval aef seal run --sealed-by ingest; if ($LASTEXITCODE -ne 0) { throw 'aef seal failed.' } }
-    Ampack certify codemap.ampack --policy trust.json --activations lab-decisions --activation-key keys/lab-host.pub.pem `
+    Ampack certify codemap.ampack --policy trust.json --activations lab-decisions --host-key keys/lab-host.pub.pem `
         --key keys/evaluator.key.pem --evaluator 'Example Lab' --task-source 'recent commits of agent-memory-dotnet' --aef run --out codemap.certified.ampack
 
     Step 'A host reads it: by a key it names as evaluator, for exactly this pack, with the run it summarises; the digest is unchanged'
@@ -106,7 +106,7 @@ try {
     Ampack verify codemap.certified.ampack --policy trust.json
 
     Step 'The host records a decision from the certificate, signed with its own key'
-    Ampack admit codemap.certified.ampack --policy trust.json --host-key keys/host.key.pem --activations host-decisions
+    Ampack admit codemap.certified.ampack --policy trust.json --host-signing-key keys/host.key.pem --activations host-decisions
 
     Step 'Proven here is the default: the certificate counts only where this host trusts certificates for the namespace'
     Write-Host '  default (proven here):'
@@ -117,7 +117,7 @@ try {
     Step 'A host that does not name the evaluator still sees the certificate, untrusted, and admits nothing on it'
     [IO.File]::WriteAllText((Join-Path $work 'publisher-only.json'), (@{ format = 'agentmemory.pack.trust/1.1'; keys = @($publisher) } | ConvertTo-Json -Depth 5 -Compress))
     Ampack verify codemap.certified.ampack --policy publisher-only.json
-    Ampack -MayRefuse admit codemap.certified.ampack --policy publisher-only.json --host-key keys/host.key.pem --activations other-decisions
+    Ampack -MayRefuse admit codemap.certified.ampack --policy publisher-only.json --host-signing-key keys/host.key.pem --activations other-decisions
 }
 finally {
     Pop-Location

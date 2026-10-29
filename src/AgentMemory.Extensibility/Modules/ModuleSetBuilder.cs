@@ -187,8 +187,8 @@ public sealed class ModuleSetBuilder
         if (idPrefixes.Length == 0) throw new ArgumentException("Name at least one pack id prefix.", nameof(idPrefixes));
         foreach (var prefix in idPrefixes)
         {
-            if (string.IsNullOrWhiteSpace(prefix) || prefix.Any(char.IsWhiteSpace) || prefix.StartsWith('.') || prefix.Contains("..", StringComparison.Ordinal))
-                throw new ArgumentException($"'{prefix}' is not a pack id prefix.", nameof(idPrefixes));
+            if (!IsValidPrefix(prefix))
+                throw new ArgumentException($"'{prefix}' is not a pack id prefix (lowercase segments such as io.example).", nameof(idPrefixes));
             _mandatoryTrials.Add(prefix);
         }
         return this;
@@ -207,8 +207,8 @@ public sealed class ModuleSetBuilder
         if (idPrefixes.Length == 0) throw new ArgumentException("Name at least one pack id prefix.", nameof(idPrefixes));
         foreach (var prefix in idPrefixes)
         {
-            if (string.IsNullOrWhiteSpace(prefix) || prefix.Any(char.IsWhiteSpace) || prefix.StartsWith('.') || prefix.Contains("..", StringComparison.Ordinal))
-                throw new ArgumentException($"'{prefix}' is not a pack id prefix.", nameof(idPrefixes));
+            if (!IsValidPrefix(prefix))
+                throw new ArgumentException($"'{prefix}' is not a pack id prefix (lowercase segments such as io.example).", nameof(idPrefixes));
             _certificateTrust.Add(prefix);
         }
         return this;
@@ -233,6 +233,16 @@ public sealed class ModuleSetBuilder
     /// </summary>
     internal static bool Covers(string prefix, string id) =>
         id == prefix || id.StartsWith(prefix.EndsWith('.') ? prefix : prefix + ".", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether <paramref name="prefix"/> is a pack id prefix, by the same rule as a trust policy's (review 1, L17): one or more
+    /// lowercase id segments, optionally ending with a dot, at most 64 characters. A prefix that could never cover an id (say,
+    /// upper case) is refused rather than leaving its namespace silently ungated.
+    /// </summary>
+    internal static bool IsValidPrefix(string? prefix) => prefix is { Length: > 0 and <= 64 } && PrefixRule.IsMatch(prefix);
+
+    private static readonly System.Text.RegularExpressions.Regex PrefixRule = new(
+        @"\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*\.?\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>The configuration module options bind from; by default the host's registered <see cref="IConfiguration"/>.</summary>
     public ModuleSetBuilder UseConfiguration(IConfiguration configuration)

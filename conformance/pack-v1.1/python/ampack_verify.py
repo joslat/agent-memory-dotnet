@@ -9,9 +9,12 @@ It must agree with `ampack verify` on every vector in ../vectors (see run_vector
 It also checks the federated profile (federated packs §3-§5): the publisher WebID bound to the signing key by the host's
 policy, the host inside the audience, and a publication receipt for one URL and the exact archive bytes.
 
+It also verifies an evaluation certificate (v1.2 §16) with --certificate: one carried in META/attestations/ or a file.
+
 usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>...] [--receipt <file> --location <url>]
-       exit 0 verified, 1 refused
-Needs: Python 3.10+, the `cryptography` package.
+       [--certificate <META/attestations/...|file>]
+       exit 0 verified, 1 refused, 2 usage or a defect
+Needs: Python 3.12 (its Unicode 15.0 data decides NFC exactly as .NET's tables do), the `cryptography` package.
 """
 import base64
 import hashlib
@@ -79,6 +82,8 @@ ROLES = {"publisher", "curator", "assurer"}
 SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 DEVICES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){2,}")
+# A pack id prefix: one or more id segments, optionally ending with a dot (as .NET's PackManifest.IsValidPrefix).
+PREFIX = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*\.?")
 SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", re.ASCII)
 SIGNED_AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", re.ASCII)
 KEY_ROLES = {"publisher", "curator", "assurer", "evaluator", "revoker"}
@@ -114,6 +119,8 @@ def read_zip(data):
     files, cursor, pos, previous, folded, unpacked = {}, 0, cd_start, None, set(), 0
     for _ in range(n):
         h = data[pos:pos + 46]
+        if len(h) < 46:  # a truncated central directory is a refusal, as .NET's reader says (review 1, L11)
+            raise Refused("a central entry is truncated")
         (sig, made, need, flags, method, time, date, crc, csize, size, nlen, xlen, clen, dsk, iattr, eattr, off) = struct.unpack("<IHHHHHHIIIHHHHHII", h)
         name_bytes = data[pos + 46:pos + 46 + nlen]
         if sig != 0x02014B50 or any(b < 0x20 or b > 0x7E for b in name_bytes):
@@ -1081,6 +1088,15 @@ def valid_version(text):
     return not any(len(p) > 1 and p[0] == "0" and p.isdigit() for p in prerelease.split(".")) if prerelease else True
 
 
+def closed(value, fields, what):
+    """An object holding only the fields named (as .NET's TrustPolicy.Closed)."""
+    if not isinstance(value, dict):
+        raise Refused(f"{what} is not an object")
+    unknown = sorted(set(value) - fields)
+    if unknown:
+        raise Refused(f"{what} holds a field the trust policy does not define: '{unknown[0]}'")
+
+
 def load_policy(raw):
     """The host's trust policy, as .NET reads it: a BOM and CRLF are tolerated, the JSON profile holds, every key is
     checked (its id is the SHA-256 of its key, it names prefixes and known roles), no key is listed twice, times are RFC 3339,
@@ -1092,15 +1108,20 @@ def load_policy(raw):
     if text.startswith("\ufeff"):
         text = text[1:]
     policy = profile(text.replace("\r\n", "\n").encode("utf-8"))
-    if not isinstance(policy, dict) or policy.get("format") != "agentmemory.pack.trust/1.1":
+    # Review 1, H3: every level is closed, as .NET reads it; a misspelt field is refused, never ignored.
+    closed(policy, {"format", "keys", "revoked", "requireRoles", "host"}, "the trust policy")
+    if policy.get("format") != "agentmemory.pack.trust/1.1":
         raise Refused("the trust policy must name format 'agentmemory.pack.trust/1.1'")
     seen = set()
     for key in policy.get("keys", []) if isinstance(policy.get("keys", []), list) else [None]:
         if not isinstance(key, dict) or not isinstance(key.get("keyId"), str) or not isinstance(key.get("publicKey"), str):
             raise Refused("the trust policy has a malformed key")
+        closed(key, {"keyId", "publicKey", "idPrefixes", "roles", "notBefore", "notAfter", "webId"}, "a trusted key")
         prefixes, roles = key.get("idPrefixes", []), key.get("roles", [])
         if not isinstance(prefixes, list) or not prefixes or not all(isinstance(p, str) for p in prefixes):
             raise Refused("a trusted key names no pack id prefixes")
+        if not all(len(p) <= 64 and PREFIX.fullmatch(p) for p in prefixes):
+            raise Refused("a trusted key names something that is not a pack id prefix")
         if not isinstance(roles, list) or not roles or not all(isinstance(r, str) and r in KEY_ROLES for r in roles):
             raise Refused("a trusted key needs known roles")
         if "revoker" in roles and len(roles) > 1:
@@ -1129,11 +1150,17 @@ def load_policy(raw):
     revoked = policy.get("revoked", {})
     if not isinstance(revoked, dict):
         raise Refused("the trust policy has a malformed revoked section")
+    closed(revoked, {"digests", "keys", "expires"}, "'revoked'")
     if not isinstance(revoked.get("digests", []), list) or not all(isinstance(d, str) for d in revoked.get("digests", [])):
         raise Refused("the trust policy has a malformed revoked digest list")
+    if not all(DIGEST.fullmatch(d) for d in revoked.get("digests", [])):
+        raise Refused("a revoked digest is not sha256: and 64 lowercase hexadecimal digits")
     for r in revoked.get("keys", []) if isinstance(revoked.get("keys", []), list) else [None]:
         if not isinstance(r, dict) or not isinstance(r.get("keyId"), str):
             raise Refused("the trust policy has a malformed revoked key")
+        closed(r, {"keyId", "compromisedAt"}, "a revoked key")
+        if not KEY_ID.fullmatch(r["keyId"]):
+            raise Refused("a revoked key id is not 64 lowercase hexadecimal digits")
         present_time(r, "compromisedAt")
     present_time(revoked, "expires")
     if "host" in policy:
@@ -1155,23 +1182,29 @@ def main(argv):
         print(f"error: this verifier decides with Unicode {UNICODE_VERSION} data; this Python has {unicodedata.unidata_version} (use Python 3.12)")
         return 2
     args = list(argv[1:])
-    receipt_path = location = None
-    if "--receipt" in args:
-        i = args.index("--receipt")
-        receipt_path = args[i + 1]
+    usage = "usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>...] [--receipt <file> --location <url>] [--certificate <path>]"
+
+    def option(name):
+        if name not in args:
+            return None
+        i = args.index(name)
+        if i + 1 >= len(args):
+            raise IndexError(name)
+        value = args[i + 1]
         del args[i:i + 2]
-    if "--location" in args:
-        i = args.index("--location")
-        location = args[i + 1]
-        del args[i:i + 2]
+        return value
+    # A usage error is exit 2, never 1, which reads as a refusal (review 1, L11).
+    try:
+        receipt_path, location, certificate_path = option("--receipt"), option("--location"), option("--certificate")
+    except IndexError as missing:
+        print(f"error: {missing} needs a value\n{usage}")
+        return 2
     if (receipt_path is None) != (location is None):
         print("error: --receipt and --location go together")
         return 2
-    certificate_path = None
-    if "--certificate" in args:
-        i = args.index("--certificate")
-        certificate_path = args[i + 1]
-        del args[i:i + 2]
+    if len(args) < 2 or any(a.startswith("--") for a in args):
+        print(usage)
+        return 2
     pack_path, policy_path = args[0], args[1]
     now = datetime.now(timezone.utc)
     try:

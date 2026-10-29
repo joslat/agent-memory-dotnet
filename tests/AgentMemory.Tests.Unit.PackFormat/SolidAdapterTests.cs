@@ -18,6 +18,25 @@ public sealed class SolidAdapterTests
     private static IReadOnlyList<RdfTriple> Parse(string text, string baseIri = Base) => Turtle.Parse(text, baseIri);
 
     [Fact]
+    public void A_document_that_expands_far_beyond_its_own_size_is_refused_before_it_costs_memory()
+    {
+        // Review 1, H4: a long base (or prefix) and many short terms. Before the budget each term was a fresh long string, all
+        // kept alive by the triple cap: a 1 MiB profile could ask for gigabytes.
+        var longBase = "https://e.example/" + new string('a', 4000) + "/";
+        var statements = string.Concat(Enumerable.Repeat("<a> <a> <a> .\n", 32_000));
+        var started = DateTime.UtcNow;
+        FluentActions.Invoking(() => Parse($"@base <{longBase}> .\n" + statements)).Should().Throw<InvalidDataException>().WithMessage("*expand*");
+        FluentActions.Invoking(() => Parse($"@prefix p: <{longBase}> .\n" + string.Concat(Enumerable.Repeat("p:a p:a p:a .\n", 32_000))))
+            .Should().Throw<InvalidDataException>().WithMessage("*expand*");
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(10));
+        // One term too long on its own, an IRI or a literal.
+        FluentActions.Invoking(() => Parse($"<{new string('a', 5000)}> <a> <a> .")).Should().Throw<InvalidDataException>().WithMessage("*longer than 4,096*");
+        FluentActions.Invoking(() => Parse($"<a> <a> \"{new string('x', 70_000)}\" .")).Should().Throw<InvalidDataException>().WithMessage("*longer than 65,536*");
+        // An ordinary document with prefixes reads as before.
+        Parse(string.Concat(Enumerable.Range(0, 2000).Select(i => $"<#e{i}> <http://xmlns.com/foaf/0.1/name> \"name {i}\" .\n"))).Should().HaveCount(2000);
+    }
+
+    [Fact]
     public void A_profile_as_a_Solid_server_writes_it_is_read()
     {
         var triples = Parse("""

@@ -65,6 +65,9 @@ public sealed class PackRequireTests : IDisposable
     [InlineData(".io")]
     [InlineData("io..example")]
     [InlineData("io example")]
+    [InlineData("IO.Example")]
+    [InlineData("io.example..")]
+    [InlineData("io.-example")]
     public void A_namespace_is_a_pack_id_prefix(string prefix) =>
         FluentActions.Invoking(() => new ServiceCollection().AddAgentMemoryModules(m => m.RequireTrialsFor(prefix)))
             .Should().Throw<ArgumentException>();
@@ -80,6 +83,26 @@ public sealed class PackRequireTests : IDisposable
     {
         ModuleSetBuilder.Covers(prefix, id).Should().Be(covered);
         PackManifest.Covers(prefix, id).Should().Be(covered, "the trust policy and the trial requirement scope ids by one rule");
+    }
+
+    [Theory]
+    [InlineData("io", true)]
+    [InlineData("io.example", true)]
+    [InlineData("io.example.", true)]
+    [InlineData("io.ex-ample.dojo", true)]
+    [InlineData("", false)]
+    [InlineData(".io", false)]
+    [InlineData("io..example", false)]
+    [InlineData("io.example..", false)]
+    [InlineData("IO.Example", false)]
+    [InlineData("io.-example", false)]
+    [InlineData("io example", false)]
+    [InlineData("io.1example", false)]
+    public void A_prefix_is_valid_by_one_rule_for_the_trust_policy_and_the_hosts_namespaces(string prefix, bool valid)
+    {
+        // Review 1, L17: the two rules are twins; this keeps them the same.
+        ModuleSetBuilder.IsValidPrefix(prefix).Should().Be(valid);
+        PackManifest.IsValidPrefix(prefix).Should().Be(valid);
     }
 
     private PackActivationFolder Activations() => new(_folder, _host.ExportSubjectPublicKeyInfoPem());

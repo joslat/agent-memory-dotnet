@@ -17,7 +17,7 @@ internal sealed record RevokedKey(string KeyId, DateTimeOffset? CompromisedAt);
 /// The host's trust policy: scoped keys, revocations, and the roles a pack must be signed in. Set by the host's operator,
 /// never by a pack, a request, an MCP tool or a model. There is no "allow unsigned" setting.
 /// </summary>
-internal sealed record TrustPolicy
+internal sealed partial record TrustPolicy
 {
     internal const string Format = "agentmemory.pack.trust/1.1";
 
@@ -88,12 +88,16 @@ internal sealed record TrustPolicy
         if (PackJson.Check(bytes) is { } problem) throw new InvalidDataException($"The trust policy {problem}.");
         using var document = JsonDocument.Parse(bytes);
         var root = document.RootElement;
+        // Review 1, H3: every level is closed, as every other document of the format is. A misspelt field (requiredRoles,
+        // notafter, revoked.digest) would otherwise be ignored and the policy would silently trust more than its author meant.
+        Closed(root, "The trust policy", "format", "keys", "revoked", "requireRoles", "host");
         if (!root.TryGetProperty("format", out var format) || format.GetString() != Format)
             throw new InvalidDataException($"The trust policy must name format '{Format}'.");
         var keys = new List<TrustedKey>();
         if (root.TryGetProperty("keys", out var keyArray))
             foreach (var k in keyArray.EnumerateArray())
             {
+                Closed(k, "A key in the trust policy", "keyId", "publicKey", "idPrefixes", "roles", "notBefore", "notAfter", "webId");
                 var pem = k.GetProperty("publicKey").GetString() ?? throw new FormatException("A key's publicKey is a string.");
                 var keyId = k.GetProperty("keyId").GetString() ?? throw new FormatException("A key's keyId is a string.");
                 if (keys.Any(known => known.KeyId == keyId)) throw new InvalidDataException($"Key {Dsse.Short(keyId)} is listed twice.");
@@ -106,6 +110,8 @@ internal sealed record TrustPolicy
                 }
                 var prefixes = Strings(k, "idPrefixes");
                 if (prefixes.Count == 0) throw new InvalidDataException($"Key {Dsse.Short(keyId)} names no pack id prefixes: a key that may sign anything is refused.");
+                if (prefixes.FirstOrDefault(p => !PackManifest.IsValidPrefix(p)) is { } badPrefix)
+                    throw new InvalidDataException($"Key {Dsse.Short(keyId)} names '{badPrefix}', which is not a pack id prefix (lowercase segments such as io.example).");
                 var roles = Strings(k, "roles");
                 if (roles.Count == 0 || roles.Any(r => !KeyRoles.Contains(r))) throw new InvalidDataException($"Key {Dsse.Short(keyId)} needs known roles.");
                 // A revoker signs revocation lists only: a key that also signs packs would let a revocation of it, read as a
@@ -130,11 +136,19 @@ internal sealed record TrustPolicy
         DateTimeOffset? expires = null;
         if (root.TryGetProperty("revoked", out var revoked))
         {
+            Closed(revoked, "'revoked'", "digests", "keys", "expires");
             revokedDigests.AddRange(Strings(revoked, "digests"));
+            // A revoked digest or key id that is not in its grammar would never match anything: refused, not ignored.
+            if (revokedDigests.FirstOrDefault(d => !DigestPattern().IsMatch(d)) is { } badDigest)
+                throw new InvalidDataException($"The revoked digest '{badDigest}' is not sha256: and 64 lowercase hexadecimal digits.");
             if (revoked.TryGetProperty("keys", out var rk))
                 foreach (var r in rk.EnumerateArray())
-                    revokedKeys.Add(new RevokedKey(r.GetProperty("keyId") is { ValueKind: JsonValueKind.String } id ? id.GetString()! : throw new FormatException("A revoked key's keyId is a string."),
-                        Time(r, "compromisedAt")));
+                {
+                    Closed(r, "A revoked key", "keyId", "compromisedAt");
+                    var revokedId = r.GetProperty("keyId") is { ValueKind: JsonValueKind.String } id ? id.GetString()! : throw new FormatException("A revoked key's keyId is a string.");
+                    if (!KeyIdPattern().IsMatch(revokedId)) throw new InvalidDataException($"The revoked key id '{revokedId}' is not 64 lowercase hexadecimal digits.");
+                    revokedKeys.Add(new RevokedKey(revokedId, Time(r, "compromisedAt")));
+                }
             expires = Time(revoked, "expires");
         }
         var required = root.TryGetProperty("requireRoles", out _) ? Strings(root, "requireRoles") : ["publisher"];
@@ -155,6 +169,20 @@ internal sealed record TrustPolicy
             HostWebIds = hostWebIds,
         };
     }
+
+    // An object holding only the fields named; anything else in it makes the policy malformed.
+    private static void Closed(JsonElement element, string what, params string[] fields)
+    {
+        if (element.ValueKind != JsonValueKind.Object) throw new InvalidDataException($"{what} is not an object.");
+        if (element.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => !fields.Contains(n, StringComparer.Ordinal)) is { } unknown)
+            throw new InvalidDataException($"{what} holds a field the trust policy does not define: '{unknown}' (it takes {string.Join(", ", fields)}).");
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\Asha256:[0-9a-f]{64}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex DigestPattern();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\A[0-9a-f]{64}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex KeyIdPattern();
 
     // A list of strings: absent is empty; anything but an array of strings makes the policy malformed.
     private static IReadOnlyList<string> Strings(JsonElement element, string name)

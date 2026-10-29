@@ -387,6 +387,25 @@ def main():
     vectors["policy-with-an-rsa-key"] = (dict(base), "trust-rsa-key.json", "refused")
     vectors["policy-with-two-boms"] = (dict(base), "trust-two-boms.json", "refused")
     vectors["policy-with-one-bom"] = (dict(base), "trust-one-bom.json", "verified")
+    # Review 1, H3: a misspelt or malformed policy field is refused by both verifiers, never ignored.
+    for name, body in {
+        "trust-misspelt-require-roles.json": {"keys": [entry], "requiredRoles": ["publisher", "curator"]},
+        "trust-key-misspelt-not-after.json": {"keys": [dict(entry, notafter="2020-01-01T00:00:00Z")]},
+        "trust-revoked-misspelt-digests.json": {"keys": [entry], "revoked": {"digest": ["sha256:" + "0" * 64]}},
+        "trust-revoked-digest-uppercase.json": {"keys": [entry], "revoked": {"digests": ["SHA256:" + "A" * 64]}},
+        "trust-revoked-key-id-short.json": {"keys": [entry], "revoked": {"keys": [{"keyId": "abc"}]}},
+        "trust-revoked-key-extra-field.json": {"keys": [entry], "revoked": {"keys": [{"keyId": "0" * 64, "reason": "lost"}]}},
+        "trust-prefix-uppercase.json": {"keys": [dict(entry, idPrefixes=["IO.Example"])]},
+        "trust-prefix-trailing-dot.json": {"keys": [dict(entry, idPrefixes=["io.example."])]},
+        "trust-root-extra-field.json": {"keys": [entry], "comment": "a note"},
+    }.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    for name, expected in (("trust-misspelt-require-roles.json", "refused"), ("trust-key-misspelt-not-after.json", "refused"),
+                           ("trust-revoked-misspelt-digests.json", "refused"), ("trust-revoked-digest-uppercase.json", "refused"),
+                           ("trust-revoked-key-id-short.json", "refused"), ("trust-revoked-key-extra-field.json", "refused"),
+                           ("trust-prefix-uppercase.json", "refused"), ("trust-prefix-trailing-dot.json", "verified"),
+                           ("trust-root-extra-field.json", "refused")):
+        vectors["policy-" + name[len("trust-"):-len(".json")]] = (dict(base), name, expected)
     vectors["policy-not-utf8"] = (dict(base), "trust-not-utf8.json", "refused")
     # The fourth review's: a key on another curve, a version numeral too long to read, members named by non-strings.
     p384 = ec.generate_private_key(ec.SECP384R1()).public_key()
@@ -838,7 +857,7 @@ def main():
         "signatures": [{"keyid": "host", "sig": base64.b64encode(host.sign(py.pae(decision_payload), ec.ECDSA(hashes.SHA256()))).decode()}]}),
         encoding="utf-8")
     code, text = ampack("certify", str(work / "cert-pack.ampack"), "--policy", str(OUT / "trust-evaluator.json"),
-                        "--activations", str(work / "decisions"), "--activation-key", str(work / "keys" / "host.pub.pem"),
+                        "--activations", str(work / "decisions"), "--host-key", str(work / "keys" / "host.pub.pem"),
                         "--key", str(work / "keys" / "evaluator.key.pem"), "--evaluator", "Kit evaluator (.NET)",
                         "--task-source", "the kit's synthetic tasks", "--out", str(work / "cert-dotnet.ampack"))
     assert code == 0, text

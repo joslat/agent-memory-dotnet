@@ -13,7 +13,9 @@ namespace Ampack;
 internal static partial class Program
 {
     private const string Usage = """
-        ampack <command> [options]
+        ampack <command> [options]          ampack <command> --help          ampack --version
+        Exit codes: 0 done; 1 refused (a pack, a file or a check that does not hold); 2 usage (including an option the
+        command does not take); 3 the ledger is held by another run; 4 an unexpected error.
 
           init <folder> --id <reverse.dns.id> [--kind knowledge|definition] [--version 0.1.0] [--owner <name>]
                [--publisher <WebID> --audience public|<WebID,…> [--purpose <text>]]
@@ -33,10 +35,12 @@ internal static partial class Program
                                  what changed between two packs: identity, every declared value (ontology, views,
                                  walk, trial, ...), every record by type and key, every file; --policy verifies both first
           keygen --out <folder> [--name <name>] [--prefix <id.prefix>] [--role publisher|curator|assurer|evaluator|revoker]
-                 [--protect dpapi] [--policy <trust.json>]
+                 [--protect dpapi | --passphrase-env <VARIABLE>] [--policy <trust.json>]
                                  a P-256 key pair and a trust-policy entry for it; --protect dpapi keeps the
                                  private key encrypted for this Windows user (use it as --key dpapi:<file>);
-                                 --policy adds the key to a trust policy file, creating it when missing
+                                 --passphrase-env writes it encrypted (PKCS#8, AES-256) with the passphrase in that
+                                 variable, and every command then opens it with AMPACK_KEY_PASSPHRASE; the private key
+                                 file is readable by its owner only; --policy adds the key to a trust policy file
           Every --key also takes env:<VARIABLE> or dpapi:<file>; or sign with --signer "<command>" --public <pub.pem>
           for an OS keychain, KMS or HSM (the command reads the bytes to sign, prints the signature in base64).
           sign-bytes --key <private.pem> [--p1363]
@@ -86,7 +90,7 @@ internal static partial class Program
                                  bytes, an audience no wider than the pack's (default: the pack's), and what was probed
           receipt verify <pack.ampack> <receipt> --location <url> --policy <trust.json> [--revocations <file>]
                                  verify the pack and its receipt as a host fetching it from that URL does
-          certify <pack.ampack> --policy <trust.json> --activations <folder> --activation-key <host.pub.pem>
+          certify <pack.ampack> --policy <trust.json> --activations <folder> --host-key <its gate's host.pub.pem>
                   --key <...> --evaluator <name> --task-source <text> [--aef <run-folder>] --out <file.ampack>
                                  as an evaluator: sign an evaluation certificate from your own trial decision for exactly
                                  this pack (evaluate --gate), with the AEF run beside it (ampack evidence, sealed by
@@ -94,7 +98,7 @@ internal static partial class Program
           certificate verify <pack.ampack> --policy <trust.json> [--certificate META/attestations/<name> | <file>]
                                  verify the pack and its certificates as a host does: a key the policy names as
                                  evaluator for the pack's id, this exact pack, and the AEF run's hash when it travels with it
-          admit <pack.ampack> --policy <trust.json> --host-key <host.key.pem> --activations <folder>
+          admit <pack.ampack> --policy <trust.json> --host-signing-key <host.key.pem> --activations <folder>
                                  for a host that trusts certificates for this pack's namespace: record a decision from the
                                  latest trusted certificate covering the trial the pack declares, signed with the host's
                                  key; it counts only where the host composes with TrustCertificatesFor (proven here,
@@ -134,9 +138,12 @@ internal static partial class Program
         // Messages name packs, digests and paths with non-ASCII characters (…, ≥); write them as UTF-8 on every console.
         Console.OutputEncoding = System.Text.Encoding.UTF8;
         if (args.Length == 0 || args[0] is "-h" or "--help" or "help") { Console.WriteLine(Usage); return args.Length == 0 ? 2 : 0; }
+        if (args[0] is "--version" or "version") { Console.WriteLine($"ampack {ToolVersion()} (pack format {PackManifest.Format})"); return 0; }
         try
         {
             var options = Options.Parse(args.Skip(1));
+            if (options.Flag("help") || args.Skip(1).Contains("-h")) return CommandHelp(args[0]);
+            CheckOptions(args[0], options);
             return args[0] switch
             {
                 "init" => Init(options),
@@ -174,11 +181,98 @@ internal static partial class Program
         catch (UsageException e) { return Fail(e.Message, 2); }
         // A ledger another run holds is an operational failure, not a refusal (seventh review).
         catch (LedgerBusyException e) { return Fail(e.Message, 3); }
+        // Input that does not hold (a malformed file, a link header, a URL, a value of the wrong JSON type) is a refusal.
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or JsonException or System.Security.Cryptography.CryptographicException
-            or HttpRequestException or TaskCanceledException)
+            or HttpRequestException or TaskCanceledException or FormatException or InvalidOperationException or KeyNotFoundException or System.Net.HttpListenerException)
         {
             return Fail(Shown(e.Message, 4000), 1);
         }
+        // Anything else is a defect: said plainly, with no stack trace, and an exit code of its own (review 1, L10).
+        catch (Exception e) { return Fail($"ampack failed unexpectedly ({e.GetType().Name}): {Shown(e.Message, 1000)}", 4); }
+    }
+
+    // ampack <command> --help: the usage lines for that command.
+    private static int CommandHelp(string command)
+    {
+        var lines = Usage.Split('\n');
+        var start = Array.FindIndex(lines, l => l.StartsWith("  " + command + " ", StringComparison.Ordinal) || l.TrimEnd() == "  " + command);
+        if (start < 0) return Fail($"Unknown command '{command}'.\n\n{Usage}", 2);
+        var end = start + 1;
+        while (end < lines.Length && (lines[end].StartsWith("       ", StringComparison.Ordinal) || lines[end].StartsWith("  " + command + " ", StringComparison.Ordinal))) end++;
+        Console.WriteLine(string.Join('\n', lines[start..end]).TrimEnd());
+        Console.WriteLine($"\nOptions: {string.Join(", ", CommandOptions[command].Order(StringComparer.Ordinal).Select(n => "--" + n))}");
+        return 0;
+    }
+
+    // The library's version, which is what decides: the format, the verifier and the gate (without build metadata).
+    private static string ToolVersion() =>
+        (System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(PackManifest).Assembly)
+            ?.InformationalVersion ?? "unknown").Split('+')[0];
+
+    // Review 1, H2: an option a command does not take is a usage error, never ignored, so a typo cannot drop a trust input
+    // (--revocation for --revocations, --legder for --ledger). Shared helpers read the same names everywhere.
+    private static readonly string[] SignerOptions = ["key", "signer", "public"], TrustOptions = ["policy", "revocations"];
+    private static readonly Dictionary<string, HashSet<string>> CommandOptions = new Dictionary<string, string[]>
+    {
+        ["init"] = ["id", "version", "kind", "owner", "publisher", "audience", "purpose"],
+        ["lint"] = [.. TrustOptions],
+        ["build"] = ["out", "role", "stored", .. SignerOptions],
+        ["sign"] = ["role", .. SignerOptions],
+        ["verify"] = ["ledger", "record", "allow-downgrade", "explain", .. TrustOptions],
+        ["inspect"] = [],
+        ["diff"] = ["json", .. TrustOptions],
+        ["keygen"] = ["out", "name", "prefix", "role", "protect", "passphrase-env", "policy"],
+        ["revoke"] = ["digests", "keys", "expires", .. SignerOptions],
+        ["ledger"] = ["ledger", "store", "retire-revocations"],
+        ["sign-bytes"] = ["key", "p1363"],
+        ["lock"] = [],
+        ["migrate"] = ["out"],
+        ["set"] = ["id", "version", "role", "stored", .. SignerOptions],
+        ["test"] = ["store", .. TrustOptions],
+        ["evidence"] = ["activations", "host-key", "pack", "version", "out"],
+        ["scan"] = ["aef", .. TrustOptions],
+        ["countersign"] = ["out", "role", .. SignerOptions],
+        ["serve"] = ["store", "http", "allow-remote", .. TrustOptions],
+        ["install"] = ["store", "allow-downgrade", .. TrustOptions],
+        ["uninstall"] = ["store"],
+        ["list"] = ["store"],
+        ["receipt"] = ["location", "audience", "access", "denied", "allowed", "out", .. SignerOptions, .. TrustOptions],
+        ["certify"] = ["activations", "host-key", "evaluator", "task-source", "aef", "tool", "tool-version", "out", .. SignerOptions, .. TrustOptions],
+        ["certificate"] = ["certificate", .. TrustOptions],
+        ["admit"] = ["host-signing-key", "activations", .. TrustOptions],
+        ["gate"] = ["activations", "host-key", "require-trials-for", "trust-certificates-for", .. TrustOptions],
+        ["solid"] = ["allow-loopback-http", "webid", "audience", "probe-as", "probe-stranger", "from", "id", "no-recheck", "store", "allow-downgrade", .. SignerOptions, .. TrustOptions],
+        ["trust"] = ["allow-loopback-http", "key", "prefix", "role", "host-webid", "policy"],
+    }.ToDictionary(c => c.Key, c => new HashSet<string>(c.Value, StringComparer.Ordinal), StringComparer.Ordinal);
+
+    private static void CheckOptions(string command, Options options)
+    {
+        if (!CommandOptions.TryGetValue(command, out var allowed)) return; // an unknown command is reported by the dispatch
+        foreach (var name in options.Names.Where(n => n != "help" && !allowed.Contains(n)))
+        {
+            var closest = allowed.MinBy(a => Distance(a, name));
+            throw new UsageException($"ampack {command} takes no --{name}"
+                + (closest is not null && Distance(closest, name) <= 3 ? $"; did you mean --{closest}?" : ".")
+                + (allowed.Count > 0 ? $" Its options: {string.Join(", ", allowed.Order(StringComparer.Ordinal).Select(n => "--" + n))}." : " It takes no options."));
+        }
+    }
+
+    // Edit distance, for suggesting the option a typo meant.
+    private static int Distance(string a, string b)
+    {
+        var row = Enumerable.Range(0, b.Length + 1).ToArray();
+        for (var i = 1; i <= a.Length; i++)
+        {
+            var previous = row[0];
+            row[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var current = row[j];
+                row[j] = Math.Min(Math.Min(row[j] + 1, row[j - 1] + 1), previous + (a[i - 1] == b[j - 1] ? 0 : 1));
+                previous = current;
+            }
+        }
+        return row[b.Length];
     }
 
     private static int Init(Options o)
@@ -250,7 +344,7 @@ internal static partial class Program
         Write(folder, PackLayout.Views, Pretty(views));
         if (kind == "knowledge") Write(folder, "records/note.jsonl", record.ToJsonString() + "\n");
         Write(folder, ".gitattributes", PackBuilder.GitAttributes);
-        Console.WriteLine($"Started {id} {version} in {folder}. Next: ampack build {folder}");
+        Console.WriteLine($"Started {id} {version} in {folder}. Next: fill in card.json, then ampack build {folder} --key <private.pem> (a host loads only a signed pack).");
         return 0;
     }
 
@@ -352,7 +446,7 @@ internal static partial class Program
             return Report(refused.Problems, "");
         var report = AgentMemory.Extensibility.Ampack.PackScan.Scan(target);
         foreach (var finding in report.Findings)
-            Console.WriteLine($"  {finding.Severity,-6} {finding.Rule,-34} {finding.File}{(finding.Line > 0 ? ":" + finding.Line : "")} {finding.Path}  {finding.Sample}");
+            Console.WriteLine(Shown($"  {finding.Severity,-6} {finding.Rule,-34} {finding.File}{(finding.Line > 0 ? ":" + finding.Line : "")} {finding.Path}  {finding.Sample}", 2000));
         Console.WriteLine(report.Clean ? $"Clean: {report.Strings} strings in {report.Files} files." : $"{report.Findings.Count} finding(s) in {report.Strings} strings in {report.Files} files.");
         if (o.Value("aef") is { } folder)
         {
@@ -395,8 +489,9 @@ internal static partial class Program
     private static int Verify(Options o)
     {
         var target = o.Positional(0, "folder or file");
-        var policy = Policy(o);
         var ledgerPath = o.Value("ledger");
+        if (o.Flag("record") && ledgerPath is null) throw new UsageException("--record writes the ledger: give --ledger <ledger.json>.");
+        var policy = Policy(o);
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
         var content = PackReader.Read(target);
         Action<PackStep>? explain = o.Flag("explain") ? Explain : null;
@@ -471,19 +566,24 @@ internal static partial class Program
         Directory.CreateDirectory(folder);
         var protect = o.Value("protect");
         if (protect is not (null or "dpapi")) throw new UsageException("--protect dpapi is the one protection keygen applies; use --signer for a keychain or KMS.");
+        var passphraseVariable = o.Value("passphrase-env");
+        if (passphraseVariable is not null && protect is not null) throw new UsageException("--passphrase-env and --protect are two ways to protect the key: choose one.");
+        var passphrase = passphraseVariable is null ? null : Environment.GetEnvironmentVariable(passphraseVariable) is { Length: >= 12 } secret ? secret
+            : throw new UsageException($"--passphrase-env names {passphraseVariable}, which must hold a passphrase of at least 12 characters.");
         if (protect == "dpapi" && !OperatingSystem.IsWindows()) throw new UsageException("--protect dpapi is Windows only.");
         var privatePath = Path.Combine(folder, name + (protect == "dpapi" ? ".key.dpapi" : ".key.pem"));
         if (File.Exists(privatePath)) throw new UsageException($"{privatePath} exists; refusing to overwrite a key.");
         if (protect == "dpapi" && OperatingSystem.IsWindows())
             File.WriteAllBytes(privatePath, System.Security.Cryptography.ProtectedData.Protect(System.Text.Encoding.UTF8.GetBytes(key.PrivateKeyPem), null,
                 System.Security.Cryptography.DataProtectionScope.CurrentUser));
-        else File.WriteAllText(privatePath, key.PrivateKeyPem);
+        else WritePrivate(privatePath, passphrase is null ? key.PrivateKeyPem : EncryptedPem(key.PrivateKeyPem, passphrase));
         File.WriteAllText(Path.Combine(folder, name + ".pub.pem"), key.PublicKeyPem);
         var entry = new JsonObject
         {
             ["keyId"] = key.KeyId, ["publicKey"] = key.PublicKeyPem,
             ["idPrefixes"] = new JsonArray((JsonNode)(o.Value("prefix") ?? "io.example")), ["roles"] = new JsonArray((JsonNode)role),
         };
+        if (o.Value("prefix") is null) Console.WriteLine("Prefix  io.example (the default: pass --prefix with your own namespace before this key signs anything real)");
         Console.WriteLine($"Key id  {key.KeyId}\nPrivate {privatePath}  (keep it secret; never commit it)\nTrust-policy entry:\n{Pretty(entry)}");
         // --policy: the entry added to a trust policy file (created when missing), which is then read back as a host reads it.
         if (o.Value("policy") is { } policyPath)
@@ -536,18 +636,48 @@ internal static partial class Program
     {
         if (o.Value("signer") is { } command)
             return PackSigner.FromCommand(command, File.ReadAllText(o.Value("public") ?? throw new UsageException("--signer needs --public <pub.pem>, the key it signs with.")));
-        var key = o.Required("key");
+        return PackSigner.FromPem(PrivatePem(o.Required("key")));
+    }
+
+    // A private key as PEM, from a file, env:<VARIABLE> or dpapi:<file>; an encrypted PKCS#8 key (keygen --passphrase-env) is
+    // opened with the passphrase in AMPACK_KEY_PASSPHRASE. Every command that signs reads its key here (review 1, M12 and L8).
+    private static string PrivatePem(string key)
+    {
+        string pem;
         if (key.StartsWith("env:", StringComparison.Ordinal))
-            return PackSigner.FromPem(Environment.GetEnvironmentVariable(key[4..]) is { Length: > 0 } pem ? pem
-                : throw new UsageException($"The environment variable {key[4..]} holds no key."));
-        if (key.StartsWith("dpapi:", StringComparison.Ordinal))
+            pem = Environment.GetEnvironmentVariable(key[4..]) is { Length: > 0 } value ? value : throw new UsageException($"The environment variable {key[4..]} holds no key.");
+        else if (key.StartsWith("dpapi:", StringComparison.Ordinal))
         {
-            if (!OperatingSystem.IsWindows()) throw new UsageException("dpapi: keys are Windows only; elsewhere use --signer with the OS keychain.");
-            var pem = System.Text.Encoding.UTF8.GetString(System.Security.Cryptography.ProtectedData.Unprotect(File.ReadAllBytes(key[6..]), null,
+            if (!OperatingSystem.IsWindows()) throw new UsageException("dpapi: keys are Windows only; elsewhere use an encrypted key (keygen --passphrase-env) or --signer.");
+            pem = Encoding.UTF8.GetString(System.Security.Cryptography.ProtectedData.Unprotect(File.ReadAllBytes(key[6..]), null,
                 System.Security.Cryptography.DataProtectionScope.CurrentUser));
-            return PackSigner.FromPem(pem);
         }
-        return PackSigner.FromPem(File.ReadAllText(key));
+        else pem = File.ReadAllText(key);
+        if (!pem.Contains("-----BEGIN ENCRYPTED PRIVATE KEY-----", StringComparison.Ordinal)) return pem;
+        var passphrase = Environment.GetEnvironmentVariable("AMPACK_KEY_PASSPHRASE");
+        if (string.IsNullOrEmpty(passphrase)) throw new UsageException("The key is encrypted: set AMPACK_KEY_PASSPHRASE to its passphrase.");
+        using var ecdsa = System.Security.Cryptography.ECDsa.Create();
+        try { ecdsa.ImportFromEncryptedPem(pem, passphrase); }
+        catch (System.Security.Cryptography.CryptographicException) { throw new UsageException("The key does not open with the passphrase in AMPACK_KEY_PASSPHRASE."); }
+        return ecdsa.ExportPkcs8PrivateKeyPem();
+    }
+
+    // A private key file only its owner can read (on Linux and macOS 0600; on Windows the folder's ACL applies), created new.
+    private static void WritePrivate(string path, string pem)
+    {
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        using var file = new FileStream(path, options);
+        file.Write(Encoding.ASCII.GetBytes(pem));
+    }
+
+    // An encrypted PKCS#8 PEM: AES-256-CBC, key from PBKDF2-SHA256 with 600,000 iterations.
+    private static string EncryptedPem(string pem, string passphrase)
+    {
+        using var ecdsa = System.Security.Cryptography.ECDsa.Create();
+        ecdsa.ImportFromPem(pem);
+        return ecdsa.ExportEncryptedPkcs8PrivateKeyPem(passphrase, new System.Security.Cryptography.PbeParameters(
+            System.Security.Cryptography.PbeEncryptionAlgorithm.Aes256Cbc, System.Security.Cryptography.HashAlgorithmName.SHA256, 600_000));
     }
 
     // The reference signer for --signer: what a keychain, KMS or HSM command must do.
@@ -557,8 +687,8 @@ internal static partial class Program
         var action = o.Positional(0, "receipt action (sign or verify)");
         var archivePath = o.Positional(1, "pack.ampack");
         var location = o.Required("location");
-        var archive = File.ReadAllBytes(archivePath);
-        var content = PackReader.Read(archivePath);
+        var archive = PackReader.ReadArchiveFile(archivePath);
+        var content = PackReader.ReadArchive(archive, archivePath);
         if (action == "verify")
         {
             var policy = Policy(o);
@@ -581,9 +711,12 @@ internal static partial class Program
         if (!federation.IsPublic && (audience is null || audience.Any(a => !federation.Audience!.Contains(a))))
             return Report(["The placement's audience is wider than the pack's: a placement can only narrow it."], "");
         var digest = FilesList.DigestOf(listBytes!);
+        using var signer = Signer(o);
+        // Only a key that signed this pack as its publisher places it (review 1, L13); a host also checks the WebID binding.
+        if (!content.Files.ContainsKey(Dsse.PathFor("publisher", signer.KeyId)))
+            return Report([$"Key {Dsse.Short(signer.KeyId)} did not sign this pack as its publisher: a receipt is signed with the publisher's key."], "");
         var receiptValue = new PublicationReceipt(list!.Id, list.Version, digest, location, FilesList.Hex(archive), audience, access,
             List(o.Value("denied")), List(o.Value("allowed")), DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
-        using var signer = Signer(o);
         var bytes = receiptValue.Sign(signer);
         var outPath = o.Required("out");
         File.WriteAllBytes(outPath, bytes);
@@ -597,7 +730,7 @@ internal static partial class Program
         using var buffer = new MemoryStream();
         input.CopyTo(buffer);
         using var key = System.Security.Cryptography.ECDsa.Create();
-        key.ImportFromPem(File.ReadAllText(o.Required("key")));
+        key.ImportFromPem(PrivatePem(o.Required("key")));
         var format = o.Flag("p1363") ? System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation
             : System.Security.Cryptography.DSASignatureFormat.Rfc3279DerSequence;
         Console.WriteLine(Convert.ToBase64String(key.SignData(buffer.ToArray(), System.Security.Cryptography.HashAlgorithmName.SHA256, format)));
@@ -836,13 +969,15 @@ internal static partial class Program
         {
             AgentMemory.Extensibility.Ampack.PackChange.Added => "+", AgentMemory.Extensibility.Ampack.PackChange.Removed => "-", _ => "~",
         };
-        Console.WriteLine($"{diff.Before.Id} {diff.Before.Version} -> {diff.After.Id} {diff.After.Version}{(diff.Same ? "  (the same pack)" : "")}");
-        Console.WriteLine($"  digest  {diff.Before.Digest} -> {diff.After.Digest}");
+        // Everything below quotes the packs: shown, never trusted (review 1, M11).
+        static void Say(string line) => Console.WriteLine(Shown(line, 2000));
+        Say($"{diff.Before.Id} {diff.Before.Version} -> {diff.After.Id} {diff.After.Version}{(diff.Same ? "  (the same pack)" : "")}");
+        Say($"  digest  {diff.Before.Digest} -> {diff.After.Digest}");
         foreach (var group in diff.Declarations.GroupBy(d => d.File))
         {
-            Console.WriteLine($"  {group.Key}");
+            Say($"  {group.Key}");
             foreach (var change in group)
-                Console.WriteLine($"    {Mark(change.Change)} {change.Path}: " + change.Change switch
+                Say($"    {Mark(change.Change)} {change.Path}: " + change.Change switch
                 {
                     AgentMemory.Extensibility.Ampack.PackChange.Added => Short(change.After!),
                     AgentMemory.Extensibility.Ampack.PackChange.Removed => Short(change.Before!),
@@ -850,16 +985,16 @@ internal static partial class Program
                 });
         }
         var counts = diff.Records.GroupBy(r => r.Change).ToDictionary(g => g.Key, g => g.Count());
-        Console.WriteLine($"  records  +{counts.GetValueOrDefault(AgentMemory.Extensibility.Ampack.PackChange.Added)} " +
+        Say($"  records  +{counts.GetValueOrDefault(AgentMemory.Extensibility.Ampack.PackChange.Added)} " +
             $"-{counts.GetValueOrDefault(AgentMemory.Extensibility.Ampack.PackChange.Removed)} ~{counts.GetValueOrDefault(AgentMemory.Extensibility.Ampack.PackChange.Changed)}, {diff.UnchangedRecords} unchanged");
         foreach (var record in diff.Records.Take(50))
-            Console.WriteLine($"    {Mark(record.Change)} {record.Type} '{record.Key}'" + (record.Change == AgentMemory.Extensibility.Ampack.PackChange.Changed
+            Say($"    {Mark(record.Change)} {record.Type} '{record.Key}'" + (record.Change == AgentMemory.Extensibility.Ampack.PackChange.Changed
                 ? ": " + string.Join(", ", record.Properties) + (record.LinksChanged ? (record.Properties.Count > 0 ? ", links" : "links") : "") : ""));
-        if (diff.Records.Count > 50) Console.WriteLine($"    ... and {diff.Records.Count - 50} more (--json lists all)");
+        if (diff.Records.Count > 50) Say($"    ... and {diff.Records.Count - 50} more (--json lists all)");
         if (diff.Files.Count > 0)
         {
-            Console.WriteLine("  files");
-            foreach (var file in diff.Files) Console.WriteLine($"    {Mark(file.Change)} {file.Path} ({file.Before?.ToString("N0") ?? "-"} -> {file.After?.ToString("N0") ?? "-"} bytes)");
+            Say("  files");
+            foreach (var file in diff.Files) Say($"    {Mark(file.Change)} {file.Path} ({file.Before?.ToString("N0") ?? "-"} -> {file.After?.ToString("N0") ?? "-"} bytes)");
         }
         return 0;
     }
@@ -869,8 +1004,9 @@ internal static partial class Program
     // verify --explain: one line per step, then its details.
     private static void Explain(PackStep step)
     {
-        Console.WriteLine($"{(step.Passed ? "  ok  " : "  FAIL")}  {step.Name}");
-        foreach (var line in step.Lines) Console.WriteLine($"          {line}");
+        // Step lines quote the pack (paths, field names, the purpose): shown, never trusted (review 1, M11).
+        Console.WriteLine($"{(step.Passed ? "  ok  " : "  FAIL")}  {Shown(step.Name, 200)}");
+        foreach (var line in step.Lines) Console.WriteLine($"          {Shown(line, 2000)}");
     }
 
     private static int Report(IEnumerable<string> problems, string success)
@@ -894,7 +1030,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "retire-revocations", "allow-loopback-http", "no-recheck" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "retire-revocations", "allow-loopback-http", "no-recheck", "help" };
     private readonly List<string> _positional = [];
     private readonly Dictionary<string, List<string>> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);
@@ -924,4 +1060,6 @@ internal sealed class Options
     internal IReadOnlyList<string> Values(string name) => _values.TryGetValue(name, out var values) ? values : [];
     internal string Required(string name) => Value(name) ?? throw new UsageException($"Missing --{name}.");
     internal bool Flag(string name) => _flags.Contains(name);
+    /// <summary>Every option and flag given, by name.</summary>
+    internal IEnumerable<string> Names => _values.Keys.Concat(_flags);
 }
