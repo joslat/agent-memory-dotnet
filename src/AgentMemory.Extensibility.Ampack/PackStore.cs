@@ -150,7 +150,9 @@ public sealed class PackStore
                 var version = p.GetProperty("version").GetString()!;
                 if (!PackManifest.IsValidId(id) || !SemVer.TryParse(version, out _)) throw new InvalidDataException($"{index} names a pack that is not a valid id and version.");
                 var file = p.GetProperty("file").GetString()!;
-                if (file != FileFor(id, version)) throw new InvalidDataException($"{index} places {id} {version} at '{file}', not where the store keeps it.");
+                // The name the store derives, or the one it derived before long versions were hashed (review 3: such a store refused itself).
+                if (file != FileFor(id, version) && file != $"{PacksFolder}/{id}@{version}{PackLoader.Extension}")
+                    throw new InvalidDataException($"{index} places {id} {version} at '{file}', not where the store keeps it.");
                 var members = p.TryGetProperty("members", out var list) ? [.. list.EnumerateArray().Select(m => m.GetString()!)] : new List<string>();
                 installed.Add(new InstalledPack(id, version, p.GetProperty("digest").GetString()!, p.GetProperty("kind").GetString()!, file,
                     DateTimeOffset.Parse(p.GetProperty("installedAt").GetString()!, CultureInfo.InvariantCulture)) { Members = members });

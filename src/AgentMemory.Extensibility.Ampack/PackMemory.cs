@@ -144,7 +144,18 @@ public sealed partial class PackMemory : IModuleTraversalReader
             {
                 case "set":
                     var set = PackFamilies.LoadSet(archive, trust);
-                    loaded.AddRange(set.AllPacks);
+                    // A member its composite switches off, or one inside a composite switched off, is not mounted: a host composing the
+                    // family leaves it off by default (review 3).
+                    var switchedOff = new HashSet<string>(StringComparer.Ordinal);
+                    void SwitchOff(LoadedFamily family, bool on)
+                    {
+                        foreach (var member in family.Manifest.Members)
+                            if (!on || !member.Enabled) switchedOff.Add(member.Id);
+                        foreach (var nested in family.Families)
+                            SwitchOff(nested, on && family.Manifest.Members.FirstOrDefault(m => m.Id == nested.Id)?.Enabled != false);
+                    }
+                    foreach (var family in set.Families) SwitchOff(family, on: true);
+                    loaded.AddRange(set.AllPacks.Where(p => !switchedOff.Contains(p.Id) || set.Packs.Any(standalone => standalone.Id == p.Id)));
                     familyMembers.UnionWith(set.Families.SelectMany(f => f.AllMembers).Select(p => p.Id));
                     break;
                 case "composite":
@@ -189,17 +200,18 @@ public sealed partial class PackMemory : IModuleTraversalReader
     /// declared relations, within the host's budgets, ranked by path and the question's words; each hit with its reason path.
     /// The hits are what a host offers: each module's own records that are not hubs, at most its <c>maxItems</c> (review 2).
     /// </summary>
-    public Task<IReadOnlyList<PackHit>> WalkAsync(IReadOnlyList<ContextAnchor> anchors, string? question = null, CancellationToken cancellationToken = default) =>
-        WalkAsync(anchors, question, live: null, cancellationToken);
+    public async Task<IReadOnlyList<PackHit>> WalkAsync(IReadOnlyList<ContextAnchor> anchors, string? question = null, CancellationToken cancellationToken = default) =>
+        (await WalkAsync(anchors, question, live: null, cancellationToken).ConfigureAwait(false)).Hits;
 
     // live: whether a module takes part now; a pack past its validUntil neither seeds, steers nor offers (review 2, M2 in serve).
-    internal async Task<IReadOnlyList<PackHit>> WalkAsync(IReadOnlyList<ContextAnchor> anchors, string? question, Func<string, bool>? live,
-        CancellationToken cancellationToken)
+    // Problems: what the walk could not do (a record past the link limit, a refused read), for the caller to show (review 3).
+    internal async Task<(IReadOnlyList<PackHit> Hits, IReadOnlyList<string> Problems)> WalkAsync(IReadOnlyList<ContextAnchor> anchors, string? question,
+        Func<string, bool>? live, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(anchors);
         var walk = await TraversalWalk.RunAsync(Resolution, this,
             new ContextRequest { SessionId = "pack", Owner = "pack", Query = question ?? "", Anchors = anchors }, cancellationToken, live: live).ConfigureAwait(false);
-        return [.. Offered(Resolution, walk.Items).Select(i => Hit(i.Record, i.Via))];
+        return ([.. Offered(Resolution, walk.Items).Select(i => Hit(i.Record, i.Via))], walk.Problems);
     }
 
     /// <summary>
@@ -309,9 +321,12 @@ public sealed partial class PackMemory : IModuleTraversalReader
         if (values.Count == 0 || !Sees(context)) return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Succeeded });
         // Exactly the records that match by the walk's own rules, in the format's order (review 2: the first 512 records that held
         // the property, matching or not, in key order).
+        // The walk's time budget reaches this scan through the token (review 3: a common name scanned a whole type unbounded).
+        var scanned = 0;
         var found = OfType(module.Id, query.Type)
-            .Where(r => Text(r, query.Property) is { } value && Context.Traversal.AnchorMatcher.Best(query.Match, value, values).Quality > 0)
-            .Order(Context.Traversal.TraversalOrder.Records);
+            .Where(r => (++scanned % 1024 != 0 || !cancellationToken.IsCancellationRequested ? true : throw new OperationCanceledException(cancellationToken))
+                && Text(r, query.Property) is { } value && Context.Traversal.AnchorMatcher.Best(query.Match, value, values).Quality > 0)
+            .Order(Context.Traversal.TraversalOrder.Records).ToList();
         return Task.FromResult(new ModuleReadResult
         {
             Status = ModuleReadStatus.Succeeded, Records = found.Take(Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit)).ToList().AsReadOnly(),
@@ -342,17 +357,18 @@ public sealed partial class PackMemory : IModuleTraversalReader
             if (!_byId.TryGetValue(from, out var start)) continue;
             // Every neighbour within the link limit is ranked (review 2: the first 1,024 in id order were); a record past it is
             // not expanded, and the walk is told. A degree is counted up to MaximumScan, in both directions.
-            var links = query.Direction == ModuleTraversalDirection.Out
-                ? start.Links.Where(l => l.Relation == relation.Name).Select(l => _byId[l.TargetId]).ToList()
-                : _incoming.GetValueOrDefault((relation.Name, start.Id)) ?? [];
+            // Distinct live neighbours, counted as the Neo4j store counts them (review 3).
+            var links = (query.Direction == ModuleTraversalDirection.Out
+                ? start.Links.Where(l => l.Relation == relation.Name).Select(l => _byId[l.TargetId])
+                : _incoming.GetValueOrDefault((relation.Name, start.Id)) ?? []).DistinctBy(r => r.Id).ToList();
             if (links.Count > ModuleExpandQuery.MaximumLinks)
             {
                 skipped.Add($"{start.Key} has {links.Count} {relation.Name} links, more than {ModuleExpandQuery.MaximumLinks}: not expanded.");
                 continue;
             }
             IEnumerable<(ModuleRecord Record, int Degree)> reached = query.Direction == ModuleTraversalDirection.Out
-                ? links.Select(r => (r, Math.Min(_incoming.GetValueOrDefault((relation.Name, r.Id))?.Count ?? 0, ModuleExpandQuery.MaximumScan)))
-                : links.Select(r => (r, Math.Min(r.Links.Count(l => l.Relation == relation.Name), ModuleExpandQuery.MaximumScan)));
+                ? links.Select(r => (r, Math.Min(_incoming.GetValueOrDefault((relation.Name, r.Id))?.DistinctBy(o => o.Id).Count() ?? 0, ModuleExpandQuery.MaximumScan)))
+                : links.Select(r => (r, Math.Min(r.Links.Where(l => l.Relation == relation.Name).Select(l => l.TargetId).Distinct().Count(), ModuleExpandQuery.MaximumScan)));
             var ranked = reached
                 .Select(p => (p.Record, p.Degree, Hits: Hits(p.Record, text, words)))
                 .OrderByDescending(p => p.Hits).ThenBy(p => p.Degree).ThenBy(p => p.Record, Context.Traversal.TraversalOrder.Records).Take(fanOut);
@@ -375,7 +391,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
     {
         if (words.Count == 0) return 0;
         var text = string.Join(' ', textProperties.Select(p => record.Properties.TryGetValue(p, out var v)
-            ? (v.ValueKind == JsonValueKind.String ? v.GetString() : v.GetRawText()) : "")).ToLowerInvariant();
+            && v.ValueKind == JsonValueKind.String ? v.GetString() : ""));
+        text = Context.Traversal.AnchorMatcher.Folded(text);
         return words.Count(w => text.Contains(w, StringComparison.Ordinal));
     }
 

@@ -267,8 +267,22 @@ internal static partial class Program
         ["solid"] = 2, ["trust"] = 2,
     };
 
+    // Per subaction where a command has them (review 3: the command's largest count let `receipt sign a b` through).
+    private static readonly Dictionary<string, int> MaxSubactionPositionals = new(StringComparer.Ordinal)
+    {
+        ["receipt sign"] = 2, ["receipt verify"] = 3, ["certificate verify"] = 2, ["solid bind-key"] = 1, ["solid publish"] = 2,
+        ["solid discover"] = 1, ["solid fetch"] = 1, ["trust add"] = 1, ["trust list"] = 1, ["trust remove"] = 2, ["trust webid"] = 2,
+    };
+
     private static void CheckPositionals(string command, Options options)
     {
+        if (options.PositionalCount > 0 && MaxSubactionPositionals.TryGetValue(command + " " + options.Positional(0, "action"), out var forAction))
+        {
+            if (options.PositionalCount > forAction)
+                throw new UsageException($"{command} {options.Positional(0, "action")} takes at most {forAction - 1} argument{(forAction == 2 ? "" : "s")} besides its options; "
+                    + $"{options.PositionalCount - 1} were given.");
+            return;
+        }
         if (MaxPositionals.TryGetValue(command, out var most) && options.PositionalCount > most)
             throw new UsageException($"{command} takes {(most == 0 ? "no arguments" : $"at most {most} argument{(most == 1 ? "" : "s")}")} besides its options; "
                 + $"{options.PositionalCount} were given. ampack {command} --help shows them.");
@@ -806,7 +820,8 @@ internal static partial class Program
     // was read as an empty ledger, and a rolled-back pack verified (review 2).
     private static void CheckLedger(Options o)
     {
-        if (o.Value("ledger") is { } path && !File.Exists(path) && !o.Flag("record") && o.Values("revocations").Count == 0)
+        // Revocation lists do not start one either (review 3: a mistyped path with --revocations made an empty ledger).
+        if (o.Value("ledger") is { } path && !File.Exists(path) && !o.Flag("record"))
             throw new UsageException($"There is no ledger at {path}. Give the right path, or --record to start one.");
     }
 
@@ -975,9 +990,14 @@ internal static partial class Program
     private static List<byte[]> Archives(Options o, string command)
     {
         var archives = o.PositionalFrom(0).Select(p => PackReader.ReadArchiveFile(p)).ToList();
-        if (o.Value("store") is { } store) archives.AddRange(AgentMemory.Extensibility.Ampack.PackStore.Open(store).Archives());
+        if (o.Value("store") is { } store) archives.AddRange(AgentMemory.Extensibility.Ampack.PackStore.Open(ExistingStore(store)).Archives());
         return archives.Count > 0 ? archives : throw new UsageException($"{command} needs at least one pack, or --store with packs installed.");
     }
+
+    // A store a command only reads is there already (review 3: a mistyped --store was created empty, its ledger with it, and
+    // what the host had revoked was forgotten). install and solid fetch make one.
+    private static string ExistingStore(string folder) =>
+        Directory.Exists(Path.Combine(folder, "packs")) ? folder : throw new UsageException($"There is no pack store at {folder}: install a pack there first.");
 
     // PACK-toolset: a host's pack store.
     private static int Install(Options o)
@@ -996,7 +1016,7 @@ internal static partial class Program
     private static int Uninstall(Options o)
     {
         var id = o.Positional(0, "pack id");
-        var store = AgentMemory.Extensibility.Ampack.PackStore.Open(o.Required("store"));
+        var store = AgentMemory.Extensibility.Ampack.PackStore.Open(ExistingStore(o.Required("store")));
         if (!store.Uninstall(id)) return Report([$"{id} is not installed."], "");
         Console.WriteLine($"Removed {id}; the store's ledger keeps it.");
         return 0;
@@ -1004,7 +1024,7 @@ internal static partial class Program
 
     private static int ListInstalled(Options o)
     {
-        var store = AgentMemory.Extensibility.Ampack.PackStore.Open(o.Required("store"));
+        var store = AgentMemory.Extensibility.Ampack.PackStore.Open(ExistingStore(o.Required("store")));
         if (store.Installed.Count == 0) Console.WriteLine("No packs installed.");
         foreach (var p in store.Installed) Console.WriteLine($"  {p.Id} {p.Version} ({p.Kind})  {p.Digest[..23]}…  installed {p.InstalledAt:u}");
         return 0;

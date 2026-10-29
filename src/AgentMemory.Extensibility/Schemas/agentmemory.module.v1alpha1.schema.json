@@ -112,8 +112,8 @@
     },
     "containableBy": {
       "type": "array",
-      "description": "The modules allowed to walk into this one's records through their own links, by module id or parent namespace. Empty or absent: none may.",
-      "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "description": "The modules allowed to walk into this one's records through their own links, by module id or parent namespace (a dotted id of three segments or more). Empty or absent: none may.",
+      "items": { "$ref": "#/$defs/moduleId" },
       "uniqueItems": true
     },
     "trial": {

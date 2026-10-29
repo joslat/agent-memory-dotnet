@@ -703,6 +703,10 @@ def main():
     vectors["composite-with-records"] = (family_with(**{"records/x.jsonl": b'{"key":"x"}\n'}), "trust.json", "refused")
     vectors["composite-member-extra-field"] = (family_with(**{"members.json": (json.dumps({"members": [{"id": pid, "version": "[1,2)", "note": "x"}]}) + chr(10)).encode()}),
                                                "trust.json", "refused")
+    for name, member in {"member-without-version": {"id": pid}, "member-priority-text": {"id": pid, "version": "[1,2)", "priority": "1"},
+                         "member-enabled-text": {"id": pid, "version": "[1,2)", "enabled": "yes"},
+                         "member-contains-a-number": {"id": pid, "version": "[1,2)", "contains": [1]}}.items():
+        vectors[f"composite-{name}"] = (family_with(**{"members.json": (json.dumps({"members": [member]}) + chr(10)).encode()}), "trust.json", "refused")
     vectors["valid-until-fraction-with-offset"] = (signed(edited(validUntil="2099-01-01T00:00:00.5+01:00")), "trust.json", "verified")
     vectors["valid-until-seven-digit-fraction"] = (signed(edited(validUntil="2099-01-01T00:00:00.1234567Z")), "trust.json", "verified")
     (OUT / "trust-key-window-fraction-offset.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [
@@ -716,6 +720,26 @@ def main():
     (OUT / "trust-two-key-blocks.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [
         dict(entry, publicKey=entry["publicKey"].rstrip("\n") + "\n" + entry["publicKey"])]}, separators=(",", ":")), encoding="utf-8")
     vectors["policy-with-two-key-blocks"] = (dict(base), "trust-two-key-blocks.json", "refused")
+    # Review 3: the key itself in one form. A compressed or hybrid point, or base64 with stray bits, was read differently.
+    publisher_public = serialization.load_pem_public_key(entry["publicKey"].encode())
+    uncompressed = publisher_public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    point = uncompressed[27:]
+    def pem_of(der):
+        body = base64.b64encode(der).decode()
+        return "-----BEGIN PUBLIC KEY-----\n" + "\n".join(body[i:i + 64] for i in range(0, len(body), 64)) + "\n-----END PUBLIC KEY-----\n"
+    compressed = bytes.fromhex("3039301306072a8648ce3d020106082a8648ce3d030107032200") + bytes([2 + (point[63] & 1)]) + point[:32]
+    hybrid = uncompressed[:26] + bytes([6 + (point[63] & 1)]) + point
+    body = base64.b64encode(uncompressed).decode()
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    stray = body[:-3] + alphabet[alphabet.index(body[-3]) | 1] + body[-2:]
+    for name, pem in {"compressed-point": pem_of(compressed), "hybrid-point": pem_of(hybrid),
+                      "stray-base64-bits": "-----BEGIN PUBLIC KEY-----\n" + "\n".join(stray[i:i + 64] for i in range(0, len(stray), 64)) + "\n-----END PUBLIC KEY-----\n"}.items():
+        (OUT / f"trust-key-{name}.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, publicKey=pem)]},
+                                                              separators=(",", ":")), encoding="utf-8")
+        vectors[f"policy-key-{name}"] = (dict(base), f"trust-key-{name}.json", "refused")
+    vectors["revocations-empty-list-in-two-envelopes"] = (dict(base), "trust-with-revoker.json", "verified",
+                                                          ["revocations-none.json", "revocations-none-reencoded.json"])
+    (OUT / "revocations-none-reencoded.json").write_text("{ " + (OUT / "revocations-none.json").read_text(encoding="utf-8")[1:], encoding="utf-8")
     digest_list = (OUT / "revocations-digest.json").read_text(encoding="utf-8")
     (OUT / "revocations-digest-reencoded.json").write_text("{ " + digest_list[1:], encoding="utf-8")
     vectors["revocations-one-list-in-two-envelopes"] = (dict(base), "trust-with-revoker.json", "refused",
@@ -919,7 +943,9 @@ def main():
                 "Reason": "every target met", "DecidedAt": "2026-10-27T12:00:00+00:00",
                 "Checks": [{"Target": "hitRate", "Required": 0.5, "Observed": 0.6, "Met": True, "Estimate": None}],
                 "With": {"Tasks": 40, "Hits": 24, "Offered": 120, "Correct": 30, "P95Ms": 12.5},
-                "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5}}
+                "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5},
+                # Review 3: certify takes only a trial at each commit's parent.
+                "History": "parent"}
     decision_payload = json.dumps({"_type": py.STATEMENT, "subject": [{"name": f"{pid}@{version}", "digest": {"sha256": pack_digest[7:]}}],
                                    "predicateType": "urn:agentmemory:pack:trial:v1", "predicate": decision}).encode()
     (work / "decisions").mkdir()

@@ -239,7 +239,7 @@ public static class PackTrialGate
     /// (<see cref="ClusteredWilsonLower"/>) and the correlation of the two arms' residuals task by task (review 2: the earlier
     /// delta-method variance was 0 whenever every task's precision was the same, so the bound collapsed to the estimate). An
     /// arm that offered nothing has a precision of 0 and no uncertainty. Without per-task results, plain Wilson limits and no
-    /// correlation.
+    /// correlation. With them, never above the paired cluster-robust bound either (review 3).
     /// </summary>
     public static double PrecisionDifferenceLower(PackTrialMeasurement first, PackTrialMeasurement second, double z)
     {
@@ -249,16 +249,24 @@ public static class PackTrialGate
         var l1 = first.Offered == 0 ? 0 : first.PerTask is { Count: > 0 } a1 ? ClusteredWilsonLower(a1, z) : WilsonLower(first.Correct, first.Offered, z);
         var u2 = second.Offered == 0 ? 0 : second.PerTask is { Count: > 0 } b1 ? ClusteredWilsonUpper(b1, z) : WilsonUpper(second.Correct, second.Offered, z);
         var rho = 0.0;
+        double? paired = null;
         if (first.PerTask is { } a && second.PerTask is { } b && a.Count == b.Count && a.Count > 1 && first.Offered > 0 && second.Offered > 0)
         {
             var (o1, o2) = (a.Sum(t => (double)t.Offered), b.Sum(t => (double)t.Offered));
+            var n = a.Count;
             double Residual(PackTrialTask t, double r, double o) => (t.Correct - r * t.Offered) / o;
             var v1 = a.Sum(t => Math.Pow(Residual(t, r1, o1), 2));
             var v2 = b.Sum(t => Math.Pow(Residual(t, r2, o2), 2));
             var covariance = a.Zip(b).Sum(p => Residual(p.First, r1, o1) * Residual(p.Second, r2, o2));
             rho = v1 > 0 && v2 > 0 ? Math.Clamp(covariance / Math.Sqrt(v1 * v2), -1, 1) : 0;
+            // The paired cluster-robust bound, from the task-by-task differences of the residuals.
+            paired = r1 - r2 - z * Math.Sqrt(n / (n - 1.0) * a.Zip(b).Sum(p => Math.Pow(Residual(p.First, r1, o1) - Residual(p.Second, r2, o2), 2)));
         }
-        return r1 - r2 - Math.Sqrt(Math.Max(0, Math.Pow(r1 - l1, 2) - 2 * rho * (r1 - l1) * (u2 - r2) + Math.Pow(u2 - r2, 2)));
+        var newcombe = r1 - r2 - Math.Sqrt(Math.Max(0, Math.Pow(r1 - l1, 2) - 2 * rho * (r1 - l1) * (u2 - r2) + Math.Pow(u2 - r2, 2)));
+        // The lower of the two (review 3): Newcombe's never collapses when every task's precision is the same, and the paired
+        // bound stays honest when the arms are strongly correlated, where Newcombe's margin shrinks to the difference of two
+        // floored Wilson margins (a true lift of 0 passed about one time in ten at a nominal 5%).
+        return paired is { } bound ? Math.Min(newcombe, bound) : newcombe;
     }
 
     /// <summary>The upper bound mirroring <see cref="ClusteredWilsonLower"/>: one minus the lower bound of the items that were wrong.</summary>

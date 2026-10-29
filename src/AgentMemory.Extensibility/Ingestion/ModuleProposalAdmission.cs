@@ -141,7 +141,7 @@ public static class ModuleProposalAdmission
     }
 
     private static int Compare(JsonElement value, JsonElement bound, string type) => type == "int"
-        ? value.GetInt64().CompareTo(bound.GetInt64()) : value.GetDouble().CompareTo(bound.GetDouble());
+        ? value.GetInt64().CompareTo(Modules.ModuleScalarValues.Int(bound)) : value.GetDouble().CompareTo(bound.GetDouble());
 
     private static void ValidateLinks(ModuleProposal proposal, ModuleManifest? module, SortedSet<string> errors)
     {

@@ -228,6 +228,39 @@ public sealed class TraversalTests
         AnchorMatcher.Quality(ModuleAnchorMatch.Prefix, "src/Store/Deep", "src/Store/Deep/A.cs")
             .Should().BeGreaterThan(AnchorMatcher.Quality(ModuleAnchorMatch.Prefix, "src", "src/Store/Deep/A.cs"));
 
+    [Theory]
+    // Review 3: ASCII only, in every store. A-Z fold; nothing else does, and only ASCII white space is trimmed.
+    [InlineData(ModuleAnchorMatch.Exact, "SRC/Store/A.CS", "src/store/a.cs", 1.0)]
+    [InlineData(ModuleAnchorMatch.Exact, "src/Ä.cs", "src/ä.cs", 0.0)]
+    [InlineData(ModuleAnchorMatch.Exact, "docs/µs.cs", "docs/μs.cs", 0.0)]
+    [InlineData(ModuleAnchorMatch.Exact, "src/İndex.cs", "src/index.cs", 0.0)]
+    [InlineData(ModuleAnchorMatch.Exact, "src/A.cs ", "src/A.cs", 0.0)]
+    [InlineData(ModuleAnchorMatch.Exact, " \tsrc/A.cs\r\n", "src/A.cs", 1.0)]
+    [InlineData(ModuleAnchorMatch.Exact, " ", " ", 0.0)]
+    [InlineData(ModuleAnchorMatch.Glob, "SRC/**/*.CS", "src/Store/Ä.cs", 0.7)]
+    [InlineData(ModuleAnchorMatch.Glob, "src/Ä*", "src/ä.cs", 0.0)]
+    [InlineData(ModuleAnchorMatch.Prefix, "SRC/Store", "src/store/A.cs", 0.7)]
+    public void Matching_folds_ASCII_letters_only(ModuleAnchorMatch match, string value, string anchor, double quality) =>
+        AnchorMatcher.Best(match, value, [anchor]).Quality.Should().BeApproximately(quality, 0.0001);
+
+    [Fact]
+    public void A_walk_takes_anchors_in_NFC_distinct_well_formed_and_at_most_32()
+    {
+        var path = ContextAnchorKind.Path;
+        var anchors = TraversalWalk.Anchors(
+        [
+            new(path, "src/Über.cs"), new(path, "src/Über.cs"), new(path, "src/\uD800.cs"), new(path, " "), new(path, " \t"),
+            new(path, new string('a', ContextAnchor.MaximumLength + 1)),
+            .. Enumerable.Range(0, 40).Select(i => new ContextAnchor(path, $"src/F{i}.cs")),
+        ]);
+
+        anchors[0].Value.Should().Be("src/Über.cs", "the decomposed form is taken in NFC, and the composed one is then its duplicate");
+        anchors.Should().HaveCount(ContextAnchor.MaximumPerRequest);
+        anchors.Select(a => a.Value).Should().NotContain(v => v.Contains('\uD800'), "a lone surrogate has no NFC form");
+        anchors[1].Value.Should().Be(" ", "a non-breaking space is not ASCII white space: the anchor stands, and matches nothing");
+        anchors[2].Value.Should().Be("src/F0.cs");
+    }
+
     [Fact]
     public void The_traversal_manifest_parses_validates_and_the_editor_schema_accepts_it()
     {

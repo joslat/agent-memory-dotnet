@@ -248,6 +248,19 @@ internal static class PackVerifier
 
     private static readonly HashSet<string> MemberFields = new(StringComparer.Ordinal) { "id", "version", "priority", "enabled", "contains" };
 
+    // A member's values typed as the loader reads them (review 3): an id and a version range as text, a 32-bit priority, a
+    // Boolean switch, and a list of ids it contains.
+    private static bool IsMember(System.Text.Json.JsonElement m)
+    {
+        static bool Text(System.Text.Json.JsonElement e) => e.ValueKind == System.Text.Json.JsonValueKind.String && !string.IsNullOrEmpty(e.GetString());
+        return m.TryGetProperty("id", out var id) && Text(id)
+            && m.TryGetProperty("version", out var version) && Text(version)
+            && (!m.TryGetProperty("priority", out var priority) || priority.ValueKind == System.Text.Json.JsonValueKind.Number && priority.TryGetInt32(out _))
+            && (!m.TryGetProperty("enabled", out var enabled) || enabled.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
+            && (!m.TryGetProperty("contains", out var contains)
+                || contains.ValueKind == System.Text.Json.JsonValueKind.Array && contains.EnumerateArray().All(Text));
+    }
+
     private static string[]? MemberIds(byte[] membersBytes)
     {
         try
@@ -257,7 +270,8 @@ internal static class PackVerifier
             if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object || document.RootElement.EnumerateObject().Any(p => p.Name != "members")) return null;
             var members = document.RootElement.GetProperty("members").EnumerateArray().ToList();
             // Each member holds what a composite member is and nothing else, as the loader reads it (review 2, L6).
-            if (members.Any(m => m.ValueKind != System.Text.Json.JsonValueKind.Object || m.EnumerateObject().Any(p => !MemberFields.Contains(p.Name)))) return null;
+            if (members.Any(m => m.ValueKind != System.Text.Json.JsonValueKind.Object || m.EnumerateObject().Any(p => !MemberFields.Contains(p.Name)) || !IsMember(m)))
+                return null;
             return [.. members.Select(m => m.GetProperty("id").GetString()!)];
         }
         catch (Exception e) when (e is System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException) { return null; }

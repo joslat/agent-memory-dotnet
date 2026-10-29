@@ -104,6 +104,8 @@ internal sealed partial record TrustPolicy
                 // One PUBLIC KEY block and nothing else, as both verifiers read it (review 2): the PEM reader also takes a private
                 // key, which then sits in a policy that gets shared, and the two readers took several blocks differently.
                 if (!IsPublicKeyPem(pem)) throw new InvalidDataException($"Key {Dsse.Short(keyId)}: publicKey must be one PEM 'PUBLIC KEY' block and nothing else.");
+                if (!IsCanonicalP256(pem))
+                    throw new InvalidDataException($"Key {Dsse.Short(keyId)}: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).");
                 if (PackKey.KeyIdOf(pem) != keyId) throw new InvalidDataException($"Key {Dsse.Short(keyId)}: the id is not the SHA-256 of its public key.");
                 // P-256 only, as the format signs and as the Python verifier reads a policy (fourth review: .NET took any curve).
                 using (var curve = System.Security.Cryptography.ECDsa.Create())
@@ -186,6 +188,24 @@ internal sealed partial record TrustPolicy
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\A[0-9a-f]{64}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
     private static partial System.Text.RegularExpressions.Regex KeyIdPattern();
+
+    // The SubjectPublicKeyInfo of a P-256 key up to its point: SEQUENCE, the ecPublicKey and prime256v1 OIDs, a BIT STRING of 66.
+    private static readonly byte[] P256SpkiPrefix = Convert.FromHexString("3059301306072A8648CE3D020106082A8648CE3D030107034200");
+
+    /// <summary>
+    /// Whether <paramref name="pem"/> holds a P-256 key in the one form both verifiers read alike (review 3): the 91-byte
+    /// SubjectPublicKeyInfo of an uncompressed point (04, X, Y), in canonical base64 (no stray bits in the last quantum). A
+    /// compressed or hybrid point, or base64 with stray bits, decoded differently in the two verifiers.
+    /// </summary>
+    internal static bool IsCanonicalP256(string pem)
+    {
+        var body = string.Concat(pem.Split('\n').Select(line => line.TrimEnd('\r')).Where(line => !line.StartsWith("-----", StringComparison.Ordinal)));
+        byte[] der;
+        try { der = Convert.FromBase64String(body); }
+        catch (FormatException) { return false; }
+        return der.Length == 91 && der.AsSpan(0, P256SpkiPrefix.Length).SequenceEqual(P256SpkiPrefix) && der[P256SpkiPrefix.Length] == 0x04
+            && Convert.ToBase64String(der) == body;
+    }
 
     /// <summary>Whether <paramref name="pem"/> is exactly one PEM <c>PUBLIC KEY</c> block (base64 lines, LF or CRLF), and nothing else.</summary>
     internal static bool IsPublicKeyPem(string pem) => PublicKeyPemPattern().IsMatch(pem);

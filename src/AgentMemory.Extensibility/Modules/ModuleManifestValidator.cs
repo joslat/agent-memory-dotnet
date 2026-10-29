@@ -339,12 +339,12 @@ internal sealed class ModuleManifestValidator
         if (property.Type is not ("int" or "float")) { Error(path, "numeric bounds require int or float type"); return; }
         var min = property.Minimum;
         var max = property.Maximum;
-        var validMin = min is null || ModuleScalarValues.NumberFits(min.Value, property.Type);
-        var validMax = max is null || ModuleScalarValues.NumberFits(max.Value, property.Type);
+        var validMin = min is null || ModuleScalarValues.BoundFits(min.Value, property.Type);
+        var validMax = max is null || ModuleScalarValues.BoundFits(max.Value, property.Type);
         if (!validMin) Error(path + ".min", "minimum must fit the declared numeric type");
         if (!validMax) Error(path + ".max", "maximum must fit the declared numeric type");
         if (validMin && validMax && min is not null && max is not null
-            && (property.Type == "int" ? min.Value.GetInt64() > max.Value.GetInt64() : min.Value.GetDouble() > max.Value.GetDouble()))
+            && (property.Type == "int" ? ModuleScalarValues.Int(min.Value) > ModuleScalarValues.Int(max.Value) : min.Value.GetDouble() > max.Value.GetDouble()))
             Error(path, "minimum exceeds maximum");
     }
 

@@ -90,8 +90,8 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
         if (envelope.ValueKind != JsonValueKind.Object || envelope.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures"))
             || Str(envelope, "payloadType") != Dsse.PayloadType || Str(envelope, "payload") is not { } payloadText
             || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array
-            || signatures.GetArrayLength() is 0 or > Dsse.MaximumSignatures)
-            return (null, null, ["The receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures."]);
+            || signatures.GetArrayLength() is 0 or > Dsse.MaximumSignatures || signatures.EnumerateArray().Any(e => !Dsse.IsEntry(e)))
+            return (null, null, ["The receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures, each a key id and a signature."]);
         if (Dsse.FromBase64(payloadText) is not { } payload) return (null, null, ["The receipt's payload is not base64."]);
         var (receipt, readProblem) = Read(payload);
         if (receipt is null) return (null, null, [readProblem!]);

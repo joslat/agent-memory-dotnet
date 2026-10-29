@@ -106,6 +106,8 @@ public sealed class ModuleEditorSchemaTests
     [InlineData("traversal-without-anchors-or-relations", false)]
     [InlineData("traversal-with-empty-anchors", false)]
     [InlineData("hops-written-2.0", true)]
+    [InlineData("int-bound-written-2.0", true)]
+    [InlineData("containable-by-not-an-id", false)]
     public void TraversalAndTrialEdgesHaveTheSameEditorAndRuntimeContract(string edge, bool accepted)
     {
         JsonNode Anchor(int i) => new JsonObject { ["type"] = "ReviewItem", ["property"] = "p" + i };
@@ -127,6 +129,9 @@ public sealed class ModuleEditorSchemaTests
             case "traversal-with-empty-anchors": traversal = new JsonObject { ["anchors"] = new JsonArray() }; break;
             case "hops-written-2.0": traversal["hops"] = JsonValue.Create(2.0m); break;
         }
+        var count = new JsonObject { ["type"] = "int" };
+        if (edge == "int-bound-written-2.0") { count["min"] = JsonValue.Create(2.0m); count["max"] = JsonValue.Create(9.0m); }
+        properties["count"] = count;
         var root = new JsonObject
         {
             ["format"] = "agentmemory.module/v1alpha1", ["id"] = "com.example.reviews", ["version"] = "1.0.0", ["sdk"] = "[0.1,0.2)",
@@ -137,6 +142,7 @@ public sealed class ModuleEditorSchemaTests
             },
             ["traversal"] = traversal, ["trial"] = trial,
         };
+        if (edge == "containable-by-not-an-id") root["containableBy"] = new JsonArray("Not An Id");
         var json = root.ToJsonString();
         if (edge == "hops-written-2.0") json.Should().Contain("\"hops\":2.0");
         EditorAccepts("module", json).Should().Be(accepted, "the editor schema");

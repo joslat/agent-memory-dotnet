@@ -380,7 +380,13 @@ public sealed class AmpackCommandLineTests : IDisposable
         {
             labHost.ImportFromPem(File.ReadAllText(At("keys", "lab-host.key.pem")));
             var arm = new PackTrialMeasurement { Tasks = 40, Hits = 24, Offered = 120, Correct = 30, P95Ms = 12.5 };
-            PackActivationFolder.Write(At("lab-decisions"), PackTrialGate.Decide(pack.Manifest, arm, arm with { Hits = 0 }, DateTimeOffset.UtcNow.AddHours(-1), pack.Digest), labHost);
+            var unsaid = PackTrialGate.Decide(pack.Manifest, arm, arm with { Hits = 0 }, DateTimeOffset.UtcNow.AddHours(-2), pack.Digest);
+            PackActivationFolder.Write(At("lab-decisions"), unsaid, labHost);
+            Refused("certify", "notes.ampack", "--policy", "trust.json", "--activations", "lab-decisions", "--host-key", At("keys", "lab-host.pub.pem"),
+                "--key", At("keys", "evaluator.key.pem"), "--evaluator", "Example Lab", "--task-source", "40 changes", "--out", "x.ampack")
+                .Should().Contain("does not say how its tasks were drawn", "review 3: only a trial at each commit's parent is certified");
+            PackActivationFolder.Write(At("lab-decisions"), PackTrialGate.Decide(pack.Manifest, arm, arm with { Hits = 0 }, DateTimeOffset.UtcNow.AddHours(-1), pack.Digest)
+                with { History = "parent" }, labHost);
         }
         Done("certify", "notes.ampack", "--policy", "trust.json", "--activations", "lab-decisions", "--host-key", At("keys", "lab-host.pub.pem"),
             "--key", At("keys", "evaluator.key.pem"), "--evaluator", "Example Lab", "--task-source", "40 changes from the lab's repository", "--out", "certified.ampack")

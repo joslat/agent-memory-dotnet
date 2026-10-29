@@ -35,6 +35,11 @@ internal sealed class Turtle
     private readonly string _text;
     private readonly Dictionary<string, string> _prefixes = new(StringComparer.Ordinal);
     private readonly List<RdfTriple> _triples = [];
+    // Datatype IRIs made once, not one string per literal (review 3: a list of numbers allocated one each, outside the budget).
+    private static readonly string XsdInteger = Xsd + "integer", XsdDecimal = Xsd + "decimal", XsdDouble = Xsd + "double", XsdBoolean = Xsd + "boolean";
+
+    // Items read into collections that are not closed yet, each two triples to come.
+    private long _pending;
     private string _base;
     private int _at;
     private int _blank;
@@ -158,8 +163,8 @@ internal sealed class Turtle
         if (Peek('_')) return BlankLabel();
         if (Peek('"') || Peek('\'')) return Literal();
         if (_at < _text.Length && (char.IsAsciiDigit(_text[_at]) || _text[_at] is '+' or '-' or '.')) return Number();
-        if (Word("true")) return new RdfTerm(RdfTermKind.Literal, "true", Xsd + "boolean");
-        if (Word("false")) return new RdfTerm(RdfTermKind.Literal, "false", Xsd + "boolean");
+        if (Word("true")) return new RdfTerm(RdfTermKind.Literal, "true", XsdBoolean);
+        if (Word("false")) return new RdfTerm(RdfTermKind.Literal, "false", XsdBoolean);
         return RdfTerm.Iri(Iri());
     }
 
@@ -187,10 +192,12 @@ internal sealed class Turtle
             // The end of the text, or a statement's dot (not a decimal's), before ')': the collection was never closed.
             if (_at >= _text.Length || Peek('.') && (_at + 1 >= _text.Length || !char.IsAsciiDigit(_text[_at + 1]))) throw Fail("an unclosed collection");
             items.Add(Object(depth + 1));
-            // Each item becomes two triples: counted as it is read, not after the closing ')' (review 2: a million-item
-            // collection was gathered whole before the triple cap applied).
-            if (_triples.Count + 2 * items.Count > MaximumTriples) throw Fail($"more than {MaximumTriples.ToString("N0", CultureInfo.InvariantCulture)} triples");
+            // Each item becomes two triples: counted as it is read, across every open collection, not after the closing ')'
+            // (review 2: a million-item collection was gathered whole first; review 3: nested ones each counted only their own).
+            _pending++;
+            if (_triples.Count + 2 * _pending > MaximumTriples) throw Fail($"more than {MaximumTriples.ToString("N0", CultureInfo.InvariantCulture)} triples");
         }
+        _pending -= items.Count;
         if (items.Count == 0) return RdfTerm.Iri(Rdf + "nil");
         var head = NewBlank();
         var cell = head;
@@ -315,7 +322,7 @@ internal sealed class Turtle
         }
         var text = _text[start.._at];
         if (!text.Any(char.IsAsciiDigit)) throw Fail("a number without digits");
-        return new RdfTerm(RdfTermKind.Literal, text, Xsd + datatype);
+        return new RdfTerm(RdfTermKind.Literal, text, datatype switch { "integer" => XsdInteger, "decimal" => XsdDecimal, _ => XsdDouble });
     }
 
     private string Iri()

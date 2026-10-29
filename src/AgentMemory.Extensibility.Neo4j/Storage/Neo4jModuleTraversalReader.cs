@@ -53,7 +53,8 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
         var anchors = query.Values.Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
         if (anchors.Count == 0) return new() { Status = ModuleReadStatus.Succeeded };
         // The anchors as the walk compares them, and what the candidates must hold (review 2): the walk then matches exactly.
-        var values = anchors.Select(a => ModuleAnchorQuery.NormalizedPath(a).ToLowerInvariant()).Where(v => v.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
+        // Not lowered here: the query lowers both sides with one folding (review 3).
+        var values = anchors.Select(ModuleAnchorQuery.NormalizedPath).Where(v => v.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
         var folders = values.SelectMany(Folders).Distinct(StringComparer.Ordinal).ToArray();
         var names = anchors.Select(a => ModuleAnchorQuery.SimpleName(a) is { Length: > 0 } simple ? simple : a.Trim()).Distinct(StringComparer.Ordinal).ToArray();
         var statement = ModuleTraversalQueries.MatchCandidates(type.Name, query.Property, query.Match);
@@ -99,8 +100,8 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
             ? ModuleTraversalQueries.Out(relation.From, relation.Name, targetLabel)
             : ModuleTraversalQueries.In(relation.From, relation.Name, targetLabel);
         var hubs = query.Direction == ModuleTraversalDirection.Out
-            ? ModuleTraversalQueries.OutHubs(relation.From, relation.Name)
-            : ModuleTraversalQueries.InHubs(relation.Name, targetLabel);
+            ? ModuleTraversalQueries.OutHubs(relation.From, relation.Name, targetLabel)
+            : ModuleTraversalQueries.InHubs(relation.From, relation.Name, targetLabel);
         try
         {
             return await _runner.ReadAsync(async transaction =>
@@ -111,7 +112,8 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 var ids = query.FromIds.Distinct(StringComparer.Ordinal).ToArray();
                 var skipped = await RowsAsync(transaction, hubs, new Dictionary<string, object?>
                 {
-                    ["ids"] = ids, ["maxLinks"] = ModuleExpandQuery.MaximumLinks,
+                    ["ids"] = ids, ["maxLinks"] = ModuleExpandQuery.MaximumLinks, ["over"] = ModuleExpandQuery.MaximumLinks + 1,
+                    ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared,
                 }, cancellationToken).ConfigureAwait(false);
                 var past = skipped.ToDictionary(r => r["fid"].As<string>(), r => (Key: r["key"].As<string>(), Links: r["links"].As<long>()), StringComparer.Ordinal);
                 var rows = await RowsAsync(transaction, statement, new Dictionary<string, object?>
@@ -119,18 +121,25 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared,
                     ["ids"] = ids.Where(id => !past.ContainsKey(id)).ToArray(),
                     ["fanOut"] = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut)),
-                    ["words"] = Words(query.Words), ["text"] = reached.Type.TextProperties().ToArray(),
+                    ["words"] = Words(query.Words), ["text"] = reached.Type.TextProperties().ToArray(), ["fold"] = Fold,
                     ["scan"] = ModuleExpandQuery.MaximumScan
                 }, cancellationToken).ConfigureAwait(false);
-                return new ModuleTraversalStep
-                {
-                    Status = ModuleReadStatus.Succeeded,
-                    Edges = rows.Select(r => new ModuleTraversalEdge
+                // The fan-out cut in the format's order, here, over every record that ranked at or above the cut (review 3).
+                var fanOut = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut));
+                var edges = rows.Select(r => (Hits: r["hits"].As<long>(), Edge: new ModuleTraversalEdge
                     {
                         FromId = r["fid"].As<string>(),
                         To = Neo4jModuleReader.Record(reached.Module, reached.Type, r["row"].As<Dictionary<string, object>>(), []),
                         Degree = (int)Math.Clamp(r["degree"].As<long>(), 1, int.MaxValue)
-                    }).ToList().AsReadOnly(),
+                    }))
+                    .GroupBy(e => e.Edge.FromId, StringComparer.Ordinal)
+                    .SelectMany(g => g.OrderByDescending(e => e.Hits).ThenBy(e => e.Edge.Degree)
+                        .ThenBy(e => e.Edge.To.Key, StringComparer.Ordinal).ThenBy(e => e.Edge.To.Id, StringComparer.Ordinal).Take(fanOut).Select(e => e.Edge))
+                    .ToList();
+                return new ModuleTraversalStep
+                {
+                    Status = ModuleReadStatus.Succeeded,
+                    Edges = edges.AsReadOnly(),
                     Errors = [.. past.Values.Select(h => $"{h.Key} has {h.Links} {relation.Name} links, more than {ModuleExpandQuery.MaximumLinks}: not expanded.")],
                 };
             }, cancellationToken).ConfigureAwait(false);
@@ -170,6 +179,9 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
     private static string[] Words(IReadOnlyList<string> words) =>
         [.. words.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim().ToLowerInvariant()).Where(w => w.Length <= ModuleExpandQuery.MaximumWordLength)
             .Distinct(StringComparer.Ordinal).Take(ModuleExpandQuery.MaximumWords)];
+
+    // ASCII folding for the ranking's text, as the walk folds (review 3): A-Z to a-z, nothing else.
+    private static readonly string[][] Fold = [.. Enumerable.Range('A', 26).Select(c => new[] { ((char)c).ToString(), ((char)(c + 32)).ToString() })];
 
     // An anchor's folders, at '/' boundaries, and the anchor itself: src/a/b.cs -> src, src/a, src/a/b.cs.
     private static IEnumerable<string> Folders(string path)

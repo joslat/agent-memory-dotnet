@@ -64,8 +64,8 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             step.Edges.Select(e => e.To.Key).Should().Equal(firstSix);
 
             // Past the limit a record is not expanded; finding that reads the hub's degree, not its 3,000 links.
-            var parameters = new Dictionary<string, object?> { ["ids"] = new[] { hub.Id }, ["maxLinks"] = 100 };
-            var hubs = ModuleTraversalQueries.InHubs("CODEMAP_TESTS", CodeMapPack.SymbolType);
+            var parameters = new Dictionary<string, object?> { ["ids"] = new[] { hub.Id }, ["maxLinks"] = 100, ["over"] = 101, ["owner"] = null, ["shared"] = true };
+            var hubs = ModuleTraversalQueries.InHubs(CodeMapPack.TestType, "CODEMAP_TESTS", CodeMapPack.SymbolType);
             (await RowCountAsync(hubs, parameters)).Should().Be(1, "3,000 links are past a limit of 100");
             (await MostRowsAsync(hubs, parameters)).Should().BeLessThan(tests, "the check counts the degree without reading every link");
         }

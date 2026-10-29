@@ -84,13 +84,15 @@ internal sealed class PackTools
         [Description("What you are trying to do, in a sentence")] string? question = null,
         CancellationToken cancellationToken = default)
     {
+        // Every path and symbol given; the walk takes the first 32 distinct valid ones, as a host does (review 3).
         var anchors = (paths ?? []).Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => ContextAnchor.Path(p))
-            .Concat((symbols ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => ContextAnchor.Symbol(s)))
-            .Take(ContextAnchor.MaximumPerRequest).ToList();
+            .Concat((symbols ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => ContextAnchor.Symbol(s))).ToList();
         if (anchors.Count == 0) return JsonSerializer.Serialize(new { error = "Give at least one path or symbol to walk from." }, Json);
         var expired = ExpiredIds(mount);
         // An expired pack takes no part in the walk at all (review 2), and the carriers' filter below still holds.
-        var hits = await mount.Memory.WalkAsync(anchors, question, live: id => !expired.Contains(id), cancellationToken).ConfigureAwait(false);
+        var (hits, problems) = await mount.Memory.WalkAsync(anchors, question, live: id => !expired.Contains(id), cancellationToken).ConfigureAwait(false);
+        // What the walk could not do, on standard error, which MCP and REST clients leave free (review 3).
+        foreach (var problem in problems) Console.Error.WriteLine("ampack serve: " + problem);
         return Hits([.. hits.Where(h => !expired.Contains(h.Module) && !(h.Pack?.Carrier?.Id is { } carrier && expired.Contains(carrier)))]);
     }
 

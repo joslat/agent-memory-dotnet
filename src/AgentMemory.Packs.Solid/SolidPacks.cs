@@ -308,10 +308,12 @@ internal static partial class SolidPacks
     private static async Task<IReadOnlyList<CatalogEntry>?> ReadCatalogAsync(SolidSession owner, string url, CancellationToken cancellationToken)
     {
         if (await owner.TurtleAsync(url, cancellationToken: cancellationToken).ConfigureAwait(false) is not { } triples) return null;
-        var entries = Catalog.Read(triples, MaximumEntries + 1);
-        return entries.Count > MaximumEntries
+        // Every pack subject counts, complete or not (review 3: incomplete ones filled the window, and the rest were lost).
+        var subjects = triples.Where(t => t.Predicate == Turtle.Rdf + "type" && t.Object.IsIri(Vocabulary.Ampack + "Pack") && t.Subject.Kind == RdfTermKind.Iri)
+            .Select(t => t.Subject).Distinct().Count();
+        return subjects > MaximumEntries
             ? throw new InvalidDataException($"The catalog {url} lists more than {MaximumEntries} packs; prune it before publishing, or its other entries would be lost.")
-            : entries;
+            : Catalog.Read(triples, MaximumEntries);
     }
 
     // The catalogs of a pack container: its public one and each reader's, from the owner's listing of for/.

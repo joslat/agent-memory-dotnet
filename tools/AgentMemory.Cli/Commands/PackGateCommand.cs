@@ -61,6 +61,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 hostKey.ImportFromEncryptedPem(pem, Environment.GetEnvironmentVariable("AMPACK_KEY_PASSPHRASE")
                     ?? throw new CryptographicException("the host key is encrypted: set AMPACK_KEY_PASSPHRASE"));
             else hostKey.ImportFromPem(pem);
+            // A private key: the run ends by signing (review 3: a public key passed this check and failed an hour later).
+            _ = hostKey.ExportParameters(includePrivateParameters: true);
         }
         catch (Exception e) when (e is CryptographicException or ArgumentException)
         {
@@ -70,6 +72,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         // A weakened variant is an experiment, not a version of the pack: its decisions are kept apart, where no gate reads
         // them, so it can never stand in an upgrade chain as "the version that passed here" (review 2, M10).
         if (variant is not null) activationsFolder = Path.Combine(activationsFolder, "variants");
+        Func<Task> restore = () => Task.CompletedTask;
         // With --pack, the declaration under trial is the one the verified .ampack carries, not the compiled one.
         var declared = CodeMapPack.Manifest;
         string? packDigest = null;
@@ -164,6 +167,18 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             // is gone), and grep reads that tree too; the truth is the tests the change touched that already existed.
             var runner = with.GetRequiredService<INeo4jTransactionRunner>();
             var importer = new CodeMapCommand(TextWriter.Null);
+            restore = async () =>
+            {
+                // Review 2, 3: the host's code map is left as the repository is now; a failure says so and masks nothing.
+                try
+                {
+                    if (await importer.ImportAsync(runner, root, null).ConfigureAwait(false) != 0) throw new InvalidOperationException("the import refused");
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
+                {
+                    output.WriteLine($"  warning  the code map could not be re-imported from the repository as it is now ({e.Message}): run codemap import --root");
+                }
+            };
             output.WriteLine("  note     the store's code map is set to each task's parent in turn, then back to this repository as it is now; "
                 + "its history keeps those versions, so run trials against a scratch database where as-of reads matter");
             try
@@ -176,11 +191,10 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                     await MeasureTaskAsync(tree.Path, task).ConfigureAwait(false);
                 }
             }
-            finally
+            catch
             {
-                // Review 2: the host's code map is left as the repository is now, not at the newest task's parent.
-                if (await importer.ImportAsync(runner, root, null).ConfigureAwait(false) != 0)
-                    output.WriteLine("  warning  the code map could not be re-imported from the repository as it is now: run codemap import --root");
+                await restore().ConfigureAwait(false);
+                throw;
             }
             foreach (var run in new[] { withRun, emptyRun, grepRun, oldRun }) run.Order(tasks);
         }
@@ -200,6 +214,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest, previous) with { History = history };
         // One writer for every signed record (review 1, M5): named so two decisions never share a file, written whole or not at all.
         var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
+        // The decision is signed and kept before the store is put back, so a failed restore never loses the run (review 3).
+        await restore().ConfigureAwait(false);
 
         output.WriteLine($"  with     hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered}), p95 {withArm.P95Ms:0.0} ms");
         output.WriteLine($"  without  {(trial.Baseline == "host" ? "grep" : "nothing")}: hit {withoutArm.HitRate:0.000} ({withoutArm.Hits}/{withoutArm.Tasks}), precision {withoutArm.Precision:0.000} ({withoutArm.Correct}/{withoutArm.Offered}), p95 {withoutArm.P95Ms:0.0} ms");
@@ -367,6 +383,17 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 git.StandardOutput.BaseStream.CopyTo(Stream.Null);
                 git.WaitForExit();
                 if (git.ExitCode != 0) throw new InvalidOperationException($"git archive {commit[..10]} failed: {errors.Result.Trim()}");
+                // The packages each project restores (review 3): the map reads obj/project.assets.json to bind calls into package
+                // types, and a parent tree has no obj/, so its map had fewer links than the host's. HEAD's restore stands in for
+                // the parent's: an approximation, in which a package added or removed between the two reads as at HEAD.
+                foreach (var project in Directory.EnumerateFiles(folder, "*.csproj", SearchOption.AllDirectories))
+                {
+                    var projectFolder = System.IO.Path.GetDirectoryName(project)!;
+                    var assets = System.IO.Path.Combine(repo, System.IO.Path.GetRelativePath(folder, projectFolder), "obj", "project.assets.json");
+                    if (!File.Exists(assets)) continue;
+                    Directory.CreateDirectory(System.IO.Path.Combine(projectFolder, "obj"));
+                    File.Copy(assets, System.IO.Path.Combine(projectFolder, "obj", "project.assets.json"), overwrite: true);
+                }
                 return new ParentTree(folder);
             }
             catch

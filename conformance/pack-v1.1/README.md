@@ -1,6 +1,6 @@
 # Memory pack format v1.2: conformance vectors
 
-Two verifiers that share no code must reach the same verdict on every vector here (284 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
+Two verifiers that share no code must reach the same verdict on every vector here (292 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
 
 - `ampack verify` (.NET, `tools/Ampack`, library `src/AgentMemory.Packs.Format`)
 - `python/ampack_verify.py` (Python 3.12, whose Unicode 15.0 data matches the .NET tables, and `cryptography`); with `--receipt <file> --location <url>` it also verifies a publication receipt, and with `--certificate <META/attestations/… or file>` an evaluation certificate (`ampack certificate verify` on the .NET side)
@@ -16,7 +16,8 @@ which their verdicts differ. Six kinds, in turn: archive bytes flipped, inserted
 file edited and signed again; `validUntil` in edge time forms; files under edge paths; the signature envelope edited; and
 the trust policy edited (unknown fields, private or doubled PEMs, odd prefixes and times). It needs the vectors
 `run_vectors.py` writes, is seeded so a run repeats, and writes `differential-results-seed-<seed>.json`. 29 Oct 2026:
-1,200 mutants over two seeds, 100 of each kind per seed, no disagreement; 214 verified by both.
+1,200 mutants over two seeds, 100 of each kind per seed, no disagreement; 214 verified by both. After review 3 (canonical
+P-256 keys, one envelope shape, typed composite members): 1,000 mutants on seed 20261029, no disagreement; 181 verified by both.
 
 ```
 python conformance/pack-v1.1/differential.py tools/Ampack/bin/Debug/net10.0/Ampack.exe --count 600 --seed 20261029

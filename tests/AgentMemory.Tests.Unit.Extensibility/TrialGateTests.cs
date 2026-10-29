@@ -87,6 +87,26 @@ public sealed class TrialGateTests : IDisposable
         bound.Should().BeLessThan(0.6, "three items cannot show a precision lift near 1 with 95% confidence (it was 1.000)");
     }
 
+    [Fact]
+    public void Review3_the_precision_difference_bound_stays_honest_when_the_arms_are_strongly_correlated()
+    {
+        // The pack is right on the easy half and wrong on the hard half; so is the baseline, less sharply. Newcombe's margin
+        // shrank to the difference of two floored margins here (0.104); the paired cluster-robust bound is 0.011.
+        var with = Measured([.. Enumerable.Repeat(new PackTrialTask(8, 8), 5), .. Enumerable.Repeat(new PackTrialTask(8, 2), 5)]);
+        var grep = Measured([.. Enumerable.Repeat(new PackTrialTask(3, 2), 5), .. Enumerable.Repeat(new PackTrialTask(3, 1), 5)]);
+
+        var bound = PackTrialGate.PrecisionDifferenceLower(with, grep, 1.6448536269514722);
+
+        bound.Should().BeLessThan(0.05, "a precisionLift target of 0.1 must not pass at 95% on these ten tasks");
+        bound.Should().BeGreaterThan(-0.2);
+    }
+
+    private static PackTrialMeasurement Measured(IReadOnlyList<PackTrialTask> tasks) => new()
+    {
+        Tasks = tasks.Count, Hits = tasks.Count(t => t.Correct > 0), Offered = tasks.Sum(t => t.Offered), Correct = tasks.Sum(t => t.Correct), P95Ms = 1,
+        PerTask = tasks,
+    };
+
     private static PackTrialMeasurement Arm(int hits, int correct, int offered, double p95) =>
         new() { Tasks = 40, Hits = hits, Correct = correct, Offered = offered, P95Ms = p95 };
 

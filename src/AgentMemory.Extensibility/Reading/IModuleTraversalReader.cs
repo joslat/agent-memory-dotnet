@@ -43,8 +43,8 @@ public sealed record ModuleAnchorQuery
     public int Limit { get; init; } = 512;
 
     /// <summary>
-    /// A path as the walk compares it, which a store's own filter must keep to (pack format v1.2 §6.1): trimmed, '/' for '',
-    /// without leading './' or '/'; compared without case.
+    /// A path as the walk compares it, which a store's own filter must keep to (pack format v1.2 §6.1): trimmed of ASCII white
+    /// space, a forward slash for each backslash, without leading './' or '/'; compared with A-Z folded to a-z, nothing else.
     /// </summary>
     public static string NormalizedPath(string value) => Context.Traversal.AnchorMatcher.Normalized(value);
 

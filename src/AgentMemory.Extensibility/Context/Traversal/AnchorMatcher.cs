@@ -21,16 +21,35 @@ internal static class AnchorMatcher
     private static readonly char[] Separators = [' ', '\t', '\r', '\n', ',', ';'];
     private static readonly char[] NameSeparators = ['\r', '\n', ',', ';'];
 
+    // ASCII only, as the format states (review 3): white space is these six characters, and only A-Z fold to a-z. Unicode
+    // folding differed between .NET, Cypher and the spec (µ and μ, final Σ, İ), so the stores seeded different records.
+    private static readonly char[] AsciiSpace = [' ', '\t', '\r', '\n', '\f', '\v'];
+
+    /// <summary>The text without leading and trailing ASCII white space.</summary>
+    internal static string Trimmed(string value) => value.Trim(AsciiSpace);
+
+    /// <summary>Whether the text is empty or ASCII white space only.</summary>
+    internal static bool IsBlank(string? value) => value is null || value.AsSpan().Trim(AsciiSpace).IsEmpty;
+
+    /// <summary>The text with A-Z as a-z and every other character as it is.</summary>
+    internal static string Folded(string value) =>
+        string.Create(value.Length, value, static (span, source) =>
+        {
+            for (var i = 0; i < source.Length; i++) span[i] = source[i] is >= 'A' and <= 'Z' ? (char)(source[i] + 32) : source[i];
+        });
+
+    private static bool SameFolded(string a, string b) => a.Length == b.Length && string.Equals(Folded(a), Folded(b), StringComparison.Ordinal);
+
     /// <summary>The best match of one stored value against the anchors: its quality (0 for none), the anchor and the pattern.</summary>
     internal static (double Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors)
     {
-        if (string.IsNullOrWhiteSpace(value)) return (0, null, null);
+        if (IsBlank(value)) return (0, null, null);
         // Paths split on whitespace too; names do not, because a SCIP identity holds spaces.
         var patterns = match switch
         {
-            ModuleAnchorMatch.Glob or ModuleAnchorMatch.Prefix => value.Split(Separators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-            ModuleAnchorMatch.Name => value.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-            _ => [value.Trim()],
+            ModuleAnchorMatch.Glob or ModuleAnchorMatch.Prefix => Pieces(value!, Separators),
+            ModuleAnchorMatch.Name => Pieces(value!, NameSeparators),
+            _ => [Trimmed(value!)],
         };
         (double Quality, string? Anchor, string? Pattern) best = (0, null, null);
         foreach (var anchor in anchors)
@@ -42,31 +61,42 @@ internal static class AnchorMatcher
         return best;
     }
 
+    // The pieces of a value between separators, each trimmed of ASCII white space, empty ones dropped.
+    private static string[] Pieces(string value, char[] separators) =>
+        [.. value.Split(separators).Select(Trimmed).Where(piece => piece.Length > 0)];
+
     internal static double Quality(ModuleAnchorMatch match, string pattern, string anchor) => match switch
     {
-        ModuleAnchorMatch.Exact => string.Equals(Path(pattern), Path(anchor), StringComparison.OrdinalIgnoreCase) ? Exact : 0,
+        ModuleAnchorMatch.Exact => Path(pattern) is { Length: > 0 } p && SameFolded(p, Path(anchor)) ? Exact : 0,
         ModuleAnchorMatch.Prefix => PrefixQuality(Path(pattern).TrimEnd('/'), Path(anchor)),
         ModuleAnchorMatch.Glob => GlobQuality(Path(pattern), Path(anchor)),
         ModuleAnchorMatch.Name => NameQuality(pattern, anchor),
         _ => 0,
     };
 
-    /// <summary>A path as matching compares it (review 2: stores filter with it too): trimmed, '/' for '\', no leading './' or '/'.</summary>
+    /// <summary>
+    /// Whether a seed's pattern is its anchor, as its reason shows it (review 3: the raw texts were compared): the same path,
+    /// normalized and folded as matching compares them.
+    /// </summary>
+    internal static bool SamePath(string pattern, string anchor) => SameFolded(Path(pattern), Path(anchor));
+
+    /// <summary>A path as matching compares it (review 2: stores filter with it too): ASCII-trimmed, '/' for '\', no leading './' or '/'.</summary>
     internal static string Normalized(string value) => Path(value);
 
-    // Repository-relative with forward slashes: "./src\a.cs" and "src/a.cs" are the same file; a dot file keeps its dot.
+    // Repository-relative with forward slashes: "./src\a.cs" and "src/a.cs" are the same file; a dot file keeps its dot. Every
+    // leading "./" goes, then every leading "/".
     private static string Path(string value)
     {
-        var path = value.Trim().Replace('\\', '/');
+        var path = Trimmed(value).Replace('\\', '/');
         while (path.StartsWith("./", StringComparison.Ordinal)) path = path[2..];
         return path.TrimStart('/');
     }
 
     private static double PrefixQuality(string prefix, string anchor)
     {
-        if (prefix.Length == 0) return 0;
-        if (string.Equals(prefix, anchor, StringComparison.OrdinalIgnoreCase)) return Exact;
-        if (!anchor.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (prefix.Length == 0 || anchor.Length == 0) return 0;
+        if (SameFolded(prefix, anchor)) return Exact;
+        if (!Folded(anchor).StartsWith(Folded(prefix) + "/", StringComparison.Ordinal)) return 0;
         // A deeper folder says more about the file: src/a/b/ beats src/ for src/a/b/c.cs.
         var depth = (double)prefix.Count(c => c == '/') + 1;
         var total = (double)anchor.Count(c => c == '/') + 1;
@@ -75,21 +105,22 @@ internal static class AnchorMatcher
 
     private static double GlobQuality(string pattern, string anchor)
     {
-        if (pattern.Length == 0) return 0;
+        if (pattern.Length == 0 || anchor.Length == 0) return 0;
         if (pattern.IndexOfAny(['*', '?']) < 0)
-            return pattern.EndsWith('/') ? PrefixQuality(pattern.TrimEnd('/'), anchor) : string.Equals(pattern, anchor, StringComparison.OrdinalIgnoreCase) ? Exact : 0;
-        return Glob(pattern).IsMatch(anchor) ? Globbed : 0;
+            return pattern.EndsWith('/') ? PrefixQuality(pattern.TrimEnd('/'), anchor) : SameFolded(pattern, anchor) ? Exact : 0;
+        return Glob(Folded(pattern)).IsMatch(Folded(anchor)) ? Globbed : 0;
     }
 
     private static readonly Dictionary<string, Regex> Globs = new(StringComparer.Ordinal);
     private static readonly object GlobsLock = new();
 
+    // Over ASCII-folded text, with no case option of its own; "**" crosses every character, line breaks included.
     private static Regex Glob(string pattern)
     {
         lock (GlobsLock)
         {
             if (Globs.TryGetValue(pattern, out var cached)) return cached;
-            var regex = new StringBuilder("^");
+            var regex = new StringBuilder(@"\A");
             for (var i = 0; i < pattern.Length; i++)
             {
                 var c = pattern[i];
@@ -97,14 +128,14 @@ internal static class AnchorMatcher
                 {
                     // "**/" matches zero or more folders; a bare "**" matches anything.
                     var slash = i + 2 < pattern.Length && pattern[i + 2] == '/';
-                    regex.Append(slash ? "(?:.*/)?" : ".*");
+                    regex.Append(slash ? @"(?:[\s\S]*/)?" : @"[\s\S]*");
                     i += slash ? 2 : 1;
                 }
                 else if (c == '*') regex.Append("[^/]*");
                 else if (c == '?') regex.Append("[^/]");
                 else regex.Append(Regex.Escape(c.ToString()));
             }
-            var compiled = new Regex(regex.Append('$').ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+            var compiled = new Regex(regex.Append(@"\z").ToString(), RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
             if (Globs.Count < 4096) Globs[pattern] = compiled;
             return compiled;
         }
@@ -112,7 +143,8 @@ internal static class AnchorMatcher
 
     private static double NameQuality(string value, string anchor)
     {
-        value = value.Trim(); anchor = anchor.Trim();
+        value = Trimmed(value); anchor = Trimmed(anchor);
+        if (value.Length == 0) return 0;
         if (string.Equals(value, anchor, StringComparison.Ordinal)) return Exact;
         var simpleValue = SimpleName(value); var simpleAnchor = SimpleName(anchor);
         return simpleValue.Length > 0 && string.Equals(simpleValue, simpleAnchor, StringComparison.Ordinal) ? Named : 0;
@@ -120,11 +152,12 @@ internal static class AnchorMatcher
 
     /// <summary>
     /// The simple name of a SCIP symbol (<c>… Storage/Neo4jModuleStore#</c> → <c>Neo4jModuleStore</c>; <c>…#RemovePackAsync().</c>
-    /// → <c>RemovePackAsync</c>), or the value itself when it is already one.
+    /// → <c>RemovePackAsync</c>), or the value itself when it is already one: the text after the last space, without trailing
+    /// '#', '.', '/', ':' and '!', cut at the last '(' when it ends with ')', then what follows the last '/', '#', '.' or ':'.
     /// </summary>
     internal static string SimpleName(string symbol)
     {
-        var s = symbol.Trim();
+        var s = Trimmed(symbol);
         var space = s.LastIndexOf(' ');
         if (space >= 0) s = s[(space + 1)..];
         s = s.TrimEnd('#', '.', '/', ':', '!');

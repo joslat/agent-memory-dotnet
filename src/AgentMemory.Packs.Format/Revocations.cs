@@ -214,8 +214,10 @@ internal static partial class Revocations
             var root = envelope.RootElement;
             if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("payloadType", out var type) || type.ValueKind != JsonValueKind.String
                 || type.GetString() != PayloadType || !root.TryGetProperty("payload", out var text) || text.ValueKind != JsonValueKind.String
-                || !root.TryGetProperty("signatures", out var sigs) || sigs.ValueKind != JsonValueKind.Array)
-                throw Bad("is not a DSSE envelope of a revocation document");
+                || !root.TryGetProperty("signatures", out var sigs) || sigs.ValueKind != JsonValueKind.Array
+                // One shape for every envelope of the format (review 3): its three fields, each entry a key id and a signature.
+                || root.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures")) || sigs.EnumerateArray().Any(e => !Dsse.IsEntry(e)))
+                throw Bad("is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature)");
             payload = Dsse.FromBase64(text.GetString()) ?? throw Bad("has a payload that is not base64");
             signatures = sigs.Clone();
         }

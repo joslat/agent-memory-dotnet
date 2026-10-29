@@ -137,7 +137,7 @@ internal static class Dsse
     }
 
     // A signature entry's shape (review 2, L7): exactly a key id and a signature, each of the form the format writes.
-    private static bool IsEntry(JsonElement entry) =>
+    internal static bool IsEntry(JsonElement entry) =>
         entry.ValueKind == JsonValueKind.Object && entry.EnumerateObject().All(p => p.Name is "keyid" or "sig")
         && entry.TryGetProperty("keyid", out var keyId) && keyId.ValueKind == JsonValueKind.String && keyId.GetString() is { Length: 64 } id
         && id.All(char.IsAsciiHexDigitLower)

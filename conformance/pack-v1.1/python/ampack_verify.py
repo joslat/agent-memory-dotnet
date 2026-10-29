@@ -23,6 +23,7 @@ import functools
 import json
 import math
 import os
+import stat
 import re
 import struct
 import sys
@@ -111,6 +112,59 @@ def safe_path(path):
 
 MEMBER_FIELDS = {"id", "version", "priority", "enabled", "contains"}
 KEY_ID = re.compile(r"[0-9a-f]{64}", re.ASCII)
+
+
+def entry_shaped(s):
+    """A DSSE signature entry as the format writes it, for every envelope kind (review 2, 3; as .NET's Dsse.IsEntry): a key id of
+    64 lowercase hex and a signature of strict base64 decoding to 1 to 72 bytes, nothing else."""
+    return isinstance(s, dict) and set(s) == {"keyid", "sig"} and isinstance(s["keyid"], str) and bool(KEY_ID.fullmatch(s["keyid"])) \
+        and isinstance(s["sig"], str) and 0 < len(strict_b64(s["sig"]) or b"") <= 72
+
+
+def member_typed(m):
+    """A composite member's values typed as the loader reads them (review 3, as .NET's PackVerifier.IsMember)."""
+    def text(v):
+        return isinstance(v, str) and v != ""
+    priority = m.get("priority", 0)
+    return text(m.get("id")) and text(m.get("version")) \
+        and isinstance(priority, int) and not isinstance(priority, bool) and -2 ** 31 <= priority < 2 ** 31 \
+        and isinstance(m.get("enabled", True), bool) \
+        and isinstance(m.get("contains", []), list) and all(text(c) for c in m.get("contains", []))
+
+
+P256_SPKI_PREFIX = bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d030107034200")
+
+
+def canonical_p256(pem):
+    """A P-256 key in the one form both verifiers read alike (review 3, as .NET's TrustPolicy.IsCanonicalP256): the 91-byte
+    SubjectPublicKeyInfo of an uncompressed point, in canonical base64."""
+    body = "".join(line.rstrip("\r") for line in pem.split("\n") if not line.startswith("-----"))
+    der = strict_b64(body)
+    return der is not None and len(der) == 91 and der[:26] == P256_SPKI_PREFIX and der[26] == 4 \
+        and base64.b64encode(der).decode() == body
+
+
+def read_regular(path, cap, what):
+    """A regular file's bytes, at most cap of them, read as .NET's PackReader reads a pack or a revocation list (review 3): never
+    through a link, never a pipe or device (whose size reads as 0 and whose stream may never end), and bounded while read."""
+    try:
+        status = os.lstat(path)
+    except OSError as e:
+        raise Refused(f"{what} cannot be read: {e.strerror}")
+    if stat.S_ISLNK(status.st_mode) or getattr(status, "st_file_attributes", 0) & 0x400:  # 0x400: a Windows reparse point
+        raise Refused(f"{what} is a link")
+    if not stat.S_ISREG(status.st_mode):
+        raise Refused(f"{what} is not a regular file")
+    if status.st_size > cap:
+        raise Refused(f"{what} is larger than {cap >> 20} MiB")
+    with open(path, "rb") as handle:
+        data = handle.read(status.st_size + 1)  # what the file reports, and one byte to see it did not grow
+        while len(data) <= cap:
+            more = handle.read(1 << 20)
+            if not more:
+                return data
+            data += more
+    raise Refused(f"{what} is larger than {cap >> 20} MiB")
 
 
 def strict_b64(text):
@@ -254,7 +308,8 @@ def read_revocations(policy, data, now):
         raise Refused(f"the revocation document is larger than {MAX_REVOCATIONS >> 20} MiB")
     env = profile(data)
     if not isinstance(env, dict) or env.get("payloadType") != REVOCATIONS_TYPE or not isinstance(env.get("payload"), str) \
-            or not isinstance(env.get("signatures"), list):
+            or not isinstance(env.get("signatures"), list) \
+            or set(env) != {"payloadType", "payload", "signatures"} or not all(entry_shaped(e) for e in env["signatures"]):
         raise Refused("the revocation document is not a DSSE envelope of a revocation document")
     try:
         payload = base64.b64decode(env["payload"], validate=True)
@@ -472,7 +527,8 @@ def composite_checks(manifest, content):
         if not isinstance(members_doc, dict) or set(members_doc) != {"members"}:  # review 1, L6: nothing but its members
             raise Refused("members.json is malformed")
         # Each member holds what a composite member is and nothing else, as the loader reads it (review 2, L6).
-        if not isinstance(members_doc["members"], list) or not all(isinstance(m, dict) and set(m) <= MEMBER_FIELDS for m in members_doc["members"]):
+        if not isinstance(members_doc["members"], list) or not all(isinstance(m, dict) and set(m) <= MEMBER_FIELDS and member_typed(m)
+                                                                  for m in members_doc["members"]):
             raise Refused("members.json is malformed")
         named = [m["id"] for m in members_doc["members"]]
     except (Refused, KeyError, TypeError):
@@ -731,10 +787,8 @@ def verify(files, policy, now):
         # a signature (strict base64, 1 to 72 bytes), and nothing else.
         if set(env) != {"payloadType", "payload", "signatures"}:
             raise Refused(f"{path} holds a field a DSSE envelope does not have")
-        for s in env["signatures"]:
-            if not (isinstance(s, dict) and set(s) == {"keyid", "sig"} and isinstance(s["keyid"], str) and KEY_ID.fullmatch(s["keyid"])
-                    and isinstance(s["sig"], str) and 0 < len(strict_b64(s["sig"]) or b"") <= 72):
-                raise Refused(f"{path} has a signature entry that is not a key id and a signature")
+        if not all(entry_shaped(s) for s in env["signatures"]):
+            raise Refused(f"{path} has a signature entry that is not a key id and a signature")
         try:
             payload = base64.b64decode(env["payload"], validate=True)
         except ValueError:
@@ -871,7 +925,8 @@ def verify_receipt(envelope_bytes, pid, version, digest, federation, archive, lo
         raise Refused("the receipt is larger than 64 KiB")
     env = profile(envelope_bytes)
     if not isinstance(env, dict) or set(env) != {"payloadType", "payload", "signatures"} or env["payloadType"] != PAYLOAD_TYPE \
-            or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES:
+            or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES \
+            or not all(entry_shaped(e) for e in env["signatures"]):
         raise Refused("the receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures")
     try:
         payload = base64.b64decode(env["payload"], validate=True)
@@ -1130,7 +1185,8 @@ def verify_certificate(envelope_bytes, pid, version, digest, policy, now, run=No
         raise Refused("the certificate is larger than 64 KiB")
     env = profile(envelope_bytes)
     if not isinstance(env, dict) or set(env) != {"payloadType", "payload", "signatures"} or env["payloadType"] != PAYLOAD_TYPE \
-            or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES:
+            or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES \
+            or not all(entry_shaped(e) for e in env["signatures"]):
         raise Refused("the certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures")
     try:
         payload = base64.b64decode(env["payload"], validate=True)
@@ -1224,6 +1280,8 @@ def load_policy(raw):
         # One PUBLIC KEY block and nothing else, as .NET reads it (review 2: a private key, or several blocks, read differently).
         if not isinstance(key["publicKey"], str) or not PUBLIC_PEM.fullmatch(key["publicKey"]):
             raise Refused("a trusted key's publicKey is not one PEM 'PUBLIC KEY' block and nothing else")
+        if not canonical_p256(key["publicKey"]):
+            raise Refused("a trusted key's publicKey is not a P-256 key in its one form (an uncompressed point, canonical base64)")
         try:
             public = serialization.load_pem_public_key(key["publicKey"].encode())
             spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -1307,15 +1365,10 @@ def main(argv):
         policy = load_policy(open(policy_path, "rb").read())
         documents = []
         for name in args[2:]:
-            with open(name, "rb") as document:
-                documents.append(document.read(MAX_REVOCATIONS + 1))
+            documents.append(read_regular(name, MAX_REVOCATIONS, "the revocation document"))
         if documents:
             policy = apply_all(policy, documents, now)
-        with open(pack_path, "rb") as handle:
-            # The size first: read(n) would reserve n bytes up front, and a file past the cap is never read.
-            if os.fstat(handle.fileno()).st_size > MAX_ARCHIVE:
-                raise Refused(f"the archive is larger than {MAX_ARCHIVE >> 20} MiB")
-            archive = handle.read()
+        archive = read_regular(pack_path, MAX_ARCHIVE, "the archive")
         pid, version, digest = verify_any(read_zip(archive), policy, now)
         if receipt_path is not None:
             files = read_zip(archive)

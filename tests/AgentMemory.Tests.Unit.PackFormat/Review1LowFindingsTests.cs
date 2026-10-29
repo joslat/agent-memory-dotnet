@@ -101,9 +101,12 @@ public sealed class Review1LowFindingsTests : IDisposable
             return PackVerifier.CheckIntegrity(new PackContent(files, "composite")).Problems;
         }
 
-        Problems("""{"members":[{"id":"io.example.notes"}]}""", records: false).Should().BeEmpty();
-        Problems("""{"members":[{"id":"io.example.notes"}]}""", records: true).Should().ContainSingle(p => p.Contains("no records of its own"));
-        Problems("""{"members":[{"id":"io.example.notes"}],"order":"alphabetical"}""", records: false).Should().ContainSingle(p => p.Contains("members.json is malformed"));
+        Problems("""{"members":[{"id":"io.example.notes","version":"[1,2)"}]}""", records: false).Should().BeEmpty();
+        Problems("""{"members":[{"id":"io.example.notes","version":"[1,2)"}]}""", records: true).Should().ContainSingle(p => p.Contains("no records of its own"));
+        Problems("""{"members":[{"id":"io.example.notes","version":"[1,2)"}],"order":"alphabetical"}""", records: false).Should().ContainSingle(p => p.Contains("members.json is malformed"));
+        // Review 3: a member's values typed as the loader reads them.
+        Problems("""{"members":[{"id":"io.example.notes"}]}""", records: false).Should().ContainSingle(p => p.Contains("members.json is malformed"), "a member names its version range");
+        Problems("""{"members":[{"id":"io.example.notes","version":"[1,2)","enabled":"yes"}]}""", records: false).Should().ContainSingle(p => p.Contains("members.json is malformed"));
     }
 
     [Fact]

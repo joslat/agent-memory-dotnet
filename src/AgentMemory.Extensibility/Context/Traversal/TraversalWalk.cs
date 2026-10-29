@@ -44,8 +44,9 @@ internal sealed record TraversalResult(IReadOnlyList<TraversalItem> Items, IRead
 /// <b>Budgets bound the work, not only the result (red-team M3).</b> A walk stops at <see cref="MaximumVisited"/> records, at
 /// <see cref="MaximumReads"/> store reads, or after <see cref="TimeBudget"/>, whichever comes first, and it stops everywhere, not
 /// only in the relation it was expanding. One pack holds at most <see cref="MaximumVisitedPerModule"/> of the visited records, so a
-/// pack earlier in dependency order cannot fill the budget at its first hop and starve the others' later hops. The store caps how
-/// many neighbours it ranks per record (<see cref="ModuleExpandQuery.MaximumScan"/>), so a hub's degree no longer sets the cost.
+/// pack earlier in dependency order cannot fill the budget at its first hop and starve the others' later hops. A record with
+/// more than <see cref="ModuleExpandQuery.MaximumLinks"/> live links of a relation is not expanded through it (the store checks
+/// its degree first), so a hub's degree no longer sets the cost; within that, every link is ranked (review 2).
 /// <b>Reasons are built from relation verbs and record names, paths or keys</b> in a strict character set (red-team M6): a
 /// record's free text never enters its reason.
 /// </remarks>
@@ -64,6 +65,30 @@ internal static class TraversalWalk
     internal const int MaximumVisitedPerModule = 192;
     internal const int MaximumReads = 128;
     internal static readonly TimeSpan TimeBudget = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The anchors a walk takes (pack format v1.2 §6.1), the same for every entry point (review 3: serve cut to 32 before the
+    /// duplicates went): in request order, each value in NFC, those not blank (ASCII white space) and at most 512 characters,
+    /// distinct by kind and value, the first 32.
+    /// </summary>
+    internal static List<ContextAnchor> Anchors(IEnumerable<ContextAnchor> anchors) =>
+        [.. anchors.Where(a => a is not null && !AnchorMatcher.IsBlank(a.Value) && WellFormed(a.Value))
+            .Select(a => a.Value.IsNormalized() ? a : a with { Value = a.Value.Normalize() })
+            .Where(a => a.Value.Length <= ContextAnchor.MaximumLength)
+            .DistinctBy(a => (a.Kind, a.Value)).Take(ContextAnchor.MaximumPerRequest)];
+
+    // No lone surrogate: such text has no NFC form (normalizing it throws), and no store holds it as a path or a name.
+    private static bool WellFormed(string value)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (!char.IsSurrogate(value[i])) continue;
+            if (!char.IsHighSurrogate(value[i]) || i + 1 == value.Length || !char.IsLowSurrogate(value[i + 1])) return false;
+            i++;
+        }
+        return true;
+    }
+
     internal const double MinimumScore = 0.1;
 
     // timeBudget: TimeBudget unless a test sets a shorter one.
@@ -71,9 +96,7 @@ internal static class TraversalWalk
     internal static async Task<TraversalResult> RunAsync(ModuleResolution resolution, IModuleTraversalReader reader, ContextRequest request,
         CancellationToken cancellationToken, TimeSpan? timeBudget = null, Func<string, bool>? live = null)
     {
-        var anchors = request.Anchors
-            .Where(a => a is not null && !string.IsNullOrWhiteSpace(a.Value) && a.Value.Length <= ContextAnchor.MaximumLength)
-            .DistinctBy(a => (a.Kind, a.Value)).Take(ContextAnchor.MaximumPerRequest).ToList();
+        var anchors = Anchors(request.Anchors);
         if (anchors.Count == 0) return TraversalResult.Empty;
         var context = new ModuleReadContext
         {
@@ -129,7 +152,8 @@ internal static class TraversalWalk
                 texts[(record.ModuleId, record.Type)] = properties = resolution.Modules.SingleOrDefault(m => m.Id == record.ModuleId)?.Ontology?.Types
                     .SingleOrDefault(t => t.Name == record.Type)?.TextProperties() ?? [];
             var text = string.Join(' ', properties.Select(p => record.Properties.TryGetValue(p, out var v) && v.ValueKind == JsonValueKind.String
-                ? v.GetString() : null)).ToLowerInvariant();
+                ? v.GetString() : null));
+            text = AnchorMatcher.Folded(text);
             return words.Count(w => text.Contains(w, StringComparison.Ordinal));
         }
 
@@ -158,11 +182,19 @@ internal static class TraversalWalk
                     var value = record.Properties.TryGetValue(declared.Property, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
                     var (quality, anchor, pattern) = AnchorMatcher.Best(declared.Match, value, values);
                     if (quality <= 0) continue;
-                    var via = Short(anchor!) + (string.Equals(pattern, anchor, StringComparison.OrdinalIgnoreCase)
-                        ? "" : " matches " + declared.Property + " " + Capped(pattern!));
+                    // The pattern is the anchor when it names the same path (or, for a name, the same text): then the reason is the anchor alone.
+                    var same = declared.Match == ModuleAnchorMatch.Name
+                        ? string.Equals(AnchorMatcher.Trimmed(pattern!), AnchorMatcher.Trimmed(anchor!), StringComparison.Ordinal)
+                        : AnchorMatcher.SamePath(pattern!, anchor!);
+                    var via = Short(anchor!) + (same ? "" : " matches " + declared.Property + " " + Capped(pattern!));
                     seeds.Add(new TraversalItem(record, quality, via, 0, Matches(record)));
                 }
-                foreach (var seed in seeds.OrderByDescending(i => i.Score).ThenBy(i => i.Record, TraversalOrder.Records)) Offer(seed);
+                foreach (var seed in seeds.OrderByDescending(i => i.Score).ThenBy(i => i.Record, TraversalOrder.Records))
+                {
+                    // At 256 kept records the walk stops, here as in the hops (review 3: the seeds went on raising scores).
+                    if (best.Count >= MaximumVisited) break;
+                    Offer(seed);
+                }
             }
 
         // Hops: owned links, in their declared direction, from what the last hop reached.
@@ -340,7 +372,7 @@ internal static partial class TraversalWords
 
     internal static IReadOnlyList<string> Of(string? question) =>
         string.IsNullOrWhiteSpace(question) ? []
-        : [.. Word().Matches(CaseChange().Replace(question, "$1 $2").ToLowerInvariant()).Select(m => m.Value)
+        : [.. Word().Matches(AnchorMatcher.Folded(CaseChange().Replace(question, "$1 $2"))).Select(m => m.Value)
             .Where(w => w.Length is >= 3 and <= ModuleExpandQuery.MaximumWordLength && !Common.Contains(w)).Distinct(StringComparer.Ordinal)
             .Take(ModuleExpandQuery.MaximumWords)];
 

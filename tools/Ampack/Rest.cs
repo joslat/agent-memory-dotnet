@@ -34,12 +34,14 @@ internal static class Rest
             throw new UsageException("--http takes a URL such as http://localhost:5199/.");
         if (!uri.IsLoopback && !allowRemote)
             throw new UsageException($"{uri.Host} is not this machine: serving packs beyond it needs --allow-remote.");
-        // A token, when set, is asked of every request, on loopback too; beyond this machine one is required.
+        // Remote is what --allow-remote says, not only the address (review 3: a proxy on this machine forwarding to a loopback
+        // address passed every local check). Remote: a token on every request, packs for named WebIDs never served.
+        var remote = allowRemote || !uri.IsLoopback;
         var token = Environment.GetEnvironmentVariable(TokenVariable) is { Length: > 0 } set ? set : null;
         if (token is { Length: < 32 }) throw new UsageException($"{TokenVariable} is shorter than 32 characters.");
-        if (!uri.IsLoopback && token is null)
+        if (remote && token is null)
             throw new UsageException($"Serving beyond this machine needs a bearer token: set {TokenVariable} (at least 32 characters); every request then sends Authorization: Bearer <token>. Put a TLS proxy in front.");
-        if (!uri.IsLoopback && mount.Packs.FirstOrDefault(p => p.Publication is { IsPublic: false }) is { } restricted)
+        if (remote && mount.Packs.FirstOrDefault(p => p.Publication is { IsPublic: false }) is { } restricted)
             throw new UsageException($"{restricted.Id} is published for named WebIDs only: it is not served beyond this machine.");
         var expected = token is null ? null : System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(token));
         using var gate = new SemaphoreSlim(MaximumConcurrent);
@@ -61,7 +63,8 @@ internal static class Rest
             if (!gate.Wait(0)) { Refuse(context, 503, "The server is busy; try again."); continue; }
             // A server bound to this machine answers this machine only, whatever Host header a request names (review 2: http.sys
             // routes by the Host header, so a localhost prefix could be reached from elsewhere).
-            if (uri.IsLoopback && !context.Request.IsLocal) { gate.Release(); Refuse(context, 403, "This server answers this machine only."); continue; }
+            if (!remote && (!context.Request.IsLocal || Forwarded(context.Request)))
+            { gate.Release(); Refuse(context, 403, "This server answers this machine only; serving through a proxy needs --allow-remote."); continue; }
             if (expected is not null && !Authorized(context.Request, expected)) { gate.Release(); Refuse(context, 401, "A bearer token is required."); continue; }
             _ = Task.Run(async () =>
             {
@@ -105,6 +108,10 @@ internal static class Rest
         try { await context.Response.OutputStream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false); }
         finally { context.Response.Close(); }
     }
+
+    // A request a proxy forwarded: it came from elsewhere, whatever address the connection has.
+    private static bool Forwarded(HttpListenerRequest request) =>
+        request.Headers["Forwarded"] is not null || request.Headers["X-Forwarded-For"] is not null || request.Headers["X-Real-IP"] is not null;
 
     // The bearer token, compared in constant time by its hash.
     private static bool Authorized(HttpListenerRequest request, byte[] expected) =>
