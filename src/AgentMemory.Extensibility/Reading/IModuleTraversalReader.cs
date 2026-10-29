@@ -50,6 +50,9 @@ public sealed record ModuleAnchorQuery
 
     /// <summary>The simple name of a SCIP symbol, as a name anchor matches it (pack format v1.2 §6.1).</summary>
     public static string SimpleName(string symbol) => Context.Traversal.AnchorMatcher.SimpleName(symbol);
+
+    /// <summary>Whether an anchor value is blank as the walk reads it: empty or ASCII white space only (pack format v1.2 §6.1).</summary>
+    public static bool IsBlank(string? value) => Context.Traversal.AnchorMatcher.IsBlank(value);
 }
 
 /// <summary>One hop through one owned link from a set of live records.</summary>
@@ -70,6 +73,9 @@ public sealed record ModuleExpandQuery
     public const int MaximumWords = 16;
     /// <summary>The longest question word a walk ranks by; a store counts the same words (review 2).</summary>
     public const int MaximumWordLength = 40;
+
+    /// <summary>A question word as a store compares it: trimmed of ASCII white space, A-Z folded to a-z, nothing else (§6.1).</summary>
+    public static string Word(string value) => Context.Traversal.AnchorMatcher.Folded(Context.Traversal.AnchorMatcher.Trimmed(value));
     /// <summary>The count at which a degree stops (a record's specificity is 1 over its degree, counted up to this).</summary>
     public const int MaximumScan = 1024;
 

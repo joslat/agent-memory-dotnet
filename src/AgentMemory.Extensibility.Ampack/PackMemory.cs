@@ -317,7 +317,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
         var module = Resolution.Modules.SingleOrDefault(m => m.Id == query.ModuleId);
         if (module?.Traversal?.Anchors.Any(a => a.Type == query.Type && a.Property == query.Property && a.Match == query.Match) != true)
             return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Refused, Errors = ["The anchor property is not declared for traversal."] });
-        var values = query.Values.Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
+        var values = query.Values.Where(v => !ModuleAnchorQuery.IsBlank(v)).ToList();
         if (values.Count == 0 || !Sees(context)) return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Succeeded });
         // Exactly the records that match by the walk's own rules, in the format's order (review 2: the first 512 records that held
         // the property, matching or not, in key order).
@@ -348,7 +348,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
         if (!Sees(context)) return Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.Succeeded });
         var (reachedModule, reachedType) = query.Direction == ModuleTraversalDirection.Out ? target : (module.Id, relation.From);
         var text = Resolution.Modules.Single(m => m.Id == reachedModule).Ontology!.Types.Single(t => t.Name == reachedType).TextProperties();
-        var words = query.Words.Take(ModuleExpandQuery.MaximumWords).Select(w => w.ToLowerInvariant()).ToList();
+        var words = query.Words.Take(ModuleExpandQuery.MaximumWords).Select(ModuleExpandQuery.Word).ToList();
         var fanOut = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut));
         var edges = new List<ModuleTraversalEdge>();
         var skipped = new List<string>();
@@ -357,7 +357,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
             if (!_byId.TryGetValue(from, out var start)) continue;
             // Every neighbour within the link limit is ranked (review 2: the first 1,024 in id order were); a record past it is
             // not expanded, and the walk is told. A degree is counted up to MaximumScan, in both directions.
-            // Distinct live neighbours, counted as the Neo4j store counts them (review 3).
+            // Distinct live neighbours, counted as the Neo4j store counts them (review 3); an In neighbour's degree is its own links.
             var links = (query.Direction == ModuleTraversalDirection.Out
                 ? start.Links.Where(l => l.Relation == relation.Name).Select(l => _byId[l.TargetId])
                 : _incoming.GetValueOrDefault((relation.Name, start.Id)) ?? []).DistinctBy(r => r.Id).ToList();

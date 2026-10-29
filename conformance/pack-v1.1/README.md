@@ -17,7 +17,8 @@ file edited and signed again; `validUntil` in edge time forms; files under edge 
 the trust policy edited (unknown fields, private or doubled PEMs, odd prefixes and times). It needs the vectors
 `run_vectors.py` writes, is seeded so a run repeats, and writes `differential-results-seed-<seed>.json`. 29 Oct 2026:
 1,200 mutants over two seeds, 100 of each kind per seed, no disagreement; 214 verified by both. After review 3 (canonical
-P-256 keys, one envelope shape, typed composite members): 1,000 mutants on seed 20261029, no disagreement; 181 verified by both.
+P-256 keys, one envelope shape, typed composite members): 1,000 mutants on seed 20261029, no disagreement; 181 verified by both. With the key's own bytes mutated too (compressed and
+hybrid points, stray bits, a changed character, lines re-wrapped): 600 on seed 31, no disagreement; 102 verified by both.
 
 ```
 python conformance/pack-v1.1/differential.py tools/Ampack/bin/Debug/net10.0/Ampack.exe --count 600 --seed 20261029

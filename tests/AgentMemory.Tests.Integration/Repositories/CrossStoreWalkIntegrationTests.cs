@@ -22,17 +22,20 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     {
         var builder = new CodeMapBuilder();
         builder.AddProject("src/Cross/Cross.csproj", "Acme.Cross");
-        string[] files = ["src/Cross/CrossStore.cs", "src/Cross/Über.cs", "src/Cross/über.cs", "docs/cross-µs.cs", "docs/cross-μs.cs", "src/Cross/ΣTATE.cs", "src/Cross/İndex.cs"];
+        string[] files = ["src/Cross/CrossStore.cs", "src/Cross/Über.cs", "src/Cross/über.cs", "docs/cross-\u00B5s.cs", "docs/cross-\u03BCs.cs", "src/Cross/\u03A3TATE.cs", "src/Cross/\u0130ndex.cs"];
         foreach (var file in files) builder.AddFile(file, "src/Cross/Cross.csproj");
         builder.AddFile("tests/CrossTests.cs", null);
         for (var f = 0; f < files.Length; f++)
         {
             var symbol = $"scip-dotnet nuget Acme.Cross . Acme/Cross/Type{f}#";
             builder.AddSymbol(symbol, "Type" + f, "Acme.Cross.Type" + f, CodeMapSymbolKind.Class, "Acme.Cross", files[f], 1, ["Remove", "Close"]);
-            // Twelve tests of each type, every one alike: which few a fan-out of eight keeps is decided by key alone.
+            // Twelve tests of each type, every one alike: which few a fan-out of six keeps is decided by key alone. For the first
+            // type the sixth place falls between two keys that code-point order and UTF-16 order sort the other way round (a
+            // private-use character against an astral one), so a store that cut by its own string order would keep the other.
             for (var t = 0; t < 12; t++)
-                builder.AddTest($"scip-dotnet nuget Acme.Cross.Tests . Acme/Cross/Tests/CrossTests#T{f}x{t:00}().", $"CrossTests.T{f}x{t:00}",
-                    "tests/CrossTests.cs", 10 + f * 20 + t, "xunit", [symbol]);
+                foreach (var suffix in f == 0 && t == 5 ? ["\uE000", "\U0001F600"] : new[] { "" })
+                    builder.AddTest($"scip-dotnet nuget Acme.Cross.Tests . Acme/Cross/Tests/CrossTests#T{f}x{t:00}{suffix}().", $"CrossTests.T{f}x{t:00}{suffix}",
+                        "tests/CrossTests.cs", 10 + f * 20 + t, "xunit", [symbol]);
         }
         return builder.Build("git:cross-store");
     }
@@ -58,9 +61,9 @@ public sealed partial class ModuleRecordWriteIntegrationTests
                 ["SRC/cross/crossstore.CS", "./src\\Cross/CrossStore.cs"],
                 ["src/Cross/Über.cs"],
                 ["src/Cross/über.cs"],
-                ["docs/cross-µs.cs"],
-                ["src/Cross/ΣTATE.cs", "src/Cross/İndex.cs"],
-                ["src/Cross/CrossStore.cs "],
+                ["docs/cross-\u00B5s.cs"],
+                ["src/Cross/\u03A3TATE.cs", "src/Cross/\u0130ndex.cs"],
+                ["src/Cross/CrossStore.cs\u00A0"],
             ];
             foreach (var anchors in requests)
             {
@@ -72,6 +75,9 @@ public sealed partial class ModuleRecordWriteIntegrationTests
                 var fromMemory = await TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None);
 
                 fromNeo4j.Problems.Should().BeEmpty(string.Join(" | ", anchors));
+                if (anchors[0] == "src/Cross/CrossStore.cs")
+                    fromMemory.Items.Select(i => i.Record.Key).Should().Contain(k => k.Contains("\U0001F600", StringComparison.Ordinal))
+                        .And.NotContain(k => k.Contains('\uE000'), "the sixth place goes by UTF-16 code unit: U+D83D before U+E000");
                 fromNeo4j.Items.Select(i => (i.Record.Type, i.Record.Key, Math.Round(i.Score, 9), i.Via, i.Hops))
                     .Should().Equal(fromMemory.Items.Select(i => (i.Record.Type, i.Record.Key, Math.Round(i.Score, 9), i.Via, i.Hops)), string.Join(" | ", anchors));
             }

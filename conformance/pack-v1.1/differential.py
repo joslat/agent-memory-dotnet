@@ -14,12 +14,14 @@ one of them, or a gap in the spec. Two kinds of mutant, from a seeded generator 
   dots, depth 8 and 9, long segments), signed again;
 - envelope mutants: the signature envelope's JSON edited (fields added, key ids and signatures of odd shapes, spacing);
 - policy mutants: the trust policy edited (unknown fields at each level, key PEMs that are private or doubled or CRLF, odd
-  prefixes and times), the pack unchanged.
+  prefixes and times), the pack unchanged; and (review 3) the key's own bytes: a compressed or hybrid point, stray bits in
+  the last base64 character, a base64 character changed, lines re-wrapped within and past 76 characters.
 
 usage: python differential.py <path to Ampack executable> [<out folder>] [--count N] [--seed S]
 Run run_vectors.py first: it writes the valid pack this starts from. Writes differential-results.json; exits 1 on any
 disagreement.
 """
+import base64
 import hashlib
 import json
 import random
@@ -129,10 +131,40 @@ def mutate_envelope(envelope, rng):
     return json.dumps(env, separators=(",", ":")).encode()
 
 
+# The DER prefixes of a P-256 SubjectPublicKeyInfo: 65-byte point (uncompressed 04, hybrid 06/07) and 33-byte (compressed).
+SPKI_65 = bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d030107034200")
+SPKI_33 = bytes.fromhex("3039301306072a8648ce3d020106082a8648ce3d030107032200")
+B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+
+def mutate_key_body(pem, rng):
+    # The key's bytes and their base64, inside an otherwise well-formed block (review 3, H1: the policy mutants never reached
+    # the body, so the two verifiers' readings of a compressed point or stray bits went unseen).
+    lines = pem.strip().split("\n")
+    body = "".join(lines[1:-1])
+    der = base64.b64decode(body)
+    point = der[len(SPKI_65):]
+    x, y = point[1:33], point[33:65]
+    op = rng.choice(("compressed", "hybrid", "stray", "char", "wrap"))
+    if op == "compressed":
+        body = base64.b64encode(SPKI_33 + bytes([2 + (y[-1] & 1)]) + x).decode()
+    elif op == "hybrid":
+        body = base64.b64encode(SPKI_65 + bytes([6 + (y[-1] & 1)]) + x + y).decode()
+    elif op == "stray":
+        # 91 bytes: the last quantum holds one byte and two padding characters; its second character's low four bits are unused.
+        last = body.rstrip("=")
+        body = last[:-1] + B64[B64.index(last[-1]) | rng.randint(1, 15)] + body[len(last):]
+    elif op == "char":
+        i = rng.randrange(len(body.rstrip("=")))
+        body = body[:i] + rng.choice(B64.replace(body[i], "")) + body[i + 1:]
+    width = rng.choice((76, 64, 77, 1, 120)) if op == "wrap" else 64
+    return "-----BEGIN PUBLIC KEY-----\n" + "".join(body[i:i + width] + "\n" for i in range(0, len(body), width)) + "-----END PUBLIC KEY-----\n"
+
+
 def mutate_policy(policy_doc, rng, private_pem):
     doc = json.loads(json.dumps(policy_doc))
     key = doc["keys"][0]
-    op = rng.choice(("top", "key", "pem", "prefix", "time", "roles"))
+    op = rng.choice(("top", "key", "pem", "body", "prefix", "time", "roles"))
     if op == "top":
         doc[rng.choice(("requiredroles", "Keys", "note"))] = []
     elif op == "key":
@@ -140,6 +172,8 @@ def mutate_policy(policy_doc, rng, private_pem):
     elif op == "pem":
         key["publicKey"] = rng.choice((private_pem, key["publicKey"] + key["publicKey"], key["publicKey"].replace("\n", "\r\n"),
                                        key["publicKey"].strip(), " " + key["publicKey"], key["publicKey"].replace("PUBLIC", "public")))
+    elif op == "body":
+        key["publicKey"] = mutate_key_body(key["publicKey"], rng)
     elif op == "prefix":
         key["idPrefixes"] = [rng.choice(("io.Example", "io.example.", "io..example", "", "io.example\n", "io", "io.example.notes"))]
     elif op == "time":

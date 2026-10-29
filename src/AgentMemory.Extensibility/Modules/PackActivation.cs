@@ -246,8 +246,8 @@ public static class PackTrialGate
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
         var (r1, r2) = (first.Precision, second.Precision);
-        var l1 = first.Offered == 0 ? 0 : first.PerTask is { Count: > 0 } a1 ? ClusteredWilsonLower(a1, z) : WilsonLower(first.Correct, first.Offered, z);
-        var u2 = second.Offered == 0 ? 0 : second.PerTask is { Count: > 0 } b1 ? ClusteredWilsonUpper(b1, z) : WilsonUpper(second.Correct, second.Offered, z);
+        var l1 = first.Offered == 0 ? 0 : first.PerTask is { Count: > 0 } a1 ? EffectiveWilsonLower(a1, z) : WilsonLower(first.Correct, first.Offered, z);
+        var u2 = second.Offered == 0 ? 0 : second.PerTask is { Count: > 0 } b1 ? EffectiveWilsonUpper(b1, z) : WilsonUpper(second.Correct, second.Offered, z);
         var rho = 0.0;
         double? paired = null;
         if (first.PerTask is { } a && second.PerTask is { } b && a.Count == b.Count && a.Count > 1 && first.Offered > 0 && second.Offered > 0)
@@ -264,8 +264,7 @@ public static class PackTrialGate
         }
         var newcombe = r1 - r2 - Math.Sqrt(Math.Max(0, Math.Pow(r1 - l1, 2) - 2 * rho * (r1 - l1) * (u2 - r2) + Math.Pow(u2 - r2, 2)));
         // The lower of the two (review 3): Newcombe's never collapses when every task's precision is the same, and the paired
-        // bound stays honest when the arms are strongly correlated, where Newcombe's margin shrinks to the difference of two
-        // floored Wilson margins (a true lift of 0 passed about one time in ten at a nominal 5%).
+        // bound stays honest when the arms are strongly correlated and each task's items are all right or all wrong.
         return paired is { } bound ? Math.Min(newcombe, bound) : newcombe;
     }
 
@@ -288,18 +287,39 @@ public static class PackTrialGate
     public static double ClusteredWilsonLower(IReadOnlyList<PackTrialTask> tasks, double z)
     {
         ArgumentNullException.ThrowIfNull(tasks);
+        var (items, overTasks) = ClusteredBounds(tasks, z);
+        return items is { } bound ? Math.Min(bound, overTasks) : overTasks;
+    }
+
+    // The two bounds of ClusteredWilsonLower: over items at the effective size (null where no design effect can be measured:
+    // one task answered, or a precision of 0 or 1, leaves no spread between tasks), and over tasks.
+    private static (double? Items, double OverTasks) ClusteredBounds(IReadOnlyList<PackTrialTask> tasks, double z)
+    {
         var offered = tasks.Sum(t => (double)t.Offered);
-        if (offered == 0) return 0;
+        if (offered == 0) return (null, 0);
         var p = tasks.Sum(t => (double)t.Correct) / offered;
         var answered = tasks.Where(t => t.Offered > 0).ToList();
         var overTasks = WilsonLower(answered.Average(t => (double)t.Correct / t.Offered), answered.Count, z);
-        // One task, or a precision of 0 or 1, leaves no spread between tasks to measure a design effect by.
-        if (answered.Count < 2 || p is 0 or 1) return overTasks;
+        if (answered.Count < 2 || p is 0 or 1) return (null, overTasks);
         var residuals = tasks.Sum(t => Math.Pow(t.Correct - p * t.Offered, 2));
         var clustered = answered.Count / (answered.Count - 1.0) * residuals / (offered * offered);
         var designEffect = Math.Max(1, clustered / (p * (1 - p) / offered));
-        return Math.Min(WilsonLower(p, offered / designEffect, z), overTasks);
+        return (WilsonLower(p, offered / designEffect, z), overTasks);
     }
+
+    // A confidence limit of one arm's pooled precision for Newcombe's construction (review 3, after the trial re-run): the bound
+    // over items at the effective size, without the floor over tasks, which bounds the mean of per-task precisions, another
+    // quantity. In the difference that floor inflated one arm's margin and evened out two: the bound was far too strict where
+    // tasks offer few items (a true lift of 0 passed 1% of the time at a nominal 5%, and a real lift of 0.15 was found one time
+    // in seven) and too lenient where arms were strongly correlated. Where no design effect can be measured, the bound over tasks.
+    private static double EffectiveWilsonLower(IReadOnlyList<PackTrialTask> tasks, double z)
+    {
+        var (items, overTasks) = ClusteredBounds(tasks, z);
+        return items ?? overTasks;
+    }
+
+    private static double EffectiveWilsonUpper(IReadOnlyList<PackTrialTask> tasks, double z) =>
+        tasks.Sum(t => t.Offered) == 0 ? 1 : 1 - EffectiveWilsonLower([.. tasks.Select(t => t with { Correct = t.Offered - t.Correct })], z);
 
     // The Wilson score lower bound at proportion p over a (possibly fractional) effective sample size n.
     private static double WilsonLower(double p, double n, double z)

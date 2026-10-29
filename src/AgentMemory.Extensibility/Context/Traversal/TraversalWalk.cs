@@ -295,7 +295,7 @@ internal static class TraversalWalk
     // Every path ends in Strict() and the 80-character cap: a symbol's simple name, a path's last segment, or the text itself.
     internal static string Short(string value)
     {
-        var text = value.Trim();
+        var text = AnchorMatcher.Trimmed(value);
         if (text.Contains(' ') && text.Contains('#') || text.EndsWith('#') || text.EndsWith(')') || text.EndsWith('.'))
             text = AnchorMatcher.SimpleName(text) is { Length: > 0 } simple ? simple : text;
         else
@@ -311,7 +311,7 @@ internal static class TraversalWalk
     // symbols, or any stored value, into reasons).
     internal static string Capped(string value)
     {
-        var text = Strict(value.Trim());
+        var text = Strict(AnchorMatcher.Trimmed(value));
         return text.Length <= 80 ? text : text[..77] + "...";
     }
 

@@ -232,9 +232,9 @@ public sealed class TraversalTests
     // Review 3: ASCII only, in every store. A-Z fold; nothing else does, and only ASCII white space is trimmed.
     [InlineData(ModuleAnchorMatch.Exact, "SRC/Store/A.CS", "src/store/a.cs", 1.0)]
     [InlineData(ModuleAnchorMatch.Exact, "src/Ä.cs", "src/ä.cs", 0.0)]
-    [InlineData(ModuleAnchorMatch.Exact, "docs/µs.cs", "docs/μs.cs", 0.0)]
-    [InlineData(ModuleAnchorMatch.Exact, "src/İndex.cs", "src/index.cs", 0.0)]
-    [InlineData(ModuleAnchorMatch.Exact, "src/A.cs ", "src/A.cs", 0.0)]
+    [InlineData(ModuleAnchorMatch.Exact, "docs/\u00B5s.cs", "docs/\u03BCs.cs", 0.0)]
+    [InlineData(ModuleAnchorMatch.Exact, "src/\u0130ndex.cs", "src/index.cs", 0.0)]
+    [InlineData(ModuleAnchorMatch.Exact, "src/A.cs\u00A0", "src/A.cs", 0.0)]
     [InlineData(ModuleAnchorMatch.Exact, " \tsrc/A.cs\r\n", "src/A.cs", 1.0)]
     [InlineData(ModuleAnchorMatch.Exact, " ", " ", 0.0)]
     [InlineData(ModuleAnchorMatch.Glob, "SRC/**/*.CS", "src/Store/Ä.cs", 0.7)]
@@ -249,7 +249,7 @@ public sealed class TraversalTests
         var path = ContextAnchorKind.Path;
         var anchors = TraversalWalk.Anchors(
         [
-            new(path, "src/Über.cs"), new(path, "src/Über.cs"), new(path, "src/\uD800.cs"), new(path, " "), new(path, " \t"),
+            new(path, "src/U\u0308ber.cs"), new(path, "src/Über.cs"), new(path, "src/\uD800.cs"), new(path, "\u00A0"), new(path, " \t"),
             new(path, new string('a', ContextAnchor.MaximumLength + 1)),
             .. Enumerable.Range(0, 40).Select(i => new ContextAnchor(path, $"src/F{i}.cs")),
         ]);
@@ -257,7 +257,7 @@ public sealed class TraversalTests
         anchors[0].Value.Should().Be("src/Über.cs", "the decomposed form is taken in NFC, and the composed one is then its duplicate");
         anchors.Should().HaveCount(ContextAnchor.MaximumPerRequest);
         anchors.Select(a => a.Value).Should().NotContain(v => v.Contains('\uD800'), "a lone surrogate has no NFC form");
-        anchors[1].Value.Should().Be(" ", "a non-breaking space is not ASCII white space: the anchor stands, and matches nothing");
+        anchors[1].Value.Should().Be("\u00A0", "a non-breaking space is not ASCII white space: the anchor stands, and matches nothing");
         anchors[2].Value.Should().Be("src/F0.cs");
     }
 

@@ -50,7 +50,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
         if (!declared) return Refused("The anchor property is not declared for traversal.");
         if (!TryScope(context, out var scope)) return Refused("An owner scope is required by the host isolation policy.");
         var type = module!.Ontology!.Types.Single(t => t.Name == query.Type);
-        var anchors = query.Values.Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
+        var anchors = query.Values.Where(v => !ModuleAnchorQuery.IsBlank(v)).ToList();
         if (anchors.Count == 0) return new() { Status = ModuleReadStatus.Succeeded };
         // The anchors as the walk compares them, and what the candidates must hold (review 2): the walk then matches exactly.
         // Not lowered here: the query lowers both sides with one folding (review 3).
@@ -122,9 +122,9 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                     ["ids"] = ids.Where(id => !past.ContainsKey(id)).ToArray(),
                     ["fanOut"] = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut)),
                     ["words"] = Words(query.Words), ["text"] = reached.Type.TextProperties().ToArray(), ["fold"] = Fold,
-                    ["scan"] = ModuleExpandQuery.MaximumScan
+                    ["scan"] = ModuleExpandQuery.MaximumScan, ["wide"] = ModuleTraversalQueries.WideKey
                 }, cancellationToken).ConfigureAwait(false);
-                // The fan-out cut in the format's order, here, over every record that ranked at or above the cut (review 3).
+                // The fan-out cut in the format's order, here, over a superset of what it keeps (review 3; see ModuleTraversalQueries.Ranked).
                 var fanOut = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut));
                 var edges = rows.Select(r => (Hits: r["hits"].As<long>(), Edge: new ModuleTraversalEdge
                     {
@@ -177,7 +177,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
     // The question's words as the query matches them: lower case, at most MaximumWordLength characters (as the walk's words
     // are, so both stores and the walk count the same), at most ModuleExpandQuery.MaximumWords.
     private static string[] Words(IReadOnlyList<string> words) =>
-        [.. words.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim().ToLowerInvariant()).Where(w => w.Length <= ModuleExpandQuery.MaximumWordLength)
+        [.. words.Where(w => !ModuleAnchorQuery.IsBlank(w)).Select(ModuleExpandQuery.Word).Where(w => w.Length <= ModuleExpandQuery.MaximumWordLength)
             .Distinct(StringComparer.Ordinal).Take(ModuleExpandQuery.MaximumWords)];
 
     // ASCII folding for the ranking's text, as the walk folds (review 3): A-Z to a-z, nothing else.
