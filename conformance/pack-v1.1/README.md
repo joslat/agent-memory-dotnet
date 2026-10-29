@@ -1,6 +1,6 @@
 # Memory pack format v1.2: conformance vectors
 
-Two verifiers that share no code must reach the same verdict on every vector here (264 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
+Two verifiers that share no code must reach the same verdict on every vector here (267 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
 
 - `ampack verify` (.NET, `tools/Ampack`, library `src/AgentMemory.Packs.Format`)
 - `python/ampack_verify.py` (Python 3.12, whose Unicode 15.0 data matches the .NET tables, and `cryptography`); with `--receipt <file> --location <url>` it also verifies a publication receipt, and with `--certificate <META/attestations/… or file>` an evaluation certificate (`ampack certificate verify` on the .NET side)
@@ -9,6 +9,16 @@ Two verifiers that share no code must reach the same verdict on every vector her
 
 ```
 python conformance/pack-v1.1/run_vectors.py tools/Ampack/bin/Debug/net10.0/Ampack.exe
+```
+
+`differential.py` (review 1, I5) feeds the same mutated packs to both verifiers and reports every input on which their
+verdicts differ: bytes of a valid pack flipped, inserted, removed or truncated, and one JSON or JSONL file edited (a
+character, an edge-case value, a repeated key) then listed and signed again, so the mutant reaches the parsers. It needs
+the vectors `run_vectors.py` writes, and is seeded so a run repeats; 29 Oct 2026: 1,000 mutants over two seeds, no
+disagreement.
+
+```
+python conformance/pack-v1.1/differential.py tools/Ampack/bin/Debug/net10.0/Ampack.exe --count 300 --seed 20261029
 ```
 
 It builds a valid pack, a composite and a pack set with `ampack`, builds another pack entirely in Python (canonical files
@@ -27,7 +37,7 @@ list, DSSE signature, strict ZIP writers, stored and deflated), and derives tamp
 | Trust | a key scoped to another namespace; a key expired now (even though the signature claims a time in its window); a key not yet valid; an open window; a stale revocation list; a file under `META/signatures/` that is not an envelope |
 | Revocations | signed documents applied by both verifiers: one that revokes nothing; one revoking the pack's digest; one revoking its key; one expired; one issued in the future; one signed by a publisher key, not a revoker; one changed after signing; one signed by the Python writer and applied by .NET |
 | JSON profile | CRLF; a byte order mark; a repeated key; an integer beyond 2^53, and the smallest 64-bit integer; a number beyond a double; a string not in NFC; more than 30 combining marks in a row (and 30, accepted); nesting 65 deep (and 64, accepted); an empty line; no final line feed |
-| Types and grammars (second red team) | a files-list entry with an extra field, or a length of `true`; `validUntil` as a number or beyond a 14-hour offset; `protection` null; `code` a list; `sdk` a number; `display` a string; a lock member id that is a number; a version with an Arabic-Indic digit; `source` of 100 and 101 astral characters (UTF-16 counted); base64 outside the alphabet or with a line break; a signing time without a leading zero or in lowercase; a second signature entry that is not base64 or has no `sig` (ignored); an extra envelope of wrong types (ignored); policies with no required roles, a key listed twice, a null prefix, a time that is not RFC 3339 |
+| Types and grammars (second red team) | a files-list entry with an extra field, or a length of `true`; `validUntil` as a number or beyond a 14-hour offset; `protection` null; `code` a list; `sdk` a number; `display` a string; a lock member id that is a number; a version with an Arabic-Indic digit; `source` of 100 and 101 astral characters (UTF-16 counted); base64 outside the alphabet or with a line break; a signing time without a leading zero or in lowercase; a second signature entry that is not base64 or has no `sig` (ignored); an extra envelope of wrong types (refused since review 1, L7: an envelope that does not sign this pack is unlisted content), one signing another list, one with no signature entry, a countersignature by a key the host does not trust (ignored); policies with no required roles, a key listed twice, a null prefix, a time that is not RFC 3339 |
 | Paths | a Windows device name (`CON`); two entries that differ only by case |
 | Bounds (fifth review) | a version of 256 characters (accepted) and 257; an envelope with 16 signature entries (accepted) and 17; a pack with 16 envelopes (accepted) and 17; an envelope over 64 KiB. A revocation document is at most 4 MiB, read with that bound |
 | Signature encoding (sixth review) | an ECDSA INTEGER whose sign pad was dropped, on a pack and on a revocation list (the same list well padded is accepted): strict DER in both verifiers |

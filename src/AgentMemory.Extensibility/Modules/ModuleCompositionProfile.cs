@@ -21,6 +21,13 @@ public sealed record ModuleCompositionProfile
     public IReadOnlyDictionary<string, ModuleProfileStore> Stores { get; }
     /// <summary>Explicit module composition, in declaration order.</summary>
     public IReadOnlyList<ModuleProfileEntry> Modules { get; }
+
+    /// <summary>
+    /// The same profile without <paramref name="moduleIds"/>: the modules a host's trial gate left off (review 1, M3), so a
+    /// failed trial leaves that module off instead of stopping the host. The stores and the document's hash are unchanged.
+    /// </summary>
+    internal ModuleCompositionProfile Without(IReadOnlySet<string> moduleIds) =>
+        moduleIds.Count == 0 ? this : new(Stores, [.. Modules.Where(m => !moduleIds.Contains(m.Id))], Sha256);
     /// <summary>SHA-256 of exactly the UTF-8 input string, including whitespace.</summary>
     public string Sha256 { get; }
 

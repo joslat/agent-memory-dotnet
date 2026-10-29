@@ -66,7 +66,7 @@ public sealed class ModuleSet
         var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations, builder.MandatoryTrials, builder.CertificateTrust);
         var store = builder.Store;
         var provider = store?.Provider ?? "none";
-        var profile = builder.Profile ?? ImplicitProfile(registrations, provider);
+        var profile = builder.Profile?.Without(switchedOff.Select(o => o.ModuleId).ToHashSet(StringComparer.Ordinal)) ?? ImplicitProfile(registrations, provider);
         if (profile.Stores.Count != 1)
             throw new ModuleActivationException([$"Static composition binds one module store; the profile declares {profile.Stores.Count}."]);
         var alias = profile.Stores.Keys.Single();
@@ -204,7 +204,17 @@ public sealed class ModuleSet
 
     /// <summary>The traversal walk shared by every module's traversal contributor in one service scope (CMP-1).</summary>
     internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
-        _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution)));
+        _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s)));
+
+    // Whether a module may take part in a walk now: a pack past its validUntil goes silent in the walk as its contributors
+    // do (review 1, M2), so it neither spends the walk's budgets nor leads it to other modules' records.
+    private Func<string, bool>? Live(IServiceProvider services)
+    {
+        var expiring = _registrations.Where(r => r.ValidUntil is not null).ToDictionary(r => r.Manifest.Id, r => r.ValidUntil!.Value, StringComparer.Ordinal);
+        if (expiring.Count == 0) return null;
+        var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
+        return id => !expiring.TryGetValue(id, out var until) || clock.GetUtcNow() < until;
+    }
 
     /// <summary>The modules that add ingestion providers, which need a store binding.</summary>
     internal IEnumerable<string> ModulesWithProviders => _registrations.Where(r => r.Providers.Count > 0).Select(r => r.Manifest.Id);

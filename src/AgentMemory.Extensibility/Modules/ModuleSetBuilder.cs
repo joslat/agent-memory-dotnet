@@ -84,7 +84,7 @@ public sealed class ModuleSetBuilder
     /// </summary>
     /// <param name="pack">The verified pack.</param>
     /// <param name="priority">Its search contributors' priority: lower comes first in the candidate budget and wins ties.</param>
-    public ModuleSetBuilder AddKnowledgePack(Packs.KnowledgePack pack, int priority = 100) => AddKnowledgePack(pack, priority, validUntil: null);
+    public ModuleSetBuilder AddKnowledgePack(Packs.KnowledgePack pack, int priority = 100) => AddKnowledgePack(pack, priority, pack?.ValidUntil);
 
     /// <summary>A verified knowledge pack valid until <paramref name="validUntil"/>: after it, its contributors go silent (PACK-staleness).</summary>
     internal ModuleSetBuilder AddKnowledgePack(Packs.KnowledgePack pack, int priority, DateTimeOffset? validUntil)
@@ -231,18 +231,14 @@ public sealed class ModuleSetBuilder
     /// Whether <paramref name="prefix"/> covers <paramref name="id"/>: equal, or a whole leading run of its segments. The same
     /// rule as a trust policy's <c>idPrefixes</c> (pack format v1.1 H3).
     /// </summary>
-    internal static bool Covers(string prefix, string id) =>
-        id == prefix || id.StartsWith(prefix.EndsWith('.') ? prefix : prefix + ".", StringComparison.Ordinal);
+    internal static bool Covers(string prefix, string id) => AgentMemory.Shared.PackNamespace.Covers(prefix, id);
 
     /// <summary>
     /// Whether <paramref name="prefix"/> is a pack id prefix, by the same rule as a trust policy's (review 1, L17): one or more
     /// lowercase id segments, optionally ending with a dot, at most 64 characters. A prefix that could never cover an id (say,
     /// upper case) is refused rather than leaving its namespace silently ungated.
     /// </summary>
-    internal static bool IsValidPrefix(string? prefix) => prefix is { Length: > 0 and <= 64 } && PrefixRule.IsMatch(prefix);
-
-    private static readonly System.Text.RegularExpressions.Regex PrefixRule = new(
-        @"\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*\.?\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    internal static bool IsValidPrefix(string? prefix) => AgentMemory.Shared.PackNamespace.IsValidPrefix(prefix);
 
     /// <summary>The configuration module options bind from; by default the host's registered <see cref="IConfiguration"/>.</summary>
     public ModuleSetBuilder UseConfiguration(IConfiguration configuration)

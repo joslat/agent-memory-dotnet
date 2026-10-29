@@ -87,6 +87,37 @@ public sealed class PackMemoryTests
     }
 
     [Fact]
+    public async Task Review1_M2_a_module_that_is_not_live_neither_seeds_steers_nor_offers_in_a_walk()
+    {
+        const string store = "scip-dotnet nuget Acme.Map . Acme/Map/MapStore#";
+        var builder = new CodeMapBuilder();
+        builder.AddProject("src/Map/Map.csproj", "Acme.Map");
+        builder.AddFile("src/Map/MapStore.cs", "src/Map/Map.csproj");
+        builder.AddSymbol(store, "MapStore", "Acme.Map.MapStore", CodeMapSymbolKind.Class, "Acme.Map", "src/Map/MapStore.cs", 3, ["Close"]);
+        var memory = PackMemory.From([], [builder.Build("git:abc1234")]);
+        var request = new ContextRequest { SessionId = "s", Owner = "lea", Query = "", Anchors = [ContextAnchor.Path("src/Map/MapStore.cs")] };
+
+        (await TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None, live: _ => true)).Items.Should().NotBeEmpty();
+        var expired = await TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None, live: _ => false);
+        expired.Items.Should().BeEmpty("a pack past its validUntil takes no part in the walk");
+        expired.Spent!.Reads.Should().Be(0);
+    }
+
+    [Fact]
+    public void Review1_M9_a_knowledge_pack_carries_its_validUntil_to_the_module_it_composes_as()
+    {
+        var source = Source();
+        var manifest = JsonNode.Parse(source["pack.json"])!.AsObject();
+        manifest["validUntil"] = "2099-01-01T00:00:00Z";
+        source["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
+
+        var loaded = Load(source);
+
+        loaded.ValidUntil.Should().Be(new DateTimeOffset(2099, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        loaded.Knowledge!.ValidUntil.Should().Be(loaded.ValidUntil, "a host that composes the knowledge pack directly switches it off on time too");
+    }
+
+    [Fact]
     public async Task A_packs_own_tests_pass_and_a_failing_one_names_what_is_missing()
     {
         var source = Source();

@@ -34,7 +34,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
-        string? packPath = null, string? trustPath = null, string? previousPath = null)
+        string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent")
     {
         if (packId != CodeMapPack.Id)
         {
@@ -85,21 +85,14 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var asPack = variant is null ? pack : null;
         ModuleSetBuilder Compose(ModuleSetBuilder m) => asPack is not null ? m.AddPack(asPack) : m.Add(manifest, new CodeMapPack().Configure);
         var trial = manifest.Trial!;
-        var tasks = HistoryTasks(repo ?? ".", trial.Tasks);
-        output.WriteLine($"{manifest.Id} {manifest.Version}{(variant is null ? "" : " (" + variant + ")")}: {tasks.Count} tasks from this repository's history");
-        if (packDigest is not null) output.WriteLine($"  pack     {packPath} ({packDigest}), verified");
-
-        await using var with = await ProviderAsync(m => Compose(m.UseNeo4jStore())).ConfigureAwait(false);
-        await using var without = await ProviderAsync(m => m.UseNeo4jStore()).ConfigureAwait(false);
-        foreach (var task in tasks) { await CompileAsync(with, task).ConfigureAwait(false); await CompileAsync(without, task).ConfigureAwait(false); }
-        var (withArm, details) = await MeasureAsync(with, tasks).ConfigureAwait(false);
-        var (emptyArm, _) = await MeasureAsync(without, tasks).ConfigureAwait(false);
-        // Without the pack: the host's own retrieval when the trial names it, timed like the host without the pack.
-        var withoutArm = trial.Baseline == "host" ? Grep(repo ?? ".", tasks) with { P95Ms = emptyArm.P95Ms } : emptyArm;
-
+        if (history is not ("parent" or "head"))
+        {
+            output.WriteLine("error: --history is parent (each task as it stood before its commit: the default) or head (the repository as it is now).");
+            return 2;
+        }
         // PACK-upgrade-gate: with --previous, the version that passed here before is measured on the same tasks, and an upgrade
         // that declares upgrade.noRegression must not do worse than it.
-        PackTrialPrevious? previous = null;
+        LoadedPack? before = null;
         if (previousPath is not null)
         {
             if (trustPath is null || !File.Exists(trustPath))
@@ -107,7 +100,6 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 output.WriteLine("error: evaluate --gate --previous needs --trust <trust.json>.");
                 return 2;
             }
-            LoadedPack before;
             try { before = PackLoader.Load(previousPath, PackTrust.Load(trustPath)); }
             catch (PackLoadException e)
             {
@@ -119,9 +111,57 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 output.WriteLine($"error: {previousPath} is {before.Id} {before.Version} ({before.Kind}); --previous is an earlier version of the {packId} definition.");
                 return 2;
             }
-            await using var old = await ProviderAsync(m => m.UseNeo4jStore().AddPack(before)).ConfigureAwait(false);
-            foreach (var task in tasks) await CompileAsync(old, task).ConfigureAwait(false);
-            var (beforeArm, _) = await MeasureAsync(old, tasks).ConfigureAwait(false);
+        }
+        var root = Path.GetFullPath(repo ?? ".");
+        var tasks = HistoryTasks(root, trial.Tasks, history);
+        output.WriteLine($"{manifest.Id} {manifest.Version}{(variant is null ? "" : " (" + variant + ")")}: {tasks.Count} tasks from this repository's history, "
+            + (history == "parent" ? "each at its commit's parent (map and grep as they stood before the change)" : "against the repository as it is now (head)"));
+        if (packDigest is not null) output.WriteLine($"  pack     {packPath} ({packDigest}), verified");
+
+        await using var with = await ProviderAsync(m => Compose(m.UseNeo4jStore())).ConfigureAwait(false);
+        await using var without = await ProviderAsync(m => m.UseNeo4jStore()).ConfigureAwait(false);
+        await using var old = before is null ? null : await ProviderAsync(m => m.UseNeo4jStore().AddPack(before)).ConfigureAwait(false);
+        var (withRun, emptyRun, grepRun, oldRun) = (new ArmRun(), new ArmRun(), new ArmRun(), new ArmRun());
+        async Task MeasureTaskAsync(string treeRoot, HistoryTask task)
+        {
+            // A first compile warms the store's caches, so the timing measures the walk, not the first query.
+            await CompileAsync(with, task).ConfigureAwait(false);
+            await CompileAsync(without, task).ConfigureAwait(false);
+            withRun.Add(await MeasureOneAsync(with, task).ConfigureAwait(false));
+            emptyRun.Add(await MeasureOneAsync(without, task).ConfigureAwait(false));
+            if (trial.Baseline == "host") grepRun.Add(GrepOne(treeRoot, task));
+            if (old is not null)
+            {
+                await CompileAsync(old, task).ConfigureAwait(false);
+                oldRun.Add(await MeasureOneAsync(old, task).ConfigureAwait(false));
+            }
+        }
+        if (history == "head")
+            foreach (var task in tasks) await MeasureTaskAsync(root, task).ConfigureAwait(false);
+        else
+        {
+            // Review 1, H1: a task is judged as the host would have met it, before its commit. Each task's parent tree is
+            // imported into the code map (incrementally: only what changed since the task before, oldest first, closing what
+            // is gone), and grep reads that tree too; the truth is the tests the change touched that already existed.
+            var runner = with.GetRequiredService<INeo4jTransactionRunner>();
+            var importer = new CodeMapCommand(TextWriter.Null);
+            foreach (var task in tasks.AsEnumerable().Reverse())
+            {
+                using var tree = ParentTree.Extract(root, task.Parent);
+                if (await importer.ImportAsync(runner, tree.Path, "git:" + task.Parent).ConfigureAwait(false) != 0)
+                    throw new InvalidOperationException($"the code map of {task.Parent[..10]} did not import.");
+                await MeasureTaskAsync(tree.Path, task).ConfigureAwait(false);
+            }
+            foreach (var run in new[] { withRun, emptyRun, grepRun, oldRun }) run.Order(tasks);
+        }
+        var (withArm, details) = withRun.Arm(tasks.Count);
+        var (emptyArm, _) = emptyRun.Arm(tasks.Count);
+        // Without the pack: the host's own retrieval when the trial names it, timed like the host without the pack.
+        var withoutArm = trial.Baseline == "host" ? grepRun.Arm(tasks.Count).Arm with { P95Ms = emptyArm.P95Ms } : emptyArm;
+        PackTrialPrevious? previous = null;
+        if (before is not null)
+        {
+            var (beforeArm, _) = oldRun.Arm(tasks.Count);
             previous = new PackTrialPrevious { Version = before.Version, ManifestDigest = PackTrialGate.DigestOf(before.Manifest), PackDigest = before.Digest, With = beforeArm };
             output.WriteLine($"  previous {before.Version} ({before.Digest[..23]}…): hit {beforeArm.HitRate:0.000} ({beforeArm.Hits}/{beforeArm.Tasks}), precision {beforeArm.Precision:0.000} ({beforeArm.Correct}/{beforeArm.Offered})");
         }
@@ -129,15 +169,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest, previous);
         using var hostKey = ECDsa.Create();
         hostKey.ImportFromPem(await File.ReadAllTextAsync(hostKeyPath).ConfigureAwait(false));
-        Directory.CreateDirectory(activationsFolder);
-        var record = Path.Combine(activationsFolder, $"{decision.ModuleId}@{decision.Version}-{decision.DecidedAt:yyyyMMddTHHmmssZ}.dsse.json");
-        var statement = PackActivationFolder.Statement(decision);
-        var signature = hostKey.SignData(PackActivationFolder.Pae(statement), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
-        await File.WriteAllTextAsync(record, JsonSerializer.Serialize(new
-        {
-            payloadType = "application/vnd.in-toto+json", payload = Convert.ToBase64String(statement),
-            signatures = new[] { new { keyid = "host", sig = Convert.ToBase64String(signature) } },
-        })).ConfigureAwait(false);
+        // One writer for every signed record (review 1, M5): named so two decisions never share a file, written whole or not at all.
+        var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
 
         output.WriteLine($"  with     hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered}), p95 {withArm.P95Ms:0.0} ms");
         output.WriteLine($"  without  {(trial.Baseline == "host" ? "grep" : "nothing")}: hit {withoutArm.HitRate:0.000} ({withoutArm.Hits}/{withoutArm.Tasks}), precision {withoutArm.Precision:0.000} ({withoutArm.Correct}/{withoutArm.Offered}), p95 {withoutArm.P95Ms:0.0} ms");
@@ -157,7 +190,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
             await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(new
             {
-                pack = manifest.Id, version = manifest.Version.ToString(), variant, packDigest, manifestDigest = decision.ManifestDigest,
+                pack = manifest.Id, version = manifest.Version.ToString(), variant, history, packDigest, manifestDigest = decision.ManifestDigest,
                 decision, record = Path.GetFileName(record), gate = new { on = set.Modules.Select(m => m.Manifest.Id), off = set.SwitchedOff }, tasks = details,
             }, Json)).ConfigureAwait(false);
             output.WriteLine($"  report   {outputPath}");
@@ -175,31 +208,33 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     /// The host's own retrieval for code, as the P6 analysis defined it: the types the changed files declare, their
     /// whole-word mentions counted in every test file, the top 3 files by count (ties by path).
     /// </summary>
-    private static PackTrialMeasurement Grep(string repo, IReadOnlyList<HistoryTask> tasks)
+    private TaskOutcome GrepOne(string root, HistoryTask task)
     {
-        var root = Path.GetFullPath(repo);
-        var tests = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-            .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/'))
-            .Where(f => IsTest(f) && !f.Contains("/obj/", StringComparison.Ordinal) && !f.Contains("/bin/", StringComparison.Ordinal)
-                && !f.StartsWith(".git/", StringComparison.Ordinal))
-            .Order(StringComparer.Ordinal).ToList();
-        var texts = new Dictionary<string, string>(StringComparer.Ordinal);
-        string Text(string path) => texts.TryGetValue(path, out var t) ? t : texts[path] = File.ReadAllText(Path.Combine(root, path));
-        int hits = 0, offered = 0, correct = 0;
-        foreach (var task in tasks)
+        // The test files and their texts, read once per tree: the repository as it is (head), or each task's parent tree.
+        if (_grepRoot != root)
         {
-            var types = task.Anchors.SelectMany(a => Declared().Matches(Text(a)).Select(m => m.Groups[1].Value)).ToHashSet(StringComparer.Ordinal);
-            if (types.Count == 0) continue;
-            var mention = new Regex(@"\b(" + string.Join("|", types.Order(StringComparer.Ordinal).Select(Regex.Escape)) + @")\b");
-            var top = tests.Select(t => (File: t, Count: mention.Matches(Text(t)).Count)).Where(x => x.Count > 0)
-                .OrderByDescending(x => x.Count).ThenBy(x => x.File, StringComparer.Ordinal).Take(3).Select(x => x.File).ToList();
-            var right = top.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase));
-            offered += top.Count;
-            correct += right;
-            if (right > 0) hits++;
+            _grepRoot = root;
+            _grepTests = [.. Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/'))
+                .Where(f => IsTest(f) && !f.Contains("/obj/", StringComparison.Ordinal) && !f.Contains("/bin/", StringComparison.Ordinal)
+                    && !f.StartsWith(".git/", StringComparison.Ordinal))
+                .Order(StringComparer.Ordinal)];
+            _grepTexts.Clear();
         }
-        return new PackTrialMeasurement { Tasks = tasks.Count, Hits = hits, Offered = offered, Correct = correct, P95Ms = 0 };
+        string Text(string path) => _grepTexts.TryGetValue(path, out var t) ? t : _grepTexts[path] = File.ReadAllText(Path.Combine(root, path));
+        // An anchor the commit created does not exist before it: it declares nothing grep could search for.
+        var types = task.Anchors.Where(a => File.Exists(Path.Combine(root, a)))
+            .SelectMany(a => Declared().Matches(Text(a)).Select(m => m.Groups[1].Value)).ToHashSet(StringComparer.Ordinal);
+        if (types.Count == 0) return new TaskOutcome(task, [], 0, 0, null);
+        var mention = new Regex(@"\b(" + string.Join("|", types.Order(StringComparer.Ordinal).Select(Regex.Escape)) + @")\b");
+        var top = _grepTests.Select(t => (File: t, Count: mention.Matches(Text(t)).Count)).Where(x => x.Count > 0)
+            .OrderByDescending(x => x.Count).ThenBy(x => x.File, StringComparer.Ordinal).Take(3).Select(x => x.File).ToList();
+        return new TaskOutcome(task, top, top.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), 0, null);
     }
+
+    private string? _grepRoot;
+    private List<string> _grepTests = [];
+    private readonly Dictionary<string, string> _grepTexts = new(StringComparer.Ordinal);
 
     [GeneratedRegex(@"\b(?:class|record|struct|interface|enum)\s+(?:struct\s+|class\s+)?([A-Z]\w*)")]
     private static partial Regex Declared();
@@ -221,31 +256,74 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         return provider;
     }
 
-    private static async Task<(PackTrialMeasurement Arm, List<object> Details)> MeasureAsync(IServiceProvider provider, IReadOnlyList<HistoryTask> tasks)
+    // One task through one arm: the test files it offered, how many were right, and how long the compile took.
+    private static async Task<TaskOutcome> MeasureOneAsync(IServiceProvider provider, HistoryTask task)
     {
-        int hits = 0, offered = 0, correct = 0;
-        var times = new List<double>();
-        var details = new List<object>();
-        var perTask = new List<PackTrialTask>();
-        foreach (var task in tasks)
+        var (envelope, ms) = await CompileAsync(provider, task).ConfigureAwait(false);
+        var files = envelope.Sections.SelectMany(s => s.Items)
+            .Where(i => i.Provenance?.RecordModuleId == CodeMapPack.Id && i.Provenance.RecordType == CodeMapPack.TestType)
+            .Select(i => TestFile().Match(i.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms);
+    }
+
+    private sealed record TaskOutcome(HistoryTask Task, IReadOnlyList<string> Offered, int Right, double Milliseconds, double? Timed);
+
+    // The outcomes of one arm, task by task, and the measurement they make.
+    private sealed class ArmRun
+    {
+        private List<TaskOutcome> _outcomes = [];
+
+        public void Add(TaskOutcome outcome) => _outcomes.Add(outcome);
+
+        // Back into the order the tasks were drawn (most recent first), when they were run oldest first.
+        public void Order(IReadOnlyList<HistoryTask> tasks) =>
+            _outcomes = [.. _outcomes.OrderBy(o => tasks.ToList().FindIndex(t => ReferenceEquals(t, o.Task)))];
+
+        public (PackTrialMeasurement Arm, List<object> Details) Arm(int tasks)
         {
-            var (envelope, ms) = await CompileAsync(provider, task).ConfigureAwait(false);
-            times.Add(ms);
-            var files = envelope.Sections.SelectMany(s => s.Items)
-                .Where(i => i.Provenance?.RecordModuleId == CodeMapPack.Id && i.Provenance.RecordType == CodeMapPack.TestType)
-                .Select(i => TestFile().Match(i.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value)
-                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var right = files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase));
-            offered += files.Count;
-            correct += right;
-            if (right > 0) hits++;
-            perTask.Add(new PackTrialTask(files.Count, right));
-            details.Add(new { task.Commit, task.Subject, task.Anchors, task.Tests, offered = files, hit = right > 0 });
+            var times = _outcomes.Where(o => o.Timed is not null).Select(o => o.Timed!.Value).Order().ToArray();
+            var p95 = times.Length == 0 ? 0 : times[Math.Min(times.Length - 1, (int)Math.Ceiling(0.95 * times.Length) - 1)];
+            return (new PackTrialMeasurement
+            {
+                Tasks = tasks, Hits = _outcomes.Count(o => o.Right > 0), Offered = _outcomes.Sum(o => o.Offered.Count), Correct = _outcomes.Sum(o => o.Right),
+                P95Ms = Math.Round(p95, 1), PerTask = [.. _outcomes.Select(o => new PackTrialTask(o.Offered.Count, o.Right))],
+            }, [.. _outcomes.Select(o => (object)new
+            {
+                o.Task.Commit, parent = o.Task.Parent[..10], o.Task.Subject, o.Task.Anchors, o.Task.Tests, offered = o.Offered, hit = o.Right > 0,
+            })]);
         }
-        var sorted = times.Order().ToArray();
-        var p95 = sorted.Length == 0 ? 0 : sorted[Math.Min(sorted.Length - 1, (int)Math.Ceiling(0.95 * sorted.Length) - 1)];
-        return (new PackTrialMeasurement { Tasks = tasks.Count, Hits = hits, Offered = offered, Correct = correct, P95Ms = Math.Round(p95, 1), PerTask = perTask },
-            details);
+    }
+
+    // A commit's tree, the C# sources and project files a code map reads, in a temporary folder deleted afterwards.
+    private sealed class ParentTree : IDisposable
+    {
+        private ParentTree(string path) => Path = path;
+
+        public string Path { get; }
+
+        public static ParentTree Extract(string repo, string commit)
+        {
+            var folder = Directory.CreateTempSubdirectory("agentmemory-trial-").FullName;
+            var start = new ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+            foreach (var arg in new[] { "-C", repo, "archive", "--format=tar", commit, "--", ":(glob)**/*.cs", ":(glob)**/*.csproj" }) start.ArgumentList.Add(arg);
+            using var git = Process.Start(start) ?? throw new InvalidOperationException("git did not start.");
+            var errors = git.StandardError.ReadToEndAsync();
+            System.Formats.Tar.TarFile.ExtractToDirectory(git.StandardOutput.BaseStream, folder, overwriteFiles: false);
+            // The reader stops at the end-of-archive marker; git still writes the record padding after it (up to 10 KiB), and
+            // blocks on a full pipe if nobody reads it, so the rest is drained before waiting (it hung on 06f83658 otherwise).
+            git.StandardOutput.BaseStream.CopyTo(Stream.Null);
+            git.WaitForExit();
+            if (git.ExitCode == 0) return new ParentTree(folder);
+            Directory.Delete(folder, recursive: true);
+            throw new InvalidOperationException($"git archive {commit[..10]} failed: {errors.Result.Trim()}");
+        }
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Path, recursive: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     private static async Task<(ContextEnvelope Envelope, double Milliseconds)> CompileAsync(IServiceProvider provider, HistoryTask task)
@@ -260,7 +338,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         return (envelope, watch.Elapsed.TotalMilliseconds);
     }
 
-    private sealed record HistoryTask(string Commit, string Subject, IReadOnlyList<string> Anchors, IReadOnlyList<string> Tests);
+    private sealed record HistoryTask(string Commit, string Parent, string Subject, IReadOnlyList<string> Anchors, IReadOnlyList<string> Tests);
 
     /// <summary>A test file: a folder on its path names tests, or the file name ends in Tests.cs or Test.cs; any repository layout.</summary>
     private static bool IsTest(string path)
@@ -279,13 +357,16 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     }
 
     /// <summary>
-    /// The most recent commits that changed both code (1 to 8 C# files, the anchors) and tests (the truth), with every file
-    /// still present, so the store's code map can answer for them. Any layout: tests are found by <see cref="IsTest"/>.
+    /// The most recent commits that changed both code (1 to 8 C# files, the anchors) and tests (the truth). Any layout: tests
+    /// are found by <see cref="IsTest"/>. With <c>parent</c> history (the default) the truth is the tests the change touched
+    /// that already existed before it (a test the commit created could not have been offered), and anchors are the code files
+    /// it added or modified. With <c>head</c> history (the earlier method) every changed file that still exists counts, which
+    /// lets a test the commit created be "found" in a map built afterwards (review 1, H1).
     /// </summary>
-    private static List<HistoryTask> HistoryTasks(string repo, int count)
+    private static List<HistoryTask> HistoryTasks(string repo, int count, string history)
     {
         var start = new ProcessStartInfo("git") { RedirectStandardOutput = true, UseShellExecute = false, StandardOutputEncoding = System.Text.Encoding.UTF8 };
-        foreach (var arg in new[] { "-C", repo, "log", "--no-merges", "-n", "2000", "--format=%x1e%H%x1f%s", "--name-only" }) start.ArgumentList.Add(arg);
+        foreach (var arg in new[] { "-C", repo, "log", "--no-merges", "-n", "2000", "--format=%x1e%H%x1f%P%x1f%s", "--name-status" }) start.ArgumentList.Add(arg);
         using var git = Process.Start(start) ?? throw new InvalidOperationException("git did not start.");
         var log = git.StandardOutput.ReadToEnd();
         git.WaitForExit();
@@ -295,11 +376,23 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         {
             var lines = entry.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var head = lines[0].Split('\x1f');
-            var files = lines.Skip(1).Where(f => f.EndsWith(".cs", StringComparison.Ordinal) && File.Exists(Path.Combine(repo, f))).ToList();
-            var tests = files.Where(IsTest).ToList();
-            var code = files.Where(IsCode).ToList();
+            if (head.Length < 2 || head[1].Length < 40) continue; // a root commit has no parent to stand on
+            var changes = lines.Skip(1).Select(l => l.Split('\t')).Where(p => p.Length >= 2 && p[^1].EndsWith(".cs", StringComparison.Ordinal))
+                .Select(p => (Status: p[0][0], Path: p[^1])).ToList();
+            List<string> tests, code;
+            if (history == "parent")
+            {
+                tests = [.. changes.Where(c => c.Status == 'M' && IsTest(c.Path)).Select(c => c.Path)];
+                code = [.. changes.Where(c => c.Status is 'M' or 'A' && IsCode(c.Path)).Select(c => c.Path)];
+            }
+            else
+            {
+                var files = changes.Select(c => c.Path).Where(f => File.Exists(Path.Combine(repo, f))).ToList();
+                tests = [.. files.Where(IsTest)];
+                code = [.. files.Where(IsCode)];
+            }
             if (tests.Count == 0 || code.Count is 0 or > 8) continue;
-            tasks.Add(new HistoryTask(head[0][..10], head.Length > 1 ? head[1] : "", code, tests));
+            tasks.Add(new HistoryTask(head[0][..10], head[1].Split(' ')[0], head.Length > 2 ? head[2] : "", code, tests));
             if (tasks.Count == count) break;
         }
         return tasks;

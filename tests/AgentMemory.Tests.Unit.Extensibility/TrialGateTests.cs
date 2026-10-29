@@ -34,6 +34,17 @@ public sealed class TrialGateTests : IDisposable
         ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0.5,"precision":0.25,"lift":0.25,"addedP95Ms":250}}""");
     private static readonly ModuleManifest Dependent = Manifest(Top, ""","requires":{"modules":{"com.example.base":"[1,2)"}}""");
 
+    /// <summary>
+    /// Review 1, M17: the declarations digest is pinned. It hashes the SDK's object model, so a change to how this SDK writes a
+    /// manifest (a new property, a renamed one, a default filled in) changes it, and every trialled pack on every host would stay
+    /// off until it is trialled again. This vector fails first: such a change needs a migration, never a silent release.
+    /// </summary>
+    [Fact]
+    public void TheDeclarationsDigestIsPinned() =>
+        PackTrialGate.DigestOf(Trialled).Should().Be(GoldenTrialledDigest, "the SDK's manifest serialization changed: see the remarks on PackTrialGate.DigestOf");
+
+    private const string GoldenTrialledDigest = "jcs-sha256:4f8b018552e494ff47e9c0b4889937d22914ff93a04faf88161b5fb7daa7df51";
+
     private static PackTrialMeasurement Arm(int hits, int correct, int offered, double p95) =>
         new() { Tasks = 40, Hits = hits, Correct = correct, Offered = offered, P95Ms = p95 };
 
@@ -84,9 +95,42 @@ public sealed class TrialGateTests : IDisposable
     }
 
     [Fact]
+    public void With_confidence_a_difference_target_is_met_only_by_its_lower_bound()
+    {
+        // Review 1, M4: lift and precisionLift keep the same promise as the rates.
+        var careful = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","confidence":0.95,"targets":{"lift":0.05}}""");
+        var loose = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","targets":{"lift":0.05}}""");
+        // 24 of 40 against 20 of 40: a lift of 0.10, which a 95% bound on 40 tasks cannot tell from nothing.
+        var withArm = Arm(24, 30, 80, 20);
+        var withoutArm = Arm(20, 25, 90, 10);
+        PackTrialGate.Decide(loose, withArm, withoutArm, Now).Active.Should().BeTrue("on its estimate the lift is met");
+        var bounded = PackTrialGate.Decide(careful, withArm, withoutArm, Now);
+        bounded.Active.Should().BeFalse();
+        var check = bounded.Checks.Single(c => c.Target == "lift");
+        check.Estimate.Should().Be(0.1);
+        check.Observed.Should().BeLessThan(0.05);
+        // Paired results narrow the bound: the same tasks hit in both arms are not counted as independent evidence.
+        IReadOnlyList<PackTrialTask> Tasks(int hits) => [.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(2, i < hits ? 1 : 0))];
+        var paired = PackTrialGate.HitDifferenceLower(withArm with { PerTask = Tasks(24), Offered = 80, Correct = 24 },
+            withoutArm with { PerTask = Tasks(20), Offered = 80, Correct = 20 }, 1.6448536);
+        paired.Should().BeGreaterThan(PackTrialGate.HitDifferenceLower(withArm, withoutArm, 1.6448536));
+        // A large, consistent lift still passes at 95%.
+        PackTrialGate.Decide(careful, Arm(36, 40, 80, 20), Arm(12, 20, 90, 10), Now).Active.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_decision_needs_two_arms_of_the_same_tasks_with_possible_counts()
+    {
+        FluentActions.Invoking(() => PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60), null!, Now)).Should().Throw<ArgumentNullException>();
+        FluentActions.Invoking(() => PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30) with { Tasks = 39 }, Now)).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => PackTrialGate.Decide(Trialled, Arm(41, 32, 77, 60), Arm(0, 0, 0, 30), Now)).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => PackTrialGate.Decide(Trialled, Arm(30, 80, 77, 60), Arm(0, 0, 0, 30), Now)).Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public void A_trial_with_too_few_tasks_decides_nothing()
     {
-        var thin = PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60) with { Tasks = 5, Hits = 5 }, Arm(0, 0, 0, 30), Now);
+        var thin = PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60) with { Tasks = 5, Hits = 5 }, Arm(0, 0, 0, 30) with { Tasks = 5 }, Now);
         thin.Active.Should().BeFalse();
         thin.Reason.Should().Contain("needs 10");
     }

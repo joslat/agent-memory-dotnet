@@ -176,7 +176,7 @@ public static class PackFamilies
             else
             {
                 var pack = PackLoader.Load(memberContent, trust, ledger, allowDowngrade);
-                packs[id] = pack with { ValidUntil = PackLoader.Earliest([pack.ValidUntil, setValidUntil]) };
+                packs[id] = PackLoader.Narrowed(pack, setValidUntil);
             }
         }
         var refused = new List<string>();
@@ -305,7 +305,7 @@ public static class PackFamilies
                 problems.Add($"{pin.Id} is a snapshot pack; a composite contains modules, so carry it beside {composite.Pack.Id} in a pack set.");
                 failed = true;
             }
-            else leaves[pin.Id] = packs[pin.Id] with { ValidUntil = PackLoader.Earliest([packs[pin.Id].ValidUntil, validUntil]) };
+            else leaves[pin.Id] = PackLoader.Narrowed(packs[pin.Id], validUntil);
         }
         if (failed) return null;
         return new LoadedFamily

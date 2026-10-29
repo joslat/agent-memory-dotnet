@@ -25,7 +25,8 @@ public sealed class ExplainTests
         var (result, steps) = Explained(_sample.Signed());
 
         result.IsVerified.Should().BeTrue();
-        steps.Select(s => s.Name).Should().Equal("paths", "files list", "content", "JSON profile", "pack.json and kind", "revocation and expiry", "signatures");
+        // Records are parsed last, once the signatures hold (review 1, L3).
+        steps.Select(s => s.Name).Should().Equal("paths", "files list", "content", "JSON profile", "pack.json and kind", "revocation and expiry", "signatures", "records");
         steps.Should().OnlyContain(s => s.Passed && s.Lines.Count > 0);
     }
 

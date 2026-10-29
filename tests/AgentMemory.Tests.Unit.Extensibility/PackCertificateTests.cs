@@ -427,6 +427,22 @@ public sealed class PackCertificateTests : IDisposable
         Refused(() => PackCertificates.Issue(built, Trust(), Decision(pack), _evaluator.PrivateKeyPem, "Example Lab", "x", run)).Should().Contain(p => p.Contains("names no runId"));
     }
 
+    [Fact]
+    public void Review1_M5_a_decision_is_recorded_once_and_two_decisions_in_one_second_never_share_a_file()
+    {
+        var (_, pack) = Built();
+        var passed = PackTrialGate.Decide(pack.Manifest, Arm(30), Arm(0), Now, pack.Digest);
+        var failed = PackTrialGate.Decide(pack.Manifest, Arm(2), Arm(0), Now, pack.Digest);
+
+        var first = PackActivationFolder.Write(_folder, passed, _host);
+        PackActivationFolder.Write(_folder, passed, _host).Should().Be(first, "the very same decision is recorded already, whatever its new signature");
+        PackActivationFolder.Write(_folder, failed, _host).Should().NotBe(first, "a failure in the same second never replaces a pass");
+
+        Directory.GetFiles(_folder, "*.dsse.json").Should().HaveCount(2);
+        Directory.GetFiles(_folder, "*.partial").Should().BeEmpty("a record appears whole or not at all");
+        Activations().History(Id).Should().HaveCount(2);
+    }
+
     private static readonly DateTimeOffset Now = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     private static readonly DateTimeOffset Earlier = Now.AddHours(-2);
 

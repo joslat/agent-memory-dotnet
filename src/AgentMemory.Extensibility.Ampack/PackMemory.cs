@@ -129,7 +129,11 @@ public sealed partial class PackMemory : IModuleTraversalReader
     /// imports each snapshot into the definition beside it, and holds every knowledge pack and snapshot in memory.
     /// </summary>
     /// <exception cref="PackLoadException">A pack is refused, a composite comes alone, or a snapshot's definition is missing.</exception>
-    public static PackMount Mount(IEnumerable<byte[]> archives, PackTrust trust)
+    public static PackMount Mount(IEnumerable<byte[]> archives, PackTrust trust) => Mount(archives, trust, null);
+
+    // off: given the loaded packs, the ids a host's gate keeps off; they, and snapshots of a definition kept off, are not
+    // mounted (review 1, M1: ampack serve honours the gate).
+    internal static PackMount Mount(IEnumerable<byte[]> archives, PackTrust trust, Func<IReadOnlyList<LoadedPack>, IReadOnlyCollection<string>>? off)
     {
         ArgumentNullException.ThrowIfNull(archives);
         ArgumentNullException.ThrowIfNull(trust);
@@ -147,6 +151,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
                     loaded.Add(PackLoader.Load(archive, trust));
                     break;
             }
+        if (off?.Invoke(loaded) is { Count: > 0 } kept)
+            loaded.RemoveAll(p => kept.Contains(p.Id) || (p.Kind == "snapshot" && p.Manifest.Modules.Keys.Any(kept.Contains)));
         var definitions = loaded.Where(p => p.Kind == "definition").ToDictionary(p => p.Id, p => p.Manifest, StringComparer.Ordinal);
         var snapshots = new List<ModuleSnapshot>();
         foreach (var shot in loaded.Where(p => p.Kind == "snapshot"))
@@ -217,6 +223,12 @@ public sealed partial class PackMemory : IModuleTraversalReader
 
     private IEnumerable<ModuleRecord> OfType(string module, string type) => _byType.GetValueOrDefault((module, type)) ?? [];
 
+    // The search index of one view, built once: mounted packs never change, so it never goes stale (review 1, I3).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Module, string Type, string View), Bm25> _indexes = new();
+
+    private Bm25 Index(string module, string type, string view, IReadOnlyList<string> properties) =>
+        _indexes.GetOrAdd((module, type, view), _ => new Bm25(OfType(module, type), properties));
+
     private sealed class Reader(PackMemory memory, string caller) : IModuleReader
     {
         public string CallerModuleId => caller;
@@ -240,7 +252,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
             if (admitted.Search is { } search)
             {
                 var properties = module.Views.Single(v => v.Id == search.ViewId).Search!.Properties;
-                var corpus = new Bm25(memory.OfType(module.Id, type.Name), properties);
+                var corpus = memory.Index(module.Id, type.Name, search.ViewId, properties);
                 var scored = found.Select(r => (Record: r, Score: corpus.Score(r, search.Terms))).Where(p => p.Score > 0);
                 ordered = scored.OrderByDescending(p => p.Score).ThenBy(p => p.Record.Id, StringComparer.Ordinal).Select(p => p.Record);
             }

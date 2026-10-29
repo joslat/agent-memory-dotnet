@@ -105,9 +105,12 @@ internal static class Dsse
         { problems.Add($"{file} is not a DSSE envelope of an in-toto statement."); return (valid, problems, true); }
 
         if (signatures.GetArrayLength() > MaximumSignatures) { problems.Add($"{file} holds more than {MaximumSignatures} signatures."); return (valid, problems, true); }
+        // Review 1, L7: an envelope signs this pack or it does not belong here. One with no signature entries, or whose statement
+        // is not a pack role's statement for this list, is unlisted content riding beside the pack: it refuses the pack.
+        if (signatures.GetArrayLength() == 0) { problems.Add($"{file} holds no signature."); return (valid, problems, true); }
         if (FromBase64(payloadText.GetString()) is not { } payload) { problems.Add($"{file} has a payload that is not base64."); return (valid, problems, true); }
         var (claim, claimProblem) = ReadStatement(payload, filesListHex, list);
-        if (claim is null) { problems.Add($"{file} {claimProblem}"); return (valid, problems, false); }
+        if (claim is null) { problems.Add($"{file} {claimProblem}"); return (valid, problems, true); }
 
         // The pre-authentication encoding is hashed once, and each of at most MaximumSignatures entries is checked against it.
         var hash = SHA256.HashData(Pae(PayloadType, payload));

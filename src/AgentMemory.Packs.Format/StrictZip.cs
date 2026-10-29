@@ -28,14 +28,25 @@ internal static class StrictZip
     /// <summary>Writes <paramref name="files"/> as a strict, deterministic archive (same files, same toolchain, same bytes).</summary>
     internal static byte[] Write(IReadOnlyDictionary<string, byte[]> files, bool compress = true)
     {
-        using var output = new MemoryStream();
+        // Review 1, I1: each entry is deflated into one reused scratch buffer and kept only when smaller, and the archive is
+        // written into an array of exactly its size: a large pack costs about twice its size to build, not five to seven times.
+        // The writer refuses what no reader would accept, rather than writing it (review 1, L10): a name outside the path
+        // grammar, which also keeps every name ASCII.
+        if (PackPaths.Problems(files.Keys).FirstOrDefault() is { } problem) throw new InvalidDataException(problem);
+        var entries = new List<(string Name, byte[] Content, byte[] Packed, ushort Method)>(files.Count);
+        using (var scratch = new MemoryStream())
+            foreach (var (name, content) in files.OrderBy(f => f.Key, StringComparer.Ordinal))
+            {
+                var packed = compress ? DeflateBytes(content, scratch) : null;
+                entries.Add(packed is null ? (name, content, content, Stored) : (name, content, packed, Deflate));
+            }
+        var length = entries.Sum(e => (long)LocalHeaderSize + e.Name.Length + e.Packed.Length + CentralHeaderSize + e.Name.Length) + EndSize;
+        var buffer = new byte[checked((int)length)];
+        using var output = new MemoryStream(buffer, writable: true);
         var central = new List<(string Name, ushort Method, uint Crc, uint Compressed, uint Size, uint Offset)>();
         var header = new byte[CentralHeaderSize];
-        foreach (var (name, content) in files.OrderBy(f => f.Key, StringComparer.Ordinal))
+        foreach (var (name, content, packed, method) in entries)
         {
-            var packed = compress ? DeflateBytes(content) : content;
-            var method = compress && packed.Length < content.Length ? Deflate : Stored;
-            if (method == Stored) packed = content;
             var crc = Crc32.Compute(content);
             var offset = checked((uint)output.Position);
             var nameBytes = Encoding.ASCII.GetBytes(name);
@@ -83,15 +94,16 @@ internal static class StrictZip
         BinaryPrimitives.WriteUInt32LittleEndian(end[12..], centralSize);
         BinaryPrimitives.WriteUInt32LittleEndian(end[16..], centralStart);
         output.Write(end);
-        return output.ToArray();
+        if (output.Position != length) throw new InvalidOperationException("The archive's size was computed wrongly.");
+        return buffer;
     }
 
     /// <summary>Reads a strict archive into memory, or throws <see cref="InvalidDataException"/> naming the first rule broken.</summary>
-    internal static Dictionary<string, byte[]> Read(ReadOnlySpan<byte> zip, PackLimits limits)
+    internal static Dictionary<string, byte[]> Read(byte[] zip, PackLimits limits)
     {
         if (zip.Length > limits.MaxArchiveBytes) throw Bad($"is larger than {limits.MaxArchiveBytes} bytes");
         if (zip.Length < EndSize) throw Bad("is too short to be a ZIP archive");
-        var end = zip[^EndSize..];
+        var end = zip.AsSpan()[^EndSize..];
         if (BinaryPrimitives.ReadUInt32LittleEndian(end) != EndSignature) throw Bad("does not end with the end-of-central-directory record (a comment or trailing bytes)");
         if (BinaryPrimitives.ReadUInt16LittleEndian(end[4..]) != 0 || BinaryPrimitives.ReadUInt16LittleEndian(end[6..]) != 0) throw Bad("spans disks");
         int count = BinaryPrimitives.ReadUInt16LittleEndian(end[8..]);
@@ -111,7 +123,7 @@ internal static class StrictZip
         for (var i = 0; i < count; i++)
         {
             if (position + CentralHeaderSize > zip.Length - EndSize) throw Bad("has a truncated central directory");
-            var c = zip[position..];
+            var c = zip.AsSpan()[position..];
             if (BinaryPrimitives.ReadUInt32LittleEndian(c) != CentralSignature) throw Bad($"has a bad central-directory entry {i}");
             var madeBy = BinaryPrimitives.ReadUInt16LittleEndian(c[4..]);
             var needed = BinaryPrimitives.ReadUInt16LittleEndian(c[6..]);
@@ -148,7 +160,7 @@ internal static class StrictZip
 
             // The local header must say exactly what the central directory says.
             if (cursor + LocalHeaderSize + nameLength > centralStart) throw Bad($"{where} runs into the central directory");
-            var l = zip[(int)cursor..];
+            var l = zip.AsSpan()[(int)cursor..];
             if (BinaryPrimitives.ReadUInt32LittleEndian(l) != LocalSignature) throw Bad($"{where} has no local header at its offset");
             if (BinaryPrimitives.ReadUInt16LittleEndian(l[4..]) != needed || BinaryPrimitives.ReadUInt16LittleEndian(l[6..]) != flags
                 || BinaryPrimitives.ReadUInt16LittleEndian(l[8..]) != method || BinaryPrimitives.ReadUInt16LittleEndian(l[10..]) != time
@@ -164,8 +176,7 @@ internal static class StrictZip
             totalSize += size;
             if (totalSize > limits.MaxTotalBytes) throw Bad($"unpacks to more than {limits.MaxTotalBytes} bytes");
             if (method == Deflate && compressed > 0 && size / compressed > limits.MaxRatio) throw Bad($"{where} declares a compression ratio above {limits.MaxRatio}:1");
-            var data = zip.Slice((int)dataStart, (int)compressed);
-            var content = method == Stored ? data.ToArray() : Inflate(data, size, where);
+            var content = method == Stored ? zip.AsSpan((int)dataStart, (int)compressed).ToArray() : Inflate(zip, (int)dataStart, (int)compressed, size, where);
             if (Crc32.Compute(content) != crc) throw Bad($"{where} fails its CRC");
             files[name] = content;
             previous = name;
@@ -180,41 +191,47 @@ internal static class StrictZip
     // A deflate stream must end exactly where the entry's compressed bytes end (PACK-harden, review 4.13): with its final
     // block (a truncated stream makes the inflater ask for bytes past the end), and with nothing after it (inflating all but
     // the last byte must then fail, since the final block's last bits are in that byte). Two passes, in large chunks.
-    private static byte[] Inflate(ReadOnlySpan<byte> data, uint size, string where)
+    // The entry's compressed bytes are read in place from the archive, and the second pass only counts what it inflates into a
+    // small reused buffer (review 1, I1: a deflated entry cost its compressed copy and a second full-size output before).
+    private static byte[] Inflate(byte[] zip, int start, int length, uint size, string where)
     {
-        var bytes = data.ToArray();
-        var (output, read, complete) = Decode(bytes, bytes.Length, size, where);
+        var output = new byte[size];
+        var (read, complete) = Decode(zip, start, length, output, size, where);
         if (!complete) throw Bad($"{where} has a deflate stream without its final block");
         if (read < size) throw Bad($"{where} inflates to fewer bytes than it declares");
-        if (bytes.Length > 0 && Decode(bytes, bytes.Length - 1, size, where) is { Complete: true, Read: var again } && again == size)
+        if (length > 0 && Decode(zip, start, length - 1, null, size, where) is { Complete: true, Read: var again } && again == size)
             throw Bad($"{where} has bytes after the end of its deflate stream");
         return output;
     }
 
-    // Inflates the first `length` bytes: the output, how much of it, and whether the stream ended without asking for more input.
-    private static (byte[] Output, long Read, bool Complete) Decode(byte[] data, int length, uint size, string where)
+    // Inflates the first `length` bytes of the entry: into `output` (or, when null, a scratch buffer, only counting), how much,
+    // and whether the stream ended without asking for more input.
+    private static (long Read, bool Complete) Decode(byte[] zip, int start, int length, byte[]? output, uint size, string where)
     {
-        using var input = new BoundedInput(data, length);
+        using var input = new BoundedInput(zip, start, length);
         using var inflater = new DeflateStream(input, CompressionMode.Decompress);
-        var output = new byte[size];
-        var read = 0;
+        var scratch = output is null ? new byte[(int)Math.Min(size + 1L, 64 * 1024)] : null;
+        long read = 0;
         try
         {
-            while (read < output.Length)
+            while (read < size)
             {
-                var n = inflater.Read(output, read, output.Length - read);
+                var n = output is not null
+                    ? inflater.Read(output, (int)read, (int)(size - read))
+                    : inflater.Read(scratch!, 0, (int)Math.Min(scratch!.Length, size - read));
                 if (n == 0) break;
                 read += n;
             }
-            if (read == output.Length && inflater.Read(new byte[1], 0, 1) != 0) throw Bad($"{where} inflates to more bytes than it declares");
+            if (read == size && inflater.Read(new byte[1], 0, 1) != 0) throw Bad($"{where} inflates to more bytes than it declares");
         }
         // Cut one byte short, a stream may also read as damaged: that is not a complete stream either.
-        catch (InvalidDataException) when (length < data.Length) { return (output, read, false); }
-        return (output, read, !input.AskedPastEnd);
+        catch (InvalidDataException) when (output is null) { return (read, false); }
+        return (read, !input.AskedPastEnd);
     }
 
     /// <summary>The first bytes of a buffer, noting whether the inflater asked for more than there are.</summary>
-    private sealed class BoundedInput(byte[] data, int length) : Stream
+    // Reads `length` bytes of `data` from `start`: an entry's compressed bytes, straight from the archive (no copy).
+    private sealed class BoundedInput(byte[] data, int start, int length) : Stream
     {
         private int _position;
 
@@ -225,7 +242,7 @@ internal static class StrictZip
             if (buffer.Length == 0) return 0;
             var n = Math.Min(buffer.Length, length - _position);
             if (n == 0) { AskedPastEnd = true; return 0; }
-            data.AsSpan(_position, n).CopyTo(buffer);
+            data.AsSpan(start + _position, n).CopyTo(buffer);
             _position += n;
             return n;
         }
@@ -240,11 +257,12 @@ internal static class StrictZip
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
-    private static byte[] DeflateBytes(byte[] content)
+    // The deflated bytes when smaller than the content, otherwise null (the entry is stored); `scratch` is reused across entries.
+    private static byte[]? DeflateBytes(byte[] content, MemoryStream scratch)
     {
-        using var output = new MemoryStream();
-        using (var deflater = new DeflateStream(output, CompressionLevel.SmallestSize, leaveOpen: true)) deflater.Write(content);
-        return output.ToArray();
+        scratch.SetLength(0);
+        using (var deflater = new DeflateStream(scratch, CompressionLevel.SmallestSize, leaveOpen: true)) deflater.Write(content);
+        return scratch.Length < content.Length ? scratch.ToArray() : null;
     }
 
     private static string AsciiName(ReadOnlySpan<byte> bytes)

@@ -25,7 +25,7 @@ internal sealed record PackVerification(VerifiedPack? Pack, IReadOnlyList<string
 /// <item>every path keeps the grammar;</item>
 /// <item><c>META/files.json</c> is canonical and well formed;</item>
 /// <item>the pack holds exactly the listed files, each with its length and SHA-256 (CRLF and Git LFS are named as causes);</item>
-/// <item>every JSON and JSONL file keeps the JSON profile;</item>
+/// <item>every JSON file keeps the JSON profile (JSONL files too, read once the signatures hold);</item>
 /// <item><c>pack.json</c> names the same id and version as the list;</item>
 /// <item>the digest is not revoked and the revocations are fresh;</item>
 /// <item>every required role has a valid signature from a key scoped to this id;</item>
@@ -39,7 +39,9 @@ internal static class PackVerifier
     internal static PackVerification Verify(PackContent content, TrustPolicy policy, DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false,
         Action<PackStep>? explain = null)
     {
-        var (integrity, list, listBytes, manifest) = CheckIntegrity(content, explain);
+        // Record files are read only once the signatures hold: parsing is the costly step, linear in up to 256 MiB, so an
+        // untrusted pack never gets it (review 1, L3). The verdict is the same either way.
+        var (integrity, list, listBytes, manifest) = CheckIntegrity(content, explain, records: false);
         if (integrity.Count > 0) return new(null, integrity);
         var problems = new List<string>();
         // What this host revoked before still holds, whatever lists this run was given (fifth review).
@@ -83,6 +85,14 @@ internal static class PackVerifier
             .. junk.Select(p => "refuses the pack: " + p),
             .. missingRoles.Select(r => $"missing: no valid {r} signature from a key the policy trusts for '{list!.Id}'"),
             $"required roles: {string.Join(", ", policy.RequiredRoles)}"]));
+        // A pack whose signatures do not hold is refused already: its records are not parsed.
+        if (missingRoles.Count == 0 && junk.Count == 0)
+        {
+            var recordProblems = LineProblems(content).ToList();
+            problems.AddRange(recordProblems);
+            explain?.Invoke(new("records", recordProblems.Count == 0, recordProblems.Count > 0 ? recordProblems
+                : ["every JSONL file: UTF-8, LF, one JSON value per line, no repeated key, NFC strings, integers within 2^53"]));
+        }
 
         if (manifest.Federation is { } federation)
         {
@@ -128,7 +138,7 @@ internal static class PackVerifier
 
     /// <summary>Steps 1–5: everything that needs no trust. <c>ampack lint</c> and <c>build</c> use it alone.</summary>
     internal static (List<string> Problems, FilesList? List, byte[]? ListBytes, PackManifest? Manifest) CheckIntegrity(PackContent content,
-        Action<PackStep>? explain = null)
+        Action<PackStep>? explain = null, bool records = true)
     {
         var problems = PackPaths.Problems(content.Files.Keys).ToList();
         explain?.Invoke(new("paths", problems.Count == 0, problems.Count > 0 ? problems : [$"{content.Files.Count} files, every path in the grammar"]));
@@ -158,14 +168,13 @@ internal static class PackVerifier
             : [$"exactly the listed files, each with its length and SHA-256 ({list.Files.Sum(f => f.Length):N0} bytes)"]));
         if (problems.Count > 0) return (problems, null, null, null);
 
-        foreach (var (path, bytes) in content.Files.Where(f => FilesList.IsListed(f.Key)).OrderBy(f => f.Key, StringComparer.Ordinal))
-        {
-            var problem = path.EndsWith(".jsonl", StringComparison.Ordinal) ? PackJson.CheckLines(bytes)
-                : path.EndsWith(".json", StringComparison.Ordinal) ? PackJson.Check(bytes, integersOnly: path == PackPaths.LockFile) : null;
-            if (problem is not null) problems.Add($"'{path}' {problem}.");
-        }
+        foreach (var (path, bytes) in content.Files.Where(f => FilesList.IsListed(f.Key) && f.Key.EndsWith(".json", StringComparison.Ordinal))
+                     .OrderBy(f => f.Key, StringComparer.Ordinal))
+            if (PackJson.Check(bytes, integersOnly: path == PackPaths.LockFile) is { } problem) problems.Add($"'{path}' {problem}.");
+        if (records) problems.AddRange(LineProblems(content));
         explain?.Invoke(new("JSON profile", problems.Count == 0, problems.Count > 0 ? problems
-            : ["every JSON and JSONL file: UTF-8, LF, no repeated key, NFC strings, integers within 2^53"]));
+            : [records ? "every JSON and JSONL file: UTF-8, LF, no repeated key, NFC strings, integers within 2^53"
+                : "every JSON file: UTF-8, LF, no repeated key, NFC strings, integers within 2^53 (JSONL files once the signatures hold)"]));
         var profileProblems = problems.Count;
         if (!content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes))
             problems.Add($"There is no {PackManifest.FileName}.");
@@ -188,6 +197,11 @@ internal static class PackVerifier
         return (problems, null, null, null);
     }
 
+    // Every listed JSONL file, line by line, in the JSON profile.
+    private static IEnumerable<string> LineProblems(PackContent content) =>
+        content.Files.Where(f => FilesList.IsListed(f.Key) && f.Key.EndsWith(".jsonl", StringComparison.Ordinal)).OrderBy(f => f.Key, StringComparer.Ordinal)
+            .Select(f => PackJson.CheckLines(f.Value) is { } problem ? $"'{f.Key}' {problem}." : null).OfType<string>();
+
     /// <summary>What each kind must and must not hold (v1.2 §3).</summary>
     private static IEnumerable<string> KindProblems(PackManifest manifest, IReadOnlyDictionary<string, byte[]> files)
     {
@@ -208,6 +222,8 @@ internal static class PackVerifier
                 yield return "A pack set carries its members under packs/.";
                 break;
         }
+        // Review 1, L6: a composite pins packs and holds no records of its own (spec §3).
+        if (manifest.Kind == "composite" && records > 0) yield return $"A composite pack holds no records of its own under {PackLayout.Records}.";
         if (manifest.Kind == "composite" && all.Contains(PackPaths.LockFile))
             foreach (var problem in CompositeProblems(manifest, files)) yield return problem;
         if (manifest.Protection != "open" && !all.Contains("META/seal.json"))
@@ -235,6 +251,8 @@ internal static class PackVerifier
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(membersBytes);
+            // Review 1, L6: members.json holds its members and nothing else, as every reader takes it (spec §2).
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object || document.RootElement.EnumerateObject().Any(p => p.Name != "members")) return null;
             return [.. document.RootElement.GetProperty("members").EnumerateArray().Select(m => m.GetProperty("id").GetString()!)];
         }
         catch (Exception e) when (e is System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException) { return null; }
@@ -262,7 +280,7 @@ internal static class PackVerifier
     {
         var first = Verify(content, policy, now, ledger, allowDowngrade);
         if (first.Pack is not { Manifest.Kind: "set" }) return first;
-        var (set, members) = VerifySet(content, policy, now, ledger, allowDowngrade);
+        var (set, members) = VerifySet(content, policy, now, ledger, allowDowngrade, first);
         var refused = members.Where(m => !m.Value.IsVerified).OrderBy(m => m.Key, StringComparer.Ordinal)
             .SelectMany(m => m.Value.Problems.Select(p => $"packs/{m.Key}/: {p}")).ToList();
         return !set.IsVerified ? set : refused.Count > 0 ? new PackVerification(null, refused) : set;
@@ -273,11 +291,12 @@ internal static class PackVerifier
     /// each member keeps its own list and signatures (v1.2 §5).
     /// </summary>
     internal static (PackVerification Set, IReadOnlyDictionary<string, PackVerification> Members) VerifySet(PackContent content, TrustPolicy policy,
-        DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false)
+        DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false, PackVerification? verified = null)
     {
         // The ledger's kept revocations once for the whole set, not again for each member (sixth review).
         if (ledger is not null) policy = ledger.Apply(policy);
-        var set = Verify(content, policy, now, ledger, allowDowngrade);
+        // The set as a whole, verified once: a caller that already did passes its result (review 1, I2).
+        var set = verified ?? Verify(content, policy, now, ledger, allowDowngrade);
         var members = new Dictionary<string, PackVerification>(StringComparer.Ordinal);
         if (set.Pack is not { } outer) return (set, members);
         if (outer.Manifest.Kind != "set") return (new PackVerification(null, [$"{outer.Id} is a {outer.Manifest.Kind} pack, not a set."]), members);
@@ -286,11 +305,16 @@ internal static class PackVerifier
         catch (InvalidDataException e) { return (new PackVerification(null, [e.Message]), members); }
         if (!split.Keys.Order(StringComparer.Ordinal).SequenceEqual(outer.Manifest.Contains.Order(StringComparer.Ordinal)))
             return (new PackVerification(null, ["The set's pack.json names other members than it carries."]), members);
+        // Review 1, L5: a set carries packs, not sets (a set inside a set would leave its own members unchecked here), and no
+        // member shares the set's id (the two would collide in a host's ledger).
+        if (split.ContainsKey(outer.Id)) return (new PackVerification(null, [$"The set {outer.Id} carries a member with its own id."]), members);
         foreach (var (id, files) in split)
         {
             var member = Verify(new PackContent(files, content.Source + "#" + id), policy, now, ledger, allowDowngrade);
-            members[id] = member.Pack is { } verified && verified.Id != id
-                ? new PackVerification(null, [$"The member in packs/{id}/ is {verified.Id}."])
+            members[id] = member.Pack is { } carried && carried.Id != id
+                ? new PackVerification(null, [$"The member in packs/{id}/ is {carried.Id}."])
+                : member.Pack is { Manifest.Kind: "set" }
+                    ? new PackVerification(null, [$"packs/{id}/ is a pack set: a set carries packs, not sets."])
                 : member.Pack is { } inner && outer.Manifest.Federation is { } federation && MemberFederationProblem(federation, inner) is { } problem
                     ? new PackVerification(null, [problem]) : member;
         }

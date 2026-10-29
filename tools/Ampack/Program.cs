@@ -67,12 +67,14 @@ internal static partial class Program
                                  remove an installed pack (the ledger keeps it)
           list --store <folder>  the installed packs
           serve [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
-                [--http <http://localhost:5199/> [--allow-remote]]
+                [--http <http://localhost:5199/> [--allow-remote]] [--activations <folder> --host-key <host.pub.pem>]
                                  mount the packs in memory and serve them over MCP on standard input and output:
                                  pack_list, pack_ask (a view: search text or a key), pack_walk (from files and symbols);
                                  with --http, the same over REST: GET /v1/meta, GET /v1/packs,
                                  POST /v1/packs/{id}/views/{view}/ask, POST /v1/walk (this machine only, unless
-                                 --allow-remote)
+                                 --allow-remote: then every request sends Authorization: Bearer $AMPACK_SERVE_TOKEN,
+                                 packs published for named WebIDs stay local, and TLS comes from a proxy in front);
+                                 with --activations, packs the host's trial gate keeps off are not served
           evidence --activations <folder> --host-key <host.pub.pem> --pack <id> [--version <v>] --out <run-folder>
                                  a host's trial decision for a pack (the latest, or of that version) as an AEF run:
                                  the pack as its subject, the trial's tasks with and without it, the gate's decision,
@@ -107,6 +109,12 @@ internal static partial class Program
                [--require-trials-for <prefix,…>] [--trust-certificates-for <prefix,…>]
                                  what this host's trial gate does with the packs, from its signed decisions alone: on or
                                  off, and why (as a module set composing with RequireTrials); no store, no trial run
+          trust add --public <pub.pem> --policy <trust.json> --prefix <id.prefix,...> [--role <role,...>] [--webid <WebID>]
+                                 trust a key you checked with its owner, for those ids and roles (publisher by default)
+          trust list --policy <trust.json>
+                                 the keys a policy trusts: id, roles, prefixes, WebID, expiry; and what it revokes
+          trust remove <keyId> --policy <trust.json>
+                                 stop trusting a key on this host (to refuse what it signed everywhere, revoke it)
           trust webid <WebID> [--key <keyId> --policy <trust.json> --prefix <id.prefix> [--role publisher] [--host-webid <WebID>]]
                                  list the P-256 keys a WebID's profile asserts; with --key, bind that key to the WebID
                                  in the trust policy (never trust on first use: name the key you checked)
@@ -232,7 +240,7 @@ internal static partial class Program
         ["evidence"] = ["activations", "host-key", "pack", "version", "out"],
         ["scan"] = ["aef", .. TrustOptions],
         ["countersign"] = ["out", "role", .. SignerOptions],
-        ["serve"] = ["store", "http", "allow-remote", .. TrustOptions],
+        ["serve"] = ["store", "http", "allow-remote", "activations", "host-key", "require-trials-for", "trust-certificates-for", .. TrustOptions],
         ["install"] = ["store", "allow-downgrade", .. TrustOptions],
         ["uninstall"] = ["store"],
         ["list"] = ["store"],
@@ -242,7 +250,7 @@ internal static partial class Program
         ["admit"] = ["host-signing-key", "activations", .. TrustOptions],
         ["gate"] = ["activations", "host-key", "require-trials-for", "trust-certificates-for", .. TrustOptions],
         ["solid"] = ["allow-loopback-http", "webid", "audience", "probe-as", "probe-stranger", "from", "id", "no-recheck", "store", "allow-downgrade", .. SignerOptions, .. TrustOptions],
-        ["trust"] = ["allow-loopback-http", "key", "prefix", "role", "host-webid", "policy"],
+        ["trust"] = ["allow-loopback-http", "key", "prefix", "role", "host-webid", "policy", "public", "webid"],
     }.ToDictionary(c => c.Key, c => new HashSet<string>(c.Value, StringComparer.Ordinal), StringComparer.Ordinal);
 
     private static void CheckOptions(string command, Options options)
@@ -832,12 +840,33 @@ internal static partial class Program
     {
         var trust = Trust(o);
         var archives = Archives(o, "serve");
+        var gate = ServeGate(o);
         try
         {
-            var mount = AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust);
+            var mount = AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust, gate);
+            // Review 1, I9: a pack that declares a trial, served with no gate, is said to be served ungated.
+            if (gate is null)
+                foreach (var pack in mount.Packs.Where(p => p.Manifest.Trial is not null))
+                    Console.Error.WriteLine($"ampack serve: {pack.Id} declares a trial but is served ungated; give --activations and --host-key to apply the host's decisions.");
             return o.Value("http") is { } url ? Rest.Run(mount, url, o.Flag("allow-remote")) : Serve.Run(mount);
         }
         catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
+    }
+
+    // --activations with --host-key: the host's trial gate decides what is served, as it decides what composes (review 1, M1).
+    private static Func<IReadOnlyList<AgentMemory.Extensibility.Ampack.LoadedPack>, IReadOnlyCollection<string>>? ServeGate(Options o)
+    {
+        if (o.Value("activations") is not { } folder)
+            return o.Value("host-key") is null ? null : throw new UsageException("--host-key goes with --activations.");
+        var activations = new AgentMemory.Extensibility.Modules.PackActivationFolder(folder, File.ReadAllText(o.Required("host-key")));
+        static string[] Prefixes(string? value) => value is null ? [] : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return packs =>
+        {
+            var check = AgentMemory.Extensibility.Ampack.PackGateCheck.Of([.. packs.Where(p => p.Kind != "snapshot")], activations,
+                Prefixes(o.Value("require-trials-for")), Prefixes(o.Value("trust-certificates-for")));
+            foreach (var off in check.Off) Console.Error.WriteLine($"ampack serve: {off.ModuleId} {off.Version} stays off: {off.Reason}");
+            return [.. check.Off.Select(off => off.ModuleId)];
+        };
     }
 
     // PACK-toolset: a pack's own tests, on the packs loaded as a host loads them and held in memory.

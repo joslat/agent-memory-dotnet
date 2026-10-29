@@ -64,6 +64,22 @@ public sealed class PackStoreTests : IDisposable
     }
 
     [Fact]
+    public void Review1_M8_a_pack_a_set_carries_is_not_installed_beside_it_and_the_index_places_files_only_where_the_store_keeps_them()
+    {
+        var store = PackStore.Open(_root);
+        var set = store.Install(PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [MartialArtsPack("1.0.0")], _key.PrivateKeyPem), Trust());
+        set.Members.Should().Equal("io.agentmemory.packs.martialarts");
+
+        FluentActions.Invoking(() => store.Install(MartialArtsPack("1.1.0"), Trust())).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().ContainSingle(p => p.Contains("part of the set io.example.dojo-set", StringComparison.Ordinal));
+        PackStore.Open(_root).Installed.Should().ContainSingle().Which.Members.Should().Equal("io.agentmemory.packs.martialarts");
+
+        var index = Path.Combine(_root, "installed.json");
+        File.WriteAllText(index, File.ReadAllText(index).Replace("packs/io.example.dojo-set@1.0.0.ampack", "../outside.ampack", StringComparison.Ordinal));
+        FluentActions.Invoking(() => PackStore.Open(_root)).Should().Throw<InvalidDataException>().WithMessage("*not where the store keeps it*");
+    }
+
+    [Fact]
     public void A_pack_set_installs_as_one_and_mounts_from_the_store()
     {
         var knowledge = MartialArtsPack("1.0.0");

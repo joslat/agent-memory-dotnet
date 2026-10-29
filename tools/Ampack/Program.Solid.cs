@@ -129,11 +129,79 @@ internal static partial class Program
 
     // Enrolment (federated packs §4): read a WebID's profile, list the P-256 keys it asserts, and add one to the trust policy
     // only when the operator names its key id. Never trust on first use.
-    private static int TrustCommand(Options o) => o.Positional(0, "trust action (webid)") switch
+    private static int TrustCommand(Options o) => o.Positional(0, "trust action (add, list, remove, webid)") switch
     {
+        "add" => TrustAdd(o),
+        "list" => TrustList(o),
+        "remove" => TrustRemove(o),
         "webid" => TrustWebId(o),
-        var other => throw new UsageException($"Unknown trust action '{other}': webid."),
+        var other => throw new UsageException($"Unknown trust action '{other}': add, list, remove or webid."),
     };
+
+    // Review 1, I8: the trust policy kept from the command line, read back as a host reads it before it is written.
+    private static JsonObject PolicyNode(string path) =>
+        File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new UsageException($"{path} is not a JSON object.")
+            : new JsonObject { ["format"] = "agentmemory.pack.trust/1.1", ["keys"] = new JsonArray() };
+
+    private static void SavePolicy(string path, JsonObject policy)
+    {
+        var text = policy.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        TrustPolicy.Parse(System.Text.Encoding.UTF8.GetBytes(text));
+        var partial = path + ".partial";
+        File.WriteAllText(partial, text);
+        File.Move(partial, path, overwrite: true);
+    }
+
+    private static int TrustAdd(Options o)
+    {
+        var path = o.Required("policy");
+        var pem = File.ReadAllText(o.Required("public"));
+        var keyId = PackKey.KeyIdOf(pem);
+        var roles = List(o.Value("role") ?? "publisher");
+        if (o.Value("webid") is not null && roles.Contains("revoker")) throw new UsageException("A revoker key is never bound to a WebID.");
+        var policy = PolicyNode(path);
+        var keys = policy["keys"] as JsonArray ?? throw new UsageException($"{path} has no keys list.");
+        if (keys.Any(k => k?["keyId"]?.GetValue<string>() == keyId)) throw new UsageException($"Key {Dsse.Short(keyId)} is already in {path}.");
+        var entry = new JsonObject
+        {
+            ["keyId"] = keyId, ["publicKey"] = pem.Trim() + "\n", ["idPrefixes"] = new JsonArray([.. List(o.Required("prefix")).Select(p => (JsonNode)p)]),
+            ["roles"] = new JsonArray([.. roles.Select(r => (JsonNode)r)]),
+        };
+        if (o.Value("webid") is { } webId) entry["webId"] = webId;
+        keys.Add(entry);
+        SavePolicy(path, policy);
+        Console.WriteLine($"Added key {Dsse.Short(keyId)} for {o.Required("prefix")} ({string.Join(", ", roles)}) to {path}. Check its id with its owner: {keyId}");
+        return 0;
+    }
+
+    private static int TrustList(Options o)
+    {
+        var path = o.Required("policy");
+        var policy = TrustPolicy.Parse(File.ReadAllBytes(path));
+        Console.WriteLine($"{path}: {policy.Keys.Count} key(s); requires {string.Join(", ", policy.RequiredRoles)}");
+        foreach (var key in policy.Keys)
+            Console.WriteLine($"  {key.KeyId}  {string.Join(",", key.Roles)}  for {string.Join(", ", key.IdPrefixes)}"
+                + (key.WebId is { } webId ? $"  bound to {Shown(webId)}" : "")
+                + (key.NotAfter is { } notAfter ? $"  until {notAfter:u}" : ""));
+        if (policy.RevokedKeys.Count > 0 || policy.RevokedDigests.Count > 0)
+            Console.WriteLine($"  revoked: {policy.RevokedKeys.Count} key(s), {policy.RevokedDigests.Count} pack digest(s)");
+        return 0;
+    }
+
+    private static int TrustRemove(Options o)
+    {
+        var path = o.Required("policy");
+        var named = o.Positional(1, "key id (at least 16 characters of it)");
+        if (named.Length < 16) throw new UsageException("Name the key by at least 16 characters of its id.");
+        var policy = PolicyNode(path);
+        var keys = policy["keys"] as JsonArray ?? throw new UsageException($"{path} has no keys list.");
+        var matching = keys.Where(k => k?["keyId"]?.GetValue<string>() is { } id && id.StartsWith(named, StringComparison.Ordinal)).ToList();
+        if (matching.Count != 1) throw new UsageException(matching.Count == 0 ? $"No key {named} in {path}." : $"{named} names {matching.Count} keys: give more of the id.");
+        keys.Remove(matching[0]);
+        SavePolicy(path, policy);
+        Console.WriteLine($"Removed key {Dsse.Short(matching[0]!["keyId"]!.GetValue<string>())} from {path}. To refuse what it signed everywhere, revoke it instead (ampack revoke).");
+        return 0;
+    }
 
     private static int TrustWebId(Options o)
     {
@@ -152,8 +220,7 @@ internal static partial class Program
         var policyPath = o.Required("policy");
         var role = o.Value("role") ?? "publisher";
         if (role == "revoker") throw new UsageException("A revoker key is never bound to a WebID.");
-        var policy = File.Exists(policyPath) ? JsonNode.Parse(File.ReadAllText(policyPath))?.AsObject() ?? throw new UsageException($"{policyPath} is not a JSON object.")
-            : new JsonObject { ["format"] = "agentmemory.pack.trust/1.1", ["keys"] = new JsonArray() };
+        var policy = PolicyNode(policyPath);
         var keys = policy["keys"] as JsonArray ?? throw new UsageException($"{policyPath} has no keys list.");
         if (keys.Any(k => k?["keyId"]?.GetValue<string>() == asserted.KeyId)) throw new UsageException($"Key {Dsse.Short(asserted.KeyId)} is already in {policyPath}.");
         keys.Add(new JsonObject
@@ -163,9 +230,7 @@ internal static partial class Program
         });
         if (o.Value("host-webid") is { } hostWebId)
             policy["host"] = new JsonObject { ["webIds"] = new JsonArray([.. List(hostWebId).Select(w => (JsonNode)w)]) };
-        var text = policy.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-        TrustPolicy.Parse(System.Text.Encoding.UTF8.GetBytes(text)); // read back as a host reads it before it is written
-        File.WriteAllText(policyPath, text);
+        SavePolicy(policyPath, policy);
         Console.WriteLine($"Added key {Dsse.Short(asserted.KeyId)} bound to {webId} for {o.Required("prefix")} ({role}) to {policyPath}.");
         return 0;
     }

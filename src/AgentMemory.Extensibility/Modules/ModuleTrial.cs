@@ -15,7 +15,7 @@ namespace AgentMemory.Extensibility.Modules;
 public sealed record ModuleTrial
 {
     /// <summary>The fewest tasks a trial may run, so a target is not met by luck.</summary>
-    public const int MinimumTasks = 10;
+    public const int MinimumTasks = AgentMemory.Shared.PackNamespace.MinimumTrialTasks;
     /// <summary>The most tasks a trial runs.</summary>
     public const int MaximumTasks = 200;
 

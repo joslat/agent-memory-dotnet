@@ -18,6 +18,11 @@ public enum BundleSigner
 /// The host's trust set beyond the official keys: developer keys and revocations. Set from host configuration only, never by
 /// a request, an MCP tool or a model. Empty by default, and there is no "allow unsigned" switch.
 /// </summary>
+/// <remarks>
+/// This is the module-bundle path of 1.x, kept for compatibility. It has no key scopes by pack id, no install ledger and no
+/// validity dates: a pack meant to travel between organisations is an <c>.ampack</c>, loaded with <c>PackLoader</c> under a
+/// trust policy, and its records import with <c>PackImport.ImportAsync</c> (review 1, M9).
+/// </remarks>
 [Experimental("AMEXT001")]
 public sealed class BundleTrust
 {
@@ -34,19 +39,19 @@ public sealed class BundleTrust
 public sealed record VerifiedBundle
 {
     /// <summary>The module or pack id the files list names.</summary>
-    public required string Id { get; init; }
+    public string Id { get; internal init; } = null!;
     /// <summary>Its version.</summary>
-    public required string Version { get; init; }
+    public string Version { get; internal init; } = null!;
     /// <summary>For a code module, the assembly that embeds its manifest; null for a knowledge pack.</summary>
-    public string? Entry { get; init; }
+    public string? Entry { get; internal init; }
     /// <summary>The bundle digest: the sha256 of the files list's exact bytes.</summary>
-    public required string Digest { get; init; }
+    public string Digest { get; internal init; } = null!;
     /// <summary>The signing key's id.</summary>
-    public required string KeyId { get; init; }
+    public string KeyId { get; internal init; } = null!;
     /// <summary>Whether the official key or a developer key signed it.</summary>
-    public required BundleSigner Signer { get; init; }
+    public BundleSigner Signer { get; internal init; }
     /// <summary>The content files by path, without the two trust files.</summary>
-    public required IReadOnlyDictionary<string, ReadOnlyMemory<byte>> Files { get; init; }
+    public IReadOnlyDictionary<string, ReadOnlyMemory<byte>> Files { get; internal init; } = null!;
 }
 
 /// <summary>The verification result: a bundle, or the reasons it was refused.</summary>

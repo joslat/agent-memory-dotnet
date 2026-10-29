@@ -131,40 +131,40 @@ public sealed class PackInstallLedger
 public sealed record LoadedPack
 {
     /// <summary>The pack id.</summary>
-    public required string Id { get; init; }
+    public string Id { get; internal init; } = null!;
     /// <summary>Its version.</summary>
-    public required string Version { get; init; }
+    public string Version { get; internal init; } = null!;
     /// <summary>Its identity: <c>sha256:</c> over the exact bytes of its file list.</summary>
-    public required string Digest { get; init; }
+    public string Digest { get; internal init; } = null!;
     /// <summary><c>knowledge</c>, <c>definition</c> or <c>snapshot</c>.</summary>
-    public required string Kind { get; init; }
+    public string Kind { get; internal init; } = null!;
     /// <summary>The module manifest the pack maps to, validated.</summary>
-    public required ModuleManifest Manifest { get; init; }
+    public ModuleManifest Manifest { get; internal init; } = null!;
     /// <summary>For a knowledge pack, the pack with its records, ready to compose and import; otherwise null.</summary>
-    public KnowledgePack? Knowledge { get; init; }
+    public KnowledgePack? Knowledge { get; internal init; }
     /// <summary>Who signed it: role and key id, each verified against the host's trust.</summary>
-    public IReadOnlyList<string> Signers { get; init; } = [];
+    public IReadOnlyList<string> Signers { get; internal init; } = [];
     /// <summary>
     /// For a snapshot pack, what its records were taken from: <c>git:</c> and the commit its <c>pack.json</c> names, otherwise
     /// <c>pack:</c> and its version; otherwise null.
     /// </summary>
-    public string? SnapshotSource { get; init; }
+    public string? SnapshotSource { get; internal init; }
     /// <summary>The pack's own tests (<c>evals/tests.json</c>), verified with it; null when it has none. Run with <see cref="PackTests"/>.</summary>
-    public ReadOnlyMemory<byte>? Tests { get; init; }
+    public ReadOnlyMemory<byte>? Tests { get; internal init; }
     /// <summary>
     /// When the pack stops being valid on this host, and a host switches it off at runtime: its own <c>validUntil</c>, its
     /// family's and its set's, the host's revocation list expiry, and its signing keys' expiry, whichever comes first.
     /// </summary>
-    public DateTimeOffset? ValidUntil { get; init; }
+    public DateTimeOffset? ValidUntil { get; internal init; }
     /// <summary>For a federated pack, who published it, for whom and why, as verified against the host's trust; otherwise null.</summary>
-    public PackPublication? Publication { get; init; }
+    public PackPublication? Publication { get; internal init; }
     /// <summary>Its card (<c>card.json</c>, pack format v1.2 §15), as signed with it; null when it carries none.</summary>
-    public PackCardInfo? Card { get; init; }
+    public PackCardInfo? Card { get; internal init; }
     /// <summary>
     /// The evaluation certificates it carries (pack format v1.2 §16), trusted or not: each says who evaluated it, on what, with
     /// what result. They inform; one admits the pack only where the host trusts certificates (<see cref="PackCertificates.Admit"/>).
     /// </summary>
-    public IReadOnlyList<PackEvaluation> Certificates { get; init; } = [];
+    public IReadOnlyList<PackEvaluation> Certificates { get; internal init; } = [];
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
 }
@@ -287,10 +287,12 @@ public static class PackLoader
             foreach (var file in PackLayout.RecordFiles(pack.Files.Keys)) recordFiles[file] = pack.Files[file];
         }
 
+        var validUntil = ValidUntil(pack, trust.Policy);
+        if (knowledge is not null) knowledge.ValidUntil = validUntil;
         return new LoadedPack
         {
             Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Kind = pack.Manifest.Kind, Manifest = manifest,
-            Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles, ValidUntil = ValidUntil(pack, trust.Policy),
+            Knowledge = knowledge, Signers = signers, SnapshotSource = snapshotSource, RecordFiles = recordFiles, ValidUntil = validUntil,
             Publication = PackPublication.Of(pack.Manifest.Federation),
             Card = PackCardInfo.Of(pack.Files),
             // Read under the same trust the pack verified under: what this host revoked before (its ledger) holds for evaluator
@@ -310,6 +312,14 @@ public static class PackLoader
         var keys = policy.RequiredRoles.Select(role => pack.Signatures.Where(s => s.Role == role).Select(s => policy.Find(s.KeyId)?.NotAfter).ToList())
             .Select(expiries => expiries.Count == 0 || expiries.Any(e => e is null) ? null : expiries.Max());
         return Earliest([pack.Manifest.ValidUntil, policy.RevocationsExpire, .. keys]);
+    }
+
+    // A member of a set or family valid no longer than what carries it: the loaded pack and its knowledge pack alike (review 1, M9).
+    internal static LoadedPack Narrowed(LoadedPack pack, DateTimeOffset? until)
+    {
+        var earliest = Earliest([pack.ValidUntil, until]);
+        if (pack.Knowledge is { } knowledge) knowledge.ValidUntil = earliest;
+        return pack with { ValidUntil = earliest };
     }
 
     internal static DateTimeOffset? Earliest(IEnumerable<DateTimeOffset?> times)
@@ -353,8 +363,7 @@ public static class PackLoader
         // while that certificate travels with the pack, is trusted, and no newer trusted one stands beside it (review 1, M1;
         // review 2, L3).
         if (added.Modules.LastOrDefault(r => r.Manifest.Id == pack.Id && r.PackDigest == pack.Digest) is { } registration)
-            registration.TrustedCertificates = pack.Certificates.Where(c => c.Trusted).OrderByDescending(c => c.EvaluatedAt).FirstOrDefault() is { } latest
-                ? [latest.Digest] : [];
+            registration.TrustedCertificates = PackCertificates.LatestTrusted(pack) is { } latest ? [latest.Digest] : [];
         return added;
     }
 

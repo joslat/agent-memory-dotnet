@@ -21,13 +21,37 @@ internal abstract class PackSigner : IDisposable
     /// <summary>An ECDSA P-256 SHA-256 signature over <paramref name="data"/>, DER encoded, checked against the public key.</summary>
     internal byte[] Sign(byte[] data)
     {
-        var signature = SignData(data);
+        // Review 1, L9: whatever the signer printed, the stored signature is minimal DER, as both verifiers require.
+        var signature = StrictDer(SignData(data));
         using var key = ECDsa.Create();
         key.ImportFromPem(PublicKeyPem);
-        if (key.KeySize != 256) throw new InvalidDataException("The public key is not a P-256 key.");
+        if (!IsP256(key)) throw new InvalidDataException("The public key is not a P-256 key.");
         if (!key.VerifyData(data, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
             throw new InvalidDataException("The signature does not verify with the public key: the signer used another key, or another algorithm.");
         return signature;
+    }
+
+    // P-256 by its curve's OID, not its size: secp256k1 and brainpoolP256 are 256-bit too, and no verifier accepts them.
+    // Platforms name it differently (CNG ECDSA_P256 or nistP256, OpenSSL prime256v1); the OID is the same everywhere.
+    internal static bool IsP256(ECDsa key) =>
+        key.ExportParameters(false).Curve.Oid is { } oid
+        && (oid.Value == "1.2.840.10045.3.1.7" || oid.FriendlyName is "nistP256" or "ECDSA_P256" or "prime256v1" or "secp256r1");
+
+    // A DER (or BER) ECDSA signature re-encoded as minimal DER: SEQUENCE { INTEGER r, INTEGER s }.
+    private static byte[] StrictDer(byte[] signature)
+    {
+        try
+        {
+            var reader = new AsnReader(signature, AsnEncodingRules.BER);
+            var sequence = reader.ReadSequence();
+            var (r, s) = (sequence.ReadInteger(), sequence.ReadInteger());
+            sequence.ThrowIfNotEmpty();
+            reader.ThrowIfNotEmpty();
+            var writer = new AsnWriter(AsnEncodingRules.DER);
+            using (writer.PushSequence()) { writer.WriteInteger(r); writer.WriteInteger(s); }
+            return writer.Encode();
+        }
+        catch (AsnContentException) { throw new InvalidDataException("The signer returned something that is not an ECDSA signature."); }
     }
 
     /// <summary>Signs; <see cref="Sign"/> checks the result.</summary>
@@ -52,7 +76,7 @@ internal abstract class PackSigner : IDisposable
         internal PemSigner(string privateKeyPem)
         {
             _key.ImportFromPem(privateKeyPem);
-            if (_key.KeySize != 256) throw new ArgumentException("The key must be a P-256 key.", nameof(privateKeyPem));
+            if (!IsP256(_key)) throw new ArgumentException("The key must be a P-256 key.", nameof(privateKeyPem));
             PublicKeyPem = _key.ExportSubjectPublicKeyInfoPem();
         }
 

@@ -16,11 +16,16 @@ namespace Ampack;
 /// <item><c>POST /v1/packs/{id}/views/{view}/ask</c> with <c>{"text"|"key", "limit"}</c>: one view (pack_ask);</item>
 /// <item><c>POST /v1/walk</c> with <c>{"paths", "symbols", "question"}</c>: the walk from the work in hand (pack_walk).</item>
 /// </list>
-/// Loopback only unless the host says otherwise; request bodies are capped; nothing writes.
+/// Loopback only unless the host says otherwise; request bodies are capped; nothing writes. Beyond this machine
+/// (<c>--allow-remote</c>, review 1, M1): every request carries <c>Authorization: Bearer</c> with the token in
+/// <c>AMPACK_SERVE_TOKEN</c> (at least 32 characters), packs published for named WebIDs are not served, and TLS is the job of a
+/// reverse proxy in front. At most <see cref="MaximumConcurrent"/> requests are answered at once; more get 503.
 /// </summary>
 internal static class Rest
 {
     private const int MaximumBody = 64 * 1024;
+    internal const int MaximumConcurrent = 16;
+    internal const string TokenVariable = "AMPACK_SERVE_TOKEN";
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     internal static int Run(PackMount mount, string url, bool allowRemote)
@@ -29,6 +34,15 @@ internal static class Rest
             throw new UsageException("--http takes a URL such as http://localhost:5199/.");
         if (!uri.IsLoopback && !allowRemote)
             throw new UsageException($"{uri.Host} is not this machine: serving packs beyond it needs --allow-remote.");
+        // A token, when set, is asked of every request, on loopback too; beyond this machine one is required.
+        var token = Environment.GetEnvironmentVariable(TokenVariable) is { Length: > 0 } set ? set : null;
+        if (token is { Length: < 32 }) throw new UsageException($"{TokenVariable} is shorter than 32 characters.");
+        if (!uri.IsLoopback && token is null)
+            throw new UsageException($"Serving beyond this machine needs a bearer token: set {TokenVariable} (at least 32 characters); every request then sends Authorization: Bearer <token>. Put a TLS proxy in front.");
+        if (!uri.IsLoopback && mount.Packs.FirstOrDefault(p => p.Publication is { IsPublic: false }) is { } restricted)
+            throw new UsageException($"{restricted.Id} is published for named WebIDs only: it is not served beyond this machine.");
+        var expected = token is null ? null : System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        using var gate = new SemaphoreSlim(MaximumConcurrent);
         using var listener = new HttpListener();
         listener.Prefixes.Add($"{uri.Scheme}://{uri.Host}:{uri.Port}/");
         listener.Start();
@@ -42,7 +56,14 @@ internal static class Rest
             try { context = listener.GetContext(); }
             catch (HttpListenerException) when (stop.IsCancellationRequested) { break; }
             catch (ObjectDisposedException) { break; }
-            _ = Task.Run(() => HandleAsync(mount, context, stop.Token));
+            if (!gate.Wait(0)) { Refuse(context, 503, "The server is busy; try again."); continue; }
+            if (expected is not null && !Authorized(context.Request, expected)) { gate.Release(); Refuse(context, 401, "A bearer token is required."); continue; }
+            _ = Task.Run(async () =>
+            {
+                try { await HandleAsync(mount, context, stop.Token).ConfigureAwait(false); }
+                catch (Exception e) when (e is HttpListenerException or OperationCanceledException or ObjectDisposedException or IOException) { }
+                finally { gate.Release(); }
+            });
         }
         return 0;
     }
@@ -77,6 +98,27 @@ internal static class Rest
         context.Response.ContentType = "application/json; charset=utf-8";
         context.Response.ContentLength64 = bytes.Length;
         try { await context.Response.OutputStream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false); }
+        finally { context.Response.Close(); }
+    }
+
+    // The bearer token, compared in constant time by its hash.
+    private static bool Authorized(HttpListenerRequest request, byte[] expected) =>
+        request.Headers["Authorization"] is { } header && header.StartsWith("Bearer ", StringComparison.Ordinal)
+        && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(header["Bearer ".Length..])), expected);
+
+    private static void Refuse(HttpListenerContext context, int status, string message)
+    {
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(Error(message));
+            context.Response.StatusCode = status;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            if (status == 401) context.Response.AddHeader("WWW-Authenticate", "Bearer");
+            context.Response.ContentLength64 = bytes.Length;
+            context.Response.OutputStream.Write(bytes);
+        }
+        catch (HttpListenerException) { }
         finally { context.Response.Close(); }
     }
 

@@ -136,7 +136,7 @@ internal static partial class SolidPacks
             {
                 var catalogUrl = reader is null ? container + "public.ttl" : container + "for/" + ReaderKey(reader) + ".ttl";
                 var existing = await ReadCatalogAsync(owner, catalogUrl, cancellationToken).ConfigureAwait(false);
-                var entries = (existing ?? []).Where(e => e.Digest != digest && !(e.Id == entry.Id && e.Version == entry.Version)).Append(entry).ToList();
+                var entries = Catalog.Pruned((existing ?? []).Where(e => e.Digest != digest && !(e.Id == entry.Id && e.Version == entry.Version)).Append(entry).ToList());
                 await PlaceAsync(owner, journal, catalogUrl, Encoding.UTF8.GetBytes(Catalog.Write(catalogUrl, webId, entries)), "text/turtle",
                     owner.Options.MaximumDocumentBytes, webId, reader is null ? null : [reader], cancellationToken).ConfigureAwait(false);
                 await RefusedAsync(owner, catalogUrl, reader is null, strangers, cancellationToken).ConfigureAwait(false);
@@ -729,6 +729,23 @@ internal static class Catalog
     /// <summary>Whether a catalog read from <paramref name="url"/> names <paramref name="publisher"/> as its publisher.</summary>
     internal static bool IsBy(IReadOnlyList<RdfTriple> triples, string url, string publisher) =>
         triples.Any(t => t.Subject.IsIri(url) && t.Predicate == Vocabulary.Dct + "publisher" && t.Object.IsIri(publisher));
+
+    /// <summary>
+    /// A catalog cut to what every reader reads (review 1, L12): readers keep the first <see cref="SolidPacks.MaximumEntries"/>
+    /// entries, so a longer catalog would hide packs without a word. The oldest versions of packs listed more than once go
+    /// first; a catalog of that many distinct packs is refused rather than cut.
+    /// </summary>
+    internal static List<CatalogEntry> Pruned(List<CatalogEntry> entries)
+    {
+        if (entries.Count <= SolidPacks.MaximumEntries) return entries;
+        var byAge = entries.GroupBy(e => e.Id, StringComparer.Ordinal)
+            .SelectMany(g => g.OrderByDescending(e => SemVer.TryParse(e.Version, out var v) ? v : null).Skip(1))
+            .OrderBy(e => SemVer.TryParse(e.Version, out var v) ? v : null).ToList();
+        var drop = byAge.Take(entries.Count - SolidPacks.MaximumEntries).ToHashSet();
+        if (entries.Count - drop.Count > SolidPacks.MaximumEntries)
+            throw new InvalidDataException($"A catalog lists at most {SolidPacks.MaximumEntries} packs; this one would list {entries.Count - drop.Count} distinct packs. Withdraw some first.");
+        return [.. entries.Where(e => !drop.Contains(e))];
+    }
 
     /// <summary>The entries of a catalog (at most <see cref="SolidPacks.MaximumEntries"/>), each subject's triples read once.</summary>
     internal static IReadOnlyList<CatalogEntry> Read(IReadOnlyList<RdfTriple> triples)

@@ -23,4 +23,9 @@
     <InternalsVisibleTo Include="AgentMemory.Packs.Solid" />
     <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- One source for the id namespace rules the module host keeps too (review 1, L16). -->
+    <Compile Include="../../shared/PackNamespace.cs" Link="Shared/PackNamespace.cs" />
+  </ItemGroup>
 </Project>

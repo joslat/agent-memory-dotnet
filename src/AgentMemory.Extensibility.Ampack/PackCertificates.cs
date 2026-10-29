@@ -61,43 +61,43 @@ public sealed record PackCardInfo
 public sealed record PackEvaluation
 {
     /// <summary>The certificate itself: <c>sha256:</c> over its envelope's exact bytes.</summary>
-    public required string Digest { get; init; }
+    public string Digest { get; internal init; } = null!;
     /// <summary>Its file under <c>META/attestations/</c>.</summary>
-    public required string File { get; init; }
+    public string File { get; internal init; } = null!;
     /// <summary>Whether this host trusts it: signed by a key it names as evaluator for this pack's id, for exactly this pack.</summary>
-    public required bool Trusted { get; init; }
+    public bool Trusted { get; internal init; }
     /// <summary>Why it is not trusted (empty when it is).</summary>
-    public IReadOnlyList<string> Problems { get; init; } = [];
+    public IReadOnlyList<string> Problems { get; internal init; } = [];
     /// <summary>Who evaluated, as the certificate names it (null when it could not be read).</summary>
-    public string? Evaluator { get; init; }
+    public string? Evaluator { get; internal init; }
     /// <summary>The key that signed it, when trusted.</summary>
-    public string? EvaluatorKey { get; init; }
+    public string? EvaluatorKey { get; internal init; }
     /// <summary>When it was evaluated.</summary>
-    public DateTimeOffset? EvaluatedAt { get; init; }
+    public DateTimeOffset? EvaluatedAt { get; internal init; }
     /// <summary>The evaluating tool and its version.</summary>
-    public string? Tool { get; init; }
+    public string? Tool { get; internal init; }
     /// <summary>The trial's measure, baseline and confidence (null when none was asked).</summary>
-    public string? Measure { get; init; }
+    public string? Measure { get; internal init; }
     /// <summary>What "without the pack" meant: <c>host</c> or <c>none</c>.</summary>
-    public string? Baseline { get; init; }
+    public string? Baseline { get; internal init; }
     /// <summary>The confidence a rate target's bound was taken at, when the trial asked for one.</summary>
-    public double? Confidence { get; init; }
+    public double? Confidence { get; internal init; }
     /// <summary>Where the evaluator's tasks came from.</summary>
-    public string? TaskSource { get; init; }
+    public string? TaskSource { get; internal init; }
     /// <summary>Every check, as the gate records it.</summary>
-    public IReadOnlyList<PackTrialCheck> Checks { get; init; } = [];
+    public IReadOnlyList<PackTrialCheck> Checks { get; internal init; } = [];
     /// <summary>The arm with the pack.</summary>
-    public PackTrialMeasurement? With { get; init; }
+    public PackTrialMeasurement? With { get; internal init; }
     /// <summary>The arm without it.</summary>
-    public PackTrialMeasurement? Without { get; init; }
+    public PackTrialMeasurement? Without { get; internal init; }
     /// <summary>Whether every target was met on enough tasks.</summary>
-    public bool Passed { get; init; }
+    public bool Passed { get; internal init; }
     /// <summary>The AEF run it summarises: AEF's run id and run hash; null when it names none.</summary>
-    public string? AefRunId { get; init; }
+    public string? AefRunId { get; internal init; }
     /// <summary>That run's run hash.</summary>
-    public string? AefRunHash { get; init; }
+    public string? AefRunHash { get; internal init; }
     /// <summary>Whether that run travels in the pack, beside the certificate, and hashes to the run hash it names.</summary>
-    public bool AefRunIncluded { get; init; }
+    public bool AefRunIncluded { get; internal init; }
 }
 
 /// <summary>
@@ -178,6 +178,13 @@ public static class PackCertificates
     }
 
     /// <summary>
+    /// The certificate that decides for <paramref name="pack"/>: the latest one by a key this host trusts as evaluator for it,
+    /// or null. Admission and the loader's record of which certificate a decision rests on both read it here (review 1, L16).
+    /// </summary>
+    internal static PackEvaluation? LatestTrusted(LoadedPack pack) =>
+        pack.Certificates.Where(c => c.Trusted).OrderByDescending(c => c.EvaluatedAt).ThenBy(c => c.Digest, StringComparer.Ordinal).FirstOrDefault();
+
+    /// <summary>
     /// The decision a host makes from a certificate, where it trusts certificates: from the latest trusted certificate, when it
     /// passed and covers exactly the trial the pack declares (the same measure, baseline and confidence; every declared target
     /// checked at the declared value and met; enough tasks). Null, with the reason, when it does not. Sign it with the host's key
@@ -190,7 +197,7 @@ public static class PackCertificates
         if (pack.Certificates.Count == 0) return (null, $"{pack.Id} carries no evaluation certificate.");
         // The latest trusted certificate decides, as the latest decision does for a host's own trials: a newer failure is not
         // passed over for an older pass (review 1, L1).
-        var certificate = pack.Certificates.Where(c => c.Trusted).OrderByDescending(c => c.EvaluatedAt).FirstOrDefault();
+        var certificate = LatestTrusted(pack);
         if (certificate is null) return (null, $"None of the {pack.Certificates.Count} certificate(s) {pack.Id} carries is from a key this host trusts as evaluator for it.");
         if (Covers(certificate, trial) is { } gap)
             return (null, $"The latest trusted certificate, {certificate.Evaluator}'s of {certificate.EvaluatedAt:u}, does not admit it: {gap}.");

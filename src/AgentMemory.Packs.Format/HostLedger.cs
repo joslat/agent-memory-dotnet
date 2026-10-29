@@ -183,7 +183,8 @@ internal sealed class HostLedger
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (directory is not null) Directory.CreateDirectory(directory);
         using var guard = Lock(path + ".lock");
-        if (File.Exists(path)) Merge(LoadChecked(path));
+        // Read as Load reads it: a malformed ledger is said to be malformed, never a raw parser exception (review 1, L11).
+        if (File.Exists(path)) Merge(Load(path));
         Write(path);
     }
 

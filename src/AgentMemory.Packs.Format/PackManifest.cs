@@ -66,14 +66,10 @@ internal sealed partial record PackManifest
     /// with a dot; at most 64 characters. A prefix outside it could never cover an id, so it is refused, never ignored
     /// (review 1, H3 and L17); the host's trial and certificate namespaces use the same rule.
     /// </summary>
-    internal static bool IsValidPrefix(string prefix) => prefix.Length is > 0 and <= 64 && PrefixPattern().IsMatch(prefix);
-
-    [GeneratedRegex(@"\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*\.?\z", RegexOptions.CultureInvariant)]
-    private static partial Regex PrefixPattern();
+    internal static bool IsValidPrefix(string prefix) => AgentMemory.Shared.PackNamespace.IsValidPrefix(prefix);
 
     /// <summary>Whether <paramref name="prefix"/> covers <paramref name="id"/>: the same id, or a parent namespace of it.</summary>
-    internal static bool Covers(string prefix, string id) =>
-        id == prefix || id.StartsWith(prefix.EndsWith('.') ? prefix : prefix + ".", StringComparison.Ordinal);
+    internal static bool Covers(string prefix, string id) => AgentMemory.Shared.PackNamespace.Covers(prefix, id);
 
     internal static (PackManifest? Manifest, string? Problem) Parse(ReadOnlySpan<byte> bytes)
     {

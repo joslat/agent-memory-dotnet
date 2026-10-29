@@ -463,6 +463,10 @@ public sealed class AmpackCommandLineTests : IDisposable
             port = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
         }
         Ampack("serve", "martialarts.ampack", "--policy", "trust.json", "--http", "http://example.com:5199/").Exit.Should().Be(2, "beyond this machine needs --allow-remote");
+        Ampack("serve", "martialarts.ampack", "--policy", "trust.json", "--http", "http://example.com:5199/", "--allow-remote").Exit
+            .Should().Be(2, "beyond this machine needs a bearer token (review 1, M1)");
+        Ampack(new Dictionary<string, string> { ["AMPACK_SERVE_TOKEN"] = "short" }, "serve", "martialarts.ampack", "--policy", "trust.json",
+            "--http", $"http://localhost:{port}/").Exit.Should().Be(2, "a token is at least 32 characters");
 
         var start = new ProcessStartInfo("dotnet")
         {
@@ -511,6 +515,73 @@ public sealed class AmpackCommandLineTests : IDisposable
             if (!server.HasExited) server.Kill(entireProcessTree: true);
             await server.WaitForExitAsync();
         }
+    }
+
+    [Fact]
+    public async Task Review1_M1_a_served_token_is_asked_of_every_request()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory", "--policy", "trust.json");
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "martialarts");
+        Done("build", "martialarts", "--out", "martialarts.ampack", "--key", At("keys", "publisher.key.pem"));
+        int port;
+        using (var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0))
+        {
+            probe.Start();
+            port = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
+        }
+        var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
+        var start = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = _root,
+        };
+        start.Environment["AMPACK_SERVE_TOKEN"] = token;
+        foreach (var arg in new[] { Tool, "serve", "martialarts.ampack", "--policy", "trust.json", "--http", $"http://localhost:{port}/" }) start.ArgumentList.Add(arg);
+        using var server = Process.Start(start)!;
+        using var http = new HttpClient { BaseAddress = new Uri($"http://localhost:{port}/"), Timeout = TimeSpan.FromSeconds(10) };
+        try
+        {
+            async Task<System.Net.HttpStatusCode> Get(string? bearer)
+            {
+                for (var attempt = 0; ; attempt++)
+                {
+                    try
+                    {
+                        using var message = new HttpRequestMessage(HttpMethod.Get, "v1/meta");
+                        if (bearer is not null) message.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+                        using var response = await http.SendAsync(message);
+                        return response.StatusCode;
+                    }
+                    catch (HttpRequestException) when (attempt < 50) { await Task.Delay(200); } // the server is still starting
+                }
+            }
+
+            (await Get(null)).Should().Be(System.Net.HttpStatusCode.Unauthorized);
+            (await Get(token + "x")).Should().Be(System.Net.HttpStatusCode.Unauthorized);
+            (await Get(token)).Should().Be(System.Net.HttpStatusCode.OK);
+        }
+        finally
+        {
+            if (!server.HasExited) server.Kill(entireProcessTree: true);
+            await server.WaitForExitAsync();
+        }
+    }
+
+    [Fact]
+    public void Review1_I8_trust_add_list_and_remove_keep_a_policy_from_the_command_line()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.example");
+        Done("keygen", "--out", "keys", "--name", "curator", "--prefix", "io.example");
+        var publisher = Done("trust", "add", "--public", At("keys", "publisher.pub.pem"), "--policy", "trust.json", "--prefix", "io.example").Trim().Split(' ')[^1];
+        var curator = Done("trust", "add", "--public", At("keys", "curator.pub.pem"), "--policy", "trust.json", "--prefix", "io.example.notes",
+            "--role", "curator").Trim().Split(' ')[^1];
+        Ampack("trust", "add", "--public", At("keys", "publisher.pub.pem"), "--policy", "trust.json", "--prefix", "io.example").Exit.Should().Be(2, "it is there already");
+
+        var listed = Done("trust", "list", "--policy", "trust.json");
+        listed.Should().Contain("2 key(s)").And.Contain(publisher).And.Contain(curator).And.Contain("io.example.notes");
+
+        Ampack("trust", "remove", publisher[..8], "--policy", "trust.json").Exit.Should().Be(2, "a key is named by at least 16 characters of its id");
+        Done("trust", "remove", publisher[..16], "--policy", "trust.json");
+        Done("trust", "list", "--policy", "trust.json").Should().Contain("1 key(s)").And.NotContain(publisher).And.Contain(curator);
     }
 
     [Fact]

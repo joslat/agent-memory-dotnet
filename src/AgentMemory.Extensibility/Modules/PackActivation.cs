@@ -154,17 +154,19 @@ public interface IPackActivations
     PackActivation? Find(string moduleId, ModuleVersion version);
 
     /// <summary>
-    /// The latest decision for exactly this content: id, version, manifest digest and, for a pack, its pack digest (null for a
-    /// compiled module); null when it was never trialled.
+    /// The decision that counts for exactly this content (id, version, manifest digest and, for a pack, its pack digest; null
+    /// for a compiled module), by the gate's own rule: this host's latest own decision whenever it has one, otherwise its
+    /// latest decision made from a certificate; null when it was never decided.
     /// </summary>
     PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest, string? packDigest = null) =>
-        Find(moduleId, version) is { } latest && latest.ManifestDigest == manifestDigest && latest.PackDigest == packDigest ? latest : null;
+        PackTrialGate.Counting(History(moduleId).Where(a => a.Version == version.ToString() && a.ManifestDigest == manifestDigest && a.PackDigest == packDigest),
+            certificatesCount: true);
 
     /// <summary>
-    /// Every decision for this pack id, any version (PACK-upgrade-gate: the version that passed before an upgrade). The default
-    /// knows none, and then an upgrade's trial is not held to its predecessor.
+    /// Every decision for this pack id, any version: what the gate decides from (review 1, M7: required, so an implementation
+    /// that leaves it out does not silently switch every trialled pack off).
     /// </summary>
-    IReadOnlyList<PackActivation> History(string moduleId) => [];
+    IReadOnlyList<PackActivation> History(string moduleId);
 }
 
 /// <summary>A module the host left off, and why.</summary>
@@ -190,6 +192,62 @@ public static class PackTrialGate
         var centre = p + z2 / (2.0 * trials);
         var margin = z * Math.Sqrt(p * (1 - p) / trials + z2 / (4.0 * trials * trials));
         return Math.Max(0, (centre - margin) / (1 + z2 / trials));
+    }
+
+    /// <summary>The Wilson score upper bound, the mirror of <see cref="WilsonLower(int, int, double)"/>.</summary>
+    public static double WilsonUpper(int successes, int trials, double z) => trials <= 0 ? 1 : 1 - WilsonLower(trials - successes, trials, z);
+
+    /// <summary>
+    /// The lower confidence bound of a difference of hit rates measured on the same tasks (review 1, M4): Newcombe's method 10
+    /// for paired proportions, from each rate's Wilson bounds and the correlation of the two arms task by task. Without
+    /// per-task results it takes the arms as independent (Newcombe's method 10 for unpaired proportions), which is wider.
+    /// </summary>
+    public static double HitDifferenceLower(PackTrialMeasurement first, PackTrialMeasurement second, double z)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(second);
+        var (p1, p2) = (first.HitRate, second.HitRate);
+        var (l1, u2) = (WilsonLower(first.Hits, first.Tasks, z), WilsonUpper(second.Hits, second.Tasks, z));
+        var phi = 0.0;
+        if (first.PerTask is { } a && second.PerTask is { } b && a.Count == b.Count && a.Count == first.Tasks && first.Tasks == second.Tasks)
+        {
+            // The 2x2 table of hits on the same tasks: both, the first only, the second only, neither.
+            int both = 0, firstOnly = 0, secondOnly = 0, neither = 0;
+            for (var i = 0; i < a.Count; i++)
+            {
+                var (hit1, hit2) = (a[i].Correct > 0, b[i].Correct > 0);
+                if (hit1 && hit2) both++; else if (hit1) firstOnly++; else if (hit2) secondOnly++; else neither++;
+            }
+            var denominator = Math.Sqrt((double)(both + firstOnly) * (secondOnly + neither) * (both + secondOnly) * (firstOnly + neither));
+            phi = denominator == 0 ? 0 : ((double)both * neither - (double)firstOnly * secondOnly) / denominator;
+        }
+        return p1 - p2 - Math.Sqrt(Math.Max(0, Math.Pow(p1 - l1, 2) - 2 * phi * (p1 - l1) * (u2 - p2) + Math.Pow(u2 - p2, 2)));
+    }
+
+    /// <summary>
+    /// The lower confidence bound of a difference of precisions (items right over items offered) measured on the same tasks,
+    /// each task one cluster (review 1, M4): the cluster-robust delta-method variance of each ratio, minus their covariance
+    /// across the paired tasks. Without per-task results, binomial variances of each arm, taken as independent.
+    /// </summary>
+    public static double PrecisionDifferenceLower(PackTrialMeasurement first, PackTrialMeasurement second, double z)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(second);
+        var (r1, r2) = (first.Precision, second.Precision);
+        double variance;
+        if (first.PerTask is { } a && second.PerTask is { } b && a.Count == b.Count && a.Count > 1)
+        {
+            var (o1, o2) = (a.Sum(t => (double)t.Offered), b.Sum(t => (double)t.Offered));
+            var n = a.Count;
+            double Residual(PackTrialTask t, double r, double o) => o == 0 ? 0 : (t.Correct - r * t.Offered) / o;
+            var v1 = n / (n - 1.0) * a.Sum(t => Math.Pow(Residual(t, r1, o1), 2));
+            var v2 = n / (n - 1.0) * b.Sum(t => Math.Pow(Residual(t, r2, o2), 2));
+            var covariance = n / (n - 1.0) * a.Zip(b).Sum(p => Residual(p.First, r1, o1) * Residual(p.Second, r2, o2));
+            variance = Math.Max(0, v1 + v2 - 2 * covariance);
+        }
+        else
+            variance = (first.Offered == 0 ? 0 : r1 * (1 - r1) / first.Offered) + (second.Offered == 0 ? 0 : r2 * (1 - r2) / second.Offered);
+        return r1 - r2 - z * Math.Sqrt(variance);
     }
 
     /// <summary>
@@ -234,6 +292,12 @@ public static class PackTrialGate
     /// The declarations' digest an activation record binds to: <c>jcs-sha256:</c> and the SHA-256 of the manifest's RFC 8785
     /// canonical JSON, so the bytes do not depend on how this SDK orders or spaces what it writes.
     /// </summary>
+    /// <remarks>
+    /// The JSON is this SDK's serialization of the manifest, not the bytes a pack declares, so its names and defaults are part of
+    /// the digest (review 1, M17). Changing it switches off every trialled pack on every host until trialled again, so a golden
+    /// vector pins it (<c>TrialGateTests.TheDeclarationsDigestIsPinned</c>); a change needs a migration that accepts the old
+    /// digest for a release. Hashing the declared files instead is the 2.0 direction.
+    /// </remarks>
     public static string DigestOf(ModuleManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
@@ -262,6 +326,16 @@ public static class PackTrialGate
         if (packDigest is not null && !PackDigestPattern.IsMatch(packDigest))
             throw new ArgumentException("A pack digest is sha256: and 64 lowercase hex digits.", nameof(packDigest));
         ArgumentNullException.ThrowIfNull(with);
+        ArgumentNullException.ThrowIfNull(without);
+        // Review 1, M4: two arms of one trial ran the same tasks, and no arm hits more tasks than it ran or is right more often
+        // than it offered (as a certificate requires of the same numbers).
+        if (without.Tasks != with.Tasks) throw new ArgumentException("Both arms run the same tasks.", nameof(without));
+        foreach (var arm in new[] { with, without })
+            if (arm.Tasks < 0 || arm.Hits < 0 || arm.Hits > arm.Tasks || arm.Offered < 0 || arm.Correct < 0 || arm.Correct > arm.Offered)
+                throw new ArgumentException("An arm hits at most its tasks and is right at most as often as it offered.", nameof(with));
+        if (without.PerTask is { } baselineTasks && (baselineTasks.Count != without.Tasks || baselineTasks.Sum(t => t.Offered) != without.Offered
+                || baselineTasks.Sum(t => t.Correct) != without.Correct || baselineTasks.Any(t => t.Correct < 0 || t.Correct > t.Offered)))
+            throw new ArgumentException("PerTask holds one entry per task, 0 <= correct <= offered, summing to Offered and Correct.", nameof(without));
         if (with.PerTask is { } perTask && (perTask.Count != with.Tasks || perTask.Sum(t => t.Offered) != with.Offered
                 || perTask.Sum(t => t.Correct) != with.Correct || perTask.Any(t => t.Correct < 0 || t.Correct > t.Offered)))
             throw new ArgumentException("PerTask holds one entry per task, 0 <= correct <= offered, summing to Offered and Correct.", nameof(with));
@@ -290,17 +364,25 @@ public static class PackTrialGate
             checks.Add(z is { } q && with.PerTask is { } clustered
                 ? Clustered("precision", precision, with.Precision, ClusteredWilsonLower(clustered, q))
                 : Rate("precision", precision, with.Correct, with.Offered));
-        if (t.Lift is { } lift) checks.Add(new("lift", lift, Math.Round(with.HitRate - without.HitRate, 3), with.HitRate - without.HitRate >= lift));
+        // A difference target meets its bound when the trial asks for confidence, its estimate otherwise (review 1, M4): the
+        // same promise the rates keep, so a lift on a few tasks cannot pass by luck either.
+        PackTrialCheck Difference(string name, double required, double estimate, Func<double, double> lower)
+        {
+            if (z is not { } quantile) return new(name, required, Math.Round(estimate, 3), estimate >= required - 1e-9);
+            var bound = lower(quantile);
+            return new(name, required, Math.Round(bound, 3), bound >= required - 1e-9, Math.Round(estimate, 3));
+        }
+        if (t.Lift is { } lift) checks.Add(Difference("lift", lift, with.HitRate - without.HitRate, q => HitDifferenceLower(with, without, q)));
         if (t.PrecisionLift is { } precisionLift)
-            checks.Add(new("precisionLift", precisionLift, Math.Round(with.Precision - without.Precision, 3), with.Precision - without.Precision >= precisionLift));
+            checks.Add(Difference("precisionLift", precisionLift, with.Precision - without.Precision, q => PrecisionDifferenceLower(with, without, q)));
+        // Latency is a budget the host sets, not a rate: its p95 is compared as measured.
         if (t.AddedP95Ms is { } added) checks.Add(new("addedP95Ms", added, Math.Round(with.P95Ms - without.P95Ms, 1), with.P95Ms - without.P95Ms <= added));
         // An upgrade does not do worse than the version it replaces, on the same tasks, beyond the declared tolerance.
         if (trial.Upgrade is { NoRegression: true } upgrade && previous is not null)
         {
-            var hitDrop = with.HitRate - previous.With.HitRate;
-            var precisionDrop = with.Precision - previous.With.Precision;
-            checks.Add(new("noRegression.hitRate", -upgrade.Tolerance, Math.Round(hitDrop, 3), hitDrop >= -upgrade.Tolerance - 1e-9));
-            checks.Add(new("noRegression.precision", -upgrade.Tolerance, Math.Round(precisionDrop, 3), precisionDrop >= -upgrade.Tolerance - 1e-9));
+            checks.Add(Difference("noRegression.hitRate", -upgrade.Tolerance, with.HitRate - previous.With.HitRate, q => HitDifferenceLower(with, previous.With, q)));
+            checks.Add(Difference("noRegression.precision", -upgrade.Tolerance, with.Precision - previous.With.Precision,
+                q => PrecisionDifferenceLower(with, previous.With, q)));
         }
         var enough = with.Tasks >= ModuleTrial.MinimumTasks;
         var failed = checks.Where(c => !c.Met).ToList();
@@ -408,7 +490,10 @@ public static class PackTrialGate
         known[decision] = ("it is its own predecessor", rule); // never reached: predecessors come strictly before
         var version = ModuleVersion.Parse(decision.Version);
         var content = Content(decision);
+        // Review 1, M10: only the same kind of content stands before an upgrade: a pack after a pack, compiled code after compiled
+        // code (a --variant run is compiled code, so it never becomes a pack's predecessor).
         var active = activations.History(decision.ModuleId)
+            .Where(a => (a.PackDigest is null) == (decision.PackDigest is null))
             .GroupBy(a => (a.Version, a.ManifestDigest, a.PackDigest))
             .Select(g => Counting(g, certificatesCount))
             .OfType<PackActivation>()
@@ -466,7 +551,6 @@ public sealed class PackActivationFolder : IPackActivations
     public const string PredicateType = "urn:agentmemory:pack:trial:v1";
     private const string PayloadType = "application/vnd.in-toto+json";
     private readonly Dictionary<(string, string), PackActivation> _latest = [];
-    private readonly Dictionary<(string, string, string, string), PackActivation> _latestByDigest = [];
     private readonly Dictionary<string, List<PackActivation>> _history = new(StringComparer.Ordinal);
     private readonly Dictionary<PackActivation, string> _files = new(ReferenceEqualityComparer.Instance);
 
@@ -488,8 +572,6 @@ public sealed class PackActivationFolder : IPackActivations
                 if (!_latest.TryGetValue(id, out var known) || known.DecidedAt < activation.DecidedAt) _latest[id] = activation;
                 if (!_history.TryGetValue(activation.ModuleId, out var all)) _history[activation.ModuleId] = all = [];
                 all.Add(activation);
-                var exact = (activation.ModuleId, activation.Version, activation.ManifestDigest, activation.PackDigest ?? "");
-                if (!_latestByDigest.TryGetValue(exact, out var same) || same.DecidedAt < activation.DecidedAt) _latestByDigest[exact] = activation;
             }
         Ignored = ignored.AsReadOnly();
     }
@@ -505,7 +587,8 @@ public sealed class PackActivationFolder : IPackActivations
 
     /// <inheritdoc/>
     public PackActivation? Find(string moduleId, ModuleVersion version, string manifestDigest, string? packDigest = null) =>
-        _latestByDigest.GetValueOrDefault((moduleId, version.ToString(), manifestDigest, packDigest ?? ""));
+        PackTrialGate.Counting(History(moduleId).Where(a => a.Version == version.ToString() && a.ManifestDigest == manifestDigest && a.PackDigest == packDigest),
+            certificatesCount: true);
 
     /// <inheritdoc/>
     public IReadOnlyList<PackActivation> History(string moduleId) => _history.TryGetValue(moduleId, out var all) ? all.AsReadOnly() : [];
@@ -520,14 +603,31 @@ public sealed class PackActivationFolder : IPackActivations
         ArgumentNullException.ThrowIfNull(decision);
         ArgumentNullException.ThrowIfNull(hostKey);
         Directory.CreateDirectory(folder);
-        var file = Path.Combine(folder, $"{decision.ModuleId}@{decision.Version}-{decision.DecidedAt.UtcDateTime:yyyyMMddTHHmmssZ}{(decision.Basis is null ? "" : "-certificate")}.dsse.json");
         var statement = Statement(decision);
         var signature = hostKey.SignData(Pae(statement), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
-        File.WriteAllText(file, JsonSerializer.Serialize(new
+        var envelope = JsonSerializer.Serialize(new
         {
             payloadType = PayloadType, payload = Convert.ToBase64String(statement),
             signatures = new[] { new { keyid = "host", sig = Convert.ToBase64String(signature) } },
-        }));
+        });
+        // Review 1, M5: the name holds the time to the tick and what was decided (the content's digest and the statement's), so
+        // two decisions never share a file, even in the same second; the record appears whole or not at all (written aside,
+        // then moved into place without overwriting), so a crash cannot leave a truncated record that silently drops a failure.
+        var decided = decision.PackDigest ?? decision.ManifestDigest;
+        var content = decided[(decided.IndexOf(':', StringComparison.Ordinal) + 1)..];
+        var name = $"{decision.ModuleId}@{decision.Version}-{decision.DecidedAt.UtcDateTime:yyyyMMddTHHmmssfffffffZ}-{content[..12]}-"
+            + $"{Convert.ToHexString(SHA256.HashData(statement))[..8].ToLowerInvariant()}{(decision.Basis is null ? "" : "-certificate")}.dsse.json";
+        var file = Path.Combine(folder, name);
+        var partial = Path.Combine(folder, "." + name + "." + Guid.NewGuid().ToString("N") + ".partial");
+        File.WriteAllText(partial, envelope);
+        try { File.Move(partial, file, overwrite: false); }
+        catch (IOException) when (File.Exists(file))
+        {
+            File.Delete(partial);
+            // The very same decision, already recorded (by its statement: a signature differs each time): nothing to add.
+            using var existing = JsonDocument.Parse(File.ReadAllBytes(file));
+            if (!existing.RootElement.TryGetProperty("payload", out var payload) || payload.GetString() != Convert.ToBase64String(statement)) throw;
+        }
         return file;
     }
 

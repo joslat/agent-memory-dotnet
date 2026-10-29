@@ -27,7 +27,7 @@ import struct
 import sys
 import unicodedata
 import zlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -162,13 +162,37 @@ def read_zip(data):
     return files
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def _ticks(value):
+    """An aware datetime as 100 ns ticks since 1970, its seventh fraction digit included when it is an Instant."""
+    return ((value - _EPOCH) // timedelta(microseconds=1)) * 10 + getattr(value, "seventh", 0)
+
+
+class Instant(datetime):
+    """A datetime that keeps the seventh fraction digit (100 ns), as a .NET DateTimeOffset does, and compares by it (review 1,
+    M14: truncating to microseconds made two lists 100 ns apart the same instant, where .NET tells them apart)."""
+    seventh = 0
+
+    def __lt__(self, other): return _ticks(self) < _ticks(other) if isinstance(other, datetime) else NotImplemented
+    def __le__(self, other): return _ticks(self) <= _ticks(other) if isinstance(other, datetime) else NotImplemented
+    def __gt__(self, other): return _ticks(self) > _ticks(other) if isinstance(other, datetime) else NotImplemented
+    def __ge__(self, other): return _ticks(self) >= _ticks(other) if isinstance(other, datetime) else NotImplemented
+    def __eq__(self, other): return _ticks(self) == _ticks(other) if isinstance(other, datetime) else NotImplemented
+    def __ne__(self, other): return _ticks(self) != _ticks(other) if isinstance(other, datetime) else NotImplemented
+    def __hash__(self): return hash(_ticks(self))
+
+
 def instant(text):
-    """An RFC 3339 date-time as an aware datetime, or None when the text is not one."""
+    """An RFC 3339 date-time as an aware datetime (an Instant, to 100 ns), or None when the text is not one."""
     if not isinstance(text, str) or not INSTANT.fullmatch(text):
         return None
     head, _, rest = text.partition(".")
+    seventh = 0
     if rest:
         digits = "".join(c for c in rest if c.isdigit())
+        seventh = int(digits[6]) if len(digits) >= 7 else 0
         text = head + "." + (digits + "000000")[:6] + rest[len(digits):]
     # An offset's minutes are below 60, as .NET reads them (fromisoformat takes +05:60).
     if not text.endswith("Z") and int(text[-2:]) >= 60:
@@ -179,7 +203,9 @@ def instant(text):
         if abs(parsed.utcoffset().total_seconds()) > 14 * 3600:
             return None
         parsed.astimezone(timezone.utc)
-        return parsed
+        precise = Instant(parsed.year, parsed.month, parsed.day, parsed.hour, parsed.minute, parsed.second, parsed.microsecond, tzinfo=parsed.tzinfo)
+        precise.seventh = seventh
+        return precise
     except (ValueError, OverflowError):
         return None
 
@@ -252,7 +278,8 @@ def read_revocations(policy, data, now):
                                                  and KEY_ID.fullmatch(k["keyId"]) and ("compromisedAt" not in k or instant(k["compromisedAt"]) is not None)
                                                  for k in revoked):
         raise Refused("the revocation document has a malformed keys list")
-    return {"signers": sorted(signers), "issued": issued, "expires": expires, "expires_text": doc["expires"], "digests": digests, "keys": revoked}
+    return {"signers": sorted(signers), "issued": issued, "expires": expires, "expires_text": doc["expires"], "digests": digests, "keys": revoked,
+            "identity": digest.hex()}
 
 
 def apply_revocations(policy, data, now):
@@ -286,12 +313,18 @@ def apply_all(policy, documents, now):
         not_after = window(key_id)[1]
         return not_after is not None and now > not_after
 
-    seen, read = set(), []
+    # At most 64 lists in one run; the same list in any envelope is one list, its signers taken together (review 1, L8, as .NET).
+    if len(documents) > 64:
+        raise Refused("the revocation documents of this run are more than 64")
+    by_identity = {}
     for data in documents:
-        fingerprint = hashlib.sha256(data).hexdigest()
-        if fingerprint not in seen:
-            seen.add(fingerprint)
-            read.append(read_revocations(policy, data, now))
+        doc = read_revocations(policy, data, now)
+        if doc["identity"] in by_identity:
+            known = by_identity[doc["identity"]]
+            known["signers"] = sorted(set(known["signers"]) | set(doc["signers"]))
+        else:
+            by_identity[doc["identity"]] = doc
+    read = list(by_identity.values())
     live = [[s for s in r["signers"] if s not in revoked_before and valid_now(s)] for r in read]
 
     def revokes_other(j, key_id):
@@ -387,6 +420,8 @@ def manifest_checks(manifest, content, now):
     if kind == "composite":
         if LOCK not in content or not manifest.get("contains"):
             raise Refused("a composite names what it contains and pins it in META/lock.json")
+        if records:  # review 1, L6 (as .NET)
+            raise Refused("a composite pack holds no records of its own")
         composite_checks(manifest, content)
     if kind == "set" and not any(p.startswith("packs/") for p in content):
         raise Refused("a pack set carries its members under packs/")
@@ -414,7 +449,10 @@ def composite_checks(manifest, content):
     if "members.json" not in content:
         raise Refused("a composite pack carries members.json")
     try:
-        named = [m["id"] for m in profile(content["members.json"])["members"]]
+        members_doc = profile(content["members.json"])
+        if not isinstance(members_doc, dict) or set(members_doc) != {"members"}:  # review 1, L6: nothing but its members
+            raise Refused("members.json is malformed")
+        named = [m["id"] for m in members_doc["members"]]
     except (Refused, KeyError, TypeError):
         raise Refused("members.json is malformed")
     if not all(isinstance(m, str) for m in named):
@@ -442,6 +480,9 @@ def verify_any(files, policy, now):
         members.setdefault(member, {})[inner] = data
     if sorted(members) != sorted(manifest.get("contains", [])):
         raise Refused("the set's pack.json names other members than it carries")
+    # Review 1, L5 (as .NET): no member shares the set's id, and no member is itself a set.
+    if manifest.get("id") in members:
+        raise Refused("the set carries a member with its own id")
     federation = read_federation(manifest.get("extensions", {}))
     for member, member_files in sorted(members.items()):
         try:
@@ -450,6 +491,8 @@ def verify_any(files, policy, now):
             raise Refused(f"packs/{member}/: {e}")
         if inner_id != member:
             raise Refused(f"the member in packs/{member}/ is {inner_id}")
+        if inner_manifest.get("kind") == "set":
+            raise Refused(f"packs/{member}/ is a pack set: a set carries packs, not sets")
         if federation is not None:
             own = read_federation(inner_manifest.get("extensions", {}))
             if own is None:
@@ -558,6 +601,17 @@ def verify(files, policy, now):
     for p in files:
         if not safe_path(p):
             raise Refused(f"'{p}' is not a safe pack path")
+    # Review 1, L1 (as .NET's PackPaths.Problems): folders that differ only by case, and a file named like a folder.
+    folders = {}
+    for p in sorted(files):
+        parts = p.split("/")
+        for i in range(1, len(parts)):
+            folder = "/".join(parts[:i])
+            if folders.setdefault(folder.lower(), folder) != folder:
+                raise Refused(f"folders differ only by case: {folders[folder.lower()]}, {folder}")
+    for p in files:
+        if p.lower() in folders:
+            raise Refused(f"'{p}' is both a file and a folder")
     if FILES not in files:
         raise Refused("there is no META/files.json")
     list_bytes = files[FILES]
@@ -648,6 +702,9 @@ def verify(files, policy, now):
             raise Refused(f"{path} is not a DSSE envelope of an in-toto statement")
         if len(env["signatures"]) > MAX_SIGNATURES:
             raise Refused(f"{path} holds more than {MAX_SIGNATURES} signatures")
+        # Review 1, L7 (as .NET): an envelope with no entries, or whose statement is not a pack role's for this list, refuses.
+        if not env["signatures"]:
+            raise Refused(f"{path} holds no signature")
         try:
             payload = base64.b64decode(env["payload"], validate=True)
         except ValueError:
@@ -661,12 +718,12 @@ def verify(files, policy, now):
                   and role in ROLES and st["predicateType"] == f"urn:agentmemory:pack:{role}:v1"
                   and pred["id"] == pid and pred["version"] == version)
             if not isinstance(pred["signedAt"], str) or not SIGNED_AT.fullmatch(pred["signedAt"]):
-                continue
+                raise Refused(f"{path} does not sign this pack")
             signed_at = datetime.strptime(pred["signedAt"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         except (Refused, KeyError, TypeError, ValueError):
-            continue
+            raise Refused(f"{path} does not sign this pack")
         if not ok:
-            continue
+            raise Refused(f"{path} does not sign this pack")
         # Hashed once per envelope (fifth review); at most MAX_SIGNATURES entries are tried.
         digest_of_pae = hashlib.sha256(pae(payload)).digest()
         for s in env.get("signatures", []):

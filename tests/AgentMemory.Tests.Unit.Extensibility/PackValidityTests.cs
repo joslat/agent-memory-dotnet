@@ -175,6 +175,10 @@ public sealed class PackValidityTests : IDisposable
         var store = PackStore.Open(Path.Combine(_root, "store"));
         store.Install(Versioned("2.0.0"), Trust());
         var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Versioned("1.0.0")], _key.PrivateKeyPem);
+        // A pack is installed alone or in a set, never both (review 1, M8); the ledger still remembers 2.0.0 once it is removed.
+        FluentActions.Invoking(() => store.Install(set, Trust(), allowDowngrade: true)).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains("already installed here"));
+        store.Uninstall("io.agentmemory.packs.martialarts").Should().BeTrue();
 
         FluentActions.Invoking(() => store.Install(set, Trust())).Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("downgrade"));
         store.Install(set, Trust(), allowDowngrade: true).Should().NotBeNull();

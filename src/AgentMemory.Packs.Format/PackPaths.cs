@@ -24,11 +24,14 @@ internal static partial class PackPaths
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     };
 
+    /// <summary>The most segments a pack path holds.</summary>
+    internal const int MaximumSegments = 8;
+
     internal static bool IsSafe(string path)
     {
         if (path.Length is 0 or > 255) return false;
         var segments = path.Split('/');
-        return segments.Length <= 8 && segments.All(IsSafeSegment);
+        return segments.Length <= MaximumSegments && segments.All(IsSafeSegment);
     }
 
     private static bool IsSafeSegment(string segment) =>
@@ -51,6 +54,24 @@ internal static partial class PackPaths
             yield return $"'{path}' is not a safe pack path.";
         foreach (var clash in all.GroupBy(p => p, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
             yield return $"Paths differ only by case: {string.Join(", ", clash.Order(StringComparer.Ordinal))}.";
+        // Review 1, L1: folders too. Two spellings of one folder (a/B/x and a/b/y), or a file named like a folder (x and x/y),
+        // merge or collide when unpacked on a case-insensitive file system.
+        var folders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in all.Order(StringComparer.Ordinal))
+        {
+            var segments = path.Split('/');
+            for (var i = 1; i < segments.Length; i++)
+            {
+                var folder = string.Join('/', segments[..i]);
+                if (!folders.TryAdd(folder, folder) && folders[folder] != folder)
+                {
+                    yield return $"Folders differ only by case: {folders[folder]}, {folder}.";
+                    folders[folder] = folder;
+                }
+            }
+        }
+        foreach (var path in all.Where(folders.ContainsKey).Order(StringComparer.Ordinal))
+            yield return $"'{path}' is both a file and a folder.";
     }
 
     [GeneratedRegex("\\A[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\z", RegexOptions.CultureInvariant)]

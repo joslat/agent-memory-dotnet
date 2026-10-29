@@ -29,6 +29,12 @@ public sealed class KnowledgePack
     /// <summary>At most this many bytes an icon holds.</summary>
     public const int MaximumIconBytes = 64 * 1024;
 
+    /// <summary>
+    /// When a pack loaded from an <c>.ampack</c> stops being valid here (its own validUntil, its set's, the trust's and its keys',
+    /// whichever is first); null when it does not expire. Composing the pack carries it, however it is composed (review 1, M9).
+    /// </summary>
+    public DateTimeOffset? ValidUntil { get; internal set; }
+
     private KnowledgePack(ModuleManifest manifest, VerifiedBundle bundle, IReadOnlyList<ModuleProposal> proposals, ReadOnlyMemory<byte>? icon)
     { Manifest = manifest; Bundle = bundle; Proposals = proposals; Icon = icon; }
 

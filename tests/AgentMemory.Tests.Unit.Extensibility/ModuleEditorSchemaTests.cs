@@ -58,6 +58,41 @@ public sealed class ModuleEditorSchemaTests
         RuntimeAccepts("module", json).Should().Be(accepted);
     }
 
+    // Review 1, H5: the schema had drifted (32 traversal relations where the runtime takes 16; a trial's upgrade refused).
+    [Theory]
+    [InlineData(16, null, true)]
+    [InlineData(17, null, false)]
+    [InlineData(2, 0.05, true)]
+    [InlineData(2, 0.5, true)]
+    [InlineData(2, 0.6, false)]
+    public void TraversalAndTrialHaveTheSameEditorAndRuntimeContract(int relations, double? tolerance, bool accepted)
+    {
+        var names = Enumerable.Range(0, (relations + 1) / 2).Select(i => $"REVIEW_R{i}").ToList();
+        var root = new JsonObject
+        {
+            ["format"] = "agentmemory.module/v1alpha1", ["id"] = "com.example.reviews", ["version"] = "1.0.0", ["sdk"] = "[0.1,0.2)",
+            ["ontology"] = new JsonObject
+            {
+                ["labelPrefix"] = "Review",
+                ["types"] = new JsonArray(new JsonObject { ["name"] = "ReviewItem", ["properties"] = new JsonObject { ["path"] = new JsonObject { ["type"] = "string" } }, ["render"] = "{path}" }),
+                ["relations"] = new JsonArray([.. names.Select(n => (JsonNode)new JsonObject { ["name"] = n, ["from"] = "ReviewItem", ["to"] = "ReviewItem" })]),
+            },
+            ["traversal"] = new JsonObject
+            {
+                ["anchors"] = new JsonArray(new JsonObject { ["type"] = "ReviewItem", ["property"] = "path" }),
+                ["relations"] = new JsonArray([.. names.SelectMany(n => new[] { "out", "in" }.Select(d => (JsonNode)new JsonObject { ["name"] = n, ["direction"] = d })).Take(relations)]),
+            },
+            ["trial"] = new JsonObject
+            {
+                ["measure"] = "test-impact", ["targets"] = new JsonObject { ["hitRate"] = 0.5 },
+                ["upgrade"] = tolerance is { } t ? new JsonObject { ["noRegression"] = true, ["tolerance"] = t } : new JsonObject { ["noRegression"] = true },
+            },
+        };
+        var json = root.ToJsonString();
+        EditorAccepts("module", json).Should().Be(accepted);
+        RuntimeAccepts("module", json).Should().Be(accepted);
+    }
+
     [Theory]
     [InlineData("module")]
     [InlineData("modules")]

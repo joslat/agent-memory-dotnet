@@ -241,6 +241,23 @@ internal sealed class SolidSession : IDisposable
     internal async Task<SolidResponse> SendAsync(HttpMethod method, string url, byte[]? body = null, string? contentType = null, string? accept = null,
         long limit = 1 << 20, bool anonymous = false, IReadOnlyDictionary<string, string>? headers = null, CancellationToken cancellationToken = default)
     {
+        // Review 1, M13: one deadline for the whole request, body included. HttpClient's timeout stops at the headers, so a server
+        // that trickled a profile or an archive one byte at a time would otherwise hold a command for ever.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(RequestDeadline);
+        try { return await SendWithinAsync(method, url, body, contentType, accept, limit, anonymous, headers, deadline.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidDataException($"{url} did not answer in full within {RequestDeadline.TotalMinutes:0} minutes; refused.");
+        }
+    }
+
+    /// <summary>The longest one request may take, its body included.</summary>
+    internal static readonly TimeSpan RequestDeadline = TimeSpan.FromMinutes(5);
+
+    private async Task<SolidResponse> SendWithinAsync(HttpMethod method, string url, byte[]? body, string? contentType, string? accept,
+        long limit, bool anonymous, IReadOnlyDictionary<string, string>? headers, CancellationToken cancellationToken)
+    {
         CheckUrl(url);
         var origin = Origin(url);
         var nonceRetried = false;

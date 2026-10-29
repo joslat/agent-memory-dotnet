@@ -31,7 +31,11 @@ internal static partial class Revocations
     internal static byte[] Sign(IReadOnlyList<string> digests, IReadOnlyList<RevokedKey> keys, DateTimeOffset issuedAt, DateTimeOffset expires,
         PackSigner signer)
     {
-        if (expires <= issuedAt) throw new ArgumentException("A revocation document expires after it is issued.", nameof(expires));
+        // The document holds whole seconds: compared as written, so a window under a second cannot become an unreadable list
+        // that expires when it is issued (review 1, L9).
+        issuedAt = DateTimeOffset.FromUnixTimeSeconds(issuedAt.ToUnixTimeSeconds());
+        expires = DateTimeOffset.FromUnixTimeSeconds(expires.ToUnixTimeSeconds());
+        if (expires <= issuedAt) throw new ArgumentException("A revocation document expires after it is issued (in whole seconds).", nameof(expires));
         if (digests.FirstOrDefault(d => !DigestPattern().IsMatch(d)) is { } bad) throw new ArgumentException($"'{bad}' is not a pack digest.", nameof(digests));
         if (keys.FirstOrDefault(k => !KeyIdPattern().IsMatch(k.KeyId)) is { } badKey) throw new ArgumentException($"'{badKey.KeyId}' is not a key id.", nameof(keys));
         var document = new JsonObject
@@ -72,6 +76,9 @@ internal static partial class Revocations
         return ApplyAll(policy, [envelopeBytes.ToArray()], now, ledger, out _);
     }
 
+    /// <summary>The most revocation documents one run takes.</summary>
+    internal const int MaximumDocuments = 64;
+
     /// <summary>
     /// The policy with every document of one run applied, in order (one per revoker, say). With a <paramref name="ledger"/>, what
     /// the host revoked before is applied first, so a revoker revoked in an earlier run signs nothing now (sixth review).
@@ -99,8 +106,12 @@ internal static partial class Revocations
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(documents);
         if (ledger is not null) policy = ledger.Apply(policy);
-        // The same list twice (a mirrored feed) is one list (eighth review).
-        var read = documents.DistinctBy(d => Convert.ToHexString(SHA256.HashData(d))).Select(d => Read(policy, d, now)).ToList();
+        // At most MaximumDocuments lists in one run: settling which count is quadratic in their number (review 1, L8).
+        if (documents.Count > MaximumDocuments) throw Bad($"set is more than {MaximumDocuments} documents; give the lists you still rely on");
+        // The same list twice is one list (eighth review), whatever envelope carries it: copies are told apart by what they sign,
+        // not by their bytes, and their signers are taken together (review 1, L8).
+        var read = documents.Select(d => Read(policy, d, now)).GroupBy(d => d.Identity, StringComparer.Ordinal)
+            .Select(g => g.First() with { Signers = [.. g.SelectMany(d => d.Signers).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)] }).ToList();
         var revokedBefore = policy.RevokedKeys.Select(k => k.KeyId).ToHashSet(StringComparer.Ordinal);
         var liveSigners = read.Select(d => d.Signers.Where(s => !revokedBefore.Contains(s) && ValidNow(policy, s, now)).ToList()).ToList();
         // A list revokes a key against its will only when a live signer other than that key signed it: a key cannot dodge a
@@ -187,7 +198,9 @@ internal static partial class Revocations
     private static bool ValidNow(TrustPolicy policy, string keyId, DateTimeOffset now) =>
         policy.Find(keyId) is { } key && !(key.NotBefore is { } from && now < from || key.NotAfter is { } until && now > until);
 
-    private sealed record Document(IReadOnlyList<string> Signers, DateTimeOffset IssuedAt, DateTimeOffset Expires, IReadOnlyList<string> Digests, IReadOnlyList<RevokedKey> Keys);
+    // Identity: the SHA-256 of the signed payload's pre-authentication encoding, the list itself whatever envelope carries it.
+    private sealed record Document(IReadOnlyList<string> Signers, DateTimeOffset IssuedAt, DateTimeOffset Expires, IReadOnlyList<string> Digests, IReadOnlyList<RevokedKey> Keys,
+        string Identity = "");
 
     // One document read and its signatures checked: the revoker keys, trusted and valid now, whose signatures hold.
     private static Document Read(TrustPolicy policy, ReadOnlySpan<byte> envelopeBytes, DateTimeOffset now)
@@ -246,7 +259,7 @@ internal static partial class Revocations
             }
             keys.Add(new RevokedKey(keyId.GetString()!, compromisedAt));
         }
-        return new Document(signers, issuedAt, expires, digests, keys);
+        return new Document(signers, issuedAt, expires, digests, keys, Convert.ToHexString(hash));
     }
 
     // The key id of one signature entry by a key the policy names as revoker, when it verifies the hash in strict DER; whether

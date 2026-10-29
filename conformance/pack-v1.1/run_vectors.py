@@ -102,6 +102,10 @@ def unpadded_pack(der):
 
 
 def main():
+    # Review 1, M14: the Python verifier keeps instants to 100 ns, as .NET does; two lists 100 ns apart are not the same instant.
+    assert py.instant("2026-10-29T00:00:00.0000001Z") > py.instant("2026-10-29T00:00:00Z")
+    assert py.instant("2026-10-29T00:00:00.0000002Z") > py.instant("2026-10-29T00:00:00.0000001Z")
+    assert py.instant("2026-10-29T00:00:00.1Z") == py.instant("2026-10-29T00:00:00.1000000Z")
     if VECTORS.exists():
         shutil.rmtree(VECTORS)
     VECTORS.mkdir(parents=True)
@@ -333,7 +337,18 @@ def main():
     vectors["version-with-an-arabic-digit"] = (signed(arabic_content, version_=arabic), "trust.json", "refused")
     extra_statement = base64.b64encode(py.canonical({"_type": 1, "subject": [], "predicateType": 2, "predicate": {"role": 3}}).encode()).decode()
     odd = py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": extra_statement, "signatures": [{"keyid": entry["keyId"], "sig": "AAAA"}]}).encode()
-    vectors["extra-envelope-of-wrong-types"] = ({**signed(content), py.SIGNATURES + "zz.dsse.json": odd}, "trust.json", "verified")
+    # Review 1, L7: an envelope that does not sign this pack is unlisted content riding beside it, and refuses it (it was ignored).
+    vectors["extra-envelope-of-wrong-types"] = ({**signed(content), py.SIGNATURES + "zz.dsse.json": odd}, "trust.json", "refused")
+    base_list = files_list(pid, version, content)
+    other_list = files_list(pid, version, {**content, "records/extra.jsonl": content[record]})
+    _, for_other = sign(other_list, pid, version, key, role="curator")
+    vectors["envelope-signing-another-list"] = ({**signed(content), py.SIGNATURES + "curator-other.dsse.json": for_other}, "trust.json", "refused")
+    _, unentried = sign(base_list, pid, version, key, role="curator")
+    unentried = py.canonical({**json.loads(unentried), "signatures": []}).encode()
+    vectors["envelope-with-no-signature"] = ({**signed(content), py.SIGNATURES + "curator-none.dsse.json": unentried}, "trust.json", "refused")
+    stranger_key = ec.generate_private_key(ec.SECP256R1())
+    path_, by_stranger = sign(base_list, pid, version, stranger_key, role="curator")
+    vectors["countersignature-by-a-key-not-trusted-ignored"] = ({**signed(content), path_: by_stranger}, "trust.json", "verified")
     # Policies the red team found read differently: both verifiers refuse them before any pack is looked at.
     for name, body in {
         "trust-require-no-roles.json": {"keys": [entry], "requireRoles": []},
