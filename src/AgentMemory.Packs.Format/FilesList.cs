@@ -35,9 +35,13 @@ internal sealed partial record FilesList(string Id, string Version, IReadOnlyLis
 
     internal static string Hex(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-    /// <summary>Parses canonical list bytes, or returns why they are not a valid list.</summary>
+    /// <summary>
+    /// Parses canonical list bytes, or returns why they are not a valid list; more than <see cref="PackVerifier.MaximumFilesListBytes"/>
+    /// is refused here, whoever calls (review 6, H1: the bound lived only in the verifier, and other callers parsed past it).
+    /// </summary>
     internal static (FilesList? List, string? Problem) Parse(ReadOnlySpan<byte> bytes)
     {
+        if (bytes.Length > PackVerifier.MaximumFilesListBytes) return (null, $"{PackPaths.FilesList} is larger than {PackVerifier.MaximumFilesListBytes >> 20} MiB.");
         if (Jcs.CheckCanonical(bytes) is { } problem) return (null, $"{PackPaths.FilesList} {problem}.");
         using var document = JsonDocument.Parse(bytes.ToArray());
         var root = document.RootElement;
@@ -72,6 +76,7 @@ internal sealed partial record FilesList(string Id, string Version, IReadOnlyLis
         return (new FilesList(id.GetString()!, version.GetString()!, list), null);
     }
 
-    [GeneratedRegex("^[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
+    // \z, never $: $ also matches before a final newline (review 6, L4).
+    [GeneratedRegex(@"\A[0-9a-f]{64}\z", RegexOptions.CultureInvariant)]
     private static partial Regex HexSha256();
 }

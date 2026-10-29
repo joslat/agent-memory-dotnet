@@ -74,6 +74,10 @@ public sealed partial class PackMemory : IModuleTraversalReader
         if (!resolution.Succeeded) throw new KnowledgePackException(resolution.Errors);
         // PACK-consent: links into another module's records need its consent or the host's grant, as the store requires.
         resolution = resolution with { ConsentGrants = [.. shots.SelectMany(s => s.ConsentGrants).Concat(grants ?? []).Distinct()] };
+        // Every snapshot as an import checks it, with the grants the walk will have (review 6, L8: a snapshot a caller built was
+        // never checked here).
+        var invalid = shots.SelectMany(s => (s with { ConsentGrants = resolution.ConsentGrants }).Problems()).Distinct(StringComparer.Ordinal).ToList();
+        if (invalid.Count != 0) throw new KnowledgePackException(invalid);
         var refused = shots.SelectMany(s => s.Records.SelectMany(r => r.Links.Select(l => s.Module.Ontology?.Relations.SingleOrDefault(x => x.Name == l.Relation && x.From == r.Type)))
                 .OfType<ModuleRelation>().Distinct().Select(relation => resolution.ConsentRefusal(s.Module, relation)))
             .OfType<string>().Distinct(StringComparer.Ordinal).ToList();
@@ -148,10 +152,12 @@ public sealed partial class PackMemory : IModuleTraversalReader
         var loaded = new List<LoadedPack>();
         var familyMembers = new HashSet<string>(StringComparer.Ordinal);
         foreach (var archive in archives)
-            switch (PackLoader.Peek(archive).Kind)
+        {
+            var (manifest, content) = PackLoader.Open(archive, trust);
+            switch (manifest.Kind)
             {
                 case "set":
-                    var set = PackFamilies.LoadSet(archive, trust);
+                    var set = PackFamilies.LoadSet(content, trust, null);
                     // What a host composing the family composes by default (review 3, 4): a member is mounted when some path to it has
                     // every composite on and the member enabled, as CompositeMembers composes it through the first such path; one
                     // only ever reached switched off, or inside a composite switched off, is not.
@@ -170,9 +176,10 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 case "composite":
                     throw new PackLoadException(["A composite pins its members but does not carry them: mount the pack set that carries both."]);
                 default:
-                    loaded.Add(PackLoader.Load(archive, trust));
+                    loaded.Add(PackLoader.Load(content, trust, null, allowDowngrade: false));
                     break;
             }
+        }
         if (off?.Invoke(loaded, familyMembers) is { Count: > 0 } kept)
             loaded.RemoveAll(p => kept.Contains(p.Id) || (p.Kind == "snapshot" && p.Manifest.Modules.Keys.Any(kept.Contains)));
         var definitions = loaded.Where(p => p.Kind == "definition").ToDictionary(p => p.Id, p => p.Manifest, StringComparer.Ordinal);
@@ -182,7 +189,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
             var of = shot.Manifest.Modules.Keys.Single();
             if (!definitions.TryGetValue(of, out var definition))
                 throw new PackLoadException([$"{shot.Id} is a snapshot of {of}: mount that definition pack beside it."]);
-            snapshots.Add(shot.ToSnapshot(definition, [.. definition.Modules.Keys.Where(definitions.ContainsKey).Select(d => definitions[d])]));
+            // With the host's grants, the same ones the walk gets below: one consent check, one set of grants (review 6, M1).
+            snapshots.Add(shot.ToSnapshot(definition, [.. definition.Modules.Keys.Where(definitions.ContainsKey).Select(d => definitions[d])], [.. grants ?? []]));
         }
         try { return new PackMount(loaded, From(loaded.Select(p => p.Knowledge).OfType<KnowledgePack>(), snapshots, grants)); }
         catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
@@ -331,15 +339,15 @@ public sealed partial class PackMemory : IModuleTraversalReader
         // Exactly the records that match by the walk's own rules, in the format's order (review 2: the first 512 records that held
         // the property, matching or not, in key order).
         // The walk's time budget reaches this scan through the token (review 3: a common name scanned a whole type unbounded).
+        // Best match first, then the format's order, at most the limit: what every store returns (review 6, M2).
         var scanned = 0;
         var found = OfType(module.Id, query.Type)
-            .Where(r => (++scanned % 1024 != 0 || !cancellationToken.IsCancellationRequested ? true : throw new OperationCanceledException(cancellationToken))
-                && Text(r, query.Property) is { } value && Context.Traversal.AnchorMatcher.Best(query.Match, value, values).Quality > 0)
-            .Order(Context.Traversal.TraversalOrder.Records).ToList();
-        return Task.FromResult(new ModuleReadResult
-        {
-            Status = ModuleReadStatus.Succeeded, Records = found.Take(Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit)).ToList().AsReadOnly(),
-        });
+            .Select(r => (++scanned % 1024 != 0 || !cancellationToken.IsCancellationRequested ? r : throw new OperationCanceledException(cancellationToken)))
+            .Select(r => (Record: r, Quality: Text(r, query.Property) is { } value ? ModuleAnchorQuery.Quality(query.Match, value, values) : 0))
+            .Where(p => p.Quality > 0)
+            .OrderByDescending(p => p.Quality).ThenBy(p => p.Record, Context.Traversal.TraversalOrder.Records)
+            .Take(Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit)).Select(p => p.Record).ToList();
+        return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Succeeded, Records = found.AsReadOnly() });
     }
 
     /// <inheritdoc/>
@@ -364,21 +372,21 @@ public sealed partial class PackMemory : IModuleTraversalReader
         var skipped = new List<string>();
         foreach (var from in query.FromIds.Distinct(StringComparer.Ordinal))
         {
+            // The walk's budget reaches each start (review 6, M3: an expansion ran to the end whatever the budget).
+            cancellationToken.ThrowIfCancellationRequested();
             if (!_byId.TryGetValue(from, out var start)) continue;
             // Every neighbour within the link limit is ranked (review 2: the first 1,024 in id order were); a record past it is
-            // not expanded, and the walk is told. A degree is counted up to MaximumScan, in both directions.
+            // not expanded, and the walk is told; no more links are read than show that (review 6, M3: every link was).
             // Distinct live neighbours, counted as the Neo4j store counts them (review 3); an In neighbour's degree is its own links.
             var links = (query.Direction == ModuleTraversalDirection.Out
                 ? start.Links.Where(l => l.Relation == relation.Name).Select(l => _byId[l.TargetId])
-                : _incoming.GetValueOrDefault((relation.Name, start.Id)) ?? []).DistinctBy(r => r.Id).ToList();
+                : _incoming.GetValueOrDefault((relation.Name, start.Id)) ?? []).DistinctBy(r => r.Id).Take(ModuleExpandQuery.MaximumLinks + 1).ToList();
             if (links.Count > ModuleExpandQuery.MaximumLinks)
             {
                 skipped.Add($"{start.Key} has more than {ModuleExpandQuery.MaximumLinks} {relation.Name} links: not expanded.");
                 continue;
             }
-            IEnumerable<(ModuleRecord Record, int Degree)> reached = query.Direction == ModuleTraversalDirection.Out
-                ? links.Select(r => (r, Math.Min(_incoming.GetValueOrDefault((relation.Name, r.Id))?.DistinctBy(o => o.Id).Count() ?? 0, ModuleExpandQuery.MaximumScan)))
-                : links.Select(r => (r, Math.Min(r.Links.Where(l => l.Relation == relation.Name).Select(l => l.TargetId).Distinct().Count(), ModuleExpandQuery.MaximumScan)));
+            IEnumerable<(ModuleRecord Record, int Degree)> reached = links.Select(r => (r, Degree(relation.Name, r, query.Direction)));
             var ranked = reached
                 .Select(p => (p.Record, p.Degree, Hits: Hits(p.Record, text, words)))
                 .OrderByDescending(p => p.Hits).ThenBy(p => p.Degree).ThenBy(p => p.Record, Context.Traversal.TraversalOrder.Records).Take(fanOut);
@@ -389,6 +397,15 @@ public sealed partial class PackMemory : IModuleTraversalReader
 
     private static Task<ModuleTraversalStep> Refused(string error) =>
         Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.Refused, Errors = [error] });
+
+    // A reached record's degree through one relation, counted once for the mount, up to MaximumScan (review 6, M3: counted in
+    // full for every reach): through an Out step, the records that link to it; through an In step, the records it links to.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Relation, string Id, ModuleTraversalDirection Direction), int> _degrees = new();
+
+    private int Degree(string relation, ModuleRecord reached, ModuleTraversalDirection direction) =>
+        _degrees.GetOrAdd((relation, reached.Id, direction), key => key.Direction == ModuleTraversalDirection.Out
+            ? (_incoming.GetValueOrDefault((key.Relation, key.Id)) ?? []).DistinctBy(o => o.Id).Take(ModuleExpandQuery.MaximumScan).Count()
+            : reached.Links.Where(l => l.Relation == key.Relation).Select(l => l.TargetId).Distinct(StringComparer.Ordinal).Take(ModuleExpandQuery.MaximumScan).Count());
 
     private static string? Text(ModuleRecord record, string property) =>
         record.Properties.TryGetValue(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

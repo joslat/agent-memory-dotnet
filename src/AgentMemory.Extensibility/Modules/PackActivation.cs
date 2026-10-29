@@ -38,6 +38,13 @@ public sealed record PackTrialMeasurement
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? MaximumOffered { get; init; }
+    /// <summary>
+    /// How far apart in the host's history the tasks were drawn: every <c>Spacing</c>-th eligible commit, 1 to 2,000 (review 6,
+    /// H4: consecutive commits come in bursts of related changes, so they are not independent). Tasks closer than
+    /// <see cref="PackTrialGate.BurstLength"/> count as one cluster in every bound, in runs of ⌈8 / spacing⌉ in the order
+    /// drawn. Null is 1: tasks drawn one after another.
+    /// </summary>
+    public int? Spacing { get; init; }
     /// <summary><see cref="Hits"/> over <see cref="Tasks"/>.</summary>
     public double HitRate => Tasks == 0 ? 0 : (double)Hits / Tasks;
     /// <summary><see cref="Correct"/> over <see cref="Offered"/>.</summary>
@@ -202,16 +209,45 @@ public sealed record SwitchedOffModule(string ModuleId, string Version, string R
 public static class PackTrialGate
 {
     /// <summary>
-    /// The statistic this library computes bounds with, as a decision records it (review 5, root RB). A hit rate's bound is
-    /// Clopper-Pearson's, exact. Precision's and every difference's assume one task the trial did not see, at the worst the
-    /// arm's cap allows (it offers <see cref="PackTrialMeasurement.MaximumOffered"/> items, none right; for a difference, the
-    /// other arm offers its cap, all right), beside the tasks it ran; then Fieller's test inversion of the pooled precision, or
-    /// the linearized paired difference, at Student's t with one degree of freedom fewer than the tasks. The unseen task is
-    /// the rule of three's lesson: a sample that never met a rare task with a large loss would otherwise pass as if there were
-    /// none (review 5: an upgrade that agreed with its predecessor on most tasks, rare tasks of many items). Changing a formula
-    /// changes this name; a recorded verdict is checked again under the current one (<see cref="Unmet"/>).
+    /// The statistic this library computes bounds with, as a decision records it (reviews 5 and 6, root RB). A hit rate's bound,
+    /// and precision's when an arm offers one item a task at most, are Clopper-Pearson's, exact. Precision's and every
+    /// difference's otherwise assume tasks the trial did not see, at the worst the arm's cap allows (they offer
+    /// <see cref="PackTrialMeasurement.MaximumOffered"/> items, none right; for a difference, the other arm offers its cap, all
+    /// right), counted <see cref="HedgeWeight"/> times beside the tasks it ran; then Fieller's test inversion of the pooled
+    /// precision, or the paired difference task by task, at Student's t with one degree of freedom fewer than the tasks. The
+    /// unseen tasks are the rule of three's lesson: a sample that never met a rare task with a large loss would otherwise pass
+    /// as if there were none; their weight is the least that holds the nominal level for paired hits by exact enumeration
+    /// (review 6: one unseen task was a rule of 2.7 where 3.0 is exact at 95%). Changing a formula changes this name; a
+    /// recorded verdict is checked again under the current one (<see cref="Unmet"/>). Tasks drawn closer together in history
+    /// than <see cref="BurstLength"/> eligible commits are clustered first: each run of them is one task of the bound (review 6,
+    /// H4: drawn one after another, a hit-rate target at the truth passed 16 to 21% of the time at 95% when changes came in
+    /// bursts of 5 to 8).
     /// </summary>
-    public const string Statistic = "agentmemory.trial.hedged/2026-10-29";
+    public const string Statistic = "agentmemory.trial.hedged/3";
+
+    /// <summary>
+    /// The most eligible commits one burst of related changes is taken to span (review 6, H4), the one assumption about the
+    /// order of a host's history: a trial whose tasks were drawn at least this far apart counts each as independent; closer,
+    /// each run of ⌈8 / spacing⌉ consecutive tasks is one cluster. By the harness (eng/trial-statistics/serial.py), with bursts
+    /// averaging 5 commits at an intraclass correlation of 0.3, a hit-rate target at the truth then passes at most the nominal
+    /// rate (4.6% at 95%); averaging 8, whose longer bursts break the assumption, 6.4%.
+    /// </summary>
+    public const int BurstLength = 8;
+
+    /// <summary>The largest spacing a measurement records: the runner draws from the last 2,000 commits.</summary>
+    public const int MaximumSpacing = 2000;
+
+    /// <summary>
+    /// How many times the unseen worst-case task counts, by confidence: the least weight, in quarters, at which a paired hit
+    /// difference equal to its target passes at most the nominal rate for every n from 10 to 200 and every pair of rates, by
+    /// exact trinomial enumeration (eng/trial-statistics/hitdiff_exact.py: 9.4%, 4.6%, 2.1% and 0.85%); the one-arm and paired
+    /// precision bounds hold with it too (the harness).
+    /// </summary>
+    internal static double HedgeWeight(double confidence) => confidence switch
+    {
+        0.9 => 1.25, 0.95 => 1.5, 0.975 => 1.75, 0.99 => 2.0,
+        _ => throw new ArgumentOutOfRangeException(nameof(confidence), "A trial's confidence is 0.9, 0.95, 0.975 or 0.99."),
+    };
 
     /// <summary>The one-sided normal quantiles the trial's confidence may name.</summary>
     internal static readonly IReadOnlyDictionary<double, double> Confidences = new Dictionary<double, double>
@@ -248,19 +284,22 @@ public static class PackTrialGate
     }
 
     /// <summary>
-    /// The lower confidence bound of a pooled precision (items right over items offered) with each task one cluster: one task
-    /// the trial did not see, offering <paramref name="maximumOffered"/> items and none right, beside <paramref name="tasks"/>;
-    /// then the least precision Fieller's test does not refuse, at Student's t with one degree of freedom fewer than the tasks.
-    /// Order-free. By the harness (pack format v1.2 §7), a precision equal to the target passes at most the nominal rate in
-    /// every regime it holds, rare tasks of many items, all-or-none tasks and precision that falls with task size among them.
+    /// The lower confidence bound of a pooled precision (items right over items offered) with each task one cluster: the
+    /// unseen task, offering <paramref name="maximumOffered"/> items and none right, counted <see cref="HedgeWeight"/> times
+    /// beside <paramref name="tasks"/>; then the least precision Fieller's test does not refuse, at Student's t with one degree
+    /// of freedom fewer than the tasks. With a cap of one item a task, each offering task is one right-or-wrong trial and the
+    /// bound is Clopper-Pearson's over them, exact (review 6: Fieller fell to a Wald bound there, above it). Order-free.
     /// </summary>
     public static double PrecisionLower(IReadOnlyList<PackTrialTask> tasks, int maximumOffered, double confidence)
     {
         ArgumentNullException.ThrowIfNull(tasks);
-        return HedgedLower(tasks, Cap(maximumOffered), StudentT(Quantile(confidence), tasks.Count - 1));
+        var cap = Cap(maximumOffered);
+        Within(tasks, cap);
+        if (cap <= 1) return RateLower(tasks.Count(t => t.Correct > 0), tasks.Count(t => t.Offered > 0), confidence);
+        return HedgedLower(tasks, cap, StudentT(Quantile(confidence), tasks.Count - 1), HedgeWeight(confidence));
     }
 
-    /// <summary>The upper bound mirroring <see cref="PrecisionLower"/>: one minus the lower bound of the items that were wrong.</summary>
+    /// <summary>The upper bound mirroring <see cref="PrecisionLower(IReadOnlyList{PackTrialTask}, int, double)"/>: one minus the lower bound of the items that were wrong.</summary>
     public static double PrecisionUpper(IReadOnlyList<PackTrialTask> tasks, int maximumOffered, double confidence)
     {
         ArgumentNullException.ThrowIfNull(tasks);
@@ -268,48 +307,97 @@ public static class PackTrialGate
     }
 
     /// <summary>
-    /// The lower confidence bound of a difference of hit rates measured on the same tasks: one task the trial did not see, the
-    /// first arm missing it and the second hitting it, beside the per-task differences; then their mean at Student's t with
-    /// one degree of freedom fewer than the tasks.
+    /// The lower confidence bound of an arm's hit rate, as its trial is checked: Clopper-Pearson's over its tasks when they were
+    /// drawn at least <see cref="BurstLength"/> apart; closer, over clusters of ⌈8 / spacing⌉ consecutive tasks, each a
+    /// proportion of tasks hit, by the clustered bound (review 6, H4).
+    /// </summary>
+    /// <exception cref="ArgumentException">The tasks were drawn closer than <see cref="BurstLength"/> apart and the arm carries no per-task results.</exception>
+    public static double HitRateLower(PackTrialMeasurement arm, double confidence)
+    {
+        ArgumentNullException.ThrowIfNull(arm);
+        var m = ClusterSize(arm);
+        if (m == 1) return RateLower(arm.Hits, arm.Tasks, confidence);
+        var clusters = HitClusters(TasksOf(arm), m);
+        return HedgedLower(clusters, m, StudentT(Quantile(confidence), clusters.Count - 1), HedgeWeight(confidence));
+    }
+
+    /// <summary>
+    /// The lower confidence bound of an arm's pooled precision, as its trial is checked: <see cref="PrecisionLower(IReadOnlyList{PackTrialTask}, int, double)"/>
+    /// over its tasks, or over clusters of ⌈8 / spacing⌉ consecutive tasks when they were drawn closer than
+    /// <see cref="BurstLength"/> apart (review 6, H4).
+    /// </summary>
+    /// <exception cref="ArgumentException">The arm carries no per-task results.</exception>
+    public static double PrecisionLower(PackTrialMeasurement arm, double confidence)
+    {
+        ArgumentNullException.ThrowIfNull(arm);
+        var (m, cap, tasks) = (ClusterSize(arm), CapOf(arm), TasksOf(arm));
+        if (m == 1) return PrecisionLower(tasks, cap, confidence);
+        Within(tasks, cap);
+        var clusters = Clusters(tasks, m);
+        return HedgedLower(clusters, m * cap, StudentT(Quantile(confidence), clusters.Count - 1), HedgeWeight(confidence));
+    }
+
+    private static double PrecisionUpper(PackTrialMeasurement arm, double confidence) =>
+        1 - PrecisionLower(arm with { PerTask = [.. TasksOf(arm).Select(t => t with { Correct = t.Offered - t.Correct })] }, confidence);
+
+    /// <summary>
+    /// The lower confidence bound of a difference of hit rates measured on the same tasks: the unseen task, the first arm
+    /// missing it and the second hitting it, counted <see cref="HedgeWeight"/> times beside the per-task differences; then
+    /// their mean at Student's t with one degree of freedom fewer than the tasks. Exact enumeration holds it at the nominal
+    /// level for every n from 10 to 200 and every pair of rates.
     /// </summary>
     /// <exception cref="ArgumentException">Either arm has no per-task results, or they ran different tasks.</exception>
     public static double HitDifferenceLower(PackTrialMeasurement first, PackTrialMeasurement second, double confidence)
     {
         var (a, b) = Paired(first, second);
+        // Drawn closer than a burst: the difference of two clustered hit proportions, paired cluster by cluster (review 6, H4).
+        if (Math.Max(ClusterSize(first), ClusterSize(second)) is var m and > 1)
+            return PairedDifference(HitClusters(a, m), HitClusters(b, m), m, m, confidence);
         var q = StudentT(Quantile(confidence), a.Count - 1);
-        var d = new double[a.Count + 1];
+        var d = new double[a.Count];
         for (var i = 0; i < a.Count; i++) d[i] = (a[i].Correct > 0 ? 1 : 0) - (b[i].Correct > 0 ? 1 : 0);
-        d[a.Count] = -1;
-        return Math.Clamp(d.Average() - q * Math.Sqrt(Variance(d) / d.Length), -1, 1);
+        var (mean, se) = Weighted(d, -1, HedgeWeight(confidence));
+        return Math.Clamp(mean - q * se, -1, 1);
     }
 
     /// <summary>
-    /// The lower confidence bound of a difference of pooled precisions measured on the same tasks: one task the trial did not
-    /// see, the first arm offering its cap with none right and the second its cap all right, beside the tasks; then the
-    /// difference linearized task by task (each task's influence on both ratios), at Student's t with one degree of freedom
-    /// fewer than the tasks. Against an arm that offered nothing, the other arm's own bound: nothing offered has no
-    /// uncertainty.
+    /// The lower confidence bound of a difference of pooled precisions measured on the same tasks: the unseen task, the first
+    /// arm offering its cap with none right and the second its cap all right, counted <see cref="HedgeWeight"/> times beside
+    /// the tasks; then the difference linearized task by task (each task's influence on both ratios), at Student's t with one
+    /// degree of freedom fewer than the tasks. Against an arm that offers nothing by design (a cap of 0: the baseline
+    /// <c>none</c>), the other arm's own bound, since nothing offered has no uncertainty; an arm that could offer but happened
+    /// not to keeps its unseen task (review 6: a silent host baseline lost its hedge).
     /// </summary>
-    /// <exception cref="ArgumentException">Both arms offered something, and either has no per-task results or they ran different tasks.</exception>
+    /// <exception cref="ArgumentException">Either arm has no per-task results, or they ran different tasks.</exception>
     public static double PrecisionDifferenceLower(PackTrialMeasurement first, PackTrialMeasurement second, double confidence)
     {
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
-        if (second.Offered == 0) return first.Offered == 0 ? 0 : PrecisionLower(TasksOf(first), CapOf(first), confidence);
-        if (first.Offered == 0) return -PrecisionUpper(TasksOf(second), CapOf(second), confidence);
-        var (a, b) = Paired(first, second);
-        var q = StudentT(Quantile(confidence), a.Count - 1);
         var (cap1, cap2) = (CapOf(first), CapOf(second));
-        if (a.Any(t => t is null || t.Correct < 0 || t.Correct > t.Offered || t.Offered > cap1) || b.Any(t => t is null || t.Correct < 0 || t.Correct > t.Offered || t.Offered > cap2))
-            throw new ArgumentException("Each task offers at most its arm's cap and is right at most as often as it offered.");
-        double o1 = cap1, c1 = 0, o2 = cap2, c2 = cap2;
+        if (cap2 == 0) return cap1 == 0 ? 0 : PrecisionLower(first, confidence);
+        if (cap1 == 0) return -PrecisionUpper(second, confidence);
+        var (a, b) = Paired(first, second);
+        Within(a, cap1);
+        Within(b, cap2);
+        return Math.Max(ClusterSize(first), ClusterSize(second)) is var m and > 1
+            ? PairedDifference(Clusters(a, m), Clusters(b, m), m * cap1, m * cap2, confidence)
+            : PairedDifference(a, b, cap1, cap2, confidence);
+    }
+
+    // The paired difference of two pooled ratios over the same units (tasks, or clusters of them), each unit at most its arm's
+    // cap: the unseen unit, the first arm offering its cap all wrong and the second its cap all right, counted HedgeWeight times.
+    private static double PairedDifference(IReadOnlyList<PackTrialTask> a, IReadOnlyList<PackTrialTask> b, int cap1, int cap2, double confidence)
+    {
+        var q = StudentT(Quantile(confidence), a.Count - 1);
+        var w = HedgeWeight(confidence);
+        double o1 = w * cap1, c1 = 0, o2 = w * cap2, c2 = w * cap2;
         for (var i = 0; i < a.Count; i++) { o1 += a[i].Offered; c1 += a[i].Correct; o2 += b[i].Offered; c2 += b[i].Correct; }
-        var n = a.Count + 1;
+        var n = a.Count + w;
         var (r1, r2, m1, m2) = (c1 / o1, c2 / o2, o1 / n, o2 / n);
-        var f = new double[n];
+        var f = new double[a.Count];
         for (var i = 0; i < a.Count; i++) f[i] = (a[i].Correct - r1 * a[i].Offered) / m1 - (b[i].Correct - r2 * b[i].Offered) / m2;
-        f[a.Count] = (0 - r1 * cap1) / m1 - (cap2 - r2 * cap2) / m2;
-        return Math.Clamp(r1 - r2 - q * Math.Sqrt(Variance(f) / n), -1, 1);
+        var (_, se) = Weighted(f, (0 - r1 * cap1) / m1 - (cap2 - r2 * cap2) / m2, w);
+        return Math.Clamp(r1 - r2 - q * se, -1, 1);
     }
 
     /// <summary>
@@ -326,16 +414,17 @@ public static class PackTrialGate
         if (trial.Confidence is not { } level || !Confidences.ContainsKey(level)) return [];
         var cap = Cap(maximumOffered);
         var t = trial.Targets;
+        // The best evidence draws its tasks at least a burst apart (review 6, H4); a short history clusters them and shows less.
         PackTrialMeasurement Arm(int n, int offered, int right, int most) => new()
         {
-            Tasks = n, Hits = right > 0 ? n : 0, Offered = n * offered, Correct = n * right, P95Ms = 0, MaximumOffered = most,
+            Tasks = n, Hits = right > 0 ? n : 0, Offered = n * offered, Correct = n * right, P95Ms = 0, MaximumOffered = most, Spacing = BurstLength,
             PerTask = [.. Enumerable.Repeat(new PackTrialTask(offered, right), n)],
         };
         // The best a trial of n tasks can show for each target; the baseline gets nothing right (grep offers its three, or nothing).
         var checks = new List<(string Target, double Required, Func<int, double> Best)>();
-        if (t.HitRate is { } hit) checks.Add(("hitRate", hit, n => RateLower(n, n, level)));
-        if (t.Precision is { } precision) checks.Add(("precision", precision, n => PrecisionLower(Arm(n, cap, cap, cap).PerTask!, cap, level)));
-        PackTrialMeasurement Baseline(int n) => trial.Baseline == "host" ? Arm(n, 3, 0, 3) : Arm(n, 0, 0, 1);
+        if (t.HitRate is { } hit) checks.Add(("hitRate", hit, n => HitRateLower(Arm(n, cap, cap, cap), level)));
+        if (t.Precision is { } precision) checks.Add(("precision", precision, n => PrecisionLower(Arm(n, cap, cap, cap), level)));
+        PackTrialMeasurement Baseline(int n) => trial.Baseline == "host" ? Arm(n, 3, 0, 3) : Arm(n, 0, 0, 0);
         if (t.Lift is { } lift) checks.Add(("lift", lift, n => HitDifferenceLower(Arm(n, cap, cap, cap), Baseline(n), level)));
         if (t.PrecisionLift is { } precisionLift) checks.Add(("precisionLift", precisionLift, n => PrecisionDifferenceLower(Arm(n, cap, cap, cap), Baseline(n), level)));
         var notes = new List<string>();
@@ -348,30 +437,34 @@ public static class PackTrialGate
                     + $"even the best evidence bounds it at {Math.Round(bound, 3).ToString(CultureInfo.InvariantCulture)}; {Needed(best, required)}.");
         if (trial.Upgrade is { NoRegression: true, Tolerance: > 0 } upgrade)
         {
-            // Two versions that agree on every task: only the task the trial did not see separates them.
-            double Same(int n) => HitDifferenceLower(Arm(n, cap, 1, cap), Arm(n, cap, 1, cap), level);
+            // Two versions that agree on every task: only the tasks the trial did not see separate them. Both checks, hit rate
+            // and precision, at their best: every task offering the cap (review 6, M7: a pack that offers fewer items than its
+            // cap needs more, since the unseen task offers the cap; on the code map's own forty tasks, -0.104 at a cap of 3).
+            double Same(int n) => Math.Min(HitDifferenceLower(Arm(n, cap, 1, cap), Arm(n, cap, 1, cap), level),
+                PrecisionDifferenceLower(Arm(n, cap, 1, cap), Arm(n, cap, 1, cap), level));
             if (Same(trial.Tasks) is var same && same < -upgrade.Tolerance - 1e-9)
                 notes.Add($"An upgrade exactly as good as this version cannot clear the tolerance {upgrade.Tolerance.ToString(CultureInfo.InvariantCulture)} on {trial.Tasks} tasks: "
-                    + $"agreeing on every task bounds the drop at {Math.Round(same, 3).ToString(CultureInfo.InvariantCulture)}; {Needed(Same, -upgrade.Tolerance)}, or a tolerance of {Math.Ceiling(-same * 100) / 100:0.00}.");
+                    + $"agreeing on every task bounds the drop at {Math.Round(same, 3).ToString(CultureInfo.InvariantCulture)} at best; {Needed(Same, -upgrade.Tolerance)}, or a tolerance of {Math.Ceiling(-same * 100) / 100:0.00}. "
+                    + $"That is when every task offers all {cap} items: a pack that offers fewer needs more, and a smaller maxItems tightens the bound.");
         }
         return notes;
     }
 
-    // Fieller's lower bound of the pooled precision of the tasks and one unseen task of `cap` items, none right: the least theta
-    // with sqrt(N) mean(c - theta o) / sd(c - theta o) at or below q, the lower root of a quadratic (in its stable form).
-    private static double HedgedLower(IReadOnlyList<PackTrialTask> tasks, int cap, double q)
+    // Fieller's lower bound of the pooled precision of the tasks and the unseen task of `cap` items, none right, counted w times:
+    // the least theta with sqrt(N) mean(c - theta o) / sd(c - theta o) at or below q, the lower root of a quadratic (in its
+    // stable form), the unseen task a frequency weight in every sum.
+    private static double HedgedLower(IReadOnlyList<PackTrialTask> tasks, int cap, double q, double w)
     {
-        if (tasks.Any(t => t is null || t.Correct < 0 || t.Correct > t.Offered || t.Offered > cap))
-            throw new ArgumentException($"Each task offers at most its arm's cap ({cap}) and is right at most as often as it offered.", nameof(tasks));
         if (tasks.Count == 0 || tasks.All(t => t.Offered == 0)) return 0;
-        var n = tasks.Count + 1.0;
-        double so = cap, sc = 0;
+        var n = tasks.Count + w;
+        double so = w * cap, sc = 0;
         foreach (var t in tasks) { so += t.Offered; sc += t.Correct; }
         var (ob, cb) = (so / n, sc / n);
         var r = cb / ob;
-        double soo = 0, scc = 0, sco = 0;
-        foreach (var (o, c) in tasks.Select(t => ((double)t.Offered, (double)t.Correct)).Append(((double)cap, 0.0)))
+        double soo = w * (cap - ob) * (cap - ob), scc = w * cb * cb, sco = w * (cap - ob) * (0 - cb);
+        foreach (var t in tasks)
         {
+            var (o, c) = ((double)t.Offered, (double)t.Correct);
             soo += (o - ob) * (o - ob); scc += (c - cb) * (c - cb); sco += (o - ob) * (c - cb);
         }
         (soo, scc, sco) = (soo / (n - 1), scc / (n - 1), sco / (n - 1));
@@ -386,14 +479,41 @@ public static class PackTrialGate
         return Math.Clamp(Math.Min(lower, r), 0, 1);
     }
 
-    // An arm's tasks for a bound: its per-task results, or, without them, each item a task of its own (items independent).
+    // An arm's tasks for a bound: its per-task results. Without them nothing is bounded (review 6: items taken as independent
+    // passed all-or-none tasks up to a quarter of the time).
     private static IReadOnlyList<PackTrialTask> TasksOf(PackTrialMeasurement arm) =>
-        arm.PerTask ?? [.. Enumerable.Range(0, arm.Offered).Select(i => new PackTrialTask(1, i < arm.Correct ? 1 : 0))];
+        arm.PerTask ?? throw new ArgumentException("A precision bound needs each task's results (PerTask): items are not independent.");
 
-    private static int CapOf(PackTrialMeasurement arm) => arm.PerTask is null ? 1 : Cap(arm.MaximumOffered ?? ModuleTraversal.MaximumOffered);
+    private static int CapOf(PackTrialMeasurement arm) => Cap(arm.MaximumOffered ?? ModuleTraversal.MaximumOffered);
 
-    private static int Cap(int maximumOffered) => maximumOffered is >= 1 and <= ModuleTraversal.MaximumOffered
-        ? maximumOffered : throw new ArgumentOutOfRangeException(nameof(maximumOffered), $"An arm offers 1 to {ModuleTraversal.MaximumOffered} items a task at most.");
+    // How many consecutive tasks one cluster holds: 1 when the tasks were drawn at least a burst apart (review 6, H4).
+    private static int ClusterSize(PackTrialMeasurement arm) => (BurstLength + Math.Clamp(arm.Spacing ?? 1, 1, BurstLength) - 1) / Math.Clamp(arm.Spacing ?? 1, 1, BurstLength);
+
+    // Runs of m consecutive tasks, in the order drawn, each one task of the bound: its items, or, for hit rates, its tasks and hits.
+    private static List<PackTrialTask> Clusters(IReadOnlyList<PackTrialTask> tasks, int m) =>
+        [.. tasks.Chunk(m).Select(c => new PackTrialTask(c.Sum(t => t.Offered), c.Sum(t => t.Correct)))];
+
+    private static List<PackTrialTask> HitClusters(IReadOnlyList<PackTrialTask> tasks, int m) =>
+        [.. tasks.Chunk(m).Select(c => new PackTrialTask(c.Length, c.Count(t => t.Correct > 0)))];
+
+    // 0 is an arm that offers nothing by design (the baseline none); 1 to 16 what it may offer a task.
+    private static int Cap(int maximumOffered) => maximumOffered is >= 0 and <= ModuleTraversal.MaximumOffered
+        ? maximumOffered : throw new ArgumentOutOfRangeException(nameof(maximumOffered), $"An arm offers 0 to {ModuleTraversal.MaximumOffered} items a task at most.");
+
+    private static void Within(IReadOnlyList<PackTrialTask> tasks, int cap)
+    {
+        if (tasks.Any(t => t is null || t.Correct < 0 || t.Correct > t.Offered || t.Offered > cap))
+            throw new ArgumentException($"Each task offers at most its arm's cap ({cap}) and is right at most as often as it offered.", nameof(tasks));
+    }
+
+    // The mean and standard error of task values with the unseen task's value counted w times beside them (a frequency weight).
+    private static (double Mean, double StandardError) Weighted(double[] values, double unseen, double w)
+    {
+        var n = values.Length + w;
+        var mean = (values.Sum() + w * unseen) / n;
+        var variance = (values.Sum(v => (v - mean) * (v - mean)) + w * (unseen - mean) * (unseen - mean)) / (n - 1);
+        return (mean, Math.Sqrt(variance / n));
+    }
 
     private static (IReadOnlyList<PackTrialTask> First, IReadOnlyList<PackTrialTask> Second) Paired(PackTrialMeasurement first, PackTrialMeasurement second)
     {
@@ -402,12 +522,6 @@ public static class PackTrialGate
         if (first.PerTask is not { } a || second.PerTask is not { } b || a.Count != b.Count || a.Count == 0)
             throw new ArgumentException("A paired bound needs each task's results on both arms (PerTask), on the same tasks.");
         return (a, b);
-    }
-
-    private static double Variance(double[] values)
-    {
-        var mean = values.Average();
-        return values.Sum(v => (v - mean) * (v - mean)) / (values.Length - 1);
     }
 
     private static double Quantile(double confidence) => Confidences.TryGetValue(confidence, out var z)
@@ -469,7 +583,8 @@ public static class PackTrialGate
     /// <param name="previous">For an upgrade, the version that passed on this host before, measured on the same tasks; with
     /// <c>upgrade.noRegression</c>, its hit rate and precision become two more targets.</param>
     /// <exception cref="ArgumentException">The manifest declares no trial, <paramref name="packDigest"/> is not <c>sha256:</c> and 64 hex
-    /// digits, or <paramref name="previous"/> is not an earlier version measured on as many tasks.</exception>
+    /// digits, <paramref name="previous"/> is not an earlier version measured on as many tasks, or a target under a confidence needs
+    /// per-task results an arm does not carry (precision and every difference do: items of one task are not independent).</exception>
     public static PackActivation Decide(ModuleManifest manifest, PackTrialMeasurement with, PackTrialMeasurement without, DateTimeOffset decidedAt,
         string? packDigest = null, PackTrialPrevious? previous = null)
     {
@@ -525,7 +640,8 @@ public static class PackTrialGate
     // RB): a rate or a difference meets its lower bound when the trial asks for confidence, its estimate otherwise (review 1,
     // M4: a lift on a few tasks cannot pass by luck either); latency is a budget the host sets, compared as measured. With a
     // tolerance above 0, no regression is a non-inferiority test (the lower bound clears -tolerance); at tolerance 0 no
-    // measurement could show it, so the estimate must not drop (review 2).
+    // measurement could show it, so the estimate must not drop (review 2), which a manifest may ask only without a confidence
+    // (review 6: with one, it read as a bound it was not).
     private static PackTrialCheck Check(string target, double required, double? confidence, PackTrialMeasurement with,
         PackTrialMeasurement? without, PackTrialMeasurement? previous)
     {
@@ -540,10 +656,10 @@ public static class PackTrialGate
         switch (target)
         {
             case "hitRate":
-                (estimate, bound, slack) = (with.HitRate, level => RateLower(with.Hits, with.Tasks, level), 0);
+                (estimate, bound, slack) = (with.HitRate, level => HitRateLower(with, level), 0);
                 break;
             case "precision":
-                (estimate, bound, slack) = (with.Precision, level => PrecisionLower(TasksOf(with), CapOf(with), level), 0);
+                (estimate, bound, slack) = (with.Precision, level => PrecisionLower(with, level), 0);
                 break;
             case "lift" or "noRegression.hitRate":
             {
@@ -573,8 +689,10 @@ public static class PackTrialGate
     // one per task, within the arm's cap, summing to its totals, with a correct item on exactly its hits (review 5, L9).
     private static string? Inconsistency(PackTrialMeasurement arm)
     {
-        if (arm.MaximumOffered is { } cap && cap is < 1 or > ModuleTraversal.MaximumOffered)
-            return $"An arm's MaximumOffered is 1 to {ModuleTraversal.MaximumOffered}.";
+        if (arm.MaximumOffered is { } cap && cap is < 0 or > ModuleTraversal.MaximumOffered)
+            return $"An arm's MaximumOffered is 0 (it offers nothing by design) to {ModuleTraversal.MaximumOffered}.";
+        if (arm.Spacing is { } spacing && spacing is < 1 or > MaximumSpacing)
+            return $"An arm's Spacing is 1 to {MaximumSpacing}: every how many eligible commits a task was drawn.";
         var most = arm.MaximumOffered ?? ModuleTraversal.MaximumOffered;
         // A hit is a task with a right item, and a task offers at most the cap: hits are between the right items over the cap
         // and the right items, never above the tasks (review 5).
@@ -634,7 +752,7 @@ public static class PackTrialGate
     /// host made trials mandatory, a module that declares none is left off; a module that needs one left off is left off too.
     /// </summary>
     internal static (IReadOnlyList<ModuleRegistration> On, IReadOnlyList<SwitchedOffModule> Off) Apply(IReadOnlyList<ModuleRegistration> registrations,
-        IPackActivations? activations, IReadOnlyList<string>? mandatory = null, IReadOnlyList<string>? certificateTrust = null)
+        IPackActivations? activations, IReadOnlyList<string>? mandatory = null, IReadOnlyList<string>? certificateTrust = null, PackTrialFloor? floor = null)
     {
         if (activations is null) return (registrations, []);
         var off = new Dictionary<string, SwitchedOffModule>(StringComparer.Ordinal);
@@ -662,7 +780,8 @@ public static class PackTrialGate
             }
             else if (decision is null && certified?.Basis is { } elsewhere)
                 setAside = $"it was admitted on {elsewhere.Evaluator}'s certificate, but this host trusts certificates only where it chooses; here it needs its own trial";
-            var reason = decision is not null ? (!decision.Active ? "its trial failed: " + decision.Reason
+            var reason = floor is not null && Below(manifest.Trial!, floor) is { } below ? $"its trial claims less than this host requires: {below}"
+                : decision is not null ? (!decision.Active ? "its trial failed: " + decision.Reason
                     : Unmet(decision) is { } unmet ? $"its trial's evidence does not meet its targets under {Statistic}: {unmet}; trial it again"
                     : Upgrade(activations, manifest, decision, certificatesCount))
                 : setAside is not null ? setAside
@@ -682,6 +801,39 @@ public static class PackTrialGate
                 }
         }
         return ([.. registrations.Where(r => !off.ContainsKey(r.Manifest.Id))], [.. off.Values.OrderBy(o => o.ModuleId, StringComparer.Ordinal)]);
+    }
+
+    // What a trial claims short of the host's floor, or null: the confidence, the tasks, and each target the floor names.
+    internal static string? Below(ModuleTrial trial, PackTrialFloor floor)
+    {
+        var gaps = new List<string>();
+        static string S(double v) => v.ToString(CultureInfo.InvariantCulture);
+        if (floor.Confidence is { } least)
+        {
+            if (trial.Confidence is not { } declared) gaps.Add($"no confidence, {S(least)} required");
+            else if (declared < least) gaps.Add($"confidence {S(declared)} below {S(least)}");
+        }
+        if (trial.Tasks < floor.Tasks) gaps.Add($"{trial.Tasks} tasks, {floor.Tasks} required");
+        if (floor.Targets is { } f)
+        {
+            var t = trial.Targets;
+            void AtLeast(string name, double? required, double? declared)
+            {
+                if (required is not { } r) return;
+                if (declared is not { } d) gaps.Add($"no {name} target, {S(r)} required");
+                else if (d < r) gaps.Add($"{name} {S(d)} below {S(r)}");
+            }
+            AtLeast("hitRate", f.HitRate, t.HitRate);
+            AtLeast("precision", f.Precision, t.Precision);
+            AtLeast("lift", f.Lift, t.Lift);
+            AtLeast("precisionLift", f.PrecisionLift, t.PrecisionLift);
+            if (f.AddedP95Ms is { } budget)
+            {
+                if (t.AddedP95Ms is not { } added) gaps.Add($"no addedP95Ms target, {S(budget)} required");
+                else if (added > budget) gaps.Add($"addedP95Ms {S(added)} above {S(budget)}");
+            }
+        }
+        return gaps.Count == 0 ? null : string.Join("; ", gaps);
     }
 
     // PACK-upgrade-gate: a passing upgrade that must not regress goes on only if its trial compared it with exactly the version
@@ -708,12 +860,16 @@ public static class PackTrialGate
         Settle(activations, decision, Rule(decision.Upgrade ?? manifest.Trial?.Upgrade, decision.Confidence),
             new Dictionary<PackActivation, (string?, HeldRule)>(ReferenceEqualityComparer.Instance), certificatesCount).Refusal;
 
-    // The whole rule an upgrade is held to (review 5, M6: the confidence too, not only no regression and its tolerance; a
-    // version that declared none was held to estimates where its predecessor had asked for bounds).
-    private sealed record HeldRule(bool NoRegression, double Tolerance, double? Confidence);
+    // One no-regression rule a version declared: its tolerance, and the confidence its bound is taken at (none: the estimate).
+    private sealed record NoRegressionRule(double Tolerance, double? Confidence);
+
+    // Every rule an upgrade is held to, each checked as it was declared (review 5, M6: the confidence travels with its rule;
+    // review 6: two rules are not ordered, so the stricter of two was a blend that could be looser than either, a tolerance of
+    // 0 checked on the estimate in place of a predecessor's bound at 0.1). Empty: no regression was never asked for.
+    private sealed record HeldRule(IReadOnlyList<NoRegressionRule> Rules);
 
     private static HeldRule Rule(ModuleTrialUpgrade? upgrade, double? confidence) =>
-        new(upgrade is { NoRegression: true }, upgrade is { NoRegression: true } u ? u.Tolerance : 0, confidence);
+        new(upgrade is { NoRegression: true } u ? [new NoRegressionRule(u.Tolerance, confidence)] : []);
 
     // Why a passing decision may not go on as an upgrade (or null), and the rule it is held to: the stricter of its own and
     // the one its predecessor was held to, so a rule carries down the whole chain, not one version (third review). The version
@@ -750,37 +906,36 @@ public static class PackTrialGate
 
     private static string Content(PackActivation decision) => (decision.PackDigest ?? "") + "|" + decision.ManifestDigest;
 
-    // The stricter of two rules: no regression if either asks it, at the smaller tolerance of those that do, at the higher
-    // confidence either declared.
-    private static HeldRule Stricter(HeldRule a, HeldRule b)
-    {
-        double? confidence = a.Confidence is { } x ? (b.Confidence is { } y ? Math.Max(x, y) : x) : b.Confidence;
-        var tolerances = new[] { a, b }.Where(r => r.NoRegression).Select(r => r.Tolerance).ToList();
-        return new(tolerances.Count > 0, tolerances.Count > 0 ? tolerances.Min() : 0, confidence);
-    }
+    // Both rules: every one either carries, each as declared.
+    private static HeldRule Stricter(HeldRule a, HeldRule b) => new([.. a.Rules.Concat(b.Rules).Distinct()]);
 
     // An upgrade against the version it replaces, held to the rule the chain carries, from the measurements the record
     // carries, whatever its own checks said: the same test as a decision's own (review 2), bounds at the held confidence when
     // the tolerance is above 0, under this library's statistic (review 5, M7: no longer refused for a record from another).
-    private static string? Against(PackActivation decision, HeldRule rule, PackActivation active)
+    private static string? Against(PackActivation decision, HeldRule held, PackActivation active)
     {
-        if (!rule.NoRegression) return null;
+        if (held.Rules.Count == 0) return null;
         if (decision.Previous is not { } previous)
             return $"it upgrades {active.Version}, which passed here; its trial must compare against that version";
         if (previous.Version != active.Version || previous.ManifestDigest != active.ManifestDigest || previous.PackDigest != active.PackDigest)
             return $"its trial compared against {previous.Version}, but {active.Version} ({Short(active.PackDigest ?? active.ManifestDigest)}) is the version that passed here";
         if (decision.With is not { } with) return "its record carries no measurement to compare";
-        var floor = rule.Tolerance > 0 ? -rule.Tolerance : 0;
-        PackTrialCheck hit, precision;
-        try
+        foreach (var rule in held.Rules)
         {
-            hit = Check("noRegression.hitRate", floor, rule.Confidence, with, null, previous.With);
-            precision = Check("noRegression.precision", floor, rule.Confidence, with, null, previous.With);
+            var floor = rule.Tolerance > 0 ? -rule.Tolerance : 0;
+            PackTrialCheck hit, precision;
+            try
+            {
+                hit = Check("noRegression.hitRate", floor, rule.Confidence, with, null, previous.With);
+                precision = Check("noRegression.precision", floor, rule.Confidence, with, null, previous.With);
+            }
+            catch (ArgumentException e) { return $"it cannot be compared with {active.Version} from what its record carries: {e.Message}"; }
+            if (!hit.Met || !precision.Met)
+                return $"it does worse than {active.Version} beyond the tolerance {rule.Tolerance.ToString(CultureInfo.InvariantCulture)}"
+                    + (rule.Confidence is { } c ? $" at {c.ToString(CultureInfo.InvariantCulture)}" : "")
+                    + $" (hit rate {hit.Observed.ToString(CultureInfo.InvariantCulture)}, precision {precision.Observed.ToString(CultureInfo.InvariantCulture)})";
         }
-        catch (ArgumentException e) { return $"it cannot be compared with {active.Version} from what its record carries: {e.Message}"; }
-        return hit.Met && precision.Met ? null
-            : $"it does worse than {active.Version} beyond the tolerance {rule.Tolerance.ToString(CultureInfo.InvariantCulture)} (hit rate {hit.Observed.ToString(CultureInfo.InvariantCulture)}, "
-              + $"precision {precision.Observed.ToString(CultureInfo.InvariantCulture)})";
+        return null;
     }
 
     private static string Short(string digest) => digest[..Math.Min(digest.Length, digest.IndexOf(':', StringComparison.Ordinal) + 13)] + "…";
@@ -800,6 +955,9 @@ public sealed class PackActivationFolder : IPackActivations
     private readonly Dictionary<string, List<PackActivation>> _history = new(StringComparer.Ordinal);
     private readonly Dictionary<PackActivation, string> _files = new(ReferenceEqualityComparer.Instance);
 
+    // A decision with every task's results for both arms and a predecessor, 200 tasks, is a few tens of KiB.
+    private const int MaximumRecordBytes = 1 << 20;
+
     /// <summary>Reads every <c>*.dsse.json</c> in <paramref name="folder"/>; files that do not verify are listed in <see cref="Ignored"/>.</summary>
     public PackActivationFolder(string folder, string hostPublicKeyPem)
     {
@@ -811,7 +969,11 @@ public sealed class PackActivationFolder : IPackActivations
         if (Directory.Exists(folder))
             foreach (var file in Directory.EnumerateFiles(folder, "*.dsse.json").Order(StringComparer.Ordinal))
             {
-                var activation = Open(File.ReadAllBytes(file), key);
+                // Bounded and never through a link, as every file a host reads (review 6, M2); one that is not is not a record.
+                byte[] bytes;
+                try { bytes = BoundedFile.Read(file, MaximumRecordBytes, "An activation record"); }
+                catch (Exception e) when (e is InvalidDataException or IOException) { ignored.Add(Path.GetFileName(file)); continue; }
+                var activation = Open(bytes, key);
                 if (activation is null) { ignored.Add(Path.GetFileName(file)); continue; }
                 _files[activation] = file;
                 var id = (activation.ModuleId, activation.Version);
@@ -882,7 +1044,7 @@ public sealed class PackActivationFolder : IPackActivations
         {
             File.Delete(partial);
             // The very same decision, already recorded (by its statement: a signature differs each time): nothing to add.
-            using var existing = JsonDocument.Parse(File.ReadAllBytes(file));
+            using var existing = JsonDocument.Parse(BoundedFile.Read(file, MaximumRecordBytes, "An activation record"));
             if (!existing.RootElement.TryGetProperty("payload", out var payload) || payload.GetString() != Convert.ToBase64String(statement)) throw;
         }
         return file;

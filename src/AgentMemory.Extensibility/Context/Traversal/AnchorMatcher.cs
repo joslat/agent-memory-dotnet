@@ -51,12 +51,14 @@ internal static class AnchorMatcher
             ModuleAnchorMatch.Name => Pieces(value!, NameSeparators),
             _ => [Trimmed(value!)],
         };
+        // A glob compiled once for every anchor (review 6, M4: once per anchor and pattern, up to 32 times a record).
+        var globs = match == ModuleAnchorMatch.Glob ? patterns.Select(p => Path(p) is var path && path.Length > 0 && path.IndexOfAny(['*', '?']) >= 0 ? Glob(Folded(path)) : null).ToArray() : null;
         (double Quality, string? Anchor, string? Pattern) best = (0, null, null);
         foreach (var anchor in anchors)
-            foreach (var pattern in patterns)
+            for (var i = 0; i < patterns.Length; i++)
             {
-                var quality = Quality(match, pattern, anchor);
-                if (quality > best.Quality) best = (quality, anchor, pattern);
+                var quality = globs?[i] is { } glob ? (Path(anchor) is { Length: > 0 } a && glob.IsMatch(Folded(a)) ? Globbed : 0) : Quality(match, patterns[i], anchor);
+                if (quality > best.Quality) best = (quality, anchor, patterns[i]);
             }
         return best;
     }
@@ -93,8 +95,11 @@ internal static class AnchorMatcher
         {
             previous = path;
             path = Trimmed(path).Replace('\\', '/');
-            while (path.StartsWith("./", StringComparison.Ordinal)) path = path[2..];
-            path = path.TrimStart('/');
+            // One pass over the leading "./" and "/", one slice (review 6, L1: a slice per "./" was quadratic in a run of them).
+            var start = 0;
+            while (start + 1 < path.Length && path[start] == '.' && path[start + 1] == '/') start += 2;
+            while (start < path.Length && path[start] == '/') start++;
+            path = path[start..];
         }
         while (path != previous);
         return path;
@@ -119,34 +124,33 @@ internal static class AnchorMatcher
         return Glob(Folded(pattern)).IsMatch(Folded(anchor)) ? Globbed : 0;
     }
 
-    private static readonly Dictionary<string, Regex> Globs = new(StringComparer.Ordinal);
-    private static readonly object GlobsLock = new();
+    // Read without a lock (review 6, M4: one lock serialized every walk), bounded: when full it is emptied and refills with the
+    // patterns in use, rather than compiling every new pattern again for ever.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Regex> Globs = new(StringComparer.Ordinal);
+    private const int MaximumGlobs = 4096;
 
     // Over ASCII-folded text, with no case option of its own; "**" crosses every character, line breaks included.
     private static Regex Glob(string pattern)
     {
-        lock (GlobsLock)
+        if (Globs.TryGetValue(pattern, out var cached)) return cached;
+        var regex = new StringBuilder(@"\A");
+        for (var i = 0; i < pattern.Length; i++)
         {
-            if (Globs.TryGetValue(pattern, out var cached)) return cached;
-            var regex = new StringBuilder(@"\A");
-            for (var i = 0; i < pattern.Length; i++)
+            var c = pattern[i];
+            if (c == '*' && i + 1 < pattern.Length && pattern[i + 1] == '*')
             {
-                var c = pattern[i];
-                if (c == '*' && i + 1 < pattern.Length && pattern[i + 1] == '*')
-                {
-                    // "**/" matches zero or more folders; a bare "**" matches anything.
-                    var slash = i + 2 < pattern.Length && pattern[i + 2] == '/';
-                    regex.Append(slash ? @"(?:[\s\S]*/)?" : @"[\s\S]*");
-                    i += slash ? 2 : 1;
-                }
-                else if (c == '*') regex.Append("[^/]*");
-                else if (c == '?') regex.Append("[^/]");
-                else regex.Append(Regex.Escape(c.ToString()));
+                // "**/" matches zero or more folders; a bare "**" matches anything.
+                var slash = i + 2 < pattern.Length && pattern[i + 2] == '/';
+                regex.Append(slash ? @"(?:[\s\S]*/)?" : @"[\s\S]*");
+                i += slash ? 2 : 1;
             }
-            var compiled = new Regex(regex.Append(@"\z").ToString(), RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
-            if (Globs.Count < 4096) Globs[pattern] = compiled;
-            return compiled;
+            else if (c == '*') regex.Append("[^/]*");
+            else if (c == '?') regex.Append("[^/]");
+            else regex.Append(Regex.Escape(c.ToString()));
         }
+        var compiled = new Regex(regex.Append(@"\z").ToString(), RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+        if (Globs.Count >= MaximumGlobs) Globs.Clear();
+        return Globs.GetOrAdd(pattern, compiled);
     }
 
     private static double NameQuality(string value, string anchor)

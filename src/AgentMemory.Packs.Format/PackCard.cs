@@ -32,6 +32,7 @@ internal sealed record PackCard(string OwnerName, string? OwnerContact, string I
     /// <summary>Reads a card strictly, or returns why it is not one.</summary>
     internal static (PackCard? Card, string? Problem) Parse(byte[] bytes)
     {
+        if (bytes.Length > PackVerifier.MaximumJsonBytes) return (null, $"{FileName} is larger than {PackVerifier.MaximumJsonBytes >> 20} MiB.");
         if (PackJson.Check(bytes) is { } malformed) return (null, $"{FileName} {malformed}.");
         using var document = JsonDocument.Parse(bytes);
         var root = document.RootElement;

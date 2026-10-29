@@ -8,7 +8,14 @@ internal static class ModuleRecordTransaction
     {
         cancellationToken.ThrowIfCancellationRequested();
         var cursor = await runner.RunAsync(query, parameters).ConfigureAwait(false);
-        var rows = await cursor.ToListAsync().ConfigureAwait(false);
+        // Fetched batch by batch, the token checked between them, so a time budget stops a long read where it is (review 6, M2:
+        // the whole result was read before the token was looked at); leaving the transaction stops the query on the server.
+        var rows = new List<IRecord>();
+        while (await cursor.FetchAsync().ConfigureAwait(false))
+        {
+            rows.Add(cursor.Current);
+            if ((rows.Count & 1023) == 0) cancellationToken.ThrowIfCancellationRequested();
+        }
         cancellationToken.ThrowIfCancellationRequested();
         return rows;
     }

@@ -29,6 +29,7 @@
     <!-- One source for the id namespace rules the module host keeps too (review 1, L16). -->
     <Compile Include="../../shared/PackNamespace.cs" Link="Shared/PackNamespace.cs" />
     <Compile Include="../../shared/Nfc.cs" Link="Shared/Nfc.cs" />
+    <Compile Include="../../shared/BoundedFile.cs" Link="Shared/BoundedFile.cs" />
     <Compile Include="../../shared/NfcTables.cs" Link="Shared/NfcTables.cs" />
   </ItemGroup>
 </Project>

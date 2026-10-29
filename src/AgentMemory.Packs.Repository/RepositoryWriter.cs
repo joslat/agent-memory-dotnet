@@ -160,6 +160,7 @@ public sealed partial class RepositoryWriter(IChatClient chat, RepositoryPackOpt
         return text[..length];
     }
 
-    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,63}$", RegexOptions.CultureInvariant)]
+    // \z, never $: $ also matches before a final newline (review 6, L4).
+    [GeneratedRegex(@"\A[a-z0-9][a-z0-9-]{0,63}\z", RegexOptions.CultureInvariant)]
     private static partial Regex KeyPattern();
 }

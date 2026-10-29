@@ -65,12 +65,16 @@ public sealed record PackInspection
             checks.Add(new("set members", false, whole.Problems));
             verification = whole;
         }
+        // Before the signatures hold, only the signed list is read (bounded, as the format allows); pack.json, the kind and the
+        // declarations only once they hold (review 6, H1: every JSON file was decoded even when they did not). A pack refused
+        // after that, for its audience say, still shows what it claims.
         (string, string, string)? identity = content.Files.TryGetValue(PackPaths.FilesList, out var listBytes) && FilesList.Parse(listBytes).List is { } list
             ? (list.Id, list.Version, FilesList.DigestOf(listBytes)) : null;
-        var parsed = content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes) ? PackManifest.Parse(manifestBytes).Manifest : null;
+        var parsed = verification.Pack?.Manifest ?? PackVerifier.Authenticated(content, trust.Policy, DateTimeOffset.UtcNow).Manifest;
         var kind = parsed?.Kind;
-        var declarations = content.Files.Where(f => f.Key.EndsWith(".json", StringComparison.Ordinal) && FilesList.IsListed(f.Key)
-                && !f.Key.StartsWith("records/", StringComparison.Ordinal) && !f.Key.StartsWith("packs/", StringComparison.Ordinal))
+        var declarations = (parsed is null ? [] : content.Files.Where(f => FilesList.IsListed(f.Key) && f.Key.EndsWith(".json", StringComparison.Ordinal)
+                && f.Value.Length <= PackVerifier.MaximumJsonBytes
+                && !f.Key.StartsWith("records/", StringComparison.Ordinal) && !f.Key.StartsWith("packs/", StringComparison.Ordinal)))
             .OrderBy(f => f.Key, StringComparer.Ordinal).ToDictionary(f => f.Key, f => Encoding.UTF8.GetString(f.Value), StringComparer.Ordinal);
         var inspection = new PackInspection
         {
@@ -83,7 +87,7 @@ public sealed record PackInspection
             switch (kind)
             {
                 case "set":
-                    var set = PackFamilies.LoadSet(archive, trust);
+                    var set = PackFamilies.LoadSet(content, trust, null);
                     var members = set.AllPacks;
                     return inspection with
                     {
@@ -94,7 +98,7 @@ public sealed record PackInspection
                     var (entries, _) = PackLock.Parse(content.Files[PackPaths.LockFile]);
                     return inspection with { Pins = [.. (entries ?? []).Select(e => new PackPart(e.Id, e.Version, null, e.Digest))] };
                 default:
-                    var pack = PackLoader.Load(archive, trust);
+                    var pack = PackLoader.Load(content, trust, null, allowDowngrade: false);
                     return inspection with { Pack = pack, Mount = pack.Kind == "knowledge" ? MountOrNull(archive, trust) : null };
             }
         }

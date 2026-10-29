@@ -115,6 +115,14 @@ REASONS = {
     "files-list-over-2-mib": ("larger than 2 MiB", "larger than 2 MiB"),
     "unsigned-with-wide-json": ("No valid publisher signature", "no valid signature in role publisher"),
     "run-merged-signers-control-rotated-out-alone": ("no live signer", "without a live signer revokes a revoker"),
+    # Review 6, L6: vectors that isolate their rule, each refused for it and beside a control that verifies.
+    "envelope-over-64-kib": ("larger than 64 KiB", "larger than 64 KiB"),
+    "key-expired-after-signing": ("without a verified timestamp token", "without a verified timestamp token"),
+    "signature-in-the-future": ("claims a time in the future", "claims a time in the future"),
+    "archive-ratio-over-250": ("compression ratio above 250", "breaks a size rule"),
+    "archive-deflate-empty-declares-content": ("compression ratio above 250", "breaks a size rule"),
+    "archive-4097-files": ("more than 4096 files", "more than 4096 files"),
+    "certificate-under-another-stem": ("not as its evaluator's key and evaluation time", "not as its evaluator's key and evaluation time"),
     # The closed shapes: beside a valid entry, each refused for its shape, not for an unknown key.
     **{f"revocations-shape-{how}": ("not a DSSE envelope of a revocation document", "not a DSSE envelope of a revocation document") for how in SHAPES},
     **{f"receipt-shape-{how}": ("not a DSSE envelope", "not a DSSE envelope") for how in SHAPES},
@@ -130,7 +138,7 @@ def refused_for(name, dotnet_text, python_text):
     return re.search(dn, dotnet_text, re.I) is not None and re.search(pyn, python_text, re.I) is not None
 
 
-def arm_(tasks, hits, offered, correct, p95, cap=None):
+def arm_(tasks, hits, offered, correct, p95, cap=None, spacing=8):
     """A certificate arm with consistent per-task evidence (review 5): items spread evenly, one right item on each of the first
     `hits` tasks and the rest of the right items on them too; the cap is the most any task offers unless given."""
     per = [[offered // tasks + (1 if i < offered % tasks else 0), 0] for i in range(tasks)] if tasks else []
@@ -145,7 +153,7 @@ def arm_(tasks, hits, offered, correct, p95, cap=None):
             left -= 1
         i = (i + 1) % hits
     return {"tasks": tasks, "hits": hits, "offered": offered, "correct": correct, "p95Micros": p95,
-            "maximumOffered": cap or max([1] + [e[0] for e in per]), "perTask": per}
+            "maximumOffered": cap if cap is not None else max([1] + [e[0] for e in per]), "spacing": spacing, "perTask": per}
 
 
 def reshaped(envelope_bytes, how):
@@ -189,6 +197,8 @@ def main():
         "trust-key-expired.json": {"keys": [dict(entry, notAfter="2020-01-01T00:00:00Z")]},
         "trust-key-not-yet-valid.json": {"keys": [dict(entry, notBefore="2099-01-01T00:00:00Z")]},
         "trust-key-window-open.json": {"keys": [dict(entry, notBefore="2020-01-01T00:00:00Z", notAfter="2099-01-01T00:00:00Z")]},
+        # Review 6, L6: expired after the signature (2026-10-26) and before now, so only the check against now refuses it.
+        "trust-key-expired-after-signing.json": {"keys": [dict(entry, notAfter="2026-10-27T00:00:00Z")]},
         "trust-revocations-stale.json": {"keys": [entry], "revoked": {"digests": [], "expires": "2020-01-01T00:00:00Z"}},
     }
     for name, body in policies.items():
@@ -551,8 +561,10 @@ def main():
         return {**one, **{f"{py.SIGNATURES}copy-{i:02}.dsse.json": envelope for i in range(n)}}
     vectors["sixteen-envelopes"] = (copies(15), "trust.json", "verified")
     vectors["seventeen-envelopes"] = (copies(16), "trust.json", "refused")
-    padded = json.loads(envelope)
-    padded["padding"] = "x" * (64 * 1024)
+    # Padded with whitespace, so only the size rule refuses it (review 6, L6: an unknown field was refused by the closed shape
+    # with the size rule removed); the control at 60 KiB verifies.
+    padded_over = envelope + b" " * (64 * 1024 + 1 - len(envelope))
+    padded_under = envelope + b" " * (60 * 1024 - len(envelope))
     while True:
         listed = files_list(pid, version, content)
         sig_path, sig_env = sign(listed, pid, version, key)
@@ -561,7 +573,12 @@ def main():
             break
     envelope_json["signatures"][0]["sig"] = base64.b64encode(negative_pack).decode()
     vectors["signature-integer-without-sign-pad"] = ({**content, py.FILES: listed, sig_path: py.canonical(envelope_json).encode()}, "trust.json", "refused")
-    vectors["envelope-over-64-kib"] = ({**one, py.SIGNATURES + "padded.dsse.json": py.canonical(padded).encode()}, "trust.json", "refused")
+    vectors["envelope-over-64-kib"] = ({**one, py.SIGNATURES + "padded.dsse.json": padded_over}, "trust.json", "refused")
+    vectors["envelope-at-60-kib"] = ({**one, py.SIGNATURES + "padded.dsse.json": padded_under}, "trust.json", "verified")
+    vectors["key-expired-after-signing"] = (dict(one), "trust-key-expired-after-signing.json", "refused")
+    future_list = files_list(pid, version, content)
+    future_path, future_env = sign(future_list, pid, version, key, signed_at="2099-01-01T00:00:00Z")
+    vectors["signature-in-the-future"] = ({**content, py.FILES: future_list, future_path: future_env}, "trust.json", "refused")
 
     # The JSON profile and the archive, more ways.
     vectors["junk-signature-file"] = ({**signed(content), py.SIGNATURES + "junk.dsse.json": b'{"hello":1}\n'}, "trust.json", "refused")
@@ -754,6 +771,36 @@ def main():
     raw["deflate-valid"] = (write_deflated_zip(s), "trust.json", "verified")
     raw["deflate-trailing-bytes"] = (write_deflated_zip(s, junk={record: b"\x00junk"}), "trust.json", "refused")
     raw["deflate-without-its-final-block"] = (write_deflated_zip(s, unfinished={record}), "trust.json", "refused")
+    # Review 6, L6 and I8: the archive limits, each beside its control.
+    zeros = signed({**content, "assets/zeros.bin": bytes(1 << 20)})
+    raw["archive-ratio-over-250"] = (write_deflated_zip(zeros), "trust.json", "refused")
+    raw["archive-ratio-control-stored"] = (write_zip(zeros), "trust.json", "verified")
+
+    def empty_deflate(b):
+        # The first entry (a deflated one) keeps its declared size but carries 0 compressed bytes: cut its data out, fix offsets.
+        b = bytearray(b)
+        nlen = struct.unpack("<H", b[26:28])[0]
+        csize = struct.unpack("<I", b[18:22])[0]
+        data_start = 30 + nlen
+        del b[data_start:data_start + csize]
+        b[18:22] = struct.pack("<I", 0)
+        cd = struct.unpack("<I", b[-6:-2])[0] - csize  # the central directory, where it is now
+        entries = struct.unpack("<H", b[-12:-10])[0]
+        pos = cd
+        for i in range(entries):
+            n, x, c = struct.unpack("<HHH", b[pos + 28:pos + 34])
+            if i == 0:
+                b[pos + 20:pos + 24] = struct.pack("<I", 0)
+            else:
+                off = struct.unpack("<I", b[pos + 42:pos + 46])[0]
+                b[pos + 42:pos + 46] = struct.pack("<I", off - csize)
+            pos += 46 + n + x + c
+        b[-6:-2] = struct.pack("<I", cd)
+        return bytes(b)
+    raw["archive-deflate-empty-declares-content"] = (empty_deflate(write_deflated_zip(s)), "trust.json", "refused")
+    many = {f"assets/f{i:04}.txt": b"x" for i in range(4096 - len(content) - 2)}
+    raw["archive-4096-files"] = (write_zip(signed({**content, **many})), "trust.json", "verified")
+    raw["archive-4097-files"] = (write_zip(signed({**content, **many, "assets/one-more.txt": b"x"})), "trust.json", "refused")
 
     # The pack card (v1.2 §15): card.json, read strictly by both verifiers. ampack init writes one into the base pack.
     def with_card(card_):
@@ -1020,7 +1067,7 @@ def main():
                 "tool": {"name": "kit", "version": "1.0.0"}, "evaluatedAt": evaluated,
                 "trial": trial_ or {"measure": "test-impact", "baseline": "none", "taskSource": "the kit's synthetic tasks"},
                 "checks": checks or [{"target": "hitRate", "requiredMilli": 500, "observedMilli": 600, "met": True}],
-                "statistic": "agentmemory.trial.hedged/2026-10-29",
+                "statistic": "agentmemory.trial.hedged/2",
                 "with": with_arm or arm_(40, 24, 120, 30, 12500), "passed": passed, **(extra or {})}
         if without is not None:
             pred["without"] = without
@@ -1037,12 +1084,14 @@ def main():
         return py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
                              "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
 
-    certificate_path = f"META/attestations/{stem}.certificate.dsse.json"
+    # A carried certificate travels under its evaluator's key and evaluation time (review 6, M3).
+    cert_stem = py.stem_for(evaluator_entry["keyId"], datetime(2026, 10, 27, 12, 0, 0, tzinfo=timezone.utc))
+    certificate_path = f"META/attestations/{cert_stem}.certificate.dsse.json"
 
-    def carrying(envelope, run=None, files_=certified):
-        out = {**files_, certificate_path: envelope}
+    def carrying(envelope, run=None, files_=certified, stem_=None):
+        out = {**files_, f"META/attestations/{stem_ or cert_stem}.certificate.dsse.json": envelope}
         for path_, bytes_ in (run or {}).items():
-            out[f"META/attestations/{stem}.aef/{path_}"] = bytes_
+            out[f"META/attestations/{stem_ or cert_stem}.aef/{path_}"] = bytes_
         return write_zip(out)
 
     run = {"run.json": json.dumps({"schemaVersion": "1.0", "runId": "trial.io.example.notes.1.0.0.20261028T120000000Z"}).encode(),
@@ -1065,7 +1114,7 @@ def main():
                          "PerTask": [{"Offered": o_, "Correct": c_} for o_, c_ in arm_(40, 24, 120, 30, 12500)["perTask"]]},
                 "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5, "MaximumOffered": 3,
                             "PerTask": [{"Offered": 0, "Correct": 0}] * 40},
-                "Statistic": "agentmemory.trial.hedged/2026-10-29",
+                "Statistic": "agentmemory.trial.hedged/2",
                 # Review 3: certify takes only a trial at each commit's parent.
                 "History": "parent"}
     decision_payload = json.dumps({"_type": py.STATEMENT, "subject": [{"name": f"{pid}@{version}", "digest": {"sha256": pack_digest[7:]}}],
@@ -1117,11 +1166,15 @@ def main():
                                   "trust-federated-buyer-evaluator.json", "verified"),
         "certificate-set-member-untrusted": (carrying(certificate(untrusted_member_set), files_=untrusted_member_set), certificate_path, None,
                                              "trust-federated-buyer-evaluator.json", "refused"),
-        "certificate-path-of-a-run-file": (carrying(certificate(certified, aef=aef), run), f"META/attestations/{stem}.aef/run.json", None,
+        "certificate-path-of-a-run-file": (carrying(certificate(certified, aef=aef), run), f"META/attestations/{cert_stem}.aef/run.json", None,
                                            "trust-evaluator.json", "refused"),
         "certificate-policy-evaluator-also-publisher": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-also-publisher.json", "refused"),
         "certificate-by-the-publisher": (carrying(certificate(certified, signer=key)), certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-in-the-future": (carrying(certificate(certified, evaluated="2099-01-01T00:00:00Z")), certificate_path, None, "trust-evaluator.json", "refused"),
+        # Review 6, M3: a copy (here the very certificate) under a name that is not its evaluator's key and time is refused, so
+        # nobody can place a respelled copy where it sorts first.
+        "certificate-under-another-stem": (carrying(certificate(certified), stem_=cert_stem[:17] + "20261027t120001z"),
+                                           f"META/attestations/{cert_stem[:17]}20261027t120001z.certificate.dsse.json", None, "trust-evaluator.json", "refused"),
         # For exactly this pack.
         "certificate-for-another-pack": (carrying(certificate(other)), certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-other-version": (carrying(certificate(certified, version_="1.0.1")), certificate_path, None, "trust-evaluator.json", "refused"),
@@ -1151,6 +1204,19 @@ def main():
                                            certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-cap-above-sixteen": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, cap=17))),
                                           certificate_path, None, "trust-evaluator.json", "refused"),
+        # Review 6: a baseline that offers nothing by design records a cap of 0; how far apart the tasks were drawn, 1 to 2,000.
+        "certificate-baseline-cap-zero": (carrying(certificate(certified, without=arm_(40, 0, 0, 0, 9000, cap=0),
+                                                               checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 600, "met": True},
+                                                                       {"target": "lift", "requiredMilli": 0, "observedMilli": 100, "met": True}])),
+                                          certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-baseline-cap-zero-offering": (carrying(certificate(certified, without={**arm_(40, 1, 1, 1, 9000), "maximumOffered": 0})),
+                                                   certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-spacing-zero": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, spacing=0))),
+                                     certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-spacing-absent": (carrying(certificate(certified, with_arm={k: v for k, v in arm_(40, 24, 120, 30, 12500).items() if k != "spacing"})),
+                                       certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-spacing-one": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, spacing=1))),
+                                    certificate_path, None, "trust-evaluator.json", "verified"),
         "certificate-more-than-200-tasks": (carrying(certificate(certified, with_arm=arm_(201, 24, 201, 24, 12500))),
                                             certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-two-hundred-tasks": (carrying(certificate(certified, with_arm=arm_(200, 120, 600, 150, 12500))),

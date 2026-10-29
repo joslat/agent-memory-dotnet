@@ -471,7 +471,7 @@ public sealed class PackCertificateTests : IDisposable
         for (var i = 0; i < hits; i++) c[i] = 1;
         for (var (left, i) = (correct - hits, 0); left > 0 && hits > 0; i = (i + 1) % hits)
             if (c[i] < o[i]) { c[i]++; left--; }
-        return new(tasks, hits, offered, correct, p95, Math.Max(1, o.DefaultIfEmpty(0).Max()), [.. o.Select((x, i) => new CertificateTask(x, c[i]))]);
+        return new(tasks, hits, offered, correct, p95, Math.Max(1, o.DefaultIfEmpty(0).Max()), PackTrialGate.BurstLength, [.. o.Select((x, i) => new CertificateTask(x, c[i]))]);
     }
 
     // Forty tasks of three items with the per-task evidence a certificate carries (review 5).

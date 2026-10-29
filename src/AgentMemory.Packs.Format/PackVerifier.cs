@@ -55,17 +55,42 @@ internal static class PackVerifier
         if (integrity.Count > 0) return new(null, integrity);
         // What this host revoked before still holds, whatever lists this run was given (fifth review).
         if (ledger is not null) policy = ledger.Apply(policy);
+        var (signatures, refusal) = Signatures(content, list!, listBytes!, policy, now, explain);
+        if (refusal is not null) return new(null, refusal);
+        return Signed(content, list!, listBytes!, signatures, policy, now, ledger, allowDowngrade, explain);
+    }
 
+    /// <summary>
+    /// What a caller needs to choose how to load a pack, authenticated first (review 6, H1: the load paths parsed an unsigned
+    /// pack.json of any size to pick the loader): the paths, the signed list, exactly the content it lists, and the signatures
+    /// the policy requires; only then pack.json, bounded. The chosen loader verifies everything, the ledger included.
+    /// </summary>
+    internal static (PackManifest? Manifest, IReadOnlyList<string> Problems) Authenticated(PackContent content, TrustPolicy policy, DateTimeOffset now)
+    {
+        var (integrity, list, listBytes) = CheckSigned(content, null);
+        if (integrity.Count > 0) return (null, integrity);
+        var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);
+        if (refusal is not null) return (null, refusal);
+        if (!content.Files.TryGetValue(PackManifest.FileName, out var bytes)) return (null, [$"There is no {PackManifest.FileName}."]);
+        var (manifest, problem) = PackManifest.Parse(bytes);
+        return manifest is null ? (null, [problem!]) : (manifest, []);
+    }
+
+    // The signatures over the files list: those that count, and why the pack is refused when the required roles do not hold
+    // or an envelope is junk (null when it is not).
+    private static (List<PackSignature> Signatures, List<string>? Refusal) Signatures(PackContent content, FilesList list, byte[] listBytes, TrustPolicy policy,
+        DateTimeOffset now, Action<PackStep>? explain)
+    {
         var signatures = new List<PackSignature>();
         var junk = new List<string>();
         var envelopeProblems = new List<string>();
         var envelopes = content.Files.Keys.Where(PackPaths.IsSignature).Order(StringComparer.Ordinal).ToList();
         // Bounded: every envelope is checked against one hash of the files list (fifth review).
         if (envelopes.Count > Dsse.MaximumEnvelopes) junk.Add($"The pack carries {envelopes.Count} signature envelopes; at most {Dsse.MaximumEnvelopes}.");
-        var listHex = FilesList.Hex(listBytes!);
+        var listHex = FilesList.Hex(listBytes);
         foreach (var file in envelopes.Take(Dsse.MaximumEnvelopes))
         {
-            var (valid, invalid, malformed) = Dsse.Verify(file, content.Files[file], listHex, list!, policy, now);
+            var (valid, invalid, malformed) = Dsse.Verify(file, content.Files[file], listHex, list, policy, now);
             signatures.AddRange(valid);
             (malformed ? junk : envelopeProblems).AddRange(invalid);
         }
@@ -74,23 +99,29 @@ internal static class PackVerifier
             .. signatures.Select(s => $"counted: {s.Role} by key {Dsse.Short(s.KeyId)} at {s.SignedAt:u} ({s.File})"),
             .. envelopeProblems.Select(p => (missingRoles.Count == 0 ? "ignored (the required roles hold): " : "not counted: ") + p),
             .. junk.Select(p => "refuses the pack: " + p),
-            .. missingRoles.Select(r => $"missing: no valid {r} signature from a key the policy trusts for '{list!.Id}'"),
+            .. missingRoles.Select(r => $"missing: no valid {r} signature from a key the policy trusts for '{list.Id}'"),
             $"required roles: {string.Join(", ", policy.RequiredRoles)}"]));
         // A pack whose signatures do not hold is refused here, before anything else in it is parsed. Invalid extra envelopes are
         // reported only then; a file that is not an envelope at all is unlisted content travelling with the pack (PACK-review 1.9).
         if (missingRoles.Count > 0 || junk.Count > 0)
-            return new(null, [
+            return (signatures, [
                 .. missingRoles.Count > 0 ? envelopeProblems : [],
-                .. missingRoles.Select(role => $"No valid {role} signature: a pack is refused unless a key the host trusts for '{list!.Id}' signed it as {role}."),
+                .. missingRoles.Select(role => $"No valid {role} signature: a pack is refused unless a key the host trusts for '{list.Id}' signed it as {role}."),
                 .. junk]);
+        return (signatures, null);
+    }
 
-        var (problems, manifest) = CheckContent(content, list!, explain, records: false);
+    // Once the signatures hold: the content, the records, the lifetime, the federation and the ledger.
+    private static PackVerification Signed(PackContent content, FilesList list, byte[] listBytes, List<PackSignature> signatures, TrustPolicy policy,
+        DateTimeOffset now, HostLedger? ledger, bool allowDowngrade, Action<PackStep>? explain)
+    {
+        var (problems, manifest) = CheckContent(content, list, explain, records: false);
         if (manifest is null) return new(null, problems);
         var recordProblems = LineProblems(content).ToList();
         problems.AddRange(recordProblems);
         explain?.Invoke(new("records", recordProblems.Count == 0, recordProblems.Count > 0 ? recordProblems
             : ["every JSONL file: UTF-8, LF, one JSON value per line of at most 1 MiB, no repeated key, NFC strings, integers within 2^53"]));
-        var digest = FilesList.DigestOf(listBytes!);
+        var digest = FilesList.DigestOf(listBytes);
         var lifetime = new List<string>();
         if (policy.RevokedDigests.Contains(digest)) lifetime.Add($"The pack {digest} is revoked.");
         if (manifest.ValidUntil is { } until && until < now) lifetime.Add($"The pack was valid until {until:u}.");
@@ -110,13 +141,13 @@ internal static class PackVerifier
                 .. federation.Purpose is { } purpose ? [$"purpose: {purpose}"] : Array.Empty<string>()]));
         }
 
-        var ledgerRefusal = ledger?.Refusal(list!.Id, list.Version, digest, allowDowngrade);
+        var ledgerRefusal = ledger?.Refusal(list.Id, list.Version, digest, allowDowngrade);
         if (ledgerRefusal is not null) problems.Add(ledgerRefusal);
         if (ledger is not null)
-            explain?.Invoke(new("ledger", ledgerRefusal is null, [ledgerRefusal ?? $"{list!.Id} {list.Version} with {digest[..23]}… is allowed by the ledger"]));
+            explain?.Invoke(new("ledger", ledgerRefusal is null, [ledgerRefusal ?? $"{list.Id} {list.Version} with {digest[..23]}… is allowed by the ledger"]));
         return problems.Count > 0
             ? new(null, problems)
-            : new(new VerifiedPack(list!.Id, list.Version, digest, manifest, signatures,
+            : new(new VerifiedPack(list.Id, list.Version, digest, manifest, signatures,
                 content.Files.Where(f => FilesList.IsListed(f.Key)).ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal))
             {
                 Attestations = content.Files.Where(f => PackPaths.IsAttestation(f.Key)).ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal),

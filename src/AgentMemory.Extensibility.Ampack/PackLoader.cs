@@ -19,8 +19,9 @@ public sealed class PackTrust
     /// <exception cref="InvalidDataException">The policy is malformed, or a key id is not the hash of its key.</exception>
     public static PackTrust Parse(byte[] json) => new(TrustPolicy.Parse(json ?? throw new ArgumentNullException(nameof(json))));
 
-    /// <summary>Reads a trust policy file.</summary>
-    public static PackTrust Load(string path) => Parse(File.ReadAllBytes(path));
+    /// <summary>Reads a trust policy file: at most 4 MiB, never through a link (review 6, M2: read whole and through links).</summary>
+    /// <exception cref="InvalidDataException">The policy is malformed, larger than 4 MiB, a link or a folder.</exception>
+    public static PackTrust Load(string path) => Parse(PackReader.ReadFile(path, TrustPolicy.MaximumBytes, "The trust policy"));
 
     /// <summary>Trusts nothing: every pack is refused. There is no setting that admits unsigned packs.</summary>
     public static PackTrust None { get; } = new(new TrustPolicy());
@@ -208,20 +209,29 @@ public static class PackLoader
     public const string Extension = ".ampack";
 
     /// <summary>
-    /// An archive's id, version and kind as its <c>pack.json</c> states them, <b>unverified</b>: to choose how to load it
-    /// (<see cref="Load(byte[], PackTrust, PackInstallLedger?, bool)"/>, <see cref="PackFamilies.LoadSet(byte[], PackTrust, PackInstallLedger?)"/>
-    /// or <see cref="PackFamilies.LoadComposite"/>), never to trust it. The chosen path verifies everything.
+    /// An archive's id, version and kind, read only once its signatures hold (review 6, H1: an unsigned pack.json of any size was
+    /// parsed to choose the loader): to choose how to load it (<see cref="Load(byte[], PackTrust, PackInstallLedger?, bool)"/>,
+    /// <see cref="PackFamilies.LoadSet(byte[], PackTrust, PackInstallLedger?)"/> or <see cref="PackFamilies.LoadComposite"/>).
+    /// The chosen path verifies everything else, the ledger included.
     /// </summary>
-    /// <exception cref="PackLoadException">The archive is not readable under the strict profile, or has no valid pack.json.</exception>
-    public static (string Id, string Version, string Kind) Peek(byte[] archive)
+    /// <exception cref="PackLoadException">The archive is not readable under the strict profile, its signatures do not hold under
+    /// <paramref name="trust"/>, or it has no valid pack.json.</exception>
+    public static (string Id, string Version, string Kind) Peek(byte[] archive, PackTrust trust)
+    {
+        var (manifest, _) = Open(archive, trust);
+        return (manifest.Id, manifest.Version, manifest.Kind);
+    }
+
+    // The archive read once and authenticated: its manifest, to pick the loader, and its content, for the loader to verify.
+    internal static (PackManifest Manifest, PackContent Content) Open(byte[] archive, PackTrust trust)
     {
         ArgumentNullException.ThrowIfNull(archive);
+        ArgumentNullException.ThrowIfNull(trust);
         PackContent content;
         try { content = PackReader.ReadArchive(archive, "archive"); }
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
-        if (!content.Files.TryGetValue(PackManifest.FileName, out var bytes)) throw new PackLoadException([$"There is no {PackManifest.FileName}."]);
-        var (manifest, problem) = PackManifest.Parse(bytes);
-        return manifest is null ? throw new PackLoadException([problem!]) : (manifest.Id, manifest.Version, manifest.Kind);
+        var (manifest, problems) = PackVerifier.Authenticated(content, trust.Policy, DateTimeOffset.UtcNow);
+        return manifest is null ? throw new PackLoadException(problems) : (manifest, content);
     }
 
     /// <summary>Loads a pack folder or an <c>.ampack</c> file.</summary>
@@ -376,8 +386,11 @@ public static class PackLoader
     /// <param name="pack">A loaded snapshot pack.</param>
     /// <param name="definition">The definition its records belong to: a loaded definition pack's manifest, or the host's own.</param>
     /// <param name="dependencies">The definition's own dependencies, as <see cref="ModuleSnapshot.Dependencies"/>.</param>
+    /// <param name="grants">The host's consent grants (<see cref="ModuleSnapshot.ConsentGrants"/>): a link into a dependency that
+    /// does not list the definition in containableBy is refused without one.</param>
     /// <exception cref="PackLoadException">The pack is not a snapshot of this definition, or a record is refused; every reason is listed.</exception>
-    public static ModuleSnapshot ToSnapshot(this LoadedPack pack, ModuleManifest definition, IReadOnlyList<ModuleManifest>? dependencies = null)
+    public static ModuleSnapshot ToSnapshot(this LoadedPack pack, ModuleManifest definition, IReadOnlyList<ModuleManifest>? dependencies = null,
+        IReadOnlyList<ModuleConsentGrant>? grants = null)
     {
         ArgumentNullException.ThrowIfNull(pack);
         ArgumentNullException.ThrowIfNull(definition);
@@ -388,7 +401,7 @@ public static class PackLoader
             throw new PackLoadException([$"{pack.Id} needs {definition.Id} {range.Value}; the host has {definition.Version.Value}."]);
         try
         {
-            return ModuleSnapshot.FromRecordFiles(definition, dependencies ?? [], pack.SnapshotSource!, pack.RecordFiles) with
+            return ModuleSnapshot.FromRecordFiles(definition, dependencies ?? [], pack.SnapshotSource!, pack.RecordFiles, grants) with
             {
                 Carrier = new PackCarrier { Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Signer = string.Join(", ", pack.Signers) },
             };

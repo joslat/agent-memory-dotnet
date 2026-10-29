@@ -180,9 +180,10 @@ public static class PackCertificates
         string? runId = null, runHash = null;
         if (aefRunFolder is not null)
         {
-            var run = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-            foreach (var file in Directory.EnumerateFiles(aefRunFolder, "*", SearchOption.AllDirectories))
-                run[Path.GetRelativePath(aefRunFolder, file).Replace(Path.DirectorySeparatorChar, '/')] = File.ReadAllBytes(file);
+            // Read as a pack folder is: bounded per file and in all, no links (review 6, M2: read whole and through links).
+            IReadOnlyDictionary<string, byte[]> run;
+            try { run = PackReader.ReadFolder(aefRunFolder).Files; }
+            catch (Exception e) when (e is InvalidDataException or IOException) { throw new PackLoadException([$"{aefRunFolder}: {e.Message}"]); }
             runId = PackAttestations.RunId(run) ?? throw new PackLoadException([$"{aefRunFolder} is not an AEF run: its run.json names no runId."]);
             runHash = PackAttestations.RunHash(run);
             foreach (var (path, bytes) in run) files[PackPaths.AttestationsFolder + stem + PackAttestations.RunSuffix + path] = bytes;
@@ -203,8 +204,16 @@ public static class PackCertificates
     /// The certificate that decides for <paramref name="pack"/>: the latest one by a key this host trusts as evaluator for it,
     /// or null. Admission and the loader's record of which certificate a decision rests on both read it here (review 1, L16).
     /// </summary>
-    internal static PackEvaluation? LatestTrusted(LoadedPack pack) =>
-        pack.Certificates.Where(c => c.Trusted).OrderByDescending(c => c.EvaluatedAt).ThenBy(c => c.Digest, StringComparer.Ordinal).FirstOrDefault();
+    internal static PackEvaluation? LatestTrusted(LoadedPack pack)
+    {
+        var trusted = pack.Certificates.Where(c => c.Trusted).ToList();
+        if (trusted.Count == 0) return null;
+        var latest = trusted.Max(c => c.EvaluatedAt);
+        var tied = trusted.Where(c => c.EvaluatedAt == latest).OrderBy(c => c.Digest, StringComparer.Ordinal).ToList();
+        // Two trusted evaluations of one second that disagree: the one that did not pass, so admission fails closed (review 6, M3:
+        // which of a pass and a fail counted was the distributor's choice).
+        return tied.FirstOrDefault(c => !c.Passed) ?? tied[0];
+    }
 
     /// <summary>
     /// The decision a host makes from a certificate, where it trusts certificates: from the latest trusted certificate, when it
@@ -271,13 +280,17 @@ public static class PackCertificates
     internal static IReadOnlyList<PackEvaluation> Read(VerifiedPack pack, TrustPolicy policy, DateTimeOffset now)
     {
         var evaluations = new List<PackEvaluation>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (stem, envelope) in PackAttestations.Certificates(pack.Attestations))
         {
+            // Named by what was signed, and read once however many respellings of it travel (review 6, M3).
+            var identity = PackCertificate.IdentityOf(envelope) ?? "sha256:" + FilesList.Hex(envelope);
+            if (!seen.Add(identity)) continue;
             var run = PackAttestations.Run(pack.Attestations, stem);
-            var (certificate, signedBy, problems) = PackCertificate.Verify(envelope, pack, policy, now, run);
+            var (certificate, signedBy, problems) = PackCertificate.Verify(envelope, pack, policy, now, run, stem);
             var evaluation = new PackEvaluation
             {
-                Digest = "sha256:" + FilesList.Hex(envelope), File = PackAttestations.CertificatePath(stem), Trusted = certificate is not null, Problems = problems,
+                Digest = identity, File = PackAttestations.CertificatePath(stem), Trusted = certificate is not null, Problems = problems,
                 EvaluatorKey = signedBy, AefRunIncluded = certificate is not null && run is not null,
             };
             // An untrusted certificate is still shown for what it claims, read strictly, never relied on.
@@ -311,11 +324,11 @@ public static class PackCertificates
     private static PackTrialMeasurement Measurement(CertificateArm arm) => new()
     {
         Tasks = arm.Tasks, Hits = arm.Hits, Offered = arm.Offered, Correct = arm.Correct, P95Ms = arm.P95Micros / 1000.0,
-        MaximumOffered = arm.MaximumOffered, PerTask = [.. arm.PerTask.Select(t => new PackTrialTask(t.Offered, t.Correct))],
+        MaximumOffered = arm.MaximumOffered, Spacing = arm.Spacing, PerTask = [.. arm.PerTask.Select(t => new PackTrialTask(t.Offered, t.Correct))],
     };
 
     private static CertificateArm Arm(PackTrialMeasurement m) => new(m.Tasks, m.Hits, m.Offered, m.Correct, (long)Math.Round(m.P95Ms * 1000, MidpointRounding.AwayFromZero),
-        m.MaximumOffered ?? ModuleTraversal.MaximumOffered, [.. m.PerTask!.Select(t => new CertificateTask(t.Offered, t.Correct))]);
+        m.MaximumOffered ?? ModuleTraversal.MaximumOffered, m.Spacing ?? 1, [.. m.PerTask!.Select(t => new CertificateTask(t.Offered, t.Correct))]);
 
     private static long Milli(double value) => checked((long)Math.Round(value * 1000, MidpointRounding.AwayFromZero));
 

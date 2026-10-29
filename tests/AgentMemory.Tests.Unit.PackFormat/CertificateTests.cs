@@ -52,7 +52,7 @@ public sealed class CertificateTests
         certificate.EvaluatedAt.Should().Be(EvaluatedAt);
         certificate.Checks.Should().Equal(new CertificateCheck("hitRate", 500, 600, true, null));
         certificate.With.Should().BeEquivalentTo(ArmOf(40, 24, 120, 30, 12_500));
-        certificate.Statistic.Should().Be("agentmemory.trial.hedged/2026-10-29");
+        certificate.Statistic.Should().Be("agentmemory.trial.hedged/2");
         certificate.Passed.Should().BeTrue();
 
         PackCertificate.Verify(envelope, pack, sample.Policy(), SamplePack.Now).Problems.Should().Contain(p => p.Contains("not in the trust policy"));
@@ -182,7 +182,7 @@ public sealed class CertificateTests
 
     private static PackCertificate Sample(SamplePack sample, bool passed = true, bool met = true, int tasks = 40, string evaluator = "Example Lab") =>
         new(sample.Id, sample.Version, "sha256:" + new string('0', 64), evaluator, "kit", "1.0.0", EvaluatedAt, "test-impact", "none", null, "the lab's own tasks",
-            "agentmemory.trial.hedged/2026-10-29", [new CertificateCheck("hitRate", 500, met ? 600 : 400, met, null)], ArmOf(tasks, Math.Min(24, tasks), 120, 30, 12_500),
+            "agentmemory.trial.hedged/2", [new CertificateCheck("hitRate", 500, met ? 600 : 400, met, null)], ArmOf(tasks, Math.Min(24, tasks), 120, 30, 12_500),
             null, passed, null, null);
 
     // An arm with consistent per-task evidence: items spread evenly, one right item on each of the first `hits` tasks and the
@@ -196,7 +196,7 @@ public sealed class CertificateTests
         for (var i = 0; i < hits; i++) c[i] = 1;
         for (var (left, i) = (correct - hits, 0); left > 0 && hits > 0; i = (i + 1) % hits)
             if (c[i] < o[i]) { c[i]++; left--; }
-        return new(tasks, hits, offered, correct, p95, Math.Max(1, o.DefaultIfEmpty(0).Max()), [.. o.Select((x, i) => new CertificateTask(x, c[i]))]);
+        return new(tasks, hits, offered, correct, p95, Math.Max(1, o.DefaultIfEmpty(0).Max()), 8, [.. o.Select((x, i) => new CertificateTask(x, c[i]))]);
     }
 
 

@@ -11,7 +11,7 @@ namespace AgentMemory.Packs.Format;
 /// What one arm of an evaluation measured: counts, the p95 time in microseconds, the most items it could offer one task, and
 /// each task's offered and right items: the evidence a host derives the verdict from again (review 5, root RB).
 /// </summary>
-internal sealed record CertificateArm(int Tasks, int Hits, int Offered, int Correct, long P95Micros, int MaximumOffered, IReadOnlyList<CertificateTask> PerTask);
+internal sealed record CertificateArm(int Tasks, int Hits, int Offered, int Correct, long P95Micros, int MaximumOffered, int Spacing, IReadOnlyList<CertificateTask> PerTask);
 
 /// <summary>One task of an arm: the items offered, and how many were right.</summary>
 internal sealed record CertificateTask(int Offered, int Correct);
@@ -51,6 +51,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     internal const int MaximumTasks = 200;
     /// <summary>The most items one task may offer, the format's traversal limit.</summary>
     internal const int MaximumOffered = 16;
+    internal const int MaximumSpacing = 2000;
 
     /// <summary>Signs this certificate as its evaluator; what is signed is read back by the reader's own rules first.</summary>
     internal byte[] Sign(PackSigner signer)
@@ -96,17 +97,19 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     private static JsonObject Arm(CertificateArm arm) => new()
     {
         ["tasks"] = arm.Tasks, ["hits"] = arm.Hits, ["offered"] = arm.Offered, ["correct"] = arm.Correct, ["p95Micros"] = arm.P95Micros,
-        ["maximumOffered"] = arm.MaximumOffered,
+        ["maximumOffered"] = arm.MaximumOffered, ["spacing"] = arm.Spacing,
         ["perTask"] = new JsonArray([.. arm.PerTask.Select(t => (JsonNode)new JsonArray(t.Offered, t.Correct))]),
     };
 
     /// <summary>
     /// Verifies a certificate for <paramref name="pack"/>: a valid signature by a key the host trusts as <c>evaluator</c> for
     /// the pack's id, valid at the evaluation time; the pack's digest, id and version; and, when the AEF run it names travels
-    /// in the pack, that run's files hash to the run hash it names (AEF 1.0 SEAL-1 to SEAL-4). Returns the key that signed it.
+    /// in the pack, that run's files hash to the run hash it names (AEF 1.0 SEAL-1 to SEAL-4); and, for one the pack carries
+    /// under <paramref name="stem"/>, that the stem is a key that signed it and its evaluation time (§16; review 6, M3: only the
+    /// grammar was checked, so a copy could travel under any name). Returns the key that signed it.
     /// </summary>
     internal static (PackCertificate? Certificate, string? SignedBy, IReadOnlyList<string> Problems) Verify(ReadOnlySpan<byte> envelopeBytes, VerifiedPack pack,
-        TrustPolicy policy, DateTimeOffset now, IReadOnlyDictionary<string, byte[]>? run = null)
+        TrustPolicy policy, DateTimeOffset now, IReadOnlyDictionary<string, byte[]>? run = null, string? stem = null)
     {
         var problems = new List<string>();
         if (envelopeBytes.Length > Dsse.MaximumEnvelopeBytes) return (null, null, [$"The certificate is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB."]);
@@ -136,6 +139,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
 
         var hash = SHA256.HashData(Dsse.Pae(Dsse.PayloadType, payload));
         string? signedBy = null;
+        var signers = new List<string>();
         var signatureProblems = new List<string>();
         foreach (var entry in signatures.EnumerateArray())
         {
@@ -148,9 +152,26 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             if (!ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence)) { signatureProblems.Add($"The certificate's signature by {Dsse.Short(keyId)} does not verify."); continue; }
             if (policy.Refusal(key, Role, pack.Id, certificate.EvaluatedAt, now) is { } refusal) { signatureProblems.Add("The certificate: " + refusal); continue; }
             signedBy ??= keyId;
+            signers.Add(keyId);
         }
         if (signedBy is null) problems.AddRange(signatureProblems.Count > 0 ? signatureProblems : ["The certificate carries no signature."]);
+        else if (stem is not null && !signers.Any(k => PackAttestations.StemFor(k, certificate.EvaluatedAt) == stem))
+            problems.Add($"The certificate travels as {stem}, not as its evaluator's key and evaluation time ({PackAttestations.StemFor(signedBy, certificate.EvaluatedAt)}).");
         return problems.Count > 0 ? (null, null, problems) : (certificate, signedBy, []);
+    }
+
+    /// <summary>
+    /// A certificate's identity: the SHA-256 of what its evaluator signed, the pre-authentication encoding of its payload, as a
+    /// revocation list's (review 6, M3: it was the hash of the envelope's bytes, which anyone can respell without the key, so
+    /// a copy could be ground to sort first). Null for bytes that are not an envelope.
+    /// </summary>
+    internal static string? IdentityOf(ReadOnlySpan<byte> envelopeBytes)
+    {
+        if (envelopeBytes.Length > Dsse.MaximumEnvelopeBytes || PackJson.Check(envelopeBytes) is not null) return null;
+        using var document = JsonDocument.Parse(envelopeBytes.ToArray());
+        if (document.RootElement.ValueKind != JsonValueKind.Object || Str(document.RootElement, "payload") is not { } text || Dsse.FromBase64(text) is not { } payload)
+            return null;
+        return "sha256:" + Convert.ToHexString(SHA256.HashData(Dsse.Pae(Dsse.PayloadType, payload))).ToLowerInvariant();
     }
 
     /// <summary>Reads the statement, strictly: exactly the fields this format defines, each of its type and range.</summary>
@@ -216,7 +237,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             checks.Add(new CertificateCheck(target, required, observed, met.ValueKind == JsonValueKind.True, estimate));
         }
         if (checks.Select(c => c.Target).Distinct(StringComparer.Ordinal).Count() != checks.Count) return (null, "The certificate checks one target twice.");
-        const string ArmShape = "arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (1 to 16) and perTask, one [offered, correct] a task "
+        const string ArmShape = "arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task "
             + "within the cap, summing to offered and correct, with a right item on exactly its hits.";
         if (ReadArm(p, "with") is not { } with) return (null, "The certificate's 'with' " + ArmShape);
         CertificateArm? without = null;
@@ -254,12 +275,16 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     private static CertificateArm? ReadArm(JsonElement predicate, string name)
     {
         if (!predicate.TryGetProperty(name, out var arm) || arm.ValueKind != JsonValueKind.Object
-            || arm.EnumerateObject().Any(f => f.Name is not ("tasks" or "hits" or "offered" or "correct" or "p95Micros" or "maximumOffered" or "perTask"))
+            || arm.EnumerateObject().Any(f => f.Name is not ("tasks" or "hits" or "offered" or "correct" or "p95Micros" or "maximumOffered" or "spacing" or "perTask"))
             || Long(arm, "tasks") is not { } tasks || Long(arm, "hits") is not { } hits || Long(arm, "offered") is not { } offered
             || Long(arm, "correct") is not { } correct || Long(arm, "p95Micros") is not { } p95 || Long(arm, "maximumOffered") is not { } cap
+            || Long(arm, "spacing") is not { } spacing
             || !arm.TryGetProperty("perTask", out var perTaskValue) || perTaskValue.ValueKind != JsonValueKind.Array)
             return null;
-        if (tasks is < 0 or > MaximumTasks || cap is < 1 or > MaximumOffered || p95 is < 0 or > 86_400_000_000 || perTaskValue.GetArrayLength() != tasks)
+        // A cap of 0 is an arm that offers nothing by design, the baseline none (review 6, M5); the spacing is how far apart in
+        // history the tasks were drawn (review 6, H4).
+        if (tasks is < 0 or > MaximumTasks || cap is < 0 or > MaximumOffered || spacing is < 1 or > MaximumSpacing || p95 is < 0 or > 86_400_000_000
+            || perTaskValue.GetArrayLength() != tasks)
             return null;
         var perTask = new List<CertificateTask>((int)tasks);
         foreach (var entry in perTaskValue.EnumerateArray())
@@ -271,7 +296,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         }
         // The totals are the evidence's own: a hit is a task with a right item (review 5, L9).
         return perTask.Sum(t => (long)t.Offered) != offered || perTask.Sum(t => (long)t.Correct) != correct || perTask.Count(t => t.Correct > 0) != hits
-            ? null : new CertificateArm((int)tasks, (int)hits, (int)offered, (int)correct, p95, (int)cap, perTask);
+            ? null : new CertificateArm((int)tasks, (int)hits, (int)offered, (int)correct, p95, (int)cap, (int)spacing, perTask);
     }
 
     private static long? Long(JsonElement element, string name) =>

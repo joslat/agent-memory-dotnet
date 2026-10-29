@@ -25,6 +25,7 @@ internal static class PackLock
 
     internal static (IReadOnlyList<LockEntry>? Entries, string? Problem) Parse(ReadOnlySpan<byte> bytes)
     {
+        if (bytes.Length > PackVerifier.MaximumJsonBytes) return (null, $"{PackPaths.LockFile} is larger than {PackVerifier.MaximumJsonBytes >> 20} MiB.");
         if (Jcs.CheckCanonical(bytes) is { } problem) return (null, $"{PackPaths.LockFile} {problem}.");
         using var document = JsonDocument.Parse(bytes.ToArray());
         var root = document.RootElement;

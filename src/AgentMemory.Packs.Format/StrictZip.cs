@@ -175,7 +175,8 @@ internal static class StrictZip
             if (size > limits.MaxFileBytes) throw Bad($"{where} is larger than {limits.MaxFileBytes} bytes");
             totalSize += size;
             if (totalSize > limits.MaxTotalBytes) throw Bad($"unpacks to more than {limits.MaxTotalBytes} bytes");
-            if (method == Deflate && compressed > 0 && size / compressed > limits.MaxRatio) throw Bad($"{where} declares a compression ratio above {limits.MaxRatio}:1");
+            // A deflated entry of 0 bytes that declares content is an unbounded ratio, refused before its buffer is allocated (review 6, I8).
+            if (method == Deflate && (compressed == 0 ? size > 0 : size / compressed > limits.MaxRatio)) throw Bad($"{where} declares a compression ratio above {limits.MaxRatio}:1");
             var content = method == Stored ? zip.AsSpan((int)dataStart, (int)compressed).ToArray() : Inflate(zip, (int)dataStart, (int)compressed, size, where);
             if (Crc32.Compute(content) != crc) throw Bad($"{where} fails its CRC");
             files[name] = content;

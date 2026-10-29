@@ -219,7 +219,9 @@ def read_zip(data):
     _, disk, cd_disk, n, total, cd_size, cd_start, comment = struct.unpack("<IHHHHIIH", data[-22:])
     if disk or cd_disk or comment or n != total or n == 0xFFFF:
         raise Refused("the end record is not in the profile")
-    if n > MAX_FILES or cd_start + cd_size != len(data) - 22:
+    if n > MAX_FILES:
+        raise Refused(f"the archive holds more than {MAX_FILES} files")
+    if cd_start + cd_size != len(data) - 22:
         raise Refused("the central directory is not where the end record says")
     files, cursor, pos, previous, folded, unpacked = {}, 0, cd_start, None, set(), 0
     for _ in range(n):
@@ -242,7 +244,8 @@ def read_zip(data):
                 or data[cursor + 30:cursor + 30 + nlen] != name_bytes:
             raise Refused(f"entry '{name}' has a local header that differs from the central directory")
         start = cursor + 30 + nlen
-        if start + csize > cd_start or size > MAX_FILE or (method == 8 and csize and size // csize > MAX_RATIO) or (method == 0 and csize != size):
+        # A deflated entry of 0 bytes that declares content is refused before anything is allocated (review 6, I8).
+        if start + csize > cd_start or size > MAX_FILE or (method == 8 and (size > 0 if csize == 0 else size // csize > MAX_RATIO)) or (method == 0 and csize != size):
             raise Refused(f"entry '{name}' breaks a size rule")
         unpacked += size
         if unpacked > MAX_TOTAL:
@@ -761,7 +764,7 @@ def verify(files, policy, now):
             raise Refused(f"'{p}' does not match META/files.json")
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
-    roles, publisher_keys = set(), set()
+    roles, publisher_keys, reasons = set(), set(), []
     envelopes = sorted(p for p in files if p.startswith(SIGNATURES))
     if len(envelopes) > MAX_ENVELOPES:
         raise Refused(f"the pack carries {len(envelopes)} signature envelopes; at most {MAX_ENVELOPES}")
@@ -819,32 +822,29 @@ def verify(files, policy, now):
             if not isinstance(s, dict) or not isinstance(s.get("keyid"), str):
                 continue
             key = keys.get(s.get("keyid"))
-            if key is None or key["keyId"] in revoked_keys or role not in key["roles"]:
-                continue
-            # As .NET covers it: the same id, or the prefix as a namespace (one trailing dot allowed, never stripped further).
-            if not any(pid == pre or pid.startswith(pre if pre.endswith(".") else pre + ".") for pre in key["idPrefixes"]):
+            if key is None:
                 continue
             public = serialization.load_pem_public_key(key["publicKey"].encode())
             spki = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
-            if hashlib.sha256(spki).hexdigest() != key["keyId"] or signed_at.timestamp() > now.timestamp() + 300:
-                continue
-            # A key's window: the signing time is the signer's own claim, so expiry is also checked against now.
-            not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
-            if not_before is not None and (signed_at < not_before or now < not_before):
-                continue
-            if not_after is not None and (signed_at > not_after or now > not_after):
+            if hashlib.sha256(spki).hexdigest() != key["keyId"]:
                 continue
             try:
                 public.verify(base64.b64decode(s.get("sig") if isinstance(s.get("sig"), str) else "!", validate=True),
                               digest_of_pae, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
-                roles.add(role)
-                if role == "publisher":
-                    publisher_keys.add(key["keyId"])
             except (InvalidSignature, ValueError, binascii.Error):
                 continue
+            # The one rule for whose signature counts, the same as for receipts and certificates (review 6, L6: the pack path
+            # kept its own copy of the key window, which no vector reached), and why not, as .NET says it.
+            refusal = key_refusal(key, role, pid, signed_at, now, revoked_keys)
+            if refusal is not None:
+                reasons.append(f"{path}: {refusal}")
+                continue
+            roles.add(role)
+            if role == "publisher":
+                publisher_keys.add(key["keyId"])
     missing = set(policy.get("requireRoles", ["publisher"])) - roles
     if missing:
-        raise Refused("no valid signature in role " + ", ".join(sorted(missing)))
+        raise Refused("no valid signature in role " + ", ".join(sorted(missing)) + "".join(f"; {r}" for r in reasons))
     # Once the signatures hold: the JSON profile (a JSON file at most 1 MiB), pack.json, the kind, the card, the lifetime.
     for p, b in sorted(content.items()):
         if p.endswith(".json"):
@@ -956,8 +956,12 @@ def key_refusal(key, role, pid, signed_at, now, revoked_keys):
     not_before, not_after = policy_time(key.get("notBefore")), policy_time(key.get("notAfter"))
     if not_before is not None and (signed_at < not_before or now < not_before):
         return "the key was not yet valid"
-    if not_after is not None and (signed_at > not_after or now > not_after):
-        return "the key had expired"
+    if not_after is not None and signed_at > not_after:
+        return "the key had expired at the signing time"
+    # As .NET: the signing time is the signer's claim and can be back-dated, so expiry is checked against now too (review 6, L6:
+    # one message for both, so no vector could tell the rules apart).
+    if not_after is not None and now > not_after:
+        return "the key has expired; without a verified timestamp token its signatures no longer count"
     if signed_at.timestamp() > now.timestamp() + 300:
         return "the signature claims a time in the future"
     if key["keyId"] in revoked_keys:
@@ -1155,16 +1159,19 @@ def as_int(value):
 
 CERTIFICATE_MAX_TASKS = 200      # a trial runs 10 to 200 tasks
 CERTIFICATE_MAX_OFFERED = 16     # the format's traversal limit
+CERTIFICATE_MAX_SPACING = 2000   # every how many eligible commits a task was drawn, from the last 2,000
 
 
 def read_arm(arm):
     """An arm with its evidence (review 5, root RB): counts, each task's [offered, correct] within the arm's cap, summing to the
     counts, with a right item on exactly its hits."""
-    fields = {"tasks", "hits", "offered", "correct", "p95Micros", "maximumOffered"}
+    fields = {"tasks", "hits", "offered", "correct", "p95Micros", "maximumOffered", "spacing"}
     if not isinstance(arm, dict) or set(arm) != fields | {"perTask"} or any(as_int(arm[k]) is None for k in fields):
         return None
     t, h, o, c, p95, cap = arm["tasks"], arm["hits"], arm["offered"], arm["correct"], arm["p95Micros"], arm["maximumOffered"]
-    if not (0 <= t <= CERTIFICATE_MAX_TASKS and 1 <= cap <= CERTIFICATE_MAX_OFFERED and 0 <= p95 <= 86_400_000_000):
+    # A cap of 0 offers nothing by design (the baseline none); the spacing says how far apart the tasks were drawn (review 6).
+    if not (0 <= t <= CERTIFICATE_MAX_TASKS and 0 <= cap <= CERTIFICATE_MAX_OFFERED and 1 <= arm["spacing"] <= CERTIFICATE_MAX_SPACING
+            and 0 <= p95 <= 86_400_000_000):
         return None
     per = arm["perTask"]
     if not isinstance(per, list) or len(per) != t:
@@ -1246,8 +1253,15 @@ def read_certificate(payload):
     return st, pred, evaluated_at
 
 
-def verify_certificate(envelope_bytes, pid, version, digest, policy, now, run=None):
-    """An evaluation certificate (v1.2 §16) for a verified pack: by a key the host trusts as evaluator for its id."""
+def stem_for(key_id, evaluated_at):
+    """A certificate's stem, as .NET's PackAttestations.StemFor: the key's first 16 hex digits and the evaluation time (UTC)."""
+    t = evaluated_at.astimezone(timezone.utc)
+    return f"{key_id[:16]}-{t.year:04d}{t.month:02d}{t.day:02d}t{t.hour:02d}{t.minute:02d}{t.second:02d}z"
+
+
+def verify_certificate(envelope_bytes, pid, version, digest, policy, now, run=None, stem=None):
+    """An evaluation certificate (v1.2 §16) for a verified pack: by a key the host trusts as evaluator for its id; one the
+    pack carries travels under its evaluator's key and evaluation time (review 6, M3)."""
     if len(envelope_bytes) > MAX_ENVELOPE:
         raise Refused("the certificate is larger than 64 KiB")
     env = profile(envelope_bytes)
@@ -1275,6 +1289,7 @@ def verify_certificate(envelope_bytes, pid, version, digest, policy, now, run=No
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
     digest_of_pae = hashlib.sha256(pae(payload)).digest()
+    signers = []
     for entry in env["signatures"]:
         if not isinstance(entry, dict) or not isinstance(entry.get("keyid"), str) or not isinstance(entry.get("sig"), str):
             continue
@@ -1288,8 +1303,12 @@ def verify_certificate(envelope_bytes, pid, version, digest, policy, now, run=No
         except (InvalidSignature, ValueError, binascii.Error):
             continue
         if key_refusal(key, "evaluator", pid, evaluated_at, now, revoked_keys) is None:
-            return pred
-    raise Refused("no valid certificate signature by a key this host trusts as evaluator for the pack")
+            signers.append(entry["keyid"])
+    if not signers:
+        raise Refused("no valid certificate signature by a key this host trusts as evaluator for the pack")
+    if stem is not None and not any(stem_for(k, evaluated_at) == stem for k in signers):
+        raise Refused(f"the certificate travels as {stem}, not as its evaluator's key and evaluation time")
+    return pred
 
 
 def valid_version(text):
@@ -1454,8 +1473,8 @@ def main(argv):
                 run = {p[len(folder):]: b for p, b in files.items() if p.startswith(folder)} or None
                 envelope = files[certificate_path]
             else:
-                run, envelope = None, read_file(certificate_path, "the certificate")
-            pred = verify_certificate(envelope, pid, version, digest, policy, now, run)
+                run, envelope, stem = None, read_file(certificate_path, "the certificate"), None
+            pred = verify_certificate(envelope, pid, version, digest, policy, now, run, stem)
             print(f"verified the certificate of {pid} {version} by {pred['evaluator']}")
     except Refused as e:
         print(f"refused: {e}")

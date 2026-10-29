@@ -116,16 +116,14 @@ internal sealed class HostLedger
         }
     }
 
+    /// <summary>The largest ledger read: a host's whole install and revocation history fits many times over.</summary>
+    internal const int MaximumBytes = 64 << 20;
+
     private static HostLedger LoadChecked(string path)
     {
         var ledger = new HostLedger();
-        var bytes = Retry(() =>
-        {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var copy = new MemoryStream();
-            stream.CopyTo(copy);
-            return copy.ToArray();
-        });
+        // Bounded and never through a link, as every file a host reads (review 6, M2: copied whole).
+        var bytes = Retry(() => BoundedFile.Read(path, MaximumBytes, "The ledger", FileShare.ReadWrite | FileShare.Delete));
         // The profile refuses a repeated key, so no field is read twice with the last one winning (sixth review).
         if (PackJson.Check(bytes) is { } malformed) throw new InvalidDataException($"The ledger at {path} {malformed}.");
         using var document = JsonDocument.Parse(bytes);

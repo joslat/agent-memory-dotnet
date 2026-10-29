@@ -47,6 +47,10 @@ public sealed class PackUpgradeTests : IDisposable
         Manifest("1.1.0").Trial!.Upgrade.Should().Be(new ModuleTrialUpgrade { NoRegression = true, Tolerance = 0.02 });
         Manifest("1.1.0").Validate().Should().BeEmpty();
         Manifest("1.1.0", ""","upgrade":{"noRegression":true,"tolerance":0.9}""").Validate().Should().Contain(p => p.Contains("$.trial.upgrade.tolerance"));
+        // Review 6: a certificate records targets in thousandths, so a manifest states them so (L9); and with a confidence, a
+        // tolerance of 0 asks for a bound no measurement gives (H1).
+        Manifest("1.1.0", ""","upgrade":{"noRegression":true,"tolerance":0.0504}""").Validate().Should().Contain(p => p.Contains("$.trial.upgrade.tolerance") && p.Contains("three decimals"));
+        Manifest("1.1.0", ""","upgrade":{"noRegression":true,"tolerance":0},"confidence":0.95""").Validate().Should().Contain(p => p.Contains("$.trial.upgrade.tolerance"));
         FluentActions.Invoking(() => Manifest("1.1.0", ""","upgrade":{"noRegression":true,"window":3}""")).Should().Throw<Exception>()
             .Which.Message.Should().Contain("window");
     }
@@ -187,11 +191,11 @@ public sealed class PackUpgradeTests : IDisposable
         Compose(Manifest("1.1.0")).Modules.Should().ContainSingle("no version passes here now, so 1.1.0 is a first version");
     }
 
-    // Forty tasks of three items, one right item on each of the first `hits`: the per-task results paired bounds need.
-    private static PackTrialMeasurement Tasked(int hits) => new()
+    // Forty tasks of three items, one right item on each of `hits` tasks from `from` on: the per-task results paired bounds need.
+    private static PackTrialMeasurement Tasked(int hits, int from = 0) => new()
     {
-        Tasks = 40, Hits = hits, Correct = hits, Offered = 120, P95Ms = 10, MaximumOffered = 3,
-        PerTask = [.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(3, i < hits ? 1 : 0))],
+        Tasks = 40, Hits = hits, Correct = hits, Offered = 120, P95Ms = 10, MaximumOffered = 3, Spacing = PackTrialGate.BurstLength,
+        PerTask = [.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(3, i >= from && i < from + hits ? 1 : 0))],
     };
 
     private const string Careful = ""","upgrade":{"noRegression":true,"tolerance":0.05},"confidence":0.95""";
@@ -213,12 +217,30 @@ public sealed class PackUpgradeTests : IDisposable
     }
 
     [Fact]
+    public void Review6_the_chain_holds_every_rule_each_as_declared()
+    {
+        // H1: 1.0.0 asks for no regression within 0.1 at 95%; 1.1.0 for no drop of its estimate (tolerance 0, no confidence).
+        // The stricter of the two was a blend, tolerance 0 at 95%, which fell back to the estimate: 1.1.0 hits as many tasks as
+        // 1.0.0, ten of them others, so its estimate does not drop while its bound is below -0.2. Each rule as declared: off.
+        const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.1},"confidence":0.95""";
+        var passed = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), Nothing, Now);
+        passed.Active.Should().BeTrue(passed.Reason);
+        Write(passed);
+        const string own = ""","upgrade":{"noRegression":true,"tolerance":0}""";
+        var upgrade = PackTrialGate.Decide(Manifest("1.1.0", own), Tasked(30, from: 10), Nothing, Now.AddMinutes(1), previous: Previous(passed, Tasked(30)));
+        upgrade.Active.Should().BeTrue("its own rule, on the estimate, is met");
+        Write(upgrade);
+
+        Compose(Manifest("1.1.0", own)).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("beyond the tolerance 0.1 at 0.95");
+    }
+
+    [Fact]
     public void Review5_a_record_from_an_earlier_statistic_is_checked_again_from_its_evidence()
     {
         // M7: a record the round-4 statistic decided is neither trusted nor set aside: its verdict is derived again from what it
         // carries. 1.1.0 passed against 1.0.0 under that statistic and its evidence holds under this one, so it stays the version
         // that passed here: 1.2.0, compared only against 1.0.0, stays off (it went on: 1.1.0 waited for a new trial and the
-        // chain skipped it). Two versions that agree on forty tasks bound their difference at -0.066, so the tolerance is 0.1.
+        // chain skipped it). Two versions that agree on forty tasks bound their difference at -0.086, so the tolerance is 0.1.
         const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.1},"confidence":0.95""";
         var first = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), Nothing, Now);
         Write(first);

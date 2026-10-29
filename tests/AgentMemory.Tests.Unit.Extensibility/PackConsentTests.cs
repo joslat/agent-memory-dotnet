@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using AgentMemory.Extensibility;
 using AgentMemory.Extensibility.Ampack;
@@ -88,6 +89,37 @@ public sealed class PackConsentTests
         var hits = await memory.WalkAsync([ContextAnchor.Path("src/Store.cs")], "why is the store exact", CancellationToken.None);
 
         hits.Should().Contain(h => h.Type == "WorkItem" && h.Key == "A-1", "the grant applies to the walk as it does to the links");
+    }
+
+    [Fact]
+    public async Task Review6_M1_mount_takes_the_hosts_grants_for_a_snapshot_pack_as_the_walk_does()
+    {
+        // The consent rule was checked twice with different grants: Mount made the pack a snapshot with none of the host's
+        // grants before they reached the walk, so ampack serve --grant could not mount what it granted. Tested through Mount.
+        var key = PackAuthoring.CreateKey();
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(key.PublicKeyPem, "com.example", "io.example")));
+        byte[] Definition(string manifest) =>
+            PackAuthoring.Build(PackAuthoring.FromModuleBundle(new Dictionary<string, byte[]> { ["manifest.json"] = Encoding.UTF8.GetBytes(manifest) }), key.PrivateKeyPem);
+        var grant = new ModuleConsentGrant("com.example.work", "com.example.code");
+        byte[][] archives =
+        [
+            Definition(Code.Replace("CONSENT", "", StringComparison.Ordinal)), Definition(Work),
+            PackAuthoring.Build(PackAuthoring.FromSnapshot(Codebase(consents: false), "io.example.code-map", "1.0.0"), key.PrivateKeyPem),
+            PackAuthoring.Build(PackAuthoring.FromSnapshot(Ledger(consents: false) with { ConsentGrants = [grant] }, "io.example.work-ledger", "1.0.0"), key.PrivateKeyPem),
+        ];
+
+        FluentActions.Invoking(() => PackMemory.Mount(archives, trust)).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains("does not list it in containableBy"));
+        var mount = PackMemory.Mount(archives, trust, [grant]);
+        var hits = await mount.Memory.WalkAsync([ContextAnchor.Path("src/Store.cs")], "why is the store exact", CancellationToken.None);
+        hits.Should().Contain(h => h.Type == "WorkItem" && h.Key == "A-1");
+    }
+
+    [Fact]
+    public void Review6_L8_packs_in_memory_check_every_snapshot_as_an_import_does()
+    {
+        var duplicate = Codebase(consents: true) with { Records = [.. Codebase(consents: true).Records, .. Codebase(consents: true).Records] };
+        FluentActions.Invoking(() => PackMemory.From([], [duplicate])).Should().Throw<KnowledgePackException>();
     }
 
     [Fact]

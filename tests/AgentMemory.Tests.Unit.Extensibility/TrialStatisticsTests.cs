@@ -14,13 +14,14 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 /// </summary>
 public sealed class TrialStatisticsTests
 {
-    private sealed record Golden(double Confidence, int Cap1, int Cap2, int[][] First, int[][] Second, double RateLower,
-        double PrecisionLower, double PrecisionUpper, double PrecisionDifferenceLower, double HitDifferenceLower);
+    private sealed record Golden(double Confidence, int Cap1, int Cap2, int Spacing, int[][] First, int[][] Second, double RateLower,
+        double PrecisionLower, double PrecisionUpper, double HitRateLowerOf, double PrecisionLowerOf, double PrecisionDifferenceLower, double HitDifferenceLower);
 
-    private static PackTrialMeasurement Arm(IReadOnlyList<PackTrialTask> tasks, int? cap = null) => new()
+    // Drawn a burst apart unless told otherwise: independent tasks (review 6, H4).
+    private static PackTrialMeasurement Arm(IReadOnlyList<PackTrialTask> tasks, int? cap = null, int spacing = PackTrialGate.BurstLength) => new()
     {
         Tasks = tasks.Count, Hits = tasks.Count(t => t.Correct > 0), Offered = tasks.Sum(t => t.Offered), Correct = tasks.Sum(t => t.Correct),
-        P95Ms = 1, PerTask = tasks, MaximumOffered = cap,
+        P95Ms = 1, PerTask = tasks, MaximumOffered = cap, Spacing = spacing,
     };
 
     [Fact]
@@ -36,8 +37,11 @@ public sealed class TrialStatisticsTests
             PackTrialGate.RateLower(a.Count(t => t.Correct > 0), a.Count, g.Confidence).Should().BeApproximately(g.RateLower, 1e-9, because);
             PackTrialGate.PrecisionLower(a, g.Cap1, g.Confidence).Should().BeApproximately(g.PrecisionLower, 1e-9, because);
             PackTrialGate.PrecisionUpper(a, g.Cap1, g.Confidence).Should().BeApproximately(g.PrecisionUpper, 1e-9, because);
-            PackTrialGate.PrecisionDifferenceLower(Arm(a, g.Cap1), Arm(b, g.Cap2), g.Confidence).Should().BeApproximately(g.PrecisionDifferenceLower, 1e-9, because);
-            PackTrialGate.HitDifferenceLower(Arm(a, g.Cap1), Arm(b, g.Cap2), g.Confidence).Should().BeApproximately(g.HitDifferenceLower, 1e-9, because);
+            because += $", spacing {g.Spacing}";
+            PackTrialGate.HitRateLower(Arm(a, g.Cap1, g.Spacing), g.Confidence).Should().BeApproximately(g.HitRateLowerOf, 1e-9, because);
+            PackTrialGate.PrecisionLower(Arm(a, g.Cap1, g.Spacing), g.Confidence).Should().BeApproximately(g.PrecisionLowerOf, 1e-9, because);
+            PackTrialGate.PrecisionDifferenceLower(Arm(a, g.Cap1, g.Spacing), Arm(b, g.Cap2, g.Spacing), g.Confidence).Should().BeApproximately(g.PrecisionDifferenceLower, 1e-9, because);
+            PackTrialGate.HitDifferenceLower(Arm(a, g.Cap1, g.Spacing), Arm(b, g.Cap2, g.Spacing), g.Confidence).Should().BeApproximately(g.HitDifferenceLower, 1e-9, because);
         }
     }
 
@@ -209,6 +213,112 @@ public sealed class TrialStatisticsTests
         largest.Should().BeLessThan(0.005);
     }
 
+    [Theory]
+    [InlineData(0.95)]
+    [InlineData(0.99)]
+    public void Review6_a_paired_hit_difference_at_its_target_passes_at_most_the_nominal_rate_exactly(double confidence)
+    {
+        // H2: one unseen task was a rule of about 2.7 where the nominal level needs 3 (6.8% at 95%, 3.3% at 99%: an upgrade that
+        // breaks a few tasks and fixes none). Every outcome of the trinomial (tasks only the first arm hits, only the second,
+        // the rest), summed exactly at each pair of rates: no Monte Carlo. eng/trial-statistics/hitdiff_exact.py covers n 10 to 200.
+        var worst = (Rate: 0.0, What: "");
+        foreach (var n in new[] { 10, 40, 100 })
+        {
+            var bound = new double[n + 1, n + 1];
+            for (var up = 0; up <= n; up++)
+                for (var down = 0; up + down <= n; down++)
+                {
+                    var a = Enumerable.Range(0, n).Select(i => new PackTrialTask(1, i < up ? 1 : 0)).ToList();
+                    var b = Enumerable.Range(0, n).Select(i => new PackTrialTask(1, i >= up && i < up + down ? 1 : 0)).ToList();
+                    bound[up, down] = PackTrialGate.HitDifferenceLower(Arm(a, 1), Arm(b, 1), confidence);
+                }
+            var logFactorial = new double[n + 1];
+            for (var i = 1; i <= n; i++) logFactorial[i] = logFactorial[i - 1] + Math.Log(i);
+            var rates = new[] { 1e-12, 0.002, 0.01, 0.03, 0.06, 0.1, 0.2, 0.35, 0.5 };
+            foreach (var pUp in rates)
+                foreach (var pDown in rates)
+                {
+                    var pass = 0.0;
+                    for (var up = 0; up <= n; up++)
+                        for (var down = 0; up + down <= n; down++)
+                            if (bound[up, down] >= pUp - pDown - 1e-12)
+                                pass += Math.Exp(logFactorial[n] - logFactorial[up] - logFactorial[down] - logFactorial[n - up - down]
+                                    + up * Math.Log(pUp) + down * Math.Log(pDown) + (n - up - down) * Math.Log(1 - pUp - pDown));
+                    if (pass > worst.Rate) worst = (pass, $"n {n}, only the first {pUp}, only the second {pDown}");
+                }
+        }
+        worst.Rate.Should().BeLessThanOrEqualTo(1 - confidence, worst.What);
+    }
+
+    [Theory]
+    [InlineData(0.95, 0.07)]
+    [InlineData(0.99, 0.025)]
+    public void Review6_tasks_drawn_from_bursts_of_related_commits_pass_at_most_about_the_nominal_rate(double confidence, double ceiling)
+    {
+        // H4: commits come in bursts that share how well a pack does on them (here bursts of about 8 eligible commits, an
+        // intraclass correlation of 0.3). Drawn one after another a hit-rate target at the truth passed 16 to 21% of the time
+        // at 95%; spaced and clustered, at most about the nominal rate, whatever the history's length (eng/trial-statistics/serial.py).
+        var rng = new Random(47);
+        var worst = (Rate: 0.0, What: "");
+        foreach (var eligible in new[] { 40, 80, 200, 400 })
+        {
+            var spacing = Math.Max(1, eligible / 40);
+            var passes = 0;
+            const int sims = 1500;
+            for (var s = 0; s < sims; s++)
+            {
+                var hits = new bool[eligible];
+                for (var i = 0; i < eligible;)
+                {
+                    var length = 1;
+                    while (rng.NextDouble() > 1.0 / 8) length++;
+                    var p = 0.5 + (rng.Next(2) == 0 ? -1 : 1) * Math.Sqrt(0.3 * 0.25);
+                    for (var j = 0; j < length && i < eligible; j++, i++) hits[i] = rng.NextDouble() < p;
+                }
+                var tasks = Enumerable.Range(0, 40).Select(i => new PackTrialTask(1, hits[i * spacing] ? 1 : 0)).ToList();
+                if (PackTrialGate.HitRateLower(Arm(tasks, 1, spacing), confidence) >= 0.5 - 1e-12) passes++;
+            }
+            if ((double)passes / sims > worst.Rate) worst = ((double)passes / sims, $"{eligible} eligible tasks, spacing {spacing}");
+        }
+        worst.Rate.Should().BeLessThanOrEqualTo(ceiling, worst.What);
+    }
+
+    [Fact]
+    public void Review6_at_one_item_a_task_precision_is_Clopper_Pearsons()
+    {
+        // H3: with a cap of 1 each task that offers is one right-or-wrong trial; Fieller fell to a Wald bound there, above the
+        // exact one (6.3% at 95%, 2.9% at 99%, at the truth). Ten tasks offer nothing, ten one wrong item, forty one right item.
+        var tasks = Enumerable.Range(0, 60).Select(i => new PackTrialTask(i % 6 == 0 ? 0 : 1, i % 6 is 0 or 1 ? 0 : 1)).ToList();
+        foreach (var confidence in new[] { 0.9, 0.95, 0.975, 0.99 })
+            PackTrialGate.PrecisionLower(tasks, 1, confidence).Should().Be(PackTrialGate.RateLower(40, 50, confidence));
+    }
+
+    [Fact]
+    public void Review6_a_baseline_that_offers_nothing_by_design_has_no_uncertainty_and_a_silent_host_keeps_its_hedge()
+    {
+        // M5: grep offers its three items on a few tasks, here on none of forty: its precision is unknown, not 0, so a lift over
+        // it keeps grep's unseen task. Only the baseline none, a cap of 0, offers nothing by design.
+        var rng = new Random(43);
+        var pack = Enumerable.Range(0, 40).Select(_ => Named[0].Draw(rng)).ToList();
+        var nothing = Enumerable.Repeat(new PackTrialTask(0, 0), 40).ToList();
+        var own = PackTrialGate.PrecisionLower(pack, 3, 0.95);
+        PackTrialGate.PrecisionDifferenceLower(Arm(pack, 3), Arm(nothing, 0), 0.95).Should().Be(own);
+        PackTrialGate.PrecisionDifferenceLower(Arm(pack, 3), Arm(nothing, 3), 0.95).Should().BeLessThan(own - 0.5);
+    }
+
+    [Fact]
+    public void Review6_without_per_task_results_no_precision_is_bounded()
+    {
+        // M6: items taken as independent passed all-or-none tasks up to a quarter of the time; a record without per-task results
+        // now bounds no precision at all.
+        var totals = new PackTrialMeasurement { Tasks = 40, Hits = 20, Offered = 120, Correct = 60, P95Ms = 1, MaximumOffered = 3 };
+        var none = new PackTrialMeasurement { Tasks = 40, Hits = 0, Offered = 0, Correct = 0, P95Ms = 1, MaximumOffered = 0 };
+        FluentActions.Invoking(() => PackTrialGate.PrecisionDifferenceLower(totals, none, 0.95)).Should().Throw<ArgumentException>().WithMessage("*PerTask*");
+        var manifest = ModuleManifest.Parse(
+            """{"format":"agentmemory.module/v1alpha1","id":"com.example.base","version":"1.0.0","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":40,"confidence":0.95,"targets":{"precision":0.25}}}""");
+        FluentActions.Invoking(() => PackTrialGate.Decide(manifest, totals, none, DateTimeOffset.UnixEpoch)).Should().Throw<ArgumentException>().WithMessage("*PerTask*");
+    }
+
     [Fact]
     public void Lint_says_what_a_declared_trial_can_never_show()
     {
@@ -220,9 +330,11 @@ public sealed class TrialStatisticsTests
         PackTrialGate.Unreachable(Trial(40, """{"hitRate":0.35,"precision":0.25,"lift":-0.05,"precisionLift":0.05}"""), 3).Should().BeEmpty();
         // Ten tasks cannot bound a precision at 0.9, whatever the data; more tasks would.
         PackTrialGate.Unreachable(Trial(10, """{"precision":0.9}"""), 3).Should().ContainSingle().Which.Should().Contain("precision 0.9 cannot be met on 10 tasks").And.Contain("tasks would");
-        // Review 5, M4: an upgrade exactly as good as this version cannot clear 0.05 on forty tasks; the note says what would.
+        // Review 5, M4: an upgrade exactly as good as this version cannot clear 0.05 on forty tasks; the note says what would,
+        // and that a pack offering fewer items than its cap needs more (review 6, M7).
         PackTrialGate.Unreachable(Trial(40, """{"hitRate":0.35}""", ""","upgrade":{"noRegression":true,"tolerance":0.05}"""), 3)
-            .Should().ContainSingle().Which.Should().Contain("cannot clear the tolerance 0.05 on 40 tasks").And.Contain("a tolerance of 0.07");
+            .Should().ContainSingle().Which.Should().Contain("cannot clear the tolerance 0.05 on 40 tasks").And.Contain("a tolerance of 0.09")
+            .And.Contain("every task offers all 3 items");
         // Without a confidence nothing is bounded, so nothing falls short.
         PackTrialGate.Unreachable(Trial(10, """{"precision":0.9}""") with { Confidence = null }, 3).Should().BeEmpty();
     }
@@ -231,7 +343,7 @@ public sealed class TrialStatisticsTests
     public void Forty_tasks_cannot_certify_a_tolerance_of_five_points_and_a_tighter_cap_is_a_tighter_bound()
     {
         // Review 5, M4: two versions that agree on every task. The unseen task could be one the upgrade breaks: on forty tasks
-        // that leaves -0.066, so a tolerance of 0.05 cannot be shown, whatever the data (ampack lint says so).
+        // that leaves -0.086 (review 6: weighted 1.5 at 95%), so a tolerance of 0.05 cannot be shown, whatever the data.
         var same = Enumerable.Range(0, 40).Select(i => new PackTrialTask(3, i % 3)).ToList();
         PackTrialGate.PrecisionDifferenceLower(Arm(same, 3), Arm(same, 3), 0.95).Should().BeLessThan(-0.05);
         PackTrialGate.HitDifferenceLower(Arm(same, 3), Arm(same, 3), 0.95).Should().BeLessThan(-0.05);

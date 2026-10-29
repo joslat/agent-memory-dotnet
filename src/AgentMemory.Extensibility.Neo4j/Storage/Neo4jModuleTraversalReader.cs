@@ -63,15 +63,33 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
             return await _runner.ReadAsync(async transaction =>
             {
                 if (await NotReadyAsync(transaction, cancellationToken).ConfigureAwait(false)) return PendingMigrations();
-                var rows = await RowsAsync(transaction, statement, new Dictionary<string, object?>
+                var candidates = await RowsAsync(transaction, statement, new Dictionary<string, object?>
                 {
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared, ["values"] = values,
-                    ["folders"] = folders, ["names"] = names, ["take"] = Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit)
+                    ["folders"] = folders, ["names"] = names, ["scan"] = ModuleAnchorQuery.MaximumLimit
                 }, cancellationToken).ConfigureAwait(false);
+                // Matched here by the walk's rules, best first and then key and id ordinal, as every store returns them (review 6,
+                // M2); only those are read whole. The scan is the store's superset, stopped by the budget through the cursor.
+                var chosen = new List<(string Id, string Key, double Quality)>();
+                for (var i = 0; i < candidates.Count; i++)
+                {
+                    if ((i & 1023) == 1023) cancellationToken.ThrowIfCancellationRequested();
+                    var row = candidates[i];
+                    if (row["value"].As<object?>() is not string value) continue;
+                    var quality = ModuleAnchorQuery.Quality(query.Match, value, anchors);
+                    if (quality > 0) chosen.Add((row["id"].As<string>(), row["key"].As<string>(), quality));
+                }
+                var kept = chosen.OrderByDescending(c => c.Quality).ThenBy(c => c.Key, StringComparer.Ordinal).ThenBy(c => c.Id, StringComparer.Ordinal)
+                    .Take(Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit)).ToList();
+                if (kept.Count == 0) return new ModuleReadResult { Status = ModuleReadStatus.Succeeded };
+                var rows = await RowsAsync(transaction, ModuleTraversalQueries.ByIds(type.Name), new Dictionary<string, object?> { ["ids"] = kept.Select(k => k.Id).ToArray() },
+                    cancellationToken).ConfigureAwait(false);
+                var byId = rows.Select(r => Neo4jModuleReader.Record(module.Id, type, r["row"].As<Dictionary<string, object>>(), []))
+                    .ToDictionary(r => r.Id, StringComparer.Ordinal);
                 return new ModuleReadResult
                 {
                     Status = ModuleReadStatus.Succeeded,
-                    Records = rows.Select(r => Neo4jModuleReader.Record(module.Id, type, r["row"].As<Dictionary<string, object>>(), [])).ToList().AsReadOnly()
+                    Records = kept.Where(k => byId.ContainsKey(k.Id)).Select(k => byId[k.Id]).ToList().AsReadOnly()
                 };
             }, cancellationToken).ConfigureAwait(false);
         }

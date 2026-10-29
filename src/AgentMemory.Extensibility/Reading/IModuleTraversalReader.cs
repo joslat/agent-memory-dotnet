@@ -12,9 +12,11 @@ namespace AgentMemory.Extensibility.Reading;
 public interface IModuleTraversalReader
 {
     /// <summary>
-    /// The live records of one type whose anchor property may match the anchors: every record that matches by the walk's rules
-    /// (pack format v1.2 §6.1), and possibly others the walk then drops; never cut before matching, up to the limit (review 2:
-    /// the first 512 records holding the property were returned, so matches past them never seeded).
+    /// The live records of one type whose anchor property matches the anchors by the walk's rules (pack format v1.2 §6.1,
+    /// <see cref="ModuleAnchorQuery.Quality"/>), best match first and then in the format's order (key, then id, ordinal), at
+    /// most the limit: never cut before matching (review 2: the first 512 records holding the property were returned, so
+    /// matches past them never seeded), and never more than the walk can keep (review 6, M2: a short anchor returned up to
+    /// 250,000 full records, which the walk then matched one by one). A store may scan a superset; it returns only matches.
     /// </summary>
     Task<ModuleReadResult> MatchAsync(ModuleAnchorQuery query, ModuleReadContext context, CancellationToken cancellationToken = default);
 
@@ -39,8 +41,15 @@ public sealed record ModuleAnchorQuery
     public required ModuleAnchorMatch Match { get; init; }
     /// <summary>The anchor values of the matching kind.</summary>
     public required IReadOnlyList<string> Values { get; init; }
-    /// <summary>Most records returned.</summary>
+    /// <summary>Most records returned, the best matches.</summary>
     public int Limit { get; init; } = 512;
+
+    /// <summary>
+    /// How well a stored value matches the anchors by the walk's rules, 0 for not at all: the one measure every store ranks
+    /// its matches by, so that each returns the same best ones (review 6, M2).
+    /// </summary>
+    public static double Quality(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors) =>
+        Context.Traversal.AnchorMatcher.Best(match, value, anchors ?? throw new ArgumentNullException(nameof(anchors))).Quality;
 
     /// <summary>
     /// A path as the walk compares it, which a store's own filter must keep to (pack format v1.2 §6.1): trimmed of ASCII white

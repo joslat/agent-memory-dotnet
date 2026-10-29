@@ -1104,7 +1104,7 @@ internal static partial class Program
 
     // Every file a command names is read bounded, never through a link (review 5, L1: six commands read whole, `ampack lint
     // /dev/zero` about 2 GB): packs at the archive limit, these at theirs.
-    private const int MaximumPolicyBytes = 4 << 20, MaximumKeyBytes = 64 * 1024;
+    private const int MaximumPolicyBytes = TrustPolicy.MaximumBytes, MaximumKeyBytes = 64 * 1024;
 
     private static string Text(string path, string what, int maximum = MaximumKeyBytes) => Encoding.UTF8.GetString(PackReader.ReadFile(path, maximum, what));
 

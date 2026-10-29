@@ -56,9 +56,12 @@ public sealed record ModuleSnapshot
     /// pack carries them (pack format v1.2 §3). Each record keeps its file and line. Every problem, of the lines and of the
     /// snapshot, refuses it before anything reaches a store.
     /// </summary>
+    /// <remarks>The host's consent grants, when given, are this snapshot's <see cref="ConsentGrants"/> and its links are checked
+    /// with them, as the import and the walk check them (review 6, M1: it was checked with none, before the host's grants reached
+    /// the walk).</remarks>
     /// <exception cref="KnowledgePackException">The records do not form a valid snapshot of <paramref name="module"/>.</exception>
     public static ModuleSnapshot FromRecordFiles(ModuleManifest module, IReadOnlyList<ModuleManifest> dependencies, string source,
-        IEnumerable<KeyValuePair<string, ReadOnlyMemory<byte>>> files)
+        IEnumerable<KeyValuePair<string, ReadOnlyMemory<byte>>> files, IReadOnlyList<ModuleConsentGrant>? grants = null)
     {
         ArgumentNullException.ThrowIfNull(module);
         ArgumentNullException.ThrowIfNull(dependencies);
@@ -69,7 +72,7 @@ public sealed record ModuleSnapshot
             records.AddRange(KnowledgePack.Lines(file, bytes,
                 line => new PackSource { Id = module.Id, Version = source, Digest = "", File = file, Line = line }, problems));
         if (problems.Count > 0) throw new KnowledgePackException(problems.Count > 100 ? [.. problems.Take(100), $"... and {problems.Count - 100} more."] : problems);
-        var snapshot = new ModuleSnapshot { Module = module, Dependencies = dependencies, Source = source, Records = records };
+        var snapshot = new ModuleSnapshot { Module = module, Dependencies = dependencies, Source = source, Records = records, ConsentGrants = grants ?? [] };
         if (snapshot.Problems() is { Count: > 0 } invalid) throw new KnowledgePackException(invalid);
         return snapshot;
     }

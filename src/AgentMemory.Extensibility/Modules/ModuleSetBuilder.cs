@@ -33,6 +33,7 @@ public sealed class ModuleSetBuilder
     internal Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient>? ChatClient { get; private set; }
     internal IPackActivations? Activations { get; private set; }
     internal IReadOnlyList<string> MandatoryTrials => _mandatoryTrials;
+    internal PackTrialFloor? TrialFloor { get; private set; }
     internal IReadOnlyList<string> CertificateTrust => _certificateTrust;
     internal IReadOnlyList<ModuleConsentGrant> ConsentGrants => _consentGrants;
     private readonly List<ModuleConsentGrant> _consentGrants = [];
@@ -172,6 +173,23 @@ public sealed class ModuleSetBuilder
     public ModuleSetBuilder RequireTrials(IPackActivations activations)
     {
         Activations = activations ?? throw new ArgumentNullException(nameof(activations));
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the least a trial must claim before this host counts it (review 6, M8): a confidence, a task count, and targets
+    /// it must declare at least as strictly. A pack whose trial claims less is left off, with the reason. Needs
+    /// <see cref="RequireTrials"/>; pair it with <see cref="RequireTrialsFor"/> so declaring no trial does not avoid it.
+    /// </summary>
+    /// <exception cref="ArgumentException">The floor names a confidence a trial cannot declare, or a task count outside 10 to 200.</exception>
+    public ModuleSetBuilder RequireTrialFloor(PackTrialFloor floor)
+    {
+        ArgumentNullException.ThrowIfNull(floor);
+        if (floor.Confidence is { } c && !PackTrialGate.Confidences.ContainsKey(c))
+            throw new ArgumentException("A floor's confidence is 0.9, 0.95, 0.975 or 0.99.", nameof(floor));
+        if (floor.Tasks is < ModuleTrial.MinimumTasks or > ModuleTrial.MaximumTasks)
+            throw new ArgumentException($"A floor's task count is {ModuleTrial.MinimumTasks} to {ModuleTrial.MaximumTasks}.", nameof(floor));
+        TrialFloor = floor;
         return this;
     }
 

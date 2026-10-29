@@ -119,7 +119,8 @@ public static partial class BundleSigning
     internal static bool IsSafePath(string path) =>
         path.Length is > 0 and <= 255 && path.Split('/') is { Length: <= 8 } segments && segments.All(s => Segment().IsMatch(s));
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", RegexOptions.CultureInvariant)]
+    // \z, never $: $ also matches before a final newline (review 6, L4).
+    [GeneratedRegex(@"\A[A-Za-z0-9][A-Za-z0-9._-]{0,99}\z", RegexOptions.CultureInvariant)]
     private static partial Regex Segment();
 
     internal sealed record FilesList

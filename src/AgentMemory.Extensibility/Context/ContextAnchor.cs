@@ -35,8 +35,10 @@ public sealed record ContextAnchor(ContextAnchorKind Kind, string Value)
     /// walk the same anchor (review 5): a path ASCII-trimmed, backslashes as forward slashes, leading <c>./</c> and <c>/</c>
     /// removed until nothing changes; a symbol ASCII-trimmed.
     /// </summary>
+    /// A value past the bound the intake drops is left as given (review 6, L1: the factories normalized it first).
     internal static string Normalized(ContextAnchorKind kind, string value) =>
-        kind == ContextAnchorKind.Path ? Traversal.AnchorMatcher.Normalized(value) : Traversal.AnchorMatcher.Trimmed(value);
+        value.Length > 4 * MaximumLength ? value
+        : kind == ContextAnchorKind.Path ? Traversal.AnchorMatcher.Normalized(value) : Traversal.AnchorMatcher.Trimmed(value);
 }
 
 /// <summary>What an anchor names.</summary>

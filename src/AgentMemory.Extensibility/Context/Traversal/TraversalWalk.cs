@@ -174,16 +174,17 @@ internal static class TraversalWalk
                 var found = await Within(token => reader.MatchAsync(new ModuleAnchorQuery
                 {
                     ModuleId = module.Id, Type = declared.Type, Property = declared.Property, Match = declared.Match, Values = values,
-                    Limit = ModuleAnchorQuery.MaximumLimit,
+                    // The best matches first, as many as the walk can keep and one to tell it there are more (review 6, M2).
+                    Limit = MaximumVisited + 1,
                 }, context, token)).ConfigureAwait(false);
                 if (found is null) break;
                 if (found.Status != ModuleReadStatus.Succeeded) { problems.AddRange(found.Errors.Select(e => module.Id + ": " + e)); continue; }
-                if (found.Records.Count >= ModuleAnchorQuery.MaximumLimit)
-                    problems.Add($"{module.Id}: more than {ModuleAnchorQuery.MaximumLimit} records may match {declared.Type}.{declared.Property}; the rest are not seeds.");
+                if (found.Records.Count > MaximumVisited)
+                    problems.Add($"{module.Id}: more than {MaximumVisited} records match {declared.Type}.{declared.Property}; the best {MaximumVisited} are seeds.");
                 // Every record that matches, offered best match first and then in the format's order (review 2: offered in the
                 // store's order, which differed between stores, so which records the caps kept differed too).
                 var seeds = new List<TraversalItem>();
-                foreach (var record in found.Records)
+                foreach (var record in found.Records.Take(MaximumVisited))
                 {
                     var value = record.Properties.TryGetValue(declared.Property, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
                     var (quality, anchor, pattern) = AnchorMatcher.Best(declared.Match, value, values);

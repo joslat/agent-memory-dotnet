@@ -73,12 +73,13 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, v1.Resolution, services.GetRequiredService<IMemoryIsolationPolicy>());
         var lea = new ModuleReadContext { Scope = MemoryScope.For("lea") };
 
-        // Anchors: an exact path matches without case; a glob declaration returns its candidates for the walk to match.
+        // Anchors: an exact path matches without case; a glob declaration returns only the records whose pattern matches, not
+        // every candidate for the walk to sort out (review 6, M8).
         var file = (await reader.MatchAsync(new() { ModuleId = module, Type = "TraceFile", Property = "path", Match = ModuleAnchorMatch.Exact,
             Values = [@"SRC\store\ModuleStore.cs"] }, lea)).Records.Should().ContainSingle().Subject;
         file.Key.Should().Be("store-file");
         (await reader.MatchAsync(new() { ModuleId = module, Type = "TraceDecision", Property = "appliesTo", Match = ModuleAnchorMatch.Glob,
-            Values = ["src/Store/ModuleStore.cs"] }, lea)).Records.Select(r => r.Key).Should().BeEquivalentTo(["d-close", "d-docs"]);
+            Values = ["src/Store/ModuleStore.cs"] }, lea)).Records.Select(r => r.Key).Should().Equal("d-close");
 
         // Out: the file defines the symbol. In: the tests that test it, at most the fan-out asked for (never more than declared).
         var symbol = (await reader.ExpandAsync(new() { ModuleId = module, Relation = "TRACE_DEFINES", Direction = ModuleTraversalDirection.Out,

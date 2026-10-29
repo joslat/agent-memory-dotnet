@@ -39,9 +39,14 @@ internal static class ModuleTraversalQueries
             Modules.ModuleAnchorMatch.Glob => "(" + p + " CONTAINS '*' OR " + p + " CONTAINS '?' OR ANY(f IN $folders WHERE " + Slashed(p) + " CONTAINS " + Lower("f") + "))",
             _ => "ANY(s IN $names WHERE " + p + " CONTAINS s)",
         };
+        // Narrow rows (review 6, M2: every candidate came back whole): the id, key and value are what matching needs.
         return "MATCH (n:`" + label + "`) WHERE n.invalidated_at IS NULL AND " + In("n") + " AND " + p + " IS NOT NULL AND " + filter + " "
-            + "RETURN properties(n) AS row ORDER BY n.key, n.id LIMIT $take";
+            + "RETURN n.id AS id, n.key AS key, " + p + " AS value LIMIT $scan";
     }
+
+    /// <summary>The live records with these ids, whole: the matches the walk keeps, read once they are chosen.</summary>
+    internal static string ByIds(string label) =>
+        "UNWIND $ids AS rid MATCH (n:`" + label + "` {id:rid}) WHERE n.invalidated_at IS NULL RETURN properties(n) AS row";
 
     /// <summary>
     /// Out: the starting records with more than <c>$maxLinks</c> live targets in scope through the relation (review 2, 3), with
@@ -49,12 +54,12 @@ internal static class ModuleTraversalQueries
     /// limit has its live targets counted, at most <c>$over</c> of them.
     /// </summary>
     internal static string OutHubs(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) " + OutLinks(relation, target)
+        "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE " + In("s") + " " + OutLinks(relation, target)
         + " WITH fid, s, links WHERE links > $maxLinks RETURN fid, s.key AS key, links";
 
     /// <summary>In: the starting records with more than <c>$maxLinks</c> live sources in scope linking to any version (see <see cref="OutHubs"/>).</summary>
     internal static string InHubs(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) " + InLinks(source, relation, target)
+        "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE " + In("x") + " " + InLinks(source, relation, target)
         + " WITH fid, x, links WHERE links > $maxLinks RETURN fid, x.key AS key, links";
 
     // The link count the limit is checked against, as the in-memory store counts it (review 2, 3): the store's degree first,
@@ -90,7 +95,8 @@ internal static class ModuleTraversalQueries
     /// that row alone, with no record.
     /// </remarks>
     internal static string Out(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE s.invalidated_at IS NULL " + OutLinks(relation, target) + " "
+        // The starting record in scope too (review 6, L6: another owner's id gave its key in the hub problem).
+        "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE s.invalidated_at IS NULL AND " + In("s") + " " + OutLinks(relation, target) + " "
         + "CALL { WITH fid, s, links WITH fid, s, links WHERE links <= $maxLinks "
         + "CALL { WITH s MATCH (s)-[:`" + relation + "`]->(old:`" + target + "`) " + Live("old", "t", target) + " "
         + "WITH t WHERE " + In("t") + " RETURN DISTINCT t } "
@@ -123,7 +129,7 @@ internal static class ModuleTraversalQueries
     /// p95 rose from 34 to 54 ms on this repository's code map.)
     /// </remarks>
     internal static string In(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE x.invalidated_at IS NULL " + InLinks(source, relation, target) + " "
+        "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE x.invalidated_at IS NULL AND " + In("x") + " " + InLinks(source, relation, target) + " "
         + "CALL { WITH fid, x, links WITH fid, x, links WHERE links <= $maxLinks "
         + "CALL { WITH x MATCH (v:`" + target + "` {key_id:x.key_id}) "
         + "MATCH (s:`" + source + "`)-[:`" + relation + "`]->(v) WHERE s.invalidated_at IS NULL AND " + In("s") + " "

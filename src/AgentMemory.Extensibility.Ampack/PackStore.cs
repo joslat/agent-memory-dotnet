@@ -65,7 +65,8 @@ public sealed class PackStore
         // What another process installed meanwhile is read under the lock, and the ledger is checked under it too.
         _installed = Read(_root);
         var ledger = PackInstallLedger.Open(Path.Combine(_root, LedgerFile));
-        var (id, version, kind) = PackLoader.Peek(archive);
+        var (manifest, content) = PackLoader.Open(archive, trust);
+        var (id, version, kind) = (manifest.Id, manifest.Version, manifest.Kind);
         string digest;
         IReadOnlyList<string> members = [];
         Action record;
@@ -73,7 +74,7 @@ public sealed class PackStore
         {
             case "set":
                 // Allowing a downgrade waives the version history only: one content per version, and every kept revocation, still hold.
-                var set = PackFamilies.LoadSet(archive, trust, ledger, allowDowngrade);
+                var set = PackFamilies.LoadSet(content, trust, ledger, allowDowngrade);
                 digest = set.Digest;
                 members = [.. set.AllPacks.Select(p => p.Id).Where(m => m != id).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
                 record = () => ledger.Record(set);
@@ -81,7 +82,7 @@ public sealed class PackStore
             case "composite":
                 throw new PackLoadException([$"{id} is a composite: it pins its members but does not carry them. Install the pack set that carries both."]);
             default:
-                var pack = PackLoader.Load(archive, trust, ledger, allowDowngrade);
+                var pack = PackLoader.Load(content, trust, ledger, allowDowngrade);
                 digest = pack.Digest;
                 record = () => ledger.Record(pack);
                 break;
@@ -135,6 +136,8 @@ public sealed class PackStore
     // another file to read or delete (review 1, M8).
     private static string FileFor(string id, string version) => $"{PacksFolder}/{id}@{AgentMemory.Extensibility.Modules.PackActivationFolder.VersionInName(version)}{PackLoader.Extension}";
 
+    private const int MaximumIndexBytes = 16 << 20;
+
     private static List<InstalledPack> Read(string root)
     {
         var index = Path.Combine(root, IndexFile);
@@ -142,7 +145,8 @@ public sealed class PackStore
         if (!File.Exists(index)) return installed;
         try
         {
-            using var document = JsonDocument.Parse(File.ReadAllBytes(index));
+            // Bounded and never through a link, as every file a host reads (review 6, M2).
+            using var document = JsonDocument.Parse(PackReader.ReadFile(index, MaximumIndexBytes, "The store index"));
             if (document.RootElement.GetProperty("format").GetString() != Format) throw new InvalidDataException($"{index} is not a '{Format}' index.");
             foreach (var p in document.RootElement.GetProperty("packs").EnumerateArray())
             {

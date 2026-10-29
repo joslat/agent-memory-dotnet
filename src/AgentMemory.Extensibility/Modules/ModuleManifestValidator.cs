@@ -227,6 +227,10 @@ internal sealed class ModuleManifestValidator
         if (trial.Confidence is { } confidence && !PackTrialGate.Confidences.ContainsKey(confidence)) Error(path + ".confidence", "expected 0.9, 0.95, 0.975 or 0.99");
         if (trial.Upgrade is { Tolerance: < 0 or > ModuleTrialUpgrade.MaximumTolerance or double.NaN })
             Error(path + ".upgrade.tolerance", "expected 0 to 0.5");
+        // With a confidence, no regression is shown by a bound, and no bound shows a drop of exactly 0 (review 6: tolerance 0 fell
+        // back to the estimate, so a real drop of 0.1 passed a fifth of the time).
+        else if (trial.Upgrade is { NoRegression: true, Tolerance: 0 } && trial.Confidence is not null)
+            Error(path + ".upgrade.tolerance", "with a confidence, no regression needs a tolerance above 0 (ampack lint says what the declared tasks can show)");
         var t = trial.Targets;
         if (t is null || (t.HitRate, t.Precision, t.Lift, t.PrecisionLift, t.AddedP95Ms) == (null, null, null, null, null)) { Error(path + ".targets", "a trial needs at least one target"); return; }
         if (t.PrecisionLift is < -1 or > 1) Error(path + ".targets.precisionLift", "expected -1 to 1");
@@ -234,7 +238,13 @@ internal sealed class ModuleManifestValidator
         if (t.Precision is < 0 or > 1) Error(path + ".targets.precision", "expected 0 to 1");
         if (t.Lift is < -1 or > 1) Error(path + ".targets.lift", "expected -1 to 1");
         if (t.AddedP95Ms is <= 0 or > 60_000) Error(path + ".targets.addedP95Ms", "expected more than 0 and at most 60000");
+        // A certificate records each target in thousandths (review 6, L9: 0.2504 was admitted at 0.250).
+        foreach (var (name, value) in new[] { ("hitRate", t.HitRate), ("precision", t.Precision), ("lift", t.Lift), ("precisionLift", t.PrecisionLift), ("addedP95Ms", t.AddedP95Ms) })
+            if (value is { } v && !Thousandths(v)) Error(path + ".targets." + name, "expected at most three decimals");
+        if (trial.Upgrade is { } u && !double.IsNaN(u.Tolerance) && !Thousandths(u.Tolerance)) Error(path + ".upgrade.tolerance", "expected at most three decimals");
     }
+
+    private static bool Thousandths(double value) => Math.Abs(value * 1000 - Math.Round(value * 1000)) < 1e-6;
 
     private void ValidateTraversal(ModuleTraversal traversal, ModuleOntology? ontology, IReadOnlyDictionary<string, ModuleType> types)
     {

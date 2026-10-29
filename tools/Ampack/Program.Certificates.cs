@@ -69,17 +69,17 @@ internal static partial class Program
         if (verification.Pack is not { } pack) return Report(verification.Problems, "");
         var chosen = o.Value("certificate");
         var certificates = PackAttestations.Certificates(pack.Attestations).Where(c => chosen is null || PackAttestations.CertificatePath(c.Stem) == chosen)
-            .Select(c => (Name: PackAttestations.CertificatePath(c.Stem), c.Envelope, Run: PackAttestations.Run(pack.Attestations, c.Stem))).ToList();
+            .Select(c => (Name: PackAttestations.CertificatePath(c.Stem), c.Envelope, Run: PackAttestations.Run(pack.Attestations, c.Stem), Stem: (string?)c.Stem)).ToList();
         if (chosen is not null && certificates.Count == 0)
         {
             if (chosen.StartsWith(PackPaths.AttestationsFolder, StringComparison.Ordinal)) return Report([$"The pack carries no {chosen}."], "");
-            certificates.Add((chosen, PackReader.ReadFile(chosen, Dsse.MaximumEnvelopeBytes, "The certificate"), null));
+            certificates.Add((chosen, PackReader.ReadFile(chosen, Dsse.MaximumEnvelopeBytes, "The certificate"), null, null));
         }
         if (certificates.Count == 0) return Report([$"{pack.Id} {pack.Version} carries no evaluation certificate."], "");
         var problems = new List<string>();
-        foreach (var (name, envelope, run) in certificates)
+        foreach (var (name, envelope, run, stem) in certificates)
         {
-            var (certificate, signedBy, refused) = PackCertificate.Verify(envelope, pack, policy, DateTimeOffset.UtcNow, run);
+            var (certificate, signedBy, refused) = PackCertificate.Verify(envelope, pack, policy, DateTimeOffset.UtcNow, run, stem);
             if (certificate is null) { problems.AddRange(refused.Select(p => $"{name}: {p}")); continue; }
             Console.WriteLine($"Verified the certificate {name}\n  pack    {pack.Id} {pack.Version} {pack.Digest}\n  by      {Shown(certificate.Evaluator, 200)} (key {Dsse.Short(signedBy!)}), {certificate.EvaluatedAt:u}"
                 + $"\n  tool    {Shown(certificate.Tool)} {Shown(certificate.ToolVersion)}\n  trial   {certificate.Measure} against {certificate.Baseline}{(certificate.ConfidenceMilli is { } c ? $", confidence {c / 1000.0:0.###}" : "")}, {certificate.With.Tasks} tasks from {Shown(certificate.TaskSource, 500)}"
@@ -149,7 +149,7 @@ internal static partial class Program
                 + (card.Boundaries.Count > 0 ? $"\n          boundaries: {Shown(string.Join("; ", card.Boundaries), 300)}" : ""));
         foreach (var (stem, envelope) in PackAttestations.Certificates(pack.Attestations))
         {
-            var (certificate, signedBy, problems) = PackCertificate.Verify(envelope, pack, policy, DateTimeOffset.UtcNow, PackAttestations.Run(pack.Attestations, stem));
+            var (certificate, signedBy, problems) = PackCertificate.Verify(envelope, pack, policy, DateTimeOffset.UtcNow, PackAttestations.Run(pack.Attestations, stem), stem);
             Console.WriteLine(certificate is not null
                 ? $"  certificate {(certificate.Passed ? "passed" : "did not pass")}, by {Shown(certificate.Evaluator, 200)} (key {Dsse.Short(signedBy!)}) on {certificate.EvaluatedAt:yyyy-MM-dd}, {certificate.With.Tasks} tasks, trusted here"
                 : $"  certificate {stem}: not trusted here: {Shown(problems[0], 300)}");

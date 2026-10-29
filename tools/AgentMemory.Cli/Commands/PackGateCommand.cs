@@ -135,7 +135,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             }
         }
         var root = Path.GetFullPath(repo ?? ".");
-        var tasks = HistoryTasks(root, trial.Tasks, history);
+        var tasks = HistoryTasks(root, trial.Tasks, history, out var spacing);
         output.WriteLine($"{manifest.Id} {manifest.Version}{(variant is null ? "" : " (" + variant + ")")}: {tasks.Count} tasks from this repository's history, "
             + (history == "parent" ? "each at its commit's parent (map and grep as they stood before the change)" : "against the repository as it is now (head)"));
         if (packDigest is not null) output.WriteLine($"  pack     {packPath} ({packDigest}), verified");
@@ -200,15 +200,17 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         }
         // Each arm's cap, fixed before it ran: the pack's maxItems, grep's cut (review 5: every bound assumes one unseen task at it).
         var (withArm, details) = withRun.Arm(tasks.Count);
-        withArm = withArm with { MaximumOffered = manifest.Traversal?.MaxItems };
+        // How far apart in history the tasks were drawn: closer than a burst, every bound clusters them (review 6, H4).
+        withArm = withArm with { MaximumOffered = manifest.Traversal?.MaxItems, Spacing = spacing };
         var (emptyArm, _) = emptyRun.Arm(tasks.Count);
+        emptyArm = emptyArm with { MaximumOffered = 0, Spacing = spacing }; // without the pack nothing offers anything: by design, no uncertainty
         // Without the pack: the host's own retrieval when the trial names it, timed like the host without the pack.
-        var withoutArm = trial.Baseline == "host" ? grepRun.Arm(tasks.Count).Arm with { P95Ms = emptyArm.P95Ms, MaximumOffered = GrepTop } : emptyArm;
+        var withoutArm = trial.Baseline == "host" ? grepRun.Arm(tasks.Count).Arm with { P95Ms = emptyArm.P95Ms, MaximumOffered = GrepTop, Spacing = spacing } : emptyArm;
         PackTrialPrevious? previous = null;
         if (before is not null)
         {
             var (beforeArm, _) = oldRun.Arm(tasks.Count);
-            beforeArm = beforeArm with { MaximumOffered = before.Manifest.Traversal?.MaxItems };
+            beforeArm = beforeArm with { MaximumOffered = before.Manifest.Traversal?.MaxItems, Spacing = spacing };
             previous = new PackTrialPrevious { Version = before.Version, ManifestDigest = PackTrialGate.DigestOf(before.Manifest), PackDigest = before.Digest, With = beforeArm };
             output.WriteLine($"  previous {before.Version} ({before.Digest[..23]}…): hit {beforeArm.HitRate:0.000} ({beforeArm.Hits}/{beforeArm.Tasks}), precision {beforeArm.Precision:0.000} ({beforeArm.Correct}/{beforeArm.Offered})");
         }
@@ -320,8 +322,10 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     private static async Task<TaskOutcome> MeasureOneAsync(IServiceProvider provider, HistoryTask task)
     {
         var (envelope, ms) = await CompileAsync(provider, task).ConfigureAwait(false);
+        // What the walk offered (it says how it reached each item), at most the pack's maxItems: the arm's cap (review 6: a test
+        // record another contributor added counted too, and could exceed the cap the bounds assume).
         var files = envelope.Sections.SelectMany(s => s.Items)
-            .Where(i => i.Provenance?.RecordModuleId == CodeMapPack.Id && i.Provenance.RecordType == CodeMapPack.TestType)
+            .Where(i => i.Provenance?.RecordModuleId == CodeMapPack.Id && i.Provenance.RecordType == CodeMapPack.TestType && i.Provenance.Via is not null)
             .Select(i => TestFile().Match(i.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         return new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms);
@@ -463,8 +467,9 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     /// it added or modified. With <c>head</c> history (the earlier method) every changed file that still exists counts, which
     /// lets a test the commit created be "found" in a map built afterwards (review 1, H1).
     /// </summary>
-    private static List<HistoryTask> HistoryTasks(string repo, int count, string history)
+    private static List<HistoryTask> HistoryTasks(string repo, int count, string history, out int spacing)
     {
+        spacing = 1;
         var start = new ProcessStartInfo("git") { RedirectStandardOutput = true, UseShellExecute = false, StandardOutputEncoding = System.Text.Encoding.UTF8 };
         foreach (var arg in new[] { "-C", repo, "log", "--no-merges", "-n", "2000", "--format=%x1e%H%x1f%P%x1f%s", "--name-status" }) start.ArgumentList.Add(arg);
         using var git = Process.Start(start) ?? throw new InvalidOperationException("git did not start.");
@@ -493,9 +498,14 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             }
             if (tests.Count == 0 || code.Count is 0 or > 8) continue;
             tasks.Add(new HistoryTask(head[0][..10], head[1].Split(' ')[0], head.Length > 2 ? head[2] : "", code, tests));
-            if (tasks.Count == count) break;
         }
-        return tasks;
+        // Spread over the history, not the most recent run of commits (review 6: consecutive commits are not independent draws;
+        // the code map's own forty had a lag-1 autocorrelation of 0.22 in hits, and bursts of related changes pass a bound far
+        // more often than its level): every k-th eligible commit of the last 2,000, k the most that still gives the count.
+        // The spacing travels with the measurement: closer than a burst, the bounds cluster the tasks (review 6, H4).
+        var stride = spacing = Math.Max(1, tasks.Count / Math.Max(1, count));
+        if (tasks.Count <= count) return tasks;
+        return [.. Enumerable.Range(0, count).Select(i => tasks[i * stride])];
     }
 
     // The code map renders a test as "Test {name} ({file})"; the traversal contributor then adds "(reached from …)".

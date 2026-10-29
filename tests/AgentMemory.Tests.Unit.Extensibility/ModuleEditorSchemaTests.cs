@@ -103,6 +103,11 @@ public sealed class ModuleEditorSchemaTests
     [InlineData("tasks-201", false)]
     [InlineData("tolerance-0", true)]
     [InlineData("tolerance-negative", false)]
+    [InlineData("tolerance-0-with-confidence", false)]
+    [InlineData("no-tolerance-with-confidence", false)]
+    [InlineData("tolerance-0.05-with-confidence", true)]
+    [InlineData("target-four-decimals", false)]
+    [InlineData("target-three-decimals", true)]
     [InlineData("traversal-without-anchors-or-relations", false)]
     [InlineData("traversal-with-empty-anchors", false)]
     [InlineData("hops-written-2.0", true)]
@@ -125,6 +130,12 @@ public sealed class ModuleEditorSchemaTests
             case "tasks-201": trial["tasks"] = 201; break;
             case "tolerance-0": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = 0 }; break;
             case "tolerance-negative": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = -0.01 }; break;
+            // Review 6: with a confidence, no regression needs a tolerance (H1); a target states at most thousandths (L9).
+            case "tolerance-0-with-confidence": trial["confidence"] = 0.95; trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = 0 }; break;
+            case "no-tolerance-with-confidence": trial["confidence"] = 0.95; trial["upgrade"] = new JsonObject { ["noRegression"] = true }; break;
+            case "tolerance-0.05-with-confidence": trial["confidence"] = 0.95; trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = 0.05 }; break;
+            case "target-four-decimals": trial["targets"] = new JsonObject { ["hitRate"] = 0.2504 }; break;
+            case "target-three-decimals": trial["targets"] = new JsonObject { ["hitRate"] = 0.35, ["precision"] = 0.251, ["lift"] = -0.05 }; break;
             case "traversal-without-anchors-or-relations": traversal = new JsonObject { ["maxItems"] = 3 }; break;
             case "traversal-with-empty-anchors": traversal = new JsonObject { ["anchors"] = new JsonArray() }; break;
             case "hops-written-2.0": traversal["hops"] = JsonValue.Create(2.0m); break;

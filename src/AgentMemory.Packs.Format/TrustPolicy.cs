@@ -63,12 +63,16 @@ internal sealed partial record TrustPolicy
         return null;
     }
 
+    /// <summary>The largest trust policy read, here and by every caller (pack format v1.2, appendix; review 6, M2).</summary>
+    internal const int MaximumBytes = 4 << 20;
+
     /// <summary>
     /// Reads a policy file, checking that every key id is the SHA-256 of its key. A policy is host configuration that people
     /// edit, so a byte order mark and CRLF line ends are accepted here; everything else in the JSON profile holds.
     /// </summary>
     internal static TrustPolicy Parse(ReadOnlySpan<byte> raw)
     {
+        if (raw.Length > MaximumBytes) throw new InvalidDataException($"The trust policy is larger than {MaximumBytes} bytes.");
         try { return ParseChecked(raw); }
         // A key that is not a PEM public key is malformed too (PACK-harden: found by fuzzing the policy reader).
         catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or FormatException or JsonException or ArgumentException

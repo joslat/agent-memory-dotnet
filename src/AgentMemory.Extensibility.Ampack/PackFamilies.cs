@@ -82,7 +82,7 @@ public static class PackFamilies
         foreach (var path in memberPaths)
         {
             var content = Read(path);
-            if (IsComposite(content))
+            if (IsComposite(content, trust))
             {
                 var opened = OpenComposite(content, trust, ledger);
                 if (!composites.TryAdd(opened.Pack.Id, opened)) problems.Add($"{opened.Pack.Id} is given twice.");
@@ -156,7 +156,7 @@ public static class PackFamilies
         catch (Exception e) when (e is InvalidDataException or IOException) { throw new PackLoadException([$"{path}: {e.Message}"]); }
     }
 
-    private static LoadedSet LoadSet(PackContent content, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade = false)
+    internal static LoadedSet LoadSet(PackContent content, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade = false)
     {
         ArgumentNullException.ThrowIfNull(trust);
         var (set, verifications) = PackVerifier.VerifySet(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger, allowDowngrade);
@@ -189,9 +189,10 @@ public static class PackFamilies
         };
     }
 
-    // Whether a pack's content declares a composite (before it is verified: verifying it as one decides).
-    private static bool IsComposite(PackContent content) =>
-        content.Files.TryGetValue(PackManifest.FileName, out var bytes) && PackManifest.Parse(bytes).Manifest?.Kind == "composite";
+    // Whether a pack's content declares a composite, read once its signatures hold (review 6, H1); one that does not
+    // authenticate is loaded as a pack, which refuses it with every reason.
+    private static bool IsComposite(PackContent content, PackTrust trust) =>
+        PackVerifier.Authenticated(content, trust.Policy, DateTimeOffset.UtcNow).Manifest?.Kind == "composite";
 
     /// <summary>
     /// The families the composites form (PACK-nest): every lock agrees with every other on each id it pins, no composite

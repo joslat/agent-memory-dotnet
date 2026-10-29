@@ -29,8 +29,8 @@ public sealed record ModuleTrial
     /// </summary>
     public string Baseline { get; init; } = "none";
     /// <summary>
-    /// When set (0.9, 0.95, 0.975 or 0.99), a rate target is met only when the one-sided Wilson lower bound of the rate at this
-    /// confidence reaches it, so a small trial cannot pass by luck.
+    /// When set (0.9, 0.95, 0.975 or 0.99), a target is met only when its one-sided lower confidence bound at this confidence
+    /// reaches it (<see cref="PackTrialGate.Statistic"/>), so a small trial cannot pass by luck.
     /// </summary>
     public double? Confidence { get; init; }
     /// <summary>The targets; every one given must be met.</summary>
@@ -56,6 +56,25 @@ public sealed record ModuleTrialUpgrade
     public required bool NoRegression { get; init; }
     /// <summary>How much worse is still no regression, 0 to 0.5; default 0.</summary>
     public double Tolerance { get; init; }
+}
+
+/// <summary>
+/// The least a trial must claim before this host counts it (<see cref="ModuleSetBuilder.RequireTrialFloor"/>; review 6, M8: a
+/// pack chose its own targets, so <c>{"hitRate":0}</c> without a confidence always passed). A trial below the floor is left
+/// off whatever its decisions say.
+/// </summary>
+[Experimental("AMEXT001")]
+public sealed record PackTrialFloor
+{
+    /// <summary>The least confidence a trial declares; a trial without one is below any. Null: estimates are enough.</summary>
+    public double? Confidence { get; init; }
+    /// <summary>The fewest tasks a trial runs.</summary>
+    public int Tasks { get; init; } = ModuleTrial.MinimumTasks;
+    /// <summary>
+    /// Each target named here the trial must declare, at least as strict: a rate, precision or lift at least this high, an
+    /// added latency at most this.
+    /// </summary>
+    public ModuleTrialTargets? Targets { get; init; }
 }
 
 /// <summary>A trial's targets. Each is optional; at least one must be given.</summary>

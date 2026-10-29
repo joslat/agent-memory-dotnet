@@ -71,8 +71,10 @@ internal sealed partial record PackManifest
     /// <summary>Whether <paramref name="prefix"/> covers <paramref name="id"/>: the same id, or a parent namespace of it.</summary>
     internal static bool Covers(string prefix, string id) => PackIds.PackNamespace.Covers(prefix, id);
 
+    // More than a listed JSON file may hold is refused here, whoever calls (review 6, H1).
     internal static (PackManifest? Manifest, string? Problem) Parse(ReadOnlySpan<byte> bytes)
     {
+        if (bytes.Length > PackVerifier.MaximumJsonBytes) return (null, $"{FileName} is larger than {PackVerifier.MaximumJsonBytes >> 20} MiB.");
         if (PackJson.Check(bytes) is { } problem) return (null, $"{FileName} {problem}.");
         using var document = JsonDocument.Parse(bytes.ToArray());
         var root = document.RootElement;
