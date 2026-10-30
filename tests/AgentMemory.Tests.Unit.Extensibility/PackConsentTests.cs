@@ -102,6 +102,24 @@ public sealed class PackConsentTests
     }
 
     [Fact]
+    public void Review12_serve_holds_one_live_snapshot_of_a_module()
+    {
+        // Snapshots are no modules, so the host's composition passes them through; the mount plan holds one live snapshot of a
+        // module, and serve must still apply it (round 12: no test sent two snapshots of one module through serve).
+        var key = PackAuthoring.CreateKey();
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(key.PublicKeyPem, "com.example", "io.example")));
+        byte[][] archives =
+        [
+            PackAuthoring.Build(PackAuthoring.FromModuleBundle(new Dictionary<string, byte[]> { ["manifest.json"] = Encoding.UTF8.GetBytes(Code.Replace("CONSENT", "", StringComparison.Ordinal)) }), key.PrivateKeyPem),
+            PackAuthoring.Build(PackAuthoring.FromSnapshot(Codebase(consents: false), "io.example.code-map-a", "1.0.0"), key.PrivateKeyPem),
+            PackAuthoring.Build(PackAuthoring.FromSnapshot(Codebase(consents: false), "io.example.code-map-b", "1.0.0"), key.PrivateKeyPem),
+        ];
+
+        FluentActions.Invoking(() => PackMemory.Mount(archives, trust)).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains("are snapshots of com.example.code"));
+    }
+
+    [Fact]
     public async Task Review6_M1_mount_takes_the_hosts_grants_for_a_snapshot_pack_as_the_walk_does()
     {
         // The consent rule was checked twice with different grants: Mount made the pack a snapshot with none of the host's

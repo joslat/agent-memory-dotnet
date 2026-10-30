@@ -75,6 +75,10 @@ public sealed class PackStore
             case "set":
                 // Allowing a downgrade waives the version history only: one content per version, and every kept revocation, still hold.
                 var set = PackFamilies.LoadSet(content, trust, ledger, allowDowngrade);
+                // What a host composes from it, or the host's refusal, before anything is written (round 12, R12-2: a set every host
+                // refuses was installed, and then serve --store refused the whole store). Installed items carry no id in common, so
+                // each composing on its own is the store composing.
+                PackFamilies.HostComposes([set], []);
                 digest = set.Digest;
                 members = [.. set.AllPacks.Select(p => p.Id).Where(m => m != id).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
                 record = () => ledger.Record(set);

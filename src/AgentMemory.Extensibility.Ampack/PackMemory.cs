@@ -192,11 +192,9 @@ public sealed partial class PackMemory : IModuleTraversalReader
             }
         }
         familyMembers.ExceptWith(standalone);
-        // Held as a host holds them, before the gate or anything else reads them (review 7, W4): one version of a pack and one live
-        // snapshot of a module, said plainly; then composed by the host's own composition (round 11, R11-1 to R11-3), every member,
-        // copy, validity and refusal the host's.
-        List<LoadedPack> given = [.. sets.SelectMany(s => s.AllPacks), .. direct];
-        if (PackMountPlan.Problems(given) is { Count: > 0 } plan) throw new PackLoadException(plan);
+        // Held as a host holds them, before the gate or anything else reads them (review 7, W4): composed by the host's own
+        // composition, the one decider of what is held (round 11; round 12, R12-1: a check here on what was only carried refused a
+        // pack a family carries switched off and the host composes once); then one live snapshot of a module.
         var loaded = PackMountPlan.Of(PackFamilies.HostComposes(sets, direct));
         if (off?.Invoke(loaded, familyMembers) is { Count: > 0 } kept)
             loaded.RemoveAll(p => kept.Contains(p.Id) || (p.Kind == "snapshot" && p.Manifest.Modules.Keys.Any(kept.Contains)));

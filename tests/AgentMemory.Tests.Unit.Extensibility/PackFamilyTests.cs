@@ -177,6 +177,42 @@ public sealed class PackFamilyTests : IDisposable
     }
 
     [Fact]
+    public void Review12_a_pack_a_family_carries_switched_off_is_held_once_when_given_on_its_own()
+    {
+        // R12-1: the mount plan refused what was only carried twice ("given more than once"), while a host composing the family,
+        // with repository off, and repository on its own, holds it once. Every door decides on what is composed.
+        var (composite, members) = Family(json =>
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(json)!;
+            foreach (var member in node["members"]!.AsArray())
+                if ((string?)member!["id"] == RepositoryPack.Id) member["enabled"] = false;
+            return node.ToJsonString();
+        });
+        var carried = new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal) { [CodingPack.Manifest.Id] = composite };
+        foreach (var member in members) carried[Id(member)] = member;
+        var set = PackBuilder.Pack(Built(PackSets.Source("io.agentmemory.packs.coding-family", "0.1.0", carried)));
+        var repository = PackBuilder.Pack(members.Single(m => Id(m) == RepositoryPack.Id));
+
+        var held = PackMemory.Mount([set, repository], Trust()).Packs;
+        held.Count(p => p.Id == RepositoryPack.Id).Should().Be(1);
+        held.Select(p => p.Id).Should().BeEquivalentTo(PackFamilies.HostComposes([PackFamilies.LoadSet(set, Trust())], [PackLoader.Load(repository, Trust())]).Select(p => p.Id));
+        // R12-2: the store installs only what a host composes.
+        var store = PackStore.Open(Path.Combine(_root, "store"));
+        var (off, offMembers) = Family(json =>
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(json)!;
+            foreach (var member in node["members"]!.AsArray())
+                if ((string?)member!["id"] == CodeMapPack.Id) member["enabled"] = false;
+            return node.ToJsonString();
+        });
+        var refused = new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal) { [CodingPack.Manifest.Id] = off };
+        foreach (var member in offMembers) refused[Id(member)] = member;
+        FluentActions.Invoking(() => store.Install(PackBuilder.Pack(Built(PackSets.Source("io.agentmemory.packs.coding-off", "0.1.0", refused))), Trust()))
+            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("switched off"));
+        store.Installed.Should().BeEmpty("nothing is written when a host would refuse it");
+    }
+
+    [Fact]
     public void A_member_changed_inside_a_set_is_refused_even_when_the_set_is_resigned()
     {
         var (composite, members) = Family();

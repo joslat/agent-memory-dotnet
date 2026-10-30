@@ -699,13 +699,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
    "edits": [
     {
-     "old": "        if (PackMountPlan.Problems(given) is { Count: > 0 } plan) throw new PackLoadException(plan);\n",
-     "new": ""
+     "old": "        var loaded = PackMountPlan.Of(PackFamilies.HostComposes(sets, direct));",
+     "new": "        List<LoadedPack> loaded = [.. PackFamilies.HostComposes(sets, direct)];"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AmpackLoaderTests.Review7_W4",
-   "sha256": "82bb120e59f93918afb861a087f96e904c0afab6fb433e3b5bd99f5c0d18f038"
+   "filter": "FullyQualifiedName~AmpackLoaderTests|FullyQualifiedName~Review8GuardTests.A5|FullyQualifiedName~PackConsentTests.Review12",
+   "sha256": "774f906714496e5072ef070e207ea8b438825609fa4626245a5935e13a843a37"
   },
   {
    "id": "mount-plan-at-gate",
@@ -819,13 +819,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
    "edits": [
     {
-     "old": "copies[r.PackDigest!] is var pack && pack.ValidUntil == r.ValidUntil\n",
-     "new": "copies[r.PackDigest!] is var pack && true\n"
+     "old": "origin[r] is var pack && pack.ValidUntil == r.ValidUntil\n",
+     "new": "origin[r] is var pack && true\n"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~Review10GuardTests.C_M2",
-   "sha256": "5b9d875029fb4971f6b284cb896e9e024cda2c9416a6e75a5bc97fe6b290e03b"
+   "sha256": "9b6504f13fc6b9ad64eb55b376ad0b43ab3e8d5e9ceda6ba7e626564f7f82b9d"
   },
   {
    "id": "serve-own-composition",
@@ -841,6 +841,36 @@
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~AmpackLoaderTests.Review11|FullyQualifiedName~PackFamilyTests.Review11",
    "sha256": "f930527584cf779b1e2b48c87f32bd1f5deefee99d70d018c68800297355896a"
+  },
+  {
+   "id": "composed-any-origin",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "family routes",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
+   "edits": [
+    {
+     "old": "                origin[registration] = from.First(p => p.Digest == registration.PackDigest);",
+     "new": "                origin[registration] = setList.SelectMany(s => s.AllPacks).Concat(from).First(p => p.Digest == registration.PackDigest);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review10GuardTests.R12_4",
+   "sha256": "da0c51901359aaaa840b4f04a4a784d7d1012a710c8baff114026b3cb6548389"
+  },
+  {
+   "id": "install-any-set",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackStore.cs",
+   "edits": [
+    {
+     "old": "                PackFamilies.HostComposes([set], []);\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackFamilyTests.Review12",
+   "sha256": "b64a78cd4e6bd355f5239ea47bd34003d2ed70e1651bf4a5e90d80c491633378"
   },
   {
    "id": "links-before-dependency",

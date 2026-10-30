@@ -64,7 +64,7 @@ public sealed record LoadedSet
 /// the same content.
 /// </summary>
 [Experimental("AMEXT001")]
-public static class PackFamilies
+public static partial class PackFamilies
 {
     /// <summary>
     /// Loads a composite pack and its members (folders or <c>.ampack</c> files): every pack and composite under it, at any
@@ -138,12 +138,13 @@ public static class PackFamilies
     /// <summary>
     /// The packs a host holds from these sets and packs, composed with no switches of its own: worked out by running the host's own
     /// composition (<see cref="AddFamily"/> for each family, <see cref="PackLoader.AddPack"/> for each pack on its own) and reading
-    /// back what it registered, each with the validity it registered, so every door that holds packs holds exactly what a host holds
-    /// and refuses what a host refuses (round 11, R11-1 to R11-3: serve, test and DemoBrain rebuilt the composition and missed its
-    /// refusals: a lock pinned outside its range, a member needing one switched off, a module reached through two sets). Snapshot
-    /// packs are no modules; they come after, as given.
+    /// back what it registered, each from the route that registered it and with the validity it registered, so every door that holds
+    /// packs holds exactly what a host holds and refuses what a host refuses (round 11, R11-1 to R11-3). It is the one decider of
+    /// whether packs can be held together (round 12, R12-1, R12-2, R12-4: the mount plan refused what was only carried twice, the
+    /// store installed what a host refuses, and a copy's certificates came from another route). Snapshot packs are no modules; they
+    /// come after, as given.
     /// </summary>
-    /// <exception cref="PackLoadException">A host composing them would refuse; the problem is the host's own.</exception>
+    /// <exception cref="PackLoadException">A host composing them would refuse; the problem is the host's own, a module added twice said plainly.</exception>
     public static IReadOnlyList<LoadedPack> HostComposes(IEnumerable<LoadedSet> sets, IEnumerable<LoadedPack> packs)
     {
         ArgumentNullException.ThrowIfNull(sets);
@@ -152,24 +153,33 @@ public static class PackFamilies
         List<LoadedPack> packList = [.. packs];
         var builder = new ModuleSetBuilder();
         var snapshots = new List<LoadedPack>();
+        // Each registration's own copy: the pack, or the member of the family, that its route added.
+        var origin = new Dictionary<ModuleRegistration, LoadedPack>(ReferenceEqualityComparer.Instance);
         try
         {
             foreach (var set in setList)
             {
-                foreach (var family in set.Families) builder.AddFamily(family);
+                foreach (var family in set.Families) Added(() => builder.AddFamily(family), family.AllMembers);
                 foreach (var pack in set.Packs) Add(pack);
             }
             foreach (var pack in packList) Add(pack);
+        }
+        catch (ArgumentException e) when (Twice().Match(e.Message) is { Success: true } twice)
+        {
+            var id = twice.Groups[1].Value;
+            var versions = setList.SelectMany(s => s.AllPacks).Concat(packList).Where(p => p.Id == id).Select(p => p.Version)
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            throw new PackLoadException([versions.Count > 1
+                ? $"{id} comes more than once ({string.Join(", ", versions)}): a host holds one version of a pack, so give one."
+                : $"{id} {versions.FirstOrDefault()} is composed more than once: a host adds a module once, so give it once."]);
         }
         catch (Exception e) when (e is not PackLoadException && e is InvalidOperationException or ArgumentException)
         {
             throw new PackLoadException([e.Message]);
         }
-        var copies = setList.SelectMany(s => s.AllPacks).Concat(packList).GroupBy(p => p.Digest, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         return
         [
-            .. builder.Modules.Where(r => r.PackDigest is not null).Select(r => copies[r.PackDigest!] is var pack && pack.ValidUntil == r.ValidUntil
+            .. builder.Modules.Where(origin.ContainsKey).Select(r => origin[r] is var pack && pack.ValidUntil == r.ValidUntil
                 ? pack : pack with { ValidUntil = r.ValidUntil, Knowledge = pack.Knowledge?.WithValidUntil(r.ValidUntil) }),
             .. snapshots,
         ];
@@ -177,9 +187,20 @@ public static class PackFamilies
         void Add(LoadedPack pack)
         {
             if (pack.Kind == "snapshot") snapshots.Add(pack);
-            else builder.AddPack(pack);
+            else Added(() => builder.AddPack(pack), [pack]);
+        }
+
+        void Added(Action add, IReadOnlyList<LoadedPack> from)
+        {
+            var before = builder.Modules.Count;
+            add();
+            foreach (var registration in builder.Modules.Skip(before).Where(r => r.PackDigest is not null))
+                origin[registration] = from.First(p => p.Digest == registration.PackDigest);
         }
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex("\\AModule '([^']+)' is already added\\.")]
+    private static partial System.Text.RegularExpressions.Regex Twice();
 
     // In the composite's order: a nested family as a composite member, a pack as a module.
     private static void AddMembers(CompositeMembers members, LoadedFamily family)

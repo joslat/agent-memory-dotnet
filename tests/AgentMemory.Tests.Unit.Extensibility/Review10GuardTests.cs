@@ -65,7 +65,7 @@ public sealed class Review10GuardTests
 
         // R11-1: one module reached through two sets, or a set and on its own: the host refuses it, whatever the packaging.
         FluentActions.Invoking(() => PackFamilies.HostComposes([WithX("io.example.f1"), WithX("io.example.f2")], [])).Should().Throw<PackLoadException>()
-            .Which.Problems.Should().Contain(p => p.Contains("already added"));
+            .Which.Problems.Should().Contain(p => p.Contains("composed more than once"));
         FluentActions.Invoking(() => PackFamilies.HostComposes([WithX("io.example.f1")], [pack])).Should().Throw<PackLoadException>();
 
         // R11-2: a family pinning its member outside the range it declares is refused, not composed.
@@ -76,6 +76,21 @@ public sealed class Review10GuardTests
 
         // A member switched off is not held.
         PackFamilies.HostComposes([Set(Family(Composite("io.example.off", (x, false)), [pack]))], []).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void R12_4_each_pack_comes_from_the_route_that_registered_it()
+    {
+        // X switched off in S1 (its copy with one signer list), on in S2 (another): the host composes S2's X, and every field that
+        // travels outside the digest (signers, certificates) must be S2's copy, not the first copy carried.
+        var pack = Pack();
+        var x = pack.Id;
+        var first = pack with { Signers = ["publisher of s1"] };
+        var second = pack with { Signers = ["publisher of s2"] };
+        LoadedSet S(string id, bool on, LoadedPack copy) => Set(Family(Composite(id, (x, on)), [copy])) with { Id = id };
+
+        PackFamilies.HostComposes([S("io.example.s1", false, first), S("io.example.s2", true, second)], [])
+            .Should().ContainSingle().Which.Signers.Should().Equal(["publisher of s2"]);
     }
 
     private static LoadedSet Set(params LoadedFamily[] families) => new()

@@ -104,7 +104,7 @@ public sealed class AmpackLoaderTests
             .Which.Problems.Should().ContainSingle().Which.Should().Contain("comes more than once").And.Contain("a host holds one version of a pack");
         // A host adds a module once (round 11): the same pack given twice is refused, as the host's builder refuses it.
         FluentActions.Invoking(() => PackMemory.Mount([first, first], Trust())).Should().Throw<PackLoadException>()
-            .Which.Problems.Should().Contain(p => p.Contains("given more than once"));
+            .Which.Problems.Should().Contain(p => p.Contains("composed more than once"));
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class AmpackLoaderTests
 
         PackMemory.Mount([SetOf("io.agentmemory.packs.set-one")], Trust()).Packs.Should().ContainSingle();
         FluentActions.Invoking(() => PackMemory.Mount([SetOf("io.agentmemory.packs.set-one"), SetOf("io.agentmemory.packs.set-two")], Trust()))
-            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("given more than once"));
+            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("composed more than once"));
     }
 
     [Fact]
