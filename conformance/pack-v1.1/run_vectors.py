@@ -1143,7 +1143,7 @@ def main():
                 "tool": {"name": "kit", "version": "1.0.0"}, "evaluatedAt": evaluated,
                 "trial": trial_ or {"measure": "test-impact", "baseline": "none", "taskSource": "the kit's synthetic tasks"},
                 "checks": checks or [{"target": "hitRate", "requiredMilli": 500, "observedMilli": 600, "met": True}],
-                "statistic": "agentmemory.trial.hedged/3",
+                "statistic": "agentmemory.trial.hedged/4",
                 "with": with_arm or arm_(40, 24, 120, 30, 12500), "passed": passed, **(extra or {})}
         if without is not None:
             pred["without"] = without
@@ -1190,7 +1190,7 @@ def main():
                          "PerTask": [{"Offered": o_, "Correct": c_} for o_, c_ in arm_(40, 24, 120, 30, 12500)["perTask"]]},
                 "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5, "MaximumOffered": 0,
                             "PerTask": [{"Offered": 0, "Correct": 0}] * 40},
-                "Statistic": "agentmemory.trial.hedged/3",
+                "Statistic": "agentmemory.trial.hedged/4",
                 # Review 7: the caps are the declarations' (no traversal: the format's 16), and a baseline of none offers nothing.
                 # Review 3: certify takes only a trial at each commit's parent.
                 "History": "parent"}

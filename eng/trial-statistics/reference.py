@@ -1,10 +1,14 @@
-"""The reference for the trial bounds (statistic agentmemory.trial.hedged/3); the C# port in PackTrialGate must agree (golden.json).
+"""The reference for the trial bounds (statistic agentmemory.trial.hedged/4); the C# port in PackTrialGate must agree (golden.json).
 
 Clopper-Pearson for a hit rate, and for precision when an arm offers one item a task at most. Otherwise the unseen worst-case
 task, counted HEDGE[confidence] times beside the tasks (a frequency weight), then Fieller's inversion of the pooled precision,
 or the paired difference task by task, at Student's t with tasks - 1 degrees of freedom. An arm with a cap of 0 offers nothing
 by design (the baseline none): it has no uncertainty. Tasks drawn closer than BURST eligible commits apart (`spacing`) are
-clustered first, in runs of ceil(BURST / spacing) in the order drawn (review 6, H4).
+clustered first, in runs of ceil(BURST / spacing) in the order drawn (review 6, H4), and neighbouring runs counted as
+correlated: a burst of at most BURST commits can straddle two runs, so the runs are 1-dependent, not independent (review 8,
+G1: with bursts at an offset to the runs, a hit-rate target at the truth passed 9.4% of the time at 95%). Each clustered
+bound adds the runs' lag-1 autocovariance to its variance, never lowering it, and the one-arm bound is the hedged pooled ratio
+linearized at its estimate (hedged/4).
 """
 import math
 from tq import Z, student_q
@@ -47,6 +51,30 @@ def _weighted(values, unseen, w):
     return mean, math.sqrt(var / n)
 
 
+def _weighted_lag1(values, unseen, w):
+    """As _weighted, with the values' lag-1 autocovariance in their order added to the variance, never lowering it."""
+    n = len(values) + w
+    mean = (sum(values) + w * unseen) / n
+    g0 = (sum((v - mean) ** 2 for v in values) + w * (unseen - mean) ** 2) / (n - 1)
+    g1 = sum((values[i] - mean) * (values[i + 1] - mean) for i in range(len(values) - 1)) / (n - 1)
+    return mean, math.sqrt(max(g0, g0 + 2 * g1) / n)
+
+
+def clustered_lower(units, cap, conf):
+    """The pooled precision of runs in drawn order: the hedged ratio (the unseen run (cap, 0) counted HEDGE times), linearized
+    at its estimate, the runs' lag-1 autocovariance in its variance, at Student's t with runs - 1 degrees of freedom."""
+    k = len(units)
+    offered = sum(o for o, _ in units)
+    if k == 0 or offered == 0:
+        return 0.0
+    w = HEDGE[conf]
+    r = sum(c for _, c in units) / (offered + w * cap)
+    ob = (offered + w * cap) / (k + w)
+    _, se = _weighted_lag1([c - r * o for o, c in units], -r * cap, w)
+    q = student_q(Z[conf], k - 1)
+    return min(max(r - q * se / ob, 0.0), 1.0)
+
+
 def precision_lower(tasks, cap, conf):
     """tasks: [(offered, correct)]. Cap 1: Clopper-Pearson over the offering tasks. Else Fieller with the unseen task (cap, 0)
     counted HEDGE times."""
@@ -81,7 +109,7 @@ def precision_upper(tasks, cap, conf):
     return 1 - precision_lower([(o, o - c) for o, c in tasks], cap, conf)
 
 
-def precision_diff_lower(t1, cap1, t2, cap2, conf):
+def precision_diff_lower(t1, cap1, t2, cap2, conf, lag1=False):
     """R1 - R2, paired: the unseen task, the first arm offering cap1 all wrong and the second cap2 all right, counted HEDGE
     times. A cap of 0 offers nothing by design."""
     if cap2 == 0:
@@ -95,7 +123,7 @@ def precision_diff_lower(t1, cap1, t2, cap2, conf):
     N = n + w
     r1, r2, m1, m2 = c1 / o1, c2 / o2, o1 / N, o2 / N
     f = [(a[1] - r1 * a[0]) / m1 - (b[1] - r2 * b[0]) / m2 for a, b in zip(t1, t2)]
-    _, se = _weighted(f, (0 - r1 * cap1) / m1 - (cap2 - r2 * cap2) / m2, w)
+    _, se = (_weighted_lag1 if lag1 else _weighted)(f, (0 - r1 * cap1) / m1 - (cap2 - r2 * cap2) / m2, w)
     q = student_q(Z[conf], n - 1)
     return min(max(r1 - r2 - q * se, -1.0), 1.0)
 
@@ -126,17 +154,17 @@ def hit_rate_lower_arm(tasks, spacing, conf):
     m = cluster_size(spacing)
     if m == 1:
         return rate_lower(sum(1 for _, c in tasks if c > 0), len(tasks), conf)
-    return precision_lower(hit_clusters(tasks, m), m, conf)
+    return clustered_lower(hit_clusters(tasks, m), m, conf)
 
 
 def precision_lower_arm(tasks, cap, spacing, conf):
     m = cluster_size(spacing)
-    return precision_lower(tasks, cap, conf) if m == 1 else precision_lower(clusters(tasks, m), m * cap, conf)
+    return precision_lower(tasks, cap, conf) if m == 1 else clustered_lower(clusters(tasks, m), m * cap, conf)
 
 
 def hit_diff_lower_arm(t1, t2, spacing, conf):
     m = cluster_size(spacing)
-    return hit_diff_lower(t1, t2, conf) if m == 1 else precision_diff_lower(hit_clusters(t1, m), m, hit_clusters(t2, m), m, conf)
+    return hit_diff_lower(t1, t2, conf) if m == 1 else precision_diff_lower(hit_clusters(t1, m), m, hit_clusters(t2, m), m, conf, lag1=True)
 
 
 def precision_diff_lower_arm(t1, cap1, t2, cap2, spacing, conf):
@@ -147,4 +175,4 @@ def precision_diff_lower_arm(t1, cap1, t2, cap2, spacing, conf):
         if cap1 == 0:
             return -(1 - precision_lower_arm([(o, o - c) for o, c in t2], cap2, spacing, conf))
         return precision_diff_lower(t1, cap1, t2, cap2, conf)
-    return precision_diff_lower(clusters(t1, m), m * cap1, clusters(t2, m), m * cap2, conf)
+    return precision_diff_lower(clusters(t1, m), m * cap1, clusters(t2, m), m * cap2, conf, lag1=True)

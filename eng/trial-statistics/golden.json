@@ -15928,10 +15928,10 @@
 "rateLower": 0.3376963727543526,
 "precisionLower": 0.21988816216286583,
 "precisionUpper": 0.4837387428527248,
-"hitRateLowerOf": 0.11539728399189353,
-"precisionLowerOf": 0.06099378717028028,
-"precisionDifferenceLower": -0.8551183015370757,
-"hitDifferenceLower": -0.6205278979240708
+"hitRateLowerOf": 0.08253047150791593,
+"precisionLowerOf": 0.0,
+"precisionDifferenceLower": -0.953798196244474,
+"hitDifferenceLower": -0.7033634787688627
 },
 {
 "confidence": 0.95,
@@ -16273,10 +16273,10 @@
 "rateLower": 0.4938756903870867,
 "precisionLower": 0.49480127395973783,
 "precisionUpper": 0.7961489556506833,
-"hitRateLowerOf": 0.2318096953911128,
-"precisionLowerOf": 0.10071064551904826,
-"precisionDifferenceLower": 0.10071064551904826,
-"hitDifferenceLower": -0.321476206109608
+"hitRateLowerOf": 0.2103461966294441,
+"precisionLowerOf": 0.009901036903457505,
+"precisionDifferenceLower": 0.009901036903457505,
+"hitDifferenceLower": -0.39962373826460823
 },
 {
 "confidence": 0.99,
@@ -16958,7 +16958,7 @@
 "hitRateLowerOf": 0.0,
 "precisionLowerOf": 0.0,
 "precisionDifferenceLower": 0.0,
-"hitDifferenceLower": -0.8471611375288606
+"hitDifferenceLower": -1.0
 },
 {
 "confidence": 0.95,
@@ -17292,10 +17292,10 @@
 "rateLower": 0.40881182005528083,
 "precisionLower": 0.3388298991436079,
 "precisionUpper": 0.630262487609903,
-"hitRateLowerOf": 0.2921573882399902,
-"precisionLowerOf": 0.20845854316600293,
-"precisionDifferenceLower": -0.494537789432335,
-"hitDifferenceLower": -0.26898688757435646
+"hitRateLowerOf": 0.26188300275423576,
+"precisionLowerOf": 0.17320175293052495,
+"precisionDifferenceLower": -0.522695723082661,
+"hitDifferenceLower": -0.31034441969416154
 },
 {
 "confidence": 0.95,
@@ -17637,10 +17637,10 @@
 "rateLower": 0.5952215570808502,
 "precisionLower": 0.5235306064317995,
 "precisionUpper": 0.7906123170510337,
-"hitRateLowerOf": 0.46828312755074436,
-"precisionLowerOf": 0.3467681243385559,
-"precisionDifferenceLower": 0.3467681243385559,
-"hitDifferenceLower": 0.17604358120691477
+"hitRateLowerOf": 0.440757126605934,
+"precisionLowerOf": 0.3126481204885839,
+"precisionDifferenceLower": 0.3126481204885839,
+"hitDifferenceLower": 0.13591777840898772
 },
 {
 "confidence": 0.99,
@@ -17974,10 +17974,10 @@
 "rateLower": 0.3811675655099213,
 "precisionLower": 0.3401722762386466,
 "precisionUpper": 0.7776793515535483,
-"hitRateLowerOf": 0.22665528963428497,
-"precisionLowerOf": 0.15868954170567412,
-"precisionDifferenceLower": -0.712980961784851,
-"hitDifferenceLower": -0.4473606573535841
+"hitRateLowerOf": 0.21960139880030932,
+"precisionLowerOf": 0.07718373029489128,
+"precisionDifferenceLower": -0.7932395552849449,
+"hitDifferenceLower": -0.47360938172283445
 },
 {
 "confidence": 0.99,
@@ -18319,10 +18319,10 @@
 "rateLower": 0.3475489598245328,
 "precisionLower": 0.3369641849125739,
 "precisionUpper": 0.8065049706358253,
-"hitRateLowerOf": 0.21223959923195426,
-"precisionLowerOf": 0.13543445736138898,
-"precisionDifferenceLower": 0.13543445736138898,
-"hitDifferenceLower": -0.2105885369333278
+"hitRateLowerOf": 0.15103231526632077,
+"precisionLowerOf": 0.05064298545059093,
+"precisionDifferenceLower": 0.05064298545059093,
+"hitDifferenceLower": -0.285810118834149
 },
 {
 "confidence": 0.95,
@@ -18656,10 +18656,10 @@
 "rateLower": 0.3847967901057833,
 "precisionLower": 0.3589241882248052,
 "precisionUpper": 0.6496984664293193,
-"hitRateLowerOf": 0.32247774895151826,
-"precisionLowerOf": 0.2578690728742016,
-"precisionDifferenceLower": -0.31982553338922526,
-"hitDifferenceLower": -0.1694557999503915
+"hitRateLowerOf": 0.2881365140935253,
+"precisionLowerOf": 0.24190442521443176,
+"precisionDifferenceLower": -0.33853088418930577,
+"hitDifferenceLower": -0.20385798268005395
 },
 {
 "confidence": 0.95,
@@ -19001,10 +19001,10 @@
 "rateLower": 0.4212933041968033,
 "precisionLower": 0.48583128630164657,
 "precisionUpper": 0.7440898674031967,
-"hitRateLowerOf": 0.36240767914855615,
-"precisionLowerOf": 0.3538213123343801,
-"precisionDifferenceLower": 0.3538213123343801,
-"hitDifferenceLower": 0.15717291127831107
+"hitRateLowerOf": 0.3625339105595204,
+"precisionLowerOf": 0.3424485960892068,
+"precisionDifferenceLower": 0.3424485960892068,
+"hitDifferenceLower": 0.14322169249654182
 },
 {
 "confidence": 0.99,
@@ -19338,10 +19338,10 @@
 "rateLower": 0.31190354156705413,
 "precisionLower": 0.3216943598717368,
 "precisionUpper": 0.7535131230728711,
-"hitRateLowerOf": 0.20468671494620397,
-"precisionLowerOf": 0.19347483178383917,
-"precisionDifferenceLower": -0.5405482156982109,
-"hitDifferenceLower": -0.3934244483864683
+"hitRateLowerOf": 0.15115970086089903,
+"precisionLowerOf": 0.14227977201025588,
+"precisionDifferenceLower": -0.591269183268549,
+"hitDifferenceLower": -0.44871027868595526
 },
 {
 "confidence": 0.99,
@@ -19683,10 +19683,10 @@
 "rateLower": 0.44106620011473635,
 "precisionLower": 0.39669618625657493,
 "precisionUpper": 0.7866757061969405,
-"hitRateLowerOf": 0.35635087443367974,
-"precisionLowerOf": 0.28867777621819324,
-"precisionDifferenceLower": 0.28867777621819324,
-"hitDifferenceLower": 0.02644897814611258
+"hitRateLowerOf": 0.32326782695055645,
+"precisionLowerOf": 0.23521939294392596,
+"precisionDifferenceLower": 0.23521939294392596,
+"hitDifferenceLower": -0.02553685737477046
 },
 {
 "confidence": 0.95,
@@ -20020,9 +20020,9 @@
 "rateLower": 0.3376963727543526,
 "precisionLower": 0.37682884397181377,
 "precisionUpper": 0.6935461940707186,
-"hitRateLowerOf": 0.3238677029249637,
-"precisionLowerOf": 0.350053100602738,
-"precisionDifferenceLower": -0.1112697832936167,
+"hitRateLowerOf": 0.32386770292496375,
+"precisionLowerOf": 0.33725287525140235,
+"precisionDifferenceLower": -0.11214374495141743,
 "hitDifferenceLower": -0.13021275557667267
 },
 {
@@ -20357,8 +20357,8 @@
 "rateLower": 0.3376963727543526,
 "precisionLower": 0.2486410843909862,
 "precisionUpper": 0.5541259409888515,
-"hitRateLowerOf": 0.31027731615396037,
-"precisionLowerOf": 0.22115130118251658,
+"hitRateLowerOf": 0.30847728414350745,
+"precisionLowerOf": 0.21734198271523175,
 "precisionDifferenceLower": -0.4010847444843356,
 "hitDifferenceLower": -0.3945392841448455
 },
@@ -20694,10 +20694,10 @@
 "rateLower": 0.3847967901057833,
 "precisionLower": 0.2960423038550624,
 "precisionUpper": 0.5602672906873092,
-"hitRateLowerOf": 0.3316204727470686,
-"precisionLowerOf": 0.26165695229795805,
-"precisionDifferenceLower": -0.28955960427129324,
-"hitDifferenceLower": -0.22367356271624236
+"hitRateLowerOf": 0.2923876637679689,
+"precisionLowerOf": 0.2405568379839536,
+"precisionDifferenceLower": -0.3237399548122918,
+"hitDifferenceLower": -0.2989049014588931
 },
 {
 "confidence": 0.95,
@@ -21705,10 +21705,10 @@
 "rateLower": 0.12271165518332638,
 "precisionLower": 0.27394584508232017,
 "precisionUpper": 0.6799134704112757,
-"hitRateLowerOf": 0.09386758150454935,
-"precisionLowerOf": 0.1566594351719462,
-"precisionDifferenceLower": -0.5371059664527696,
-"hitDifferenceLower": -0.5510234556004481
+"hitRateLowerOf": 0.06709027370332796,
+"precisionLowerOf": 0.0826923912718125,
+"precisionDifferenceLower": -0.5775602650542128,
+"hitDifferenceLower": -0.5659896045969302
 },
 {
 "confidence": 0.95,
@@ -22042,10 +22042,10 @@
 "rateLower": 0.7252554949860294,
 "precisionLower": 0.38200448985542673,
 "precisionUpper": 0.5715119935738254,
-"hitRateLowerOf": 0.6020909543462561,
-"precisionLowerOf": 0.26799567487751785,
-"precisionDifferenceLower": -0.3227240603450043,
-"hitDifferenceLower": 0.031012874325293538
+"hitRateLowerOf": 0.5910048153422723,
+"precisionLowerOf": 0.25072581698546437,
+"precisionDifferenceLower": -0.3467715534555802,
+"hitDifferenceLower": 0.00911083226614312
 },
 {
 "confidence": 0.95,
@@ -22716,10 +22716,10 @@
 "rateLower": 0.31461315098999054,
 "precisionLower": 0.3267152971019208,
 "precisionUpper": 0.6551084758109472,
-"hitRateLowerOf": 0.29553991427839826,
-"precisionLowerOf": 0.2947159014582827,
+"hitRateLowerOf": 0.284306596983387,
+"precisionLowerOf": 0.29104496550870534,
 "precisionDifferenceLower": -0.24181516905561873,
-"hitDifferenceLower": -0.3296183962739132
+"hitDifferenceLower": -0.40464347064186235
 },
 {
 "confidence": 0.95,

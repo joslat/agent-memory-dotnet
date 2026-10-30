@@ -223,16 +223,20 @@ public static class PackTrialGate
     /// H4: drawn one after another, a hit-rate target at the truth passed 16 to 21% of the time at 95% when changes came in
     /// bursts of 5 to 8).
     /// </summary>
-    public const string Statistic = "agentmemory.trial.hedged/3";
+    public const string Statistic = "agentmemory.trial.hedged/4";
 
     /// <summary>
     /// The most eligible commits one burst of related changes is taken to span (review 6, H4), the one assumption about the
     /// order of a host's history: a trial whose tasks were drawn at least this far apart counts each as independent; closer,
-    /// each run of ⌈8 / spacing⌉ consecutive tasks is one cluster. Where the assumption holds (no burst spans more than 8),
-    /// a hit-rate target at the truth passes at most about the nominal rate at every spacing (review 7, G2: 4.7% at 95%, 1.1%
-    /// at 99%, the worst over spacings 1 to 9, hit rates 0.2 to 0.8, intraclass correlation 0.3 to 1). Where it does not, the
+    /// each run of ⌈8 / spacing⌉ consecutive tasks is one cluster, and neighbouring clusters count as correlated, since a burst
+    /// can straddle two (review 8, G1). Where the assumption holds, every clustered bound passes a target at the truth at most
+    /// its nominal rate at the regime's worst case, checked per burst layout, not averaged over layouts: bursts of exactly 8 at
+    /// every offset, intraclass correlation 0.6 and 1, spacings 1 to 7, 40 to 200 tasks (eng/trial-statistics/bursts.py: worst
+    /// 3.8% at 95%, 0.65% at 99%; counted as independent clusters, 9.4% and 2.9%). Where it does not, the
     /// rate rises: bursts of geometric length averaging 5 (longer than 8 about 17% of the time), at spacing 8, where tasks are
-    /// first taken as independent, passed 5.4% at 95% and 1.2% at 99%; averaging 8, 6.4% (eng/trial-statistics/serial.py).
+    /// first taken as independent, pass 5.3% at 95% and 1.5% at 99%; averaging 8, 6.9% and 2.0% (eng/trial-statistics/serial.py,
+    /// hedged/4). The neighbouring-cluster term costs two to three points of power on short histories (at 200 eligible commits for
+    /// 40 tasks, a pack 0.15 above its target passes 36% of the time at 95%, against 39% counted as independent clusters).
     /// </summary>
     public const int BurstLength = 8;
 
@@ -326,8 +330,7 @@ public static class PackTrialGate
         ArgumentNullException.ThrowIfNull(arm);
         var m = ClusterSize(arm);
         if (m == 1) return RateLower(arm.Hits, arm.Tasks, confidence);
-        var clusters = HitClusters(TasksOf(arm), m);
-        return HedgedLower(clusters, m, StudentT(Quantile(confidence), clusters.Count - 1), HedgeWeight(confidence));
+        return ClusteredLower(HitClusters(TasksOf(arm), m), m, confidence);
     }
 
     /// <summary>
@@ -342,8 +345,7 @@ public static class PackTrialGate
         var (m, cap, tasks) = (ClusterSize(arm), CapOf(arm), TasksOf(arm));
         if (m == 1) return PrecisionLower(tasks, cap, confidence);
         Within(tasks, cap);
-        var clusters = Clusters(tasks, m);
-        return HedgedLower(clusters, m * cap, StudentT(Quantile(confidence), clusters.Count - 1), HedgeWeight(confidence));
+        return ClusteredLower(Clusters(tasks, m), m * cap, confidence);
     }
 
     private static double PrecisionUpper(PackTrialMeasurement arm, double confidence) =>
@@ -361,7 +363,7 @@ public static class PackTrialGate
         var (a, b) = Paired(first, second);
         // Drawn closer than a burst: the difference of two clustered hit proportions, paired cluster by cluster (review 6, H4).
         if (Math.Max(ClusterSize(first), ClusterSize(second)) is var m and > 1)
-            return PairedDifference(HitClusters(a, m), HitClusters(b, m), m, m, confidence);
+            return PairedDifference(HitClusters(a, m), HitClusters(b, m), m, m, confidence, lag1: true);
         var q = StudentT(Quantile(confidence), a.Count - 1);
         var d = new double[a.Count];
         for (var i = 0; i < a.Count; i++) d[i] = (a[i].Correct > 0 ? 1 : 0) - (b[i].Correct > 0 ? 1 : 0);
@@ -389,13 +391,15 @@ public static class PackTrialGate
         Within(a, cap1);
         Within(b, cap2);
         return Math.Max(ClusterSize(first), ClusterSize(second)) is var m and > 1
-            ? PairedDifference(Clusters(a, m), Clusters(b, m), m * cap1, m * cap2, confidence)
+            ? PairedDifference(Clusters(a, m), Clusters(b, m), m * cap1, m * cap2, confidence, lag1: true)
             : PairedDifference(a, b, cap1, cap2, confidence);
     }
 
     // The paired difference of two pooled ratios over the same units (tasks, or clusters of them), each unit at most its arm's
     // cap: the unseen unit, the first arm offering its cap all wrong and the second its cap all right, counted HedgeWeight times.
-    private static double PairedDifference(IReadOnlyList<PackTrialTask> a, IReadOnlyList<PackTrialTask> b, int cap1, int cap2, double confidence)
+    // Clusters in drawn order are 1-dependent, so their variance takes the lag-1 term (review 8, G1).
+    private static double PairedDifference(IReadOnlyList<PackTrialTask> a, IReadOnlyList<PackTrialTask> b, int cap1, int cap2, double confidence,
+        bool lag1 = false)
     {
         var q = StudentT(Quantile(confidence), a.Count - 1);
         var w = HedgeWeight(confidence);
@@ -405,8 +409,31 @@ public static class PackTrialGate
         var (r1, r2, m1, m2) = (c1 / o1, c2 / o2, o1 / n, o2 / n);
         var f = new double[a.Count];
         for (var i = 0; i < a.Count; i++) f[i] = (a[i].Correct - r1 * a[i].Offered) / m1 - (b[i].Correct - r2 * b[i].Offered) / m2;
-        var (_, se) = Weighted(f, (0 - r1 * cap1) / m1 - (cap2 - r2 * cap2) / m2, w);
+        var unseen = (0 - r1 * cap1) / m1 - (cap2 - r2 * cap2) / m2;
+        var (_, se) = lag1 ? WeightedLag1(f, unseen, w) : Weighted(f, unseen, w);
         return Math.Clamp(r1 - r2 - q * se, -1, 1);
+    }
+
+    /// <summary>
+    /// The lower confidence bound of the pooled precision of clusters of consecutive tasks, in the order drawn (review 8, G1): the
+    /// hedged ratio (the unseen cluster offering <paramref name="cap"/> items, none right, counted <see cref="HedgeWeight"/>
+    /// times), linearized at its estimate, with the clusters' lag-1 autocovariance in its variance, at Student's t with one degree
+    /// of freedom fewer than the clusters. A burst of at most <see cref="BurstLength"/> commits can straddle two clusters, so
+    /// neighbouring clusters are correlated: counted as independent, a hit-rate target at the truth passed 9.4% of the time at
+    /// 95% for bursts at an offset to the clusters.
+    /// </summary>
+    private static double ClusteredLower(IReadOnlyList<PackTrialTask> units, int cap, double confidence)
+    {
+        double offered = 0, correct = 0;
+        foreach (var unit in units) { offered += unit.Offered; correct += unit.Correct; }
+        if (units.Count == 0 || offered == 0) return 0;
+        var w = HedgeWeight(confidence);
+        var r = correct / (offered + w * cap);
+        var ob = (offered + w * cap) / (units.Count + w);
+        var z = new double[units.Count];
+        for (var i = 0; i < units.Count; i++) z[i] = units[i].Correct - r * units[i].Offered;
+        var (_, se) = WeightedLag1(z, -r * cap, w);
+        return Math.Clamp(r - StudentT(Quantile(confidence), units.Count - 1) * se / ob, 0, 1);
     }
 
     /// <summary>
@@ -516,6 +543,18 @@ public static class PackTrialGate
     }
 
     // The mean and standard error of task values with the unseen task's value counted w times beside them (a frequency weight).
+    // As Weighted, with the values' lag-1 autocovariance in their order added to the variance, never lowering it.
+    private static (double Mean, double StandardError) WeightedLag1(double[] values, double unseen, double w)
+    {
+        var n = values.Length + w;
+        var mean = (values.Sum() + w * unseen) / n;
+        var g0 = (values.Sum(v => (v - mean) * (v - mean)) + w * (unseen - mean) * (unseen - mean)) / (n - 1);
+        double g1 = 0;
+        for (var i = 0; i + 1 < values.Length; i++) g1 += (values[i] - mean) * (values[i + 1] - mean);
+        g1 /= n - 1;
+        return (mean, Math.Sqrt(Math.Max(g0, g0 + 2 * g1) / n));
+    }
+
     private static (double Mean, double StandardError) Weighted(double[] values, double unseen, double w)
     {
         var n = values.Length + w;

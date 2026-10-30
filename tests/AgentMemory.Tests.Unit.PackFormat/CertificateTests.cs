@@ -52,7 +52,7 @@ public sealed class CertificateTests
         certificate.EvaluatedAt.Should().Be(EvaluatedAt);
         certificate.Checks.Should().Equal(new CertificateCheck("hitRate", 500, 600, true, null));
         certificate.With.Should().BeEquivalentTo(ArmOf(40, 24, 120, 30, 12_500));
-        certificate.Statistic.Should().Be("agentmemory.trial.hedged/3");
+        certificate.Statistic.Should().Be("agentmemory.trial.hedged/4");
         certificate.Passed.Should().BeTrue();
 
         PackCertificate.Verify(envelope, pack, sample.Policy(), SamplePack.Now).Problems.Should().Contain(p => p.Contains("not in the trust policy"));
@@ -182,7 +182,7 @@ public sealed class CertificateTests
 
     private static PackCertificate Sample(SamplePack sample, bool passed = true, bool met = true, int tasks = 40, string evaluator = "Example Lab") =>
         new(sample.Id, sample.Version, "sha256:" + new string('0', 64), evaluator, "kit", "1.0.0", EvaluatedAt, "test-impact", "none", null, "the lab's own tasks",
-            "agentmemory.trial.hedged/3", [new CertificateCheck("hitRate", 500, met ? 600 : 400, met, null)], ArmOf(tasks, Math.Min(24, tasks), 120, 30, 12_500),
+            "agentmemory.trial.hedged/4", [new CertificateCheck("hitRate", 500, met ? 600 : 400, met, null)], ArmOf(tasks, Math.Min(24, tasks), 120, 30, 12_500),
             null, passed, null, null);
 
     // An arm with consistent per-task evidence: items spread evenly, one right item on each of the first `hits` tasks and the
