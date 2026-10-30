@@ -52,8 +52,9 @@ public static class PackAdvice
                 // What the declared trial can never show, at the pack's own cap (review 5): better said now than at a host.
                 foreach (var note in PackTrialGate.Unreachable(trial, manifest.Traversal?.MaxItems ?? ModuleTraversal.MaximumOffered))
                     Add("trial.unreachable", note);
-                // The history that best evidence assumes (review 7, G15): tasks a burst apart, within the window a trial draws from.
-                if (trial.Confidence is not null)
+                // The history that best evidence assumes (review 7, G15): tasks a burst apart, within the window a trial draws from;
+                // said where it needs more than half that window, where a host's history is likely to fall short.
+                if (trial.Confidence is not null && PackTrialGate.BurstLength * (trial.Tasks - 1) + 1 > PackTrialGate.HistoryWindow / 2)
                     Add("trial.history", $"Its bounds count tasks as independent only {PackTrialGate.BurstLength} eligible commits apart: {trial.Tasks} tasks need "
                         + $"{PackTrialGate.BurstLength * (trial.Tasks - 1) + 1} eligible commits among a host's last {PackTrialGate.HistoryWindow}; on a shorter history they cluster, and every bound shows less.");
             }
