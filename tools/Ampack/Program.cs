@@ -793,9 +793,17 @@ internal static partial class Program
 
     private static int SignBytes(Options o)
     {
+        // Read bounded, as every other input (the choke-point ratchet found this one reading whole): what an external signer
+        // signs is a statement or a list, never larger than a file a pack may hold.
         using var input = Console.OpenStandardInput();
         using var buffer = new MemoryStream();
-        input.CopyTo(buffer);
+        var chunk = new byte[81920];
+        for (int read; (read = input.Read(chunk)) > 0;)
+        {
+            if (buffer.Length + read > PackLimits.Default.MaxFileBytes)
+                throw new UsageException($"The bytes to sign are larger than {PackLimits.Default.MaxFileBytes} bytes.");
+            buffer.Write(chunk, 0, read);
+        }
         using var key = System.Security.Cryptography.ECDsa.Create();
         key.ImportFromPem(PrivatePem(o.Required("key")));
         var format = o.Flag("p1363") ? System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation

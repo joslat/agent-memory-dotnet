@@ -431,6 +431,30 @@ public sealed class PackCertificateTests : IDisposable
     }
 
     [Fact]
+    public void Review7_H5_a_broken_copy_of_a_trusted_certificate_never_hides_it_whatever_its_name()
+    {
+        // Copies were dropped before they were verified, so a copy with a broken signature under a name that sorted first hid
+        // the trusted one. Every copy is verified, and the statement is trusted when any copy is: adding files never takes
+        // trust away.
+        var (built, pack) = Built();
+        var certified = Certify(built, pack);
+        var files = new Dictionary<string, byte[]>(PackReader.ReadArchive(certified, "certified").Files, StringComparer.Ordinal);
+        var (path, envelope) = files.Single(f => f.Key.EndsWith(".certificate.dsse.json", StringComparison.Ordinal));
+        var broken = Encoding.UTF8.GetString(envelope);
+        var sig = System.Text.Json.Nodes.JsonNode.Parse(broken)!["signatures"]![0]!["sig"]!.GetValue<string>();
+        broken = broken.Replace(sig, (sig[0] == 'A' ? "B" : "A") + sig[1..], StringComparison.Ordinal);
+        var first = path[..(path.LastIndexOf('/') + 1)] + "0000000000000000-19700101t000000z.certificate.dsse.json";
+        string.CompareOrdinal(first, path).Should().BeNegative("the broken copy sorts first, where the dropped copy used to win");
+        files[first] = Encoding.UTF8.GetBytes(broken);
+
+        var loaded = PackLoader.Load(StrictZip.Write(files, compress: true), Trust());
+
+        var certificate = loaded.Certificates.Should().ContainSingle("both copies carry one statement").Which;
+        certificate.Trusted.Should().BeTrue("the trusted copy still verifies, beside a broken one");
+        PackCertificates.Admit(loaded, Now).Decision.Should().NotBeNull();
+    }
+
+    [Fact]
     public void Review1_M5_a_decision_is_recorded_once_and_two_decisions_in_one_second_never_share_a_file()
     {
         var (_, pack) = Built();
