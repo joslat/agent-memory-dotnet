@@ -146,11 +146,12 @@ public sealed class PackDoorMatrixTests : IDisposable
         const string Escapes = "\u001b[2J\u001b]0;owned\u0007‮evil⁦x\u009b31m";
         var escaped = System.Text.Json.JsonSerializer.Serialize(Escapes);
 
-        // An unsigned pack whose one record line is 8 MiB of JSON: work before bounds (B1, review 7 D2).
+        // An unsigned pack whose one record line is 40 MiB of JSON: parsed unbounded it costs several times the budget, so a door that
+        // parses before it bounds fails here (review 8, A1: at 8 MiB an unbounded parse fitted under the budget).
         var big = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
             ["pack.json"] = Utf8($$"""{"format":"agentmemory.pack/1.2","id":"{{Id}}","version":"1.0.0","kind":"knowledge","sdk":"[0.1,0.2)"}"""),
-            ["records/big.jsonl"] = Utf8("{\"text\":\"" + new string('x', 8 << 20) + "\"}\n"),
+            ["records/big.jsonl"] = Utf8("{\"text\":\"" + new string('x', 40 << 20) + "\"}\n"),
         };
         big[PackPaths.FilesList] = FilesList.Build(Id, "1.0.0", big);
         yield return ("oversized", big);

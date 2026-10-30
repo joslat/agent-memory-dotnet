@@ -431,6 +431,29 @@ public sealed class PackCertificateTests : IDisposable
     }
 
     [Fact]
+    public void Review8_A2_an_admission_holds_a_certificate_s_arms_to_the_caps_the_pack_declares()
+    {
+        // The format's own certificate check does not know a pack's maxItems, so a certificate whose arm with the pack records a
+        // cap of 3 on a pack that declares none (16) is valid in itself, and only the admission holds it to the declarations.
+        var (built, pack) = Built();
+        using var signer = PackSigner.FromPem(_evaluator.PrivateKeyPem);
+        var certificate = new PackCertificate(Id, pack.Version, pack.Digest, "Other Lab", "other-tool", "1.0", Earlier, "test-impact", "none", null,
+            "its own tasks", PackTrialGate.Statistic, [new CertificateCheck("hitRate", 500, 600, true, null)], ArmOf(40, 24, 120, 30, 12500, cap: 3),
+            ArmOf(40, 0, 0, 0, 2500), true, null, null);
+        var files = new Dictionary<string, byte[]>(PackReader.ReadArchive(built, "built").Files, StringComparer.Ordinal)
+        {
+            [PackAttestations.CertificatePath(PackAttestations.StemFor(signer.KeyId, Earlier))] = certificate.Sign(signer),
+        };
+
+        var loaded = PackLoader.Load(StrictZip.Write(files, compress: true), Trust());
+
+        loaded.Certificates.Single().Trusted.Should().BeTrue();
+        var (decision, reason) = PackCertificates.Admit(loaded, Now);
+        decision.Should().BeNull();
+        reason.Should().Contain("records a cap of 3");
+    }
+
+    [Fact]
     public void Review7_H5_a_broken_copy_of_a_trusted_certificate_never_hides_it_whatever_its_name()
     {
         // Copies were dropped before they were verified, so a copy with a broken signature under a name that sorted first hid

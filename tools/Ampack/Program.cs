@@ -424,6 +424,9 @@ internal static partial class Program
     private static int Lint(Options o)
     {
         var content = PackReader.Read(o.Positional(0, "folder or file"));
+        // Lint reads what nobody verified yet: the one bound for such content comes before any JSON is parsed (review 8, A1: a
+        // 60 MiB line cost 1 GiB here, while diff, scan and inspect refused it bounded).
+        if (PackContentBounds.Problems(content.Files, verified: false) is { Count: > 0 } bounds) return Report(bounds, "");
         var problems = PackPaths.Problems(content.Files.Keys).ToList();
         foreach (var (path, bytes) in content.Files.Where(f => FilesList.IsListed(f.Key)).OrderBy(f => f.Key, StringComparer.Ordinal))
         {

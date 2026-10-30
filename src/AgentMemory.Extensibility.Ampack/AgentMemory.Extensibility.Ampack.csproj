@@ -20,5 +20,7 @@
   <ItemGroup>
     <!-- The ampack tool issues certificates with any signer, a keychain or KMS included (PackSigner is internal to the format). -->
     <InternalsVisibleTo Include="Ampack" />
+    <!-- Tests reach a door's own rule (the mount plan, the walk's carrier liveness), not only its public wrapper (review 8, A4, A5). -->
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
   </ItemGroup>
 </Project>
