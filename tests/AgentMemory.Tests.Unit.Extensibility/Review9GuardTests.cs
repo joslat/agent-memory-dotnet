@@ -1,4 +1,4 @@
-#pragma warning disable AMEXT001
+﻿#pragma warning disable AMEXT001
 using System.Text;
 using AgentMemory.Extensibility.Ampack;
 using FluentAssertions;
@@ -24,26 +24,18 @@ public sealed class Review9GuardTests
     };
 
     [Fact]
-    public void C_H1_copies_of_one_pack_pool_what_travels_outside_the_digest_whatever_their_order()
+    public void C_H1_copies_of_one_pack_are_held_by_the_host_s_rule_whatever_their_order()
     {
-        // One pack reached twice: one copy carries a trusted pass, the other a trusted failure of the same second and an extra
-        // signer. The first copy's certificates were kept, so `ampack gate P F` switched the pack on and `gate F P` kept it off.
+        // One pack reached twice: one copy carries a trusted pass, the other a trusted failure. The first copy's certificates were
+        // kept, so `ampack gate P F` switched the pack on and `gate F P` kept it off; then the copies merged, a rule no host has.
+        // A host adds a module once (round 11): both orders are refused, the same way.
         var pack = Pack();
         var passing = pack with { Certificates = [Certificate("a", passed: true)] };
         var failing = pack with { Certificates = [Certificate("b", passed: false)], Signers = [.. pack.Signers, "assurer 0123456789abcdef"] };
 
-        var first = PackMountPlan.Of([passing, failing]).Single();
-        var second = PackMountPlan.Of([failing, passing]).Single();
-
-        first.Certificates.Select(c => c.Digest).Should().Equal(second.Certificates.Select(c => c.Digest)).And.HaveCount(2);
-        first.Signers.Should().Equal(second.Signers).And.Contain("assurer 0123456789abcdef");
-        PackCertificates.LatestTrusted(first)!.Passed.Should().BeFalse("a trusted failure of the same second is never hidden by a pass");
-        PackCertificates.LatestTrusted(second)!.Passed.Should().BeFalse();
-
-        // Copies of one statement, trusted in one copy only: trusted, whichever copy came first.
-        var untrusted = pack with { Certificates = [Certificate("c", passed: true, trusted: false)] };
-        var trusted = pack with { Certificates = [Certificate("c", passed: true)] };
-        PackMountPlan.Of([untrusted, trusted]).Single().Certificates.Single().Trusted.Should().BeTrue("adding a copy never takes trust away");
-        PackMountPlan.Of([trusted, untrusted]).Single().Certificates.Single().Trusted.Should().BeTrue();
+        foreach (var order in new[] { new[] { passing, failing }, [failing, passing] })
+            FluentActions.Invoking(() => PackMountPlan.Of(order)).Should().Throw<PackLoadException>()
+                .Which.Problems.Should().ContainSingle().Which.Should().Contain("given more than once");
+        PackMountPlan.Of([passing]).Should().ContainSingle();
     }
 }

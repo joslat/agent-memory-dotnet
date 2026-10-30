@@ -41,10 +41,13 @@ public sealed class PackFamilyTests : IDisposable
     private static string Id(IReadOnlyDictionary<string, byte[]> files) => FilesList.Parse(files[PackPaths.FilesList]).List!.Id;
 
     // The four Coding members, built and signed, and the composite locked to exactly them.
-    private (Dictionary<string, byte[]> Composite, List<Dictionary<string, byte[]>> Members) Family()
+    private (Dictionary<string, byte[]> Composite, List<Dictionary<string, byte[]>> Members) Family(Func<string, string>? edit = null)
     {
         var members = MemberFolders.Select(f => Built(FromManifest(f))).ToList();
-        var composite = FromManifest("Coding", "composite.json");
+        var composite = edit is null ? FromManifest("Coding", "composite.json") : PackLayout.FromModule(new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["manifest.json"] = Encoding.UTF8.GetBytes(edit(File.ReadAllText(Path.Combine(Packs, "Coding", "composite.json")))),
+        });
         composite[PackPaths.LockFile] = PackLock.Build(members.Select(m =>
         {
             var list = FilesList.Parse(m[PackPaths.FilesList]).List!;
@@ -148,6 +151,29 @@ public sealed class PackFamilyTests : IDisposable
         loaded.Packs.Should().BeEmpty();
         new ModuleSetBuilder().AddFamily(loaded.Families[0]).Modules.Select(m => m.Manifest.Id)
             .Should().Equal(new ModuleSetBuilder().AddComposite<CodingPack>().Modules.Select(m => m.Manifest.Id));
+    }
+
+    [Fact]
+    public void Review11_serve_refuses_a_family_the_host_refuses()
+    {
+        // R11-2: with codemap switched off, a host composing the family refuses it ("work needs codemap, which is switched off"),
+        // while serve rebuilt the composition and served work. Serve now runs the host's composition, and refuses as it does.
+        var (composite, members) = Family(json =>
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(json)!;
+            foreach (var member in node["members"]!.AsArray())
+                if ((string?)member!["id"] == CodeMapPack.Id) member["enabled"] = false;
+            return node.ToJsonString();
+        });
+        var carried = new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal) { [CodingPack.Manifest.Id] = composite };
+        foreach (var member in members) carried[Id(member)] = member;
+        var set = PackBuilder.Pack(Built(PackSets.Source("io.agentmemory.packs.coding-family", "0.1.0", carried)));
+
+        var loaded = PackFamilies.LoadSet(set, Trust());
+        var host = FluentActions.Invoking(() => new ModuleSetBuilder().AddFamily(loaded.Families[0])).Should().Throw<InvalidOperationException>().Which.Message;
+        host.Should().Contain("switched off");
+        FluentActions.Invoking(() => PackMemory.Mount([set], Trust())).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().ContainSingle().Which.Should().Be(host, "serve refuses with the host's own words");
     }
 
     [Fact]

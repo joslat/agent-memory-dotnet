@@ -102,14 +102,17 @@ public sealed class AmpackLoaderTests
 
         FluentActions.Invoking(() => PackMemory.Mount([first, later], Trust())).Should().Throw<PackLoadException>()
             .Which.Problems.Should().ContainSingle().Which.Should().Contain("comes more than once").And.Contain("a host holds one version of a pack");
-        PackMemory.Mount([first, first], Trust()).Packs.Should().ContainSingle("the same pack given twice is one pack");
+        // A host adds a module once (round 11): the same pack given twice is refused, as the host's builder refuses it.
+        FluentActions.Invoking(() => PackMemory.Mount([first, first], Trust())).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains("given more than once"));
     }
 
     [Fact]
-    public void Review8_W3_copies_of_one_pack_merge_by_one_rule_whatever_their_order()
+    public void Review8_W3_copies_of_one_pack_are_held_by_one_rule_whatever_their_order()
     {
         // A pack on its own, without an end, and in a set that ends in 30 days: the plan kept the first copy given, so whether the
-        // pack expired with the set depended on the order of the arguments. It is available as long as any route makes it so.
+        // pack expired with the set depended on the order of the arguments. A host adds a module once, so both orders are refused
+        // (round 11, R11-1: the copies merged here, and served what a host composing the same content refuses).
         var first = Signed(PackLayout.FromModule(Bundle(MartialArts)));
         var source = PackSets.Source("io.agentmemory.packs.dojo-set", "1.0.0", new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal)
         {
@@ -122,8 +125,24 @@ public sealed class AmpackLoaderTests
         LoadedPack Kept(params byte[][] archives) => PackMemory.Mount(archives, Trust()).Packs.Single(p => p.Id == "io.agentmemory.packs.martialarts");
 
         Kept(set).ValidUntil.Should().NotBeNull("the set alone narrows it to its own end");
-        Kept(first, set).ValidUntil.Should().BeNull();
-        Kept(set, first).ValidUntil.Should().BeNull("the same pack, whatever the order");
+        FluentActions.Invoking(() => Kept(first, set)).Should().Throw<PackLoadException>();
+        FluentActions.Invoking(() => Kept(set, first)).Should().Throw<PackLoadException>("the same refusal, whatever the order");
+    }
+
+    [Fact]
+    public void Review11_serve_holds_what_the_host_composes_whatever_the_packaging()
+    {
+        // R11-1: one module in two sets was served with the later end; a host composing both refuses it. R11-2: a family pinning a
+        // member outside the range it declares was served; a host refuses it. Serve runs the host's composition, so it refuses both.
+        var pack = Signed(PackLayout.FromModule(Bundle(MartialArts)));
+        byte[] SetOf(string id) => Signed(PackSets.Source(id, "1.0.0", new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal)
+        {
+            ["io.agentmemory.packs.martialarts"] = StrictZip.Read(pack, PackLimits.Default),
+        }));
+
+        PackMemory.Mount([SetOf("io.agentmemory.packs.set-one")], Trust()).Packs.Should().ContainSingle();
+        FluentActions.Invoking(() => PackMemory.Mount([SetOf("io.agentmemory.packs.set-one"), SetOf("io.agentmemory.packs.set-two")], Trust()))
+            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("given more than once"));
     }
 
     [Fact]

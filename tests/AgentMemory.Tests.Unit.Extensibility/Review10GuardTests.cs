@@ -49,10 +49,37 @@ public sealed class Review10GuardTests
         // whichever copy came first in another order, so it served X until R's end (T2) after the host had switched it off.
         var pack = Pack();
         var x = pack.Id;
-        LoadedFamily R(bool aOn) => Family(Composite("io.example.r", ("io.example.a", aOn), (x, true)), [pack with { ValidUntil = T2 }],
-            Family(Composite("io.example.a", (x, true)), [pack with { ValidUntil = T1 }]));
+        LoadedSet R(bool aOn) => Set(Family(Composite("io.example.r", ("io.example.a", aOn), (x, true)), [pack with { ValidUntil = T2 }],
+            Family(Composite("io.example.a", (x, true)), [pack with { ValidUntil = T1 }])));
 
-        PackFamilies.Composed(R(aOn: true)).Should().ContainSingle().Which.ValidUntil.Should().Be(T1, "the first enabled route, as the host composes it");
-        PackFamilies.Composed(R(aOn: false)).Should().ContainSingle().Which.ValidUntil.Should().Be(T2, "a route switched off does not count");
+        PackFamilies.HostComposes([R(aOn: true)], []).Should().ContainSingle().Which.ValidUntil.Should().Be(T1, "the first enabled route, as the host composes it");
+        PackFamilies.HostComposes([R(aOn: false)], []).Should().ContainSingle().Which.ValidUntil.Should().Be(T2, "a route switched off does not count");
     }
+
+    [Fact]
+    public void R11_every_door_holds_what_the_host_composes_and_refuses_what_it_refuses()
+    {
+        var pack = Pack();
+        var x = pack.Id;
+        LoadedSet WithX(string family) => Set(Family(Composite(family, (x, true)), [pack]));
+
+        // R11-1: one module reached through two sets, or a set and on its own: the host refuses it, whatever the packaging.
+        FluentActions.Invoking(() => PackFamilies.HostComposes([WithX("io.example.f1"), WithX("io.example.f2")], [])).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains("already added"));
+        FluentActions.Invoking(() => PackFamilies.HostComposes([WithX("io.example.f1")], [pack])).Should().Throw<PackLoadException>();
+
+        // R11-2: a family pinning its member outside the range it declares is refused, not composed.
+        var narrow = CompositeManifest.Parse("{\"format\":\"agentmemory.composite/v1alpha1\",\"id\":\"io.example.n\",\"version\":\"1.0.0\",\"members\":[{\"id\":\""
+            + x + "\",\"version\":\"[50,60)\"}]}");
+        FluentActions.Invoking(() => PackFamilies.HostComposes([Set(Family(narrow, [pack]))], [])).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains("accepts"));
+
+        // A member switched off is not held.
+        PackFamilies.HostComposes([Set(Family(Composite("io.example.off", (x, false)), [pack]))], []).Should().BeEmpty();
+    }
+
+    private static LoadedSet Set(params LoadedFamily[] families) => new()
+    {
+        Id = "io.example.set", Version = "1.0.0", Digest = "sha256:" + new string('0', 64), Families = families,
+    };
 }

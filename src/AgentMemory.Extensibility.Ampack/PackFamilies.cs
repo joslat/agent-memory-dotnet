@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Packs.Format;
@@ -136,26 +136,48 @@ public static class PackFamilies
     }
 
     /// <summary>
-    /// The packs a host composes from a family with no switches of its own, in the order it composes them (round 10, C-M2: the one
-    /// rule serve and <see cref="AddFamily"/> share): in member order, depth first, a member only when it and every composite above
-    /// it are on, and each through the first such route only, with that route's copy and so that route's validity.
+    /// The packs a host holds from these sets and packs, composed with no switches of its own: worked out by running the host's own
+    /// composition (<see cref="AddFamily"/> for each family, <see cref="PackLoader.AddPack"/> for each pack on its own) and reading
+    /// back what it registered, each with the validity it registered, so every door that holds packs holds exactly what a host holds
+    /// and refuses what a host refuses (round 11, R11-1 to R11-3: serve, test and DemoBrain rebuilt the composition and missed its
+    /// refusals: a lock pinned outside its range, a member needing one switched off, a module reached through two sets). Snapshot
+    /// packs are no modules; they come after, as given.
     /// </summary>
-    internal static IEnumerable<LoadedPack> Composed(LoadedFamily family)
+    /// <exception cref="PackLoadException">A host composing them would refuse; the problem is the host's own.</exception>
+    public static IReadOnlyList<LoadedPack> HostComposes(IEnumerable<LoadedSet> sets, IEnumerable<LoadedPack> packs)
     {
-        ArgumentNullException.ThrowIfNull(family);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        return Walk(family, on: true);
-
-        IEnumerable<LoadedPack> Walk(LoadedFamily of, bool on)
+        ArgumentNullException.ThrowIfNull(sets);
+        ArgumentNullException.ThrowIfNull(packs);
+        List<LoadedSet> setList = [.. sets];
+        List<LoadedPack> packList = [.. packs];
+        var builder = new ModuleSetBuilder();
+        var snapshots = new List<LoadedPack>();
+        try
         {
-            foreach (var member in of.Manifest.Members)
+            foreach (var set in setList)
             {
-                var enabled = on && member.Enabled;
-                if (of.Families.FirstOrDefault(f => f.Id == member.Id) is { } nested)
-                    foreach (var pack in Walk(nested, enabled)) yield return pack;
-                else if (enabled && of.Members.FirstOrDefault(p => p.Id == member.Id) is { } pack && seen.Add(pack.Id))
-                    yield return pack;
+                foreach (var family in set.Families) builder.AddFamily(family);
+                foreach (var pack in set.Packs) Add(pack);
             }
+            foreach (var pack in packList) Add(pack);
+        }
+        catch (Exception e) when (e is not PackLoadException && e is InvalidOperationException or ArgumentException)
+        {
+            throw new PackLoadException([e.Message]);
+        }
+        var copies = setList.SelectMany(s => s.AllPacks).Concat(packList).GroupBy(p => p.Digest, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        return
+        [
+            .. builder.Modules.Where(r => r.PackDigest is not null).Select(r => copies[r.PackDigest!] is var pack && pack.ValidUntil == r.ValidUntil
+                ? pack : pack with { ValidUntil = r.ValidUntil, Knowledge = pack.Knowledge?.WithValidUntil(r.ValidUntil) }),
+            .. snapshots,
+        ];
+
+        void Add(LoadedPack pack)
+        {
+            if (pack.Kind == "snapshot") snapshots.Add(pack);
+            else builder.AddPack(pack);
         }
     }
 

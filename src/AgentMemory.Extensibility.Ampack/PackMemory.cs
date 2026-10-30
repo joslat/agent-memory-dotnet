@@ -165,7 +165,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
     {
         ArgumentNullException.ThrowIfNull(archives);
         ArgumentNullException.ThrowIfNull(trust);
-        var loaded = new List<LoadedPack>();
+        var sets = new List<LoadedSet>();
+        var direct = new List<LoadedPack>();
         var familyMembers = new HashSet<string>(StringComparer.Ordinal);
         // Packs also reached on their own, in a set or given directly: a pack is a family member only where every route to it is
         // a family's (review 8, W3: one family route made a standalone pack a family member, whose certificates the gate set aside).
@@ -177,20 +178,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
             {
                 case "set":
                     var set = PackFamilies.LoadSet(content, trust, null);
-                    // What a host composing the families composes by default (review 3, 4): each member through the first route with
-                    // every composite on and the member enabled, with that route's copy, by the rule AddFamily composes with (round 10,
-                    // C-M2: every copy of a composed member was mounted and the latest validity kept, so serve held a member past the
-                    // day the host switched it off, or through a route switched off). A host holds a module once: a member two families
-                    // compose is refused, as composing both refuses it.
-                    var composed = new Dictionary<string, string>(StringComparer.Ordinal);
-                    foreach (var family in set.Families)
-                        foreach (var member in PackFamilies.Composed(family))
-                        {
-                            if (!composed.TryAdd(member.Id, family.Id))
-                                throw new PackLoadException([$"{member.Id} is composed by both {composed[member.Id]} and {family.Id}; a host holds a module once."]);
-                            loaded.Add(member);
-                        }
-                    loaded.AddRange(set.Packs);
+                    sets.Add(set);
                     familyMembers.UnionWith(set.Families.SelectMany(f => f.AllMembers).Select(p => p.Id));
                     standalone.UnionWith(set.Packs.Select(p => p.Id));
                     break;
@@ -198,14 +186,18 @@ public sealed partial class PackMemory : IModuleTraversalReader
                     throw new PackLoadException(["A composite pins its members but does not carry them: mount the pack set that carries both."]);
                 default:
                     var pack = PackLoader.Load(content, trust, null, allowDowngrade: false);
-                    loaded.Add(pack);
+                    direct.Add(pack);
                     standalone.Add(pack.Id);
                     break;
             }
         }
         familyMembers.ExceptWith(standalone);
-        // Held as a host holds them, before the gate or anything else reads them (review 7, W4).
-        loaded = PackMountPlan.Of(loaded);
+        // Held as a host holds them, before the gate or anything else reads them (review 7, W4): one version of a pack and one live
+        // snapshot of a module, said plainly; then composed by the host's own composition (round 11, R11-1 to R11-3), every member,
+        // copy, validity and refusal the host's.
+        List<LoadedPack> given = [.. sets.SelectMany(s => s.AllPacks), .. direct];
+        if (PackMountPlan.Problems(given) is { Count: > 0 } plan) throw new PackLoadException(plan);
+        var loaded = PackMountPlan.Of(PackFamilies.HostComposes(sets, direct));
         if (off?.Invoke(loaded, familyMembers) is { Count: > 0 } kept)
             loaded.RemoveAll(p => kept.Contains(p.Id) || (p.Kind == "snapshot" && p.Manifest.Modules.Keys.Any(kept.Contains)));
         var definitions = loaded.Where(p => p.Kind == "definition").ToDictionary(p => p.Id, p => p.Manifest, StringComparer.Ordinal);

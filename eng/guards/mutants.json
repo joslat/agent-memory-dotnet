@@ -699,13 +699,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
    "edits": [
     {
-     "old": "loaded = PackMountPlan.Of(loaded);",
-     "new": "loaded = [.. loaded];"
+     "old": "        if (PackMountPlan.Problems(given) is { Count: > 0 } plan) throw new PackLoadException(plan);\n",
+     "new": ""
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~AmpackLoaderTests.Review7_W4",
-   "sha256": "7a5552478359f9f7bb4796f86448a1f755e19a7774e88f6e05ad1f87ee4ad16d"
+   "sha256": "82bb120e59f93918afb861a087f96e904c0afab6fb433e3b5bd99f5c0d18f038"
   },
   {
    "id": "mount-plan-at-gate",
@@ -738,34 +738,19 @@
    "sha256": "588e26e5fb15f3b11fc33fc6a8c1968ec9035c92e3eb9bdc3941556a833500fc"
   },
   {
-   "id": "mount-plan-first-copy",
+   "id": "mount-plan-copies",
    "rule": "ONE-MOUNT-PLAN",
    "door": "definition",
    "file": "src/AgentMemory.Extensibility.Ampack/PackMountPlan.cs",
    "edits": [
     {
-     "old": "        if (all.Count == 1) return all[0];",
-     "new": "        if (all.Count >= 1) return all[0];"
-    }
-   ],
-   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AmpackLoaderTests.Review8_W3",
-   "sha256": "c9abd2e29e8f61f3e448b2875f74f00a305e564d6b9f85d82a0396afd5d9550e"
-  },
-  {
-   "id": "mount-plan-first-certificates",
-   "rule": "ONE-MOUNT-PLAN",
-   "door": "definition",
-   "file": "src/AgentMemory.Extensibility.Ampack/PackMountPlan.cs",
-   "edits": [
-    {
-     "old": "            Certificates = PackCertificates.Pooled(all.SelectMany(c => c.Certificates)),",
-     "new": "            Certificates = all[0].Certificates,"
+     "old": "Count() == 1 && same.Count() > 1)",
+     "new": "Count() == 1 && same.Count() < 0)"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~Review9GuardTests.C_H1",
-   "sha256": "cb81a538679da5908d881c0a81954433ed227f93961bb9a2ec8a0efce4c6ab47"
+   "sha256": "c824864a298faa37654548440846a5e92e834e70ec0754c4c3352699493c65d4"
   },
   {
    "id": "run-any-subject",
@@ -824,23 +809,38 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review9GuardTests.C_H1|FullyQualifiedName~PackCertificateTests.Review7_H5",
-   "sha256": "10122313afb3e290e83df1169ffa357463321c4d3a0aa876ae410e4c4843eca3"
+   "filter": "FullyQualifiedName~PackCertificateTests.Review7_H5",
+   "sha256": "f4661361ab1196aaf21a2a146480c32ef631f76dafede4a69f1c1064d4e8bb32"
   },
   {
-   "id": "composed-any-route",
+   "id": "composed-any-copy",
    "rule": "ONE-MOUNT-PLAN",
    "door": "family routes",
    "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
    "edits": [
     {
-     "old": "                var enabled = on && member.Enabled;\n                if (of.Families",
-     "new": "                var enabled = on || member.Enabled;\n                if (of.Families"
+     "old": "copies[r.PackDigest!] is var pack && pack.ValidUntil == r.ValidUntil\n",
+     "new": "copies[r.PackDigest!] is var pack && true\n"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~Review10GuardTests.C_M2",
-   "sha256": "8679388c533166129cfdc6700aaabf90a29647c30e990d5171fc8f1fccf76cdd"
+   "sha256": "5b9d875029fb4971f6b284cb896e9e024cda2c9416a6e75a5bc97fe6b290e03b"
+  },
+  {
+   "id": "serve-own-composition",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "        var loaded = PackMountPlan.Of(PackFamilies.HostComposes(sets, direct));",
+     "new": "        var loaded = PackMountPlan.Of([.. sets.SelectMany(s => s.AllPacks), .. direct]);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackLoaderTests.Review11|FullyQualifiedName~PackFamilyTests.Review11",
+   "sha256": "f930527584cf779b1e2b48c87f32bd1f5deefee99d70d018c68800297355896a"
   },
   {
    "id": "links-before-dependency",
