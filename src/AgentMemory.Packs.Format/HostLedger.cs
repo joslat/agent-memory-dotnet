@@ -219,7 +219,7 @@ internal sealed class HostLedger
     }
 
     // A sharing or lock violation (Windows 32, 33), or the Unix equivalent: the file is busy, not missing or forbidden.
-    private static bool Busy(IOException e) => e is not FileNotFoundException and not DirectoryNotFoundException
+    private static bool Busy(IOException e) => e is BoundedFile.ChangedException || e is not FileNotFoundException and not DirectoryNotFoundException
         && ((e.HResult & 0xFFFF) is 32 or 33 || !OperatingSystem.IsWindows());
 
     private void Merge(HostLedger saved)

@@ -20,7 +20,9 @@ internal static class BoundedFile
     /// same bound, checked before each block is kept.
     /// </summary>
     /// <exception cref="FileNotFoundException">There is no file there.</exception>
-    /// <exception cref="InvalidDataException">It is a link or a folder, larger than <paramref name="maximum"/>, or changed as it was opened.</exception>
+    /// <exception cref="InvalidDataException">It is a link or a folder, or larger than <paramref name="maximum"/>.</exception>
+    /// <exception cref="ChangedException">It changed as it was opened: another process replaced it, which is the environment, not
+    /// the input (review 7, F6: one exception type meant both, so a ledger read during a save was refused, not tried again).</exception>
     internal static byte[] Read(string path, long maximum, string what, FileShare share = FileShare.Read)
     {
         var file = new FileInfo(path);
@@ -35,7 +37,7 @@ internal static class BoundedFile
         if (opened.Attributes.HasFlag(FileAttributes.ReparsePoint) || opened.LinkTarget is not null
             || File.GetLastWriteTimeUtc(stream.SafeFileHandle) != opened.LastWriteTimeUtc || File.GetCreationTimeUtc(stream.SafeFileHandle) != opened.CreationTimeUtc
             || stream.CanSeek && stream.Length != opened.Length && opened.Length != 0)
-            throw new InvalidDataException($"{what} at {path} changed while it was opened.");
+            throw new ChangedException($"{what} at {path} changed while it was opened.");
         // A plain file is read into an array of exactly its size, once (review 1, I1: a growing buffer and its copy held two to
         // three times the archive). Anything that reads past its reported length (a pipe or a device reports 0 and never ends,
         // red team 12; or a file growing as it is read) falls back to a bounded read.
@@ -61,4 +63,7 @@ internal static class BoundedFile
         }
         return buffer.ToArray();
     }
+
+    /// <summary>A file that changed between the check and the open: a race with another process, worth trying again.</summary>
+    internal sealed class ChangedException(string message) : IOException(message);
 }

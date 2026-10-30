@@ -104,7 +104,8 @@ public sealed class AmpackLoaderTests
         PackBuilder.Sign(files, _key.PrivateKeyPem, "publisher", DateTimeOffset.UtcNow.AddMinutes(-1));
         files["records/arts.jsonl"] = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(files["records/arts.jsonl"]).Replace("Japan", "Mars"));
 
-        var act = () => PackLoader.Load(PackBuilder.Pack(files), Trust());
+        // The writer refuses to write this archive, so the damaged one is written raw.
+        var act = () => PackLoader.Load(StrictZip.Write(files), Trust());
 
         act.Should().Throw<PackLoadException>().Which.Problems.Should().ContainSingle().Which.Should().Contain("does not match META/files.json");
     }

@@ -471,7 +471,9 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     {
         spacing = 1;
         var start = new ProcessStartInfo("git") { RedirectStandardOutput = true, UseShellExecute = false, StandardOutputEncoding = System.Text.Encoding.UTF8 };
-        foreach (var arg in new[] { "-C", repo, "log", "--no-merges", "-n", "2000", "--format=%x1e%H%x1f%P%x1f%s", "--name-status" }) start.ArgumentList.Add(arg);
+        // The history window the gate's intake holds every trial to (review 7, G5): one constant for both.
+        foreach (var arg in new[] { "-C", repo, "log", "--no-merges", "-n", PackTrialGate.HistoryWindow.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                     "--format=%x1e%H%x1f%P%x1f%s", "--name-status" }) start.ArgumentList.Add(arg);
         using var git = Process.Start(start) ?? throw new InvalidOperationException("git did not start.");
         var log = git.StandardOutput.ReadToEnd();
         git.WaitForExit();

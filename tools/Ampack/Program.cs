@@ -149,6 +149,9 @@ internal static partial class Program
     {
         // Messages name packs, digests and paths with non-ASCII characters (…, ≥); write them as UTF-8 on every console.
         Console.OutputEncoding = System.Text.Encoding.UTF8;
+        // Every line goes through one writer that shows control and bidirectional characters as escapes (review 7, D3).
+        if (Console.Out is not ShownWriter) Console.SetOut(new ShownWriter(Console.Out));
+        if (Console.Error is not ShownWriter) Console.SetError(new ShownWriter(Console.Error));
         if (args.Length == 0 || args[0] is "-h" or "--help" or "help") { Console.WriteLine(Usage); return args.Length == 0 ? 2 : 0; }
         if (args[0] is "--version" or "version") { Console.WriteLine($"ampack {ToolVersion()} (pack format {PackManifest.Format})"); return 0; }
         try
@@ -430,9 +433,13 @@ internal static partial class Program
         }
         if (content.Files.TryGetValue(PackManifest.FileName, out var manifest))
         {
-            if (PackManifest.Parse(manifest).Problem is { } problem) problems.Add(problem);
+            // What build would refuse, lint says (review 7, F2): the writer's own rules, beside the format's.
+            var (parsed, problem) = PackManifest.Parse(manifest);
+            if (problem is not null) problems.Add(problem);
+            else if (PackBuilder.WriterProblem(parsed!) is { } refused) problems.Add(refused);
         }
         else problems.Add($"There is no {PackManifest.FileName}.");
+        problems.AddRange(PackPaths.SignatureFolderProblems(content.Files));
         if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Problem is { } cardProblem) problems.Add(cardProblem);
         if (problems.Count == 0 && content.Files.ContainsKey(PackPaths.FilesList)) problems.AddRange(PackVerifier.CheckIntegrity(content).Problems);
         if (problems.Count > 0 || o.Value("policy") is null) return Report(problems, "Lint passed.");
@@ -464,7 +471,7 @@ internal static partial class Program
         var digest = FilesList.DigestOf(files[PackPaths.FilesList]);
         var output = o.Value("out") ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(folder))!, $"{integrity.List!.Id}-{integrity.List.Version}{PackReader.Extension}");
         File.WriteAllBytes(output, PackBuilder.Pack(files, compress: !o.Flag("stored")));
-        Console.WriteLine($"{integrity.List!.Id} {integrity.List.Version}\n  digest  {digest}\n  files   {integrity.List.Files.Count}\n  signed  {files.Keys.Count(p => PackPaths.IsSignature(p) && !PackPaths.IsTimestamp(p))}\n  wrote   {output}");
+        Console.WriteLine($"{integrity.List!.Id} {integrity.List.Version}\n  digest  {digest}\n  files   {integrity.List.Files.Count}\n  signed  {files.Keys.Count(PackPaths.IsEnvelope)}\n  wrote   {output}");
         return 0;
     }
 
@@ -491,7 +498,10 @@ internal static partial class Program
         var content = PackReader.Read(target);
         if (o.Value("policy") is not null && PackVerifier.Verify(content, Policy(o), DateTimeOffset.UtcNow) is { IsVerified: false } refused)
             return Report(refused.Problems, "");
-        var report = AgentMemory.Extensibility.Ampack.PackScan.Scan(target);
+        // The bytes read once, verified when a policy is given, are the bytes scanned (review 7, D2).
+        AgentMemory.Extensibility.Ampack.PackScanReport report;
+        try { report = AgentMemory.Extensibility.Ampack.PackScan.Scan(content.Files, verified: o.Value("policy") is not null); }
+        catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
         foreach (var finding in report.Findings)
             Console.WriteLine(Shown($"  {finding.Severity,-6} {finding.Rule,-34} {finding.File}{(finding.Line > 0 ? ":" + finding.Line : "")} {finding.Path}  {finding.Sample}", 2000));
         Console.WriteLine(report.Clean ? $"Clean: {report.Strings} strings in {report.Files} files." : $"{report.Findings.Count} finding(s) in {report.Strings} strings in {report.Files} files.");
@@ -886,7 +896,7 @@ internal static partial class Program
             var content = PackReader.Read(path);
             var integrity = PackVerifier.CheckIntegrity(content);
             if (integrity.Problems.Count > 0) return Report(integrity.Problems.Select(p => $"{path}: {p}"), "");
-            if (!content.Files.Keys.Any(PackPaths.IsSignature)) return Report([$"{path}: a set carries signed members only."], "");
+            if (!content.Files.Keys.Any(PackPaths.IsEnvelope)) return Report([$"{path}: a set carries signed members only."], "");
             if (!members.TryAdd(integrity.List!.Id, content.Files)) return Report([$"{integrity.List.Id} is given twice."], "");
         }
         if (members.Count == 0) throw new UsageException("A set carries at least one member.");
@@ -1050,15 +1060,18 @@ internal static partial class Program
     private static int DiffPacks(Options o)
     {
         var (first, second) = (o.Positional(0, "first pack"), o.Positional(1, "second pack"));
-        if (o.Value("policy") is not null)
+        // Each pack read once: what is verified is what is compared (review 7, D2: verified, then read again by path).
+        var (a, b) = (PackReader.Read(first), PackReader.Read(second));
+        var verified = o.Value("policy") is not null;
+        if (verified)
         {
             var policy = Policy(o);
-            foreach (var path in new[] { first, second })
-                if (PackVerifier.Verify(PackReader.Read(path), policy, DateTimeOffset.UtcNow) is { IsVerified: false } refused)
+            foreach (var (path, content) in new[] { (first, a), (second, b) })
+                if (PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow) is { IsVerified: false } refused)
                     return Report(refused.Problems.Select(p => $"{path}: {p}"), "");
         }
         AgentMemory.Extensibility.Ampack.PackDiff diff;
-        try { diff = AgentMemory.Extensibility.Ampack.PackDiff.Compare(first, second); }
+        try { diff = AgentMemory.Extensibility.Ampack.PackDiff.Compare(a.Files, b.Files, verified); }
         catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
         if (o.Flag("json"))
         {

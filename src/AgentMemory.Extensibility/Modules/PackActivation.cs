@@ -228,14 +228,23 @@ public static class PackTrialGate
     /// <summary>
     /// The most eligible commits one burst of related changes is taken to span (review 6, H4), the one assumption about the
     /// order of a host's history: a trial whose tasks were drawn at least this far apart counts each as independent; closer,
-    /// each run of ⌈8 / spacing⌉ consecutive tasks is one cluster. By the harness (eng/trial-statistics/serial.py), with bursts
-    /// averaging 5 commits at an intraclass correlation of 0.3, a hit-rate target at the truth then passes at most the nominal
-    /// rate (4.6% at 95%); averaging 8, whose longer bursts break the assumption, 6.4%.
+    /// each run of ⌈8 / spacing⌉ consecutive tasks is one cluster. Where the assumption holds (no burst spans more than 8),
+    /// a hit-rate target at the truth passes at most about the nominal rate at every spacing (review 7, G2: 4.7% at 95%, 1.1%
+    /// at 99%, the worst over spacings 1 to 9, hit rates 0.2 to 0.8, intraclass correlation 0.3 to 1). Where it does not, the
+    /// rate rises: bursts of geometric length averaging 5 (longer than 8 about 17% of the time), at spacing 8, where tasks are
+    /// first taken as independent, passed 5.4% at 95% and 1.2% at 99%; averaging 8, 6.4% (eng/trial-statistics/serial.py).
     /// </summary>
     public const int BurstLength = 8;
 
-    /// <summary>The largest spacing a measurement records: the runner draws from the last 2,000 commits.</summary>
-    public const int MaximumSpacing = 2000;
+    /// <summary>
+    /// The history a trial's tasks come from: the most recent 2,000 eligible commits, which the runner reads and no further.
+    /// Every arm's tasks lie inside it, so the spacing times one fewer than the tasks stays below it (review 7, G5: 40 tasks at a
+    /// spacing of 2,000, 80,000 commits, were accepted and bounded as if far apart).
+    /// </summary>
+    public const int HistoryWindow = 2000;
+
+    /// <summary>The largest spacing a measurement records: one task in the whole <see cref="HistoryWindow"/>.</summary>
+    public const int MaximumSpacing = HistoryWindow;
 
     /// <summary>
     /// How many times the unseen worst-case task counts, by confidence: the least weight, in quarters, at which a paired hit
@@ -593,13 +602,14 @@ public static class PackTrialGate
             throw new ArgumentException("A pack digest is sha256: and 64 lowercase hex digits.", nameof(packDigest));
         ArgumentNullException.ThrowIfNull(with);
         ArgumentNullException.ThrowIfNull(without);
+        // The caps the bounds rest on come from the declarations: where a measurement leaves one out it is the declared one,
+        // where it records one it must be the declared one (review 7, G4).
+        (with, without) = Declared(manifest, with, without);
+        if (CapProblem(manifest, with, without) is { } capProblem) throw new ArgumentException(capProblem.Problem, capProblem.Arm);
         // Review 1, M4: two arms of one trial ran the same tasks; each arm is consistent in itself, as a certificate requires of
-        // the same numbers (review 4: inconsistent numbers gave a wrong bound, which was then signed).
-        if (without.Tasks != with.Tasks) throw new ArgumentException("Both arms run the same tasks.", nameof(without));
-        if (Inconsistency(with) is { } withProblem) throw new ArgumentException(withProblem, nameof(with));
-        if (Inconsistency(without) is { } withoutProblem) throw new ArgumentException(withoutProblem, nameof(without));
-        if (previous?.With is { } earlier && Inconsistency(earlier) is { } earlierProblem)
-            throw new ArgumentException("The previous version's measurement: " + earlierProblem, nameof(previous));
+        // the same numbers (review 4: inconsistent numbers gave a wrong bound, which was then signed). The one intake every
+        // later check of this decision passes too (review 7, G13).
+        if (Intake(with, without, previous?.With) is { } refused) throw new ArgumentException(refused.Problem, refused.Arm);
         // The previous version is earlier, or the same version with other content (a replacement is an upgrade too).
         if (previous is not null && (!ModuleVersion.TryParse(previous.Version, out var before) || before.CompareTo(manifest.Version) > 0
                 || before.CompareTo(manifest.Version) == 0 && previous.ManifestDigest == DigestOf(manifest) && previous.PackDigest == packDigest
@@ -647,8 +657,10 @@ public static class PackTrialGate
     {
         if (target == "addedP95Ms")
         {
-            var added = with.P95Ms - Arm(without, target).P95Ms;
-            return new(target, required, Math.Round(added, 1), added <= required);
+            // In whole microseconds, as a certificate records latency (review 7, G9: 300.3 - 50.1 is 250.20000000000002 in binary,
+            // above a budget of 250.2).
+            var added = Micros(with.P95Ms) - Micros(Arm(without, target).P95Ms);
+            return new(target, required, Math.Round(added / 1000.0, 1), added <= Micros(required));
         }
         double estimate;
         Func<double, double> bound;
@@ -684,6 +696,52 @@ public static class PackTrialGate
 
     private static PackTrialMeasurement Arm(PackTrialMeasurement? arm, string target) =>
         arm ?? throw new ArgumentException($"{target} needs an arm the record does not carry.");
+
+    private static long Micros(double milliseconds) => (long)Math.Round(milliseconds * 1000, MidpointRounding.AwayFromZero);
+
+    // The most items the arm with the pack offers a task: the pack's maxItems, fixed before it ran.
+    private static int DeclaredCap(ModuleManifest manifest) => manifest.Traversal?.MaxItems ?? ModuleTraversal.MaximumOffered;
+
+    // An arm without a recorded cap takes the declared one: the pack's maxItems for the arm with it, 0 for a baseline of none,
+    // which offers nothing by design (a host baseline keeps the widest, 16, which only widens a difference's bound).
+    private static (PackTrialMeasurement With, PackTrialMeasurement Without) Declared(ModuleManifest manifest, PackTrialMeasurement with, PackTrialMeasurement without) =>
+        (with.MaximumOffered is null ? with with { MaximumOffered = DeclaredCap(manifest) } : with,
+         without.MaximumOffered is null && (manifest.Trial?.Baseline ?? "none") == "none" ? without with { MaximumOffered = 0 } : without);
+
+    /// <summary>
+    /// Why an arm's cap is not the one the declarations fix, or null (review 7, G4: every hedged bound rests on the cap, and it
+    /// was taken as recorded; a cap of 1 on a pack of maxItems 16 bounded precision at 0.613 where the statistic gives 0.290,
+    /// and a host baseline recorded at 0 lost its hedge): the arm with the pack at the pack's maxItems, a baseline of none at 0
+    /// with nothing offered, a host baseline at 1 or more. A decision and an admission from a certificate check it alike.
+    /// </summary>
+    internal static (string Problem, string Arm)? CapProblem(ModuleManifest manifest, PackTrialMeasurement with, PackTrialMeasurement? without)
+    {
+        var cap = DeclaredCap(manifest);
+        if ((with.MaximumOffered ?? ModuleTraversal.MaximumOffered) != cap)
+            return ($"The arm with the pack records a cap of {with.MaximumOffered}; the pack offers at most {cap} items a task (its maxItems).", "with");
+        if (without is null) return null;
+        if ((manifest.Trial?.Baseline ?? "none") == "none")
+            return without.MaximumOffered == 0 && without.Offered == 0 ? null : ("A baseline of none offers nothing: its arm records a cap of 0 and no item.", "without");
+        return without.MaximumOffered == 0 ? ("A baseline of host is the host's own retrieval: its arm records a cap of 1 or more.", "without") : null;
+    }
+
+    // The one intake every verdict passes, when a decision is made and at every later check of it (review 7, G5 and G13: the
+    // recheck skipped what the decision refused, and the arms of one trial could record different spacings, or a spacing no
+    // history holds): both arms ran the same tasks; each arm is consistent in itself; every arm was drawn at one spacing,
+    // within the history window.
+    private static (string Problem, string Arm)? Intake(PackTrialMeasurement with, PackTrialMeasurement? without, PackTrialMeasurement? previous)
+    {
+        if (without is not null && without.Tasks != with.Tasks) return ("Both arms run the same tasks.", "without");
+        if (Inconsistency(with) is { } a) return (a, "with");
+        if (without is not null && Inconsistency(without) is { } b) return (b, "without");
+        if (previous is not null && Inconsistency(previous) is { } c) return ("The previous version's measurement: " + c, "previous");
+        var spacing = with.Spacing ?? 1;
+        if (without is not null && (without.Spacing ?? 1) != spacing || previous is not null && (previous.Spacing ?? 1) != spacing)
+            return ("Every arm of one trial was drawn at one spacing: they ran the same tasks.", "without");
+        if (with.Tasks > 1 && (long)spacing * (with.Tasks - 1) >= HistoryWindow)
+            return ($"{with.Tasks} tasks drawn every {spacing} eligible commits span more than the {HistoryWindow} a trial draws from.", "with");
+        return null;
+    }
 
     // Why an arm's numbers cannot be one trial's (null when they can): counts within each other, and per-task results that are
     // one per task, within the arm's cap, summing to its totals, with a correct item on exactly its hits (review 5, L9).
@@ -742,6 +800,7 @@ public static class PackTrialGate
     {
         ArgumentNullException.ThrowIfNull(decision);
         var with = decision.With ?? throw new ArgumentException("The record carries no measurement.", nameof(decision));
+        if (Intake(with, decision.Without, decision.Previous?.With) is { } refused) throw new ArgumentException(refused.Problem, nameof(decision));
         return [.. decision.Checks.Select(c => Check(c.Target, c.Required, decision.Confidence, with, decision.Without, decision.Previous?.With))];
     }
 
@@ -752,9 +811,11 @@ public static class PackTrialGate
     /// host made trials mandatory, a module that declares none is left off; a module that needs one left off is left off too.
     /// </summary>
     internal static (IReadOnlyList<ModuleRegistration> On, IReadOnlyList<SwitchedOffModule> Off) Apply(IReadOnlyList<ModuleRegistration> registrations,
-        IPackActivations? activations, IReadOnlyList<string>? mandatory = null, IReadOnlyList<string>? certificateTrust = null, PackTrialFloor? floor = null)
+        IPackActivations? activations, PackTrialPolicy? policy = null)
     {
         if (activations is null) return (registrations, []);
+        policy ??= PackTrialPolicy.None;
+        var (mandatory, certificateTrust, floor) = (policy.Mandatory, policy.CertificateTrust, policy.Floor);
         var off = new Dictionary<string, SwitchedOffModule>(StringComparer.Ordinal);
         foreach (var registration in registrations.Where(r => r.Manifest.Trial is null))
             if ((mandatory ?? []).FirstOrDefault(p => ModuleSetBuilder.Covers(p, registration.Manifest.Id)) is { } prefix)
@@ -783,7 +844,8 @@ public static class PackTrialGate
             var reason = floor is not null && Below(manifest.Trial!, floor) is { } below ? $"its trial claims less than this host requires: {below}"
                 : decision is not null ? (!decision.Active ? "its trial failed: " + decision.Reason
                     : Unmet(decision) is { } unmet ? $"its trial's evidence does not meet its targets under {Statistic}: {unmet}; trial it again"
-                    : Upgrade(activations, manifest, decision, certificatesCount))
+                    : floor is not null && Below(decision, floor) is { } short_ ? $"its trial showed less than this host requires: {short_}"
+                    : Upgrade(activations, manifest, decision, certificatesCount, floor))
                 : setAside is not null ? setAside
                 : activations.Find(manifest.Id, manifest.Version) is not null ? "its trial ran on other content; trial it again"
                 : "no trial on this host yet";
@@ -803,7 +865,9 @@ public static class PackTrialGate
         return ([.. registrations.Where(r => !off.ContainsKey(r.Manifest.Id))], [.. off.Values.OrderBy(o => o.ModuleId, StringComparer.Ordinal)]);
     }
 
-    // What a trial claims short of the host's floor, or null: the confidence, the tasks, and each target the floor names.
+    // What a trial claims short of the host's floor, or null: the confidence, the tasks, each target the floor names, and a lift
+    // only against the host's own retrieval. A trial that claims less can never show enough; one that claims enough is judged
+    // again on what it showed (the overload below), which decides.
     internal static string? Below(ModuleTrial trial, PackTrialFloor floor)
     {
         var gaps = new List<string>();
@@ -814,6 +878,8 @@ public static class PackTrialGate
             else if (declared < least) gaps.Add($"confidence {S(declared)} below {S(least)}");
         }
         if (trial.Tasks < floor.Tasks) gaps.Add($"{trial.Tasks} tasks, {floor.Tasks} required");
+        if (floor.Targets is { Lift: not null } or { PrecisionLift: not null } && trial.Baseline != "host")
+            gaps.Add($"its lifts are against {trial.Baseline}, not this host's own retrieval");
         if (floor.Targets is { } f)
         {
             var t = trial.Targets;
@@ -832,6 +898,48 @@ public static class PackTrialGate
                 if (t.AddedP95Ms is not { } added) gaps.Add($"no addedP95Ms target, {S(budget)} required");
                 else if (added > budget) gaps.Add($"addedP95Ms {S(added)} above {S(budget)}");
             }
+        }
+        return gaps.Count == 0 ? null : string.Join("; ", gaps);
+    }
+
+    /// <summary>
+    /// What a decision's evidence holds short of the host's floor, or null (review 7, G1 and G7: the floor read the declaration,
+    /// so a pack declaring 200 tasks met a floor of 100 on a history of 12, and a lift measured against nothing met a floor that
+    /// meant "better than what this host has"): the tasks it ran, the confidence it was judged at, each target the floor names
+    /// checked at least as strictly, and a lift only against an arm that could offer something. The gate and the upgrade chain
+    /// both judge with it, so "passed here" means one thing (review 7, G8).
+    /// </summary>
+    internal static string? Below(PackActivation decision, PackTrialFloor floor)
+    {
+        var gaps = new List<string>();
+        static string S(double v) => v.ToString(CultureInfo.InvariantCulture);
+        if (floor.Confidence is { } least)
+        {
+            if (decision.Confidence is not { } judged) gaps.Add($"judged on estimates, {S(least)} required");
+            else if (judged < least) gaps.Add($"judged at {S(judged)}, below {S(least)}");
+        }
+        var ran = decision.With?.Tasks ?? 0;
+        if (ran < floor.Tasks) gaps.Add($"{ran} tasks ran, {floor.Tasks} required");
+        if (floor.Targets is { } f)
+        {
+            double? Checked(string target) => decision.Checks.FirstOrDefault(c => c.Target == target)?.Required;
+            void AtLeast(string name, double? required)
+            {
+                if (required is not { } r) return;
+                if (Checked(name) is not { } d) gaps.Add($"no {name} checked, {S(r)} required");
+                else if (d < r) gaps.Add($"{name} checked at {S(d)}, below {S(r)}");
+            }
+            AtLeast("hitRate", f.HitRate);
+            AtLeast("precision", f.Precision);
+            AtLeast("lift", f.Lift);
+            AtLeast("precisionLift", f.PrecisionLift);
+            if (f.AddedP95Ms is { } budget)
+            {
+                if (Checked("addedP95Ms") is not { } added) gaps.Add($"no addedP95Ms checked, {S(budget)} required");
+                else if (added > budget) gaps.Add($"addedP95Ms checked at {S(added)}, above {S(budget)}");
+            }
+            if ((f.Lift is not null || f.PrecisionLift is not null) && decision.Without?.MaximumOffered == 0)
+                gaps.Add("its lifts are against a baseline that offers nothing, not this host's own retrieval");
         }
         return gaps.Count == 0 ? null : string.Join("; ", gaps);
     }
@@ -856,9 +964,9 @@ public static class PackTrialGate
     }
 
     // Outside certificate trust, a decision made from a certificate never counts as a version that passed here (review 1, M2).
-    private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision, bool certificatesCount) =>
+    private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision, bool certificatesCount, PackTrialFloor? floor) =>
         Settle(activations, decision, Rule(decision.Upgrade ?? manifest.Trial?.Upgrade, decision.Confidence),
-            new Dictionary<PackActivation, (string?, HeldRule)>(ReferenceEqualityComparer.Instance), certificatesCount).Refusal;
+            new Dictionary<PackActivation, (string?, HeldRule)>(ReferenceEqualityComparer.Instance), certificatesCount, floor).Refusal;
 
     // One no-regression rule a version declared: its tolerance, and the confidence its bound is taken at (none: the estimate).
     private sealed record NoRegressionRule(double Tolerance, double? Confidence);
@@ -878,7 +986,7 @@ public static class PackTrialGate
     // version, or at this version with other content decided earlier (on the same instant, the lower digest first); the
     // highest, the latest.
     private static (string? Refusal, HeldRule Rule) Settle(IPackActivations activations, PackActivation decision, HeldRule rule,
-        Dictionary<PackActivation, (string?, HeldRule)> known, bool certificatesCount)
+        Dictionary<PackActivation, (string?, HeldRule)> known, bool certificatesCount, PackTrialFloor? floor)
     {
         if (known.TryGetValue(decision, out var settled)) return settled;
         known[decision] = ("it is its own predecessor", rule); // never reached: predecessors come strictly before
@@ -892,11 +1000,11 @@ public static class PackTrialGate
             .Select(g => Counting(g, certificatesCount))
             .OfType<PackActivation>()
             .Select(a => (Decision: a, Version: ModuleVersion.TryParse(a.Version, out var v) ? v : null))
-            .Where(a => a.Decision.Active && Unmet(a.Decision) is null && a.Version is not null && Content(a.Decision) != content
+            .Where(a => a.Decision.Active && Unmet(a.Decision) is null && (floor is null || Below(a.Decision, floor) is null) && a.Version is not null && Content(a.Decision) != content
                 && (a.Version.CompareTo(version) < 0 || a.Version.CompareTo(version) == 0
                     && (a.Decision.DecidedAt < decision.DecidedAt || a.Decision.DecidedAt == decision.DecidedAt && string.CompareOrdinal(Content(a.Decision), content) < 0)))
             .OrderByDescending(a => a.Version).ThenByDescending(a => a.Decision.DecidedAt).ThenByDescending(a => Content(a.Decision), StringComparer.Ordinal)
-            .Select(a => (a.Decision, Settled: Settle(activations, a.Decision, Rule(a.Decision.Upgrade, a.Decision.Confidence), known, certificatesCount)))
+            .Select(a => (a.Decision, Settled: Settle(activations, a.Decision, Rule(a.Decision.Upgrade, a.Decision.Confidence), known, certificatesCount, floor)))
             .FirstOrDefault(a => a.Settled.Refusal is null);
         var held = active.Decision is null ? rule : Stricter(rule, active.Settled.Rule);
         var result = (active.Decision is null ? null : Against(decision, held, active.Decision), held);

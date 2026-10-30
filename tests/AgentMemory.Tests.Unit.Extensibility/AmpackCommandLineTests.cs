@@ -382,10 +382,11 @@ public sealed class AmpackCommandLineTests : IDisposable
             // Forty tasks of three items with their per-task evidence, which a certificate carries (review 5); nothing right without the pack.
             var arm = new PackTrialMeasurement
             {
-                Tasks = 40, Hits = 24, Offered = 120, Correct = 30, P95Ms = 12.5, MaximumOffered = 3,
+                Tasks = 40, Hits = 24, Offered = 120, Correct = 30, P95Ms = 12.5,
                 PerTask = [.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(3, i < 6 ? 2 : i < 24 ? 1 : 0))],
             };
-            var nothing = arm with { Hits = 0, Correct = 0, PerTask = [.. Enumerable.Repeat(new PackTrialTask(3, 0), 40)] };
+            // The cap is the declarations' (review 7, G4); the baseline none offers nothing at all.
+            var nothing = arm with { Hits = 0, Correct = 0, Offered = 0, PerTask = [.. Enumerable.Repeat(new PackTrialTask(0, 0), 40)] };
             var unsaid = PackTrialGate.Decide(pack.Manifest, arm, nothing, DateTimeOffset.UtcNow.AddHours(-2), pack.Digest);
             PackActivationFolder.Write(At("lab-decisions"), unsaid, labHost);
             Refused("certify", "notes.ampack", "--policy", "trust.json", "--activations", "lab-decisions", "--host-key", At("keys", "lab-host.pub.pem"),

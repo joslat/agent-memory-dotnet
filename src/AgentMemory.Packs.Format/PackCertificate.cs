@@ -42,10 +42,18 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     internal const int MinimumTasks = PackIds.PackNamespace.MinimumTrialTasks;
     internal static readonly IReadOnlySet<string> Measures = new HashSet<string>(StringComparer.Ordinal) { "test-impact", "retrieval" };
     internal static readonly IReadOnlySet<string> Baselines = new HashSet<string>(StringComparer.Ordinal) { "host", "none" };
+    /// <summary>
+    /// The targets a certificate states: a trial's declared ones. No regression is a host's comparison with the version that
+    /// passed on that host, which a certificate carries no arm for, so a certificate never states it (review 7, G3: one issued
+    /// from an upgrade trial carried those checks and could never be admitted).
+    /// </summary>
     internal static readonly IReadOnlySet<string> Targets = new HashSet<string>(StringComparer.Ordinal)
     {
-        "hitRate", "precision", "lift", "precisionLift", "addedP95Ms", "noRegression.hitRate", "noRegression.precision",
+        "hitRate", "precision", "lift", "precisionLift", "addedP95Ms",
     };
+
+    /// <summary>The history a trial's tasks come from, as the host's gate holds it: the most recent 2,000 eligible commits.</summary>
+    internal const int HistoryWindow = 2000;
     internal static readonly IReadOnlySet<int> Confidences = new HashSet<int> { 900, 950, 975, 990 };
     /// <summary>The most tasks a trial runs, so a certificate's per-task evidence is bounded (a trial declares 10 to 200).</summary>
     internal const int MaximumTasks = 200;
@@ -268,6 +276,15 @@ internal sealed partial record PackCertificate(string Id, string Version, string
                 : "The certificate says the pack did not pass, but every check held on enough tasks.";
         if (c.Without is { } without && without.Tasks != c.With.Tasks) return "The certificate's arms ran different numbers of tasks.";
         if (c.Baseline == "host" && c.Without is null) return "A certificate measured against the host's retrieval records that arm.";
+        // Review 7, G4 and G5: the parameters every bound rests on mean what they say. The arms ran the same tasks, so one
+        // spacing, within the history a trial draws from; a baseline of none offers nothing, a host baseline can offer.
+        if (c.Without is { } other && other.Spacing != c.With.Spacing) return "The certificate's arms were drawn at different spacings; they ran the same tasks.";
+        if (c.With.Tasks > 1 && (long)c.With.Spacing * (c.With.Tasks - 1) >= HistoryWindow)
+            return $"The certificate's {c.With.Tasks} tasks, drawn every {c.With.Spacing} eligible commits, span more than the {HistoryWindow} a trial draws from.";
+        if (c.Baseline == "none" && c.Without is { } empty && (empty.MaximumOffered != 0 || empty.Offered != 0))
+            return "A certificate measured against none records a baseline arm that offers nothing: a cap of 0.";
+        if (c.Baseline == "host" && c.Without is { MaximumOffered: 0 })
+            return "A certificate measured against the host's retrieval records that arm with a cap of 1 or more.";
         if (!c.PackDigest.StartsWith("sha256:", StringComparison.Ordinal) || c.PackDigest.Length != 71) return "The certificate's pack digest is not sha256:<hex>.";
         return null;
     }

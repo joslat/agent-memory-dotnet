@@ -54,15 +54,25 @@ public sealed record PackDiff
     /// <summary>Whether the two are the same pack: the same digest.</summary>
     public bool Same => Before.Digest == After.Digest;
 
-    /// <summary>Compares two pack folders or <c>.ampack</c> files.</summary>
-    /// <exception cref="PackLoadException">A pack cannot be read under the strict profile, or has no file list.</exception>
-    public static PackDiff Compare(string before, string after) => Compare(Read(before), Read(after));
+    /// <summary>
+    /// Compares two pack folders or <c>.ampack</c> files, read as they are: neither is verified, so neither may hold more than
+    /// verification would parse (a JSON file or a JSONL line at most 1 MiB, all of it at most 64 MiB; review 7, D2).
+    /// </summary>
+    /// <exception cref="PackLoadException">A pack cannot be read under the strict profile, has no file list, or is larger
+    /// than an unverified pack may be.</exception>
+    public static PackDiff Compare(string before, string after) => Compare(Read(before), Read(after), verified: false);
 
-    /// <summary>Compares two <c>.ampack</c> archives held in memory.</summary>
-    public static PackDiff Compare(byte[] before, byte[] after) => Compare(Archive(before), Archive(after));
+    /// <summary>Compares two <c>.ampack</c> archives held in memory, read as they are (see <see cref="Compare(string, string)"/>).</summary>
+    public static PackDiff Compare(byte[] before, byte[] after) => Compare(Archive(before), Archive(after), verified: false);
 
-    private static PackDiff Compare(IReadOnlyDictionary<string, byte[]> a, IReadOnlyDictionary<string, byte[]> b)
+    /// <summary>
+    /// Compares the files of two packs already read once; <paramref name="verified"/> when the caller verified those very
+    /// bytes, so only verification's own bounds apply (the tool reads each pack once, verifies it and compares it).
+    /// </summary>
+    internal static PackDiff Compare(IReadOnlyDictionary<string, byte[]> a, IReadOnlyDictionary<string, byte[]> b, bool verified)
     {
+        if (PackContentBounds.Problems(a, verified) is { Count: > 0 } first) throw new PackLoadException(first);
+        if (PackContentBounds.Problems(b, verified) is { Count: > 0 } second) throw new PackLoadException(second);
         var declarations = new List<PackDeclarationChange>();
         foreach (var file in a.Keys.Union(b.Keys).Where(IsDeclaration).Order(StringComparer.Ordinal))
         {

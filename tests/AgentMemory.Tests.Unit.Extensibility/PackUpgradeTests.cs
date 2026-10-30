@@ -36,6 +36,9 @@ public sealed class PackUpgradeTests : IDisposable
 
     private static readonly PackTrialMeasurement Nothing = new() { Tasks = 40, Hits = 0, Correct = 0, Offered = 0, P95Ms = 5 };
 
+    // Every arm of one trial was drawn at one spacing (review 7, G13).
+    private static readonly PackTrialMeasurement NothingSpaced = Nothing with { Spacing = PackTrialGate.BurstLength };
+
     private static PackTrialPrevious Previous(PackActivation passed, PackTrialMeasurement measured) => new()
     {
         Version = passed.Version, ManifestDigest = passed.ManifestDigest, PackDigest = passed.PackDigest, With = measured,
@@ -194,7 +197,7 @@ public sealed class PackUpgradeTests : IDisposable
     // Forty tasks of three items, one right item on each of `hits` tasks from `from` on: the per-task results paired bounds need.
     private static PackTrialMeasurement Tasked(int hits, int from = 0) => new()
     {
-        Tasks = 40, Hits = hits, Correct = hits, Offered = 120, P95Ms = 10, MaximumOffered = 3, Spacing = PackTrialGate.BurstLength,
+        Tasks = 40, Hits = hits, Correct = hits, Offered = 120, P95Ms = 10, Spacing = PackTrialGate.BurstLength,
         PerTask = [.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(3, i >= from && i < from + hits ? 1 : 0))],
     };
 
@@ -206,10 +209,10 @@ public sealed class PackUpgradeTests : IDisposable
         // M6: 1.0.0 asks for no regression within 0.05 at 95%; 1.1.0 declares neither. On the same tasks it hits 2 fewer of 40,
         // -0.05 on its estimate, which estimates alone would let through; held to its predecessor's confidence, the bound is
         // below -0.05, so it stays off.
-        var passed = PackTrialGate.Decide(Manifest("1.0.0", Careful), Tasked(30), Nothing, Now);
+        var passed = PackTrialGate.Decide(Manifest("1.0.0", Careful), Tasked(30), NothingSpaced, Now);
         passed.Active.Should().BeTrue(passed.Reason);
         Write(passed);
-        var upgrade = PackTrialGate.Decide(Manifest("1.1.0", upgrade: ""), Tasked(28), Nothing, Now.AddMinutes(1), previous: Previous(passed, Tasked(30)));
+        var upgrade = PackTrialGate.Decide(Manifest("1.1.0", upgrade: ""), Tasked(28), NothingSpaced, Now.AddMinutes(1), previous: Previous(passed, Tasked(30)));
         upgrade.Active.Should().BeTrue("it declares no rule of its own, and meets its target");
         Write(upgrade);
 
@@ -223,11 +226,11 @@ public sealed class PackUpgradeTests : IDisposable
         // The stricter of the two was a blend, tolerance 0 at 95%, which fell back to the estimate: 1.1.0 hits as many tasks as
         // 1.0.0, ten of them others, so its estimate does not drop while its bound is below -0.2. Each rule as declared: off.
         const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.1},"confidence":0.95""";
-        var passed = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), Nothing, Now);
+        var passed = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), NothingSpaced, Now);
         passed.Active.Should().BeTrue(passed.Reason);
         Write(passed);
         const string own = ""","upgrade":{"noRegression":true,"tolerance":0}""";
-        var upgrade = PackTrialGate.Decide(Manifest("1.1.0", own), Tasked(30, from: 10), Nothing, Now.AddMinutes(1), previous: Previous(passed, Tasked(30)));
+        var upgrade = PackTrialGate.Decide(Manifest("1.1.0", own), Tasked(30, from: 10), NothingSpaced, Now.AddMinutes(1), previous: Previous(passed, Tasked(30)));
         upgrade.Active.Should().BeTrue("its own rule, on the estimate, is met");
         Write(upgrade);
 
@@ -240,19 +243,20 @@ public sealed class PackUpgradeTests : IDisposable
         // M7: a record the round-4 statistic decided is neither trusted nor set aside: its verdict is derived again from what it
         // carries. 1.1.0 passed against 1.0.0 under that statistic and its evidence holds under this one, so it stays the version
         // that passed here: 1.2.0, compared only against 1.0.0, stays off (it went on: 1.1.0 waited for a new trial and the
-        // chain skipped it). Two versions that agree on forty tasks bound their difference at -0.086, so the tolerance is 0.1.
-        const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.1},"confidence":0.95""";
-        var first = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), Nothing, Now);
+        // chain skipped it). Two versions that agree on forty tasks bound their hit rates' difference at -0.086, and their
+        // precisions' at -0.364, hedged at the format's cap of 16 for a pack that declares no traversal: so the tolerance is 0.4.
+        const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.4},"confidence":0.95""";
+        var first = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), NothingSpaced, Now);
         Write(first);
-        var second = PackTrialGate.Decide(Manifest("1.1.0", rule), Tasked(30), Nothing, Now.AddMinutes(1), previous: Previous(first, Tasked(30)));
+        var second = PackTrialGate.Decide(Manifest("1.1.0", rule), Tasked(30), NothingSpaced, Now.AddMinutes(1), previous: Previous(first, Tasked(30)));
         second.Active.Should().BeTrue(second.Reason);
         Write(second with { Statistic = "agentmemory.trial.bounds/2026-10-29" });
         Compose(Manifest("1.1.0", rule)).Modules.Should().ContainSingle();
-        Write(PackTrialGate.Decide(Manifest("1.2.0", rule), Tasked(30), Nothing, Now.AddMinutes(2), previous: Previous(first, Tasked(30))));
+        Write(PackTrialGate.Decide(Manifest("1.2.0", rule), Tasked(30), NothingSpaced, Now.AddMinutes(2), previous: Previous(first, Tasked(30))));
         Compose(Manifest("1.2.0", rule)).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("but 1.1.0").And.Contain("is the version that passed here");
 
         // Where it does not, the pass is taken back (never given): 24 hits of 40 bound the hit rate below 0.5 at 95%.
-        var weak = PackTrialGate.Decide(Manifest("2.0.0", Careful), Tasked(24), Nothing, Now.AddMinutes(2));
+        var weak = PackTrialGate.Decide(Manifest("2.0.0", Careful), Tasked(24), NothingSpaced, Now.AddMinutes(2));
         weak.Active.Should().BeFalse();
         Write(weak with { Active = true, Reason = "every target met", Statistic = "agentmemory.trial.bounds/2026-10-29" });
         Compose(Manifest("2.0.0", Careful)).SwitchedOff.Should().ContainSingle().Which.Reason.Should()

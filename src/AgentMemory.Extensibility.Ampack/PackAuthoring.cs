@@ -47,8 +47,12 @@ public static class PackAuthoring
         try { (files, _) = PackBuilder.Build(source); }
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
         if (PackVerifier.CheckIntegrity(new PackContent(files, "build")).Problems is { Count: > 0 } problems) throw new PackLoadException(problems);
-        PackBuilder.Sign(files, privateKeyPem, role, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
-        return PackBuilder.Pack(files);
+        try
+        {
+            PackBuilder.Sign(files, privateKeyPem, role, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+            return PackBuilder.Pack(files);
+        }
+        catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
     }
 
     /// <summary>
@@ -83,7 +87,8 @@ public static class PackAuthoring
         var files = content.Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
         try { PackBuilder.Sign(files, privateKeyPem, role, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds())); }
         catch (Exception e) when (e is InvalidDataException or ArgumentException or System.Security.Cryptography.CryptographicException) { throw new PackLoadException([e.Message]); }
-        return PackBuilder.Pack(files);
+        try { return PackBuilder.Pack(files); }
+        catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
     }
 
     /// <summary>
@@ -204,15 +209,19 @@ public static class PackAuthoring
         foreach (var member in members)
         {
             var (files, memberId) = Intact(member);
-            if (!files.Keys.Any(PackPaths.IsSignature)) throw new PackLoadException([$"{memberId}: a set carries signed members only."]);
+            if (!files.Keys.Any(PackPaths.IsEnvelope)) throw new PackLoadException([$"{memberId}: a set carries signed members only."]);
             if (!contents.TryAdd(memberId, files)) throw new PackLoadException([$"{memberId} is given twice."]);
         }
         if (contents.Count == 0) throw new PackLoadException(["A set carries at least one member."]);
         Dictionary<string, byte[]> built;
         try { (built, _) = PackBuilder.Build(PackSets.Source(id!, version, contents)); }
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
-        PackBuilder.Sign(built, privateKeyPem, role, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
-        return PackBuilder.Pack(built);
+        try
+        {
+            PackBuilder.Sign(built, privateKeyPem, role, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+            return PackBuilder.Pack(built);
+        }
+        catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
     }
 
     // A member archive that reads under the strict profile and whose files match its own list.

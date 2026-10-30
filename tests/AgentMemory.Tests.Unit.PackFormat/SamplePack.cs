@@ -43,4 +43,16 @@ internal sealed class SamplePack
         PackVerifier.Verify(new PackContent(files, "test"), policy ?? Policy(), Now, ledger);
 
     internal static byte[] Utf8(string text) => Encoding.UTF8.GetBytes(text);
+
+    /// <summary>
+    /// Signs the list as it stands, past every rule the writer holds: what a hostile or later writer ships, which only a
+    /// reader's checks may answer for (review 7, F2: <see cref="PackBuilder"/> refuses to sign such a pack).
+    /// </summary>
+    internal static void SignRaw(Dictionary<string, byte[]> files, string privateKeyPem, string role, DateTimeOffset signedAt)
+    {
+        var (list, problem) = FilesList.Parse(files[PackPaths.FilesList]);
+        if (list is null) throw new InvalidDataException(problem);
+        using var signer = PackSigner.FromPem(privateKeyPem);
+        files[Dsse.PathFor(role, signer.KeyId)] = Dsse.Sign(files[PackPaths.FilesList], list.Id, list.Version, role, signedAt, signer);
+    }
 }

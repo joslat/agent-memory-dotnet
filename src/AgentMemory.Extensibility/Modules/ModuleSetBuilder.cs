@@ -189,6 +189,8 @@ public sealed class ModuleSetBuilder
             throw new ArgumentException("A floor's confidence is 0.9, 0.95, 0.975 or 0.99.", nameof(floor));
         if (floor.Tasks is < ModuleTrial.MinimumTasks or > ModuleTrial.MaximumTasks)
             throw new ArgumentException($"A floor's task count is {ModuleTrial.MinimumTasks} to {ModuleTrial.MaximumTasks}.", nameof(floor));
+        if (floor.Targets is { } targets && ModuleManifestValidator.TargetProblems(targets).FirstOrDefault() is { Name: not null } problem)
+            throw new ArgumentException($"A floor's {problem.Name}: {problem.Problem}.", nameof(floor));
         TrialFloor = floor;
         return this;
     }

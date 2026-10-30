@@ -169,7 +169,7 @@ public sealed class TrialGateTests : IDisposable
         return new()
         {
             Tasks = 40, Hits = hits, Correct = correct, Offered = offered, P95Ms = p95, Spacing = PackTrialGate.BurstLength,
-            PerTask = [.. tasks.Select((o, i) => new PackTrialTask(o, right[i]))], MaximumOffered = Math.Max(1, tasks.Max()),
+            PerTask = [.. tasks.Select((o, i) => new PackTrialTask(o, right[i]))], // the cap is the one the declarations fix, as the runner records it (review 7, G4)
         };
     }
 
@@ -188,11 +188,15 @@ public sealed class TrialGateTests : IDisposable
     [Fact]
     public void With_confidence_a_rate_target_is_met_only_by_its_lower_bound()
     {
-        var careful = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","confidence":0.95,"targets":{"hitRate":0.5,"precisionLift":0.05}}""");
+        var careful = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","confidence":0.95,"targets":{"hitRate":0.5,"precisionLift":0.05}}"""
+            + ""","ontology":{"labelPrefix":"Code","types":[{"name":"CodeFile","scope":"shared","render":"{path}","properties":{"path":{"type":"string","required":true}}}]}"""
+            + ""","traversal":{"anchors":[{"type":"CodeFile","property":"path","match":"exact"}],"hubs":["CodeFile"],"maxItems":3}""");
         careful.Validate().Should().BeEmpty();
+        // The host's own retrieval offered at most three a task as well: a cap as the runner records it (review 7, G4).
+        var host = Arm(20, 20, 100, 30) with { MaximumOffered = 3 };
 
         // 22 of 40 is 0.55, but its one-sided 95% Clopper-Pearson bound is about 0.41: not enough for 0.5.
-        var lucky = PackTrialGate.Decide(careful, Arm(22, 40, 100, 60), Arm(20, 20, 100, 30), Now);
+        var lucky = PackTrialGate.Decide(careful, Arm(22, 40, 100, 60), host, Now);
         lucky.Active.Should().BeFalse();
         var hit = lucky.Checks.Single(c => c.Target == "hitRate");
         hit.Estimate.Should().Be(0.55);
@@ -200,7 +204,7 @@ public sealed class TrialGateTests : IDisposable
         // Precision 0.40 against the baseline's 0.20: lift 0.20, met.
         lucky.Checks.Single(c => c.Target == "precisionLift").Met.Should().BeTrue();
 
-        var solid = PackTrialGate.Decide(careful, Arm(34, 40, 100, 60), Arm(20, 20, 100, 30), Now);
+        var solid = PackTrialGate.Decide(careful, Arm(34, 40, 100, 60), host, Now);
         solid.Active.Should().BeTrue();
     }
 
@@ -359,7 +363,8 @@ public sealed class TrialGateTests : IDisposable
         ModuleSet With(ModuleManifest manifest, PackTrialFloor floor)
         {
             var services = new ServiceCollection();
-            services.AddAgentMemoryModules(m => m.Add(manifest, _ => { }).RequireTrials(new PackActivationFolder(_folder, PublicKey())).RequireTrialFloor(floor));
+            services.AddAgentMemoryModules(m => m.Add(manifest, _ => { }).RequireTrials(new PackActivationFolder(_folder, PublicKey()))
+                .RequireTrialsFor(Base).RequireTrialFloor(floor));
             return services.BuildServiceProvider().GetRequiredService<ModuleSet>();
         }
 
@@ -373,6 +378,11 @@ public sealed class TrialGateTests : IDisposable
         unbound.AddAgentMemoryModules(m => m.Add(Trialled, _ => { }).RequireTrialFloor(floor));
         FluentActions.Invoking(() => unbound.BuildServiceProvider().GetRequiredService<ModuleSet>()).Should().Throw<ModuleActivationException>()
             .Which.Message.Should().Contain("call RequireTrials too");
+        // Review 7: a floor with trials optional let a pack that declares no trial compose past it.
+        var optional = new ServiceCollection();
+        optional.AddAgentMemoryModules(m => m.Add(Trialled, _ => { }).RequireTrials(new PackActivationFolder(_folder, PublicKey())).RequireTrialFloor(floor));
+        FluentActions.Invoking(() => optional.BuildServiceProvider().GetRequiredService<ModuleSet>()).Should().Throw<ModuleActivationException>()
+            .Which.Message.Should().Contain("needs RequireTrialsFor");
     }
 
     [Fact]

@@ -64,7 +64,7 @@ public sealed class TrialClusteringTests
         var with = new PackTrialMeasurement { Tasks = 12, Hits = 4, Offered = 120, Correct = 40, P95Ms = 10 };
         var without = new PackTrialMeasurement { Tasks = 12, Hits = 0, Offered = 0, Correct = 0, P95Ms = 5 };
 
-        var clustered = PackTrialGate.Decide(manifest, with with { PerTask = perTask, MaximumOffered = 10 }, without, Now);
+        var clustered = PackTrialGate.Decide(manifest, with with { PerTask = perTask }, without, Now);
 
         // Review 6, M6: as 120 independent items, 0.333 bounded above 0.25 and passed; without the tasks nothing is bounded now.
         FluentActions.Invoking(() => PackTrialGate.Decide(manifest, with, without, Now)).Should().Throw<ArgumentException>().WithMessage("*PerTask*");

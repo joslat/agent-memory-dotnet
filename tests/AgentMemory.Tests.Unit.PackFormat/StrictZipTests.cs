@@ -91,7 +91,8 @@ public sealed class StrictZipTests
     [Fact]
     public void A_bomb_is_refused_from_its_declared_ratio_before_inflating()
     {
-        var zip = StrictZip.Write(new Dictionary<string, byte[]> { ["bomb"] = new byte[10_000_000] });
+        // The writer stores what it would deflate past the ratio a reader allows (review 7, F3), so the bomb is written past it.
+        var zip = StrictZip.Write(new Dictionary<string, byte[]> { ["bomb"] = new byte[10_000_000] }, maxRatio: long.MaxValue);
         Reading(zip).Should().Throw<InvalidDataException>().WithMessage("*compression ratio*");
     }
 

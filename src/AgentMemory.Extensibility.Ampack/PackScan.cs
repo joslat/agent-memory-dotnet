@@ -67,7 +67,7 @@ public static class PackScan
     public static PackScanReport Scan(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        try { return Scan(PackReader.Read(path).Files); }
+        try { return Scan(PackReader.Read(path).Files, verified: false); }
         catch (Exception e) when (e is InvalidDataException or IOException) { throw new PackLoadException([$"{path}: {e.Message}"]); }
     }
 
@@ -76,12 +76,18 @@ public static class PackScan
     public static PackScanReport Scan(byte[] archive)
     {
         ArgumentNullException.ThrowIfNull(archive);
-        try { return Scan(PackReader.ReadArchive(archive, "archive").Files); }
+        try { return Scan(PackReader.ReadArchive(archive, "archive").Files, verified: false); }
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
     }
 
-    private static PackScanReport Scan(IReadOnlyDictionary<string, byte[]> files)
+    /// <summary>
+    /// Scans the files of a pack already read once; <paramref name="verified"/> when the caller verified those very bytes. A
+    /// pack read as it is may hold no more than verification would parse (review 7, D2).
+    /// </summary>
+    /// <exception cref="PackLoadException">The pack is larger than an unverified pack may be, or a file or line than any.</exception>
+    internal static PackScanReport Scan(IReadOnlyDictionary<string, byte[]> files, bool verified)
     {
+        if (PackContentBounds.Problems(files, verified) is { Count: > 0 } problems) throw new PackLoadException(problems);
         var findings = new List<PackScanFinding>();
         var scannedFiles = 0;
         var strings = 0;

@@ -311,7 +311,7 @@ public sealed class TrialStatisticsTests
     {
         // M6: items taken as independent passed all-or-none tasks up to a quarter of the time; a record without per-task results
         // now bounds no precision at all.
-        var totals = new PackTrialMeasurement { Tasks = 40, Hits = 20, Offered = 120, Correct = 60, P95Ms = 1, MaximumOffered = 3 };
+        var totals = new PackTrialMeasurement { Tasks = 40, Hits = 20, Offered = 120, Correct = 60, P95Ms = 1 };
         var none = new PackTrialMeasurement { Tasks = 40, Hits = 0, Offered = 0, Correct = 0, P95Ms = 1, MaximumOffered = 0 };
         FluentActions.Invoking(() => PackTrialGate.PrecisionDifferenceLower(totals, none, 0.95)).Should().Throw<ArgumentException>().WithMessage("*PerTask*");
         var manifest = ModuleManifest.Parse(

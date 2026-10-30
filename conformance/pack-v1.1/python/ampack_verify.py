@@ -46,7 +46,9 @@ MAX_CERTIFICATES, MAX_RUN_FILES, MAX_RUN_BYTES = 8, 256, 8 << 20
 CERTIFICATE = "urn:agentmemory:pack:certificate:v1"
 MEASURES = {"test-impact", "retrieval"}
 BASELINES = {"host", "none"}
-TARGETS = {"hitRate", "precision", "lift", "precisionLift", "addedP95Ms", "noRegression.hitRate", "noRegression.precision"}
+# A certificate states the declared targets; no regression is a host's comparison it carries no arm for (review 7, G3).
+TARGETS = {"hitRate", "precision", "lift", "precisionLift", "addedP95Ms"}
+HISTORY_WINDOW = 2000  # the most recent eligible commits a trial draws its tasks from (review 7, G5)
 CONFIDENCES = {900, 950, 975, 990}
 RUN_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
 MINIMUM_TASKS = 10
@@ -1288,6 +1290,16 @@ def read_certificate(payload):
     # The verdict agrees with the record: passed exactly when every check held on enough tasks.
     if pred["passed"] != (all(c["met"] for c in checks) and with_arm["tasks"] >= MINIMUM_TASKS):
         raise Refused("the certificate's verdict disagrees with its checks")
+    # Review 7, G4 and G5, as .NET: one spacing for arms that ran the same tasks, within the history a trial draws from; a
+    # baseline of none offers nothing, a host baseline can offer.
+    if without is not None and without["spacing"] != with_arm["spacing"]:
+        raise Refused("the certificate's arms were drawn at different spacings")
+    if with_arm["tasks"] > 1 and with_arm["spacing"] * (with_arm["tasks"] - 1) >= HISTORY_WINDOW:
+        raise Refused("the certificate's tasks span more than the history a trial draws from")
+    if trial["baseline"] == "none" and without is not None and (without["maximumOffered"] != 0 or without["offered"] != 0):
+        raise Refused("a certificate measured against none records a baseline arm that offers nothing")
+    if trial["baseline"] == "host" and without is not None and without["maximumOffered"] == 0:
+        raise Refused("a certificate measured against the host's retrieval records that arm with a cap of 1 or more")
     if without is not None and without["tasks"] != with_arm["tasks"]:
         raise Refused("the certificate's arms ran different numbers of tasks")
     if trial["baseline"] == "host" and without is None:

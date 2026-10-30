@@ -66,7 +66,7 @@ public sealed record PackEvaluation
     public string File { get; internal init; } = null!;
     /// <summary>Whether this host trusts it: signed by a key it names as evaluator for this pack's id, for exactly this pack.</summary>
     public bool Trusted { get; internal init; }
-    /// <summary>Why it is not trusted (empty when it is).</summary>
+    /// <summary>Why it is not trusted; for a trusted one, what does not hold beside it (an AEF run that does not match).</summary>
     public IReadOnlyList<string> Problems { get; internal init; } = [];
     /// <summary>Who evaluated, as the certificate names it (null when it could not be read).</summary>
     public string? Evaluator { get; internal init; }
@@ -158,15 +158,22 @@ public static class PackCertificates
         // the verdict again under its own statistic; the checks are derived here under this one, never copied.
         if (new[] { decision.With, decision.Without }.OfType<PackTrialMeasurement>().Any(arm => arm.PerTask is null))
             problems.Add("The decision's arms carry no per-task results: a certificate carries the evidence a host checks again; trial it again.");
+        // A certificate states exactly the declared targets, derived from the evidence it carries (review 7, G3: it copied an
+        // upgrade trial's no-regression checks, whose previous arm it cannot carry, so no host could ever admit it; and a pack
+        // that met every declared target was certified as failed because the evaluator's own predecessor did better). No
+        // regression stays each host's own comparison, which its upgrade gate makes.
+        var declaredTargets = Declared(trial).Select(d => d.Target).ToHashSet(StringComparer.Ordinal);
+        var declared = decision with { Previous = null, Checks = [.. decision.Checks.Where(c => declaredTargets.Contains(c.Target))] };
         IReadOnlyList<PackTrialCheck> checks = [];
         if (problems.Count == 0)
         {
-            try { checks = PackTrialGate.Recheck(decision); }
+            try { checks = PackTrialGate.Recheck(declared); }
             catch (ArgumentException e) { problems.Add($"The decision's checks cannot be derived from what it carries: {e.Message}"); }
         }
         var enough = decision.With is { } measured && measured.Tasks >= ModuleTrial.MinimumTasks;
-        var passed = decision.Active && enough && checks.All(c => c.Met);
-        if (problems.Count == 0 && !decision.Active && enough && checks.All(c => c.Met))
+        var metThen = declared.Checks.All(c => c.Met);
+        var passed = metThen && enough && checks.All(c => c.Met);
+        if (problems.Count == 0 && !metThen && enough && checks.All(c => c.Met))
             problems.Add($"The decision failed, but its evidence meets every target under {PackTrialGate.Statistic}: a verdict is never given this way; trial it again.");
         if (problems.Count > 0) throw new PackLoadException(problems);
 
@@ -197,7 +204,9 @@ public static class PackCertificates
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
         files[PackAttestations.CertificatePath(stem)] = envelope;
         if (PackPaths.Problems(files.Keys).Concat(PackAttestations.Problems(files)).ToList() is { Count: > 0 } shape) throw new PackLoadException(shape);
-        return StrictZip.Write(files, compress: true);
+        // The one writer, which reads its archive back before it returns it (review 7, F3).
+        try { return PackBuilder.Pack(files); }
+        catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
     }
 
     /// <summary>
@@ -232,6 +241,9 @@ public static class PackCertificates
         if (certificate is null) return (null, $"None of the {pack.Certificates.Count} certificate(s) {pack.Id} carries is from a key this host trusts as evaluator for it.");
         if (Covers(certificate, trial) is { } gap)
             return (null, $"The latest trusted certificate, {certificate.Evaluator}'s of {certificate.EvaluatedAt:u}, does not admit it: {gap}.");
+        // The caps its evidence was bounded with are the ones this pack declares, as for the host's own trials (review 7, G4).
+        if (PackTrialGate.CapProblem(pack.Manifest, certificate.With!, certificate.Without) is { } cap)
+            return (null, $"The latest trusted certificate, {certificate.Evaluator}'s of {certificate.EvaluatedAt:u}, does not admit it: {cap.Problem}");
         var admitted = new PackActivation
         {
             ModuleId = pack.Manifest.Id, Version = pack.Manifest.Version.ToString(), ManifestDigest = PackTrialGate.DigestOf(pack.Manifest),
@@ -276,32 +288,45 @@ public static class PackCertificates
             if (value is { } v) yield return (target, v);
     }
 
-    /// <summary>Every certificate a verified pack carries, as this host reads it, trusted or not.</summary>
+    /// <summary>
+    /// Every certificate a verified pack carries, as this host reads it, trusted or not: one per statement, however many copies
+    /// of it travel. Every copy is verified, under its own name, and the statement is trusted when any copy is (review 7, F1:
+    /// copies were dropped unverified, so an untrusted respelling that sorted first hid the trusted one, and admission passed
+    /// over a newer trusted failure for an older pass). Trust rests on the signature alone: an AEF run beside a certificate is
+    /// checked on its own and reported, and one that does not match no longer makes a signed certificate untrusted. So adding
+    /// files beside a pack never takes trust away; only removing them can, which §16 states as the distributor's power.
+    /// </summary>
     internal static IReadOnlyList<PackEvaluation> Read(VerifiedPack pack, TrustPolicy policy, DateTimeOffset now)
     {
         var evaluations = new List<PackEvaluation>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var (stem, envelope) in PackAttestations.Certificates(pack.Attestations))
+        var copies = PackAttestations.Certificates(pack.Attestations)
+            .Select(c => (c.Stem, c.Envelope, Identity: PackCertificate.IdentityOf(c.Envelope) ?? "sha256:" + FilesList.Hex(c.Envelope)));
+        foreach (var statement in copies.GroupBy(c => c.Identity, StringComparer.Ordinal))
         {
-            // Named by what was signed, and read once however many respellings of it travel (review 6, M3).
-            var identity = PackCertificate.IdentityOf(envelope) ?? "sha256:" + FilesList.Hex(envelope);
-            if (!seen.Add(identity)) continue;
-            var run = PackAttestations.Run(pack.Attestations, stem);
-            var (certificate, signedBy, problems) = PackCertificate.Verify(envelope, pack, policy, now, run, stem);
-            var evaluation = new PackEvaluation
+            PackEvaluation? first = null;
+            foreach (var (stem, envelope, identity) in statement)
             {
-                Digest = identity, File = PackAttestations.CertificatePath(stem), Trusted = certificate is not null, Problems = problems,
-                EvaluatorKey = signedBy, AefRunIncluded = certificate is not null && run is not null,
-            };
-            // An untrusted certificate is still shown for what it claims, read strictly, never relied on.
-            var claimed = certificate ?? Claimed(envelope);
-            evaluations.Add(claimed is null ? evaluation : evaluation with
-            {
-                Evaluator = claimed.Evaluator, EvaluatedAt = claimed.EvaluatedAt, Tool = $"{claimed.Tool} {claimed.ToolVersion}", Measure = claimed.Measure,
-                Baseline = claimed.Baseline, Confidence = claimed.ConfidenceMilli / 1000.0, TaskSource = claimed.TaskSource, Statistic = claimed.Statistic, Passed = claimed.Passed,
-                Checks = [.. claimed.Checks.Select(c => new PackTrialCheck(c.Target, c.RequiredMilli / 1000.0, c.ObservedMilli / 1000.0, c.Met, c.EstimateMilli / 1000.0))],
-                With = Measurement(claimed.With), Without = claimed.Without is { } w ? Measurement(w) : null, AefRunId = claimed.AefRunId, AefRunHash = claimed.AefRunHash,
-            });
+                var (certificate, signedBy, problems) = PackCertificate.Verify(envelope, pack, policy, now, run: null, stem);
+                var run = PackAttestations.Run(pack.Attestations, stem);
+                IReadOnlyList<string> runProblems = certificate is not null && run is not null ? PackCertificate.Verify(envelope, pack, policy, now, run, stem).Problems : [];
+                var evaluation = new PackEvaluation
+                {
+                    Digest = identity, File = PackAttestations.CertificatePath(stem), Trusted = certificate is not null, Problems = [.. problems, .. runProblems],
+                    EvaluatorKey = signedBy, AefRunIncluded = certificate is not null && run is not null && runProblems.Count == 0,
+                };
+                // An untrusted certificate is still shown for what it claims, read strictly, never relied on.
+                var claimed = certificate ?? Claimed(envelope);
+                evaluation = claimed is null ? evaluation : evaluation with
+                {
+                    Evaluator = claimed.Evaluator, EvaluatedAt = claimed.EvaluatedAt, Tool = $"{claimed.Tool} {claimed.ToolVersion}", Measure = claimed.Measure,
+                    Baseline = claimed.Baseline, Confidence = claimed.ConfidenceMilli / 1000.0, TaskSource = claimed.TaskSource, Statistic = claimed.Statistic, Passed = claimed.Passed,
+                    Checks = [.. claimed.Checks.Select(c => new PackTrialCheck(c.Target, c.RequiredMilli / 1000.0, c.ObservedMilli / 1000.0, c.Met, c.EstimateMilli / 1000.0))],
+                    With = Measurement(claimed.With), Without = claimed.Without is { } w ? Measurement(w) : null, AefRunId = claimed.AefRunId, AefRunHash = claimed.AefRunHash,
+                };
+                first ??= evaluation;
+                if (evaluation.Trusted) { first = evaluation; break; }
+            }
+            evaluations.Add(first!);
         }
         return evaluations;
     }

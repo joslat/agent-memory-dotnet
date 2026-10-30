@@ -26,8 +26,10 @@ public sealed record PackGateCheck(IReadOnlyList<string> On, IReadOnlyList<Switc
     /// its own trials count for them, never a certificate, and so does this check (review 2: serve counted certificates for
     /// them and served what a host keeps off).
     /// </param>
+    /// <param name="floor">The least a trial must show before it counts (<see cref="ModuleSetBuilder.RequireTrialFloor"/>); this
+    /// check applies it as the module set does (review 7, G6: it was left out here, so the tools showed packs the host keeps off).</param>
     public static PackGateCheck Of(IReadOnlyList<LoadedPack> packs, IPackActivations activations, IReadOnlyList<string>? requireTrialsFor = null,
-        IReadOnlyList<string>? trustCertificatesFor = null, IReadOnlySet<string>? familyMembers = null)
+        IReadOnlyList<string>? trustCertificatesFor = null, IReadOnlySet<string>? familyMembers = null, PackTrialFloor? floor = null)
     {
         ArgumentNullException.ThrowIfNull(packs);
         ArgumentNullException.ThrowIfNull(activations);
@@ -40,7 +42,9 @@ public sealed record PackGateCheck(IReadOnlyList<string> On, IReadOnlyList<Switc
         }
         if (requireTrialsFor is { Count: > 0 }) builder.RequireTrialsFor([.. requireTrialsFor]);
         if (trustCertificatesFor is { Count: > 0 }) builder.TrustCertificatesFor([.. trustCertificatesFor]);
-        var (on, off) = PackTrialGate.Apply(builder.Modules, activations, builder.MandatoryTrials, builder.CertificateTrust);
+        if (floor is not null) builder.RequireTrialFloor(floor);
+        // The host's whole policy, as the module set takes it (review 7, G6: the floor was not passed here).
+        var (on, off) = PackTrialGate.Apply(builder.Modules, activations, PackTrialPolicy.Of(builder));
         // The decision that switched each one on, by the gate's own rule: a certificate's only where it counted.
         var certified = new Dictionary<string, PackDecisionBasis>(StringComparer.Ordinal);
         foreach (var registration in on.Where(r => r.Manifest.Trial is not null))

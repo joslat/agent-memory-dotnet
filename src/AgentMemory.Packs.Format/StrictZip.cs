@@ -26,7 +26,11 @@ internal static class StrictZip
     private const ushort Stored = 0, Deflate = 8;
 
     /// <summary>Writes <paramref name="files"/> as a strict, deterministic archive (same files, same toolchain, same bytes).</summary>
-    internal static byte[] Write(IReadOnlyDictionary<string, byte[]> files, bool compress = true)
+    /// <param name="files">The entries, by name.</param>
+    /// <param name="compress">Whether to deflate an entry where that makes it smaller.</param>
+    /// <param name="maxRatio">The largest compression ratio an entry is deflated at; by default the one every reader allows.
+    /// Only tests pass more, to write the bomb a reader must refuse.</param>
+    internal static byte[] Write(IReadOnlyDictionary<string, byte[]> files, bool compress = true, long? maxRatio = null)
     {
         // Review 1, I1: each entry is deflated into one reused scratch buffer and kept only when smaller, and the archive is
         // written into an array of exactly its size: a large pack costs about twice its size to build, not five to seven times.
@@ -37,7 +41,7 @@ internal static class StrictZip
         using (var scratch = new MemoryStream())
             foreach (var (name, content) in files.OrderBy(f => f.Key, StringComparer.Ordinal))
             {
-                var packed = compress ? DeflateBytes(content, scratch) : null;
+                var packed = compress ? DeflateBytes(content, scratch, maxRatio ?? PackLimits.Default.MaxRatio) : null;
                 entries.Add(packed is null ? (name, content, content, Stored) : (name, content, packed, Deflate));
             }
         var length = entries.Sum(e => (long)LocalHeaderSize + e.Name.Length + e.Packed.Length + CentralHeaderSize + e.Name.Length) + EndSize;
@@ -258,12 +262,14 @@ internal static class StrictZip
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
-    // The deflated bytes when smaller than the content, otherwise null (the entry is stored); `scratch` is reused across entries.
-    private static byte[]? DeflateBytes(byte[] content, MemoryStream scratch)
+    // The deflated bytes when smaller than the content and within the ratio every reader allows, otherwise null (the entry is
+    // stored; review 7, F3: a sparse file deflated past 250:1 was written and then refused); `scratch` is reused across entries.
+    private static byte[]? DeflateBytes(byte[] content, MemoryStream scratch, long maxRatio)
     {
         scratch.SetLength(0);
         using (var deflater = new DeflateStream(scratch, CompressionLevel.SmallestSize, leaveOpen: true)) deflater.Write(content);
-        return scratch.Length < content.Length ? scratch.ToArray() : null;
+        return scratch.Length < content.Length && scratch.Length > 0 && content.LongLength / scratch.Length <= maxRatio
+            ? scratch.ToArray() : null;
     }
 
     private static string AsciiName(ReadOnlySpan<byte> bytes)

@@ -88,7 +88,7 @@ public sealed class ReadableMinorTests
         var (files, _) = PackBuilder.Build(sample.Source());
         files["pack.json"] = source["pack.json"];
         files[PackPaths.FilesList] = FilesList.Build("io.example.notes", "1.0.0", files);
-        PackBuilder.Sign(files, sample.Key.PrivateKeyPem, "publisher", SamplePack.SignedAt);
+        SamplePack.SignRaw(files, sample.Key.PrivateKeyPem, "publisher", SamplePack.SignedAt);
         var steps = new List<PackStep>();
 
         var verified = PackVerifier.Verify(new PackContent(files, "test"), sample.Policy(), SamplePack.Now, explain: steps.Add);
@@ -103,7 +103,7 @@ public sealed class ReadableMinorTests
         var source = new SamplePack().Source();
         source["pack.json"] = SamplePack.Utf8("""{"format":"agentmemory.pack/1.3","id":"io.example.notes","version":"1.0.0","kind":"knowledge","sdk":"[0.1,0.2)"}""");
 
-        FluentActions.Invoking(() => PackBuilder.Build(source)).Should().Throw<InvalidDataException>().WithMessage("*this builder writes agentmemory.pack/1.2*");
+        FluentActions.Invoking(() => PackBuilder.Build(source)).Should().Throw<InvalidDataException>().WithMessage("*this writer writes agentmemory.pack/1.2*");
     }
 
     [Fact]

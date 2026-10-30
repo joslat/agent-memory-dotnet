@@ -25,7 +25,7 @@ public sealed class RedTeamTests
         if (!resign) return _sample.Verify(source);
         // Listed and signed directly, not through the builder, which refuses a bad pack.json before it is ever signed.
         var files = new Dictionary<string, byte[]>(source, StringComparer.Ordinal) { [PackPaths.FilesList] = FilesList.Build(_sample.Id, _sample.Version, source) };
-        PackBuilder.Sign(files, _sample.Key.PrivateKeyPem, "publisher", SamplePack.SignedAt);
+        SamplePack.SignRaw(files, _sample.Key.PrivateKeyPem, "publisher", SamplePack.SignedAt);
         return _sample.Verify(files);
     }
 

@@ -145,7 +145,7 @@ public sealed class PackCertificateTests : IDisposable
         using var signer = PackSigner.FromPem(_evaluator.PrivateKeyPem);
         var certificate = new PackCertificate(Id, pack.Version, pack.Digest, "Other Lab", "other-tool", "1.0", Earlier, measure, baseline, confidence,
             "its own tasks", PackTrialGate.Statistic, [new CertificateCheck(target, required, 600, true, null)], ArmOf(40, 24, 120, 30, 12500),
-            ArmOf(40, 0, 0, 0, 2500), true, null, null);
+            ArmOf(40, 0, 0, 0, 2500, cap: baseline == "host" ? ModuleTraversal.MaximumOffered : 0), true, null, null);
         var files = new Dictionary<string, byte[]>(PackReader.ReadArchive(built, "built").Files, StringComparer.Ordinal)
         {
             [PackAttestations.CertificatePath(PackAttestations.StemFor(signer.KeyId, Earlier))] = certificate.Sign(signer),
@@ -361,7 +361,7 @@ public sealed class PackCertificateTests : IDisposable
         PackActivationFolder.Write(_folder, PackCertificates.Admit(PackLoader.Load(Certify(built, pack), Trust()), Now).Decision!, _host);
         var builder = new ModuleSetBuilder().AddDefinitionPack(pack.Manifest, pack.Digest, "publisher");
 
-        var (on, off) = PackTrialGate.Apply(builder.Modules, Activations(), null, ["io.agentmemory"]);
+        var (on, off) = PackTrialGate.Apply(builder.Modules, Activations(), new PackTrialPolicy([], ["io.agentmemory"], null));
 
         on.Should().BeEmpty();
         off.Should().ContainSingle().Which.Reason.Should().Contain("composed as part of a family or as compiled code");
@@ -420,7 +420,10 @@ public sealed class PackCertificateTests : IDisposable
         var result = files.Keys.Single(k => k.EndsWith("results/with-pack.ndjson", StringComparison.Ordinal));
         files[result] = Encoding.UTF8.GetBytes("""{"task":1,"hit":false}""" + "\n");
         var tampered = PackLoader.Load(StrictZip.Write(files, compress: true), Trust()).Certificates.Single();
-        tampered.Trusted.Should().BeFalse();
+        // Trust rests on the signature alone, so adding or changing files beside a pack never takes it away (review 7, F1); the
+        // run is reported as not matching, and no longer counts as included.
+        tampered.Trusted.Should().BeTrue();
+        tampered.AefRunIncluded.Should().BeFalse();
         tampered.Problems.Should().Contain(p => p.Contains("run hash"));
         // A folder that is not an AEF run is refused before anything is signed.
         File.Delete(Path.Combine(run, "run.json"));
@@ -461,8 +464,9 @@ public sealed class PackCertificateTests : IDisposable
     private static readonly DateTimeOffset Earlier = Now.AddHours(-2);
 
     // An arm with consistent per-task evidence: items spread evenly, one right item on each of the first `hits` tasks and the
-    // rest of the right items on them too; the cap is the most any task offers.
-    private static CertificateArm ArmOf(int tasks, int hits, int offered, int correct, long p95)
+    // rest of the right items on them too. The cap is the one the declarations fix (review 7, G4): this pack declares no
+    // traversal, so the format's 16; an arm that offers nothing is the baseline none, at 0, unless it is the host's (1 or more).
+    private static CertificateArm ArmOf(int tasks, int hits, int offered, int correct, long p95, int? cap = null)
     {
         var o = Enumerable.Range(0, tasks).Select(i => offered / Math.Max(1, tasks) + (i < offered % Math.Max(1, tasks) ? 1 : 0)).ToArray();
         if (hits > tasks || correct < hits || correct > o.Take(hits).Sum() || o.Take(hits).Any(x => x == 0))
@@ -471,16 +475,19 @@ public sealed class PackCertificateTests : IDisposable
         for (var i = 0; i < hits; i++) c[i] = 1;
         for (var (left, i) = (correct - hits, 0); left > 0 && hits > 0; i = (i + 1) % hits)
             if (c[i] < o[i]) { c[i]++; left--; }
-        return new(tasks, hits, offered, correct, p95, Math.Max(1, o.DefaultIfEmpty(0).Max()), PackTrialGate.BurstLength, [.. o.Select((x, i) => new CertificateTask(x, c[i]))]);
+        return new(tasks, hits, offered, correct, p95, cap ?? (offered == 0 ? 0 : ModuleTraversal.MaximumOffered), PackTrialGate.BurstLength, [.. o.Select((x, i) => new CertificateTask(x, c[i]))]);
     }
 
-    // Forty tasks of three items with the per-task evidence a certificate carries (review 5).
+    // Forty tasks of three items with the per-task evidence a certificate carries (review 5); none at all for 0 hits, the
+    // baseline none, which offers nothing by design (review 7, G4). The cap is left to the declarations, as the runner does.
     private static PackTrialMeasurement Arm(int hits)
     {
+        if (hits == 0)
+            return new() { Tasks = 40, Hits = 0, Offered = 0, Correct = 0, P95Ms = 12.5, MaximumOffered = 0, Spacing = PackTrialGate.BurstLength, PerTask = [.. Enumerable.Repeat(new PackTrialTask(0, 0), 40)] };
         var arm = ArmOf(40, hits, 120, Math.Clamp(30, hits, 3 * hits), 12_500);
         return new()
         {
-            Tasks = 40, Hits = hits, Offered = 120, Correct = arm.Correct, P95Ms = 12.5, MaximumOffered = arm.MaximumOffered,
+            Tasks = 40, Hits = hits, Offered = 120, Correct = arm.Correct, P95Ms = 12.5, Spacing = PackTrialGate.BurstLength,
             PerTask = [.. arm.PerTask.Select(t => new PackTrialTask(t.Offered, t.Correct))],
         };
     }
@@ -549,7 +556,7 @@ public sealed class PackCertificateTests : IDisposable
     // The gate alone, for a pack that goes on: composing it fully would need a store for its ontology.
     private (IReadOnlyList<string> On, IReadOnlyList<SwitchedOffModule> Off) Gate(LoadedPack pack, params string[] certificateTrust)
     {
-        var (on, off) = PackTrialGate.Apply(new ModuleSetBuilder().AddPack(pack).Modules, Activations(), null, certificateTrust);
+        var (on, off) = PackTrialGate.Apply(new ModuleSetBuilder().AddPack(pack).Modules, Activations(), new PackTrialPolicy([], certificateTrust ?? [], null));
         return ([.. on.Select(r => r.Manifest.Id)], off);
     }
 

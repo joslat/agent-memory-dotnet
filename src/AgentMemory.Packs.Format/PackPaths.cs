@@ -50,6 +50,25 @@ internal static partial class PackPaths
     internal static bool IsTimestamp(string path) => IsSignature(path) && path.EndsWith(TimestampSuffix, StringComparison.Ordinal);
 
     /// <summary>
+    /// Whether a file is a signature envelope: in the signature folder and not a timestamp token. "Signed" means an envelope;
+    /// <see cref="IsSignature"/> only says a file sits outside the files list (review 7, F5: one predicate named both).
+    /// </summary>
+    internal static bool IsEnvelope(string path) => IsSignature(path) && !IsTimestamp(path);
+
+    /// <summary>
+    /// The signature folder's own rules, which need no trust (§2.1 rule 7): at most 16 envelopes, and each timestamp token
+    /// beside an envelope and at most 64 KiB. Checked with the content, so lint and build see them as verify does (review 7, F3).
+    /// </summary>
+    internal static IEnumerable<string> SignatureFolderProblems(IReadOnlyDictionary<string, byte[]> files)
+    {
+        var envelopes = files.Keys.Where(IsEnvelope).ToHashSet(StringComparer.Ordinal);
+        if (envelopes.Count > Dsse.MaximumEnvelopes) yield return $"The pack carries {envelopes.Count} signature envelopes; at most {Dsse.MaximumEnvelopes}.";
+        foreach (var token in files.Keys.Where(IsTimestamp).Order(StringComparer.Ordinal))
+            if (!envelopes.Contains(token[..^TimestampSuffix.Length])) yield return $"{token} is a timestamp token beside no envelope.";
+            else if (files[token].Length > Dsse.MaximumEnvelopeBytes) yield return $"{token} is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB: a timestamp token is small.";
+    }
+
+    /// <summary>
     /// Attestations live outside the files list too, beside the signatures (pack format v1.2 §16): statements others make about
     /// the pack by its digest, such as evaluation certificates, which can be added after release without changing the pack.
     /// </summary>

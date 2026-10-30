@@ -84,15 +84,12 @@ internal static class PackVerifier
         var signatures = new List<PackSignature>();
         var junk = new List<string>();
         var envelopeProblems = new List<string>();
-        var envelopes = content.Files.Keys.Where(p => PackPaths.IsSignature(p) && !PackPaths.IsTimestamp(p)).Order(StringComparer.Ordinal).ToList();
-        // Bounded: every envelope is checked against one hash of the files list (fifth review).
-        if (envelopes.Count > Dsse.MaximumEnvelopes) junk.Add($"The pack carries {envelopes.Count} signature envelopes; at most {Dsse.MaximumEnvelopes}.");
-        // Timestamp tokens (§2.1, reserved for format 1.3): one beside each envelope at most, as small as an envelope, not judged
-        // by this reader. Anything else under META/signatures/ is junk, as before.
-        var tokens = content.Files.Keys.Where(PackPaths.IsTimestamp).Order(StringComparer.Ordinal).ToList();
-        foreach (var token in tokens)
-            if (!envelopes.Contains(token[..^PackPaths.TimestampSuffix.Length])) junk.Add($"{token} is a timestamp token beside no envelope.");
-            else if (content.Files[token].Length > Dsse.MaximumEnvelopeBytes) junk.Add($"{token} is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB: a timestamp token is small.");
+        var envelopes = content.Files.Keys.Where(PackPaths.IsEnvelope).Order(StringComparer.Ordinal).ToList();
+        // Bounded: every envelope is checked against one hash of the files list (fifth review). The folder's own rules (at most
+        // 16 envelopes; timestamp tokens, §2.1, beside an envelope and small, not judged by this reader) are one function, also
+        // run with the content, so lint and build hold them too (review 7, F3).
+        junk.AddRange(PackPaths.SignatureFolderProblems(content.Files));
+        var tokens = content.Files.Keys.Where(PackPaths.IsTimestamp).ToList();
         var listHex = FilesList.Hex(listBytes);
         foreach (var file in envelopes.Take(Dsse.MaximumEnvelopes))
         {
@@ -222,7 +219,8 @@ internal static class PackVerifier
             if (bytes.LongLength == file.Length && FilesList.Hex(bytes) == file.Sha256) continue;
             problems.Add($"'{file.Path}' does not match {PackPaths.FilesList}{Cause(bytes, file)}.");
         }
-        // Beside the listed files, only signatures and attestations, each shaped and bounded (§16).
+        // Beside the listed files, only signatures and attestations, each shaped and bounded (§16, §2.1 rule 7).
+        problems.AddRange(PackPaths.SignatureFolderProblems(content.Files));
         problems.AddRange(PackAttestations.Problems(content.Files));
         explain?.Invoke(new("content", problems.Count == 0, problems.Count > 0 ? problems
             : [$"exactly the listed files, each with its length and SHA-256 ({list.Files.Sum(f => f.Length):N0} bytes)"]));

@@ -125,6 +125,12 @@ REASONS = {
     "certificate-under-another-stem": ("not as its evaluator's key and evaluation time", "not as its evaluator's key and evaluation time"),
     # Readable minors (review 1, M18): each refused for the versioning rule, beside controls that verify.
     "minor-later-unknown-field-critical": ("does not understand it", "does not understand it"),
+    # Review 7, G3 to G5: a certificate's evidence means what it says.
+    "certificate-no-regression-target": ("names a known target|not a target|known target", "names a known target"),
+    "certificate-arms-spaced-differently": ("different spacings", "different spacings"),
+    "certificate-spacing-past-window": ("span more than", "span more than"),
+    "certificate-none-baseline-offers": ("offers nothing", "offers nothing"),
+    "certificate-host-baseline-cap-zero": ("cap of 1 or more", "cap of 1 or more"),
     "minor-own-unknown-field-critical": ("unknown field 'timestamps'", "unknown field 'timestamps'"),
     "minor-later-unknown-kind": ("needs a kind", "needs a known kind"),
     "minor-earlier": ("reads the later 1.x minors", "reads the later 1.x minors"),
@@ -1110,7 +1116,7 @@ def main():
                 "tool": {"name": "kit", "version": "1.0.0"}, "evaluatedAt": evaluated,
                 "trial": trial_ or {"measure": "test-impact", "baseline": "none", "taskSource": "the kit's synthetic tasks"},
                 "checks": checks or [{"target": "hitRate", "requiredMilli": 500, "observedMilli": 600, "met": True}],
-                "statistic": "agentmemory.trial.hedged/2",
+                "statistic": "agentmemory.trial.hedged/3",
                 "with": with_arm or arm_(40, 24, 120, 30, 12500), "passed": passed, **(extra or {})}
         if without is not None:
             pred["without"] = without
@@ -1153,11 +1159,12 @@ def main():
     decision = {"ModuleId": pid, "Version": version, "ManifestDigest": declarations, "PackDigest": pack_digest, "Active": True,
                 "Reason": "every target met", "DecidedAt": "2026-10-27T12:00:00+00:00",
                 "Checks": [{"Target": "hitRate", "Required": 0.5, "Observed": 0.6, "Met": True, "Estimate": None}],
-                "With": {"Tasks": 40, "Hits": 24, "Offered": 120, "Correct": 30, "P95Ms": 12.5, "MaximumOffered": 3,
+                "With": {"Tasks": 40, "Hits": 24, "Offered": 120, "Correct": 30, "P95Ms": 12.5, "MaximumOffered": 16,
                          "PerTask": [{"Offered": o_, "Correct": c_} for o_, c_ in arm_(40, 24, 120, 30, 12500)["perTask"]]},
-                "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5, "MaximumOffered": 3,
+                "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5, "MaximumOffered": 0,
                             "PerTask": [{"Offered": 0, "Correct": 0}] * 40},
-                "Statistic": "agentmemory.trial.hedged/2",
+                "Statistic": "agentmemory.trial.hedged/3",
+                # Review 7: the caps are the declarations' (no traversal: the format's 16), and a baseline of none offers nothing.
                 # Review 3: certify takes only a trial at each commit's parent.
                 "History": "parent"}
     decision_payload = json.dumps({"_type": py.STATEMENT, "subject": [{"name": f"{pid}@{version}", "digest": {"sha256": pack_digest[7:]}}],
@@ -1260,6 +1267,19 @@ def main():
                                        certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-spacing-one": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, spacing=1))),
                                     certificate_path, None, "trust-evaluator.json", "verified"),
+        # Review 7, G4 and G5: arms that ran the same tasks were drawn at one spacing, within the 2,000 commits a trial draws
+        # from (51 x 39 = 1,989 fits, 60 x 39 = 2,340 does not); a baseline of none offers nothing, a host baseline can offer.
+        "certificate-arms-spaced-differently": (carrying(certificate(certified, without=arm_(40, 0, 0, 0, 9000, cap=0, spacing=1))),
+                                                certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-spacing-at-window": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, spacing=51))),
+                                          certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-spacing-past-window": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, spacing=60))),
+                                            certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-none-baseline-offers": (carrying(certificate(certified, without=arm_(40, 10, 40, 10, 9000))),
+                                             certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-host-baseline-cap-zero": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"},
+                                                                    without=arm_(40, 0, 0, 0, 9000, cap=0))),
+                                               certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-more-than-200-tasks": (carrying(certificate(certified, with_arm=arm_(201, 24, 201, 24, 12500))),
                                             certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-two-hundred-tasks": (carrying(certificate(certified, with_arm=arm_(200, 120, 600, 150, 12500))),
@@ -1273,6 +1293,9 @@ def main():
         "certificate-extra-field": (carrying(certificate(certified, extra={"note": "x"})), certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-unknown-target": (carrying(certificate(certified, checks=[{"target": "recall", "requiredMilli": 500, "observedMilli": 600, "met": True}])),
                                        certificate_path, None, "trust-evaluator.json", "refused"),
+        # Review 7, G3: no regression is a host's own comparison; a certificate carries no arm for it.
+        "certificate-no-regression-target": (carrying(certificate(certified, checks=[{"target": "noRegression.hitRate", "requiredMilli": 0, "observedMilli": 0, "met": True}])),
+                                             certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-confidence-unknown": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "none", "confidenceMilli": 800, "taskSource": "x"})),
                                            certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-evaluator-two-lines": (carrying(certificate(certified, extra={"evaluator": "Kit\nevaluator"})), certificate_path, None,

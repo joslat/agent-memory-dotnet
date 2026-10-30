@@ -1,4 +1,4 @@
-"""The reference for the trial bounds (statistic agentmemory.trial.hedged/2); the C# port in PackTrialGate must agree (golden.json).
+"""The reference for the trial bounds (statistic agentmemory.trial.hedged/3); the C# port in PackTrialGate must agree (golden.json).
 
 Clopper-Pearson for a hit rate, and for precision when an arm offers one item a task at most. Otherwise the unseen worst-case
 task, counted HEDGE[confidence] times beside the tasks (a frequency weight), then Fieller's inversion of the pooled precision,

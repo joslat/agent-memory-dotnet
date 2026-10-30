@@ -77,6 +77,21 @@ public sealed record PackTrialFloor
     public ModuleTrialTargets? Targets { get; init; }
 }
 
+/// <summary>
+/// What a host requires of trials, handed whole to every path that judges one (review 7, G6: the module set passed the floor
+/// and the gate check did not, so <c>ampack gate</c> and <c>serve</c> showed and served packs the host keeps off). Built
+/// from the builder in one place; a new requirement added here reaches every path.
+/// </summary>
+[Experimental("AMEXT001")]
+internal sealed record PackTrialPolicy(IReadOnlyList<string> Mandatory, IReadOnlyList<string> CertificateTrust, PackTrialFloor? Floor)
+{
+    /// <summary>Nothing required beyond a passing trial for what declares one.</summary>
+    internal static PackTrialPolicy None { get; } = new([], [], null);
+
+    /// <summary>The policy a builder holds.</summary>
+    internal static PackTrialPolicy Of(ModuleSetBuilder builder) => new(builder.MandatoryTrials, builder.CertificateTrust, builder.TrialFloor);
+}
+
 /// <summary>A trial's targets. Each is optional; at least one must be given.</summary>
 [Experimental("AMEXT001")]
 public sealed record ModuleTrialTargets
