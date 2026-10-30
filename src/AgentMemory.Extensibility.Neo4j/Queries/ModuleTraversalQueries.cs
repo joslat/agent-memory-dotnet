@@ -93,8 +93,8 @@ internal static class ModuleTraversalQueries
         + "CALL { WITH t MATCH (:`" + target + "` {key_id:t.key_id})<-[:`" + relation + "`]-(o:`" + source + "`) "
         + "WHERE o.invalidated_at IS NULL AND " + In("o") + " WITH DISTINCT o LIMIT $scan RETURN count(o) AS degree } "
         + Ranked("t") + " "
-        + "UNION ALL WITH fid, s, links WITH links WHERE links > $maxLinks RETURN null AS row, null AS degree, null AS hits } "
-        + "RETURN fid, s.key AS key, links, row, degree, hits";
+        + "UNION ALL WITH fid, s, links WITH links WHERE links > $maxLinks RETURN null AS id, null AS rkey, null AS degree, null AS hits } "
+        + "RETURN fid, s.key AS key, links, id, rkey, degree, hits";
 
     // The live version of a linked record (review 3, performance): the record itself when the link points at it, else the live
     // version of its key, by the indexed key identity. A key has at most one live version, so the two agree; the first needs
@@ -128,8 +128,8 @@ internal static class ModuleTraversalQueries
         + "OR EXISTS { MATCH (k:ModuleKey {id:v.key_id}) WHERE k.current_id IS NOT NULL }) } AS own "
         + "WITH fid, s, CASE WHEN own > $scan THEN $scan ELSE own END AS degree "
         + Ranked("s") + " "
-        + "UNION ALL WITH fid, x, links WITH links WHERE links > $maxLinks RETURN null AS row, null AS degree, null AS hits } "
-        + "RETURN fid, x.key AS key, links, row, degree, hits";
+        + "UNION ALL WITH fid, x, links WITH links WHERE links > $maxLinks RETURN null AS id, null AS rkey, null AS degree, null AS hits } "
+        + "RETURN fid, x.key AS key, links, id, rkey, degree, hits";
 
     /// <summary>
     /// Per starting record, the reached records ranked by how many of the question's <c>$words</c> their text (the <c>$text</c>
@@ -142,7 +142,9 @@ internal static class ModuleTraversalQueries
     /// returned, hundreds of rows for a hub of alike tests): the first <c>$fanOut</c> in this order, which is the format's order
     /// wherever the keys of the records tied with the last one kept are below U+D800 (Cypher compares strings by code point,
     /// which agrees with UTF-16 code units there), and every tied record when one of those keys is not (<c>$wide</c>). Records
-    /// are ranked by reference; their properties are read only for the rows returned. Without question words nothing is folded.
+    /// are ranked by reference, and each comes back narrow, its id, key, degree and hits (review 8, W2: every tied record came back
+    /// whole when one tied key was wide); the caller cuts, then reads whole only the records it keeps (<see cref="ByIds"/>).
+    /// Without question words nothing is folded.
     /// </remarks>
     private static string Ranked(string node) =>
         "WITH fid, " + node + ", degree, CASE WHEN size($words) = 0 THEN '' ELSE "
@@ -155,7 +157,7 @@ internal static class ModuleTraversalQueries
         + "WITH fid, ranked, edge, edge IS NOT NULL AND any(r IN ranked WHERE r.hits = edge.hits AND r.degree = edge.degree AND r.node.key =~ $wide) AS wide "
         + "UNWIND range(0, size(ranked) - 1) AS i WITH fid, ranked[i] AS r, i, edge, wide "
         + "WHERE i < $fanOut OR (wide AND r.hits = edge.hits AND r.degree = edge.degree) "
-        + "RETURN properties(r.node) AS row, r.degree AS degree, r.hits AS hits";
+        + "RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits";
 
     /// <summary>The pattern of a key that holds a character at or above U+D800, where code-point and UTF-16 orders can differ.</summary>
     internal const string WideKey = @"(?s).*[\x{D800}-\x{10FFFF}].*";

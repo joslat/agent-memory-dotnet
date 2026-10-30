@@ -134,28 +134,45 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 // Past the link limit a record is not expanded, and the walk is told (review 2); the check is in the same statement
                 // as the expansion (review 4, performance).
                 var ids = query.FromIds.Distinct(StringComparer.Ordinal).ToArray();
-                var rows = await RowsAsync(transaction, statement, new Dictionary<string, object?>
+                var fanOut = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut));
+                // Narrow rows streamed into the best fanOut per starting record, in the format's order (review 8, W2: every row came
+                // back whole and was held before the cut); only the records kept are then read whole, as the match read does.
+                var past = new Dictionary<string, string>(StringComparer.Ordinal);
+                var best = new Dictionary<string, List<(long Hits, int Degree, string Key, string Id)>>(StringComparer.Ordinal);
+                static int Order((long Hits, int Degree, string Key, string Id) a, (long Hits, int Degree, string Key, string Id) b) =>
+                    b.Hits.CompareTo(a.Hits) is var h and not 0 ? h : a.Degree.CompareTo(b.Degree) is var d and not 0 ? d
+                    : string.CompareOrdinal(a.Key, b.Key) is var k and not 0 ? k : string.CompareOrdinal(a.Id, b.Id);
+                void Trim(List<(long, int, string, string)> list)
+                {
+                    list.Sort(Order);
+                    if (list.Count > fanOut) list.RemoveRange(fanOut, list.Count - fanOut);
+                }
+                await EachAsync(transaction, statement, new Dictionary<string, object?>
                 {
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared, ["ids"] = ids,
                     ["maxLinks"] = ModuleExpandQuery.MaximumLinks, ["over"] = ModuleExpandQuery.MaximumLinks + 1,
                     ["fanOut"] = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut)),
                     ["words"] = Words(query.Words), ["text"] = reached.Type.TextProperties().ToArray(), ["fold"] = Fold,
                     ["scan"] = ModuleExpandQuery.MaximumScan, ["wide"] = ModuleTraversalQueries.WideKey
+                }, row =>
+                {
+                    var from = row["fid"].As<string>();
+                    if (row["links"].As<long>() > ModuleExpandQuery.MaximumLinks) { past.TryAdd(from, row["key"].As<string>()); return; }
+                    if (row["id"].As<object?>() is not string id) return;
+                    if (!best.TryGetValue(from, out var list)) best[from] = list = [];
+                    list.Add((row["hits"].As<long>(), (int)Math.Clamp(row["degree"].As<long>(), 1, int.MaxValue), row["rkey"].As<string>(), id));
+                    if (list.Count >= 2 * fanOut + 64) Trim(list);
                 }, cancellationToken).ConfigureAwait(false);
-                var past = rows.Where(r => r["links"].As<long>() > ModuleExpandQuery.MaximumLinks)
-                    .GroupBy(r => r["fid"].As<string>(), StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First()["key"].As<string>(), StringComparer.Ordinal);
-                rows = [.. rows.Where(r => r["links"].As<long>() <= ModuleExpandQuery.MaximumLinks && r["row"] is not null)];
-                var fanOut = Math.Clamp(query.FanOut, 1, Math.Min(declared.FanOut, ModuleTraversalRelation.MaximumFanOut));
-                var edges = rows.Select(r => (Hits: r["hits"].As<long>(), Edge: new ModuleTraversalEdge
-                    {
-                        FromId = r["fid"].As<string>(),
-                        To = Neo4jModuleReader.Record(reached.Module, reached.Type, r["row"].As<Dictionary<string, object>>(), []),
-                        Degree = (int)Math.Clamp(r["degree"].As<long>(), 1, int.MaxValue)
-                    }))
-                    .GroupBy(e => e.Edge.FromId, StringComparer.Ordinal)
-                    .SelectMany(g => g.OrderByDescending(e => e.Hits).ThenBy(e => e.Edge.Degree)
-                        .ThenBy(e => e.Edge.To.Key, StringComparer.Ordinal).ThenBy(e => e.Edge.To.Id, StringComparer.Ordinal).Take(fanOut).Select(e => e.Edge))
-                    .ToList();
+                foreach (var list in best.Values) Trim(list);
+                var keep = best.Values.SelectMany(l => l.Select(e => e.Id)).Distinct(StringComparer.Ordinal).ToArray();
+                var label = query.Direction == ModuleTraversalDirection.Out ? targetLabel : relation.From;
+                var byId = (await RowsAsync(transaction, ModuleTraversalQueries.ByIds(label), new Dictionary<string, object?> { ["ids"] = keep },
+                        cancellationToken).ConfigureAwait(false))
+                    .Select(r => Neo4jModuleReader.Record(reached.Module, reached.Type, r["row"].As<Dictionary<string, object>>(), []))
+                    .ToDictionary(r => r.Id, StringComparer.Ordinal);
+                // In the order the starting records were given, each one's neighbours in the format's order.
+                var edges = ids.Where(best.ContainsKey).SelectMany(from => best[from].Where(e => byId.ContainsKey(e.Id))
+                    .Select(e => new ModuleTraversalEdge { FromId = from, To = byId[e.Id], Degree = e.Degree })).ToList();
                 return new ModuleTraversalStep
                 {
                     Status = ModuleReadStatus.Succeeded,

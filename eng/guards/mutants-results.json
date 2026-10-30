@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/1",
- "commit": "17499d21",
+ "commit": "43d330a0",
  "results": [
   {
    "id": "archive-ratio",
@@ -15,6 +15,27 @@
    "door": "definition",
    "killed": true,
    "seconds": 9
+  },
+  {
+   "id": "raw-read-in-lint",
+   "rule": "FILE-BOUNDED",
+   "door": "lint",
+   "killed": true,
+   "seconds": 11
+  },
+  {
+   "id": "raw-parse-split-in-diff",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "diff",
+   "killed": true,
+   "seconds": 11
+  },
+  {
+   "id": "authenticate-at-peek",
+   "rule": "AUTHENTICATE-FIRST",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
   },
   {
    "id": "authenticate-at-load",
@@ -174,6 +195,13 @@
    "id": "walk-charged-by-length",
    "rule": "WALK-BOUNDED",
    "door": "definition",
+   "killed": true,
+   "seconds": 7
+  },
+  {
+   "id": "expand-rows-whole",
+   "rule": "WALK-BOUNDED",
+   "door": "neo4j expand",
    "killed": true,
    "seconds": 7
   },

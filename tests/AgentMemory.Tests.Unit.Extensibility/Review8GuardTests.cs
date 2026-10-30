@@ -181,4 +181,17 @@ public sealed class Review8GuardTests : IDisposable
             .Should().Throw<InvalidDataException>().WithMessage("A file is larger than 1024 bytes.");
         AgentMemory.Extensibility.Modules.BoundedFile.Read(path, 1025, "A file").Should().HaveCount(1025);
     }
+
+    [Fact]
+    public void W2_neo4j_expansion_returns_narrow_rows_and_reads_whole_only_the_records_it_keeps()
+    {
+        // Match was narrowed in review 6; Expand, its twin, returned every tied neighbour whole when a tied key was wide. Both
+        // expansion statements now return ids, keys, degrees and hits; the reader keeps the best per start and reads those whole.
+        foreach (var statement in new[] { AgentMemory.Extensibility.Neo4j.Queries.ModuleTraversalQueries.Out("S", "LINKS", "T"),
+                     AgentMemory.Extensibility.Neo4j.Queries.ModuleTraversalQueries.In("S", "LINKS", "T") })
+        {
+            statement.Should().NotContain("properties(", "an expansion row is narrow");
+            statement.Should().Contain("AS id").And.Contain("AS rkey");
+        }
+    }
 }

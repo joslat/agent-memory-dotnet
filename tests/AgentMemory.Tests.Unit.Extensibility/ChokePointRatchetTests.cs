@@ -17,12 +17,18 @@ public sealed class ChokePointRatchetTests
     [
         "src/AgentMemory.Packs.", "src/AgentMemory.Extensibility.Ampack/", "src/AgentMemory.Extensibility/Packs/",
         "src/AgentMemory.Extensibility/Modules/", "src/AgentMemory.Extensibility/Bundles/", "tools/Ampack/", "shared/",
+        // Review 8, A10: the walk, the Neo4j store and the CLI's pack commands read pack content too.
+        "src/AgentMemory.Extensibility/Context/Traversal/", "src/AgentMemory.Extensibility.Neo4j/", "tools/AgentMemory.Cli/Commands/Pack",
     ];
 
     private static readonly (string Api, Regex Pattern)[] Apis =
     [
-        ("file read", new(@"\bFile\.(ReadAll(Bytes|Text|Lines)(Async)?|Open|OpenRead|OpenText)\s*\(|\bnew\s+FileStream\s*\(")),
-        ("json parse", new(@"\bJsonDocument\.Parse(Async)?\s*\(|\bJsonNode\.Parse\s*\(|\bJsonSerializer\.Deserialize(Async)?\b")),
+        // Review 8, A10: ReadLines, a FileInfo's or handle's opens, a reader over a path, random access and XML loads too.
+        ("file read", new(@"\bFile\.(ReadAll(Bytes|Text|Lines)(Async)?|ReadLines(Async)?|Open\w*)\s*\(|\bnew\s+(FileStream|StreamReader)\s*\(|\bRandomAccess\.\w+\s*\(|"
+            + @"\.Open(Read|Text)?\s*\(\s*\)|\bX(Document|Element)\.Load\s*\(|\bXmlReader\.Create\s*\(")),
+        // And typed deserialization of an element, the low-level reader, and the other node parses.
+        ("json parse", new(@"\bJsonDocument\.Parse(Async)?\s*\(|\bJson(Node|Object|Array)\.Parse\s*\(|\bJsonSerializer\.Deserialize\w*\b|\.Deserialize\s*<|\bnew\s+Utf8JsonReader\s*\(")),
+        ("archive open", new(@"\bnew\s+ZipArchive\s*\(|\bZipFile\.\w+\s*\(")),
         ("raw console", new(@"\bConsole\.(OpenStandard\w*|SetOut|SetError)\s*\(")),
         // Review 8, F3: one pack's own signatures, not a set's members. A door that acts on a pack takes VerifyWhole.
         ("one-pack verify", new(@"\bPackVerifier\.VerifyOne\s*\(")),
@@ -40,9 +46,15 @@ public sealed class ChokePointRatchetTests
         ("src/AgentMemory.Packs.Format/HostLedger.cs", "file read", 1, "the ledger's own lock file, opened to hold it, never read"),
         ("src/AgentMemory.Extensibility.Ampack/PackStore.cs", "file read", 1, "the store's own lock file, opened to hold it, never read"),
         ("tools/Ampack/Program.cs", "file read", 1, "the output file a command writes"),
+        ("src/AgentMemory.Extensibility/Modules/CompositeManifest.cs", "file read", 1, "a composite embedded in an assembly the host was configured with"),
+        ("src/AgentMemory.Extensibility/Packs/KnowledgePack.cs", "file read", 1, "an entry of a NuGet package, read at most to the size it states (review 8, A10)"),
+        ("src/AgentMemory.Extensibility/Packs/KnowledgePack.cs", "archive open", 1, "a NuGet package: at most 512 bundle files and 16 MiB as stated, each entry read at most to its stated size"),
+        ("tools/AgentMemory.Cli/Commands/PackGateCommand.cs", "file read", 2, "the operator's host key, and the host's own repository files for the grep baseline"),
+        ("tools/AgentMemory.Cli/Commands/PacksCommand.cs", "file read", 4, "the operator's own keys"),
+        ("tools/AgentMemory.Cli/Commands/PacksCommand.cs", "json parse", 1, Authoring),
         ("src/AgentMemory.Extensibility/Modules/ModuleAssemblyReader.cs", "file read", 1, "a module assembly the host was configured with"),
         ("src/AgentMemory.Packs.CodeMap/Scip/ScipCodeMapReader.cs", "file read", 1, Authoring),
-        ("src/AgentMemory.Packs.CodeMap.Roslyn/RoslynCodeMapReader.cs", "file read", 2, Authoring),
+        ("src/AgentMemory.Packs.CodeMap.Roslyn/RoslynCodeMapReader.cs", "file read", 4, Authoring + ", and the project files it builds from"),
         ("src/AgentMemory.Packs.Architecture/ArchitectureReader.cs", "file read", 1, Authoring),
         ("src/AgentMemory.Packs.Decisions/DecisionsReader.cs", "file read", 2, Authoring),
         ("src/AgentMemory.Packs.Intent/IntentReader.cs", "file read", 1, Authoring),
@@ -70,7 +82,7 @@ public sealed class ChokePointRatchetTests
         ("src/AgentMemory.Extensibility/Bundles/BundleVerifier.cs", "json parse", 2, "the legacy bundle's signature and list, read bounded"),
         ("src/AgentMemory.Extensibility/Modules/CanonicalJson.cs", "json parse", 1, "canonicalizes JSON this library serialized itself"),
         ("src/AgentMemory.Extensibility/Modules/ModuleJson.cs", "json parse", 1, "the module manifest parser, depth-bounded"),
-        ("src/AgentMemory.Extensibility/Modules/PackActivation.cs", "json parse", 3, "the host's own decision records, read bounded"),
+        ("src/AgentMemory.Extensibility/Modules/PackActivation.cs", "json parse", 4, "the host's own decision records, read bounded; the last a typed read of one whose host signature just held"),
         ("src/AgentMemory.Extensibility/Packs/KnowledgePack.cs", "json parse", 1, Verified),
         ("src/AgentMemory.Extensibility/Packs/ModuleProposer.cs", "json parse", 1, "authoring: a model's reply, which yields a proposal, not a pack"),
         ("src/AgentMemory.Extensibility/Packs/ModuleReview.cs", "json parse", 2, "authoring: a review set the author edits"),
@@ -104,13 +116,11 @@ public sealed class ChokePointRatchetTests
             var file = Path.GetRelativePath(root, path).Replace('\\', '/');
             if (!Scopes.Any(s => file.StartsWith(s, StringComparison.Ordinal)) || file.Contains("/bin/", StringComparison.Ordinal) || file.Contains("/obj/", StringComparison.Ordinal))
                 continue;
-            foreach (var line in File.ReadLines(path))
-            {
-                var code = line.Split("//", 2)[0];
-                foreach (var (api, pattern) in Apis)
-                    if (pattern.Matches(code).Count is > 0 and var n)
-                        found[(file, api)] = found.GetValueOrDefault((file, api)) + n;
-            }
+            // The whole file without its comments, so a call split across lines is seen and a "//" inside a string hides nothing.
+            var code = Code(File.ReadAllText(path));
+            foreach (var (api, pattern) in Apis)
+                if (pattern.Matches(code).Count is > 0 and var n)
+                    found[(file, api)] = found.GetValueOrDefault((file, api)) + n;
         }
 
         var allowed = Allowed.ToDictionary(a => (a.File, a.Api), a => a.Sites);
@@ -119,8 +129,63 @@ public sealed class ChokePointRatchetTests
         var stale = allowed.Where(a => found.GetValueOrDefault(a.Key) < a.Value)
             .Select(a => $"{a.Key.File}: {a.Value} {a.Key.Api} site(s) listed, {found.GetValueOrDefault(a.Key)} found").ToList();
 
-        unlisted.Should().BeEmpty("a new raw site goes through its choke point (BoundedFile, PackJson, the verified pack, ShownWriter), or is listed here with its reason");
-        stale.Should().BeEmpty("a site that went away leaves the list, so the list only shrinks");
+        string.Join(Environment.NewLine, unlisted).Should().BeEmpty("a new raw site goes through its choke point (BoundedFile, PackJson, the verified pack, ShownWriter), or is listed here with its reason");
+        string.Join(Environment.NewLine, stale).Should().BeEmpty("a site that went away leaves the list, so the list only shrinks");
+    }
+
+    // C# source with its comments blanked: strings (regular, verbatim, raw, interpolated) and characters are kept as they are.
+    private static string Code(string source)
+    {
+        var text = new System.Text.StringBuilder(source.Length);
+        for (var i = 0; i < source.Length;)
+        {
+            var c = source[i];
+            if (c == '/' && i + 1 < source.Length && source[i + 1] == '/')
+            {
+                while (i < source.Length && source[i] != '\n') i++;
+                continue;
+            }
+            if (c == '/' && i + 1 < source.Length && source[i + 1] == '*')
+            {
+                var end = source.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                i = end < 0 ? source.Length : end + 2;
+                text.Append(' ');
+                continue;
+            }
+            if (c == '"' && i + 2 < source.Length && source[i + 1] == '"' && source[i + 2] == '"')
+            {
+                var quotes = 0;
+                while (i + quotes < source.Length && source[i + quotes] == '"') quotes++;
+                var close = source.IndexOf(new string('"', quotes), i + quotes, StringComparison.Ordinal);
+                var stop = close < 0 ? source.Length : close + quotes;
+                text.Append(source, i, stop - i);
+                i = stop;
+                continue;
+            }
+            if (c == '"' || c == '\'')
+            {
+                var verbatim = i > 0 && source[i - 1] == '@' || i > 1 && source[i - 1] == '$' && source[i - 2] == '@';
+                var j = i + 1;
+                while (j < source.Length)
+                {
+                    if (!verbatim && source[j] == '\\') { j += 2; continue; }
+                    if (source[j] == c)
+                    {
+                        if (verbatim && j + 1 < source.Length && source[j + 1] == c) { j += 2; continue; }
+                        break;
+                    }
+                    if (!verbatim && source[j] == '\n') break;
+                    j++;
+                }
+                var stop = Math.Min(j + 1, source.Length);
+                text.Append(source, i, stop - i);
+                i = stop;
+                continue;
+            }
+            text.Append(c);
+            i++;
+        }
+        return text.ToString();
     }
 
     private static string Root()

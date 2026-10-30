@@ -55,6 +55,39 @@ public sealed class AuthenticateFirstTests : IDisposable
     }
 
     [Fact]
+    public void Review8_A12_a_pack_whose_signature_does_not_hold_is_refused_for_that_alone_at_every_load_path()
+    {
+        // The unsigned probe above is refused at its list, before any envelope; this one gets as far as the signatures: a valid list
+        // and a well-formed envelope by a key the host does not trust, over a pack.json and a record line that fail if parsed. Every
+        // path refuses it for the signature, and nothing else is said about it, so nothing past the signatures was read.
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["pack.json"] = "[\"not a manifest\"]"u8.ToArray(),
+            ["records/notes.jsonl"] = "{\"unterminated\": \n"u8.ToArray(),
+        };
+        files[PackPaths.FilesList] = FilesList.Build("io.agentmemory.packs.probe", "1.0.0", files);
+        using (var stranger = PackSigner.FromPem(PackAuthoring.CreateKey().PrivateKeyPem))
+            files[Dsse.PathFor("publisher", stranger.KeyId)] = Dsse.Sign(files[PackPaths.FilesList], "io.agentmemory.packs.probe", "1.0.0", "publisher",
+                DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeSeconds()), stranger);
+        var archive = StrictZip.Write(files);
+        var trust = Trust();
+        static void OnlyTheSignature(IReadOnlyList<string> problems)
+        {
+            problems.Should().Contain(p => p.Contains("No valid publisher signature"));
+            problems.Should().NotContain(p => p.Contains("pack.json") || p.Contains("records/") || p.Contains("line "));
+        }
+
+        OnlyTheSignature(Refusal(() => PackLoader.Peek(archive, trust)));
+        OnlyTheSignature(Refusal(() => PackLoader.Load(archive, trust)));
+        OnlyTheSignature(Refusal(() => PackMemory.Mount([archive], trust)));
+        OnlyTheSignature(Refusal(() => PackStore.Open(_root).Install(archive, trust)));
+        var inspection = PackInspection.Inspect(archive, trust);
+        OnlyTheSignature(inspection.Problems);
+        inspection.Kind.Should().BeNull();
+        inspection.Declarations.Should().BeEmpty();
+    }
+
+    [Fact]
     public void H1_a_signed_pack_still_loads_through_every_path()
     {
         var source = PackAuthoring.FromModuleBundle(Directory.EnumerateFiles(MartialArts, "*", SearchOption.AllDirectories).ToDictionary(

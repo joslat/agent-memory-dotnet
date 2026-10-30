@@ -105,9 +105,17 @@ public sealed class KnowledgePack
                 if (!entry.FullName.StartsWith(PackageFolder, StringComparison.Ordinal) || entry.FullName.EndsWith('/')) continue;
                 total += entry.Length;
                 if (files.Count >= 512 || total > 16L * 1024 * 1024) throw new KnowledgePackException(["The package's pack bundle is larger than 512 files or 16 MiB."]);
+                // An entry is read at most to the size it states, which the total above already counts (review 8, A10: a copy
+                // without a bound inflated whatever the entry held, whatever it stated).
                 using var stream = entry.Open();
                 using var buffer = new MemoryStream();
-                stream.CopyTo(buffer);
+                var chunk = new byte[81920];
+                for (int read; (read = stream.Read(chunk, 0, chunk.Length)) > 0;)
+                {
+                    if (buffer.Length + read > entry.Length)
+                        throw new KnowledgePackException([$"The package's '{entry.FullName}' inflates past the size it states."]);
+                    buffer.Write(chunk, 0, read);
+                }
                 if (!files.TryAdd(entry.FullName[PackageFolder.Length..], buffer.ToArray()))
                     throw new KnowledgePackException([$"The package repeats '{entry.FullName}'."]);
             }
