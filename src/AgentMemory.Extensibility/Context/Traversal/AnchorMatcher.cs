@@ -1,6 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Text;
-using System.Text.RegularExpressions;
 using AgentMemory.Extensibility.Modules;
 
 namespace AgentMemory.Extensibility.Context.Traversal;
@@ -18,12 +16,22 @@ internal static class AnchorMatcher
     /// <summary>A folder prefix contains the anchor: at least this, more the deeper the folder.</summary>
     internal const double PrefixBase = 0.5;
 
+    /// <summary>
+    /// The most work one stored value's match may take, in characters compared (review 7, W1: one value of many pieces, or a long
+    /// run of "./", cost seconds a record, and the scans looked at the budget only every 1,024 records). Past it the value keeps
+    /// the best match found so far, in the one order every store uses (anchors as given, then pieces in order), so the stores
+    /// still agree, and a record costs at most about a millisecond whatever it holds.
+    /// </summary>
+    internal const long MaximumWork = 1L << 20;
+
     private static readonly char[] Separators = [' ', '\t', '\r', '\n', ',', ';'];
     private static readonly char[] NameSeparators = ['\r', '\n', ',', ';'];
 
     // ASCII only, as the format states (review 3): white space is these six characters, and only A-Z fold to a-z. Unicode
     // folding differed between .NET, Cypher and the spec (µ and μ, final Σ, İ), so the stores seeded different records.
     private static readonly char[] AsciiSpace = [' ', '\t', '\r', '\n', '\f', '\v'];
+
+    private static bool IsAsciiSpace(char c) => c is ' ' or '\t' or '\r' or '\n' or '\f' or '\v';
 
     /// <summary>The text without leading and trailing ASCII white space.</summary>
     internal static string Trimmed(string value) => value.Trim(AsciiSpace);
@@ -40,8 +48,27 @@ internal static class AnchorMatcher
 
     private static bool SameFolded(string a, string b) => a.Length == b.Length && string.Equals(Folded(a), Folded(b), StringComparison.Ordinal);
 
+    /// <summary>A turn's anchors as matching compares them, worked out once for every record a read matches (review 7, W1).</summary>
+    internal sealed class Anchors
+    {
+        internal Anchors(IEnumerable<string> anchors) =>
+            Items = [.. anchors.Select(a => new Anchor(a, Path(a), Folded(Path(a)), Trimmed(a), SimpleName(a)))];
+
+        internal IReadOnlyList<Anchor> Items { get; }
+    }
+
+    /// <summary>One anchor: as given, as a path, the path folded, trimmed, and its simple name.</summary>
+    internal sealed record Anchor(string Raw, string Path, string FoldedPath, string Trimmed, string Simple)
+    {
+        internal int Slashes { get; } = Path.Count(c => c == '/');
+    }
+
     /// <summary>The best match of one stored value against the anchors: its quality (0 for none), the anchor and the pattern.</summary>
-    internal static (double Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors)
+    internal static (double Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors) =>
+        Best(match, value, new Anchors(anchors));
+
+    /// <summary>The best match of one stored value against anchors prepared once: its quality, the anchor and the pattern.</summary>
+    internal static (double Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, Anchors anchors)
     {
         if (IsBlank(value)) return (0, null, null);
         // Paths split on whitespace too; names do not, because a SCIP identity holds spaces.
@@ -51,30 +78,41 @@ internal static class AnchorMatcher
             ModuleAnchorMatch.Name => Pieces(value!, NameSeparators),
             _ => [Trimmed(value!)],
         };
-        // A glob compiled once for every anchor (review 6, M4: once per anchor and pattern, up to 32 times a record).
-        var globs = match == ModuleAnchorMatch.Glob ? patterns.Select(p => Path(p) is var path && path.Length > 0 && path.IndexOfAny(['*', '?']) >= 0 ? Glob(Folded(path)) : null).ToArray() : null;
+        long work = value!.Length;
+        // Each piece worked out once: its path, folded, and for a glob its tokens (review 6, M4, and review 7, W2: a regex per
+        // piece hit the engine's size limit and threw; the tokens are matched in time linear in both lengths, with no limit).
+        var paths = match == ModuleAnchorMatch.Name ? null : patterns.Select(p => Path(p)).ToArray();
+        var folded = paths?.Select(Folded).ToArray();
+        var globs = match == ModuleAnchorMatch.Glob ? folded!.Select(p => p.Length > 0 && p.IndexOfAny(['*', '?']) >= 0 ? GlobPattern.Of(p) : null).ToArray() : null;
         (double Quality, string? Anchor, string? Pattern) best = (0, null, null);
-        foreach (var anchor in anchors)
+        foreach (var anchor in anchors.Items)
             for (var i = 0; i < patterns.Length; i++)
             {
-                var quality = globs?[i] is { } glob ? (Path(anchor) is { Length: > 0 } a && glob.IsMatch(Folded(a)) ? Globbed : 0) : Quality(match, patterns[i], anchor);
-                if (quality > best.Quality) best = (quality, anchor, patterns[i]);
+                var quality = match switch
+                {
+                    ModuleAnchorMatch.Exact => paths![i].Length > 0 && Equal(folded![i], anchor.FoldedPath) ? Exact : 0,
+                    ModuleAnchorMatch.Prefix => PrefixQuality(folded![i].TrimEnd('/'), anchor),
+                    ModuleAnchorMatch.Glob => globs![i] is { } glob ? (anchor.Path.Length > 0 && glob.Matches(anchor.FoldedPath, ref work) ? Globbed : 0)
+                        : folded![i].Length == 0 || anchor.Path.Length == 0 ? 0
+                        : folded[i].EndsWith('/') ? PrefixQuality(folded[i].TrimEnd('/'), anchor)
+                        : Equal(folded[i], anchor.FoldedPath) ? Exact : 0,
+                    ModuleAnchorMatch.Name => NameQuality(patterns[i], anchor),
+                    _ => 0,
+                };
+                if (quality > best.Quality) best = (quality, anchor.Raw, patterns[i]);
+                work += patterns[i].Length + anchor.Raw.Length;
+                if (work > MaximumWork) return best;
             }
         return best;
     }
+
+    private static bool Equal(string a, string b) => string.Equals(a, b, StringComparison.Ordinal);
 
     // The pieces of a value between separators, each trimmed of ASCII white space, empty ones dropped.
     private static string[] Pieces(string value, char[] separators) =>
         [.. value.Split(separators).Select(Trimmed).Where(piece => piece.Length > 0)];
 
-    internal static double Quality(ModuleAnchorMatch match, string pattern, string anchor) => match switch
-    {
-        ModuleAnchorMatch.Exact => Path(pattern) is { Length: > 0 } p && SameFolded(p, Path(anchor)) ? Exact : 0,
-        ModuleAnchorMatch.Prefix => PrefixQuality(Path(pattern).TrimEnd('/'), Path(anchor)),
-        ModuleAnchorMatch.Glob => GlobQuality(Path(pattern), Path(anchor)),
-        ModuleAnchorMatch.Name => NameQuality(pattern, anchor),
-        _ => 0,
-    };
+    internal static double Quality(ModuleAnchorMatch match, string pattern, string anchor) => Best(match, pattern, [anchor]).Quality;
 
     /// <summary>
     /// Whether a seed's pattern is its anchor, as its reason shows it (review 3: the raw texts were compared): the same path,
@@ -85,81 +123,44 @@ internal static class AnchorMatcher
     /// <summary>A path as matching compares it (review 2: stores filter with it too): ASCII-trimmed, '/' for '\', no leading './' or '/'.</summary>
     internal static string Normalized(string value) => Path(value);
 
-    // Repository-relative with forward slashes: "./src\a.cs" and "src/a.cs" are the same file; a dot file keeps its dot. Every
-    // leading "./" goes, then every leading "/", repeated until nothing changes, so a normalized path normalizes to itself
-    // (review 5: "./ a" gave " a", which a second pass changed again).
+    // Repository-relative with forward slashes: "./src\a.cs" and "src/a.cs" are the same file; a dot file keeps its dot. In closed
+    // form, one pass (review 7, W1: the loop "repeated until nothing changes" ran once per alternation of "./" and white space,
+    // quadratic in the value): '\' as '/', trailing ASCII white space dropped, then the leading run of ASCII white space, '/' and
+    // "./" dropped. It equals that loop's fixpoint, which the tests keep as the oracle, so a normalized path normalizes to itself.
     private static string Path(string value)
     {
-        string path = value, previous;
-        do
+        var end = value.Length;
+        while (end > 0 && IsAsciiSpace(value[end - 1])) end--;
+        var start = 0;
+        while (start < end)
         {
-            previous = path;
-            path = Trimmed(path).Replace('\\', '/');
-            // One pass over the leading "./" and "/", one slice (review 6, L1: a slice per "./" was quadratic in a run of them).
-            var start = 0;
-            while (start + 1 < path.Length && path[start] == '.' && path[start + 1] == '/') start += 2;
-            while (start < path.Length && path[start] == '/') start++;
-            path = path[start..];
+            var c = value[start];
+            if (IsAsciiSpace(c) || c is '/' or '\\') start++;
+            else if (c == '.' && start + 1 < end && value[start + 1] is '/' or '\\') start += 2;
+            else break;
         }
-        while (path != previous);
-        return path;
+        return value[start..end].Replace('\\', '/');
     }
 
-    private static double PrefixQuality(string prefix, string anchor)
+    private static double PrefixQuality(string foldedPrefix, Anchor anchor)
     {
-        if (prefix.Length == 0 || anchor.Length == 0) return 0;
-        if (SameFolded(prefix, anchor)) return Exact;
-        if (!Folded(anchor).StartsWith(Folded(prefix) + "/", StringComparison.Ordinal)) return 0;
+        if (foldedPrefix.Length == 0 || anchor.Path.Length == 0) return 0;
+        if (Equal(foldedPrefix, anchor.FoldedPath)) return Exact;
+        if (anchor.FoldedPath.Length <= foldedPrefix.Length || anchor.FoldedPath[foldedPrefix.Length] != '/'
+            || !anchor.FoldedPath.StartsWith(foldedPrefix, StringComparison.Ordinal)) return 0;
         // A deeper folder says more about the file: src/a/b/ beats src/ for src/a/b/c.cs.
-        var depth = (double)prefix.Count(c => c == '/') + 1;
-        var total = (double)anchor.Count(c => c == '/') + 1;
+        var depth = (double)foldedPrefix.Count(c => c == '/') + 1;
+        var total = (double)anchor.Slashes + 1;
         return PrefixBase + 0.3 * Math.Min(1, depth / total);
     }
 
-    private static double GlobQuality(string pattern, string anchor)
+    private static double NameQuality(string value, Anchor anchor)
     {
-        if (pattern.Length == 0 || anchor.Length == 0) return 0;
-        if (pattern.IndexOfAny(['*', '?']) < 0)
-            return pattern.EndsWith('/') ? PrefixQuality(pattern.TrimEnd('/'), anchor) : SameFolded(pattern, anchor) ? Exact : 0;
-        return Glob(Folded(pattern)).IsMatch(Folded(anchor)) ? Globbed : 0;
-    }
-
-    // Read without a lock (review 6, M4: one lock serialized every walk), bounded: when full it is emptied and refills with the
-    // patterns in use, rather than compiling every new pattern again for ever.
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Regex> Globs = new(StringComparer.Ordinal);
-    private const int MaximumGlobs = 4096;
-
-    // Over ASCII-folded text, with no case option of its own; "**" crosses every character, line breaks included.
-    private static Regex Glob(string pattern)
-    {
-        if (Globs.TryGetValue(pattern, out var cached)) return cached;
-        var regex = new StringBuilder(@"\A");
-        for (var i = 0; i < pattern.Length; i++)
-        {
-            var c = pattern[i];
-            if (c == '*' && i + 1 < pattern.Length && pattern[i + 1] == '*')
-            {
-                // "**/" matches zero or more folders; a bare "**" matches anything.
-                var slash = i + 2 < pattern.Length && pattern[i + 2] == '/';
-                regex.Append(slash ? @"(?:[\s\S]*/)?" : @"[\s\S]*");
-                i += slash ? 2 : 1;
-            }
-            else if (c == '*') regex.Append("[^/]*");
-            else if (c == '?') regex.Append("[^/]");
-            else regex.Append(Regex.Escape(c.ToString()));
-        }
-        var compiled = new Regex(regex.Append(@"\z").ToString(), RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
-        if (Globs.Count >= MaximumGlobs) Globs.Clear();
-        return Globs.GetOrAdd(pattern, compiled);
-    }
-
-    private static double NameQuality(string value, string anchor)
-    {
-        value = Trimmed(value); anchor = Trimmed(anchor);
+        value = Trimmed(value);
         if (value.Length == 0) return 0;
-        if (string.Equals(value, anchor, StringComparison.Ordinal)) return Exact;
-        var simpleValue = SimpleName(value); var simpleAnchor = SimpleName(anchor);
-        return simpleValue.Length > 0 && string.Equals(simpleValue, simpleAnchor, StringComparison.Ordinal) ? Named : 0;
+        if (Equal(value, anchor.Trimmed)) return Exact;
+        var simpleValue = SimpleName(value);
+        return simpleValue.Length > 0 && Equal(simpleValue, anchor.Simple) ? Named : 0;
     }
 
     /// <summary>
@@ -176,5 +177,110 @@ internal static class AnchorMatcher
         if (s.EndsWith(')')) s = s[..(s.LastIndexOf('(') is var open and >= 0 ? open : s.Length)];
         var cut = s.LastIndexOfAny(['/', '#', '.', ':']);
         return cut >= 0 ? s[(cut + 1)..] : s;
+    }
+
+    /// <summary>
+    /// A glob over ASCII-folded paths, matched by stepping a set of positions through the text (review 7, W2: it was a regex
+    /// per piece, which threw past the engine's size limit). '*' is any run without '/', '?' one character but '/', "**/" zero or
+    /// more folders, a bare "**" anything, every other character itself. Runs of wildcards that mean the same collapse to one,
+    /// so between two characters the text must hold there are at most two wildcards, and a pattern that needs more characters than
+    /// the text has fails at once: the work is at most the text's length times about three times its own.
+    /// </summary>
+    internal sealed class GlobPattern
+    {
+        private enum Kind : byte { Literal, One, Run, Any, Folders }
+
+        private readonly (Kind Kind, char Char)[] _tokens;
+        private readonly int _needs;
+        // The position sets, kept for every text this pattern is matched against (one Best call, one thread).
+        private bool[] _at, _next, _inside, _insideNext;
+
+        private GlobPattern((Kind, char)[] tokens, int needs)
+        {
+            (_tokens, _needs) = (tokens, needs);
+            (_at, _next, _inside, _insideNext) = (new bool[tokens.Length + 1], new bool[tokens.Length + 1], new bool[tokens.Length], new bool[tokens.Length]);
+        }
+
+        internal static GlobPattern Of(string folded)
+        {
+            var tokens = new List<(Kind Kind, char Char)>(Math.Min(folded.Length, 1024));
+            var needs = 0;
+            void Add(Kind kind, char c)
+            {
+                if (kind is Kind.Literal or Kind.One) { needs++; tokens.Add((kind, c)); return; }
+                if (tokens.Count > 0 && tokens[^1].Kind is var last and not (Kind.Literal or Kind.One))
+                {
+                    // "**" swallows any wildcard beside it; two of one kind are one.
+                    if (last == Kind.Any || last == kind) return;
+                    if (kind == Kind.Any) { tokens[^1] = (Kind.Any, '\0'); return; }
+                }
+                tokens.Add((kind, '\0'));
+            }
+            for (var i = 0; i < folded.Length; i++)
+            {
+                var c = folded[i];
+                if (c == '*' && i + 1 < folded.Length && folded[i + 1] == '*')
+                {
+                    var slash = i + 2 < folded.Length && folded[i + 2] == '/';
+                    Add(slash ? Kind.Folders : Kind.Any, '\0');
+                    i += slash ? 2 : 1;
+                }
+                else if (c == '*') Add(Kind.Run, '\0');
+                else if (c == '?') Add(Kind.One, '\0');
+                else Add(Kind.Literal, c);
+            }
+            return new([.. tokens], needs);
+        }
+
+        /// <summary>Whether the folded text matches, charging the characters stepped times the positions held to <paramref name="work"/>.</summary>
+        internal bool Matches(string text, ref long work)
+        {
+            if (_needs > text.Length) return false;
+            var n = _tokens.Length;
+            // at[k]: the text so far can be followed by tokens k..; inside[k]: within a "**/" at k, before its closing '/'.
+            var (at, next, inside, insideNext) = (_at, _next, _inside, _insideNext);
+            Array.Clear(at);
+            Array.Clear(inside);
+            at[0] = true;
+            Close(at);
+            foreach (var c in text)
+            {
+                work += n + 1;
+                Array.Clear(next);
+                Array.Clear(insideNext);
+                var any = false;
+                for (var k = 0; k < n; k++)
+                {
+                    if (inside[k]) { insideNext[k] = true; if (c == '/') next[k + 1] = true; any = true; }
+                    if (!at[k]) continue;
+                    switch (_tokens[k].Kind)
+                    {
+                        case Kind.Literal: if (c == _tokens[k].Char) { next[k + 1] = true; any = true; } break;
+                        case Kind.One: if (c != '/') { next[k + 1] = true; any = true; } break;
+                        case Kind.Run: if (c != '/') { next[k] = true; any = true; } break;
+                        case Kind.Any: next[k] = true; any = true; break;
+                        case Kind.Folders: insideNext[k] = true; if (c == '/') next[k + 1] = true; any = true; break;
+                    }
+                }
+                if (!any) return Keep(at, next, inside, insideNext, false);
+                Close(next);
+                (at, next) = (next, at);
+                (inside, insideNext) = (insideNext, inside);
+            }
+            return Keep(at, next, inside, insideNext, at[n]);
+        }
+
+        private bool Keep(bool[] at, bool[] next, bool[] inside, bool[] insideNext, bool result)
+        {
+            (_at, _next, _inside, _insideNext) = (at, next, inside, insideNext);
+            return result;
+        }
+
+        // What follows without consuming a character: past a wildcard that may match nothing.
+        private void Close(bool[] positions)
+        {
+            for (var k = 0; k < _tokens.Length; k++)
+                if (positions[k] && _tokens[k].Kind is Kind.Run or Kind.Any or Kind.Folders) positions[k + 1] = true;
+        }
     }
 }

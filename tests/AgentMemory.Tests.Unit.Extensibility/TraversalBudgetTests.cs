@@ -126,6 +126,29 @@ public sealed class TraversalBudgetTests
         walk.Items.Should().NotBeEmpty("the records the anchors reached before the slow read stand");
     }
 
+    [Fact]
+    public async Task Review7_W2_one_module_s_failing_read_leaves_that_module_out_and_the_walk_goes_on()
+    {
+        // A store read that threw (a stored value past the regex engine's limit) failed the shared walk for every module.
+        var resolution = Resolve(Pack("broken", relations: 0), Pack("sound", relations: 0));
+        var reader = new FailingReader("com.example.broken", new FloodReader(seeds: new() { ["com.example.broken"] = 3, ["com.example.sound"] = 3 }));
+
+        var walk = await TraversalWalk.RunAsync(resolution, reader, Request(), CancellationToken.None);
+
+        walk.Items.Should().HaveCount(3).And.OnlyContain(i => i.Record.ModuleId == "com.example.sound");
+        walk.Problems.Should().ContainSingle().Which.Should().Be("com.example.broken: a read failed (NotSupportedException); its records are left out of this walk.");
+    }
+
+    // Fails every read for one module, as a store failing on one of its records would; the others as the inner reader does.
+    private sealed class FailingReader(string module, IModuleTraversalReader inner) : IModuleTraversalReader
+    {
+        public Task<ModuleReadResult> MatchAsync(ModuleAnchorQuery query, ModuleReadContext context, CancellationToken cancellationToken = default) =>
+            query.ModuleId == module ? throw new NotSupportedException("a stored value past a limit") : inner.MatchAsync(query, context, cancellationToken);
+
+        public Task<ModuleTraversalStep> ExpandAsync(ModuleExpandQuery query, ModuleReadContext context, CancellationToken cancellationToken = default) =>
+            inner.ExpandAsync(query, context, cancellationToken);
+    }
+
     // Matches as the inner reader does; every expansion waits until it is cancelled.
     private sealed class SlowExpandReader(IModuleTraversalReader inner) : IModuleTraversalReader
     {

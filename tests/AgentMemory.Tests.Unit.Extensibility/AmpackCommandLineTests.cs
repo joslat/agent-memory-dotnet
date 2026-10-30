@@ -144,12 +144,12 @@ public sealed class AmpackCommandLineTests : IDisposable
         // The Coding composite, locked to exactly those four, built and verified.
         Done("migrate", Path.Combine(Packs, "Coding", "composite.json"), "--out", "coding");
         Refused("build", "coding", "--out", "unlocked.ampack", "--key", keyPath).Should().Contain("META/lock.json");
-        Done(["lock", "coding", .. members]).Should().Contain("Locked 4 members");
+        Done(["lock", "coding", .. members, "--policy", "trust.json"]).Should().Contain("Locked 4 members");
         Done("build", "coding", "--out", "coding.ampack", "--key", keyPath);
         Done("verify", "coding.ampack", "--policy", "trust.json").Should().Contain("kind    composite");
 
         // One set carries the family and the knowledge pack; it verifies member by member.
-        Done(["set", "family.ampack", "coding.ampack", .. members, "martialarts.ampack", "--id", "io.example.coding-family", "--version", "1.0.0", "--key", keyPath]);
+        Done(["set", "family.ampack", "coding.ampack", .. members, "martialarts.ampack", "--id", "io.example.coding-family", "--version", "1.0.0", "--key", keyPath, "--policy", "trust.json"]);
         var verified = Done("verify", "family.ampack", "--policy", "trust.json", "--ledger", "ledger.json", "--record");
         verified.Should().Contain("Verified set io.example.coding-family 1.0.0").And.Contain("recorded the set and 6 members");
         verified.Split('\n').Count(l => l.TrimStart().StartsWith("member", StringComparison.Ordinal)).Should().Be(6);

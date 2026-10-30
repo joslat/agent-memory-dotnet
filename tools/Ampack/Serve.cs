@@ -91,11 +91,13 @@ internal sealed class PackTools
         if (anchors.All(a => AgentMemory.Extensibility.Reading.ModuleAnchorQuery.IsBlank(a.Value)))
             return JsonSerializer.Serialize(new { error = "Give at least one path or symbol to walk from." }, Json);
         var expired = ExpiredIds(mount);
-        // An expired pack takes no part in the walk at all (review 2), and the carriers' filter below still holds.
-        var (hits, problems) = await mount.Memory.WalkAsync(anchors, question, live: id => !expired.Contains(id), cancellationToken).ConfigureAwait(false);
+        // An expired pack takes no part in the walk at all (review 2), nor do the records an expired carrier brought, decided as
+        // the walk seeds and steers (review 7, W8: they were filtered out of the hits only after the walk).
+        var (hits, problems) = await mount.Memory.WalkAsync(anchors, question, live: id => !expired.Contains(id), cancellationToken,
+            liveCarrier: id => !expired.Contains(id)).ConfigureAwait(false);
         // What the walk could not do, on standard error, which MCP and REST clients leave free (review 3).
         foreach (var problem in problems) Console.Error.WriteLine("ampack serve: " + problem);
-        return Hits([.. hits.Where(h => !expired.Contains(h.Module) && !(h.Pack?.Carrier?.Id is { } carrier && expired.Contains(carrier)))]);
+        return Hits(hits);
     }
 
     private static string Hits(IReadOnlyList<PackHit> hits) => JsonSerializer.Serialize(hits.Select(h => new

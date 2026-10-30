@@ -262,7 +262,11 @@ def read_zip(data):
         raw = data[start:start + csize]
         if method == 8:
             d = zlib.decompressobj(-15)
-            content = d.decompress(raw, size + 1)
+            # A damaged deflate stream is a refusal, as .NET refuses it (review 7, M8: zlib.error escaped as a crash).
+            try:
+                content = d.decompress(raw, size + 1)
+            except zlib.error as e:
+                raise Refused(f"entry '{name}' is not a valid deflate stream") from e
             if len(content) != size or d.unconsumed_tail or not d.eof:
                 raise Refused(f"entry '{name}' does not inflate to its declared size")
             if d.unused_data:

@@ -68,8 +68,11 @@ public sealed partial class PackMemory : IModuleTraversalReader
         var packs = knowledge.ToList();
         var shots = (snapshots ?? []).ToList();
         var manifests = new Dictionary<string, ModuleManifest>(StringComparer.Ordinal);
+        // A dependency shared by snapshots comes once; two different manifests under one id are refused, never one silently kept
+        // (review 7, W4: the first won and hid the duplicate from the resolver's own check).
         foreach (var manifest in packs.Select(p => p.Manifest).Concat(shots.SelectMany(s => s.Dependencies.Prepend(s.Module))))
-            manifests.TryAdd(manifest.Id, manifest);
+            if (!manifests.TryAdd(manifest.Id, manifest) && PackTrialGate.DigestOf(manifests[manifest.Id]) != PackTrialGate.DigestOf(manifest))
+                throw new KnowledgePackException([$"Two different manifests of {manifest.Id} are given: a host holds one version of a module."]);
         var resolution = ModuleResolver.Resolve([.. manifests.Values], ModuleSet.SdkVersion, ModuleHostFeatures.Known);
         if (!resolution.Succeeded) throw new KnowledgePackException(resolution.Errors);
         // PACK-consent: links into another module's records need its consent or the host's grant, as the store requires.
@@ -180,6 +183,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
                     break;
             }
         }
+        // Held as a host holds them, before the gate or anything else reads them (review 7, W4).
+        loaded = PackMountPlan.Of(loaded);
         if (off?.Invoke(loaded, familyMembers) is { Count: > 0 } kept)
             loaded.RemoveAll(p => kept.Contains(p.Id) || (p.Kind == "snapshot" && p.Manifest.Modules.Keys.Any(kept.Contains)));
         var definitions = loaded.Where(p => p.Kind == "definition").ToDictionary(p => p.Id, p => p.Manifest, StringComparer.Ordinal);
@@ -223,11 +228,14 @@ public sealed partial class PackMemory : IModuleTraversalReader
     // live: whether a module takes part now; a pack past its validUntil neither seeds, steers nor offers (review 2, M2 in serve).
     // Problems: what the walk could not do (a record past the link limit, a refused read), for the caller to show (review 3).
     internal async Task<(IReadOnlyList<PackHit> Hits, IReadOnlyList<string> Problems)> WalkAsync(IReadOnlyList<ContextAnchor> anchors, string? question,
-        Func<string, bool>? live, CancellationToken cancellationToken)
+        Func<string, bool>? live, CancellationToken cancellationToken, Func<string, bool>? liveCarrier = null)
     {
         ArgumentNullException.ThrowIfNull(anchors);
         var walk = await TraversalWalk.RunAsync(Resolution, this,
-            new ContextRequest { SessionId = "pack", Owner = "pack", Query = question ?? "", Anchors = anchors }, cancellationToken, live: live).ConfigureAwait(false);
+            new ContextRequest { SessionId = "pack", Owner = "pack", Query = question ?? "", Anchors = anchors }, cancellationToken, live: live,
+            // A record takes part only while the pack that carried it does (review 7, W8): decided where the walk seeds, steers
+            // and offers, not after it.
+            liveRecord: liveCarrier is null ? null : r => r.Source.Pack?.Carrier?.Id is not { } carrier || liveCarrier(carrier)).ConfigureAwait(false);
         return ([.. Offered(Resolution, walk.Items).Select(i => Hit(i.Record, i.Via))], walk.Problems);
     }
 
@@ -340,10 +348,12 @@ public sealed partial class PackMemory : IModuleTraversalReader
         // the property, matching or not, in key order).
         // The walk's time budget reaches this scan through the token (review 3: a common name scanned a whole type unbounded).
         // Best match first, then the format's order, at most the limit: what every store returns (review 6, M2).
-        var scanned = 0;
+        // Every record looks at the budget: a record's match is bounded in work (review 7, W1: every 1,024 records was a count,
+        // and one record could cost seconds).
+        var quality = (query with { Values = values }).Matcher();
         var found = OfType(module.Id, query.Type)
-            .Select(r => (++scanned % 1024 != 0 || !cancellationToken.IsCancellationRequested ? r : throw new OperationCanceledException(cancellationToken)))
-            .Select(r => (Record: r, Quality: Text(r, query.Property) is { } value ? ModuleAnchorQuery.Quality(query.Match, value, values) : 0))
+            .Select(r => { cancellationToken.ThrowIfCancellationRequested(); return r; })
+            .Select(r => (Record: r, Quality: Text(r, query.Property) is { } value ? quality(value) : 0))
             .Where(p => p.Quality > 0)
             .OrderByDescending(p => p.Quality).ThenBy(p => p.Record, Context.Traversal.TraversalOrder.Records)
             .Take(Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit)).Select(p => p.Record).ToList();

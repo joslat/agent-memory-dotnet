@@ -78,6 +78,83 @@ public sealed class WalkWorkBoundsTests
     }
 
     [Fact]
+    public async Task Review7_W8_a_record_that_may_not_take_part_neither_seeds_nor_steers()
+    {
+        // serve hid an expired snapshot's records only after the walk: they seeded from the anchor and led to b.cs, which was
+        // offered with a reason naming the expired file. Decided per record where the walk seeds, steers and offers, neither.
+        var memory = Memory([File("src/a.cs", "src/b.cs"), File("src/b.cs")]);
+        var request = new AgentMemory.Extensibility.Context.ContextRequest
+        {
+            SessionId = "pack", Owner = "pack", Query = "", Anchors = [AgentMemory.Extensibility.Context.ContextAnchor.Path("src/a.cs")],
+        };
+
+        var all = await TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None);
+        var without = await TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None, liveRecord: r => r.Key != "src/a.cs");
+
+        all.Items.Select(i => i.Record.Key).Should().Equal("src/a.cs", "src/b.cs");
+        without.Items.Should().BeEmpty("b.cs was reached only through a.cs, which takes no part");
+    }
+
+    [Fact]
+    public async Task Review7_W7_the_walk_makes_the_fan_out_cut_whatever_a_store_returns_and_in_whatever_order()
+    {
+        // a.cs uses six files, the relation's fan-out is 3. A store may return more than the fan-out (the spec allows it) and in
+        // any order: the walk keeps the same three.
+        var memory = Memory([File("src/a.cs", "src/b1.cs", "src/b2.cs", "src/b3.cs", "src/b4.cs", "src/b5.cs", "src/b6.cs"),
+            File("src/b1.cs"), File("src/b2.cs"), File("src/b3.cs"), File("src/b4.cs"), File("src/b5.cs"), File("src/b6.cs")]);
+        var request = new AgentMemory.Extensibility.Context.ContextRequest
+        {
+            SessionId = "pack", Owner = "pack", Query = "", Anchors = [AgentMemory.Extensibility.Context.ContextAnchor.Path("src/a.cs")],
+        };
+
+        var exact = await TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None);
+        var wide = await TraversalWalk.RunAsync(memory.Resolution, new Wide(memory), request, CancellationToken.None);
+
+        exact.Items.Should().HaveCount(4);
+        wide.Items.Select(i => (i.Record.Key, i.Via)).Should().Equal(exact.Items.Select(i => (i.Record.Key, i.Via)));
+    }
+
+    [Fact]
+    public async Task Review7_W10_what_the_walk_could_not_do_is_listed_in_one_order_whatever_the_store_s()
+    {
+        var memory = Memory([File("src/a.cs", "src/b.cs"), File("src/b.cs")]);
+        var request = new AgentMemory.Extensibility.Context.ContextRequest
+        {
+            SessionId = "pack", Owner = "pack", Query = "", Anchors = [AgentMemory.Extensibility.Context.ContextAnchor.Path("src/a.cs")],
+        };
+
+        var walk = await TraversalWalk.RunAsync(memory.Resolution, new Hubs(memory, ["src/z.cs has more", "src/m.cs has more", "src/a.cs has more"]), request, CancellationToken.None);
+        var reversed = await TraversalWalk.RunAsync(memory.Resolution, new Hubs(memory, ["src/a.cs has more", "src/m.cs has more", "src/z.cs has more"]), request, CancellationToken.None);
+
+        walk.Problems.Should().Equal(reversed.Problems);
+        walk.Problems.Take(3).Should().BeInAscendingOrder(StringComparer.Ordinal, "each answer's problems in one order");
+    }
+
+    // Answers as the store does, with these hub problems on every expansion, in the order given.
+    private sealed class Hubs(PackMemory inner, string[] errors) : IModuleTraversalReader
+    {
+        public Task<ModuleReadResult> MatchAsync(ModuleAnchorQuery query, ModuleReadContext context, CancellationToken cancellationToken = default) =>
+            inner.MatchAsync(query, context, cancellationToken);
+
+        public async Task<ModuleTraversalStep> ExpandAsync(ModuleExpandQuery query, ModuleReadContext context, CancellationToken cancellationToken = default) =>
+            await inner.ExpandAsync(query, context, cancellationToken) with { Errors = errors };
+    }
+
+    // Returns every neighbour the records link to, past the fan-out, in reverse order (each used by a.cs alone: degree 1).
+    private sealed class Wide(PackMemory inner) : IModuleTraversalReader
+    {
+        public Task<ModuleReadResult> MatchAsync(ModuleAnchorQuery query, ModuleReadContext context, CancellationToken cancellationToken = default) =>
+            inner.MatchAsync(query, context, cancellationToken);
+
+        public Task<ModuleTraversalStep> ExpandAsync(ModuleExpandQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
+        {
+            var edges = query.FromIds.SelectMany(from => inner.Records.Single(r => r.Id == from).Links.Where(l => l.Relation == query.Relation)
+                .Select(l => new ModuleTraversalEdge { FromId = from, To = inner.Records.Single(r => r.Id == l.TargetId), Degree = 1 })).Reverse().ToList();
+            return Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.Succeeded, Edges = edges });
+        }
+    }
+
+    [Fact]
     public void L1_a_path_normalizes_in_one_pass_to_what_the_repeated_strip_gave()
     {
         // The definition before review 6: every leading "./" stripped one slice at a time, then every leading "/", repeated.

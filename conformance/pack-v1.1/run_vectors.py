@@ -122,6 +122,7 @@ REASONS = {
     "archive-ratio-over-250": ("compression ratio above 250", "breaks a size rule"),
     "archive-deflate-empty-declares-content": ("compression ratio above 250", "breaks a size rule"),
     "archive-4097-files": ("more than 4096 files", "more than 4096 files"),
+    "deflate-damaged": ("is not a valid deflate stream", "is not a valid deflate stream"),
     "certificate-under-another-stem": ("not as its evaluator's key and evaluation time", "not as its evaluator's key and evaluation time"),
     # Readable minors (review 1, M18): each refused for the versioning rule, beside controls that verify.
     "minor-later-unknown-field-critical": ("does not understand it", "does not understand it"),
@@ -615,7 +616,7 @@ def main():
     (family / "pack.json").write_bytes((json.dumps({"format": py.PACK_FORMAT, "id": "io.example.family", "version": "1.0.0", "kind": "composite",
                                                     "contains": [pid], "tier": "open", "protection": "open", "code": "E0"}, indent=2) + chr(10)).encode())
     (family / "members.json").write_bytes((json.dumps({"members": [{"id": pid, "version": "[1,2)"}]}, indent=2) + chr(10)).encode())
-    code, text = ampack("lock", str(family), str(VECTORS / "valid-dotnet.ampack"))
+    code, text = ampack("lock", str(family), str(VECTORS / "valid-dotnet.ampack"), "--policy", str(OUT / "trust.json"))
     assert code == 0, text
     code, text = ampack("build", str(family), "--key", str(work / "keys" / "publisher.key.pem"), "--out", str(work / "family.ampack"))
     assert code == 0, text
@@ -638,7 +639,7 @@ def main():
 
     # Pack sets: built with ampack (each member keeps its own list and signatures), then changed and signed again as a whole.
     code, text = ampack("set", str(work / "bundle.ampack"), str(VECTORS / "valid-dotnet.ampack"), "--id", "io.example.bundle", "--version", "1.0.0",
-                        "--key", str(work / "keys" / "publisher.key.pem"))
+                        "--key", str(work / "keys" / "publisher.key.pem"), "--policy", str(OUT / "trust.json"))
     assert code == 0, text
     bundle = py.read_zip((work / "bundle.ampack").read_bytes())
     bundle_content = {p: b for p, b in bundle.items() if p != py.FILES and not p.startswith(py.SIGNATURES)}
@@ -820,6 +821,10 @@ def main():
     raw["deflate-valid"] = (write_deflated_zip(s), "trust.json", "verified")
     raw["deflate-trailing-bytes"] = (write_deflated_zip(s, junk={record: b"\x00junk"}), "trust.json", "refused")
     raw["deflate-without-its-final-block"] = (write_deflated_zip(s, unfinished={record}), "trust.json", "refused")
+    # Review 7, M8: a damaged deflate stream (a reserved block type in its first byte) crashed the second verifier.
+    damaged = bytearray(write_deflated_zip(s))
+    damaged[30 + struct.unpack_from("<H", damaged, 26)[0]] = 0xFF
+    raw["deflate-damaged"] = (bytes(damaged), "trust.json", "refused")
     # Review 6, L6 and I8: the archive limits, each beside its control.
     zeros = signed({**content, "assets/zeros.bin": bytes(1 << 20)})
     raw["archive-ratio-over-250"] = (write_deflated_zip(zeros), "trust.json", "refused")

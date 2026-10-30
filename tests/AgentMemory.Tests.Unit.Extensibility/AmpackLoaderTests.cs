@@ -90,6 +90,22 @@ public sealed class AmpackLoaderTests
     }
 
     [Fact]
+    public void Review7_W4_packs_are_held_together_as_a_host_holds_them_one_version_of_each()
+    {
+        // serve and test merged two versions of one pack into one module (a host's builder refuses the second); the same pack
+        // reached twice is one pack.
+        var source = PackLayout.FromModule(Bundle(MartialArts));
+        var first = Signed(source);
+        var manifest = System.Text.Json.Nodes.JsonNode.Parse(source["pack.json"])!.AsObject();
+        manifest["version"] = "9.9.9";
+        var later = Signed(new Dictionary<string, byte[]>(source, StringComparer.Ordinal) { ["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString()) });
+
+        FluentActions.Invoking(() => PackMemory.Mount([first, later], Trust())).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().ContainSingle().Which.Should().Contain("comes more than once").And.Contain("a host holds one version of a pack");
+        PackMemory.Mount([first, first], Trust()).Packs.Should().ContainSingle("the same pack given twice is one pack");
+    }
+
+    [Fact]
     public void A_pack_from_an_untrusted_namespace_is_refused()
     {
         var act = () => PackLoader.Load(Signed(PackLayout.FromModule(Bundle(MartialArts))), Trust(prefix: "io.example"));

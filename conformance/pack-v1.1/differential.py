@@ -2,9 +2,11 @@
 
 Feeds the same mutated packs to `ampack verify` (.NET) and python/ampack_verify.py and reports every input on which they
 disagree. Nothing is expected of a mutant except that the two verifiers reach the same verdict: a disagreement is a bug in
-one of them, or a gap in the spec. Two kinds of mutant, from a seeded generator so a run can be repeated:
+one of them, or a gap in the spec. Seven kinds of mutant, in turn, from a seeded generator so a run can be repeated:
 
 - archive mutants: bytes of a valid pack flipped, inserted, removed or truncated (the ZIP readers);
+- deflated mutants (review 7, M8): the same pack with every entry deflated, then bytes changed, so damaged deflate streams
+  reach both inflaters (the archive mutants are stored entries and never did);
 - content mutants: one JSON or JSONL file of a valid pack edited (a character changed, inserted or removed, a key repeated,
   a number or string swapped for an edge case), then listed and signed again, so the mutant reaches the JSON profile, the
   manifest and the kind rules instead of stopping at a hash;
@@ -253,13 +255,17 @@ def main():
     private_pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
     valid_files = py.read_zip(valid)
     envelope_name = next(n for n in valid_files if n.startswith(py.SIGNATURES))
+    deflated = kit.write_deflated_zip(valid_files)
     results, disagreements = [], 0
     for n in range(COUNT):
         mutant_policy = policy
-        kind = ("archive", "content", "time", "path", "envelope", "policy")[n % 6]
+        kind = ("archive", "content", "time", "path", "envelope", "policy", "deflated")[n % 7]
         target = None
         if kind == "archive":
             archive = mutate_bytes(valid, rng)
+        elif kind == "deflated":
+            # Review 7, M8: every entry deflated, then bytes changed: damaged streams, which no other kind reaches.
+            archive = mutate_bytes(deflated, rng)
         elif kind == "content":
             target = rng.choice(parseable)
             archive = signed({**content, target: mutate_json(content[target], rng)})

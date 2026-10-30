@@ -283,6 +283,35 @@ public sealed class TrialStatisticsTests
         worst.Rate.Should().BeLessThanOrEqualTo(ceiling, worst.What);
     }
 
+    [Theory]
+    [InlineData(0.95)]
+    [InlineData(0.99)]
+    public void Review7_where_bursts_span_at_most_eight_commits_a_target_at_the_truth_passes_at_most_the_nominal_rate_at_every_spacing(double confidence)
+    {
+        // M9: the guarantee as now stated, held where it is claimed: bursts of 1 to 8 related commits (an intraclass correlation
+        // of 0.3), at every spacing around the burst length, 8 included, where review 7 measured the earlier claim failing. The
+        // ceiling is the nominal rate plus three Monte Carlo standard errors, not a loose round number.
+        const int sims = 2000;
+        var ceiling = (1 - confidence) + 3 * Math.Sqrt(confidence * (1 - confidence) / sims);
+        var rng = new Random(71);
+        foreach (var spacing in new[] { 1, 2, 4, 7, 8, 9, 12 })
+        {
+            var passes = 0;
+            for (var s = 0; s < sims; s++)
+            {
+                var hits = new bool[40 * spacing];
+                for (var i = 0; i < hits.Length;)
+                {
+                    var length = rng.Next(1, PackTrialGate.BurstLength + 1);
+                    var p = 0.5 + (rng.Next(2) == 0 ? -1 : 1) * Math.Sqrt(0.3 * 0.25);
+                    for (var j = 0; j < length && i < hits.Length; j++, i++) hits[i] = rng.NextDouble() < p;
+                }
+                var tasks = Enumerable.Range(0, 40).Select(i => new PackTrialTask(1, hits[i * spacing] ? 1 : 0)).ToList();
+                if (PackTrialGate.HitRateLower(Arm(tasks, 1, spacing), confidence) >= 0.5 - 1e-12) passes++;
+            }
+            ((double)passes / sims).Should().BeLessThanOrEqualTo(ceiling, $"spacing {spacing}, bursts of at most {PackTrialGate.BurstLength}");
+        }
+    }
     [Fact]
     public void Review6_at_one_item_a_task_precision_is_Clopper_Pearsons()
     {

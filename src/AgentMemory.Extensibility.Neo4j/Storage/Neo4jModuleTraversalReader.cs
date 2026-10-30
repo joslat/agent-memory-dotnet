@@ -55,32 +55,40 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
         // The anchors as the walk compares them, and what the candidates must hold (review 2): the walk then matches exactly.
         // Not lowered here: the query lowers both sides with one folding (review 3).
         var values = anchors.Select(ModuleAnchorQuery.NormalizedPath).Where(v => v.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
-        var folders = values.SelectMany(Folders).Distinct(StringComparer.Ordinal).ToArray();
+        var folders = values.Select(FirstSegment).Distinct(StringComparer.Ordinal).ToArray();
         var names = anchors.Select(a => ModuleAnchorQuery.SimpleName(a) is { Length: > 0 } simple ? simple : a.Trim()).Distinct(StringComparer.Ordinal).ToArray();
         var statement = ModuleTraversalQueries.MatchCandidates(type.Name, query.Property, query.Match);
         try
         {
-            return await _runner.ReadAsync(async transaction =>
+            return await ReadAsync(async transaction =>
             {
                 if (await NotReadyAsync(transaction, cancellationToken).ConfigureAwait(false)) return PendingMigrations();
-                var candidates = await RowsAsync(transaction, statement, new Dictionary<string, object?>
+                // Every candidate matched as it arrives by the walk's rules, each one's match bounded in work (review 7, W1), and only
+                // the best kept as it goes: best first, then key and id ordinal, as every store returns them (review 6, M2). Every
+                // candidate is scanned, as the in-memory store scans every record, and the budget stops the scan where it is, on the
+                // server and on every row (review 7, W5: past 250,000 rows it read an arbitrary subset; W6: it held every row).
+                var matcher = (query with { Values = anchors }).Matcher();
+                var limit = Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit);
+                var kept = new List<(string Id, string Key, double Quality)>();
+                void Trim()
+                {
+                    kept.Sort(static (a, b) => b.Quality.CompareTo(a.Quality) is var q and not 0 ? q
+                        : string.CompareOrdinal(a.Key, b.Key) is var k and not 0 ? k : string.CompareOrdinal(a.Id, b.Id));
+                    if (kept.Count > limit) kept.RemoveRange(limit, kept.Count - limit);
+                }
+                await EachAsync(transaction, statement, new Dictionary<string, object?>
                 {
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared, ["values"] = values,
-                    ["folders"] = folders, ["names"] = names, ["scan"] = ModuleAnchorQuery.MaximumLimit
-                }, cancellationToken).ConfigureAwait(false);
-                // Matched here by the walk's rules, best first and then key and id ordinal, as every store returns them (review 6,
-                // M2); only those are read whole. The scan is the store's superset, stopped by the budget through the cursor.
-                var chosen = new List<(string Id, string Key, double Quality)>();
-                for (var i = 0; i < candidates.Count; i++)
+                    ["folders"] = folders, ["names"] = names,
+                }, row =>
                 {
-                    if ((i & 1023) == 1023) cancellationToken.ThrowIfCancellationRequested();
-                    var row = candidates[i];
-                    if (row["value"].As<object?>() is not string value) continue;
-                    var quality = ModuleAnchorQuery.Quality(query.Match, value, anchors);
-                    if (quality > 0) chosen.Add((row["id"].As<string>(), row["key"].As<string>(), quality));
-                }
-                var kept = chosen.OrderByDescending(c => c.Quality).ThenBy(c => c.Key, StringComparer.Ordinal).ThenBy(c => c.Id, StringComparer.Ordinal)
-                    .Take(Math.Clamp(query.Limit, 1, ModuleAnchorQuery.MaximumLimit)).ToList();
+                    if (row["value"].As<object?>() is not string value) return;
+                    var quality = matcher(value);
+                    if (quality <= 0) return;
+                    kept.Add((row["id"].As<string>(), row["key"].As<string>(), quality));
+                    if (kept.Count >= 2 * limit + 1024) Trim();
+                }, cancellationToken).ConfigureAwait(false);
+                Trim();
                 if (kept.Count == 0) return new ModuleReadResult { Status = ModuleReadStatus.Succeeded };
                 var rows = await RowsAsync(transaction, ModuleTraversalQueries.ByIds(type.Name), new Dictionary<string, object?> { ["ids"] = kept.Select(k => k.Id).ToArray() },
                     cancellationToken).ConfigureAwait(false);
@@ -91,7 +99,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                     Status = ModuleReadStatus.Succeeded,
                     Records = kept.Where(k => byId.ContainsKey(k.Id)).Select(k => byId[k.Id]).ToList().AsReadOnly()
                 };
-            }, cancellationToken).ConfigureAwait(false);
+            }, query.Budget, cancellationToken).ConfigureAwait(false);
         }
         catch (ModuleRecordRefusal refusal) { return Refused(refusal.Message); }
     }
@@ -119,7 +127,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
             : ModuleTraversalQueries.In(relation.From, relation.Name, targetLabel);
         try
         {
-            return await _runner.ReadAsync(async transaction =>
+            return await ReadAsync(async transaction =>
             {
                 if (await NotReadyAsync(transaction, cancellationToken).ConfigureAwait(false))
                     return StepRefused("Module migrations are pending or inconsistent; apply them explicitly before reads.");
@@ -154,9 +162,24 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                     Edges = edges.AsReadOnly(),
                     Errors = [.. past.Values.Select(key => $"{key} has more than {ModuleExpandQuery.MaximumLinks} {relation.Name} links: not expanded.")],
                 };
-            }, cancellationToken).ConfigureAwait(false);
+            }, query.Budget, cancellationToken).ConfigureAwait(false);
         }
         catch (ModuleRecordRefusal refusal) { return StepRefused(refusal.Message); }
+    }
+
+    // A read under the walk's deadline where it gives one, stopped on the server (review 7, W3); a stop there is a stop by time.
+    private async Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, TimeSpan? budget, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return budget is { } left
+                ? await _runner.ReadAsync(work, left, cancellationToken).ConfigureAwait(false)
+                : await _runner.ReadAsync(work, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Neo4jException e) when (budget is not null && e.Code?.Contains("TransactionTimedOut", StringComparison.Ordinal) == true)
+        {
+            throw new OperationCanceledException("The walk's time budget ended in the store.", e, cancellationToken);
+        }
     }
 
     private (string Module, ModuleType Type) Type(ModuleManifest module, string target)
@@ -195,12 +218,10 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
     // ASCII folding for the ranking's text, as the walk folds (review 3): A-Z to a-z, nothing else.
     private static readonly string[][] Fold = [.. Enumerable.Range('A', 26).Select(c => new[] { ((char)c).ToString(), ((char)(c + 32)).ToString() })];
 
-    // An anchor's folders, at '/' boundaries, and the anchor itself: src/a/b.cs -> src, src/a, src/a/b.cs.
-    private static IEnumerable<string> Folders(string path)
-    {
-        for (var i = path.IndexOf('/'); i > 0; i = path.IndexOf('/', i + 1)) yield return path[..i];
-        yield return path.TrimEnd('/');
-    }
+    // What a stored value must hold to match an anchor by prefix or glob: its first segment (src/a/b.cs -> src). Every folder of
+    // the anchor starts with it, so a value holding a folder holds it too: the same superset with one string an anchor (review
+    // 7, W3: every folder of every anchor, up to 8,192 strings, each compared with every record on the server).
+    private static string FirstSegment(string path) => path.IndexOf('/') is var slash and > 0 ? path[..slash] : path.TrimEnd('/');
 
     private static ModuleReadResult Refused(string error) => new() { Status = ModuleReadStatus.Refused, Errors = [error] };
     private static ModuleReadResult NotApplicable() => new() { Status = ModuleReadStatus.NotApplicable, Errors = ["Traversal reads live records only."] };

@@ -43,6 +43,11 @@ public sealed record ModuleAnchorQuery
     public required IReadOnlyList<string> Values { get; init; }
     /// <summary>Most records returned, the best matches.</summary>
     public int Limit { get; init; } = 512;
+    /// <summary>
+    /// The time the walk has left for this read, or null for none: a store that can stop a statement on its server stops it then
+    /// (review 7, W3: the budget reached a store only as a token, which a statement in progress never looks at).
+    /// </summary>
+    public TimeSpan? Budget { get; init; }
 
     /// <summary>
     /// How well a stored value matches the anchors by the walk's rules, 0 for not at all: the one measure every store ranks
@@ -50,6 +55,18 @@ public sealed record ModuleAnchorQuery
     /// </summary>
     public static double Quality(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors) =>
         Context.Traversal.AnchorMatcher.Best(match, value, anchors ?? throw new ArgumentNullException(nameof(anchors))).Quality;
+
+    /// <summary>
+    /// <see cref="Quality(ModuleAnchorMatch, string?, IEnumerable{string})"/> for this query's match and non-blank values, with the
+    /// anchors worked out once for every value a store matches (review 7, W1: each record normalized every anchor again). Each
+    /// value's match is bounded in work, the same in every store, so a store checks its time budget on every record.
+    /// </summary>
+    public Func<string?, double> Matcher()
+    {
+        var anchors = new Context.Traversal.AnchorMatcher.Anchors(Values.Where(v => !IsBlank(v)));
+        var match = Match;
+        return value => Context.Traversal.AnchorMatcher.Best(match, value, anchors).Quality;
+    }
 
     /// <summary>
     /// A path as the walk compares it, which a store's own filter must keep to (pack format v1.2 §6.1): trimmed of ASCII white
@@ -101,6 +118,11 @@ public sealed record ModuleExpandQuery
     /// fewest records share the link with. Empty keeps the most specific first.
     /// </summary>
     public IReadOnlyList<string> Words { get; init; } = [];
+    /// <summary>
+    /// The time the walk has left for this read, or null for none: a store that can stop a statement on its server stops it then
+    /// (review 7, W3: the budget reached a store only as a token, which a statement in progress never looks at).
+    /// </summary>
+    public TimeSpan? Budget { get; init; }
 }
 
 /// <summary>What one hop reached.</summary>

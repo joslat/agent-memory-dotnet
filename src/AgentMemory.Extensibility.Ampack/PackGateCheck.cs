@@ -34,7 +34,8 @@ public sealed record PackGateCheck(IReadOnlyList<string> On, IReadOnlyList<Switc
         ArgumentNullException.ThrowIfNull(packs);
         ArgumentNullException.ThrowIfNull(activations);
         var builder = new ModuleSetBuilder();
-        foreach (var pack in packs)
+        // Held as a host holds them (review 7, W4: two packs with one id threw out of AddPack).
+        foreach (var pack in PackMountPlan.Of(packs))
         {
             builder.AddPack(pack);
             if (familyMembers?.Contains(pack.Id) == true && builder.Modules.LastOrDefault(r => r.Manifest.Id == pack.Id) is { } member)

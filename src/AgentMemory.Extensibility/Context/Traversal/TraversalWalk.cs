@@ -99,8 +99,10 @@ internal static class TraversalWalk
 
     // timeBudget: TimeBudget unless a test sets a shorter one.
     // live: whether a module may take part now (review 1, M2: a pack past its validUntil neither seeds, steers nor offers).
+    // liveRecord: whether one record may, decided by its carrier as well (review 7, W8: an expired snapshot's records belong to a
+    // live definition's module, so they seeded and steered, and were hidden only after the walk).
     internal static async Task<TraversalResult> RunAsync(ModuleResolution resolution, IModuleTraversalReader reader, ContextRequest request,
-        CancellationToken cancellationToken, TimeSpan? timeBudget = null, Func<string, bool>? live = null)
+        CancellationToken cancellationToken, TimeSpan? timeBudget = null, Func<string, bool>? live = null, Func<ModuleRecord, bool>? liveRecord = null)
     {
         var anchors = Anchors(request.Anchors);
         if (anchors.Count == 0) return TraversalResult.Empty;
@@ -125,18 +127,26 @@ internal static class TraversalWalk
             stoppedBy ??= best.Count >= MaximumVisited ? "visited" : reads >= MaximumReads ? "reads" : clock.Elapsed > budget ? "time" : null;
             return stoppedBy is not null;
         }
-        async Task<T?> Within<T>(Func<CancellationToken, Task<T>> read) where T : class
+        // A read that fails is that module's omission, never the walk's (review 7, W2: one stored value that threw failed every
+        // module's walk, since the walk is shared): the module's problem says so and the walk goes on without it.
+        async Task<(T? Value, bool Failed)> Within<T>(string module, Func<CancellationToken, Task<T>> read) where T : class
         {
-            try { return await read(timer.Token).ConfigureAwait(false); }
+            try { return (await read(timer.Token).ConfigureAwait(false), false); }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 stoppedBy ??= "time";
-                return null;
+                return (null, false);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                problems.Add($"{module}: a read failed ({e.GetType().Name}); its records are left out of this walk.");
+                return (null, true);
             }
         }
         bool Offer(TraversalItem item)
         {
             if (live is not null && !live(item.Record.ModuleId)) return false;
+            if (liveRecord is not null && !liveRecord(item.Record)) return false;
             if (best.TryGetValue(item.Record.Id, out var known))
             {
                 if (known.Score >= item.Score) return false;
@@ -171,12 +181,14 @@ internal static class TraversalWalk
                 if (values.Count == 0) continue;
                 if (Spent()) break;
                 reads++;
-                var found = await Within(token => reader.MatchAsync(new ModuleAnchorQuery
+                var (found, failed) = await Within(module.Id, token => reader.MatchAsync(new ModuleAnchorQuery
                 {
                     ModuleId = module.Id, Type = declared.Type, Property = declared.Property, Match = declared.Match, Values = values,
                     // The best matches first, as many as the walk can keep and one to tell it there are more (review 6, M2).
                     Limit = MaximumVisited + 1,
+                    Budget = budget - clock.Elapsed,
                 }, context, token)).ConfigureAwait(false);
+                if (failed) continue;
                 if (found is null) break;
                 if (found.Status != ModuleReadStatus.Succeeded) { problems.AddRange(found.Errors.Select(e => module.Id + ": " + e)); continue; }
                 if (found.Records.Count > MaximumVisited)
@@ -184,10 +196,11 @@ internal static class TraversalWalk
                 // Every record that matches, offered best match first and then in the format's order (review 2: offered in the
                 // store's order, which differed between stores, so which records the caps kept differed too).
                 var seeds = new List<TraversalItem>();
+                var prepared = new AnchorMatcher.Anchors(values);
                 foreach (var record in found.Records.Take(MaximumVisited))
                 {
                     var value = record.Properties.TryGetValue(declared.Property, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-                    var (quality, anchor, pattern) = AnchorMatcher.Best(declared.Match, value, values);
+                    var (quality, anchor, pattern) = AnchorMatcher.Best(declared.Match, value, prepared);
                     if (quality <= 0) continue;
                     // The pattern is the anchor when it names the same path (or, for a name, the same text): then the reason is the anchor alone.
                     var same = declared.Match == ModuleAnchorMatch.Name
@@ -226,15 +239,17 @@ internal static class TraversalWalk
                         .GroupBy(i => i.Record.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.MaxBy(i => i.Score)!, StringComparer.Ordinal);
                     if (starting.Count == 0) continue;
                     reads++;
-                    var step = await Within(token => reader.ExpandAsync(new ModuleExpandQuery
+                    var (step, failedStep) = await Within(module.Id, token => reader.ExpandAsync(new ModuleExpandQuery
                     {
                         ModuleId = module.Id, Relation = declared.Name, Direction = declared.Direction,
-                        FromIds = [.. starting.Keys.Order(StringComparer.Ordinal)], FanOut = declared.FanOut, Words = words
+                        FromIds = [.. starting.Keys.Order(StringComparer.Ordinal)], FanOut = declared.FanOut, Words = words, Budget = budget - clock.Elapsed,
                     }, context, token)).ConfigureAwait(false);
+                    if (failedStep) continue;
                     if (step is null) break;
                     if (step.Status != ModuleReadStatus.Succeeded) { problems.AddRange(step.Errors.Select(e => module.Id + ": " + e)); continue; }
-                    // A record past the store's link limit is not expanded, and the walk says so.
-                    problems.AddRange(step.Errors.Select(e => module.Id + ": " + e));
+                    // A record past the store's link limit is not expanded, and the walk says so, in one order whatever the store's
+                    // (review 7, W10: each store listed them in its own).
+                    problems.AddRange(step.Errors.Order(StringComparer.Ordinal).Select(e => module.Id + ": " + e));
                     var reached = new List<(TraversalItem Item, ModuleRecord From)>();
                     foreach (var edge in step.Edges)
                     {
@@ -246,6 +261,12 @@ internal static class TraversalWalk
                             ? verb + " " + Label(edge.To) : Label(edge.To) + " " + verb + " it");
                         reached.Add((new TraversalItem(edge.To, score, via, hop, Matches(edge.To), 1.0 / Math.Max(1, edge.Degree)), parent.Record));
                     }
+                    // The walk makes the fan-out cut, by the format's order: most matches, then most specific, then the format's order
+                    // (review 7, W7: each store made it with its own copy of the order, so a store that returned more, as the spec
+                    // allows, kept more neighbours).
+                    var fanOut = Math.Clamp(declared.FanOut, 1, ModuleTraversalRelation.MaximumFanOut);
+                    reached = [.. reached.GroupBy(r => r.From.Id, StringComparer.Ordinal).SelectMany(g => g.OrderByDescending(r => r.Item.Matches)
+                        .ThenByDescending(r => r.Item.Specificity).ThenBy(r => r.Item.Record, TraversalOrder.Records).Take(fanOut))];
                     // Offered in the format's order, whatever order the store answered in (review 2).
                     foreach (var (item, _) in reached.OrderByDescending(r => r.Item.Score).ThenByDescending(r => r.Item.Matches)
                                  .ThenByDescending(r => r.Item.Specificity).ThenBy(r => r.Item.Record, TraversalOrder.Records).ThenBy(r => r.From, TraversalOrder.Records))

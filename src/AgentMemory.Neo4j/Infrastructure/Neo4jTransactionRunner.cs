@@ -58,7 +58,20 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
             : null;
     }
 
-    public async Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default)
+    public Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) =>
+        ReadAsync(work, _transactionConfig, cancellationToken);
+
+    /// <inheritdoc/>
+    /// <remarks>The server enforces it per transaction (review 7, W3: the walk's budget never reached a statement in progress).</remarks>
+    public Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        if (timeout <= TimeSpan.Zero) throw new OperationCanceledException("No time is left for this read.", cancellationToken);
+        // At least a millisecond: the server counts in whole ones.
+        var deadline = TimeSpan.FromMilliseconds(Math.Max(1, Math.Ceiling(timeout.TotalMilliseconds)));
+        return ReadAsync(work, builder => builder.WithTimeout(deadline), cancellationToken);
+    }
+
+    private async Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, Action<TransactionConfigBuilder>? config, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (_ambientWriteTransaction.Value is { } ambient)
@@ -78,7 +91,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
             // with a null config, so passing null here is byte-identical to the call this used to make.
             return await session.ExecuteReadAsync(
                 Instrument(work, "read", activity, payload, transactionEntryStartedAt),
-                _transactionConfig).ConfigureAwait(false);
+                config).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

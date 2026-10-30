@@ -53,13 +53,13 @@ internal static partial class Program
           ledger --retire-revocations (--ledger <ledger.json> | --store <folder>)
                                  for a host that stops using revocation lists: forget the newest list's freshness
                                  (verifying is stale after it expires); every revocation stays
-          lock <composite-folder> <member.ampack>...
+          lock <composite-folder> <member.ampack>... --policy <trust.json> [--revocations <file>]
                                  pin every member's id, version and digest in META/lock.json
           migrate <bundle-folder|manifest.json> --out <folder>
                                  turn a module bundle (manifest.json, seed files, icon) into a v1.2 pack folder:
                                  a knowledge pack when it seeds records, a definition pack when it only declares,
                                  a composite pack for a composite manifest (then: ampack lock, ampack build)
-          set <out.ampack> <member.ampack>... --id <id> --version <v> --key <private.pem>
+          set <out.ampack> <member.ampack>... --id <id> --version <v> --key <private.pem> --policy <trust.json> [--revocations <file>]
                                  one archive carrying complete packs side by side, signed as a whole
           install <pack.ampack> --store <folder> --policy <trust.json> [--revocations <file>] [--allow-downgrade]
                                  verify a pack or pack set in full and install it in a host's pack store; the
@@ -88,7 +88,7 @@ internal static partial class Program
                                  look in every record and declaration for personal data, secrets and prompt-injection
                                  payloads; exit 1 when anything is found; with --policy, scan only a pack that
                                  verifies; with --aef, write the scan as an AEF run for an assurer to seal and sign
-          countersign <pack.ampack> --key <file|env:VAR|dpapi:FILE> --role <curator|assurer|publisher> --out <file>
+          countersign <pack.ampack> --key <file|env:VAR|dpapi:FILE> --role <curator|assurer|publisher> --out <file> --policy <trust.json> [--revocations <file>]
                                  sign a built pack again in another role, its content and digest unchanged
           receipt sign <pack.ampack> --location <url> --key <...> --out <file> [--audience public|<WebID,…>]
                  [--access wac|acp|public] [--denied anonymous,<WebID>,…] [--allowed <WebID>,…]
@@ -243,13 +243,13 @@ internal static partial class Program
         ["revoke"] = ["digests", "keys", "expires", .. SignerOptions],
         ["ledger"] = ["ledger", "store", "retire-revocations"],
         ["sign-bytes"] = ["key", "p1363"],
-        ["lock"] = [],
+        ["lock"] = [.. TrustOptions],
         ["migrate"] = ["out"],
-        ["set"] = ["id", "version", "role", "stored", .. SignerOptions],
+        ["set"] = ["id", "version", "role", "stored", .. SignerOptions, .. TrustOptions],
         ["test"] = ["store", .. TrustOptions],
         ["evidence"] = ["activations", "host-key", "pack", "version", "out"],
         ["scan"] = ["aef", .. TrustOptions],
-        ["countersign"] = ["out", "role", .. SignerOptions],
+        ["countersign"] = ["out", "role", .. SignerOptions, .. TrustOptions],
         ["serve"] = ["store", "http", "allow-remote", "activations", "host-key", "require-trials-for", "trust-certificates-for", "grant", .. TrustOptions],
         ["install"] = ["store", "allow-downgrade", .. TrustOptions],
         ["uninstall"] = ["store"],
@@ -522,13 +522,19 @@ internal static partial class Program
         using var signer = Signer(o);
         var role = o.Required("role");
         var content = PackReader.ReadArchive(PackReader.ReadArchiveFile(target), target);
-        if (PackVerifier.CheckIntegrity(content).Problems is { Count: > 0 } problems) return Report(problems, "");
+        if (Unverified(content, Policy(o), target) is { Count: > 0 } problems) return Report(problems, "");
         var files = content.Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
         PackBuilder.Sign(files, signer, role, SigningTime());
         File.WriteAllBytes(o.Required("out"), PackBuilder.Pack(files));
         Console.WriteLine($"Countersigned as {role}: {o.Required("out")}");
         return 0;
     }
+
+    // Why a pack another command acts on does not verify under the host's policy, each problem named with its file; empty when it
+    // does (review 7, L7: countersign, lock and set acted on a pack whose signatures nobody checked, so an assurer could vouch for,
+    // a lock pin and a set carry what no host would load).
+    private static IReadOnlyList<string> Unverified(PackContent content, TrustPolicy policy, string path) =>
+        [.. PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow).Problems.Select(p => $"{path}: {p}")];
 
     private static int Sign(Options o)
     {
@@ -874,11 +880,12 @@ internal static partial class Program
     {
         var folder = o.Positional(0, "composite folder");
         var members = new JsonArray();
+        var policy = Policy(o);
         foreach (var memberPath in o.PositionalFrom(1).Order(StringComparer.Ordinal))
         {
             var content = PackReader.Read(memberPath);
+            if (Unverified(content, policy, memberPath) is { Count: > 0 } refused) return Report(refused, "");
             var integrity = PackVerifier.CheckIntegrity(content);
-            if (integrity.Problems.Count > 0) return Report(integrity.Problems.Select(p => $"{memberPath}: {p}"), "");
             members.Add((JsonNode)new JsonObject
             {
                 ["id"] = integrity.List!.Id, ["version"] = integrity.List.Version, ["digest"] = FilesList.DigestOf(integrity.ListBytes!),
@@ -899,11 +906,12 @@ internal static partial class Program
         if (!PackManifest.IsValidId(id)) throw new UsageException($"'{id}' is not a reverse-DNS id.");
         var version = o.Value("version") ?? "0.1.0";
         var members = new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal);
+        var policy = Policy(o);
         foreach (var path in o.PositionalFrom(1))
         {
             var content = PackReader.Read(path);
+            if (Unverified(content, policy, path) is { Count: > 0 } refused) return Report(refused, "");
             var integrity = PackVerifier.CheckIntegrity(content);
-            if (integrity.Problems.Count > 0) return Report(integrity.Problems.Select(p => $"{path}: {p}"), "");
             if (!content.Files.Keys.Any(PackPaths.IsEnvelope)) return Report([$"{path}: a set carries signed members only."], "");
             if (!members.TryAdd(integrity.List!.Id, content.Files)) return Report([$"{integrity.List.Id} is given twice."], "");
         }

@@ -9,7 +9,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "a6c93edef230b7b55c4605661ee4a1b757ec9578c666540eb8d92c1546c7a641"
+   "sha256": "1e040753737612f922f75e85ef6058559c4b5f1e2ccdd63cd8b4127e41f27c3b"
   },
   {
    "vector": "valid-python-stored-from-dotnet",
@@ -19,7 +19,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "tampered-record",
@@ -29,7 +29,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' does not match META/files.json.",
    "pythonSays": "refused: 'records/note.jsonl' does not match META/files.json",
-   "sha256": "36a16415168eabc60384c3983af688cd12ca72876deb03e4984fc7f55185582f"
+   "sha256": "27d835689453268ab37ed54702399d50e17bcbb7402723c1a2e9430635a08799"
   },
   {
    "vector": "extra-file",
@@ -39,7 +39,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/extra.jsonl' is not in META/files.json.",
    "pythonSays": "refused: the pack does not hold exactly the listed files",
-   "sha256": "8e0e95f0fe1ba438013013258da67523f4bb48dc1c76fb8a666d361e37b34164"
+   "sha256": "6c7f77d4789fc35823a05e05649b94f4b8dfe80c95186a857924ecffebdf1a6a"
   },
   {
    "vector": "missing-file",
@@ -49,7 +49,7 @@
    "agree": true,
    "dotnetSays": "refused: 'ontology.json' is listed but missing.",
    "pythonSays": "refused: the pack does not hold exactly the listed files",
-   "sha256": "794ce0446e07f62eea5c04df9e99b121580010e58ae7c57c2a7e5613e6eba746"
+   "sha256": "d03f6f76f8ffd3b897dbf3896e2c521f467bf059ee5b588c4238c44371174ee7"
   },
   {
    "vector": "relisted-with-old-signature",
@@ -58,8 +58,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json does not sign this pack",
-   "sha256": "6f75d8a8f5c03b8f5264aed90e2f9e5f9f16d38dd03e3ca655ab296e97c5b69c"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json does not sign this pack",
+   "sha256": "2920fd695715eefd016c9ff1e9305b9604e36537a5c517a3ba56a16ed14dbcba"
   },
   {
    "vector": "non-canonical-list",
@@ -69,7 +69,7 @@
    "agree": true,
    "dotnetSays": "refused: META/files.json is not in RFC 8785 canonical form.",
    "pythonSays": "refused: META/files.json is not canonical",
-   "sha256": "fa2ccfeb1dd52c14fda9978f15f1abbaf1791c4aa07114e4767958811cf59126"
+   "sha256": "1f16d198c7fc6e877a485b8e00cccc643acd0e5d39c1c85068547aba3ff1066a"
   },
   {
    "vector": "key-scoped-elsewhere",
@@ -77,9 +77,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json: key a722aad38d83f3a5 may not sign for 'io.example.notes'.",
-   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-a722aad38d83f3a5.dsse.json: the key may not sign for 'io.example.notes'",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "dotnetSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json: key ba35476b374687c8 may not sign for 'io.example.notes'.",
+   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-ba35476b374687c8.dsse.json: the key may not sign for 'io.example.notes'",
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "crlf-record",
@@ -89,7 +89,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 contains a carriage return (LF only).",
    "pythonSays": "refused: a JSON file has a BOM or a carriage return",
-   "sha256": "0466af57094d9f79668d0a61e92f185de5db72dd389cc1a45e3bf796e2d91d8e"
+   "sha256": "3a45b81c0d54b871fe87b7ec71429867fd8121361643f3f929c094a779f9f561"
   },
   {
    "vector": "bom-manifest",
@@ -99,7 +99,7 @@
    "agree": true,
    "dotnetSays": "refused: 'pack.json' starts with a byte order mark.",
    "pythonSays": "refused: a JSON file has a BOM or a carriage return",
-   "sha256": "28889615069be38df6a28391c20a7f571bb2b624045d7cabd3d937040294a5b8"
+   "sha256": "bb6e469d5d2334521ecdca0989603fbb92be76d3a2a4dd64d4a36464a20c7dc4"
   },
   {
    "vector": "duplicate-key-record",
@@ -109,7 +109,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 repeats the key 'key' at $.",
    "pythonSays": "refused: a JSON object repeats a key",
-   "sha256": "46a65838b73c7747189bfee07587c7869bb9171b68e70240a304631fcd67c884"
+   "sha256": "87b0346b9560365c404b2d86d6126e5cfdc829c79bbfb4f5761dce6aee593b1b"
   },
   {
    "vector": "device-name-path",
@@ -119,7 +119,7 @@
    "agree": true,
    "dotnetSays": "The archive entry 'records/CON.jsonl' is not a safe pack path.",
    "pythonSays": "refused: entry 'records/CON.jsonl' is not in the profile",
-   "sha256": "239b1f0953eaa07bd4efa78834bb86894c9b4db23957404bee4c74f24ace4d16"
+   "sha256": "ba139a0c3beddf5f844ef8a4065b0ae9ce19b91d1f8daa2b395e1c0a8d8b89af"
   },
   {
    "vector": "pack-json-names-other-id",
@@ -129,7 +129,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json names io.example.notes 1.0.0, but META/files.json names io.example.other 1.0.0.",
    "pythonSays": "refused: pack.json does not name the same pack as META/files.json",
-   "sha256": "8e6e54d85f0d243384b3e492006d3ca6bbb6a6f1bf6b3df59f004ce60d231fec"
+   "sha256": "23fa761a07b47e2a0d57f6b1c05651d84e8f02d50728d5ea59150ff9edf0caa5"
   },
   {
    "vector": "json-file-at-1-mib",
@@ -139,7 +139,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:2a0b87476ed3e79629fa27a26effd1df191dc018b3d8e810fb39ef58a42b8095",
-   "sha256": "9cb25813839eaed39e7d92810609228b101949aab1593ba5c016c294ad902079"
+   "sha256": "f1d0db9e70a3266fc6d84b191034e4dcfdcc0dfb8cfc175d0badcef29baa3270"
   },
   {
    "vector": "json-file-over-1-mib",
@@ -149,7 +149,7 @@
    "agree": true,
    "dotnetSays": "refused: 'ontology.json' is larger than 1 MiB: a JSON file in a pack is at most that.",
    "pythonSays": "refused: 'ontology.json' is larger than 1 MiB",
-   "sha256": "906477084d58b3f9a0b82cc58444598978935246f379f8b1b817302e99f361dc"
+   "sha256": "a0313a3dca6c88354f489723b331bb8e600e81a0903b9ee98884db29964f852e"
   },
   {
    "vector": "jsonl-line-at-1-mib",
@@ -159,7 +159,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:c58df7b3e008f0e774a2749bc21867529ebb466296de8bf101f87f1f95779bde",
-   "sha256": "b4e79cfd9ee69d67d3c707b337e06de9d6659444e464aa3a2735e3ad62fe0108"
+   "sha256": "6803533ca1933ad83f7ee4f61be116036cd9e74bbdc9dfb7e5b8a36aebb85ec0"
   },
   {
    "vector": "jsonl-line-over-1-mib",
@@ -169,7 +169,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/long.jsonl' line 1 is longer than 1 MiB.",
    "pythonSays": "refused: 'records/long.jsonl' has a line longer than 1 MiB",
-   "sha256": "7147a0a65f027d9439b317d41e853c21685c4774a65429da83c507879432bad6"
+   "sha256": "2960c5de6a698f1f61da45d07587acccdae2802e80ff065a91de710b69c60fd3"
   },
   {
    "vector": "files-list-over-2-mib",
@@ -179,7 +179,7 @@
    "agree": true,
    "dotnetSays": "refused: META/files.json is larger than 2 MiB.",
    "pythonSays": "refused: META/files.json is larger than 2 MiB",
-   "sha256": "743644e598ae4e98b5e7206deab68e19a4ff1b325a1140fcbd110632022a1ed3"
+   "sha256": "c63d9cf93c5f96e287efd553dd23b1530a77fd920dfec680079fc92ca8ffa22e"
   },
   {
    "vector": "unsigned-with-wide-json",
@@ -199,7 +199,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json needs a kind: knowledge, definition, snapshot, composite, set.",
    "pythonSays": "refused: pack.json needs a known kind",
-   "sha256": "7c46718d9504ae4d08ec5b2d5ba0183c090f422e5454053836c08a9fbae5fa5d"
+   "sha256": "8491f53075445f5fe6a267386e9f550f7a29648731cfe3fa4f289980a3fa2592"
   },
   {
    "vector": "unknown-tier",
@@ -209,7 +209,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has an unknown tier 'gold'.",
    "pythonSays": "refused: pack.json has an unknown tier",
-   "sha256": "ebda5fbb757c0ce8464013c66a2ff9e5f2b75dcf68d89f806f8f70b845f50461"
+   "sha256": "839ec210b9caf780bf8eacf11ec4ad1e79d48bfcc9deaa778b932d9087e8588b"
   },
   {
    "vector": "unknown-code-tier",
@@ -219,7 +219,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has an unknown code tier 'E9'.",
    "pythonSays": "refused: pack.json has an unknown code",
-   "sha256": "8241b76f0a30e7d17c4eeb9d953d7429d04cb9653ace9e8f685018251483c8da"
+   "sha256": "a5d430b00fa96f4ebe4abda1941dfd13530d2380d29866529231bfb61d9f9b08"
   },
   {
    "vector": "valid-until-passed",
@@ -229,7 +229,7 @@
    "agree": true,
    "dotnetSays": "refused: The pack was valid until 2020-01-01 00:00:00Z.",
    "pythonSays": "refused: the pack's validUntil has passed",
-   "sha256": "70f18f7cd06fe107ca56af0edb7a17c8d2a7aa947809b2db88d2cf44dc355325"
+   "sha256": "217294c7509fe68a87342ce66d86d7c4c78e1b5b0f7b9d5cea8f86d03775cc59"
   },
   {
    "vector": "valid-until-ahead",
@@ -239,7 +239,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:776501cef9a0442c0bed1e5033514eac2fd4a1b3c055cbb3288c0842353b4588",
-   "sha256": "d31763c208a10d398c64706419579186976021c3c7e2a30ea429d6f7c604a0c2"
+   "sha256": "e51109fdd0192698553dd72f32b3e1164ed11fc0257753c619ae3abd1b914413"
   },
   {
    "vector": "valid-until-not-rfc3339",
@@ -249,7 +249,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a validUntil that is not an RFC 3339 date and time.",
    "pythonSays": "refused: pack.json has a validUntil that is not a date and time",
-   "sha256": "cc2f480ae06892cca0037da8e1119f1404e786b67d4cd66d53617154b64bbe55"
+   "sha256": "e31f1415ce965f3ef8b98edf8b100ab7aa349a5c535b849280899accb31bcda0"
   },
   {
    "vector": "source-commit-not-hex",
@@ -259,7 +259,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a source.commit that is not 7 to 64 hexadecimal characters.",
    "pythonSays": "refused: pack.json has a source.commit that is not 7 to 64 hexadecimal characters",
-   "sha256": "db858b33ccea214f99cc056f844cfa033c76e0624cdffd7b7223fd75bf7c1722"
+   "sha256": "c23c5770f21704bf5af0f9497b83bd9190074085d241f86b0629086cd859040b"
   },
   {
    "vector": "source-valid",
@@ -269,7 +269,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:0a36fefde360f007295cfd2188aeff57a8e09e3f8fdc0172887de58d9df3d647",
-   "sha256": "b5c688309c73aa0d69e49b7adb5160da32c383abc4b786a861220ecb330c3a89"
+   "sha256": "841d993a2024714e69799f0698935218810b883fefc4e424ebd590fb179fa69a"
   },
   {
    "vector": "containable-by-not-an-id",
@@ -279,7 +279,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a malformed 'containableBy'.",
    "pythonSays": "refused: pack.json has a malformed 'containableBy'",
-   "sha256": "4daacc4fd5285a9c2adcc974382a70cfa4c2b09e1b800a7b3960ffa87e96cbc0"
+   "sha256": "ac5533ba1273a58edb851be738116bffbb4810db34b499e9573e56281875b334"
   },
   {
    "vector": "knowledge-without-records",
@@ -289,7 +289,7 @@
    "agree": true,
    "dotnetSays": "refused: A knowledge pack holds records under records/; this one holds none.",
    "pythonSays": "refused: a knowledge pack holds records",
-   "sha256": "b2a336de5b3b5e3dcaf1fe87e50a4fb940d02756b7978af5d190a2981b01f956"
+   "sha256": "e11fea0766bfd52b3d9961e852b8144f7b3d693aafad7a1838db6c81b1226f73"
   },
   {
    "vector": "definition-with-records",
@@ -299,7 +299,7 @@
    "agree": true,
    "dotnetSays": "refused: A definition pack declares only; its records come from the host's importer, not from records/.",
    "pythonSays": "refused: a definition pack holds no records",
-   "sha256": "2176e6526ea90df824ed6aeae81b4b936039431aee08c534c700e98a1ebef7e0"
+   "sha256": "05a461034d50c59b3eb8e8c134b1a9ae24fd38a38aff713e7945900e11d104db"
   },
   {
    "vector": "protected-without-seal",
@@ -309,7 +309,7 @@
    "agree": true,
    "dotnetSays": "refused: A pack marked audience must carry META/seal.json.",
    "pythonSays": "refused: a protected pack carries META/seal.json",
-   "sha256": "07372a00b36ab5739272208a0c8dc0c8b667cb590048ba618d4b870c040aa770"
+   "sha256": "47dc9e086d45aebd0cdf8e042399f40630892b897b204803fac90260e3d0e62c"
   },
   {
    "vector": "key-expired",
@@ -317,9 +317,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json: key a722aad38d83f3a5 had expired at the signing time.",
-   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-a722aad38d83f3a5.dsse.json: the key had expired at the signing time",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "dotnetSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json: key ba35476b374687c8 had expired at the signing time.",
+   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-ba35476b374687c8.dsse.json: the key had expired at the signing time",
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "key-not-yet-valid",
@@ -327,9 +327,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json: key a722aad38d83f3a5 was not yet valid at the signing time.",
-   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-a722aad38d83f3a5.dsse.json: the key was not yet valid",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "dotnetSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json: key ba35476b374687c8 was not yet valid at the signing time.",
+   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-ba35476b374687c8.dsse.json: the key was not yet valid",
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "key-window-open",
@@ -339,7 +339,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-stale",
@@ -349,7 +349,7 @@
    "agree": true,
    "dotnetSays": "refused: The host's revocation list expired at 2020-01-01 00:00:00Z; refresh it before verifying.",
    "pythonSays": "refused: the host's revocation list has expired",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-none",
@@ -359,7 +359,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-digest",
@@ -369,7 +369,7 @@
    "agree": true,
    "dotnetSays": "refused: The pack sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f is revoked.",
    "pythonSays": "refused: the pack is revoked",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-key",
@@ -377,9 +377,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json: key a722aad38d83f3a5 is revoked.",
-   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-a722aad38d83f3a5.dsse.json: the key is revoked",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "dotnetSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json: key ba35476b374687c8 is revoked.",
+   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-ba35476b374687c8.dsse.json: the key is revoked",
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-expired",
@@ -389,7 +389,7 @@
    "agree": true,
    "dotnetSays": "refused: The host's revocation list expired at 2020-06-01 00:00:00Z; refresh it before verifying.",
    "pythonSays": "refused: the host's revocation list has expired",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-issued-in-the-future",
@@ -399,7 +399,7 @@
    "agree": true,
    "dotnetSays": "The revocation document claims to be issued at 2099-01-01 00:00:00Z, in the future.",
    "pythonSays": "refused: the revocation document claims to be issued in the future",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-by-a-publisher-key",
@@ -409,7 +409,7 @@
    "agree": true,
    "dotnetSays": "The revocation document is not signed by a key the trust policy names as revoker.",
    "pythonSays": "refused: the revocation document is not signed by a key the trust policy names as revoker",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-tampered",
@@ -419,7 +419,7 @@
    "agree": true,
    "dotnetSays": "The revocation document is not signed by a key the trust policy names as revoker.",
    "pythonSays": "refused: the revocation document is not signed by a key the trust policy names as revoker",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-python-signed",
@@ -429,7 +429,7 @@
    "agree": true,
    "dotnetSays": "refused: The pack sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f is revoked.",
    "pythonSays": "refused: the pack is revoked",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-padded-integer",
@@ -439,7 +439,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-negative-integer",
@@ -449,7 +449,7 @@
    "agree": true,
    "dotnetSays": "The revocation document is not signed by a key the trust policy names as revoker.",
    "pythonSays": "refused: the revocation document is not signed by a key the trust policy names as revoker",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-by-a-revoked-revoker-revoking-nothing",
@@ -459,7 +459,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-by-a-revoked-revoker-revoking-the-pack",
@@ -467,9 +467,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Note: The revocation list issued at 2026-10-30 08:59:18Z has no live signer (ecbf91cc48373610): its revocations of packs and keys hold for this run only; its revocations of revokers and its freshness do not count.",
+   "dotnetSays": "Note: The revocation list issued at 2026-10-30 10:24:27Z has no live signer (24e7a89f2dfdf792): its revocations of packs and keys hold for this run only; its revocations of revokers and its freshness do not count.",
    "pythonSays": "refused: the pack is revoked",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-non-live-list-revoking-a-live-revoker",
@@ -477,9 +477,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "The revocation document issued at 2026-10-30 08:59:19Z, signed by ecbf91cc48373610, has no live signer and revokes revoker 7b1b9a31b302a9c0, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
+   "dotnetSays": "The revocation document issued at 2026-10-30 10:24:28Z, signed by 24e7a89f2dfdf792, has no live signer and revokes revoker 23d02fafd7af30d5, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
    "pythonSays": "refused: a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-a-revoker-that-also-publishes",
@@ -487,9 +487,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5 is a revoker and also signs packs; a revoker key holds that role alone.",
+   "dotnetSays": "Key ba35476b374687c8 is a revoker and also signs packs; a revoker key holds that role alone.",
    "pythonSays": "refused: a revoker key holds that role alone",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-rotated-revoker-not-carried-forward",
@@ -497,9 +497,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "The revocation document issued at 2026-10-30 08:59:19Z, signed by ecbf91cc48373610, has no live signer and revokes revoker eb8c37787e8d033b, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
+   "dotnetSays": "The revocation document issued at 2026-10-30 10:24:28Z, signed by 24e7a89f2dfdf792, has no live signer and revokes revoker 7b7b74751eb198d3, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
    "pythonSays": "refused: a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-rotated-revoker-carried-forward",
@@ -509,7 +509,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-revoked-revoker-revoking-itself-to-dodge",
@@ -517,9 +517,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "The revocation document issued at 2026-10-30 08:59:19Z, signed by ecbf91cc48373610, has no live signer and revokes revoker eb8c37787e8d033b, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
+   "dotnetSays": "The revocation document issued at 2026-10-30 10:24:28Z, signed by 24e7a89f2dfdf792, has no live signer and revokes revoker 7b7b74751eb198d3, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
    "pythonSays": "refused: a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-two-revokers-in-a-circle",
@@ -529,7 +529,7 @@
    "agree": true,
    "dotnetSays": "The revocation document set given in this run revokes its own signers in a circle; give only the lists of the revokers you still trust.",
    "pythonSays": "refused: the revocation documents of this run revoke their own signers in a circle",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-the-same-list-twice",
@@ -539,7 +539,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-one-list-signed-by-both-revokers-in-two-envelopes",
@@ -549,7 +549,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-merged-signers-live-envelope-second",
@@ -559,7 +559,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-merged-signers-live-envelope-first",
@@ -569,7 +569,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-merged-signers-control-rotated-out-alone",
@@ -577,9 +577,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "The revocation document issued at 2026-10-28 00:00:00Z, signed by ecbf91cc48373610, has no live signer and revokes revoker eb8c37787e8d033b, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
+   "dotnetSays": "The revocation document issued at 2026-10-28 00:00:00Z, signed by 24e7a89f2dfdf792, has no live signer and revokes revoker 7b7b74751eb198d3, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
    "pythonSays": "refused: a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-live-list-revoking-the-pack-beside-others",
@@ -587,9 +587,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: The pack sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f is revoked.",
+   "dotnetSays": "Note: The revocation list issued at 2026-10-30 10:24:28Z has no live signer (24e7a89f2dfdf792): its revocations of packs and keys hold for this run only; its revocations of revokers and its freshness do not count.",
    "pythonSays": "refused: the pack is revoked",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "run-non-live-list-revoking-a-successor-not-yet-valid",
@@ -597,9 +597,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "The revocation document issued at 2026-10-30 08:59:20Z, signed by ecbf91cc48373610, has no live signer and revokes revoker 7b1b9a31b302a9c0, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
+   "dotnetSays": "The revocation document issued at 2026-10-30 10:24:29Z, signed by 24e7a89f2dfdf792, has no live signer and revokes revoker 23d02fafd7af30d5, which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists.",
    "pythonSays": "refused: a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "files-entry-extra-field",
@@ -609,7 +609,7 @@
    "agree": true,
    "dotnetSays": "refused: META/files.json has a malformed entry.",
    "pythonSays": "refused: META/files.json has a malformed entry",
-   "sha256": "3cb32181c4b19f9963fe1c4d4c3dae12d9ac99b0b8155b113d19485760232045"
+   "sha256": "ec0fac2189395e59fc9ae672070dffeec9be561eb4505ea97188cfcb6ccb8773"
   },
   {
    "vector": "files-entry-length-true",
@@ -619,7 +619,7 @@
    "agree": true,
    "dotnetSays": "refused: META/files.json has a malformed entry.",
    "pythonSays": "refused: META/files.json has a malformed entry",
-   "sha256": "414a593569c0f3b95f8095a96d08f0237760fd3ec1167043aaee241cab1e7f53"
+   "sha256": "afc3cfd96c1d659349036b3dac40a6fbb5ad28df71dab9666761ea89ca72dddb"
   },
   {
    "vector": "signature-outside-the-alphabet",
@@ -628,8 +628,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json has a signature entry that is not a key id and a signature",
-   "sha256": "2d5bcb75736486c3b4a36619881d7cc44053455cb74cde5f7bfbe0096b3b8e6d"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json has a signature entry that is not a key id and a signature",
+   "sha256": "9b20de901ec6175c401348ab344be23d008e3f4f3696168cde29991bb11edfff"
   },
   {
    "vector": "payload-base64-with-a-line-break",
@@ -638,8 +638,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json has a payload that is not base64",
-   "sha256": "a1e82e3a2140ac4a69bd49303fc03e839c353e6f7663dc33097dccaf9b17afdb"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json has a payload that is not base64",
+   "sha256": "d5bacfac4526aa81ec0836ab96ed359bb880a716416afbb5da0644f641fd4a6b"
   },
   {
    "vector": "second-signature-entry-not-base64",
@@ -648,8 +648,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json has a signature entry that is not a key id and a signature",
-   "sha256": "8cb603787ae21007b5b16769b2cdb96392a558b8cff728f77478914c94c8c0f8"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json has a signature entry that is not a key id and a signature",
+   "sha256": "e53ffc39aa1872711cc5a372afaa2b50a4c841a23335386adf6386084d05b767"
   },
   {
    "vector": "second-signature-entry-without-sig",
@@ -658,8 +658,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json has a signature entry that is not a key id and a signature",
-   "sha256": "f6869e7437c9d62f8ab2fc4b274ad82b957d7c878661de0e2e868f32a93825bf"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json has a signature entry that is not a key id and a signature",
+   "sha256": "735e70b394394aa3b078c40a4a0fea89080264543a1c1488ac02e725208b809c"
   },
   {
    "vector": "signed-at-without-leading-zero",
@@ -668,8 +668,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json does not sign this pack",
-   "sha256": "a0cff0808ab37734c4a60d5d6f6f4c7bd48405bb45d7b1c6aaa9007da018df86"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json does not sign this pack",
+   "sha256": "135168bdfe354075e18efea1f7d4e5f8c64908cb34b738a96a39f89c8f08995a"
   },
   {
    "vector": "signed-at-lowercase",
@@ -678,8 +678,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json does not sign this pack",
-   "sha256": "41b3627683107199a9bb0896cc5d220a359a5722b97ae044afbc70f9882c0383"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json does not sign this pack",
+   "sha256": "e4e65bd18dac1adc014bb687edec4128073c5ab0f3d84cc688efe3114cbc074d"
   },
   {
    "vector": "valid-until-offset-beyond-14-hours",
@@ -689,7 +689,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a validUntil that is not an RFC 3339 date and time.",
    "pythonSays": "refused: pack.json has a validUntil that is not a date and time",
-   "sha256": "fdf85d7c7cced967a88a558e18fea0f3a1a42f60461263ea9a0a96f9ae50609c"
+   "sha256": "c32542a47adc780bfb20b2044c621d78d1378bcd044a20b350f601443b53fa7b"
   },
   {
    "vector": "valid-until-as-a-number",
@@ -699,7 +699,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a 'validUntil' that is not a string.",
    "pythonSays": "refused: pack.json has a 'validUntil' that is not a string",
-   "sha256": "b0b8b8d36237d9f8de952d6407fcd00abf85a211e82bbad51753f68db4d280ac"
+   "sha256": "158504e4211f7f9f5d8d1d1e22008e67b2fec48ee7010ac400effc9b755d3957"
   },
   {
    "vector": "protection-null",
@@ -709,7 +709,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a 'protection' that is not a string.",
    "pythonSays": "refused: pack.json has a 'protection' that is not a string",
-   "sha256": "c93c1aae23f1ce6c0276733c317eb35e4a514429c8189fbe3dfbf90f892476c1"
+   "sha256": "b01bbb0d9517bce662bc4f6c22f33c58a7bd438f05c151b2bf4084b15b055e46"
   },
   {
    "vector": "code-as-a-list",
@@ -719,7 +719,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a 'code' that is not a string.",
    "pythonSays": "refused: pack.json has a 'code' that is not a string",
-   "sha256": "60f887c193d4ec85c33d15defb19888f89e3d6e889b26931a81650ea47397ed9"
+   "sha256": "a8f05e9d2795b1fbae2ed1bf4655e30e8308c2dadd4ee0b63d386c7d322d39d2"
   },
   {
    "vector": "sdk-as-a-number",
@@ -729,7 +729,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a 'sdk' that is not a string.",
    "pythonSays": "refused: pack.json has a 'sdk' that is not a string",
-   "sha256": "362fcb0f6e9c539107a5df4fd3711d82ca2be3b453ef5077a88eb2f7d29e7620"
+   "sha256": "5753bdb4ae53cf4a09239a68685a8c044f61d572696818f663cdd84c57aed3f7"
   },
   {
    "vector": "display-as-a-string",
@@ -739,7 +739,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a 'display' that is not an object.",
    "pythonSays": "refused: pack.json has a 'display' that is not an object",
-   "sha256": "378738b471084bc156f9b32f90bc8a08581cfaa59cc4baf0f56e642789f3263d"
+   "sha256": "245b4dfd339b9cc420428ff15c53a4e2c9ba2409ff26f36b12289d4cff1969bb"
   },
   {
    "vector": "number-beyond-double",
@@ -749,7 +749,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 has a number out of range at $.n.",
    "pythonSays": "refused: a JSON number is out of range",
-   "sha256": "f6c22d880d26a3099623bc3ef89f77d457147d970ccc589e19e78f381c674284"
+   "sha256": "5b54e30f9ebcad9ba6ddc5281b53396a34694cb7dd54286f1f32a43c5703d3c4"
   },
   {
    "vector": "integer-int64-min",
@@ -759,7 +759,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 has an integer beyond \u00b12^53 at $.n.",
    "pythonSays": "refused: a JSON integer is beyond 2^53",
-   "sha256": "c5ecf0c70d24bfcda9baeb94fc9c55808fd05ffb48413b300f5b960184012842"
+   "sha256": "0939d9e1caafa376db5fa713778317c33ffbba9ac97268c382ea969786e36d66"
   },
   {
    "vector": "nesting-64-deep",
@@ -769,7 +769,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e46c933ce6f9de3e63ad0112c1a21899536358e2f786070233aab1fe2b417ba",
-   "sha256": "42b9e152a2e17b1fa80d42e93fd2120ce027f127da8eebf692ba60d8161aef74"
+   "sha256": "003f7786998487c37081d1a1f46dcb247f48e40c6164e2210a5d3a387ba6f6ca"
   },
   {
    "vector": "nesting-65-deep",
@@ -779,7 +779,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 is not valid JSON: The maximum configured depth of 64 has been exceeded. Cannot read next JSON array. LineNumber: 0 | BytePositionInLine: 78..",
    "pythonSays": "refused: a JSON file nests deeper than 64",
-   "sha256": "c0698a4e2e5139f13a7eb62e0af0e12835a5eb0d1df5b834898b82450d5ff9cf"
+   "sha256": "1c35b83a0f7b737d9c8f707f83ac8c42a57b3f4a5f88e9ccf4ff4f88577b4497"
   },
   {
    "vector": "combining-marks-30-in-a-row",
@@ -789,7 +789,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:ba05461fbd4dfcfa06b3716f481a476c0ea2ba14d08ce67a9fd2047e312bf9d8",
-   "sha256": "028288ca78a05a5490d377e9bfcc2f570b32241952fd1c8d2ece24b96051081d"
+   "sha256": "00a5040a76476cbd51a9a1777c9988d8d25fa90dc9678d482f6cac95142ff619"
   },
   {
    "vector": "combining-marks-31-in-a-row",
@@ -799,7 +799,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 has more than 30 combining marks in a row at $.key.",
    "pythonSays": "refused: a JSON string has more than 30 combining marks in a row",
-   "sha256": "f455b00172b658f8633529f8cf3d4ae6ee17dc28efc84203e0a3ae563528a6a4"
+   "sha256": "69ae64536ec9c05cae8000e1128bd33bb4770be06fd35afc2d2cc24105e5259d"
   },
   {
    "vector": "source-100-astral-characters",
@@ -809,7 +809,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:7c1e9242b7f34608ebac1088604282a720c42a560b288adaf6a41c0dbb6583c6",
-   "sha256": "fa5f15332ecc1b6a6940a4e1020516e5d4d0e6568cf6f0a3b513cfe255687a3c"
+   "sha256": "379197581f7b7c2a7a4a4c19d4de4955a2c992b4583925cd73e99c7a21b72a8d"
   },
   {
    "vector": "source-101-astral-characters",
@@ -819,7 +819,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a malformed 'source': an object of repository, commit and builtAt, each a string of 1 to 200 characters.",
    "pythonSays": "refused: pack.json has a malformed 'source'",
-   "sha256": "ac93bbf08915e7bf796d7c0c7554b977bd523fc118821cfe67ff9be9df8f55f8"
+   "sha256": "bfa4b956b2a971ea310de955e4293f5319daa04d7e1bdf3522579b53587a4782"
   },
   {
    "vector": "version-with-an-arabic-digit",
@@ -829,7 +829,7 @@
    "agree": true,
    "dotnetSays": "refused: META/files.json names no valid SemVer version.",
    "pythonSays": "refused: META/files.json names no valid id or version",
-   "sha256": "df7f752853ee475561e87c996c774c366807a0f74c4c365362759b47a00862c9"
+   "sha256": "0613d549ce5338ba23947d693ac51b470e8c1e292f562f2929c7d9b1449af41b"
   },
   {
    "vector": "extra-envelope-of-wrong-types",
@@ -839,7 +839,7 @@
    "agree": true,
    "dotnetSays": "refused: META/signatures/zz.dsse.json does not carry an in-toto Statement v1.",
    "pythonSays": "refused: META/signatures/zz.dsse.json does not sign this pack",
-   "sha256": "12ac0d29933958730cfa3ee819c01f29f319c4facda49c5d3daa9b63dd27673d"
+   "sha256": "11f316edd58671917536012ee13f02b928c870183ba5b75b638f1adfa6aca610"
   },
   {
    "vector": "envelope-signing-another-list",
@@ -849,7 +849,7 @@
    "agree": true,
    "dotnetSays": "refused: META/signatures/curator-other.dsse.json signs another META/files.json than this pack's.",
    "pythonSays": "refused: META/signatures/curator-other.dsse.json does not sign this pack",
-   "sha256": "829ebddf8dd135208baefa22ab818558251c2a0f526e347394d31f01c4e3ec59"
+   "sha256": "d2337844251a18c687414c640a2373ef655c915037a7d5562ba3135618555718"
   },
   {
    "vector": "envelope-with-no-signature",
@@ -859,7 +859,7 @@
    "agree": true,
    "dotnetSays": "refused: META/signatures/curator-none.dsse.json holds no signature.",
    "pythonSays": "refused: META/signatures/curator-none.dsse.json holds no signature",
-   "sha256": "805c3b7d7005f73ee2e761ec9952c079e55afee5be44d68544f4ef4e077cd3d9"
+   "sha256": "ae5c3cd81cb4a2a50d4df4135d9c0cc7b9f18106585cba0c975e227917263659"
   },
   {
    "vector": "countersignature-by-a-key-not-trusted-ignored",
@@ -869,7 +869,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "a2646b1efc19aac1d71a4586fa181848618f75215c4d7e3bff40fa13fee8e375"
+   "sha256": "577d2defe7aa9b134b9213d05d5a6321b629a73281bb0cc806fd94df6bf4e399"
   },
   {
    "vector": "unsigned-pack-with-no-required-roles",
@@ -887,9 +887,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5 is listed twice.",
+   "dotnetSays": "Key ba35476b374687c8 is listed twice.",
    "pythonSays": "refused: the trust policy lists a key twice",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-a-null-prefix",
@@ -899,7 +899,7 @@
    "agree": true,
    "dotnetSays": "The trust policy is malformed: 'idPrefixes' is a list of strings.",
    "pythonSays": "refused: a trusted key names no pack id prefixes",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-a-time-not-rfc3339",
@@ -909,7 +909,7 @@
    "agree": true,
    "dotnetSays": "The trust policy is malformed: 'notAfter' is not an RFC 3339 date-time.",
    "pythonSays": "refused: the trust policy has a time that is not an RFC 3339 date-time",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "stream-safe-nfkd-30",
@@ -919,7 +919,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:db58040af0b17daa11e597aa6ad7ba60a89a477a462ea4c0d3fb12413875a93a",
-   "sha256": "c454279f28fc7f693fe4c94d16d2d0796bc3b863aceb0cf72823b501fcf3727d"
+   "sha256": "da570d4755c4618fabfc2ea27dbc4235a0ab61ee8ae68279ccefb02673c25259"
   },
   {
    "vector": "stream-safe-nfkd-31",
@@ -929,7 +929,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 has more than 30 combining marks in a row at $.key.",
    "pythonSays": "refused: a JSON string has more than 30 combining marks in a row",
-   "sha256": "e556c1f291bb6054ab301e4425baf0d097e9f4b5c870d74184faffd2456fdc4b"
+   "sha256": "57cfbc5dcf56ce5d42cbee1196a4bce2ebe24b2e1f12989c71ea009d2ebe1044"
   },
   {
    "vector": "stream-safe-expanding-starters",
@@ -939,7 +939,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 has more than 30 combining marks in a row at $.key.",
    "pythonSays": "refused: a JSON string has more than 30 combining marks in a row",
-   "sha256": "0957b9a9699decde49eaefce871f0b8621dfc3204b1d81d0e85f7c8db315112f"
+   "sha256": "e9fce1ffe3ee7684bb03bc3a6c37548b5e66760390b9154460b18ce0b1a4513e"
   },
   {
    "vector": "object-key-30-marks",
@@ -949,7 +949,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:c2f25731ebb85c9b4ad573cb247c55a0c60fe9d4a067f741d0ca467ca73c3de3",
-   "sha256": "ef74d629544cb52165c0d6ba922a82518a9e5a757ab2ac1d4745bbd42a211541"
+   "sha256": "3d4014086bc07b5c2c31fc7fc77a23fcdd686d8128088ed305be3ec401655cbc"
   },
   {
    "vector": "object-key-31-marks",
@@ -959,7 +959,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 has a key with more than 30 combining marks in a row at $.",
    "pythonSays": "refused: a JSON string has more than 30 combining marks in a row",
-   "sha256": "91c528383886c866f39999c6db485bea2047bc2bb6f7d0bc937cf4d53f2c63fa"
+   "sha256": "e9ce577cdb8e02c87961806eef5fe75b1ab10f7861afbde790ccd3dbe4f17558"
   },
   {
    "vector": "nesting-100000-deep",
@@ -969,7 +969,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 is not valid JSON: The maximum configured depth of 64 has been exceeded. Cannot read next JSON array. LineNumber: 0 | BytePositionInLine: 78..",
    "pythonSays": "refused: a JSON file nests deeper than 64",
-   "sha256": "04a4eb038908e901350a7e967ed1fd6ead2884d2f4ec4b0f7b1d0431eaf86dac"
+   "sha256": "8230e43f0f22d0832e8aaa528ef84c6956ae678e7800c29efe85f89579a6710d"
   },
   {
    "vector": "valid-until-offset-minutes-60",
@@ -979,7 +979,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a validUntil that is not an RFC 3339 date and time.",
    "pythonSays": "refused: pack.json has a validUntil that is not a date and time",
-   "sha256": "aa00c3efb0354d928fc9abb9bb7444049e77f6216f4c28d14b03614c5ecb8c3b"
+   "sha256": "cbbf492429458bae46bc05465777bab6d97b7f07e4c42c385238cba1ac5634d2"
   },
   {
    "vector": "version-prerelease-leading-zero",
@@ -989,7 +989,7 @@
    "agree": true,
    "dotnetSays": "refused: META/files.json names no valid SemVer version.",
    "pythonSays": "refused: META/files.json names no valid id or version",
-   "sha256": "ffdc5120517b28447ed8c7a6f01d88f40caffc3ea617336e42b62bf5a1b6edda"
+   "sha256": "5d290387536dcb4ce493af01c32d3e52b2264119ee03dc66e72f4cccad041f92"
   },
   {
    "vector": "files-list-a-number",
@@ -1018,8 +1018,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json has a signature entry that is not a key id and a signature",
-   "sha256": "b9ae3305b81694f58ad6199d99ab747373b5cf77d911def489d4200c01024a2f"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json has a signature entry that is not a key id and a signature",
+   "sha256": "1148720536353356b319f4c1dbbe460f7577f5165b13e95e84793d736f35b32d"
   },
   {
    "vector": "policy-with-a-null-time",
@@ -1029,7 +1029,7 @@
    "agree": true,
    "dotnetSays": "The trust policy is malformed: 'notAfter' is not an RFC 3339 date-time.",
    "pythonSays": "refused: the trust policy has a time that is not an RFC 3339 date-time",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-revocations-expiring-null",
@@ -1039,7 +1039,7 @@
    "agree": true,
    "dotnetSays": "The trust policy is malformed: 'expires' is not an RFC 3339 date-time.",
    "pythonSays": "refused: the trust policy has a time that is not an RFC 3339 date-time",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-a-null-revoked-key",
@@ -1049,7 +1049,7 @@
    "agree": true,
    "dotnetSays": "The trust policy is malformed: A revoked key's keyId is a string.",
    "pythonSays": "refused: the trust policy has a malformed revoked key",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-prefix-with-two-dots",
@@ -1057,9 +1057,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5 names 'io.example..', which is not a pack id prefix (lowercase segments such as io.example).",
+   "dotnetSays": "Key ba35476b374687c8 names 'io.example..', which is not a pack id prefix (lowercase segments such as io.example).",
    "pythonSays": "refused: a trusted key names something that is not a pack id prefix",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-an-rsa-key",
@@ -1067,9 +1067,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key 0f634ba8abdedc26: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
+   "dotnetSays": "Key 2c37e864f3f52381: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
    "pythonSays": "refused: a trusted key's publicKey is not a P-256 key in its one form (an uncompressed point, canonical base64)",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-two-boms",
@@ -1079,7 +1079,7 @@
    "agree": true,
    "dotnetSays": "The trust policy starts with a byte order mark.",
    "pythonSays": "refused: a JSON file has a BOM or a carriage return",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-one-bom",
@@ -1089,7 +1089,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-misspelt-require-roles",
@@ -1099,7 +1099,7 @@
    "agree": true,
    "dotnetSays": "The trust policy holds a field the trust policy does not define: 'requiredRoles' (it takes format, keys, revoked, requireRoles, host).",
    "pythonSays": "refused: the trust policy holds a field the trust policy does not define: 'requiredRoles'",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-key-misspelt-not-after",
@@ -1109,7 +1109,7 @@
    "agree": true,
    "dotnetSays": "A key in the trust policy holds a field the trust policy does not define: 'notafter' (it takes keyId, publicKey, idPrefixes, roles, notBefore, notAfter, webId).",
    "pythonSays": "refused: a trusted key holds a field the trust policy does not define: 'notafter'",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-revoked-misspelt-digests",
@@ -1119,7 +1119,7 @@
    "agree": true,
    "dotnetSays": "'revoked' holds a field the trust policy does not define: 'digest' (it takes digests, keys, expires).",
    "pythonSays": "refused: 'revoked' holds a field the trust policy does not define: 'digest'",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-revoked-digest-uppercase",
@@ -1129,7 +1129,7 @@
    "agree": true,
    "dotnetSays": "The revoked digest 'SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' is not sha256: and 64 lowercase hexadecimal digits.",
    "pythonSays": "refused: a revoked digest is not sha256: and 64 lowercase hexadecimal digits",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-revoked-key-id-short",
@@ -1139,7 +1139,7 @@
    "agree": true,
    "dotnetSays": "The revoked key id 'abc' is not 64 lowercase hexadecimal digits.",
    "pythonSays": "refused: a revoked key id is not 64 lowercase hexadecimal digits",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-revoked-key-extra-field",
@@ -1149,7 +1149,7 @@
    "agree": true,
    "dotnetSays": "A revoked key holds a field the trust policy does not define: 'reason' (it takes keyId, compromisedAt).",
    "pythonSays": "refused: a revoked key holds a field the trust policy does not define: 'reason'",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-prefix-uppercase",
@@ -1157,9 +1157,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5 names 'IO.Example', which is not a pack id prefix (lowercase segments such as io.example).",
+   "dotnetSays": "Key ba35476b374687c8 names 'IO.Example', which is not a pack id prefix (lowercase segments such as io.example).",
    "pythonSays": "refused: a trusted key names something that is not a pack id prefix",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-prefix-trailing-dot",
@@ -1169,7 +1169,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-root-extra-field",
@@ -1179,7 +1179,7 @@
    "agree": true,
    "dotnetSays": "The trust policy holds a field the trust policy does not define: 'comment' (it takes format, keys, revoked, requireRoles, host).",
    "pythonSays": "refused: the trust policy holds a field the trust policy does not define: 'comment'",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-not-utf8",
@@ -1189,7 +1189,7 @@
    "agree": true,
    "dotnetSays": "The trust policy is malformed: Unable to translate bytes [FF] at index 365 from specified code page to Unicode.",
    "pythonSays": "refused: the trust policy is not UTF-8",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-a-p384-key",
@@ -1197,9 +1197,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key ee723b416fab5860: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
+   "dotnetSays": "Key e55c679f24478e3c: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
    "pythonSays": "refused: a trusted key's publicKey is not a P-256 key in its one form (an uncompressed point, canonical base64)",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "version-5000-digits",
@@ -1209,7 +1209,7 @@
    "agree": true,
    "dotnetSays": "refused: META/files.json names no valid SemVer version.",
    "pythonSays": "refused: META/files.json names no valid id or version",
-   "sha256": "6c3b4cdee853930e3e4a1f68451ca5662be6eae761411e8fb1ba803c3ee9fddb"
+   "sha256": "df55dc453277fc483e6f5d4734b715bf2f42d6eb2db18b4ab05715bcf82c2050"
   },
   {
    "vector": "version-256-characters",
@@ -1219,7 +1219,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
    "pythonSays": "verified io.example.notes 1.0.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa sha256:d6bddf97f6f285f2efa042e63c7e3a03e62987c184edbe07c27a130a2095d3d7",
-   "sha256": "978af154cc6514933c0bf78ad26a30453aeb1ea14fc932ba1210f01f177a51a4"
+   "sha256": "6bd46e81e1c323f57877344c5e5de722cd37c813fc564998b46d8db3734d96c5"
   },
   {
    "vector": "version-257-characters",
@@ -1229,7 +1229,7 @@
    "agree": true,
    "dotnetSays": "refused: META/files.json names no valid SemVer version.",
    "pythonSays": "refused: META/files.json names no valid id or version",
-   "sha256": "ac69af485f017a07c0953d72939a3c2e6d171940b62a9202eef956791ed12aaf"
+   "sha256": "ab764172d00597f737dea43804b6500e2dcffd81631ac504d0920e972c4601a8"
   },
   {
    "vector": "envelope-16-signatures",
@@ -1239,7 +1239,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "4e342512bbc90e9f4b81f4002c349fed7f4a7adf3380ef424ae263fb0ef89e8f"
+   "sha256": "e44f4a1c47577abd7e0f0119ece550a21b27d07e0d5db2a0cae3eb92607e08f8"
   },
   {
    "vector": "envelope-17-signatures",
@@ -1248,8 +1248,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json holds more than 16 signatures",
-   "sha256": "d2ebd7a5e85cc4236e657356a0edbf64f6f345e53ad8052bfb7259c7d4609998"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json holds more than 16 signatures",
+   "sha256": "b8f06b5ab7ed064c9f94ab344e73d7cc9af23e6fbda1ed17cb05a3ef14b41b3d"
   },
   {
    "vector": "sixteen-envelopes",
@@ -1259,7 +1259,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "30f692faa00f9ba10888ddbbf65d174d34020460e345942449650d01261a1c25"
+   "sha256": "e79126342bd0c102d1afb0c230f92e495430a56d820a286b6eae3486b05bebcf"
   },
   {
    "vector": "seventeen-envelopes",
@@ -1269,7 +1269,7 @@
    "agree": true,
    "dotnetSays": "refused: The pack carries 17 signature envelopes; at most 16.",
    "pythonSays": "refused: the pack carries 17 signature envelopes; at most 16",
-   "sha256": "6addde5a04429b17927e121f137cb138be85571a97b3be3afab08c6248bbe19f"
+   "sha256": "6f84fb80d22633ff124cc94f4bcec341a60c8e3f8575d27e09a660d3477ab2b6"
   },
   {
    "vector": "signature-integer-without-sign-pad",
@@ -1277,9 +1277,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json: the signature by a722aad38d83f3a5 is not strict DER.",
+   "dotnetSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json: the signature by ba35476b374687c8 is not strict DER.",
    "pythonSays": "refused: no valid signature in role publisher",
-   "sha256": "e7ed059edf3a211fd0e9ac5df53d33040b838debd339a3c0845e26fde8cd3275"
+   "sha256": "f4c892a4ffb80418ad9438023cb2fec99fcc4fa6074ee7463a551d5e1910bd55"
   },
   {
    "vector": "envelope-over-64-kib",
@@ -1289,7 +1289,7 @@
    "agree": true,
    "dotnetSays": "refused: META/signatures/padded.dsse.json is larger than 64 KiB: a signature envelope is small.",
    "pythonSays": "refused: META/signatures/padded.dsse.json is larger than 64 KiB",
-   "sha256": "a57de1a022ea78ecaff7d23d32ac7d59d31274942b42e77fa816e14e2355cc1d"
+   "sha256": "b1218eb32e2d750bcca5cc712dbb3411fd5107f23bdb8eb14a002c525372b9ba"
   },
   {
    "vector": "envelope-at-60-kib",
@@ -1299,7 +1299,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "631d45adddd6d9b5d56d4f8a1a24328b3b58341bb0407f168cf7d543247521f1"
+   "sha256": "daab57d1e0f48e87343d25c48cd52937e68cbe08b2fc1271f4fd75622d22510e"
   },
   {
    "vector": "key-expired-after-signing",
@@ -1307,9 +1307,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json: key a722aad38d83f3a5 expired at 2026-10-27 00:00:00Z; without a verified timestamp token its signatures no longer count.",
-   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-a722aad38d83f3a5.dsse.json: the key has expired; without a verified timestamp token its signatures no longer count",
-   "sha256": "69b8618f9e0b6e2e3f79d4ad002376962c08bc6323449208293f73392dcd8c4f"
+   "dotnetSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json: key ba35476b374687c8 expired at 2026-10-27 00:00:00Z; without a verified timestamp token its signatures no longer count.",
+   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-ba35476b374687c8.dsse.json: the key has expired; without a verified timestamp token its signatures no longer count",
+   "sha256": "9f3311a46f24f0311786c66d66a0af75f1c3137f3e1f1729f6996c960fba20ee"
   },
   {
    "vector": "signature-in-the-future",
@@ -1317,9 +1317,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json: the signature by a722aad38d83f3a5 claims a time in the future.",
-   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-a722aad38d83f3a5.dsse.json: the signature claims a time in the future",
-   "sha256": "6aee2be9e962ce44087878f304374a741246e40e9adaacb6d5f0a1ec6903ee8f"
+   "dotnetSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json: the signature by ba35476b374687c8 claims a time in the future.",
+   "pythonSays": "refused: no valid signature in role publisher; META/signatures/publisher-ba35476b374687c8.dsse.json: the signature claims a time in the future",
+   "sha256": "3745e0f1e4d75770a4314ea0be450fd4a91ec71131a08893440f61e946671906"
   },
   {
    "vector": "junk-signature-file",
@@ -1329,7 +1329,7 @@
    "agree": true,
    "dotnetSays": "refused: META/signatures/junk.dsse.json is not a DSSE envelope of an in-toto statement.",
    "pythonSays": "refused: META/signatures/junk.dsse.json is not a DSSE envelope of an in-toto statement",
-   "sha256": "db6a124c9895eb7f4bfb7a44fd668aeac25a092d3854890ea19d444f57f15339"
+   "sha256": "f6d9dfb2a7a8d53762be52cf01d937235e10288109ba81f5662dd39fffdd3771"
   },
   {
    "vector": "integer-beyond-2-53",
@@ -1339,7 +1339,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 has an integer beyond \u00b12^53 at $.n.",
    "pythonSays": "refused: a JSON integer is beyond 2^53",
-   "sha256": "308de365aecaf7be5579b035dc09587adafeea00b36f9a6576386ddf7d984329"
+   "sha256": "18c661db9a5b4ce97ff593aa883e5f5271344a071fe68a5f4c536bd6ee01a236"
   },
   {
    "vector": "nfd-string",
@@ -1349,7 +1349,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 1 has a string that is not in NFC at $.key.",
    "pythonSays": "refused: a JSON string is not NFC",
-   "sha256": "ee9bac2bbfaf54bb353d7351d163342bb755bf27282badb4c4e3a8a1f8a13647"
+   "sha256": "e11a4dde2479b544f30f527043a40dfc0380e9385f6432da1fe6141b7a059a06"
   },
   {
    "vector": "empty-line-record",
@@ -1359,7 +1359,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' line 2 is empty.",
    "pythonSays": "refused: 'records/note.jsonl' has an empty line",
-   "sha256": "00fafc02849b1ec14e1bb85f5d87559d82333b76bbfc981b6900929f20519b1c"
+   "sha256": "ec906947ef4dcca80c7e92bfa153dcceb5229d776b895e3a9e259c5f56b7e5cd"
   },
   {
    "vector": "no-final-line-feed",
@@ -1369,7 +1369,7 @@
    "agree": true,
    "dotnetSays": "refused: 'records/note.jsonl' does not end with a line feed.",
    "pythonSays": "refused: 'records/note.jsonl' does not end with a line feed",
-   "sha256": "7ee4213ea56b95d45be6527b14374ed40ed7acc9f30667aa42dde45e7aa101d6"
+   "sha256": "3c467a404fb197c7f00b487399c0ec6ac6bc704e64c3bd7e13ab488e98fe93d7"
   },
   {
    "vector": "case-collision",
@@ -1379,7 +1379,7 @@
    "agree": true,
    "dotnetSays": "The archive entry 'records/note.jsonl' differs from another only by case.",
    "pythonSays": "refused: entry 'records/note.jsonl' is out of order, repeated or not contiguous",
-   "sha256": "b9e4ad00c3c9fe98c55ca6e091889c3ddb1328161adfe2253d7326b0aa9716fa"
+   "sha256": "c6d8472cf2416491b40c77e65a91678a496160bce06469573c0e81fd741992f8"
   },
   {
    "vector": "composite-valid",
@@ -1389,7 +1389,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.family 1.0.0",
    "pythonSays": "verified io.example.family 1.0.0 sha256:6b5be3fe26e1bde4532f98ee0bd6121f470f0c459cb468f6c462cb3141106fae",
-   "sha256": "3c7b087cc86309fd257f1036dc37d01d036d7f5696961be0feb076c6338479d3"
+   "sha256": "32d368a1c9147239f986d4879d34a40e9e213c765d0a52b48360920e26644737"
   },
   {
    "vector": "composite-lock-pins-other",
@@ -1399,7 +1399,7 @@
    "agree": true,
    "dotnetSays": "refused: META/lock.json pins other members than the composite contains.",
    "pythonSays": "refused: META/lock.json pins other members than the composite contains",
-   "sha256": "87c727076770b879da0c2b73df26b9fb5c3dd3a9ae5f066d734968b076a91625"
+   "sha256": "ed27206bc737e748dcd4c895d0ec229bc9b85504ac245d1beaf1285bbc8fb0ce"
   },
   {
    "vector": "composite-members-not-strings",
@@ -1409,7 +1409,7 @@
    "agree": true,
    "dotnetSays": "refused: members.json is malformed.",
    "pythonSays": "refused: members.json is malformed",
-   "sha256": "68def515355d50ed394f3c023a1fece6285620d32c801a588aee0f9ee9103308"
+   "sha256": "62406d0b9b5cc3fa8390939e079d851bb0eeb858f6b88c47e8d464aa2dec74b6"
   },
   {
    "vector": "composite-lock-not-canonical",
@@ -1419,7 +1419,7 @@
    "agree": true,
    "dotnetSays": "refused: META/lock.json is not in RFC 8785 canonical form.",
    "pythonSays": "refused: META/lock.json is not canonical",
-   "sha256": "3c68cb1ea201b9d241eff8e494fec1b3b7544c5ca49590ed8a737da2370705c6"
+   "sha256": "27467c3cfd9765ac5294120883146ac2e9ecdffd3452e03b89f4ed01474ef5b6"
   },
   {
    "vector": "composite-lock-extra-field",
@@ -1429,7 +1429,7 @@
    "agree": true,
    "dotnetSays": "refused: META/lock.json is not a 'agentmemory.pack.lock/1.1' lock: format and members, nothing else.",
    "pythonSays": "refused: META/lock.json is not a lock: format and members, nothing else",
-   "sha256": "b545984733e5355e946a3cb6cb715b0e8d27a84550bfab63908d8380b469a7eb"
+   "sha256": "0b8c521317adc24cd6d223703e5b6f685584c8d6627a59186c37bab3c0390cae"
   },
   {
    "vector": "composite-members-differ",
@@ -1439,7 +1439,7 @@
    "agree": true,
    "dotnetSays": "refused: members.json and pack.json name different members.",
    "pythonSays": "refused: members.json and pack.json name different members",
-   "sha256": "102a07e0dfe31a3102bc87c7fd50590c53d6ef48b86b4de45c3ba70ab7c64e04"
+   "sha256": "f6c875ba7ad192b0309137c7e7c65855dbd1dd4bfa7b8fdf00fcd361d6864668"
   },
   {
    "vector": "composite-lock-id-a-number",
@@ -1449,7 +1449,7 @@
    "agree": true,
    "dotnetSays": "refused: META/lock.json has a malformed member.",
    "pythonSays": "refused: META/lock.json has a malformed member",
-   "sha256": "2918843764334f5bef2a55e7f6ab8f4c53f7bd29f1eb22f03c502b49190e9d1f"
+   "sha256": "3980b8969a6b63be7c0896168352e45748abf224e124a1b8049a6b879a7bac6d"
   },
   {
    "vector": "set-valid",
@@ -1458,8 +1458,8 @@
    "python": "verified",
    "agree": true,
    "dotnetSays": "Verified set io.example.bundle 1.0.0",
-   "pythonSays": "verified io.example.bundle 1.0.0 sha256:207bbed8454f76196e474e9e79a6e77beef5dcfb84b4faa1882fb506003c8a1c",
-   "sha256": "066e3b41068d3067c73925a713de3743117ef72e8cfd9c54ce1a9545eef4fe2a"
+   "pythonSays": "verified io.example.bundle 1.0.0 sha256:5ff27576b300ac00a15aa8b585c78254d86914b2c8a5f12063dad4b944ce09ec",
+   "sha256": "d7b78bababf4473dfc702f4df98123c7c131f20c7282d70611cb6107c83ecd1f"
   },
   {
    "vector": "set-member-tampered",
@@ -1469,7 +1469,7 @@
    "agree": true,
    "dotnetSays": "refused: packs/io.example.notes/: 'records/note.jsonl' does not match META/files.json.",
    "pythonSays": "refused: packs/io.example.notes/: 'records/note.jsonl' does not match META/files.json",
-   "sha256": "761b4b5f9554c14911a58d66b093a59b8a1b0891279600bef97d122c21f30d61"
+   "sha256": "3056a534a1a2a954df2d08c774967ff432576ad5d8d9cffc6bde1d9106f46964"
   },
   {
    "vector": "set-member-misnamed",
@@ -1479,7 +1479,7 @@
    "agree": true,
    "dotnetSays": "refused: packs/io.example.renamed/: The member in packs/io.example.renamed/ is io.example.notes.",
    "pythonSays": "refused: the member in packs/io.example.renamed/ is io.example.notes",
-   "sha256": "93d41bc45bd82dadda2149f240ce0439fd3a67d95396de47852fb20d60f813ca"
+   "sha256": "6476df2e09999ff680bbeaff83a82c159dc8917e1f8e88414b72f6fbf06667c1"
   },
   {
    "vector": "set-file-outside-member",
@@ -1489,7 +1489,7 @@
    "agree": true,
    "dotnetSays": "refused: 'packs/loose.json' is not inside a member folder.",
    "pythonSays": "refused: 'packs/loose.json' is not inside a member folder",
-   "sha256": "036cfd559e5f546dc32843cfdcb4aadbe6b14d1bdebcf1d2066cd001ea23ad21"
+   "sha256": "fbb603fa9536b47f8098ee56cc870fcaaf4f9364f488329c2666ec746fe5c60e"
   },
   {
    "vector": "unknown-field",
@@ -1499,7 +1499,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has an unknown field 'homepage'; a field this format does not define goes in 'extensions'.",
    "pythonSays": "refused: pack.json has an unknown field 'homepage'",
-   "sha256": "686c8336ef3ecae5e0602997a42c4952d7e17c4d1f6f660e972b653e7862ede1"
+   "sha256": "b5209f548bf9e9d7c1b01dec627566c92ffa20ec99737004ab8a3551cfa0a616"
   },
   {
    "vector": "extension-ignored",
@@ -1509,7 +1509,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:17e86a65461a76a7bde1580c7e12b96d12e822a9662942a64a6f4a5218f0d42f",
-   "sha256": "192c1630c1bc37b9940dde4c4e66b7bd98049fd749a20835c723e9224f12d6ca"
+   "sha256": "cad71843a31d888edc31e50c7f59736d31c0561e491fb74ccd02f8f86ef1c193"
   },
   {
    "vector": "critical-extension",
@@ -1519,7 +1519,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json marks the extension 'io.example.cache' critical, and this reader does not understand it.",
    "pythonSays": "refused: pack.json marks the extension 'io.example.cache' critical, and this verifier does not understand it",
-   "sha256": "a3b158bc71604c20829854c39f8489984394da6a5e838d2e7b07877745bf06b1"
+   "sha256": "01f05ec96892e3ee7bc59cae88ae07161ef80499df414f840a6e919645d25609"
   },
   {
    "vector": "critical-names-nothing",
@@ -1529,7 +1529,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json marks 'io.example.absent' critical, but 'extensions' holds no such extension.",
    "pythonSays": "refused: pack.json marks 'io.example.absent' critical, but holds no such extension",
-   "sha256": "44dfe9d79215819e5e25e621b534adeff26c7d210ad25812cb3abd5c10f3c5e1"
+   "sha256": "487edac7a1256ebc9b0141251e29f0794434e05dc1afcef9fc7ff26005a167e2"
   },
   {
    "vector": "minor-later-known-fields",
@@ -1539,7 +1539,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:dbf52aec5a8d325e3eecf1c3aaab8fcf8ac021d52f9e32ffea8ed1037c76883c",
-   "sha256": "d5d6a2616380f051d52d2bf6ad866bb200c3fd05a8b4c0a28197d921a72cfacf"
+   "sha256": "5c1089be5c6cf5dbfc06c6b891eaf5fe9c5aaa60d73bf8b27cd8ad2c354a0d82"
   },
   {
    "vector": "minor-later-unknown-field-ignored",
@@ -1549,7 +1549,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:be489ac4ab5623e2dd45c8d0d6fe346e2e01eda310f3598b83131e5f8bf52555",
-   "sha256": "8f20c9dd2204723f722525f1a75b862bd12f184a49f0c3b5dfb3588198f95a3e"
+   "sha256": "7416654af55a707aa082b6d00e42f2eba23fcb1cb7f5ed9134b3d76153ad7e92"
   },
   {
    "vector": "minor-later-unknown-field-critical",
@@ -1559,7 +1559,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json marks the field 'timestamps' critical, and this reader of agentmemory.pack/1.2 does not understand it.",
    "pythonSays": "refused: pack.json marks the field 'timestamps' critical, and this verifier of agentmemory.pack/1.2 does not understand it",
-   "sha256": "0ad2aa63b19333253d2372fd64d35cb70347b23721fbb3f9d69cdc2b2922a507"
+   "sha256": "7bac5ff44e1949f8d5cef582856cf83b49e9b382c99ee4213d89872906579b73"
   },
   {
    "vector": "minor-own-unknown-field-critical",
@@ -1569,7 +1569,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has an unknown field 'timestamps'; a field this format does not define goes in 'extensions'.",
    "pythonSays": "refused: pack.json has an unknown field 'timestamps'",
-   "sha256": "8e25047b56c788909dfda2986e24afe47ef6187e17f4c8bd5a0e4b57aa8e1bee"
+   "sha256": "561a8750d6bc931cd3830ae57f2bb609727c23c31b0073b58d6656c7f94fa14d"
   },
   {
    "vector": "minor-later-unknown-kind",
@@ -1579,7 +1579,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json needs a kind: knowledge, definition, snapshot, composite, set.",
    "pythonSays": "refused: pack.json needs a known kind",
-   "sha256": "b1ff6e2cd864cd719a684944948c073a3d9c3134aec106120a510f2674250642"
+   "sha256": "25bc100fe6c4c2272dc65e0e3505bb7f77e885c7d2cfa799ce2ca362f728c2e7"
   },
   {
    "vector": "minor-earlier",
@@ -1589,7 +1589,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has format 'agentmemory.pack/1.1'; this reader knows 'agentmemory.pack/1.2' and reads the later 1.x minors.",
    "pythonSays": "refused: pack.json has a format this verifier does not read; it knows agentmemory.pack/1.2 and reads the later 1.x minors",
-   "sha256": "b796e1ffaa7a69e33ceb14796b7e4ed6cb950b167e14863d831258ca30e819e6"
+   "sha256": "4d0c82aa8c105114f80dd896f08036f4310d2343f61575c00dec895aeed20288"
   },
   {
    "vector": "minor-leading-zero",
@@ -1599,7 +1599,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has format 'agentmemory.pack/1.02'; this reader knows 'agentmemory.pack/1.2' and reads the later 1.x minors.",
    "pythonSays": "refused: pack.json has a format this verifier does not read; it knows agentmemory.pack/1.2 and reads the later 1.x minors",
-   "sha256": "e0d0a36506f83e27ae874e8b9464593fb0aa650f0dc6c281362b6fd6193af24c"
+   "sha256": "d9be7321a0c2bdcb321d8f7c71f6ead53d441012ce3887272a025c33f059891c"
   },
   {
    "vector": "minor-major-two",
@@ -1609,7 +1609,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has format 'agentmemory.pack/2.0'; this reader knows 'agentmemory.pack/1.2' and reads the later 1.x minors.",
    "pythonSays": "refused: pack.json has a format this verifier does not read; it knows agentmemory.pack/1.2 and reads the later 1.x minors",
-   "sha256": "c7f09e19503d05dbf444ed6d4364a46bb247d5fa36f4698e03286622ba2bb030"
+   "sha256": "e393ec4cec071aeb4236b8d835a19aeea9c434ccb3d010be1f02fec58d94a346"
   },
   {
    "vector": "minor-four-digits",
@@ -1619,7 +1619,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has format 'agentmemory.pack/1.1000'; this reader knows 'agentmemory.pack/1.2' and reads the later 1.x minors.",
    "pythonSays": "refused: pack.json has a format this verifier does not read; it knows agentmemory.pack/1.2 and reads the later 1.x minors",
-   "sha256": "d54517aa8e7739dcd2e689ad7b866ba511bbd444cd0441acbebc6ddef9a12635"
+   "sha256": "cd7db2da8a2f42d7d0344a1336a6e10d52f9016f1fd5ed65321bd137eb598432"
   },
   {
    "vector": "critical-known-field",
@@ -1629,7 +1629,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:c56307886d2fafd37ae70af3d8d95f664530d524dd4c911be8b2123a98b70058",
-   "sha256": "a281597136f36a0a85f214afde9ec0e38c7b32bda1ed1e8b3039c6bdfdc2986c"
+   "sha256": "35ad37c71fcb7f629ef11db294ac3e4e44b980689a1633db58c4ef5a235594db"
   },
   {
    "vector": "critical-names-absent-field",
@@ -1639,7 +1639,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json marks 'validUntil' critical, but holds no such field.",
    "pythonSays": "refused: pack.json marks 'validUntil' critical, but holds no such field",
-   "sha256": "d62b62e3405a563d7d3675622887c18adb072af0351ad3d660e4a897efb23f7d"
+   "sha256": "1c2b5feec74be29cc06670a03fc966774d8f5aeb0e51a6ca9317d12a3a54ce4b"
   },
   {
    "vector": "critical-names-itself",
@@ -1649,7 +1649,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json marks 'critical' critical, but holds no such field.",
    "pythonSays": "refused: pack.json marks 'critical' critical, but holds no such field",
-   "sha256": "e88118a6f400e95d577886e65dbab9d6802f38ae3baca21087949d4c2e1628f6"
+   "sha256": "2e174ae562d17b54c7fedb46d5f78df7c7fc80f90bd31c3865a5f430f2ec83d4"
   },
   {
    "vector": "critical-twice",
@@ -1659,7 +1659,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json lists a critical field twice.",
    "pythonSays": "refused: pack.json lists a critical field twice",
-   "sha256": "0acae2a6d21eb5823ac3b773acfbf650ef10d970bbbcff468574e8fe7d0512d6"
+   "sha256": "429a3dc67a9fabd62054cfe72c2aee1fbdc7322246b48e3705583bafc0394d50"
   },
   {
    "vector": "critical-empty",
@@ -1669,7 +1669,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a malformed 'critical': a list of 1 to 64 field names.",
    "pythonSays": "refused: pack.json has a malformed 'critical': a list of 1 to 64 field names",
-   "sha256": "432567e56d8966971ad1a7a6cf27c6c58de12fc3044d1abd2d48d26af3844eed"
+   "sha256": "e5dd5fcd547353f478e1f6e82f671c66c71c195849576ed8f582f563f8780fd9"
   },
   {
    "vector": "critical-not-a-list",
@@ -1679,7 +1679,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json has a malformed 'critical': a list of 1 to 64 field names.",
    "pythonSays": "refused: pack.json has a malformed 'critical': a list of 1 to 64 field names",
-   "sha256": "9f9b39c08f01b2af5715c0461b6458ef8e8009761898161a96c3c6ddecc8f721"
+   "sha256": "f7d548da9355983352df862c20ef506ca0ccb8801aa4b31bedf646878c6082af"
   },
   {
    "vector": "timestamp-token-beside-envelope",
@@ -1689,7 +1689,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "0cf6959a31c3edcc86e085b284ea35635460740b8a9888e3fcdc421407b9c088"
+   "sha256": "a3c088fe504b3d271deb43f17f8508b7d563b9a2a924057c9dc7855ec3808b7b"
   },
   {
    "vector": "timestamp-token-beside-nothing",
@@ -1699,7 +1699,7 @@
    "agree": true,
    "dotnetSays": "refused: META/signatures/other.dsse.json.tsr is a timestamp token beside no envelope.",
    "pythonSays": "refused: META/signatures/other.dsse.json.tsr is a timestamp token beside no envelope",
-   "sha256": "06dbc5a4a60d37de5e0c919bd408b823f1747681b4cbeb05f408cc3a40f26cd9"
+   "sha256": "254411186720160ace37e9fe40f663912967e60d84e7379ac2cc3f6aa6017f19"
   },
   {
    "vector": "timestamp-token-over-64-kib",
@@ -1707,9 +1707,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json.tsr is larger than 64 KiB: a timestamp token is small.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json.tsr is larger than 64 KiB",
-   "sha256": "a556a3dec4854a9911ebbdb2fb53e025f264f253c5909db01d17039d6a03d0e1"
+   "dotnetSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json.tsr is larger than 64 KiB: a timestamp token is small.",
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json.tsr is larger than 64 KiB",
+   "sha256": "8c2d74963445aad56bb3ff05140e8dd3e73bc6e08b099d74ba84884cbd73e601"
   },
   {
    "vector": "federated-valid",
@@ -1719,7 +1719,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:191de2b29afdaa9d25354bade3532783325866fdb3a93818466e5e2f8f829175",
-   "sha256": "c17a793d1ed0806b7d49d631e2fe09ebf6271d09f06e6ffcae50078b644dd8e9"
+   "sha256": "250ab2345a3b38011527cc9395b9dd40d0de1f14fc060e30fc25648de9de9fbb"
   },
   {
    "vector": "federated-host-outside-audience",
@@ -1729,7 +1729,7 @@
    "agree": true,
    "dotnetSays": "refused: The pack is published for https://buyer-b.example/profile/card#agent; this host is https://stranger.example/profile/card#me.",
    "pythonSays": "refused: the pack is not published for this host",
-   "sha256": "c17a793d1ed0806b7d49d631e2fe09ebf6271d09f06e6ffcae50078b644dd8e9"
+   "sha256": "250ab2345a3b38011527cc9395b9dd40d0de1f14fc060e30fc25648de9de9fbb"
   },
   {
    "vector": "federated-host-names-no-webid",
@@ -1739,7 +1739,7 @@
    "agree": true,
    "dotnetSays": "refused: The pack is published for named WebIDs, and this host names none of its own (trust policy 'host.webIds').",
    "pythonSays": "refused: the pack is not published for this host",
-   "sha256": "c17a793d1ed0806b7d49d631e2fe09ebf6271d09f06e6ffcae50078b644dd8e9"
+   "sha256": "250ab2345a3b38011527cc9395b9dd40d0de1f14fc060e30fc25648de9de9fbb"
   },
   {
    "vector": "federated-public-host-names-no-webid",
@@ -1749,7 +1749,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:a8ce04ba174c710340eb06467a27f062021b74f355bc7981b333e57b2244e4e1",
-   "sha256": "ce1228ccb8ee9598fed4ca6b62b6d2e7945bee846dd8e6260e82c380934f04c1"
+   "sha256": "3dbca45aae63de38c43afdd170f80815e583d9b3ba9a0158fdfebafba17045d4"
   },
   {
    "vector": "federated-key-unbound",
@@ -1759,7 +1759,7 @@
    "agree": true,
    "dotnetSays": "refused: No publisher signature from a key this host bound to https://supplier-a.example/profile/card#org: a federated pack needs one (trust entry 'webId').",
    "pythonSays": "refused: no publisher signature from a key this host bound to the pack's publisher",
-   "sha256": "c17a793d1ed0806b7d49d631e2fe09ebf6271d09f06e6ffcae50078b644dd8e9"
+   "sha256": "250ab2345a3b38011527cc9395b9dd40d0de1f14fc060e30fc25648de9de9fbb"
   },
   {
    "vector": "federated-key-bound-elsewhere",
@@ -1767,9 +1767,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: The pack names publisher https://supplier-a.example/profile/card#org, but key a722aad38d83f3a5 that signed it as publisher is bound to https://other.example/profile/card#org.",
+   "dotnetSays": "refused: The pack names publisher https://supplier-a.example/profile/card#org, but key ba35476b374687c8 that signed it as publisher is bound to https://other.example/profile/card#org.",
    "pythonSays": "refused: a key bound to another WebID signed the pack as publisher",
-   "sha256": "c17a793d1ed0806b7d49d631e2fe09ebf6271d09f06e6ffcae50078b644dd8e9"
+   "sha256": "250ab2345a3b38011527cc9395b9dd40d0de1f14fc060e30fc25648de9de9fbb"
   },
   {
    "vector": "federated-not-critical",
@@ -1779,7 +1779,7 @@
    "agree": true,
    "dotnetSays": "refused: pack.json carries the 'federation' extension without marking it critical; a host that cannot enforce an audience must refuse the pack, not ignore it.",
    "pythonSays": "refused: pack.json carries the 'federation' extension without marking it critical",
-   "sha256": "628e8664df1845a88041e13468827aef83b7b22dd5752e04c984c7f1f8cf8757"
+   "sha256": "ddbc57cf230245673a47c37af7b0eb8f80fddb4576c9eb3382b599499cb762b9"
   },
   {
    "vector": "federated-purpose-300",
@@ -1789,7 +1789,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:20df37700bbafa041943b5c5ca20710a31af533cc1c10b67052f05326fe0cf8a",
-   "sha256": "7bbe9cfe1ab38b94d7731770b9501be00dfc524d0e9f4292dc859c364e40dec1"
+   "sha256": "1ec1cc98e3cea2acdeacbbc2e60ab4be94354b159506c2f343c816e6e92dbe76"
   },
   {
    "vector": "federated-two-readers",
@@ -1799,7 +1799,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:55c085c18713d7acfa4114a11c7c2e5afcf900f6ef4db30877900cf11ff68aff",
-   "sha256": "749a3f75a5499ef0d9e8ff71c168d2e5ba76bb23d8a8685cbebcbcf1d7cba90d"
+   "sha256": "2e3f9671d14cd0bfeba47cdc930a6d3a690a04f582868a46c3bc5bc6b6b9ce02"
   },
   {
    "vector": "federated-purpose-150-astral",
@@ -1809,7 +1809,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:ec01c2643d13129180484199716e31c03bc1d781eff0d97d2a7de787b9a3e32b",
-   "sha256": "f52ad85883389a0b23ccae4655dca8ea32e60666f297787a2159a5484a1b41d1"
+   "sha256": "4db644ed3b90737c38412c2743fdd355d1d1a28e80dbba2916f327bfdbb19a30"
   },
   {
    "vector": "federated-purpose-151-astral",
@@ -1819,7 +1819,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation purpose is text of 1 to 300 characters.",
    "pythonSays": "refused: the federation purpose is text of 1 to 300 characters",
-   "sha256": "49c14cd1344e40fc43c13a3253c47ed85491e831ba05a95a76e129fafbfe800b"
+   "sha256": "71fc526305777d23bc1f6bd414c630bab598483839b6b828b13500605cb77913"
   },
   {
    "vector": "set-federated-valid",
@@ -1828,8 +1828,8 @@
    "python": "verified",
    "agree": true,
    "dotnetSays": "Verified set io.example.bundle 1.0.0",
-   "pythonSays": "verified io.example.bundle 1.0.0 sha256:aa4b4b5e49d0039a37116ec95c4854579e801bdf4506e91a0f34ef3aae7db33d",
-   "sha256": "159c8b35c87b3f126f33f2cabd5b758d04316f298cb8fef86514a990ebc743d4"
+   "pythonSays": "verified io.example.bundle 1.0.0 sha256:72c9adcad1b56b4641ae1dda4d4813a28ac136de99cdea1d02ef93f746e86973",
+   "sha256": "386de7049aad861a2c80ae8a8b1ef0c5fd91f9b15f705212d761a90b63413534"
   },
   {
    "vector": "set-federated-member-not-federated",
@@ -1839,7 +1839,7 @@
    "agree": true,
    "dotnetSays": "refused: packs/io.example.notes/: The member io.example.notes of a federated set is not federated itself: out of the set it would reach any host.",
    "pythonSays": "refused: packs/io.example.notes/: a member of a federated set is not federated itself",
-   "sha256": "a73bbe61fde4e5b41e22c6726e4da09a333dc3f50170164a0f3e45f36481fb8c"
+   "sha256": "53878d0027665e525ffe3e02493f4e6a56e632985b5db8ebd0ce7ca22dab421d"
   },
   {
    "vector": "set-federated-member-wider",
@@ -1849,7 +1849,7 @@
    "agree": true,
    "dotnetSays": "refused: packs/io.example.notes/: The member io.example.notes is published for a wider audience than its set.",
    "pythonSays": "refused: packs/io.example.notes/: the member is published for a wider audience than its set",
-   "sha256": "83b7c540e9428354073eb9eb8f537f8a7a70a2e61a35494a56c9a07d51997552"
+   "sha256": "2c70971451b8bf0c4339baa7183ad236d278cbc87d460c94aa22a3fafc4f1e8e"
   },
   {
    "vector": "set-federated-member-untrusted",
@@ -1857,9 +1857,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: packs/io.example.notes/: META/signatures/publisher-8909c071e812777a.dsse.json: key 8909c071e812777a is not in the trust policy.",
+   "dotnetSays": "refused: packs/io.example.notes/: META/signatures/publisher-3627467e31aebe6a.dsse.json: key 3627467e31aebe6a is not in the trust policy.",
    "pythonSays": "refused: packs/io.example.notes/: no valid signature in role publisher",
-   "sha256": "4868dca4e7de0a189bddbecbed3588247261d67764d223484bb3db90295a3b59"
+   "sha256": "4309112939e869e8570af6334364cf453c16cd7b1eef7692cb89b2d9a815c2b9"
   },
   {
    "vector": "federated-audience-empty",
@@ -1869,7 +1869,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation audience is \"public\" or a list of 1 to 64 WebIDs.",
    "pythonSays": "refused: the federation audience is \"public\" or a list of 1 to 64 WebIDs",
-   "sha256": "3ef2ee417b02bf98a2c4ca108f48d7a5aa2469830dc17ad314c1be7f045ee656"
+   "sha256": "0d11b02ee5f2bbb4a99f209678704b6011a755b524d240592adcbf0949569367"
   },
   {
    "vector": "federated-audience-everyone",
@@ -1879,7 +1879,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation audience is \"public\" or a list of 1 to 64 WebIDs.",
    "pythonSays": "refused: the federation audience is \"public\" or a list of 1 to 64 WebIDs",
-   "sha256": "0867e341873c8c135c0df41c9903ccda3f95b30d3f4a36d9eae3ff014dba45b3"
+   "sha256": "996bfef8f667efa7892e391659a3456a12056a86427f24b0bf2ebad35f6cb067"
   },
   {
    "vector": "federated-audience-http",
@@ -1889,7 +1889,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation audience entry 1 is not a WebID: https and a host (http only for localhost), a path starting with '/', at most 512 characters that need no escaping.",
    "pythonSays": "refused: the federation audience names something that is not a WebID",
-   "sha256": "e3a91299bc577972a8028abf54bdecb72eb2dc50c3da33efe3888b3c36b93e31"
+   "sha256": "38248b1b4d57a92c40ba08687371fe360944f14bb0a6f40774b0068bf67f3fb7"
   },
   {
    "vector": "federated-audience-turtle-breaker",
@@ -1899,7 +1899,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation audience entry 1 is not a WebID: https and a host (http only for localhost), a path starting with '/', at most 512 characters that need no escaping.",
    "pythonSays": "refused: the federation audience names something that is not a WebID",
-   "sha256": "ae1905685c19f8054185fcbc58170fa5627d74ccf29882d878b5705da7ab0d5e"
+   "sha256": "663060813e29ce0f964fc31a425b008d861d167ea74c46441e849a1c129c706c"
   },
   {
    "vector": "federated-audience-two-fragments",
@@ -1909,7 +1909,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation audience entry 1 is not a WebID: https and a host (http only for localhost), a path starting with '/', at most 512 characters that need no escaping.",
    "pythonSays": "refused: the federation audience names something that is not a WebID",
-   "sha256": "9101eb27de8f6a87f986c1d7682cfb6adddbba89b4d9da1346de5d1bde669a8c"
+   "sha256": "447b7e30851b7400b36e99a73919d270dd28d0bed9aea094bf59b09aef7d9a7d"
   },
   {
    "vector": "federated-audience-twice",
@@ -1919,7 +1919,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation audience names a WebID twice.",
    "pythonSays": "refused: the federation audience names a WebID twice",
-   "sha256": "9b87240ad82022bb19fb3e95b8b07247b622b513b0fff51a4c834fb32162c1d9"
+   "sha256": "a44296ee9cb011742090bb5a1329a3bee5db77a5547317ca8489809d862b0355"
   },
   {
    "vector": "federated-audience-65",
@@ -1929,7 +1929,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation audience is \"public\" or a list of 1 to 64 WebIDs.",
    "pythonSays": "refused: the federation audience is \"public\" or a list of 1 to 64 WebIDs",
-   "sha256": "7710bc878db198ceddfd7992312f72dd29164dce8c6255ce7f49c24cb939e99f"
+   "sha256": "456f8a1315ec56da6cf674201a6f36e0790284a94ee893e269d6f5a1abf92018"
   },
   {
    "vector": "federated-unknown-field",
@@ -1939,7 +1939,7 @@
    "agree": true,
    "dotnetSays": "refused: The 'federation' extension has an unknown field 'maxScope'.",
    "pythonSays": "refused: the 'federation' extension has an unknown field",
-   "sha256": "a09ec7f2e84d35240a24b4be463e7ea8b34faf7cb572a346dd955725d40b8ee6"
+   "sha256": "9f58a90a286d1e63ac9f89741afceba5888bc76edeb9106864eb6bfcc64a37ec"
   },
   {
    "vector": "federated-other-format",
@@ -1949,7 +1949,7 @@
    "agree": true,
    "dotnetSays": "refused: The 'federation' extension must name format 'agentmemory.pack.federation/1'.",
    "pythonSays": "refused: the 'federation' extension must name format 'agentmemory.pack.federation/1'",
-   "sha256": "accc40c0f05a04108ae5d0e7f0fdb52a5f821e10120539f2f8fb3c73dc2e0677"
+   "sha256": "1a4caf3800eb7b1564142ee4cd8bbf511183faf09cb0b95f6bd547c6593356b6"
   },
   {
    "vector": "federated-no-audience",
@@ -1959,7 +1959,7 @@
    "agree": true,
    "dotnetSays": "refused: The 'federation' extension names no audience: \"public\" or a list of WebIDs.",
    "pythonSays": "refused: the 'federation' extension names no audience",
-   "sha256": "b8be2dbf3434f337fcc1f525ae6c2708e6a3055eef83194d4c85fc02123633b2"
+   "sha256": "9b3e99cb95bb92daf99ab74a9533631c10578393519f71c91e67647a58eac092"
   },
   {
    "vector": "federated-publisher-not-webid",
@@ -1969,7 +1969,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation publisher is not a WebID: https and a host (http only for localhost), a path starting with '/', at most 512 characters that need no escaping.",
    "pythonSays": "refused: the federation publisher is not a WebID",
-   "sha256": "12269ca24013c621f9efc95c8eb6cca749255360033c71bb2c12715ec28aebe7"
+   "sha256": "c24a32c6aaa87ef21c58a3ccf846327e2040c6ed7b4a71f7408cb8bed770a832"
   },
   {
    "vector": "federated-purpose-301",
@@ -1979,7 +1979,7 @@
    "agree": true,
    "dotnetSays": "refused: The federation purpose is text of 1 to 300 characters.",
    "pythonSays": "refused: the federation purpose is text of 1 to 300 characters",
-   "sha256": "f8fefc391c9137b23f415377b7507f1fbfb00ec03f995d9dbba46c4da50f546d"
+   "sha256": "b5bb6ad4bf57696b087d7c9ad0dce6b201f7f97e05eba32c96420efde5f13df2"
   },
   {
    "vector": "policy-federated-host-empty",
@@ -1989,7 +1989,7 @@
    "agree": true,
    "dotnetSays": "host.webIds lists 1 to 16 WebIDs.",
    "pythonSays": "refused: 'host' is an object holding only 'webIds': 1 to 16 distinct WebIDs",
-   "sha256": "c17a793d1ed0806b7d49d631e2fe09ebf6271d09f06e6ffcae50078b644dd8e9"
+   "sha256": "250ab2345a3b38011527cc9395b9dd40d0de1f14fc060e30fc25648de9de9fbb"
   },
   {
    "vector": "policy-federated-host-extra",
@@ -1999,7 +1999,7 @@
    "agree": true,
    "dotnetSays": "'host' is an object holding only 'webIds'.",
    "pythonSays": "refused: 'host' is an object holding only 'webIds': 1 to 16 distinct WebIDs",
-   "sha256": "c17a793d1ed0806b7d49d631e2fe09ebf6271d09f06e6ffcae50078b644dd8e9"
+   "sha256": "250ab2345a3b38011527cc9395b9dd40d0de1f14fc060e30fc25648de9de9fbb"
   },
   {
    "vector": "policy-federated-webid-http",
@@ -2007,9 +2007,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5's webId is not a WebID: https and a host (http only for localhost), a path starting with '/', at most 512 characters that need no escaping.",
+   "dotnetSays": "Key ba35476b374687c8's webId is not a WebID: https and a host (http only for localhost), a path starting with '/', at most 512 characters that need no escaping.",
    "pythonSays": "refused: a trusted key's webId is not a WebID",
-   "sha256": "c17a793d1ed0806b7d49d631e2fe09ebf6271d09f06e6ffcae50078b644dd8e9"
+   "sha256": "250ab2345a3b38011527cc9395b9dd40d0de1f14fc060e30fc25648de9de9fbb"
   },
   {
    "vector": "policy-federated-revoker-webid",
@@ -2017,9 +2017,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key ecbf91cc48373610 is a revoker; a WebID binds publishing keys only.",
+   "dotnetSays": "Key 24e7a89f2dfdf792 is a revoker; a WebID binds publishing keys only.",
    "pythonSays": "refused: a revoker key is never bound to a WebID",
-   "sha256": "c17a793d1ed0806b7d49d631e2fe09ebf6271d09f06e6ffcae50078b644dd8e9"
+   "sha256": "250ab2345a3b38011527cc9395b9dd40d0de1f14fc060e30fc25648de9de9fbb"
   },
   {
    "vector": "card-valid-full",
@@ -2029,7 +2029,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:7ceda3f0b2261b2b5899c6b1b48bbae70d87769e8afda8586284f3c988dd9217",
-   "sha256": "03a4a603dfb557d1ed197e03ea91a677a6ff4d6af0b7fdada5bef2bd40368ec6"
+   "sha256": "5c334f135003a2afa9b5b4ec0be5bb6137e065131bc2c8901e513c2a474b83e5"
   },
   {
    "vector": "card-absent",
@@ -2039,7 +2039,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:a00c24bad7039bb6b7226adfe0601c69bee5e84bb5abe72e767b63dd3bfbfad5",
-   "sha256": "eea6ba714bdaf8350c85d106ae2c48d2deff7e0579a8826924056d4fbb4f76e5"
+   "sha256": "26e863a15c7404f88a521fb85b6545c199685134083a33cd5b186f5f0c70c2b6"
   },
   {
    "vector": "card-unknown-field",
@@ -2049,7 +2049,7 @@
    "agree": true,
    "dotnetSays": "refused: card.json has an unknown field 'rating'.",
    "pythonSays": "refused: card.json holds other fields than a pack card",
-   "sha256": "e27baa5f661270977a23aa718df761a4e0aded6e84b6c26fc16fa83fc8bf8227"
+   "sha256": "be4596587dda5c9558284c8467766bd8ce82077ec2170e50972e401708706ce2"
   },
   {
    "vector": "card-without-intended-use",
@@ -2059,7 +2059,7 @@
    "agree": true,
    "dotnetSays": "refused: card.json needs 'intendedUse'.",
    "pythonSays": "refused: card.json: 'intendedUse' is text of 1 to 2000 characters",
-   "sha256": "3b1ca08211d232c12ec6e9f30463cbe74755226761a617071380219ad80fb30e"
+   "sha256": "d0bf4e9acef75485fe650003a5c4097bb356342e645af6edcc1c407cdbe59b22"
   },
   {
    "vector": "card-other-format",
@@ -2069,7 +2069,7 @@
    "agree": true,
    "dotnetSays": "refused: card.json must name format 'agentmemory.pack.card/1'.",
    "pythonSays": "refused: card.json must name format 'agentmemory.pack.card/1'",
-   "sha256": "ee5da807cf6ebc95a5f3fa69bc7c1a6c870a7c9d0011c93007159c41d68bb7a5"
+   "sha256": "1ecd47e37dd075827d562395b6943654ed9917466d83f8980ed3c53635036adc"
   },
   {
    "vector": "card-terminal-escape",
@@ -2079,7 +2079,7 @@
    "agree": true,
    "dotnetSays": "refused: card.json: 'owner.name' is text of 1 to 200 characters, without control characters but a line feed or a tab.",
    "pythonSays": "refused: card.json names its owner as 'name' and, optionally, 'contact'",
-   "sha256": "5fa84a19eeb2402db1b1317adc9b6620b5c81409ebc602a4400a442db76276c7"
+   "sha256": "d8af99b922dc7d84b3842116a8154dbabe66bee21ed9ae331f33ad36b5aabd13"
   },
   {
    "vector": "card-c1-control",
@@ -2089,7 +2089,7 @@
    "agree": true,
    "dotnetSays": "refused: card.json: 'domain' is text of 1 to 100 characters, without control characters but a line feed or a tab.",
    "pythonSays": "refused: card.json: 'domain' is text of 1 to 100 characters",
-   "sha256": "a89775a22585e5eef84769e66b700d6ebc626f5e61fe796413b8b90d883a12d2"
+   "sha256": "ee8249d4b26d80f63443347471207466fca8ffcfedcaacfa5f59b21b6d20c3a6"
   },
   {
    "vector": "card-astral-at-limit",
@@ -2099,7 +2099,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:04605374d8c5dd2c05daf3258373c3b0e37fa017bb27cf23f2f223c31bb21abc",
-   "sha256": "db54eb9743e86022398c04b1d1a9b3020d5a679bfe367588a74719236ee06a49"
+   "sha256": "097ef33d3f8af065c39e216a9e38c451a77672e763f43c5e857a8da88167ba2a"
   },
   {
    "vector": "card-astral-over-limit",
@@ -2109,7 +2109,7 @@
    "agree": true,
    "dotnetSays": "refused: card.json: 'intendedUse' is text of 1 to 2000 characters, without control characters but a line feed or a tab.",
    "pythonSays": "refused: card.json: 'intendedUse' is text of 1 to 2000 characters",
-   "sha256": "f6756420f0c907c4bded866bb9cad80d897c3fbf872696b5b1778ab777377d8c"
+   "sha256": "24768b26487e684b64d4919c27fc722e143363faf50e794e6758d9bce379ccf8"
   },
   {
    "vector": "card-boundary-repeated",
@@ -2119,7 +2119,7 @@
    "agree": true,
    "dotnetSays": "refused: card.json: 'boundaries' is a list of at most 32 distinct texts of 1 to 500 characters each.",
    "pythonSays": "refused: card.json: 'boundaries' is a list of at most 32 distinct texts",
-   "sha256": "af618c9443e6465ffae51ff5edc50547cdf88e0600dc79fbd34398d537997aff"
+   "sha256": "0ce8648ecec520736e7bd9f12bc84849adb4baee1515a872bc104286448f5024"
   },
   {
    "vector": "card-owner-empty",
@@ -2129,7 +2129,7 @@
    "agree": true,
    "dotnetSays": "refused: card.json: 'owner.name' is text of 1 to 200 characters, without control characters but a line feed or a tab.",
    "pythonSays": "refused: card.json names its owner as 'name' and, optionally, 'contact'",
-   "sha256": "608eaa395aa448263a28f44257afbe50d84a53d6d9a4e375421cf2a91efd9cbe"
+   "sha256": "227a6c497d7ab0e764955fa300ce3561f4cb47c677cdef85d5e45327d4e3e7ae"
   },
   {
    "vector": "folders-differ-only-by-case",
@@ -2139,7 +2139,7 @@
    "agree": true,
    "dotnetSays": "refused: Folders differ only by case: assets/Icons, assets/icons.",
    "pythonSays": "refused: folders differ only by case: assets/Icons, assets/icons",
-   "sha256": "b3247718d69febf376f23e584da2b619ea76c6133d5c52005712f766a115bfea"
+   "sha256": "f771ebb5c00a11595c83379b54b9076accdbc8378ac90561bd5a7ce3badaa10c"
   },
   {
    "vector": "file-named-like-a-folder",
@@ -2149,7 +2149,7 @@
    "agree": true,
    "dotnetSays": "refused: 'notes' is both a file and a folder.",
    "pythonSays": "refused: 'notes' is both a file and a folder",
-   "sha256": "5191421b768d90093bc24042e8a173723abe53713922048fecf58558a5e17e4d"
+   "sha256": "ea431af7ea19ea4643720686ca5c65ac04cd3a31fbf7fa65e2078fd48258bf1f"
   },
   {
    "vector": "set-inside-a-set",
@@ -2159,7 +2159,7 @@
    "agree": true,
    "dotnetSays": "refused: packs/io.example.bundle/: packs/io.example.bundle/ is a pack set: a set carries packs, not sets.",
    "pythonSays": "refused: packs/io.example.bundle/ is a pack set: a set carries packs, not sets",
-   "sha256": "fc2061c4008a13456c626203e71079070c561e18d37a8c7585a81f1f682b6f56"
+   "sha256": "c346333b73098555974b1a085be1198ae6c9b106f12ed3f3cd3aa965badd445e"
   },
   {
    "vector": "set-member-with-the-set-id",
@@ -2169,7 +2169,7 @@
    "agree": true,
    "dotnetSays": "refused: The set io.example.bundle carries a member with its own id.",
    "pythonSays": "refused: the set carries a member with its own id",
-   "sha256": "078f18df93c4136ad96561e13a9dfad4e1b0277a040b2d294e0d715ad7e5927e"
+   "sha256": "3160f08c66089a0bff45e708b719461f2bc2e7b37d0a1eca25e81795f5c03c72"
   },
   {
    "vector": "composite-with-records",
@@ -2179,7 +2179,7 @@
    "agree": true,
    "dotnetSays": "refused: A composite pack holds no records of its own under records/.",
    "pythonSays": "refused: a composite pack holds no records of its own",
-   "sha256": "53c17c2fe2b65203d551a22c8058d52e639eda55636d806a87c7e0b36fe2a372"
+   "sha256": "47890097f730544496dd07246df844b279266e9486f9bffd84b736707295620a"
   },
   {
    "vector": "composite-member-extra-field",
@@ -2189,7 +2189,7 @@
    "agree": true,
    "dotnetSays": "refused: members.json is malformed.",
    "pythonSays": "refused: members.json is malformed",
-   "sha256": "5c09418d010f3e767e12f03f0d5709e6e736f8fa3fdb357b14b04bbc87b91fd5"
+   "sha256": "05bba9b9c27c6eddbca1b99bb6646a7f82ae615cb9dece4c448bf1d99c4543c7"
   },
   {
    "vector": "composite-member-without-version",
@@ -2199,7 +2199,7 @@
    "agree": true,
    "dotnetSays": "refused: members.json is malformed.",
    "pythonSays": "refused: members.json is malformed",
-   "sha256": "de030312af64b3d98e308e0b61e5f220233eb398c91e0522392c9466ac42837f"
+   "sha256": "72397724ccbac1754cb4f8db3d631d33e4daaceff53fb8bca79b5c5f1e852a57"
   },
   {
    "vector": "composite-member-priority-text",
@@ -2209,7 +2209,7 @@
    "agree": true,
    "dotnetSays": "refused: members.json is malformed.",
    "pythonSays": "refused: members.json is malformed",
-   "sha256": "a41fc6eebc6bf6bc865698447ee592b1ff724d9e93bd9feb52917da9ea8aa87c"
+   "sha256": "63259f17758d5bc2e969341c4b8039d09c42f82d6d64d5e5f11e4c9d76481ed4"
   },
   {
    "vector": "composite-member-enabled-text",
@@ -2219,7 +2219,7 @@
    "agree": true,
    "dotnetSays": "refused: members.json is malformed.",
    "pythonSays": "refused: members.json is malformed",
-   "sha256": "f5388d4472617efd773e32449416c929111248c269a992971e2fe55c2c1a01dd"
+   "sha256": "8e841099b61e2f36831f6240ed12444fe080043d856b28a5ffa1c1572a106eb9"
   },
   {
    "vector": "composite-member-contains-a-number",
@@ -2229,7 +2229,7 @@
    "agree": true,
    "dotnetSays": "refused: members.json is malformed.",
    "pythonSays": "refused: members.json is malformed",
-   "sha256": "ceb15a8836732de4af849a486c1ab5390724c7aa30b39ab7cc72397bbc6d7bda"
+   "sha256": "9a92425216f817409ae130322035f10d26d67d3bfe9eb4182e78e0e3f150ecc1"
   },
   {
    "vector": "valid-until-fraction-with-offset",
@@ -2239,7 +2239,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:0a3b83fa6738d49ecf0b8de55b3a3a69958825e09a123f94e50b4c1eda1d0375",
-   "sha256": "941ffb7104a5cf7e6ed5309ef89685c292b6cceb2634f6fffee3920a11e4134b"
+   "sha256": "74302a998fe739e1799408b9f7806b3a9499af6a65131713ff97a69bcb81b109"
   },
   {
    "vector": "valid-until-seven-digit-fraction",
@@ -2249,7 +2249,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:6a2ead2bcbe343d8c5db41370c82ce9e35f42da9114e8412159cf41c91936af6",
-   "sha256": "25ee07976a923e3e57e55f29dade04e07fa46657269a0138b4b73f422daf1137"
+   "sha256": "ec8f144721f0f3e656b7e5330aa003e8802775a874cd141ccc8e0dc18c09a704"
   },
   {
    "vector": "key-window-fraction-with-offset",
@@ -2259,7 +2259,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-a-private-key",
@@ -2267,9 +2267,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5: publicKey must be one PEM 'PUBLIC KEY' block and nothing else.",
+   "dotnetSays": "Key ba35476b374687c8: publicKey must be one PEM 'PUBLIC KEY' block and nothing else.",
    "pythonSays": "refused: a trusted key's publicKey is not one PEM 'PUBLIC KEY' block and nothing else",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-with-two-key-blocks",
@@ -2277,9 +2277,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5: publicKey must be one PEM 'PUBLIC KEY' block and nothing else.",
+   "dotnetSays": "Key ba35476b374687c8: publicKey must be one PEM 'PUBLIC KEY' block and nothing else.",
    "pythonSays": "refused: a trusted key's publicKey is not one PEM 'PUBLIC KEY' block and nothing else",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-key-compressed-point",
@@ -2287,9 +2287,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
+   "dotnetSays": "Key ba35476b374687c8: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
    "pythonSays": "refused: a trusted key's publicKey is not a P-256 key in its one form (an uncompressed point, canonical base64)",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-key-hybrid-point",
@@ -2297,9 +2297,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
+   "dotnetSays": "Key ba35476b374687c8: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
    "pythonSays": "refused: a trusted key's publicKey is not a P-256 key in its one form (an uncompressed point, canonical base64)",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-key-stray-base64-bits",
@@ -2307,9 +2307,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key a722aad38d83f3a5: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
+   "dotnetSays": "Key ba35476b374687c8: publicKey must be a P-256 key in its one form (an uncompressed point, canonical base64).",
    "pythonSays": "refused: a trusted key's publicKey is not a P-256 key in its one form (an uncompressed point, canonical base64)",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-second-key-off-curve",
@@ -2319,7 +2319,7 @@
    "agree": true,
    "dotnetSays": "The trust policy is malformed: The specified curve 'nistP256' or its parameters are not valid for this platform.",
    "pythonSays": "refused: a trusted key is not a PEM public key",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "policy-second-key-x-not-reduced",
@@ -2329,7 +2329,7 @@
    "agree": true,
    "dotnetSays": "The trust policy is malformed: The specified curve 'nistP256' or its parameters are not valid for this platform.",
    "pythonSays": "refused: a trusted key is not a PEM public key",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-empty-list-in-two-envelopes",
@@ -2339,7 +2339,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-one-list-in-two-envelopes",
@@ -2349,7 +2349,7 @@
    "agree": true,
    "dotnetSays": "refused: The pack sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f is revoked.",
    "pythonSays": "refused: the pack is revoked",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-65-lists",
@@ -2359,7 +2359,7 @@
    "agree": true,
    "dotnetSays": "The revocation document set is more than 64 documents; give the lists you still rely on.",
    "pythonSays": "refused: the revocation documents of this run are more than 64",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-shape-envelope-extra-field",
@@ -2369,7 +2369,7 @@
    "agree": true,
    "dotnetSays": "The revocation document is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature).",
    "pythonSays": "refused: the revocation document is not a DSSE envelope of a revocation document",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-shape-entry-extra-key",
@@ -2379,7 +2379,7 @@
    "agree": true,
    "dotnetSays": "The revocation document is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature).",
    "pythonSays": "refused: the revocation document is not a DSSE envelope of a revocation document",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-shape-entry-without-sig",
@@ -2389,7 +2389,7 @@
    "agree": true,
    "dotnetSays": "The revocation document is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature).",
    "pythonSays": "refused: the revocation document is not a DSSE envelope of a revocation document",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "revocations-shape-keyid-uppercase",
@@ -2399,7 +2399,7 @@
    "agree": true,
    "dotnetSays": "The revocation document is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature).",
    "pythonSays": "refused: the revocation document is not a DSSE envelope of a revocation document",
-   "sha256": "92f61d786438d8c7d1c25df8575062016749eabab44f7a11ace2d477c7ba4806"
+   "sha256": "aa5e8f54dda53b4bbb9d0ea40a1cbae06d3429cde590102fa14fa82ba204ada7"
   },
   {
    "vector": "envelope-closed-shapes-hold",
@@ -2409,7 +2409,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "87e10a524fe2f32872544fe8216f296a9753945832bad353982da0b995b9a003"
+   "sha256": "d1c69e3e35f1ff166b17eadef982ff22721c166f493bf31f372deed2c23ea9a8"
   },
   {
    "vector": "envelope-extra-field",
@@ -2418,8 +2418,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json holds a field a DSSE envelope does not have",
-   "sha256": "c087c1c2386a594b62ee9b50266cda3cbf12c3d3c4c2c1a83c731efb8652e905"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json holds a field a DSSE envelope does not have",
+   "sha256": "80125b793971de09ca5992df4099418923cbbe0acdc784818af58e0d513e3ec1"
   },
   {
    "vector": "statement-extra-field",
@@ -2428,8 +2428,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json does not sign this pack",
-   "sha256": "b47f9fe4767923357e912b76d7e68995388ff4c45ac76015110fe3a468e3735a"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json does not sign this pack",
+   "sha256": "07e2bc202610d31af300bd09e953b5f63218e3769404230dbc1be6d444264be0"
   },
   {
    "vector": "predicate-extra-field",
@@ -2438,8 +2438,8 @@
    "python": "refused",
    "agree": true,
    "dotnetSays": "refused: No valid publisher signature: a pack is refused unless a key the host trusts for 'io.example.notes' signed it as publisher.",
-   "pythonSays": "refused: META/signatures/publisher-a722aad38d83f3a5.dsse.json does not sign this pack",
-   "sha256": "6e25bcf94865bcfe78019bca500a2e2ca7f7247eb7671e1e589b15626ed241b0"
+   "pythonSays": "refused: META/signatures/publisher-ba35476b374687c8.dsse.json does not sign this pack",
+   "sha256": "5f0dd8292535f4ac6b4cfb05f3fbb660ae63ca85e56d810fdfe271a34de160ca"
   },
   {
    "vector": "federated-valid-dotnet",
@@ -2449,7 +2449,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.handoff 1.0.0",
    "pythonSays": "verified io.example.handoff 1.0.0 sha256:80616665b877680b19f8555e58b1ff11a620c56908547d210a67542ad9a9dec3",
-   "sha256": "4b74e12cba9ddcd0130b78e180a5b41780355b71e5313f69fee87e420dc1f50f"
+   "sha256": "8b154cd67d3124d471da9495fdc1e2373b12d9b9189b75017756657f04123e9d"
   },
   {
    "vector": "prefix-bytes",
@@ -2459,7 +2459,7 @@
    "agree": true,
    "dotnetSays": "The archive has bytes between the central directory and the end record.",
    "pythonSays": "refused: the central directory is not where the end record says",
-   "sha256": "64bd4724300eab56129cf5f52a609417c31d2445c8195a836045d2b1aafee444"
+   "sha256": "0ab1ae196a2aa0f3341b9e3ca9b41413c6455983dc409a8354057c643d211143"
   },
   {
    "vector": "trailing-bytes",
@@ -2469,7 +2469,7 @@
    "agree": true,
    "dotnetSays": "The archive does not end with the end-of-central-directory record (a comment or trailing bytes).",
    "pythonSays": "refused: the archive does not end with the end record",
-   "sha256": "a216be931604981d8007ce0032f5d51441c4db95edfa5b4239b7269f46dce98e"
+   "sha256": "857d688ef30b97777156a5a05fd77bdcf529d82d5c47d4deb4b753346aa5a815"
   },
   {
    "vector": "archive-comment",
@@ -2479,7 +2479,7 @@
    "agree": true,
    "dotnetSays": "The archive does not end with the end-of-central-directory record (a comment or trailing bytes).",
    "pythonSays": "refused: the archive does not end with the end record",
-   "sha256": "e848861a638e9686a7c0a63eb55eba2a5cbaf3c14edfd141d02a2aa49c1ba05f"
+   "sha256": "2a1f43892cafc8e5ac39e68fc0418b85527365e13e34d51ee079b43bdafda899"
   },
   {
    "vector": "unsorted-entries",
@@ -2489,7 +2489,7 @@
    "agree": true,
    "dotnetSays": "The archive entry 'records/note.jsonl' is out of order or repeated.",
    "pythonSays": "refused: entry 'records/note.jsonl' is out of order, repeated or not contiguous",
-   "sha256": "51c01781d3346090c4fffa4a235b0987b51837e9bfdfdc9d049e90a723050617"
+   "sha256": "11e0cdad9abed22c965a1160f6e6e6bcbafc7309c2cb2cb91c6a2cc5c8a7cc2a"
   },
   {
    "vector": "data-descriptor-flag",
@@ -2499,7 +2499,7 @@
    "agree": true,
    "dotnetSays": "The archive entry 'META/files.json' sets flags 0008 (data descriptors, encryption and options are refused).",
    "pythonSays": "refused: entry 'META/files.json' is not in the profile",
-   "sha256": "c5bb786ee0bb64ad669b9aa9f6fe7a90dc528b5e1e21a7b4f5d7d1e157866e14"
+   "sha256": "9bb0729e10d2eb8af5f8c9982d9f072e961a53ee8d4585b98307f6d6de95f621"
   },
   {
    "vector": "local-name-differs",
@@ -2509,7 +2509,7 @@
    "agree": true,
    "dotnetSays": "The archive entry 'META/files.json' has a local header that differs from its central-directory entry.",
    "pythonSays": "refused: entry 'META/files.json' has a local header that differs from the central directory",
-   "sha256": "93bbbddcc665df330a3951a332c6470d5f6d366353bf2f99e7c8833434399894"
+   "sha256": "2b228b7b9d9f47247be122b48bdfb701f1674d7932de5e2a406b16ec15a0c645"
   },
   {
    "vector": "deflate-valid",
@@ -2519,7 +2519,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "8756088fca9a05a31ec6cdc2aee1c3b9b06117d16f50c6449afb91b721b45214"
+   "sha256": "a0b936e86465dd609f8d21c4e7cf5f39530fa70c2f6713ef0aecfaae6ccab8c2"
   },
   {
    "vector": "deflate-trailing-bytes",
@@ -2529,7 +2529,7 @@
    "agree": true,
    "dotnetSays": "The archive entry 'records/note.jsonl' has bytes after the end of its deflate stream.",
    "pythonSays": "refused: entry 'records/note.jsonl' has bytes after the end of its deflate stream",
-   "sha256": "cc41d2feaaa082f75024e20d5c2aa403e7afd2ad65a761a5a969f01e2554b181"
+   "sha256": "de62bb38074ecc6c103f05db1fa46db47a7b66f5074c0075d54b425b45f60858"
   },
   {
    "vector": "deflate-without-its-final-block",
@@ -2539,7 +2539,17 @@
    "agree": true,
    "dotnetSays": "The archive entry 'records/note.jsonl' has a deflate stream without its final block.",
    "pythonSays": "refused: entry 'records/note.jsonl' does not inflate to its declared size",
-   "sha256": "25ae166fca74b2b70b89e76fcc4d67ab2b9c0a10a52e521a04a88304af174f06"
+   "sha256": "f589e1507f1548b512f7a0e9224d0b8ccd8717fe5703425d355948a733667c6d"
+  },
+  {
+   "vector": "deflate-damaged",
+   "expected": "refused",
+   "dotnet": "refused",
+   "python": "refused",
+   "agree": true,
+   "dotnetSays": "The archive entry 'META/files.json' is not a valid deflate stream.",
+   "pythonSays": "refused: entry 'META/files.json' is not a valid deflate stream",
+   "sha256": "caaafb9c33e24810a4840c6d4b9abc34207a9f652e2b4322b4280664fc8913bb"
   },
   {
    "vector": "archive-ratio-over-250",
@@ -2549,7 +2559,7 @@
    "agree": true,
    "dotnetSays": "The archive entry 'assets/zeros.bin' declares a compression ratio above 250:1.",
    "pythonSays": "refused: entry 'assets/zeros.bin' breaks a size rule",
-   "sha256": "5035f0ea2eefb6d489dfee1907d43bb459801577acac935616a75eae2cdd98a7"
+   "sha256": "9661756c6120260a5971b9f80248906bbcd940c747a661dc99e0f6a221f2e772"
   },
   {
    "vector": "archive-ratio-control-stored",
@@ -2559,7 +2569,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:2026a220cd0fcfecefecf593bcec5cd156c937ae4763cb3f2501e6a22e9d608e",
-   "sha256": "b23ff67c505e976936623548662e1ee8ca3ca912d8df7b9fab17cb3deb71ac23"
+   "sha256": "961cb95cb7552b1e0789aa553d0a4c23a48559aa997bda6093964ddb24beb592"
   },
   {
    "vector": "archive-deflate-empty-declares-content",
@@ -2569,7 +2579,7 @@
    "agree": true,
    "dotnetSays": "The archive entry 'META/files.json' declares a compression ratio above 250:1.",
    "pythonSays": "refused: entry 'META/files.json' breaks a size rule",
-   "sha256": "546e10e2525512dd5d091329ef8ca1c383407bdf9877050a2467a0873f8b9346"
+   "sha256": "d8232502ec0d119b77e6277ba795794d38701ab7aaef04eedec176fa92badbab"
   },
   {
    "vector": "archive-4096-files",
@@ -2579,7 +2589,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:eafef73184d5ae52ea3358c96f112352d867f9069daf8e859fc6eecdf59ce61d",
-   "sha256": "429e13da95aa785b6ea0bc53057e860885f50876cc88f7591a6404a0e824a042"
+   "sha256": "af4bd9ae6b8803854e655087c7986a7c86fb28cc75549b72c8fb3f594ca33c8f"
   },
   {
    "vector": "archive-4097-files",
@@ -2589,7 +2599,7 @@
    "agree": true,
    "dotnetSays": "The archive holds more than 4096 files.",
    "pythonSays": "refused: the archive holds more than 4096 files",
-   "sha256": "db398f4b90ae4fafc7c1fe5bb52cc74a760bf5f1aeb9ea74f70e1a84e5f7c53b"
+   "sha256": "2c64f7ac51bac5de469c941582b099802aa63c56dd080ee2e7924e3d90a8f974"
   },
   {
    "vector": "attestation-certificate-content-unchecked",
@@ -2599,7 +2609,7 @@
    "agree": true,
    "dotnetSays": "Verified io.example.notes 1.0.0",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:123c05b7b27f33b20a74b56cefaab49847d16d50b3c1b695af283479fa75643f",
-   "sha256": "9bf78edd81345806ceb68c2a7176f3f6e4f99a2809184de7b442fe19a2ab3f2e"
+   "sha256": "895be92a735023ed9afc4cb106603879485247f0ff9124b1c7cc95e1ff6a0cb2"
   },
   {
    "vector": "attestation-stray-file",
@@ -2609,7 +2619,7 @@
    "agree": true,
    "dotnetSays": "refused: 'META/attestations/notes.txt' is not an attestation: META/attestations/ holds <stem>.certificate.dsse.json and <stem>.aef/\u2026 only.",
    "pythonSays": "refused: 'META/attestations/notes.txt' is not an attestation",
-   "sha256": "edc055c606fec0f504f48788328ee8bf2a2be8ab5ca076f8d8f72bc4c0954bbb"
+   "sha256": "16ce97ba99ae403bc24ef78883f90b9c505dcf47bb3b67a56549c4b981577f8a"
   },
   {
    "vector": "attestation-run-without-certificate",
@@ -2619,7 +2629,7 @@
    "agree": true,
    "dotnetSays": "refused: The AEF run 0123456789abcdef-20261028t120000z.aef/ travels without its certificate.",
    "pythonSays": "refused: the AEF run 0123456789abcdef-20261028t120000z.aef/ travels without its certificate",
-   "sha256": "89d3306af4c8e7bd62889bdb4ff6e0fa6a318662c527a8e2e2d6e07f25232d30"
+   "sha256": "4e4732299be93d72c5cf4288cef4860314b71b5315f44f039f826bcb9b7c4dd3"
   },
   {
    "vector": "attestation-certificate-too-large",
@@ -2629,7 +2639,7 @@
    "agree": true,
    "dotnetSays": "refused: 'META/attestations/0123456789abcdef-20261028t120000z.certificate.dsse.json' is larger than 64 KiB.",
    "pythonSays": "refused: 'META/attestations/0123456789abcdef-20261028t120000z.certificate.dsse.json' is larger than 64 KiB",
-   "sha256": "88359e4897743efef2c593b8d70b99cfe5dce46b17a2b280fe295f849d9b4cb5"
+   "sha256": "be2fbe435565797ecb1b25f35834ffbf7e3a3df89b2afc2477bd26e305786128"
   },
   {
    "vector": "attestation-nine-certificates",
@@ -2639,7 +2649,7 @@
    "agree": true,
    "dotnetSays": "refused: The pack carries 9 certificates; at most 8.",
    "pythonSays": "refused: the pack carries 9 certificates; at most 8",
-   "sha256": "f6490f9159f805b6a23d6dde22d0630c2940139aa0e363ee8066a03a85a7a777"
+   "sha256": "fca1f15d094b0c446bbba4b0d406797e848858d49657364a407055ebe113a06f"
   },
   {
    "vector": "attestation-uppercase-stem",
@@ -2649,7 +2659,7 @@
    "agree": true,
    "dotnetSays": "refused: 'META/attestations/ABC.certificate.dsse.json' is not an attestation: META/attestations/ holds <stem>.certificate.dsse.json and <stem>.aef/\u2026 only.",
    "pythonSays": "refused: 'META/attestations/ABC.certificate.dsse.json' is not an attestation",
-   "sha256": "7488462fc7c1e9cfe546fcc78181c6c9164b57748095329cc2fee9818f65376c"
+   "sha256": "d9699fc44e8b26265ea9bb39fcd668f9e0f9f8ae5974524f2473aa7604e31a0a"
   },
   {
    "vector": "receipt-valid-python",
@@ -2659,7 +2669,7 @@
    "agree": true,
    "dotnetSays": "Verified the placement of io.example.notes 1.0.0 at https://supplier-a.example/ampack/handoff.ampack",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:191de2b29afdaa9d25354bade3532783325866fdb3a93818466e5e2f8f829175",
-   "sha256": "3035ac7d7e3860d35c42a4c119e5d6b7dd34020b591fd84ef98d9e8cff4393cd"
+   "sha256": "70ff81cc6005233db28c373e599f60a81402cbe5fcc3b447f2e08fb3a4f9607d"
   },
   {
    "vector": "receipt-shape-envelope-extra-field",
@@ -2669,7 +2679,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures, each a key id and a signature.",
    "pythonSays": "refused: the receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures",
-   "sha256": "2c3afa8bc67cc9c02ff3f4df3af827ad39a191a821bad34e335c5b8269f30825"
+   "sha256": "9b8ff25ee0b4f9bea95d08bb423ec7f1878a287896bebffbf5924beff91aaaa2"
   },
   {
    "vector": "receipt-shape-entry-extra-key",
@@ -2679,7 +2689,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures, each a key id and a signature.",
    "pythonSays": "refused: the receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures",
-   "sha256": "8e378388ae14bd8299fe01bc424c62f922a513f23bd1240156c15a4e05ff341b"
+   "sha256": "6333e3893598b64ec6b19608d279a0aeea29a933db468090a5456c7ec887cf80"
   },
   {
    "vector": "receipt-shape-entry-without-sig",
@@ -2689,7 +2699,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures, each a key id and a signature.",
    "pythonSays": "refused: the receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures",
-   "sha256": "68f6951b95f951156371813b5b8132b38eaac307bb9630904dc6afc3082162f7"
+   "sha256": "b1478b1903fe94de3b1000e0f62b7d2102326564e56f397d4721be9a51d56976"
   },
   {
    "vector": "receipt-shape-keyid-uppercase",
@@ -2699,7 +2709,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures, each a key id and a signature.",
    "pythonSays": "refused: the receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures",
-   "sha256": "237f50a19dcb1176b2c61f2eff973eda80c49e4fae6f1aeecc2d1e2efbb23115"
+   "sha256": "c3b9de0ec1832140eedcd8b1c18b19d9ba3b25f5acb9a5ceee016d1572c55977"
   },
   {
    "vector": "receipt-valid-dotnet",
@@ -2709,7 +2719,7 @@
    "agree": true,
    "dotnetSays": "Verified the placement of io.example.handoff 1.0.0 at https://supplier-a.example/ampack/handoff.ampack",
    "pythonSays": "verified io.example.handoff 1.0.0 sha256:80616665b877680b19f8555e58b1ff11a620c56908547d210a67542ad9a9dec3",
-   "sha256": "4302cdcaf3f3b14c410536662f8fb340277793ac8b8573a63e18b8169acdfed2"
+   "sha256": "6f4807fd8244534721c09b383cd11a3f302414ad35e3d3781934e90727f15fc8"
   },
   {
    "vector": "receipt-narrower-placement",
@@ -2719,7 +2729,7 @@
    "agree": true,
    "dotnetSays": "Verified the placement of io.example.notes 1.0.0 at https://supplier-a.example/ampack/handoff.ampack",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:55c085c18713d7acfa4114a11c7c2e5afcf900f6ef4db30877900cf11ff68aff",
-   "sha256": "987a6234cb1444799e88341869c7cea9800caeec09e0d441c17d808d34d2f796"
+   "sha256": "d3230fdef1b5273789490a5df08762f7e7b70946f107fd81e916d29a461637a4"
   },
   {
    "vector": "receipt-other-location",
@@ -2729,7 +2739,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt places the pack at https://supplier-a.example/ampack/handoff.ampack, not at https://mirror.example/ampack/handoff.ampack, where it was fetched.",
    "pythonSays": "refused: the receipt places the pack elsewhere than where it was fetched",
-   "sha256": "dbfcf6a7359a49bb5d1319a23c349ef60cc9756d5e443fd22c702f25074ea4a4"
+   "sha256": "021e843da5fbaafccfa2f8b4b06876821b8706767d5c0e509ee906a71623d757"
   },
   {
    "vector": "receipt-other-bytes",
@@ -2739,7 +2749,7 @@
    "agree": true,
    "dotnetSays": "refused: The archive fetched is not the archive the receipt names (its SHA-256 differs).",
    "pythonSays": "refused: the archive fetched is not the archive the receipt names",
-   "sha256": "0a4bfa959b60424b77ea946f14a319f253ebd6c537c1f3e137c67f5f6be175da"
+   "sha256": "fee481a7d8b65508d9a866f94a3ac0b36971a22e980fea3a1ad8512a0556f726"
   },
   {
    "vector": "receipt-wider-audience",
@@ -2749,7 +2759,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt grants a wider audience than the pack allows: a placement can only narrow it.",
    "pythonSays": "refused: the receipt grants a wider audience than the pack allows",
-   "sha256": "23297d979296a3fde9259ddae2f61cca1b4b9b71b73543fbbd25f9b16833ec40"
+   "sha256": "910c206f006d6b51559028e02b4fefa9aecef08fe201ed34c3f867be291fa93f"
   },
   {
    "vector": "receipt-public-placement-of-named-pack",
@@ -2759,7 +2769,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt grants a wider audience than the pack allows: a placement can only narrow it.",
    "pythonSays": "refused: the receipt grants a wider audience than the pack allows",
-   "sha256": "85a377b3a8a205359e6da8b3f4cd103522bdcad3825e9995cba3ba62f82cfc6a"
+   "sha256": "978cb8c09121e7d9198b0d672651f4e92933da761cd01b0addd5ee43af31f263"
   },
   {
    "vector": "receipt-host-outside-placement",
@@ -2769,7 +2779,7 @@
    "agree": true,
    "dotnetSays": "refused: The placement is for https://stranger.example/profile/card#me; this host is https://buyer-b.example/profile/card#agent.",
    "pythonSays": "refused: the placement is not for this host",
-   "sha256": "8ecc6214ce9f4bd8bbd9d83824e40089e3754839bd1563ecac2d200847edb0b5"
+   "sha256": "b1d3919bc61e87f7131e3ffd65884cebdcb057f1a982a93f84c9cf63b6441131"
   },
   {
    "vector": "receipt-named-without-anonymous-refused",
@@ -2779,7 +2789,7 @@
    "agree": true,
    "dotnetSays": "refused: A receipt for named readers records that anonymous was refused.",
    "pythonSays": "refused: a receipt for named readers records that anonymous was refused",
-   "sha256": "11f52e764ee6968c0a30c6b7261f9e2f60c674f1d5855bbf0698f555eefe8c1f"
+   "sha256": "7bb3b3bd89c173b014144726caba7cf40751b359d72f4a15d92031e12acabadb"
   },
   {
    "vector": "receipt-allowed-outside-audience",
@@ -2789,7 +2799,7 @@
    "agree": true,
    "dotnetSays": "refused: A receipt records a reader outside its audience as allowed.",
    "pythonSays": "refused: a receipt records a reader outside its audience as allowed",
-   "sha256": "40602f994dbbc4c4ac951ea930225fd3d4220d2e3856ade7f85b10f7de46af1e"
+   "sha256": "c8ee68907feeeb0572a68b492f1b567153929495cecea71ec374360f4dcae308"
   },
   {
    "vector": "receipt-audience-member-refused",
@@ -2799,7 +2809,7 @@
    "agree": true,
    "dotnetSays": "refused: A receipt records a reader in its audience as refused.",
    "pythonSays": "refused: a receipt records a reader in its audience as refused",
-   "sha256": "6fb1aca96abb2287142fef34b4ad20ff04e70c490287331a17afd194a1d5ed6b"
+   "sha256": "98f96b21b8c3e33f480de4d372bced63e4fd32e1c32012aa964589dcad097e87"
   },
   {
    "vector": "receipt-public-valid",
@@ -2809,7 +2819,7 @@
    "agree": true,
    "dotnetSays": "Verified the placement of io.example.notes 1.0.0 at https://supplier-a.example/ampack/handoff.ampack",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:a8ce04ba174c710340eb06467a27f062021b74f355bc7981b333e57b2244e4e1",
-   "sha256": "3ce84dcc5b643f54792532e1675c592a6a596a44447f447551e53446b5701cce"
+   "sha256": "c0dfa0e07d56d76698de7f47352b1b4171d0ac73e53b1266a847108ce446cf13"
   },
   {
    "vector": "receipt-public-anonymous-refused",
@@ -2819,7 +2829,7 @@
    "agree": true,
    "dotnetSays": "refused: A public receipt records nobody as refused.",
    "pythonSays": "refused: a public receipt records nobody as refused",
-   "sha256": "032e80632af0cc4d1b5b3a668d41b6c8f7d4f8ca77dd1fe73ae76d3dfd04d29e"
+   "sha256": "5ac36fb481615a3e15caa035dc4ad75455d83e267cbd2187182c476bb87ed84b"
   },
   {
    "vector": "receipt-public-webid-refused",
@@ -2829,7 +2839,7 @@
    "agree": true,
    "dotnetSays": "refused: A public receipt records nobody as refused.",
    "pythonSays": "refused: a public receipt records nobody as refused",
-   "sha256": "f1aed8daa529b93c71d47c03c3f3f22998111e13cd0b5f7139d12cd04469306e"
+   "sha256": "ac48d3a5ee6811d98b28b1eb4fd037535973aa3b8eeabb53c72e186ac44deec7"
   },
   {
    "vector": "receipt-signed-by-second-bound-key",
@@ -2839,7 +2849,7 @@
    "agree": true,
    "dotnetSays": "Verified the placement of io.example.notes 1.0.0 at https://supplier-a.example/ampack/handoff.ampack",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:191de2b29afdaa9d25354bade3532783325866fdb3a93818466e5e2f8f829175",
-   "sha256": "5033a8c82be980ca68bcb6a44aafd3b4f3d328f3ec21332f482d8d9007236e10"
+   "sha256": "7d3b293af7cf3cf8a215b4c41e2fe336928b93ae0dd641339bf139265395304a"
   },
   {
    "vector": "receipt-signer-curator-only",
@@ -2847,9 +2857,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: The receipt: key fa1098f4ee7e564d may not sign as publisher.",
+   "dotnetSays": "refused: The receipt: key f523b17bc4bf5ec1 may not sign as publisher.",
    "pythonSays": "refused: no valid receipt signature by a key bound to the pack's publisher",
-   "sha256": "eff4650245872f511c437a1fc349736479c3306fc8623ca8fdd21fd8514daf9b"
+   "sha256": "b2f8c06e6753ce2ae31b37ee2af5bc303c36274050bace1c153940dad05429e8"
   },
   {
    "vector": "receipt-signer-revoked",
@@ -2857,9 +2867,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: The receipt: key 8909c071e812777a is revoked.",
+   "dotnetSays": "refused: The receipt: key 3627467e31aebe6a is revoked.",
    "pythonSays": "refused: no valid receipt signature by a key bound to the pack's publisher",
-   "sha256": "0b5bd15dfdb90f7d792b0de9e2a0a0f157a98ab9943ce8d2ec7a98f3e777c5a9"
+   "sha256": "cc37d0985b4b52a3f89a6b52d529ae8c63a592605a3117e9236d565facc64b58"
   },
   {
    "vector": "receipt-signer-expired",
@@ -2867,9 +2877,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: The receipt: key 8909c071e812777a had expired at the signing time.",
+   "dotnetSays": "refused: The receipt: key 3627467e31aebe6a had expired at the signing time.",
    "pythonSays": "refused: no valid receipt signature by a key bound to the pack's publisher",
-   "sha256": "3dc8291ebf01391c27b84baf938d721dafac79d877e63a92cebeb97112d180de"
+   "sha256": "a8882e6094f1b90bc1ec1dbc39060a8b971f8e099abeaa92922a4db37f2451c0"
   },
   {
    "vector": "receipt-subject-other-digest",
@@ -2879,7 +2889,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt is for 0000000000000000\u2026, not this pack (191de2b29afdaa9d\u2026).",
    "pythonSays": "refused: the receipt is for another pack",
-   "sha256": "0e8e2dc3cebb4126428a834cf73d6a778ff60d8850de5d84648a1806b9b6258e"
+   "sha256": "afd14ec15b81805d2c2d77bdb69cd0cf14144e01492397a0ee42fe265dd0ec94"
   },
   {
    "vector": "receipt-set-valid",
@@ -2888,8 +2898,8 @@
    "python": "verified",
    "agree": true,
    "dotnetSays": "Verified the placement of io.example.bundle 1.0.0 at https://supplier-a.example/ampack/handoff.ampack",
-   "pythonSays": "verified io.example.bundle 1.0.0 sha256:aa4b4b5e49d0039a37116ec95c4854579e801bdf4506e91a0f34ef3aae7db33d",
-   "sha256": "c79c05df5d8c16a5d1c67f7a250e6e6f5b6243938ab52e186aa90ee4a3e96e9d"
+   "pythonSays": "verified io.example.bundle 1.0.0 sha256:72c9adcad1b56b4641ae1dda4d4813a28ac136de99cdea1d02ef93f746e86973",
+   "sha256": "ca960d98d03154c7191c2e5243a5a1a7a7162df677f4c9aeb3250876ccdb0e1d"
   },
   {
    "vector": "receipt-set-member-untrusted",
@@ -2897,9 +2907,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: packs/io.example.notes/: META/signatures/publisher-8909c071e812777a.dsse.json: key 8909c071e812777a is not in the trust policy.",
+   "dotnetSays": "refused: packs/io.example.notes/: META/signatures/publisher-3627467e31aebe6a.dsse.json: key 3627467e31aebe6a is not in the trust policy.",
    "pythonSays": "refused: packs/io.example.notes/: no valid signature in role publisher",
-   "sha256": "98c5f462e3a8ee29428e269d4c54423941f39b4ef7cafa909ac1b72deb6bd979"
+   "sha256": "8ca4d051dd950fb0b80229ce798a4646569f6279f80d9887e826c7beda5097a5"
   },
   {
    "vector": "receipt-signer-bound-elsewhere",
@@ -2907,9 +2917,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: Key 8909c071e812777a that signed the receipt is not bound to the pack's publisher https://supplier-a.example/profile/card#org.",
+   "dotnetSays": "refused: Key 3627467e31aebe6a that signed the receipt is not bound to the pack's publisher https://supplier-a.example/profile/card#org.",
    "pythonSays": "refused: no valid receipt signature by a key bound to the pack's publisher",
-   "sha256": "209bf8456d4b191b88cd083a20f1640688ab329b38779c1a96a7229a80a29e47"
+   "sha256": "370443f35cba736f07361d5ce97fc9746156a0d6170ec61b29616c676611291a"
   },
   {
    "vector": "receipt-signer-untrusted",
@@ -2917,9 +2927,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: Key 8909c071e812777a that signed the receipt is not in the trust policy.",
+   "dotnetSays": "refused: Key 3627467e31aebe6a that signed the receipt is not in the trust policy.",
    "pythonSays": "refused: no valid receipt signature by a key bound to the pack's publisher",
-   "sha256": "0fbcdfac124b2abbb7ed7750e44d161289345e6bd117d9c6d2e18881ad0431f6"
+   "sha256": "38b4fe0d8ca20a4a6a9b065a76c5a47078c4ead8de0756301049981dd3824fd0"
   },
   {
    "vector": "receipt-edited-after-signing",
@@ -2927,9 +2937,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: The receipt's signature by a722aad38d83f3a5 does not verify.",
+   "dotnetSays": "refused: The receipt's signature by ba35476b374687c8 does not verify.",
    "pythonSays": "refused: no valid receipt signature by a key bound to the pack's publisher",
-   "sha256": "a1a4153270920ddbe0bdbf456fc564afe8582426dd7d396d66ab161057de4afc"
+   "sha256": "3f58e3d323af0fab4243740021c44f2663a875039105db56c09c71851dbaea15"
   },
   {
    "vector": "receipt-extra-field",
@@ -2939,7 +2949,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt's predicate holds other fields than this format defines.",
    "pythonSays": "refused: the receipt's predicate holds other fields than this format defines",
-   "sha256": "9ce07b181e50eaca8e04c2a10b04785bdaf86c98954d84bdd88a70cda86696ec"
+   "sha256": "cbff66e3a2240b8806ffa3feb0eff349cef74cb05d514887c7383d33353e8586"
   },
   {
    "vector": "receipt-access-public-with-names",
@@ -2949,7 +2959,7 @@
    "agree": true,
    "dotnetSays": "refused: A receipt's access is public exactly when its audience is public.",
    "pythonSays": "refused: a receipt's access is public exactly when its audience is public",
-   "sha256": "aedf81dee2e4e7c22fe82ff29abb0561e4d21c6163501f600d62a120ba255ef0"
+   "sha256": "e3b417113c953129c391b5f9f2ff0fab492d1678d0646d107d359cc5498d1052"
   },
   {
    "vector": "receipt-access-unknown",
@@ -2959,7 +2969,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt's access is wac, acp or public.",
    "pythonSays": "refused: the receipt's access is wac, acp or public",
-   "sha256": "ef013066b11931f70b2bb158d2e32b4d14e3af34b67ddcac58d7e56e71cf67ab"
+   "sha256": "26c7afae0b74d4c0f203efa5b4c2aac2a1d1d3e2b61708e9c16511bfa70fa9d0"
   },
   {
    "vector": "receipt-in-the-future",
@@ -2967,9 +2977,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: The receipt: the signature by a722aad38d83f3a5 claims a time in the future.",
+   "dotnetSays": "refused: The receipt: the signature by ba35476b374687c8 claims a time in the future.",
    "pythonSays": "refused: no valid receipt signature by a key bound to the pack's publisher",
-   "sha256": "d8ad82b680f847cc9e59515f95b341712e1515902fa590e5d91e348e65d437de"
+   "sha256": "64f06587d6f0136a2c8c295891f988001156771bc466bf499ad81210faee051d"
   },
   {
    "vector": "receipt-time-not-utc",
@@ -2979,7 +2989,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt has no publishing time in UTC (yyyy-MM-ddTHH:mm:ssZ).",
    "pythonSays": "refused: the receipt has no publishing time in UTC",
-   "sha256": "44fa1ff695e18bb978783a09d1f3ead6709b10f056cd488fa9cc05a7e1899c56"
+   "sha256": "927a2518eb2897d478db21f8f75cf9b81bb5062c1e77fc4ee318b5226aa74b93"
   },
   {
    "vector": "receipt-location-fragment",
@@ -2989,7 +2999,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt's location is not an https URL (http only for localhost) in the WebID grammar, without a fragment.",
    "pythonSays": "refused: the receipt's location is not an https URL in the WebID grammar, without a fragment",
-   "sha256": "62fd0ced884b230e841b1d40d2fa3f4c4f223ded1a0d5c3fbc5d1c899a5686f6"
+   "sha256": "66c96d4e42658ef8a70c8328b6942d90053b081c946ac9e66aad32077fc2da88"
   },
   {
    "vector": "receipt-two-subjects",
@@ -2999,7 +3009,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt must name exactly one subject: META/files.json and its SHA-256.",
    "pythonSays": "refused: the receipt must name exactly one subject: META/files.json and its SHA-256",
-   "sha256": "bf48f7a22e2e8cb1cea5ba9cc67bec43fdb53131f1a23059a7069dcb4a10fe2d"
+   "sha256": "396b2adb36ba03e9b466cf026336c7648c4bdffc4ed788912f9adef5f51721e2"
   },
   {
    "vector": "receipt-probe-not-webid",
@@ -3009,7 +3019,7 @@
    "agree": true,
    "dotnetSays": "refused: The receipt's 'checked' is an object of 'denied' and 'allowed', each a list of at most 64 WebIDs ('anonymous' may be denied).",
    "pythonSays": "refused: the receipt's checked.allowed is a list of at most 64 WebIDs",
-   "sha256": "c69bf78af6f7e49f22b538c6b656fca26262e177f4135063071de5adefaab2fb"
+   "sha256": "b031861257a651fc2416223e32041baf48df0182a54280d8105084947e097577"
   },
   {
    "vector": "receipt-for-unfederated-pack",
@@ -3019,7 +3029,7 @@
    "agree": true,
    "dotnetSays": "refused: A publication receipt is for a federated pack; this pack names no publisher or audience.",
    "pythonSays": "refused: a publication receipt is for a federated pack",
-   "sha256": "fd65120800d47c1e7fd4eec3872c41a2f5b084d920ada3db937204e350352c00"
+   "sha256": "a9b793d0a40c20ea3219bb5ae3a31e70f15e6a2ea528acc15a3d8b5c9fd77bc4"
   },
   {
    "vector": "certificate-valid-python",
@@ -3027,9 +3037,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "0e63dbf7613c0f0a1323fa5d469095da95c61974bca03cb0ca5e0a2f58076580"
+   "sha256": "30e8153ccf0df4fd381820f5cfdabe63cc57c2a338e323da346c4098e2ed71cc"
   },
   {
    "vector": "certificate-valid-dotnet",
@@ -3037,9 +3047,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "0aaabd4c0047b6b6780c25a62db2161f08b7023029e6e6e5f810c3dee5cd6b32"
+   "sha256": "2f7380bdb539231ce044c5668f6863ce67d2b61ea5a395614cf350aa81eaee95"
   },
   {
    "vector": "certificate-as-a-separate-file",
@@ -3049,7 +3059,7 @@
    "agree": true,
    "dotnetSays": "Verified the certificate C:\\git\\joslat\\agent-memory-dotnet\\conformance\\pack-v1.1\\vectors\\certificate-as-a-separate-file.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "54b7799061f0e56481ceec53cda7696a87cce26fcbac9f61b23b0d8848f889b3"
+   "sha256": "f7d9d339c3e851b48d0fca76179507ba0cfeb5d1a7fabbc8e917cf5f3ba48d0b"
   },
   {
    "vector": "certificate-shape-envelope-extra-field",
@@ -3059,7 +3069,7 @@
    "agree": true,
    "dotnetSays": "refused: C:\\git\\joslat\\agent-memory-dotnet\\conformance\\pack-v1.1\\vectors\\certificate-shape-envelope-extra-field.certificate.dsse.json: The certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures, each a key id and a signature.",
    "pythonSays": "refused: the certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures",
-   "sha256": "b85ed3012caa31387abbc9dd9e5175c64b4944be98d82deac5cc176eb7fc9f4e"
+   "sha256": "c8ba643586b6ce3035e1f6f87c75852f09a5d73b9f32ca412b87837a6316f6d3"
   },
   {
    "vector": "certificate-shape-entry-extra-key",
@@ -3069,7 +3079,7 @@
    "agree": true,
    "dotnetSays": "refused: C:\\git\\joslat\\agent-memory-dotnet\\conformance\\pack-v1.1\\vectors\\certificate-shape-entry-extra-key.certificate.dsse.json: The certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures, each a key id and a signature.",
    "pythonSays": "refused: the certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures",
-   "sha256": "fd8d97831dd3b84e2ae83da635d01dfb207f4e570bc6224eb8d725b0b3008c52"
+   "sha256": "24a8b03c16a71796dde1b1392d656fe9ce0a40fe2af51129e868a21ee68ac835"
   },
   {
    "vector": "certificate-shape-entry-without-sig",
@@ -3079,7 +3089,7 @@
    "agree": true,
    "dotnetSays": "refused: C:\\git\\joslat\\agent-memory-dotnet\\conformance\\pack-v1.1\\vectors\\certificate-shape-entry-without-sig.certificate.dsse.json: The certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures, each a key id and a signature.",
    "pythonSays": "refused: the certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures",
-   "sha256": "ba60cd939cf417bdcfe65cd4099b0b528cc47ff9807f832295bf02506980abea"
+   "sha256": "a5e66cbccc6bcb2b9d52c1f275e43e122b9955392d607832c584fee16bcd3dc6"
   },
   {
    "vector": "certificate-shape-keyid-uppercase",
@@ -3089,7 +3099,7 @@
    "agree": true,
    "dotnetSays": "refused: C:\\git\\joslat\\agent-memory-dotnet\\conformance\\pack-v1.1\\vectors\\certificate-shape-keyid-uppercase.certificate.dsse.json: The certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures, each a key id and a signature.",
    "pythonSays": "refused: the certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures",
-   "sha256": "ce2a03718eeeb9c14c692b6b6310367206241a160dc43238d8fe15806c1c2c5a"
+   "sha256": "b222edb9074e883bfc04e394f3cea84d063b2174449f210ccd873012841000de"
   },
   {
    "vector": "certificate-honest-failure",
@@ -3097,9 +3107,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "8b7b40d1ffbcc4fbdb2fe9f68f77bc176f501befe0bbba1b7022b20866590f9a"
+   "sha256": "6eb499f27a26ad374fd56b9b3369f4243dec6c45f9fd9859421c03badf59495f"
   },
   {
    "vector": "certificate-with-host-baseline",
@@ -3107,9 +3117,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "92207a8ff7bf7e04636bf36bf107f217171ae8b23df0d0b00947960f3da8f360"
+   "sha256": "04e07b9aad95b3d39adbcb7d25f8c5138c97416cf3836955bf9f737b7556db5f"
   },
   {
    "vector": "certificate-aef-run-matches",
@@ -3117,9 +3127,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "f7f6938aac65cb28fad14a29be19dcb3bb9f1f820ebd3b38dc214c1cf8b7ba8c"
+   "sha256": "4629be8d84d084cc2abbbb828c79e8e11ac4f725cf8887eeb5503840330e81c0"
   },
   {
    "vector": "certificate-aef-run-named-elsewhere",
@@ -3127,9 +3137,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "bb6e2b9adb03245a08354ec407c67f2fc0576c42277fe5a4475bfcda5f2d95f4"
+   "sha256": "cf794cc5da3cc3fc573e95e708725146afb67b5c94a8ef5af090fac9748672b5"
   },
   {
    "vector": "certificate-aef-run-tampered",
@@ -3137,9 +3147,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The AEF run beside the certificate is not the run it names (its run hash differs).",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The AEF run beside the certificate is not the run it names (its run hash differs).",
    "pythonSays": "refused: the AEF run beside the certificate is not the run it names",
-   "sha256": "82fbf6659c67f23a33983e660b69571e0fd3763144c3d51123b8c1de7bd98a5e"
+   "sha256": "f9e89c1ae628e41c55293d1f665db4e3c459fd9b56fbf81fef2a260015ceea24"
   },
   {
    "vector": "certificate-aef-run-not-named",
@@ -3147,9 +3157,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: An AEF run travels with the certificate, but the certificate names none.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: An AEF run travels with the certificate, but the certificate names none.",
    "pythonSays": "refused: an AEF run travels with the certificate, but the certificate names none",
-   "sha256": "7f47fed03c257f5751096114eb18af1bcde9ae90682206fce3808c1868428a1f"
+   "sha256": "6c0fbdc395c3e81f0d6951d1f22e62eddcab1824a90cd4c18ba4a1d734b5f663"
   },
   {
    "vector": "certificate-aef-run-json-outside-profile",
@@ -3157,9 +3167,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "8fe97a3f56704de2502f4ffbbbbd5ff2ab68e8bb3acf456c0668d76a2388708f"
+   "sha256": "47a20a9d82db7c6614995567a17879423c1511c764006d1b145c28a4c4809608"
   },
   {
    "vector": "certificate-aef-run-other-id",
@@ -3167,9 +3177,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The AEF run beside the certificate is trial.io.example.notes.1.0.0.20261028T120000000Z, not another.run.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The AEF run beside the certificate is trial.io.example.notes.1.0.0.20261028T120000000Z, not another.run.",
    "pythonSays": "refused: the AEF run beside the certificate has another run id",
-   "sha256": "38e2f84bc96e6f41efd01cb0290ea435436e79bb889d103d551679563e6c308b"
+   "sha256": "d0a831ffcb45c7c658ba4f9c189ed35596a5704b0820dd733ca72a125ce91d87"
   },
   {
    "vector": "certificate-key-not-trusted",
@@ -3177,9 +3187,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: Key d1a588a37dd23156 that signed the certificate is not in the trust policy.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: Key 75dbdbcbae2623f1 that signed the certificate is not in the trust policy.",
    "pythonSays": "refused: no valid certificate signature by a key this host trusts as evaluator for the pack",
-   "sha256": "d3e9d31d625b4bbd2e2efd2a7b083f58bce41a2559a4c696462a0195fa1185d9"
+   "sha256": "c3188e3616c9c93b1d82971b3c090760fd4999ac02b2755a1dc230b52c2abc2d"
   },
   {
    "vector": "certificate-key-other-prefix",
@@ -3187,9 +3197,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate: key d1a588a37dd23156 may not sign for 'io.example.notes'.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate: key 75dbdbcbae2623f1 may not sign for 'io.example.notes'.",
    "pythonSays": "refused: no valid certificate signature by a key this host trusts as evaluator for the pack",
-   "sha256": "1a8366a14d4b7c72be2bd99ab8d240b8d831b4781e28f3a39bf2636accffc409"
+   "sha256": "1eb2edca82408f7ec37fc1359d26a052e42b7bc18c0382c1d5bca829ff52bf91"
   },
   {
    "vector": "certificate-key-expired",
@@ -3197,9 +3207,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate: key d1a588a37dd23156 had expired at the signing time.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate: key 75dbdbcbae2623f1 had expired at the signing time.",
    "pythonSays": "refused: no valid certificate signature by a key this host trusts as evaluator for the pack",
-   "sha256": "ef944de0a9179bd1756f8c3e15f53de4252aab930d5e414bb78bd704ea92d7ba"
+   "sha256": "0a2f41fe03cfb1521a46fb41627342e55215602322ba61fbdd31795b29601522"
   },
   {
    "vector": "certificate-key-revoked",
@@ -3207,9 +3217,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate: key d1a588a37dd23156 is revoked.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate: key 75dbdbcbae2623f1 is revoked.",
    "pythonSays": "refused: no valid certificate signature by a key this host trusts as evaluator for the pack",
-   "sha256": "7db0b3359331b02c5274046afcc41be249e0615d3b3cebd13a87fe43380fe43c"
+   "sha256": "d21ac342c807bf86b8fe417704b42a23282e6121dc4c33d41271275e4b03fc7f"
   },
   {
    "vector": "certificate-key-assurer-not-evaluator",
@@ -3217,9 +3227,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate: key d1a588a37dd23156 may not sign as evaluator.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate: key 75dbdbcbae2623f1 may not sign as evaluator.",
    "pythonSays": "refused: no valid certificate signature by a key this host trusts as evaluator for the pack",
-   "sha256": "32a87ff7f8d970a08bd2403d32a1b44a5a0755271ce6391f01c458af8b3a03a4"
+   "sha256": "3a8362a338c78c9bd42e0b5d34aff6805b5dd5af3bafdc30f9508693ac659e9e"
   },
   {
    "vector": "certificate-set-valid",
@@ -3227,9 +3237,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
-   "pythonSays": "verified io.example.bundle 1.0.0 sha256:aa4b4b5e49d0039a37116ec95c4854579e801bdf4506e91a0f34ef3aae7db33d",
-   "sha256": "10b5c4ebfdebb5c07f4b4ff422d83abf226523011521a58427511d062985bb40"
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
+   "pythonSays": "verified io.example.bundle 1.0.0 sha256:72c9adcad1b56b4641ae1dda4d4813a28ac136de99cdea1d02ef93f746e86973",
+   "sha256": "4ca01086737ee34842cd8a2ea2fb9ae527895ea586c0578f4496b52eb46040ec"
   },
   {
    "vector": "certificate-set-member-untrusted",
@@ -3237,9 +3247,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: packs/io.example.notes/: META/signatures/publisher-8909c071e812777a.dsse.json: key 8909c071e812777a is not in the trust policy.",
+   "dotnetSays": "refused: packs/io.example.notes/: META/signatures/publisher-3627467e31aebe6a.dsse.json: key 3627467e31aebe6a is not in the trust policy.",
    "pythonSays": "refused: packs/io.example.notes/: no valid signature in role publisher",
-   "sha256": "b6a5befff4302ef540a72cbacb2b04cc6504f1998a4524258828f3f34ae0aad3"
+   "sha256": "49aadd9d4b5cbd28434a59875a54ac4088c03e0408276ab46328820b0505e41e"
   },
   {
    "vector": "certificate-path-of-a-run-file",
@@ -3247,9 +3257,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: The pack carries no META/attestations/d1a588a37dd23156-20261027t120000z.aef/run.json.",
-   "pythonSays": "refused: the pack carries no META/attestations/d1a588a37dd23156-20261027t120000z.aef/run.json",
-   "sha256": "82e91626e0a09c26dcddb9bcdb1f76b9bd6429cd847da8b247f55931788ac478"
+   "dotnetSays": "refused: The pack carries no META/attestations/75dbdbcbae2623f1-20261027t120000z.aef/run.json.",
+   "pythonSays": "refused: the pack carries no META/attestations/75dbdbcbae2623f1-20261027t120000z.aef/run.json",
+   "sha256": "44d7d3506fddd63ae59dc45c31ee94a8b63081330d6e07049c13a946c990ae5e"
   },
   {
    "vector": "certificate-policy-evaluator-also-publisher",
@@ -3257,9 +3267,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "Key d1a588a37dd23156 is an evaluator and also signs packs; an evaluator key holds that role alone.",
+   "dotnetSays": "Key 75dbdbcbae2623f1 is an evaluator and also signs packs; an evaluator key holds that role alone.",
    "pythonSays": "refused: an evaluator key holds that role alone",
-   "sha256": "d0528266f6bdcbfc6e6f1850b114cec391cf490a519514052c8326fe481f4a7e"
+   "sha256": "34d62aaf22d1bac6a194bca19af0c9f0485e4b6676c8e21363c735d6d8a8b2fb"
   },
   {
    "vector": "certificate-by-the-publisher",
@@ -3267,9 +3277,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate: key a722aad38d83f3a5 may not sign as evaluator.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate: key ba35476b374687c8 may not sign as evaluator.",
    "pythonSays": "refused: no valid certificate signature by a key this host trusts as evaluator for the pack",
-   "sha256": "ce30e0b24ba9863ab3e0965365f91172f4bedd1faa4bb37fdce5723e9ed29ea3"
+   "sha256": "719cf707b4c67643a8feba8e5bf28a28fcda19b468c8b9c1c42c8355f1144430"
   },
   {
    "vector": "certificate-in-the-future",
@@ -3277,9 +3287,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate: the signature by d1a588a37dd23156 claims a time in the future.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate: the signature by 75dbdbcbae2623f1 claims a time in the future.",
    "pythonSays": "refused: no valid certificate signature by a key this host trusts as evaluator for the pack",
-   "sha256": "886c0b64c32c8760aef92dd5c18d42f06f24a2fa073e8b8941fe57d67b9c559e"
+   "sha256": "7d0afd94936e69546d2d7c69d5ffbaed2e043b50f23ed5901193cfb66373f3ba"
   },
   {
    "vector": "certificate-under-another-stem",
@@ -3287,9 +3297,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120001z.certificate.dsse.json: The certificate travels as d1a588a37dd23156-20261027t120001z, not as its evaluator's key and evaluation time (d1a588a37dd23156-20261027t120000z).",
-   "pythonSays": "refused: the certificate travels as d1a588a37dd23156-20261027t120001z, not as its evaluator's key and evaluation time",
-   "sha256": "0b5ab79fa9aa40cd9f94fc7f0cd1182e9cbd7b47456ace70f4c361b6ab336ed8"
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120001z.certificate.dsse.json: The certificate travels as 75dbdbcbae2623f1-20261027t120001z, not as its evaluator's key and evaluation time (75dbdbcbae2623f1-20261027t120000z).",
+   "pythonSays": "refused: the certificate travels as 75dbdbcbae2623f1-20261027t120001z, not as its evaluator's key and evaluation time",
+   "sha256": "da673d850ddd9a8db54a673cfdb63a5d681079ff2070880973bb814dab77d392"
   },
   {
    "vector": "certificate-for-another-pack",
@@ -3297,9 +3307,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate is for 91d5af1e1251ac64\u2026, not this pack (4e7a9605a44654de\u2026).",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate is for 91d5af1e1251ac64\u2026, not this pack (4e7a9605a44654de\u2026).",
    "pythonSays": "refused: the certificate is for another pack",
-   "sha256": "46528c554a491c1c587ead9b955e7b02d9fe854cb5dfaf46a8ec50c6cee5a466"
+   "sha256": "863c061742db1d264825fff1aa6549b8db9280b5a2b30b27c29237b35d123935"
   },
   {
    "vector": "certificate-other-version",
@@ -3307,9 +3317,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate names io.example.notes 1.0.1, not io.example.notes 1.0.0.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate names io.example.notes 1.0.1, not io.example.notes 1.0.0.",
    "pythonSays": "refused: the certificate names another pack id or version",
-   "sha256": "2b7f1a4d639935d4b34612435caefa13ff310351268adbaf679fb384cc207587"
+   "sha256": "a4f308bf71a34747e4468c724dd9a732549ee84f39e7572cacfc5e8e8eabf5b7"
   },
   {
    "vector": "certificate-two-subjects",
@@ -3317,9 +3327,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate must name exactly one subject: META/files.json and its SHA-256.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate must name exactly one subject: META/files.json and its SHA-256.",
    "pythonSays": "refused: the certificate must name exactly one subject: META/files.json and its SHA-256",
-   "sha256": "fdd30ca4d04c25b251d3689216595267c1120598728c065853f6f272ad494eb9"
+   "sha256": "a0098da29a11ceedfa11cd64ea8cdfcf768bf8a62ff7a8c50323d64df79d3c73"
   },
   {
    "vector": "certificate-edited-after-signing",
@@ -3327,9 +3337,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's signature by d1a588a37dd23156 does not verify.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's signature by 75dbdbcbae2623f1 does not verify.",
    "pythonSays": "refused: no valid certificate signature by a key this host trusts as evaluator for the pack",
-   "sha256": "8f47412a4d4f31d2dc858a9de6770b8c624992c55c8f7e7da1db8ad8d60b8b1c"
+   "sha256": "f1208fb5e52f16258e97b99b4990685d6bc60592a3c18af8521079998524bbdf"
   },
   {
    "vector": "certificate-passed-with-a-missed-check",
@@ -3337,9 +3347,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate says the pack passed, but a check failed or fewer than 10 tasks were run.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate says the pack passed, but a check failed or fewer than 10 tasks were run.",
    "pythonSays": "refused: the certificate's verdict disagrees with its checks",
-   "sha256": "84855f08a07182488090e765a88bf07ead459c7c7f6184ba2a56f54947805b67"
+   "sha256": "ae78eee4112f1ce6820454f12cb90d1251a1a94a8a9bce2cc7ebbc584a52acc4"
   },
   {
    "vector": "certificate-passed-on-nine-tasks",
@@ -3347,9 +3357,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate says the pack passed, but a check failed or fewer than 10 tasks were run.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate says the pack passed, but a check failed or fewer than 10 tasks were run.",
    "pythonSays": "refused: the certificate's verdict disagrees with its checks",
-   "sha256": "b263c772da7ae121d4d14bdbf7c0eaf9962633f122e8210cd529fb06d232c42d"
+   "sha256": "c368ce34cb9c89601bb5cb371e74fb6988be644053246283dcd9a1d1600ac4c7"
   },
   {
    "vector": "certificate-arms-differ",
@@ -3357,9 +3367,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's arms ran different numbers of tasks.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's arms ran different numbers of tasks.",
    "pythonSays": "refused: a certificate measured against none records a baseline arm that offers nothing",
-   "sha256": "ee595a3c6e008c81b87799dd79a8bb41ba72b5ca3b52f381e44958f1ab0a7a8c"
+   "sha256": "52a9f8a02ee392d6663804fece978baa5440c7229f589e128cf48a0220587ace"
   },
   {
    "vector": "certificate-host-baseline-without-arm",
@@ -3367,9 +3377,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: A certificate measured against the host's retrieval records that arm.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: A certificate measured against the host's retrieval records that arm.",
    "pythonSays": "refused: a certificate measured against the host's retrieval records that arm",
-   "sha256": "e040b10c8b91ee33e72eb4420839df227a68ab24d886573526ffaa0efe6af92b"
+   "sha256": "6bf81b5043f06552367bd9ab38dd2d3b450cf47b8c0cf7851f1743658727c252"
   },
   {
    "vector": "certificate-hits-above-tasks",
@@ -3377,9 +3387,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'with' arm is malformed",
-   "sha256": "5b0585e74446cf55285f7301d6ebe09189e3fe2601593c4c7a2a9ed689876f83"
+   "sha256": "f5195e206e62b9ab927f9642d4d193d2d9ae44c9d3b6251fbde0004cbfa34dce"
   },
   {
    "vector": "certificate-without-per-task",
@@ -3387,9 +3397,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'with' arm is malformed",
-   "sha256": "4d96188f7101ff2b91ace16daa4d9a8c5e0158984743f3479487772777c3990c"
+   "sha256": "4e7deb0373cd2133e51ab58ffa989ec9adad3a9a9feda15c26c98546f9a9a855"
   },
   {
    "vector": "certificate-per-task-sums-disagree",
@@ -3397,9 +3407,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'with' arm is malformed",
-   "sha256": "6172501f7f8d892dd0b58430c1ac1912a23958a17b10e4a89c37e80e2689fbd9"
+   "sha256": "99463efd62de5c3e9779f32d352a44ed877cc1a7a8b1820f177a6b07c09f8415"
   },
   {
    "vector": "certificate-per-task-hits-disagree",
@@ -3407,9 +3417,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'with' arm is malformed",
-   "sha256": "8242a021fa4bb4f71e000f621796f1b23e460f0fd4dbedc1baf03e7ce3c8f311"
+   "sha256": "ac6732b71255d7bb66becf2f611fa291f12df7b641f5645fa6c7153897c20829"
   },
   {
    "vector": "certificate-per-task-above-cap",
@@ -3417,9 +3427,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'with' arm is malformed",
-   "sha256": "31fde9bdcb624bbff806beedfc948f1ae612b452867b36ded5ed18d9475bcce8"
+   "sha256": "c10d5d25398b4eb09e0a315e3e56ac348a0d5e04df5a66759c6e3d45f6f95df4"
   },
   {
    "vector": "certificate-cap-above-sixteen",
@@ -3427,9 +3437,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'with' arm is malformed",
-   "sha256": "32eb401d53ace80fcb40e877b324aa1373ecc9bd0d80dd42c492c5622f896bce"
+   "sha256": "5395b73cbff702c6daa6d980bf4f49e4764eca86d673160013e05e124918e23e"
   },
   {
    "vector": "certificate-baseline-cap-zero",
@@ -3437,9 +3447,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "502c9397fdf9ec33994cf9d025ac041a359764e4b529b19ee61fe8b182564641"
+   "sha256": "ee579277a8599b214f2bce69b81105d916ebc87284e00dd9a21ca7cbdfe731f6"
   },
   {
    "vector": "certificate-baseline-cap-zero-offering",
@@ -3447,9 +3457,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'without' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'without' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'without' arm is malformed",
-   "sha256": "587f4b1f29b6b331c891b8930b43c8f44e32102a46d041b71fdfd87ffaaa50fa"
+   "sha256": "b3a4ac186734af4eebb447c925fceeaed934ecbd0c8eb42a5841fb73ed296b56"
   },
   {
    "vector": "certificate-spacing-zero",
@@ -3457,9 +3467,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'with' arm is malformed",
-   "sha256": "0effede0ee70a7c204698f50ed5915f305d65c04e2c214a3a9a030b7d4fc19bc"
+   "sha256": "14a405bba41b3236d26892fec81c87125eadc8d5730c3f1784199d619210ca5e"
   },
   {
    "vector": "certificate-spacing-absent",
@@ -3467,9 +3477,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'with' arm is malformed",
-   "sha256": "50e70cd6d8fc78ca9cd122126431465f1b3aad1f41ba80a71ce3ef6deda08d0b"
+   "sha256": "d46be6b023e3a46c091815c4d70868e325b73d943f5bf6f430b35adcf5978182"
   },
   {
    "vector": "certificate-spacing-one",
@@ -3477,9 +3487,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "263dbbf5cbac2b64ccc83cc84350a59dfd99adabe52dd7f306f5e7aad4324800"
+   "sha256": "d255df0997caee1c717d9c89a2d6c1977f696c11842796dc773108c649381dbf"
   },
   {
    "vector": "certificate-arms-spaced-differently",
@@ -3487,9 +3497,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's arms were drawn at different spacings; they ran the same tasks.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's arms were drawn at different spacings; they ran the same tasks.",
    "pythonSays": "refused: the certificate's arms were drawn at different spacings",
-   "sha256": "660294af9fb8547433bcd51e095fbc53620df366bcc7c3677207841332272fd9"
+   "sha256": "22bdd4121cac2f561b305eb37c58d145d9b007f94bcf218562174c08f8ebc8b0"
   },
   {
    "vector": "certificate-spacing-at-window",
@@ -3497,9 +3507,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "4317c5d5d30f833ad028f1716ae09308542764393cf6d9a3e2b12202db2aebc1"
+   "sha256": "5eddf104edefd988e4e1ccb34db6a05d20147dfada87c96c4030f2e28db09dab"
   },
   {
    "vector": "certificate-spacing-past-window",
@@ -3507,9 +3517,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 40 tasks, drawn every 60 eligible commits, span more than the 2000 a trial draws from.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 40 tasks, drawn every 60 eligible commits, span more than the 2000 a trial draws from.",
    "pythonSays": "refused: the certificate's tasks span more than the history a trial draws from",
-   "sha256": "430896d2a81c8711847d8540ed339521b0a315e1609c05f5e7fe3ecb4cd567fe"
+   "sha256": "884aeb0bb856f7afe8d89317cb54550552b0d345f0e6299e2e30be974bdafe16"
   },
   {
    "vector": "certificate-none-baseline-offers",
@@ -3517,9 +3527,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: A certificate measured against none records a baseline arm that offers nothing: a cap of 0.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: A certificate measured against none records a baseline arm that offers nothing: a cap of 0.",
    "pythonSays": "refused: a certificate measured against none records a baseline arm that offers nothing",
-   "sha256": "2fbba8e800d70b7d296451c0786aafe17a3b7d4417ab7b15896dd4711dd35b4c"
+   "sha256": "8b1a4a0a1c8189468d97b46c750a7dc5be9e68dd7330ae0fc977c614eca5b532"
   },
   {
    "vector": "certificate-host-baseline-cap-zero",
@@ -3527,9 +3537,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: A certificate measured against the host's retrieval records that arm with a cap of 1 or more.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: A certificate measured against the host's retrieval records that arm with a cap of 1 or more.",
    "pythonSays": "refused: a certificate measured against the host's retrieval records that arm with a cap of 1 or more",
-   "sha256": "a8bc14f95432106fa178a2ff5225cf39e21645d747402a4e89986da07b4ea63d"
+   "sha256": "3492aa2929bd6dca8403a05469d5165a7a7e420a2403c8f6877496abb542822e"
   },
   {
    "vector": "certificate-more-than-200-tasks",
@@ -3537,9 +3547,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's 'with' arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task within the cap, summing to offered and correct, with a right item on exactly its hits.",
    "pythonSays": "refused: the certificate's 'with' arm is malformed",
-   "sha256": "6c9401b14bc88487f25b58c83219b0e472b3620df835fd5edae8fef9a6a1147b"
+   "sha256": "c3f993a28433b0db8b5514a6d3e98fae6b5667b1029268c942146990866ee5cb"
   },
   {
    "vector": "certificate-two-hundred-tasks",
@@ -3547,9 +3557,9 @@
    "dotnet": "verified",
    "python": "verified",
    "agree": true,
-   "dotnetSays": "Verified the certificate META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json",
+   "dotnetSays": "Verified the certificate META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json",
    "pythonSays": "verified io.example.notes 1.0.0 sha256:4e7a9605a44654de5f5046cfb9530ca59542cd5a3c97e18eb93f507301719aaa",
-   "sha256": "8f29746ddb6ab47d7e5a5eb1d98fa250fd5f6265675b85f3444605b2f1334e90"
+   "sha256": "712a665638063f7285de4279bf19ef65655816143410d1d262266aa9f2a500e0"
   },
   {
    "vector": "certificate-without-statistic",
@@ -3557,9 +3567,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate names the statistic its checks were computed with (one line of 1 to 100 characters).",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate names the statistic its checks were computed with (one line of 1 to 100 characters).",
    "pythonSays": "refused: the certificate names the statistic its checks were computed with",
-   "sha256": "f50d5d560c31f0df0d628543f8209503c18a78ab7d34fe8221665059cf605f34"
+   "sha256": "c541c770ff142dc8e60819a6111b842ebbe256bec95458bee206ba4447889561"
   },
   {
    "vector": "certificate-fraction-not-integer",
@@ -3567,9 +3577,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMilli and observedMilli as integers, and met.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMilli and observedMilli as integers, and met.",
    "pythonSays": "refused: a certificate check names a known target, requiredMilli and observedMilli as integers, and met",
-   "sha256": "24b32c2c86e1880c16353ac14b86b80fec69ff6c7f2162ceefa5456cc7ab9abc"
+   "sha256": "27c5684b5f7182407037a5fa39240b447d1a1299df60a7dc6412aae5ab2565cb"
   },
   {
    "vector": "certificate-extra-field",
@@ -3577,9 +3587,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's predicate holds other fields than this format defines.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's predicate holds other fields than this format defines.",
    "pythonSays": "refused: the certificate's predicate holds other fields than this format defines",
-   "sha256": "8f5acade2173867ff545b367dc9603489c5e3beee53cbfa5402011d957090258"
+   "sha256": "aa415fbd8925893f7244b8c5f35c7e436145b735ff5301d9f4e874a12f70c382"
   },
   {
    "vector": "certificate-unknown-target",
@@ -3587,9 +3597,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMilli and observedMilli as integers, and met.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMilli and observedMilli as integers, and met.",
    "pythonSays": "refused: a certificate check names a known target, requiredMilli and observedMilli as integers, and met",
-   "sha256": "4003f459838a933cc65d3ff20db9131f8a440d6a0a70bf673cd8a1be044c6ace"
+   "sha256": "acb88d14b2157a4f1ff5fcba5b76c8ddcb6b834db0d84a289749d91998d9a562"
   },
   {
    "vector": "certificate-no-regression-target",
@@ -3597,9 +3607,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMilli and observedMilli as integers, and met.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMilli and observedMilli as integers, and met.",
    "pythonSays": "refused: a certificate check names a known target, requiredMilli and observedMilli as integers, and met",
-   "sha256": "282eca5f373e517483273836cbaf7defb9f8b51301be4090588052750c68445c"
+   "sha256": "7a5e2e297e034b28de2907f12943a74d89e8e299ae49ffd91f3e8f017096fc99"
   },
   {
    "vector": "certificate-confidence-unknown",
@@ -3607,9 +3617,9 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate's confidenceMilli is 900, 950, 975 or 990.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate's confidenceMilli is 900, 950, 975 or 990.",
    "pythonSays": "refused: the certificate's confidenceMilli is 900, 950, 975 or 990",
-   "sha256": "c1666121ec17c16083654e2bfee72b525a1cea5bebdf51b19b5a19a095a8792a"
+   "sha256": "ab69706e1b5c9cafbd0dd9ab48fb8c625034635a284207fbce69a2425dbd9e83"
   },
   {
    "vector": "certificate-evaluator-two-lines",
@@ -3617,11 +3627,11 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/d1a588a37dd23156-20261027t120000z.certificate.dsse.json: The certificate names its evaluator as one line of 1 to 200 characters.",
+   "dotnetSays": "refused: META/attestations/75dbdbcbae2623f1-20261027t120000z.certificate.dsse.json: The certificate names its evaluator as one line of 1 to 200 characters.",
    "pythonSays": "refused: the certificate names its evaluator as one line of 1 to 200 characters",
-   "sha256": "f20ddccddded1c052e90513acd47ba3f0c0459f45ac4f31ee16454c559fd983d"
+   "sha256": "4658465128a555576008ad2d8bb8152b491cf5a21f89ccd911f46927c2cd3135"
   }
  ],
- "agreed": 362,
- "total": 362
+ "agreed": 363,
+ "total": 363
 }

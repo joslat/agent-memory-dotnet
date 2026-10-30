@@ -238,6 +238,21 @@ public sealed class PackUpgradeTests : IDisposable
     }
 
     [Fact]
+    public void Review7_an_upgrade_holds_the_version_it_replaces_at_the_cap_this_host_judged_it_at()
+    {
+        // The previous version's arm was taken at the cap its record states: a narrower one tightens the comparison's bound, and
+        // the host may no longer hold that version's declarations. It holds its own decision, which fixed the cap.
+        const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.4},"confidence":0.95""";
+        var passed = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), NothingSpaced, Now);
+        passed.With!.MaximumOffered.Should().Be(ModuleTraversal.MaximumOffered);
+        Write(passed);
+        var narrowed = PackTrialGate.Decide(Manifest("1.1.0", rule), Tasked(30), NothingSpaced, Now.AddMinutes(1),
+            previous: Previous(passed, Tasked(30) with { MaximumOffered = 3 }));
+        Write(narrowed);
+
+        Compose(Manifest("1.1.0", rule)).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("this host judged 1.0.0 at 16");
+    }
+    [Fact]
     public void Review5_a_record_from_an_earlier_statistic_is_checked_again_from_its_evidence()
     {
         // M7: a record the round-4 statistic decided is neither trusted nor set aside: its verdict is derived again from what it

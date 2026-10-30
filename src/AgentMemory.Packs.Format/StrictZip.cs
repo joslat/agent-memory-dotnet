@@ -217,6 +217,7 @@ internal static class StrictZip
         using var inflater = new DeflateStream(input, CompressionMode.Decompress);
         var scratch = output is null ? new byte[(int)Math.Min(size + 1L, 64 * 1024)] : null;
         long read = 0;
+        var more = false;
         try
         {
             while (read < size)
@@ -227,10 +228,13 @@ internal static class StrictZip
                 if (n == 0) break;
                 read += n;
             }
-            if (read == size && inflater.Read(new byte[1], 0, 1) != 0) throw Bad($"{where} inflates to more bytes than it declares");
+            more = read == size && inflater.Read(new byte[1], 0, 1) != 0;
         }
         // Cut one byte short, a stream may also read as damaged: that is not a complete stream either.
         catch (InvalidDataException) when (output is null) { return (read, false); }
+        // Damaged, named as the format names it rather than in the runtime's words, as the second verifier says it (review 7, M8).
+        catch (InvalidDataException e) { throw new InvalidDataException($"The archive {where} is not a valid deflate stream.", e); }
+        if (more) throw Bad($"{where} inflates to more bytes than it declares");
         return (read, !input.AskedPastEnd);
     }
 

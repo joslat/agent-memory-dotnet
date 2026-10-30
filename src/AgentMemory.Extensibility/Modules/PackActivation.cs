@@ -1028,6 +1028,12 @@ public static class PackTrialGate
         if (previous.Version != active.Version || previous.ManifestDigest != active.ManifestDigest || previous.PackDigest != active.PackDigest)
             return $"its trial compared against {previous.Version}, but {active.Version} ({Short(active.PackDigest ?? active.ManifestDigest)}) is the version that passed here";
         if (decision.With is not { } with) return "its record carries no measurement to compare";
+        // The version that passed was judged here at its declared cap; its arm in the comparison is held to that cap, never taken
+        // as recorded (review 7, PREVIOUS-CAP: a narrower cap tightens the bound, and the host may no longer hold that version's
+        // declarations, but it holds its own decision about it).
+        var judged = active.With?.MaximumOffered ?? ModuleTraversal.MaximumOffered;
+        if ((previous.With.MaximumOffered ?? ModuleTraversal.MaximumOffered) != judged)
+            return $"its trial records {active.Version} at a cap of {previous.With.MaximumOffered}; this host judged {active.Version} at {judged}";
         foreach (var rule in held.Rules)
         {
             var floor = rule.Tolerance > 0 ? -rule.Tolerance : 0;

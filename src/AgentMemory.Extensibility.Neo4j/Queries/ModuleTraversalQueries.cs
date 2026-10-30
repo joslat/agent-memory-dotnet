@@ -32,18 +32,22 @@ internal static class ModuleTraversalQueries
     internal static string MatchCandidates(string label, string property, Modules.ModuleAnchorMatch match)
     {
         var p = "n.`" + property + "`";
+        // The anchors lowered once a statement, and the stored value lowered and slashed once a record (review 7, W3: both were
+        // recomputed for every anchor folder on every record).
         var filter = match switch
         {
-            Modules.ModuleAnchorMatch.Exact => "ANY(v IN $values WHERE " + Slashed(p) + " CONTAINS " + Lower("v") + ")",
-            Modules.ModuleAnchorMatch.Prefix => "ANY(f IN $folders WHERE " + Slashed(p) + " CONTAINS " + Lower("f") + ")",
-            Modules.ModuleAnchorMatch.Glob => "(" + p + " CONTAINS '*' OR " + p + " CONTAINS '?' OR ANY(f IN $folders WHERE " + Slashed(p) + " CONTAINS " + Lower("f") + "))",
-            _ => "ANY(s IN $names WHERE " + p + " CONTAINS s)",
+            Modules.ModuleAnchorMatch.Exact => "ANY(v IN values WHERE s CONTAINS v)",
+            Modules.ModuleAnchorMatch.Prefix => "ANY(f IN folders WHERE s CONTAINS f)",
+            Modules.ModuleAnchorMatch.Glob => "(value CONTAINS '*' OR value CONTAINS '?' OR ANY(f IN folders WHERE s CONTAINS f))",
+            _ => "ANY(x IN $names WHERE value CONTAINS x)",
         };
+        var slashed = match == Modules.ModuleAnchorMatch.Name ? "" : ", " + Slashed(p) + " AS s";
         // Narrow rows (review 6, M2: every candidate came back whole): the id, key and value are what matching needs.
-        return "MATCH (n:`" + label + "`) WHERE n.invalidated_at IS NULL AND " + In("n") + " AND " + p + " IS NOT NULL AND " + filter + " "
-            + "RETURN n.id AS id, n.key AS key, " + p + " AS value LIMIT $scan";
+        return "WITH [v IN $values | " + Lower("v") + "] AS values, [f IN $folders | " + Lower("f") + "] AS folders "
+            + "MATCH (n:`" + label + "`) WHERE n.invalidated_at IS NULL AND " + In("n") + " AND " + p + " IS NOT NULL "
+            + "WITH n, values, folders, " + p + " AS value" + slashed + " WHERE " + filter + " "
+            + "RETURN n.id AS id, n.key AS key, value";
     }
-
     /// <summary>The live records with these ids, whole: the matches the walk keeps, read once they are chosen.</summary>
     internal static string ByIds(string label) =>
         "UNWIND $ids AS rid MATCH (n:`" + label + "` {id:rid}) WHERE n.invalidated_at IS NULL RETURN properties(n) AS row";

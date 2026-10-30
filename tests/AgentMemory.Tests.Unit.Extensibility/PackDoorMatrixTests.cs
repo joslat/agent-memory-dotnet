@@ -88,6 +88,28 @@ public sealed class PackDoorMatrixTests : IDisposable
         problems.Should().BeEmpty();
     }
 
+    [Fact]
+    public void Review7_L7_countersign_lock_and_set_act_only_on_a_pack_whose_signatures_hold()
+    {
+        // An assurer could countersign, a lock pin and a set carry a pack nobody had verified.
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["pack.json"] = """{"format":"agentmemory.pack/1.2","id":"io.example.unsigned","version":"1.0.0","kind":"knowledge","sdk":"[0.1,0.2)"}"""u8.ToArray(),
+            ["records/notes.jsonl"] = """{"type":"Note","key":"n1","text":"plain"}"""u8.ToArray(),
+        };
+        files[PackPaths.FilesList] = FilesList.Build("io.example.unsigned", "1.0.0", files);
+        var pack = Write("unsigned/pack.ampack", StrictZip.Write(files));
+        var folder = Directory.CreateDirectory(Path.Combine(_root, "unsigned", "composite")).FullName;
+
+        foreach (var (command, args) in Doors(pack, pack, folder).Where(d => d.Key is "countersign" or "lock" or "set"))
+        {
+            var run = Run([command, .. args]);
+            run.Exit.Should().Be(1, $"{command} refuses: {run.Output}");
+            run.Output.Should().Contain("No valid publisher signature", command);
+            var withoutPolicy = Run([command, .. args.TakeWhile(a => a != "--policy")]);
+            withoutPolicy.Exit.Should().Be(2, $"{command} needs the policy it verifies under: {withoutPolicy.Output}");
+        }
+    }
     // Each door with the arguments that reach its pack input: the pack, a second pack, or an authoring folder.
     private Dictionary<string, string[]> Doors(string pack, string other, string folder)
     {
@@ -100,12 +122,12 @@ public sealed class PackDoorMatrixTests : IDisposable
             ["verify"] = [pack, "--policy", _policy],
             ["inspect"] = [pack],
             ["diff"] = [pack, other],
-            ["lock"] = [folder, pack],
+            ["lock"] = [folder, pack, "--policy", _policy],
             ["migrate"] = [folder, "--out", out_],
-            ["set"] = [out_ + ".ampack", pack, "--id", "io.example.set", "--version", "1.0.0", "--key", _keyPem],
+            ["set"] = [out_ + ".ampack", pack, "--id", "io.example.set", "--version", "1.0.0", "--key", _keyPem, "--policy", _policy],
             ["test"] = [pack, "--policy", _policy],
             ["scan"] = [pack],
-            ["countersign"] = [pack, "--key", _keyPem, "--role", "assurer", "--out", out_ + ".ampack"],
+            ["countersign"] = [pack, "--key", _keyPem, "--role", "assurer", "--out", out_ + ".ampack", "--policy", _policy],
             ["serve"] = [pack, "--policy", _policy],
             ["install"] = [pack, "--store", _store, "--policy", _policy],
             ["receipt"] = ["verify", pack, pack, "--location", "https://example.org/p.ampack", "--policy", _policy],
