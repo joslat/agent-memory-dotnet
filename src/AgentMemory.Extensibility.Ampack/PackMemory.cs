@@ -81,7 +81,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
         // never checked here).
         var invalid = shots.SelectMany(s => (s with { ConsentGrants = resolution.ConsentGrants }).Problems()).Distinct(StringComparer.Ordinal).ToList();
         if (invalid.Count != 0) throw new KnowledgePackException(invalid);
-        var refused = shots.SelectMany(s => s.Records.SelectMany(r => r.Links.Select(l => s.Module.Ontology?.Relations.SingleOrDefault(x => x.Name == l.Relation && x.From == r.Type)))
+        var refused = shots.SelectMany(s => s.Records.SelectMany(r => r.Links.Select(l => s.Module.Ontology?.Relation(l.Relation, r.Type)))
                 .OfType<ModuleRelation>().Distinct().Select(relation => resolution.ConsentRefusal(s.Module, relation)))
             .OfType<string>().Distinct(StringComparer.Ordinal).ToList();
         if (refused.Count != 0) throw new KnowledgePackException(refused);
@@ -102,11 +102,17 @@ public sealed partial class PackMemory : IModuleTraversalReader
             }
         // A snapshot whose links reach into a dependency type that holds no records is refused, as the store refuses it at import
         // (review 7, W9: the store resolved links as it wrote, memory once all was mounted, so import order changed the walk).
+        // What is held and what is linked, each worked out once (round 10, C-M3: a scan per relation of every record and every
+        // record held made this cost relations times records).
+        var held = memory._byId.Values.Select(r => (r.ModuleId, r.Type)).ToHashSet();
         foreach (var shot in shots)
+        {
+            var linked = shot.Records.SelectMany(r => r.Links.Select(l => (r.Type, l.Relation))).ToHashSet();
             foreach (var relation in shot.Module.Ontology!.Relations.Where(r => r.To.Contains(':', StringComparison.Ordinal) && !r.To.StartsWith("core:", StringComparison.Ordinal)))
-                if (shot.Records.Any(r => r.Type == relation.From && r.Links.Any(l => l.Relation == relation.Name))
-                    && Target(shot.Module.Id, relation) is { } into && !memory._byId.Values.Any(r => r.ModuleId == into.Module && r.Type == into.Type))
+                if (linked.Contains((relation.From, relation.Name))
+                    && Target(shot.Module.Id, relation) is { } into && !held.Contains((into.Module, into.Type)))
                     throw new KnowledgePackException([$"{shot.Module.Id} links into {relation.To}, which holds no records here yet: import {into.Module} first."]);
+        }
         // Links once every record is in: a link resolves to the record its target key names, in this module or a dependency.
         foreach (var (manifest, records) in sources)
             foreach (var record in records)
@@ -114,7 +120,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 var links = new List<ModuleRecordLink>();
                 foreach (var link in record.Links)
                 {
-                    var relation = manifest.Ontology!.Relations.SingleOrDefault(r => r.Name == link.Relation && r.From == record.Type);
+                    var relation = manifest.Ontology!.Relation(link.Relation, record.Type);
                     if (relation is null || Target(manifest.Id, relation) is not { } target) continue;
                     var targetId = IdOf(target.Module, target.Type, link.Target);
                     if (memory._byId.ContainsKey(targetId))
@@ -171,19 +177,20 @@ public sealed partial class PackMemory : IModuleTraversalReader
             {
                 case "set":
                     var set = PackFamilies.LoadSet(content, trust, null);
-                    // What a host composing the family composes by default (review 3, 4): a member is mounted when some path to it has
-                    // every composite on and the member enabled, as CompositeMembers composes it through the first such path; one
-                    // only ever reached switched off, or inside a composite switched off, is not.
-                    var composed = new HashSet<string>(StringComparer.Ordinal);
-                    void Compose(LoadedFamily family, bool on)
-                    {
-                        foreach (var member in family.Manifest.Members)
-                            if (on && member.Enabled) composed.Add(member.Id);
-                        foreach (var nested in family.Families)
-                            Compose(nested, on && family.Manifest.Members.FirstOrDefault(m => m.Id == nested.Id)?.Enabled != false);
-                    }
-                    foreach (var family in set.Families) Compose(family, on: true);
-                    loaded.AddRange(set.AllPacks.Where(p => composed.Contains(p.Id) || set.Packs.Any(standalone => standalone.Id == p.Id)));
+                    // What a host composing the families composes by default (review 3, 4): each member through the first route with
+                    // every composite on and the member enabled, with that route's copy, by the rule AddFamily composes with (round 10,
+                    // C-M2: every copy of a composed member was mounted and the latest validity kept, so serve held a member past the
+                    // day the host switched it off, or through a route switched off). A host holds a module once: a member two families
+                    // compose is refused, as composing both refuses it.
+                    var composed = new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (var family in set.Families)
+                        foreach (var member in PackFamilies.Composed(family))
+                        {
+                            if (!composed.TryAdd(member.Id, family.Id))
+                                throw new PackLoadException([$"{member.Id} is composed by both {composed[member.Id]} and {family.Id}; a host holds a module once."]);
+                            loaded.Add(member);
+                        }
+                    loaded.AddRange(set.Packs);
                     familyMembers.UnionWith(set.Families.SelectMany(f => f.AllMembers).Select(p => p.Id));
                     standalone.UnionWith(set.Packs.Select(p => p.Id));
                     break;

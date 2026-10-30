@@ -1206,6 +1206,17 @@ def run_id(run):
     return value.get("runId") if isinstance(value, dict) and isinstance(value.get("runId"), str) else None
 
 
+def run_is_of(run, pid, digest, version):
+    """Whether run.json's subject names this pack at this digest and version (as .NET's PackAttestations.RunIsOf)."""
+    try:
+        value = profile(run["run.json"]) if "run.json" in run and len(run["run.json"]) <= 1 << 20 else None
+    except Refused:
+        return False
+    subject = value.get("subject") if isinstance(value, dict) else None
+    return (isinstance(subject, dict) and subject.get("ref") == f"pack:{pid}@{digest}" and isinstance(subject.get("version"), str)
+            and subject.get("version") == version)
+
+
 def one_of(value, names):
     return isinstance(value, str) and value in names
 
@@ -1353,6 +1364,8 @@ def verify_certificate(envelope_bytes, pid, version, digest, policy, now, run=No
         named = run_id(run)
         if named is not None and named != pred["aef"]["runId"]:
             raise Refused("the AEF run beside the certificate has another run id")
+        if not run_is_of(run, pid, digest, version):
+            raise Refused("the AEF run beside the certificate is the evidence of another decision")
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
     digest_of_pae = hashlib.sha256(pae(payload)).digest()
@@ -1483,7 +1496,17 @@ def load_policy(raw):
     return policy
 
 
+def shown(value):
+    """A value from a pack as it is printed: every control or format character (Unicode Cc and Cf: escapes, bidi controls,
+    zero-width characters, line breaks) as \\uXXXX, so pack text cannot forge or hide a line (round 10, A-M1)."""
+    return "".join(f"\\u{ord(c):04X}" if unicodedata.category(c) in ("Cc", "Cf") else c for c in str(value))
+
+
 def main(argv):
+    # A console that cannot encode a character shows it escaped, never fails (round 10, A-M1: a crash read as a refusal).
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
     # NFC and the Stream-Safe count are Unicode's: the verdicts are Unicode 15.0's, as .NET's tables are, on every host.
     if unicodedata.unidata_version != UNICODE_VERSION:
         print(f"error: this verifier decides with Unicode {UNICODE_VERSION} data; this Python has {unicodedata.unidata_version} (use Python 3.12)")
@@ -1529,7 +1552,7 @@ def main(argv):
             _, _, _, manifest = verify(files, policy, now)
             federation = read_federation(manifest.get("extensions", {}))
             verify_receipt(read_file(receipt_path, "the receipt"), pid, version, digest, federation, archive, location, policy, now)
-            print(f"verified the placement of {pid} {version} at {location}")
+            print(f"verified the placement of {shown(pid)} {shown(version)} at {shown(location)}")
         if certificate_path is not None:
             if certificate_path.startswith(ATTESTATIONS):
                 named = CERT_FILE.fullmatch(certificate_path)
@@ -1542,14 +1565,14 @@ def main(argv):
             else:
                 run, envelope, stem = None, read_file(certificate_path, "the certificate"), None
             pred = verify_certificate(envelope, pid, version, digest, policy, now, run, stem)
-            print(f"verified the certificate of {pid} {version} by {pred['evaluator']}")
+            print(f"verified the certificate of {shown(pid)} {shown(version)} by {shown(pred['evaluator'])}")
     except Refused as e:
-        print(f"refused: {e}")
+        print(f"refused: {shown(e)}")
         return 1
     except Exception as e:  # a defect, never a verdict: the conformance run tells it apart from a refusal
-        print(f"error: {type(e).__name__}: {e}")
+        print(f"error: {type(e).__name__}: {shown(e)}")
         return 2
-    print(f"verified {pid} {version} {digest}")
+    print(f"verified {shown(pid)} {shown(version)} {digest}")
     return 0
 
 

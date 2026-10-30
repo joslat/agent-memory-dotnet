@@ -135,6 +135,30 @@ public static class PackFamilies
         return builder.AddComposite(family.Manifest, members => AddMembers(members, family), configure);
     }
 
+    /// <summary>
+    /// The packs a host composes from a family with no switches of its own, in the order it composes them (round 10, C-M2: the one
+    /// rule serve and <see cref="AddFamily"/> share): in member order, depth first, a member only when it and every composite above
+    /// it are on, and each through the first such route only, with that route's copy and so that route's validity.
+    /// </summary>
+    internal static IEnumerable<LoadedPack> Composed(LoadedFamily family)
+    {
+        ArgumentNullException.ThrowIfNull(family);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return Walk(family, on: true);
+
+        IEnumerable<LoadedPack> Walk(LoadedFamily of, bool on)
+        {
+            foreach (var member in of.Manifest.Members)
+            {
+                var enabled = on && member.Enabled;
+                if (of.Families.FirstOrDefault(f => f.Id == member.Id) is { } nested)
+                    foreach (var pack in Walk(nested, enabled)) yield return pack;
+                else if (enabled && of.Members.FirstOrDefault(p => p.Id == member.Id) is { } pack && seen.Add(pack.Id))
+                    yield return pack;
+            }
+        }
+    }
+
     // In the composite's order: a nested family as a composite member, a pack as a module.
     private static void AddMembers(CompositeMembers members, LoadedFamily family)
     {

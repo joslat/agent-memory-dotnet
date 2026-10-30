@@ -61,6 +61,9 @@ internal static class PackBuilder
             if (manifest is null) throw new InvalidDataException(manifestProblem);
             if (WriterProblem(manifest) is { } refused) throw new InvalidDataException(refused);
         }
+        // What no reader would accept is never written (round 10, A-M2): a signing time ahead of every reader's clock.
+        if (TrustPolicy.InTheFuture(signedAt, DateTimeOffset.UtcNow))
+            throw new InvalidDataException($"The signing time {signedAt:u} is in the future; every reader would refuse the signature (check SOURCE_DATE_EPOCH).");
         var envelope = Dsse.Sign(listBytes, list.Id, list.Version, role, signedAt, signer);
         var path = Dsse.PathFor(role, signer.KeyId);
         files[path] = envelope;

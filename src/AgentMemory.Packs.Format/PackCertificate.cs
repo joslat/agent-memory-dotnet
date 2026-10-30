@@ -143,6 +143,8 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             else if (PackAttestations.RunHash(run) != certificate.AefRunHash) problems.Add("The AEF run beside the certificate is not the run it names (its run hash differs).");
             else if (PackAttestations.RunId(run) is { } runId && runId != certificate.AefRunId)
                 problems.Add($"The AEF run beside the certificate is {runId}, not {certificate.AefRunId}.");
+            else if (!PackAttestations.RunIsOf(run, pack.Id, pack.Digest, pack.Version))
+                problems.Add("The AEF run beside the certificate is the evidence of another decision: its subject is not this pack at this digest and version.");
         }
 
         var hash = SHA256.HashData(Dsse.Pae(Dsse.PayloadType, payload));
@@ -403,19 +405,31 @@ internal static partial class PackAttestations
     }
 
     /// <summary>
+    /// Whether an AEF run is the evidence of this pack's decision: its <c>run.json</c> subject names the pack at this digest and
+    /// version (round 10, B10-M1: a run was checked by its id and hash only, so another version's run travelled as this one's).
+    /// </summary>
+    internal static bool RunIsOf(IReadOnlyDictionary<string, byte[]> run, string id, string digest, string version) =>
+        RunJson(run, root => root.TryGetProperty("subject", out var subject) && subject.ValueKind == JsonValueKind.Object
+            && subject.TryGetProperty("ref", out var reference) && reference.ValueKind == JsonValueKind.String && reference.GetString() == $"pack:{id}@{digest}"
+            && subject.TryGetProperty("version", out var named) && named.ValueKind == JsonValueKind.String && named.GetString() == version);
+
+    /// <summary>
     /// The run id <c>run.json</c> names, or null when it names none readably: read in the format's JSON profile, as every
     /// verifier reads it, so a run.json in another encoding or with repeated keys cannot make two verifiers disagree.
     /// </summary>
-    internal static string? RunId(IReadOnlyDictionary<string, byte[]> run)
+    internal static string? RunId(IReadOnlyDictionary<string, byte[]> run) =>
+        RunJson(run, root => root.TryGetProperty("runId", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null);
+
+    // The one reading of a run's run.json: bounded, in the format's JSON profile, an object; null (or false) when it is not.
+    private static T? RunJson<T>(IReadOnlyDictionary<string, byte[]> run, Func<JsonElement, T> read)
     {
-        if (!run.TryGetValue("run.json", out var bytes) || bytes.Length > 1 << 20 || PackJson.Check(bytes) is not null) return null;
+        if (!run.TryGetValue("run.json", out var bytes) || bytes.Length > 1 << 20 || PackJson.Check(bytes) is not null) return default;
         try
         {
             using var document = JsonDocument.Parse(bytes);
-            return document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("runId", out var id)
-                && id.ValueKind == JsonValueKind.String ? id.GetString() : null;
+            return document.RootElement.ValueKind == JsonValueKind.Object ? read(document.RootElement) : default;
         }
-        catch (JsonException) { return null; }
+        catch (JsonException) { return default; }
     }
 
     [GeneratedRegex("\\AMETA/attestations/([a-z0-9][a-z0-9-]{0,63})\\.certificate\\.dsse\\.json\\z", RegexOptions.CultureInvariant)]

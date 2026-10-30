@@ -37,6 +37,15 @@ internal sealed partial record TrustPolicy
     internal HostLedger? KeptFrom { get; init; }
     internal int KeptVersion { get; init; }
     internal IReadOnlyList<string> RequiredRoles { get; init; } = ["publisher"];
+
+    /// <summary>The clock difference allowed between a signer and a reader.</summary>
+    internal static readonly TimeSpan ClockAllowance = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Whether a claimed time is past the allowance ahead of now: the one rule the readers apply to signing and issue times and
+    /// the writer applies before it signs (round 10, A-M2: a future SOURCE_DATE_EPOCH wrote a pack every reader refuses).
+    /// </summary>
+    internal static bool InTheFuture(DateTimeOffset claimed, DateTimeOffset now) => claimed > now + ClockAllowance;
     /// <summary>The WebIDs this host acts as (<c>host.webIds</c>): a federated pack loads only if its audience names one, or is public.</summary>
     internal IReadOnlyList<string> HostWebIds { get; init; } = [];
 
@@ -54,7 +63,7 @@ internal sealed partial record TrustPolicy
         // checked against now; only a verified timestamp token could prove a signature older than the expiry.
         if (key.NotAfter is { } expired && now > expired)
             return $"key {shortId} expired at {expired:u}; without a verified timestamp token its signatures no longer count.";
-        if (signedAt > now.AddMinutes(5)) return $"the signature by {shortId} claims a time in the future.";
+        if (InTheFuture(signedAt, now)) return $"the signature by {shortId} claims a time in the future.";
         if (RevokedKeys.FirstOrDefault(r => r.KeyId == key.KeyId) is { } revoked)
             // A timestamp authority's token is the only proof a signature predates a compromise; until the token is checked, refuse.
             return revoked.CompromisedAt is { } at

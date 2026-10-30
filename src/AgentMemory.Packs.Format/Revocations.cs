@@ -237,7 +237,7 @@ internal static partial class Revocations
             || !d.TryGetProperty("expires", out var expiresText) || !PackTime.TryParse(expiresText.ValueKind == JsonValueKind.String ? expiresText.GetString() : null, out var expires)
             || expires <= issuedAt)
             throw Bad("needs issuedAt and expires, RFC 3339, expiring after it was issued");
-        if (issuedAt > now.AddMinutes(5)) throw Bad($"claims to be issued at {issuedAt:u}, in the future");
+        if (TrustPolicy.InTheFuture(issuedAt, now)) throw Bad($"claims to be issued at {issuedAt:u}, in the future");
 
         var digests = new List<string>();
         if (!d.TryGetProperty("digests", out var digestArray) || digestArray.ValueKind != JsonValueKind.Array) throw Bad("needs a digests list");

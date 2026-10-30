@@ -1170,7 +1170,10 @@ def main():
             out[f"META/attestations/{stem_ or cert_stem}.aef/{path_}"] = bytes_
         return write_zip(out)
 
-    run = {"run.json": json.dumps({"schemaVersion": "1.0", "runId": "trial.io.example.notes.1.0.0.20261028T120000000Z"}).encode(),
+    certified_listing = json.loads(certified[py.FILES])
+    # A run is the evidence of one decision: its subject names this pack at this digest and version (round 10, B10-M1).
+    run_subject = {"ref": f"pack:{certified_listing['id']}@sha256:{hashlib.sha256(certified[py.FILES]).hexdigest()}", "version": certified_listing["version"]}
+    run = {"run.json": json.dumps({"schemaVersion": "1.0", "runId": "trial.io.example.notes.1.0.0.20261028T120000000Z", "subject": run_subject}).encode(),
            "results.ndjson": b'{"lane":"with-pack","passed":true}\n', "seal.json": b"{}", "attestation.dsse.json": b"{}"}
     aef = {"runId": "trial.io.example.notes.1.0.0.20261028T120000000Z", "runHash": py.run_hash(run)}
     tampered = {**run, "results.ndjson": b'{"lane":"with-pack","passed":false}\n'}
@@ -1227,9 +1230,13 @@ def main():
         "certificate-aef-run-named-elsewhere": (carrying(certificate(certified, aef=aef)), certificate_path, None, "trust-evaluator.json", "verified"),
         "certificate-aef-run-tampered": (carrying(certificate(certified, aef=aef), tampered), certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-aef-run-not-named": (carrying(certificate(certified), run), certificate_path, None, "trust-evaluator.json", "refused"),
+        # A run.json outside the profile cannot show whose evidence it is (round 10, B10-M1), so it no longer passes.
         "certificate-aef-run-json-outside-profile": (carrying(certificate(certified, aef={**aef, "runHash": py.run_hash({**run, "run.json": b'{"runId":"another.run","runId":"another.run"}'})}),
                                                      {**run, "run.json": b'{"runId":"another.run","runId":"another.run"}'}),
-                                                     certificate_path, None, "trust-evaluator.json", "verified"),
+                                                     certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-aef-run-of-another-pack": (carrying(certificate(certified, aef={**aef, "runHash": py.run_hash(other_run := {**run, "run.json": json.dumps(
+            {"schemaVersion": "1.0", "runId": aef["runId"], "subject": {**run_subject, "version": "9.9.9"}}).encode()})}), other_run),
+            certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-aef-run-other-id": (carrying(certificate(certified, aef={**aef, "runId": "another.run"}), run), certificate_path, None,
                                          "trust-evaluator.json", "refused"),
         # Whose certificate: a key the host names as evaluator for this pack's id, valid when it evaluated and now.

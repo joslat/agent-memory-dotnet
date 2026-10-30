@@ -192,6 +192,9 @@ public static class PackCertificates
             try { run = PackReader.ReadFolder(aefRunFolder).Files; }
             catch (Exception e) when (e is InvalidDataException or IOException) { throw new PackLoadException([$"{aefRunFolder}: {e.Message}"]); }
             runId = PackAttestations.RunId(run) ?? throw new PackLoadException([$"{aefRunFolder} is not an AEF run: its run.json names no runId."]);
+            // The run of this decision, not another version's (round 10, B10-M1).
+            if (!PackAttestations.RunIsOf(run, pack.Id, pack.Digest, pack.Version))
+                throw new PackLoadException([$"{aefRunFolder} is the evidence of another decision: its subject is not {pack.Id} {pack.Version} at {pack.Digest}."]);
             runHash = PackAttestations.RunHash(run);
             foreach (var (path, bytes) in run) files[PackPaths.AttestationsFolder + stem + PackAttestations.RunSuffix + path] = bytes;
         }

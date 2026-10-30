@@ -381,7 +381,7 @@ public sealed class PackCertificateTests : IDisposable
         PackCertificates.Admit(loaded, Now).Reason.Should().Contain("did not pass");
 
         var run = Directory.CreateDirectory(Path.Combine(_folder, "run")).FullName;
-        File.WriteAllText(Path.Combine(run, "run.json"), """{"runId":"r1"}""" + "\n");
+        File.WriteAllText(Path.Combine(run, "run.json"), $$$"""{"runId":"r1","subject":{"ref":"pack:{{{pack.Id}}}@{{{pack.Digest}}}","version":"{{{pack.Version}}}"}}""" + "\n");
         File.WriteAllText(Path.Combine(run, "extra.ndjson"), "{}\n");
         var withRun = PackCertificates.Issue(built, Trust(), Decision(pack), _evaluator.PrivateKeyPem, "Example Lab", "x", run);
         var again = PackCertificates.Issue(withRun, Trust(), Decision(pack), _evaluator.PrivateKeyPem, "Example Lab", "x");
@@ -398,14 +398,30 @@ public sealed class PackCertificateTests : IDisposable
     }
 
     [Fact]
+    public void Review10_B10_M1_a_certificate_carries_only_the_run_of_its_own_decision()
+    {
+        // `ampack evidence` without --version wrote the latest run of any version; certify attached it, and every reader said
+        // "the run travels beside it and matches". A run names its pack at a digest and version, and only this one's travels.
+        var (built, pack) = Built();
+        foreach (var (subject, version) in new[] { ($"pack:{pack.Id}@{pack.Digest}", "9.9.9"), ($"pack:{pack.Id}@sha256:{new string('1', 64)}", pack.Version) })
+        {
+            var run = Directory.CreateDirectory(Path.Combine(_folder, "other-" + version + subject.Length)).FullName;
+            File.WriteAllText(Path.Combine(run, "run.json"), $$$"""{"runId":"r1","subject":{"ref":"{{{subject}}}","version":"{{{version}}}"}}""" + "\n");
+            Refused(() => PackCertificates.Issue(built, Trust(), Decision(pack), _evaluator.PrivateKeyPem, "Example Lab", "x", run))
+                .Should().Contain(p => p.Contains("the evidence of another decision"));
+        }
+    }
+
+    [Fact]
     public void The_aef_run_travels_beside_its_certificate_named_by_its_run_hash()
     {
         var run = Directory.CreateDirectory(Path.Combine(_folder, "run")).FullName;
-        File.WriteAllText(Path.Combine(run, "run.json"), """{"schemaVersion":"1.0","runId":"trial.io.agentmemory.packs.martialarts.1"}""" + "\n");
+        var (built, pack) = Built();
+        // The run of this decision: its subject names the pack at its digest and version (round 10, B10-M1).
+        File.WriteAllText(Path.Combine(run, "run.json"), $$$"""{"schemaVersion":"1.0","runId":"trial.io.agentmemory.packs.martialarts.1","subject":{"ref":"pack:{{{pack.Id}}}@{{{pack.Digest}}}","version":"{{{pack.Version}}}"}}""" + "\n");
         Directory.CreateDirectory(Path.Combine(run, "results"));
         File.WriteAllText(Path.Combine(run, "results", "with-pack.ndjson"), """{"task":1,"hit":true}""" + "\n");
         File.WriteAllText(Path.Combine(run, "seal.json"), "{}\n");
-        var (built, pack) = Built();
 
         var certified = PackCertificates.Issue(built, Trust(), Decision(pack), _evaluator.PrivateKeyPem, "Example Lab", "40 changes from the lab's repository", run);
         var loaded = PackLoader.Load(certified, Trust());

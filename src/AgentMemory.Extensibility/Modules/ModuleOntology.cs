@@ -13,6 +13,17 @@ public sealed record ModuleOntology
     public IReadOnlyList<ModuleType> Types { get; init; } = [];
     /// <summary>Outgoing relationships from owned node types.</summary>
     public IReadOnlyList<ModuleRelation> Relations { get; init; } = [];
+
+    // Relations by name (names are unique in an ontology), built once per relations list (round 10, C-M3: every link scanned the
+    // list, so loading a pack cost links times relations, minutes at the format's caps). Keyed on the list itself, so a copy made
+    // with other relations gets its own index.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyList<ModuleRelation>, Dictionary<string, ModuleRelation>> Indexes = new();
+
+    /// <summary>The relation of this name declared from <paramref name="from"/>, or null: one lookup, whatever the ontology's size.</summary>
+    internal ModuleRelation? Relation(string name, string from) =>
+        Indexes.GetValue(Relations, static list => list.Where(r => r is not null).GroupBy(r => r.Name, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal))
+            .TryGetValue(name, out var relation) && relation.From == from ? relation : null;
 }
 
 /// <summary>One owned node type; SDK provenance and version fields are not user properties.</summary>

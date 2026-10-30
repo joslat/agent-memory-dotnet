@@ -102,7 +102,7 @@ public sealed record ModuleSnapshot
         foreach (var record in Records)
             foreach (var link in record.Links)
             {
-                var relation = Module.Ontology!.Relations.SingleOrDefault(r => r.Name == link.Relation && r.From == record.Type);
+                var relation = Module.Ontology!.Relation(link.Relation, record.Type);
                 // A link into a dependency's records is resolved by the store, which leaves it out when the target is not there.
                 if (relation is not null && !IsForeign(relation) && !keys.Contains((relation.To, link.Target)))
                     problems.Add($"{At(record)}{record.Type} '{record.Key}' links {link.Relation} to {relation.To} '{link.Target}', which the snapshot does not hold.");

@@ -314,6 +314,21 @@
    "sha256": "d1da4705b6794c97960016d6ebcde403f91c9c9af98e52b987370af901e376ba"
   },
   {
+   "id": "writer-signs-future",
+   "rule": "ONE-WRITER-SIGN",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackBuilder.cs",
+   "edits": [
+    {
+     "old": "        if (TrustPolicy.InTheFuture(signedAt, DateTimeOffset.UtcNow))\n",
+     "new": "        if (TrustPolicy.InTheFuture(signedAt, DateTimeOffset.MaxValue))\n"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review10GuardTests.A_M2",
+   "sha256": "bfce0937d8608e0d35d4cd84384a52bc8d14f9b720f5b7904c136002d3e8879e"
+  },
+  {
    "id": "writer-read-back",
    "rule": "ONE-WRITER-ARCHIVE",
    "door": "definition",
@@ -753,6 +768,51 @@
    "sha256": "cb81a538679da5908d881c0a81954433ed227f93961bb9a2ec8a0efce4c6ab47"
   },
   {
+   "id": "run-any-subject",
+   "rule": "CERTIFICATE-RUN-BOUND",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackCertificate.cs",
+   "edits": [
+    {
+     "old": "        RunJson(run, root => root.TryGetProperty(\"subject\", out var subject)",
+     "new": "        RunJson(run, root => Environment.ProcessorCount > 0 || root.TryGetProperty(\"subject\", out var subject)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.Review10_B10_M1",
+   "sha256": "e072edce34a6ef0f3c8e3f6676eeb5c132872029ec41eeccc08549898647418c"
+  },
+  {
+   "id": "certify-any-run",
+   "rule": "CERTIFICATE-RUN-BOUND",
+   "door": "certify",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": "            if (!PackAttestations.RunIsOf(run, pack.Id, pack.Digest, pack.Version))",
+     "new": "            if (Environment.ProcessorCount < 0 && !PackAttestations.RunIsOf(run, pack.Id, pack.Digest, pack.Version))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.Review10_B10_M1",
+   "sha256": "95f5e4f0d5aa35293ab84d8617fce2ca2569e2a19c1efb1bcacb8b22f3c053af"
+  },
+  {
+   "id": "python-run-any-subject",
+   "rule": "CERTIFICATE-RUN-BOUND",
+   "door": "certificate",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if not run_is_of(run, pid, digest, version):\n",
+     "new": "        if False and not run_is_of(run, pid, digest, version):\n"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "7fbbd683b661342f8b85d8f7c3313892a91b984b82c23f6237fa7f44bf30f9c7"
+  },
+  {
    "id": "pooled-first-copy",
    "rule": "CERTIFICATE-COPIES",
    "door": "definition",
@@ -768,19 +828,34 @@
    "sha256": "10122313afb3e290e83df1169ffa357463321c4d3a0aa876ae410e4c4843eca3"
   },
   {
+   "id": "composed-any-route",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "family routes",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
+   "edits": [
+    {
+     "old": "                var enabled = on && member.Enabled;\n                if (of.Families",
+     "new": "                var enabled = on || member.Enabled;\n                if (of.Families"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review10GuardTests.C_M2",
+   "sha256": "8679388c533166129cfdc6700aaabf90a29647c30e990d5171fc8f1fccf76cdd"
+  },
+  {
    "id": "links-before-dependency",
    "rule": "ONE-MOUNT-PLAN",
    "door": "memory",
    "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
    "edits": [
     {
-     "old": "&& Target(shot.Module.Id, relation) is { } into && !memory._byId.Values.Any(",
-     "new": "&& Target(shot.Module.Id, relation) is { } into && false && !memory._byId.Values.Any("
+     "old": "&& Target(shot.Module.Id, relation) is { } into && !held.Contains((into.Module, into.Type)))",
+     "new": "&& Target(shot.Module.Id, relation) is { } into && Environment.ProcessorCount < 0 && !held.Contains((into.Module, into.Type)))"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~PackConsentTests.Review7_W9",
-   "sha256": "07cd9aff4f9dbcbb9da90b2bc1163c932649f1ab7a089fe4202933b88ede4463"
+   "sha256": "837745dcc83c15215cdb4251c74ad6c53a9795049caa2896ecbe5a2c98fbded3"
   },
   {
    "id": "live-in-the-walk",

@@ -156,7 +156,7 @@ public static class ModuleProposalAdmission
         foreach (var link in proposal.Links)
         {
             if (link is null) { errors.Add("links: null link."); continue; }
-            var relation = module?.Ontology?.Relations.FirstOrDefault(r => r.Name == link.Relation && r.From == proposal.Type);
+            var relation = module?.Ontology?.Relation(link.Relation, proposal.Type);
             if (relation is null) { errors.Add("links: relation must be declared for the proposal's owned type."); continue; }
             if (!ValidIdentity(link.Target)) errors.Add("links: target identity or name cannot be empty or contain control characters.");
             else if (!ModuleText.IsNfc(link.Target)) errors.Add("links: a target must be in Unicode NFC.");
