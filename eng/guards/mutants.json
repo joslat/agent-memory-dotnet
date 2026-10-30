@@ -696,16 +696,16 @@
    "id": "mount-plan-at-mount",
    "rule": "ONE-MOUNT-PLAN",
    "door": "serve",
-   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
    "edits": [
     {
-     "old": "        var loaded = PackMountPlan.Of(PackFamilies.HostComposes(sets, direct));",
-     "new": "        List<LoadedPack> loaded = [.. PackFamilies.HostComposes(sets, direct)];"
+     "old": "            .. PackMountPlan.Problems(held),\n",
+     "new": ""
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AmpackLoaderTests|FullyQualifiedName~Review8GuardTests.A5|FullyQualifiedName~PackConsentTests.Review12",
-   "sha256": "774f906714496e5072ef070e207ea8b438825609fa4626245a5935e13a843a37"
+   "filter": "FullyQualifiedName~AmpackLoaderTests|FullyQualifiedName~Review8GuardTests.A5|FullyQualifiedName~PackConsentTests.Review12|FullyQualifiedName~PackConsentTests.Review13",
+   "sha256": "27dff61738e0cc6d3f1b077bd7e879f28e68ea28470df7ff66dd5664a40468fd"
   },
   {
    "id": "mount-plan-at-gate",
@@ -834,13 +834,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
    "edits": [
     {
-     "old": "        var loaded = PackMountPlan.Of(PackFamilies.HostComposes(sets, direct));",
-     "new": "        var loaded = PackMountPlan.Of([.. sets.SelectMany(s => s.AllPacks), .. direct]);"
+     "old": "        var loaded = PackFamilies.HostComposes(sets, direct).ToList();",
+     "new": "        var loaded = sets.SelectMany(s => s.AllPacks).Concat(direct).ToList();"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~AmpackLoaderTests.Review11|FullyQualifiedName~PackFamilyTests.Review11",
-   "sha256": "f930527584cf779b1e2b48c87f32bd1f5deefee99d70d018c68800297355896a"
+   "sha256": "5c0b3d1f26ad0dd394db3d8309197cb2ae3ae5b41a80b20742a279eb2385785c"
   },
   {
    "id": "composed-any-origin",
@@ -864,13 +864,28 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackStore.cs",
    "edits": [
     {
-     "old": "                PackFamilies.HostComposes([set], []);\n",
+     "old": "        PackMemory.Held([.. others.Select(p => PackReader.ReadArchiveFile(Path.Combine(_root, p.File))), archive], trust);\n",
      "new": ""
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackFamilyTests.Review12",
-   "sha256": "b64a78cd4e6bd355f5239ea47bd34003d2ed70e1651bf4a5e90d80c491633378"
+   "filter": "FullyQualifiedName~PackFamilyTests.Review12|FullyQualifiedName~PackConsentTests.Review13",
+   "sha256": "35b226951e8829af5fc1e87da6b5a4ad4fd1e426d1c5d4eeaf486b0912a20418"
+  },
+  {
+   "id": "snapshot-without-definition",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
+   "edits": [
+    {
+     "old": ".Where(s => !definitions.Contains(s.of))",
+     "new": ".Where(s => Environment.ProcessorCount < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackConsentTests.Review13",
+   "sha256": "6f92931623997942dee41be457a06fca99fefe0fe1f0f1a4944d3b03f177bbbd"
   },
   {
    "id": "links-before-dependency",

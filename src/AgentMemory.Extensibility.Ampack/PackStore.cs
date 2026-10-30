@@ -75,10 +75,6 @@ public sealed class PackStore
             case "set":
                 // Allowing a downgrade waives the version history only: one content per version, and every kept revocation, still hold.
                 var set = PackFamilies.LoadSet(content, trust, ledger, allowDowngrade);
-                // What a host composes from it, or the host's refusal, before anything is written (round 12, R12-2: a set every host
-                // refuses was installed, and then serve --store refused the whole store). Installed items carry no id in common, so
-                // each composing on its own is the store composing.
-                PackFamilies.HostComposes([set], []);
                 digest = set.Digest;
                 members = [.. set.AllPacks.Select(p => p.Id).Where(m => m != id).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
                 record = () => ledger.Record(set);
@@ -97,6 +93,9 @@ public sealed class PackStore
             throw new PackLoadException([$"{id} is installed as part of the set {carrier.Id}: uninstall the set first, or install a newer set."]);
         if (members.FirstOrDefault(m => others.Any(p => p.Id == m || p.Members.Contains(m, StringComparer.Ordinal))) is { } overlap)
             throw new PackLoadException([$"The set {id} carries {overlap}, which is already installed here: uninstall it first."]);
+        // The store as it will be, held as serve --store and test --store then hold it, by the one decider, before anything is
+        // written (round 12, R12-2: a set every host refuses was installed; round 13, R13-1: a snapshot rule broken across items was).
+        PackMemory.Held([.. others.Select(p => PackReader.ReadArchiveFile(Path.Combine(_root, p.File))), archive], trust);
         var file = FileFor(id, version);
         var target = Path.Combine(_root, file);
         var temporary = target + ".partial";

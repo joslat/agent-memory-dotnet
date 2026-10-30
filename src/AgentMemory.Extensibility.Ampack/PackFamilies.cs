@@ -142,7 +142,8 @@ public static partial class PackFamilies
     /// packs holds exactly what a host holds and refuses what a host refuses (round 11, R11-1 to R11-3). It is the one decider of
     /// whether packs can be held together (round 12, R12-1, R12-2, R12-4: the mount plan refused what was only carried twice, the
     /// store installed what a host refuses, and a copy's certificates came from another route). Snapshot packs are no modules; they
-    /// come after, as given.
+    /// come after, as given, held by the host's snapshot rules here too: one live snapshot of a module, and a snapshot only beside
+    /// its composed definition (round 13, R13-1: those rules were applied after this, so install agreed with it and serve did not).
     /// </summary>
     /// <exception cref="PackLoadException">A host composing them would refuse; the problem is the host's own, a module added twice said plainly.</exception>
     public static IReadOnlyList<LoadedPack> HostComposes(IEnumerable<LoadedSet> sets, IEnumerable<LoadedPack> packs)
@@ -177,12 +178,21 @@ public static partial class PackFamilies
         {
             throw new PackLoadException([e.Message]);
         }
-        return
+        List<LoadedPack> held =
         [
             .. builder.Modules.Where(origin.ContainsKey).Select(r => origin[r] is var pack && pack.ValidUntil == r.ValidUntil
                 ? pack : pack with { ValidUntil = r.ValidUntil, Knowledge = pack.Knowledge?.WithValidUntil(r.ValidUntil) }),
             .. snapshots,
         ];
+        var definitions = held.Where(p => p.Kind == "definition").Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        List<string> problems =
+        [
+            .. PackMountPlan.Problems(held),
+            .. snapshots.Select(shot => (shot, of: shot.Manifest.Modules.Keys.Single())).Where(s => !definitions.Contains(s.of))
+                .Select(s => $"{s.shot.Id} is a snapshot of {s.of}: hold that definition pack, composed, beside it."),
+        ];
+        if (problems.Count > 0) throw new PackLoadException(problems);
+        return held;
 
         void Add(LoadedPack pack)
         {

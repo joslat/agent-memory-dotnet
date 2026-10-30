@@ -165,6 +165,38 @@ public sealed partial class PackMemory : IModuleTraversalReader
     {
         ArgumentNullException.ThrowIfNull(archives);
         ArgumentNullException.ThrowIfNull(trust);
+        var (sets, direct, familyMembers) = Read(archives, trust);
+        // Held as a host holds them, before the gate or anything else reads them (review 7, W4): composed by the host's own
+        // composition, the one decider of what is held, its snapshot rules included (rounds 11 to 13).
+        var loaded = PackFamilies.HostComposes(sets, direct).ToList();
+        if (off?.Invoke(loaded, familyMembers) is { Count: > 0 } kept)
+            loaded.RemoveAll(p => kept.Contains(p.Id) || (p.Kind == "snapshot" && p.Manifest.Modules.Keys.Any(kept.Contains)));
+        var definitions = loaded.Where(p => p.Kind == "definition").ToDictionary(p => p.Id, p => p.Manifest, StringComparer.Ordinal);
+        var snapshots = new List<ModuleSnapshot>();
+        foreach (var shot in loaded.Where(p => p.Kind == "snapshot"))
+        {
+            var of = shot.Manifest.Modules.Keys.Single();
+            // With the host's grants, the same ones the walk gets below: one consent check, one set of grants (review 6, M1).
+            snapshots.Add(shot.ToSnapshot(definitions[of], [.. definitions[of].Modules.Keys.Where(definitions.ContainsKey).Select(d => definitions[d])], [.. grants ?? []]));
+        }
+        try { return new PackMount(loaded, From(loaded.Select(p => p.Knowledge).OfType<KnowledgePack>(), snapshots, grants)); }
+        catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
+    }
+
+    /// <summary>
+    /// What a host holds from these archives, by the one decider (<see cref="PackFamilies.HostComposes"/>): the reading every door
+    /// that holds archives shares, so the store's install checks exactly what serve and test then hold (round 13, R13-1).
+    /// </summary>
+    /// <exception cref="PackLoadException">An archive is refused, or a host would refuse to hold them together.</exception>
+    internal static IReadOnlyList<LoadedPack> Held(IEnumerable<byte[]> archives, PackTrust trust)
+    {
+        var (sets, direct, _) = Read(archives, trust);
+        return PackFamilies.HostComposes(sets, direct);
+    }
+
+    // Each archive verified and loaded: sets, the packs given on their own, and the ids reached only as family members.
+    private static (List<LoadedSet> Sets, List<LoadedPack> Direct, HashSet<string> FamilyMembers) Read(IEnumerable<byte[]> archives, PackTrust trust)
+    {
         var sets = new List<LoadedSet>();
         var direct = new List<LoadedPack>();
         var familyMembers = new HashSet<string>(StringComparer.Ordinal);
@@ -192,24 +224,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
             }
         }
         familyMembers.ExceptWith(standalone);
-        // Held as a host holds them, before the gate or anything else reads them (review 7, W4): composed by the host's own
-        // composition, the one decider of what is held (round 11; round 12, R12-1: a check here on what was only carried refused a
-        // pack a family carries switched off and the host composes once); then one live snapshot of a module.
-        var loaded = PackMountPlan.Of(PackFamilies.HostComposes(sets, direct));
-        if (off?.Invoke(loaded, familyMembers) is { Count: > 0 } kept)
-            loaded.RemoveAll(p => kept.Contains(p.Id) || (p.Kind == "snapshot" && p.Manifest.Modules.Keys.Any(kept.Contains)));
-        var definitions = loaded.Where(p => p.Kind == "definition").ToDictionary(p => p.Id, p => p.Manifest, StringComparer.Ordinal);
-        var snapshots = new List<ModuleSnapshot>();
-        foreach (var shot in loaded.Where(p => p.Kind == "snapshot"))
-        {
-            var of = shot.Manifest.Modules.Keys.Single();
-            if (!definitions.TryGetValue(of, out var definition))
-                throw new PackLoadException([$"{shot.Id} is a snapshot of {of}: mount that definition pack beside it."]);
-            // With the host's grants, the same ones the walk gets below: one consent check, one set of grants (review 6, M1).
-            snapshots.Add(shot.ToSnapshot(definition, [.. definition.Modules.Keys.Where(definitions.ContainsKey).Select(d => definitions[d])], [.. grants ?? []]));
-        }
-        try { return new PackMount(loaded, From(loaded.Select(p => p.Knowledge).OfType<KnowledgePack>(), snapshots, grants)); }
-        catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
+        return (sets, direct, familyMembers);
     }
 
     /// <summary>

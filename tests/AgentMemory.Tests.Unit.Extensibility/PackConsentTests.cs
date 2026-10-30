@@ -120,6 +120,27 @@ public sealed class PackConsentTests
     }
 
     [Fact]
+    public void Review13_the_store_installs_only_what_serve_then_holds()
+    {
+        // R13-1: a definition and two snapshots of it each installed, then serve --store refused the whole store; a snapshot with
+        // no definition installed too. Install now checks the store as it will be, by the one decider serve uses.
+        var key = PackAuthoring.CreateKey();
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(key.PublicKeyPem, "com.example", "io.example")));
+        var definition = PackAuthoring.Build(PackAuthoring.FromModuleBundle(new Dictionary<string, byte[]> { ["manifest.json"] = Encoding.UTF8.GetBytes(Code.Replace("CONSENT", "", StringComparison.Ordinal)) }), key.PrivateKeyPem);
+        byte[] Shot(string id) => PackAuthoring.Build(PackAuthoring.FromSnapshot(Codebase(consents: false), id, "1.0.0"), key.PrivateKeyPem);
+        var store = PackStore.Open(Directory.CreateTempSubdirectory("pack-store-r13-").FullName);
+
+        FluentActions.Invoking(() => store.Install(Shot("io.example.code-map-a"), trust)).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains("hold that definition pack"));
+        store.Install(definition, trust);
+        store.Install(Shot("io.example.code-map-a"), trust);
+        FluentActions.Invoking(() => store.Install(Shot("io.example.code-map-b"), trust)).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains("are snapshots of com.example.code"));
+        store.Installed.Should().HaveCount(2);
+        PackMemory.Mount(store.Archives(), trust).Packs.Should().HaveCount(2, "what the store holds, serve holds");
+    }
+
+    [Fact]
     public async Task Review6_M1_mount_takes_the_hosts_grants_for_a_snapshot_pack_as_the_walk_does()
     {
         // The consent rule was checked twice with different grants: Mount made the pack a snapshot with none of the host's
