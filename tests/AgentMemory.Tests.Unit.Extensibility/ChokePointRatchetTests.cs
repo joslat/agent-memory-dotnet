@@ -29,6 +29,9 @@ public sealed class ChokePointRatchetTests
         // And typed deserialization of an element, the low-level reader, and the other node parses.
         ("json parse", new(@"\bJsonDocument\.Parse(Async)?\s*\(|\bJson(Node|Object|Array)\.Parse\s*\(|\bJsonSerializer\.Deserialize\w*\b|\.Deserialize\s*<|\bnew\s+Utf8JsonReader\s*\(")),
         ("archive open", new(@"\bnew\s+ZipArchive\s*\(|\bZipFile\.\w+\s*\(")),
+        // Review 9, D4: the one writer signs and zips; a door that did either itself would skip its rules and its read-back.
+        ("envelope sign", new(@"\bDsse\.Sign\s*\(")),
+        ("archive write", new(@"\bStrictZip\.Write\s*\(")),
         ("raw console", new(@"\bConsole\.(OpenStandard\w*|SetOut|SetError)\s*\(")),
         // Review 8, F3: one pack's own signatures, not a set's members. A door that acts on a pack takes VerifyWhole.
         ("one-pack verify", new(@"\bPackVerifier\.VerifyOne\s*\(")),
@@ -102,6 +105,9 @@ public sealed class ChokePointRatchetTests
         ("src/AgentMemory.Extensibility.Ampack/PackInspection.cs", "one-pack verify", 1, "reports each step; a set is then verified whole before it shows as loaded"),
         ("src/AgentMemory.Extensibility.Ampack/PackLoader.cs", "one-pack verify", 1, "the one-module loader, which refuses a set (open its members)"),
         ("tools/Ampack/Program.cs", "one-pack verify", 1, "ampack verify, which reports a set member by member through VerifySet"),
+
+        ("src/AgentMemory.Packs.Format/PackBuilder.cs", "envelope sign", 1, "the one writer: its version rule and read-back hold every envelope it adds"),
+        ("src/AgentMemory.Packs.Format/PackBuilder.cs", "archive write", 1, "the one writer: every archive it returns is read back first"),
 
         ("tools/Ampack/Program.cs", "raw console", 3, "Main installs the escaping writer; sign-bytes reads standard input, bounded"),
     ];

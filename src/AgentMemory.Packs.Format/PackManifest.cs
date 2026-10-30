@@ -97,8 +97,15 @@ internal sealed partial record PackManifest
     internal static bool Covers(string prefix, string id) => PackIds.PackNamespace.Covers(prefix, id);
 
     // More than a listed JSON file may hold is refused here, whoever calls (review 6, H1).
+    /// <summary>
+    /// How many times this thread has asked to parse a pack.json (review 9, D7: a guard inferred "nothing was parsed before the
+    /// signatures" from what a refusal said; this lets it count).
+    /// </summary>
+    [ThreadStatic] internal static int ParsedOnThisThread;
+
     internal static (PackManifest? Manifest, string? Problem) Parse(ReadOnlySpan<byte> bytes)
     {
+        ParsedOnThisThread++;
         if (bytes.Length > PackVerifier.MaximumJsonBytes) return (null, $"{FileName} is larger than {PackVerifier.MaximumJsonBytes >> 20} MiB.");
         if (PackJson.Check(bytes) is { } problem) return (null, $"{FileName} {problem}.");
         using var document = JsonDocument.Parse(bytes.ToArray());

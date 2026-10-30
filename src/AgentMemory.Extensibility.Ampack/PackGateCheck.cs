@@ -33,6 +33,9 @@ public sealed record PackGateCheck(IReadOnlyList<string> On, IReadOnlyList<Switc
     {
         ArgumentNullException.ThrowIfNull(packs);
         ArgumentNullException.ThrowIfNull(activations);
+        // The policy's own check first, as the module set runs it (review 9, B-M1).
+        if (new PackTrialPolicy(requireTrialsFor ?? [], trustCertificatesFor ?? [], floor).Problems(decisions: true) is { Count: > 0 } invalid)
+            throw new ArgumentException(string.Join(" ", invalid));
         var builder = new ModuleSetBuilder();
         // Held as a host holds them (review 7, W4: two packs with one id threw out of AddPack).
         foreach (var pack in PackMountPlan.Of(packs))

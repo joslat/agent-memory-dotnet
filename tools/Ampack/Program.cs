@@ -417,7 +417,8 @@ internal static partial class Program
         foreach (var (path, bytes) in files) Write(output, path, bytes);
         Write(output, ".gitattributes", PackBuilder.GitAttributes);
         var pack = JsonNode.Parse(files[PackManifest.FileName])!;
-        Console.WriteLine($"Migrated {pack["id"]} {pack["version"]} as a {pack["kind"]} pack: {files.Count} files in {output}. Next: ampack build {output} --key <key>");
+        // A bundle's own text, shown, never trusted (review 9, A7: a line feed in its id printed forged lines).
+        Console.WriteLine($"Migrated {Shown(pack["id"]?.ToString() ?? "", 200)} {Shown(pack["version"]?.ToString() ?? "", 80)} as a {Shown(pack["kind"]?.ToString() ?? "", 40)} pack: {files.Count} files in {output}. Next: ampack build {output} --key <key>");
         return 0;
     }
 
@@ -470,10 +471,13 @@ internal static partial class Program
             using var signer = Signer(o);
             PackBuilder.Sign(files, signer, o.Value("role") ?? "publisher", SigningTime());
         }
+        // The writer's read-back before the folder is touched (review 9, A6: the new envelope reached the folder first, and a
+        // refused archive left it holding what lint refuses).
+        var archive = PackBuilder.Pack(files, compress: !o.Flag("stored"));
         WriteMeta(folder, files);
         var digest = FilesList.DigestOf(files[PackPaths.FilesList]);
         var output = o.Value("out") ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(folder))!, $"{integrity.List!.Id}-{integrity.List.Version}{PackReader.Extension}");
-        File.WriteAllBytes(output, PackBuilder.Pack(files, compress: !o.Flag("stored")));
+        File.WriteAllBytes(output, archive);
         Console.WriteLine($"{integrity.List!.Id} {integrity.List.Version}\n  digest  {digest}\n  files   {integrity.List.Files.Count}\n  signed  {files.Keys.Count(PackPaths.IsEnvelope)}\n  wrote   {output}");
         return 0;
     }
@@ -955,7 +959,12 @@ internal static partial class Program
     private static Func<IReadOnlyList<AgentMemory.Extensibility.Ampack.LoadedPack>, IReadOnlySet<string>, IReadOnlyCollection<string>>? ServeGate(Options o)
     {
         if (o.Value("activations") is not { } folder)
+        {
+            // Gate options without the host's decisions would serve with no gate, silently (review 9, B-M1).
+            if (GateOptions.Where(n => n is not ("activations" or "host-key")).FirstOrDefault(n => o.Value(n) is not null) is { } alone)
+                throw new UsageException($"--{alone} applies the host's trial gate, so it needs the host's decisions: give --activations and --host-key.");
             return o.Value("host-key") is null ? null : throw new UsageException("--host-key goes with --activations.");
+        }
         var activations = new AgentMemory.Extensibility.Modules.PackActivationFolder(folder, Text(o.Required("host-key"), "The host key"));
         GateCheck(o, [], activations);
         return (packs, familyMembers) =>

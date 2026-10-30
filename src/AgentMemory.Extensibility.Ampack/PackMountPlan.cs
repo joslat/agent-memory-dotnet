@@ -15,7 +15,10 @@ internal static class PackMountPlan
     /// <summary>
     /// The packs as a host holds them: each distinct pack once, in the order first given. Copies of one pack (one digest) reached
     /// by several routes merge by one rule, whatever their order (review 8, W3: the first copy given was kept, so a pack that a set
-    /// narrows expired or not by the order of the arguments): it is available for as long as any route makes it available.
+    /// narrows expired or not by the order of the arguments): it is available for as long as any route makes it available. What
+    /// travels outside the digest pools across the copies, by the rules that hold for it within one copy (review 9, C-H1: the
+    /// first copy's certificates were kept): its certificates by the copies rule (<see cref="PackCertificates.Pooled"/>), so
+    /// adding a copy never takes trust away and a trusted failure is never hidden; its signers, every one.
     /// </summary>
     /// <exception cref="PackLoadException">Two versions or contents of one pack, or two snapshots of one module.</exception>
     internal static List<LoadedPack> Of(IEnumerable<LoadedPack> packs)
@@ -25,13 +28,19 @@ internal static class PackMountPlan
         return distinct;
     }
 
-    // One pack from its copies: valid until the latest of their ends, and without an end if any copy has none.
+    // One pack from its copies: valid until the latest of their ends, and without an end if any copy has none; the certificates
+    // and signers of all of them.
     private static LoadedPack Merged(IEnumerable<LoadedPack> copies)
     {
         var all = copies.ToList();
         if (all.Count == 1) return all[0];
         var until = all.Any(c => c.ValidUntil is null) ? null : all.Max(c => c.ValidUntil);
-        return all[0] with { ValidUntil = until, Knowledge = all[0].Knowledge?.WithValidUntil(until) };
+        return all[0] with
+        {
+            ValidUntil = until, Knowledge = all[0].Knowledge?.WithValidUntil(until),
+            Certificates = PackCertificates.Pooled(all.SelectMany(c => c.Certificates)),
+            Signers = [.. all.SelectMany(c => c.Signers).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)],
+        };
     }
 
     /// <summary>Why the packs cannot be held together as a host holds them, in id order; empty when they can.</summary>

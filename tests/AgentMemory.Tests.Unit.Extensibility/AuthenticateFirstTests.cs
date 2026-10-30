@@ -76,12 +76,22 @@ public sealed class AuthenticateFirstTests : IDisposable
             problems.Should().Contain(p => p.Contains("No valid publisher signature"));
             problems.Should().NotContain(p => p.Contains("pack.json") || p.Contains("records/") || p.Contains("line "));
         }
+        // Counted, not inferred from the message (review 9, D7): no pack.json is parsed on any path before the signatures hold.
+        IReadOnlyList<string> Unparsed(Action load)
+        {
+            var before = PackManifest.ParsedOnThisThread;
+            var problems = Refusal(load);
+            PackManifest.ParsedOnThisThread.Should().Be(before, "nothing past the signatures is parsed");
+            return problems;
+        }
 
-        OnlyTheSignature(Refusal(() => PackLoader.Peek(archive, trust)));
-        OnlyTheSignature(Refusal(() => PackLoader.Load(archive, trust)));
-        OnlyTheSignature(Refusal(() => PackMemory.Mount([archive], trust)));
-        OnlyTheSignature(Refusal(() => PackStore.Open(_root).Install(archive, trust)));
+        OnlyTheSignature(Unparsed(() => PackLoader.Peek(archive, trust)));
+        OnlyTheSignature(Unparsed(() => PackLoader.Load(archive, trust)));
+        OnlyTheSignature(Unparsed(() => PackMemory.Mount([archive], trust)));
+        OnlyTheSignature(Unparsed(() => PackStore.Open(_root).Install(archive, trust)));
+        var before = PackManifest.ParsedOnThisThread;
         var inspection = PackInspection.Inspect(archive, trust);
+        PackManifest.ParsedOnThisThread.Should().Be(before);
         OnlyTheSignature(inspection.Problems);
         inspection.Kind.Should().BeNull();
         inspection.Declarations.Should().BeEmpty();

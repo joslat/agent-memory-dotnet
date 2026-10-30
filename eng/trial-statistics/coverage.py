@@ -18,6 +18,13 @@ from pathlib import Path
 ROOT = sys.argv[1]
 HERE = Path(__file__).resolve().parent
 RUNS = [
+    # Review 9, D9: every confidence a trial may declare, not two of the four.
+    ("one-arm precision, 10 tasks, cap 3", "exact_precision.py", ["10", "0.9", "3", "300"], 0.9),
+    ("one-arm precision, 10 tasks, cap 3", "exact_precision.py", ["10", "0.975", "3", "300"], 0.975),
+    ("paired precision difference, 20 tasks, caps 3/3", "exact_pdiff.py", ["20", "0.9", "3", "3", "40", "7"], 0.9),
+    ("paired precision difference, 20 tasks, caps 3/3", "exact_pdiff.py", ["20", "0.975", "3", "3", "40", "7"], 0.975),
+    ("paired difference, a rare loss, 10 and 20 tasks", "exact_pdiff_rare.py", ["0.9", "10,20"], 0.9),
+    ("paired difference, a rare loss, 10 and 20 tasks", "exact_pdiff_rare.py", ["0.975", "10,20"], 0.975),
     ("one-arm precision, 10 tasks, cap 3", "exact_precision.py", ["10", "0.95", "3", "300"], 0.95),
     ("one-arm precision, 10 tasks, cap 3", "exact_precision.py", ["10", "0.99", "3", "300"], 0.99),
     ("one-arm precision, 30 tasks, cap 2", "exact_precision.py", ["30", "0.95", "2", "150"], 0.95),

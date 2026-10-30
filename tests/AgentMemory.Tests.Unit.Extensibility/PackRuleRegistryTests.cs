@@ -26,7 +26,7 @@ public sealed class PackRuleRegistryTests
     [
         new("ARCHIVE-BOUNDED", "An archive is read under the format's limits: entries, sizes, ratio, names, before anything inflates.",
             ["AgentMemory.Packs.Format.StrictZip.Read"], ReadPacks,
-            ["PackFormat:StrictZipTests.A_bomb_is_refused_from_its_declared_ratio_before_inflating", "PackDoorMatrixTests.Every_command_meets_every_hostile_pack_with_a_refusal_or_an_answer_that_is_bounded_and_escaped"]),
+            ["PackFormat:StrictZipTests.A_bomb_is_refused_from_its_declared_ratio_before_inflating", "PackDoorMatrixTests.Every_command_meets_every_hostile_pack_with_a_refusal_or_an_answer_that_is_bounded_and_escaped", "PackFormat:StrictZipTests.Review9_D1_every_size_limit_refuses_the_archive_that_passes_it"]),
         new("FILE-BOUNDED", "Pack code reads a file only through the one bounded reader, or at a listed site with its reason.",
             ["AgentMemory.Packs.Format.BoundedFile.Read"], ["lint", "build", "sign", "migrate", "lock"],
             ["ChokePointRatchetTests.Pack_code_reads_parses_and_prints_only_through_its_choke_points_or_a_listed_site", "Review8GuardTests.A_file_one_byte_over_its_bound_is_refused_and_one_at_it_is_read"]),
@@ -35,14 +35,14 @@ public sealed class PackRuleRegistryTests
             ["verify", "test", "serve", "install", "receipt", "certify", "certificate", "admit", "gate"],
             ["AuthenticateFirstTests.H1_every_load_path_refuses_an_unsigned_pack_before_it_reads_pack_json", "ConformanceKitTests.Both_verifiers_reach_every_vector_s_expected_outcome_and_agree_on_seeded_mutants", "AuthenticateFirstTests.Review8_A12_a_pack_whose_signature_does_not_hold_is_refused_for_that_alone_at_every_load_path"]),
         new("UNVERIFIED-BOUNDED", "Content read without verifying it is bounded before it is parsed: 1 MiB a file or line, 64 MiB in all.",
-            ["AgentMemory.Packs.Format.PackContentBounds.Problems"], ["diff", "scan", "inspect"],
-            ["Review7GuardTests.H7_content_read_without_verifying_it_is_bounded_before_it_is_parsed", "PackDoorMatrixTests.Every_command_meets_every_hostile_pack_with_a_refusal_or_an_answer_that_is_bounded_and_escaped", "PackDoorMatrixTests.Review8_lint_bounds_what_nobody_verified_before_it_parses_any_of_it"]),
+            ["AgentMemory.Packs.Format.PackContentBounds.Problems"], ["diff", "scan", "lint"],
+            ["Review7GuardTests.H7_content_read_without_verifying_it_is_bounded_before_it_is_parsed", "PackDoorMatrixTests.Every_command_meets_every_hostile_pack_with_a_refusal_or_an_answer_that_is_bounded_and_escaped", "PackDoorMatrixTests.Review8_lint_bounds_what_nobody_verified_before_it_parses_any_of_it", "ChokePointRatchetTests.Pack_code_reads_parses_and_prints_only_through_its_choke_points_or_a_listed_site", "PackFormat:StrictZipTests.Review9_D2_a_json_file_over_one_mebibyte_is_refused_before_it_is_parsed_verified_or_not"]),
         new("ONE-WRITER-SIGN", "Every signature passes the writer's rules: a writer signs only the minor it writes.",
             ["AgentMemory.Packs.Format.PackBuilder.Sign"], ["build", "sign", "countersign", "set", "certify"],
             ["Review7GuardTests.M6_every_signature_holds_the_writer_s_rules_not_build_alone", "PackFormat:ReadableMinorTests.A_writer_signs_only_the_minor_it_writes"]),
         new("ONE-WRITER-ARCHIVE", "Every archive a writer returns is read back under the reader's own limits and checks first.",
             ["AgentMemory.Packs.Format.PackBuilder.Pack"], ["build", "countersign", "set", "certify"],
-            ["Review7GuardTests.M7_the_one_writer_never_writes_an_archive_a_reader_refuses", "Review8WriterGuardTests.F1_an_envelope_every_reader_refuses_is_refused_by_the_writer_and_by_lint", "Review8WriterGuardTests.F2_a_set_every_reader_refuses_is_refused_by_the_writer_and_by_lint"]),
+            ["Review7GuardTests.M7_the_one_writer_never_writes_an_archive_a_reader_refuses", "Review8WriterGuardTests.F1_an_envelope_every_reader_refuses_is_refused_by_the_writer_and_by_lint", "Review8WriterGuardTests.F2_a_set_every_reader_refuses_is_refused_by_the_writer_and_by_lint", "PackFormat:FederationTests.Review9_A1_a_federated_sets_member_rules_need_no_key_so_the_writer_and_lint_hold_them_too", "ChokePointRatchetTests.Pack_code_reads_parses_and_prints_only_through_its_choke_points_or_a_listed_site"]),
         new("OUTPUT-ESCAPED", "Every line the tool prints leaves control and bidi characters as escapes.",
             ["tools/Ampack/ShownWriter.cs"], PackDoors,
             ["PackDoorMatrixTests.Every_command_meets_every_hostile_pack_with_a_refusal_or_an_answer_that_is_bounded_and_escaped",
@@ -51,8 +51,8 @@ public sealed class PackRuleRegistryTests
             ["AgentMemory.Packs.Format.PackVerifier.VerifyOne", "conformance/pack-v1.1/python/ampack_verify.py"], ["verify"],
             ["ConformanceKitTests.Both_verifiers_reach_every_vector_s_expected_outcome_and_agree_on_seeded_mutants", "kit:deflate-damaged"]),
         new("CERTIFICATE-COPIES", "A statement carried in several envelopes is trusted when any copy verifies; additions never take trust away.",
-            ["AgentMemory.Extensibility.Ampack.PackCertificates.Read"], ["inspect", "certificate", "admit", "test", "serve"],
-            ["PackCertificateTests.Review7_H5_a_broken_copy_of_a_trusted_certificate_never_hides_it_whatever_its_name"]),
+            ["AgentMemory.Extensibility.Ampack.PackCertificates.Read", "AgentMemory.Extensibility.Ampack.PackCertificates.Pooled"], ["inspect", "certificate", "admit", "test", "serve"],
+            ["PackCertificateTests.Review7_H5_a_broken_copy_of_a_trusted_certificate_never_hides_it_whatever_its_name", "Review9GuardTests.C_H1_copies_of_one_pack_pool_what_travels_outside_the_digest_whatever_their_order", "AmpackCommandLineTests.A_card_travels_in_the_pack_and_an_evaluator_s_certificate_beside_it_until_a_host_that_trusts_it_admits_the_pack"]),
         new("EVIDENCE-INTAKE", "Every verdict, made or rechecked, passes one intake: same tasks, consistent arms, one spacing within the window.",
             ["AgentMemory.Extensibility.Modules.PackTrialGate.Intake", "AgentMemory.Extensibility.Modules.PackTrialGate.Recheck"], ["gate", "certify", "admit", "serve"],
             ["Review7GuardTests.L11_every_arm_of_a_trial_was_drawn_at_one_spacing_within_the_history_window", "Review7GuardTests.L16_a_recheck_runs_the_intake_the_decision_ran",
@@ -64,17 +64,17 @@ public sealed class PackRuleRegistryTests
              "Review8GuardTests.G2_only_this_host_s_own_trials_stand_as_the_version_an_upgrade_replaces"]),
         new("CAPS-DECLARED", "The caps every bound rests on are the declarations': the pack's maxItems, 0 for none, 1 or more for the host.",
             ["AgentMemory.Extensibility.Modules.PackTrialGate.CapProblem"], ["gate", "certify", "admit"],
-            ["Review7GuardTests.M11_the_caps_every_bound_rests_on_are_the_declarations", "kit:certificate-none-baseline-offers", "kit:certificate-host-baseline-cap-zero"]),
+            ["Review7GuardTests.M11_the_caps_every_bound_rests_on_are_the_declarations", "kit:certificate-none-baseline-offers", "kit:certificate-host-baseline-cap-zero", "PackCertificateTests.Review8_A2_an_admission_holds_a_certificate_s_arms_to_the_caps_the_pack_declares"]),
         new("FLOOR-ON-EVIDENCE", "A host floor is judged on what a decision ran and checked, in the gate and the upgrade chain alike.",
             ["AgentMemory.Extensibility.Modules.PackTrialGate.Below", "AgentMemory.Extensibility.Modules.PackTrialPolicy.Of"], ["gate", "serve"],
             ["Review7GuardTests.H6_a_host_floor_is_judged_on_the_tasks_a_decision_ran_not_on_what_its_pack_declares",
              "Review7GuardTests.M13_a_lift_floor_is_not_met_by_a_lift_against_a_baseline_that_offers_nothing",
-             "TrialGateTests.Review6_a_host_floor_leaves_off_a_trial_that_claims_less", "Review8GuardTests.A7_the_upgrade_chain_passes_over_a_version_below_the_host_floor"]),
+             "TrialGateTests.Review6_a_host_floor_leaves_off_a_trial_that_claims_less", "Review8GuardTests.A7_the_upgrade_chain_passes_over_a_version_below_the_host_floor", "Review8GuardTests.A3_the_module_set_judges_a_host_floor_on_the_tasks_a_decision_ran", "AmpackCommandLineTests.A_card_travels_in_the_pack_and_an_evaluator_s_certificate_beside_it_until_a_host_that_trusts_it_admits_the_pack"]),
         new("BOUNDS-COVER", "A bound passes a target at the truth by luck at most 1 - confidence: exactly over every outcome for independent tasks, and for tasks in bursts of at most 8, at the regime's worst case per layout, within Monte Carlo error.",
             ["AgentMemory.Extensibility.Modules.PackTrialGate.Recheck", "eng/trial-statistics/reference.py"], ["gate", "certify", "admit"],
             ["StatisticsCoverageTests.Every_bound_passes_a_target_at_the_truth_at_most_its_nominal_rate_exactly_over_every_outcome",
              "TrialStatisticsTests.Review6_a_paired_hit_difference_at_its_target_passes_at_most_the_nominal_rate_exactly",
-             "StatisticsCoverageTests.Every_clustered_bound_holds_its_nominal_rate_at_the_burst_regime_s_worst_case"]),
+             "StatisticsCoverageTests.Every_clustered_bound_holds_its_nominal_rate_at_the_burst_regime_s_worst_case", "StatisticsCoverageTests.Golden_json_is_the_reference_s_own_output"]),
         new("PREVIOUS-CAP", "An upgrade's comparison holds the previous version's arm at the cap this host judged that version at.",
             ["AgentMemory.Extensibility.Modules.PackTrialGate.Against"], ["gate"],
             ["PackUpgradeTests.Review7_an_upgrade_holds_the_version_it_replaces_at_the_cap_this_host_judged_it_at"]),
@@ -86,7 +86,7 @@ public sealed class PackRuleRegistryTests
              "TraversalBudgetTests.Review7_W2_one_module_s_failing_read_leaves_that_module_out_and_the_walk_goes_on",
              "TraversalDeadlineTests.A_read_with_a_budget_runs_under_that_server_deadline_and_one_without_runs_as_before",
              "TraversalDeadlineTests.The_server_stopping_a_statement_at_the_deadline_is_a_stop_by_time",
-             "WalkWorkBoundsTests.M3_the_in_memory_expansion_stops_with_the_budget"],
+             "WalkWorkBoundsTests.M3_the_in_memory_expansion_stops_with_the_budget", "Review8GuardTests.W2_neo4j_expansion_returns_narrow_rows_and_reads_whole_only_the_records_it_keeps", "AnchorMatcherWorkTests.Review8_W1_a_value_at_the_format_s_longest_line_is_bounded_in_memory_and_time_whatever_it_holds", "AnchorMatcherWorkTests.Review8_W1_ordinary_names_are_charged_what_they_compare_so_a_late_anchor_still_seeds"],
             OpenFor: "R7-M2: built (candidates streamed into a bounded best-k), but no guard yet measures the Neo4j read's memory"),
         new("PATH-AND-GLOB", "A path normalizes, and a glob matches, exactly as the format defines them.",
             ["AgentMemory.Extensibility.Context.Traversal.AnchorMatcher.Normalized", "AgentMemory.Extensibility.Context.Traversal.AnchorMatcher.GlobPattern"], ["serve", "test"],
@@ -101,10 +101,10 @@ public sealed class PackRuleRegistryTests
             ["AgentMemory.Extensibility.Ampack.PackMountPlan.Of"], ["serve", "test", "gate"],
             ["AmpackLoaderTests.Review7_W4_packs_are_held_together_as_a_host_holds_them_one_version_of_each",
              "PackConsentTests.Review7_W9_a_snapshot_whose_links_reach_a_dependency_that_holds_nothing_is_refused_as_the_store_refuses_it",
-             "Integration:ModuleRecordWriteIntegrationTests.Review7_W9_AWorkSnapshotImportedBeforeTheCodeMapIsRefusedNotLeftWithoutItsLinks", "AmpackLoaderTests.Review8_W3_copies_of_one_pack_merge_by_one_rule_whatever_their_order"]),
+             "Integration:ModuleRecordWriteIntegrationTests.Review7_W9_AWorkSnapshotImportedBeforeTheCodeMapIsRefusedNotLeftWithoutItsLinks", "AmpackLoaderTests.Review8_W3_copies_of_one_pack_merge_by_one_rule_whatever_their_order", "Review9GuardTests.C_H1_copies_of_one_pack_pool_what_travels_outside_the_digest_whatever_their_order", "Review8GuardTests.A5_the_gate_holds_packs_together_by_the_mount_plan", "Review8GuardTests.A5_two_snapshots_of_one_module_are_refused_whoever_holds_them"]),
         new("LIVE-PER-RECORD", "A record takes part in a walk only while its module and the pack that carried it do: it neither seeds, steers nor offers.",
             ["AgentMemory.Extensibility.Context.Traversal.TraversalWalk.RunAsync"], ["serve"],
-            ["WalkWorkBoundsTests.Review7_W8_a_record_that_may_not_take_part_neither_seeds_nor_steers"]),
+            ["WalkWorkBoundsTests.Review7_W8_a_record_that_may_not_take_part_neither_seeds_nor_steers", "Review8GuardTests.A4_a_pack_memory_walk_leaves_out_the_records_an_expired_carrier_brought"]),
         new("SIGNED-BEFORE-ACT", "countersign, lock and set, and their library twins, act only on a pack verified whole under the host's policy (a set with its members).",
             ["AgentMemory.Packs.Format.PackVerifier.VerifyWhole", "AgentMemory.Packs.Format.PackVerifier.Before",
              "AgentMemory.Extensibility.Ampack.PackAuthoring.Countersign", "AgentMemory.Extensibility.Ampack.PackAuthoring.BuildComposite",
@@ -137,7 +137,7 @@ public sealed class PackRuleRegistryTests
         foreach (var door in PackDoors.Where(d => !Rules.Any(r => r.Doors.Contains(d))))
             problems.Add($"{door}: a door bound to no rule");
 
-        problems.Should().BeEmpty();
+        string.Join(Environment.NewLine, problems).Should().BeEmpty();
         Rules.Where(r => r.OpenFor is not null).Select(r => r.Id).Should().Equal(
             ["WALK-BOUNDED", "STORES-AGREE"],
             "the open rules are the ones the report says are open; closing one moves it here and there together");
@@ -154,20 +154,40 @@ public sealed class PackRuleRegistryTests
         using var mutants = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "eng", "guards", "mutants.json")));
         using var results = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "eng", "guards", "mutants-results.json")));
         var recorded = mutants.RootElement.GetProperty("mutants").EnumerateArray()
-            .Select(m => (Id: m.GetProperty("id").GetString()!, Rule: m.GetProperty("rule").GetString()!)).ToList();
-        var killed = results.RootElement.GetProperty("results").EnumerateArray()
-            .Where(r => r.GetProperty("killed").ValueKind == System.Text.Json.JsonValueKind.True).Select(r => r.GetProperty("id").GetString()!).ToHashSet();
+            .Select(m => (Id: m.GetProperty("id").GetString()!, Rule: m.GetProperty("rule").GetString()!, File: m.GetProperty("file").GetString()!,
+                Hash: m.GetProperty("sha256").GetString()!)).ToList();
+        var byId = results.RootElement.GetProperty("results").EnumerateArray().ToDictionary(r => r.GetProperty("id").GetString()!, r => r.Clone());
         var problems = new List<string>();
-        foreach (var (id, rule) in recorded)
+        foreach (var (id, rule, file, hash) in recorded)
         {
-            if (!Rules.Any(r => r.Id == rule)) problems.Add($"{id}: breaks {rule}, which the registry does not hold");
-            if (!killed.Contains(id)) problems.Add($"{id}: no recorded run saw its guards kill it (python eng/guards/mutants.py {id})");
+            var rerun = $"(python eng/guards/mutants.py {id})";
+            if (Rules.FirstOrDefault(r => r.Id == rule) is not { } held) { problems.Add($"{id}: breaks {rule}, which the registry does not hold"); continue; }
+            if (!byId.TryGetValue(id, out var result) || result.GetProperty("killed").ValueKind != System.Text.Json.JsonValueKind.True)
+            {
+                problems.Add($"{id}: no recorded run saw its guards kill it {rerun}");
+                continue;
+            }
+            // Review 9, D5: a catch is evidence for the file and the breakage it was run on, not for whatever is there now.
+            if (!result.TryGetProperty("mutant_sha256", out var ran) || ran.GetString() != hash)
+                problems.Add($"{id}: the breakage changed since its catch was recorded {rerun}");
+            if (!result.TryGetProperty("file_sha256", out var was) || was.GetString() != Normalized(Path.Combine(root, file)))
+                problems.Add($"{id}: {file} changed since its catch was recorded {rerun}");
+            // Review 9, D6: caught by one of the rule's own guards, not by an unrelated test in the same filter.
+            var failed = result.TryGetProperty("failed", out var f) ? f.EnumerateArray().Select(x => x.GetString()!).ToList() : [];
+            var guards = held.Guards.Select(g => g.StartsWith("kit:", StringComparison.Ordinal) ? "kit" : g[(g.IndexOf(':') + 1)..])
+                .Select(g => g.Contains('.') ? string.Join('.', g.Split('.')[^2..]) : g).ToHashSet(StringComparer.Ordinal);
+            if (!failed.Any(guards.Contains))
+                problems.Add($"{id}: caught by {(failed.Count == 0 ? "no named test" : string.Join(", ", failed))}, none of them a guard of {rule}");
         }
         foreach (var rule in Rules.Where(r => !recorded.Any(m => m.Rule == r.Id)))
             problems.Add($"{rule.Id}: no mutant, so nothing shows its guards fail when it breaks");
 
-        problems.Should().BeEmpty();
+        string.Join(Environment.NewLine, problems).Should().BeEmpty();
     }
+
+    // A file's SHA-256 as the runner records it: without a BOM, with LF line ends, so a checkout's line ends change nothing.
+    private static string Normalized(string path) => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes(System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(path)).TrimStart('\uFEFF').Replace("\r\n", "\n", StringComparison.Ordinal))));
 
     private static bool Resolves(string definition, Assembly[] assemblies, string root)
     {

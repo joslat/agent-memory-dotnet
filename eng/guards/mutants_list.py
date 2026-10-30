@@ -5,6 +5,7 @@ mutants.json; mutants.py runs them.
 Each mutant: id, rule (a PackRuleRegistryTests rule id), door ("definition" or the door it breaks), the file, the exact edits
 (each old text found exactly once), and the guards: a test project with a filter, or "kit" for the conformance kit.
 """
+import hashlib
 import json
 from pathlib import Path
 
@@ -13,7 +14,10 @@ FMT = "tests/AgentMemory.Tests.Unit.PackFormat"
 
 
 def m(id, rule, door, file, edits, project, filter=""):
-    return {"id": id, "rule": rule, "door": door, "file": file, "edits": [{"old": a, "new": b} for a, b in edits], "project": project, "filter": filter}
+    mutant = {"id": id, "rule": rule, "door": door, "file": file, "edits": [{"old": a, "new": b} for a, b in edits], "project": project, "filter": filter}
+    # The breakage's own hash: a recorded catch counts only for the breakage as it was run (review 9, D5).
+    mutant["sha256"] = hashlib.sha256(json.dumps(mutant, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    return mutant
 
 
 def name(*tests):
@@ -23,6 +27,32 @@ def name(*tests):
 MUTANTS = [
     m("archive-ratio", "ARCHIVE-BOUNDED", "definition", "src/AgentMemory.Packs.Format/StrictZip.cs",
       [("size / compressed > limits.MaxRatio)) throw Bad", "size / compressed > limits.MaxRatio * 1000)) throw Bad")], FMT, name("StrictZipTests")),
+    m("archive-file-cap", "ARCHIVE-BOUNDED", "definition", "src/AgentMemory.Packs.Format/StrictZip.cs",
+      [("if (size > limits.MaxFileBytes) throw Bad", "if (size > limits.MaxFileBytes && size < 0) throw Bad")], FMT, name("StrictZipTests.Review9_D1")),
+    m("archive-total-cap", "ARCHIVE-BOUNDED", "definition", "src/AgentMemory.Packs.Format/StrictZip.cs",
+      [("if (totalSize > limits.MaxTotalBytes) throw Bad", "if (totalSize > limits.MaxTotalBytes && totalSize < 0) throw Bad")], FMT, name("StrictZipTests.Review9_D1")),
+    m("archive-size-cap", "ARCHIVE-BOUNDED", "definition", "src/AgentMemory.Packs.Format/StrictZip.cs",
+      [("if (zip.Length > limits.MaxArchiveBytes) throw Bad", "if (zip.Length > limits.MaxArchiveBytes && zip.Length < 0) throw Bad")], FMT, name("StrictZipTests.Review9_D1")),
+    m("archive-files-cap", "ARCHIVE-BOUNDED", "definition", "src/AgentMemory.Packs.Format/StrictZip.cs",
+      [("if (count > limits.MaxFiles) throw Bad", "if (count > limits.MaxFiles && count < 0) throw Bad")], FMT, name("StrictZipTests.Review9_D1")),
+    m("json-file-cap", "UNVERIFIED-BOUNDED", "definition", "src/AgentMemory.Packs.Format/PackContentBounds.cs",
+      [("                if (bytes.Length > PackVerifier.MaximumJsonBytes)\n                    problems.Add", "                if (bytes.Length < 0)\n                    problems.Add")],
+      FMT, name("StrictZipTests.Review9_D2")),
+    m("door-zips-itself", "ONE-WRITER-ARCHIVE", "countersign", "tools/Ampack/Program.cs",
+      [("        File.WriteAllBytes(o.Required(\"out\"), PackBuilder.Pack(files));", "        File.WriteAllBytes(o.Required(\"out\"), StrictZip.Write(files));")],
+      EXT, name("ChokePointRatchetTests")),
+    m("parse-before-signatures", "AUTHENTICATE-FIRST", "definition", "src/AgentMemory.Packs.Format/PackVerifier.cs",
+      [("        var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);\n        if (refusal is not null) return (null, refusal);",
+        "        _ = PackManifest.Parse(content.Files.GetValueOrDefault(PackManifest.FileName) ?? []);\n        var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);\n        if (refusal is not null) return (null, refusal);")],
+      EXT, name("AuthenticateFirstTests.Review8_A12")),
+    m("expand-returns-node", "WALK-BOUNDED", "neo4j expand", "src/AgentMemory.Extensibility.Neo4j/Queries/ModuleTraversalQueries.cs",
+      [('"RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits";', '"RETURN r.node.id AS id, r.node.key AS rkey, r.node AS node, r.degree AS degree, r.hits AS hits";')],
+      EXT, name("Review8GuardTests.W2")),
+    m("golden-drift", "BOUNDS-COVER", "definition", "eng/trial-statistics/golden.py",
+      [("random.seed(29)", "random.seed(30)")], EXT, name("StatisticsCoverageTests.Golden_json")),
+    m("library-composite-unverified", "SIGNED-BEFORE-ACT", "PackAuthoring.BuildComposite", "src/AgentMemory.Extensibility.Ampack/PackAuthoring.cs",
+      [("            var (files, _) = Verified(member, trust);", "            var (files, _) = (StrictZip.Read(member, PackLimits.Default), \"\");")],
+      EXT, name("Review8WriterGuardTests.F4")),
     m("bounded-file-size", "FILE-BOUNDED", "definition", "shared/BoundedFile.cs",
       [("if (file.Length > maximum) throw new InvalidDataException", "if (false) throw new InvalidDataException"),
        ("if (buffer.Length > maximum) throw new InvalidDataException", "if (false) throw new InvalidDataException"),
@@ -70,9 +100,6 @@ MUTANTS = [
     m("bare-cr-passes", "OUTPUT-ESCAPED", "definition", "tools/Ampack/ShownWriter.cs",
       [("(char.IsControl(c) && c is not ('\\n' or '\\t'))", "(char.IsControl(c) && c is not ('\\n' or '\\r' or '\\t'))")],
       EXT, name("PackDoorMatrixTests.Every_command", "ShownWriterTests")),
-    m("certificate-any-copy", "CERTIFICATE-COPIES", "definition", "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
-      [("if (evaluation.Trusted) { first = evaluation; break; }", "")],
-      EXT, name("PackCertificateTests.Review7_H5")),
     m("intake-at-decide", "EVIDENCE-INTAKE", "definition", "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
       [("if (Intake(with, without, previous?.With) is { } refused) throw new ArgumentException(refused.Problem, refused.Arm);", "")],
       EXT, name("Review7GuardTests.L11")),
@@ -100,6 +127,9 @@ MUTANTS = [
       EXT, name("PackCertificateTests.An_admission_counts_only_while")),
     m("floor-at-tool-gate", "FLOOR-ON-EVIDENCE", "gate", "tools/Ampack/Program.Certificates.cs",
       [("familyMembers, Floor(o)); }", "familyMembers, null); }")], EXT, name("AmpackCommandLineTests.A_card_travels_in_the_pack")),
+    m("policy-check-at-gate", "FLOOR-ON-EVIDENCE", "gate", "src/AgentMemory.Extensibility.Ampack/PackGateCheck.cs",
+      [(".Problems(decisions: true) is { Count: > 0 } invalid)", ".Problems(decisions: true) is { Count: > 99 } invalid)")],
+      EXT, name("AmpackCommandLineTests.A_card_travels_in_the_pack")),
     m("hedge-weight", "BOUNDS-COVER", "definition", "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
       [("0.9 => 1.25, 0.95 => 1.5, 0.975 => 1.75, 0.99 => 2.0,", "0.9 => 1.25, 0.95 => 1.0, 0.975 => 1.75, 0.99 => 2.0,")],
       EXT, name("TrialStatisticsTests")),
@@ -137,6 +167,12 @@ MUTANTS = [
       [("if (of.Select(p => p.Id).Distinct(StringComparer.Ordinal).Count() > 1)", "if (Environment.ProcessorCount < 0)")], EXT, name("Review8GuardTests.A5_two_snapshots")),
     m("mount-plan-first-copy", "ONE-MOUNT-PLAN", "definition", "src/AgentMemory.Extensibility.Ampack/PackMountPlan.cs",
       [("        if (all.Count == 1) return all[0];", "        if (all.Count >= 1) return all[0];")], EXT, name("AmpackLoaderTests.Review8_W3")),
+    m("mount-plan-first-certificates", "ONE-MOUNT-PLAN", "definition", "src/AgentMemory.Extensibility.Ampack/PackMountPlan.cs",
+      [("            Certificates = PackCertificates.Pooled(all.SelectMany(c => c.Certificates)),", "            Certificates = all[0].Certificates,")],
+      EXT, name("Review9GuardTests.C_H1")),
+    m("pooled-first-copy", "CERTIFICATE-COPIES", "definition", "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+      [(".Select(g => g.OrderByDescending(e => e.Trusted).ThenBy(e => e.File, StringComparer.Ordinal).First())];", ".Select(g => g.First())];")],
+      EXT, name("Review9GuardTests.C_H1", "PackCertificateTests.Review7_H5")),
     m("links-before-dependency", "ONE-MOUNT-PLAN", "memory", "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
       [("&& Target(shot.Module.Id, relation) is { } into && !memory._byId.Values.Any(", "&& Target(shot.Module.Id, relation) is { } into && false && !memory._byId.Values.Any(")],
       EXT, name("PackConsentTests.Review7_W9")),
@@ -159,6 +195,9 @@ MUTANTS = [
     m("set-structure-without-trust", "ONE-WRITER-ARCHIVE", "definition", "src/AgentMemory.Packs.Format/PackVerifier.cs",
       [("        if (manifest is { Kind: \"set\" })\n        {\n            var (structure, members) = SetStructure(", "        if (manifest is { Kind: \"set\" } && Environment.ProcessorCount < 0)\n        {\n            var (structure, members) = SetStructure(")],
       EXT, name("Review8WriterGuardTests.F2")),
+    m("federation-without-trust", "ONE-WRITER-ARCHIVE", "definition", "src/AgentMemory.Packs.Format/PackVerifier.cs",
+      [("if (member.Manifest is { } inner && manifest.Federation is { } federation && MemberFederationProblem(", "if (member.Manifest is { } inner && manifest.Federation is { } federation && Environment.ProcessorCount < 0 && MemberFederationProblem(")],
+      FMT, name("FederationTests.Review9_A1")),
     m("whole-before-act", "SIGNED-BEFORE-ACT", "countersign", "tools/Ampack/Program.cs",
       [("[.. PackVerifier.VerifyWhole(content, policy, DateTimeOffset.UtcNow).Problems.Select(p => $\"{path}: {p}\")];",
         "[.. PackVerifier.VerifyOne(content, policy, DateTimeOffset.UtcNow).Problems.Select(p => $\"{path}: {p}\")];")],
@@ -174,6 +213,9 @@ MUTANTS = [
     m("before-drops-every-role", "SIGNED-BEFORE-ACT", "definition", "src/AgentMemory.Packs.Format/PackVerifier.cs",
       [("            ? policy with { RequiredRoles = others } : policy;", "            ? policy with { RequiredRoles = others } : policy with { RequiredRoles = [] };")],
       EXT, name("Review8WriterGuardTests.F4")),
+    m("certificate-verify-each-copy", "CERTIFICATE-COPIES", "certificate", "tools/Ampack/Program.Certificates.cs",
+      [("            if (!verified) problems.AddRange(refusals);", "            if (!verified || refusals.Count >= 0) problems.AddRange(refusals);")],
+      EXT, name("AmpackCommandLineTests.A_card_travels_in_the_pack")),
     m("python-case-collision", "VERIFIERS-AGREE", "python", "conformance/pack-v1.1/python/ampack_verify.py",
       [("        if name.lower() in folded:\n            raise Refused(f\"entry '{name}' differs from another only by case\")\n", "")], "kit"),
 ]

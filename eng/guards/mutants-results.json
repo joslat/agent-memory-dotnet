@@ -1,363 +1,791 @@
 {
- "format": "agentmemory.guards.mutants-results/1",
- "commit": "43d330a0",
+ "format": "agentmemory.guards.mutants-results/2",
+ "commit": "22a9ceef",
  "results": [
   {
    "id": "archive-ratio",
    "rule": "ARCHIVE-BOUNDED",
    "door": "definition",
+   "mutant_sha256": "0cee0c23327eaf114a6324aab28497f84bdb0b889278691f859582e911af0b69",
    "killed": true,
-   "seconds": 3
+   "file_sha256": "f6473785ab68153041c07a4dde22071a68981990f60089d6a7d5ea9c0ae04b26",
+   "failed": [
+    "StrictZipTests.A_bomb_is_refused_from_its_declared_ratio_before_inflating"
+   ],
+   "seconds": 5
+  },
+  {
+   "id": "archive-file-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "mutant_sha256": "4b1565bc3586f30ad428cf2e29cee90f84053e0bf0c38fe46ef5d33ebd0fa6ff",
+   "killed": true,
+   "file_sha256": "f6473785ab68153041c07a4dde22071a68981990f60089d6a7d5ea9c0ae04b26",
+   "failed": [
+    "StrictZipTests.Review9_D1_every_size_limit_refuses_the_archive_that_passes_it"
+   ],
+   "seconds": 4
+  },
+  {
+   "id": "archive-total-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "mutant_sha256": "e61b92e4c137abddb940bcb7030fe93afe2064a66eae369088842a0976360f04",
+   "killed": true,
+   "file_sha256": "f6473785ab68153041c07a4dde22071a68981990f60089d6a7d5ea9c0ae04b26",
+   "failed": [
+    "StrictZipTests.Review9_D1_every_size_limit_refuses_the_archive_that_passes_it"
+   ],
+   "seconds": 5
+  },
+  {
+   "id": "archive-size-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "mutant_sha256": "6b99d81fe79cab71d59a98ec568f8b49861b58941c98472861f4839a38317c83",
+   "killed": true,
+   "file_sha256": "f6473785ab68153041c07a4dde22071a68981990f60089d6a7d5ea9c0ae04b26",
+   "failed": [
+    "StrictZipTests.Review9_D1_every_size_limit_refuses_the_archive_that_passes_it"
+   ],
+   "seconds": 4
+  },
+  {
+   "id": "archive-files-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "mutant_sha256": "134b3e19a1a0fae3ec988e32bccd2b7e65b8ab5434ef326786faab5c990b2bc8",
+   "killed": true,
+   "file_sha256": "f6473785ab68153041c07a4dde22071a68981990f60089d6a7d5ea9c0ae04b26",
+   "failed": [
+    "StrictZipTests.Review9_D1_every_size_limit_refuses_the_archive_that_passes_it"
+   ],
+   "seconds": 4
+  },
+  {
+   "id": "json-file-cap",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "definition",
+   "mutant_sha256": "ab98321cde8dccd07403297136a9d7b4c570605ac83fa11b1b7416129b08c92c",
+   "killed": true,
+   "file_sha256": "d69e0fb515f5cd801d7ddcf01e69c8e756288525d06b478a925a8438c20850e7",
+   "failed": [
+    "StrictZipTests.Review9_D2_a_json_file_over_one_mebibyte_is_refused_before_it_is_parsed_verified_or_not"
+   ],
+   "seconds": 4
+  },
+  {
+   "id": "door-zips-itself",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "countersign",
+   "mutant_sha256": "44dba73044b5b67721de1731a6ca91e53eb15ad497a5db500e805684a0fc9a2c",
+   "killed": true,
+   "file_sha256": "a1f5f0f6918206c0a059d8f1cbf75c53ccbdb0b61d276e159076b0cd997aef5a",
+   "failed": [
+    "ChokePointRatchetTests.Pack_code_reads_parses_and_prints_only_through_its_choke_points_or_a_listed_site"
+   ],
+   "seconds": 18
+  },
+  {
+   "id": "parse-before-signatures",
+   "rule": "AUTHENTICATE-FIRST",
+   "door": "definition",
+   "mutant_sha256": "fab89c2b5cd494bb95b7ca6abafae2d55e5288bb90e45f1383834a411de68657",
+   "killed": true,
+   "file_sha256": "dd7b2c4230d14e31e4c800ceed40944277eb5abdfe5e288447725e2e23935807",
+   "failed": [
+    "AuthenticateFirstTests.Review8_A12_a_pack_whose_signature_does_not_hold_is_refused_for_that_alone_at_every_load_path"
+   ],
+   "seconds": 12
+  },
+  {
+   "id": "expand-returns-node",
+   "rule": "WALK-BOUNDED",
+   "door": "neo4j expand",
+   "mutant_sha256": "f8153e5f9ad844e3acc69cfae700ec7ff6af35574b155c89a423cf929e189b6a",
+   "killed": true,
+   "file_sha256": "1a8a7d6bd1297516dc65cb246de77d7c8ad533d450618e314d265db14d032d66",
+   "failed": [
+    "Review8GuardTests.W2_neo4j_expansion_returns_narrow_rows_and_reads_whole_only_the_records_it_keeps"
+   ],
+   "seconds": 11
+  },
+  {
+   "id": "golden-drift",
+   "rule": "BOUNDS-COVER",
+   "door": "definition",
+   "mutant_sha256": "13d7bccaadab8d7bc9d6872fdfd81bfe4dbeb7219b23cbc173d60216ec74c8d7",
+   "killed": true,
+   "file_sha256": "5f688108b2ab69271e61582bce7e8d8f263f8000e996aa517a7ec8d952600b88",
+   "failed": [
+    "StatisticsCoverageTests.Golden_json_is_the_reference_s_own_output"
+   ],
+   "seconds": 11
+  },
+  {
+   "id": "library-composite-unverified",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "PackAuthoring.BuildComposite",
+   "mutant_sha256": "55bc5a27655417fe998d84758d01a87c4f3f0cd773eef7917582c66a9f2a9ba5",
+   "killed": true,
+   "file_sha256": "e7a38d8e8a15cf85127ce32a7f66344faa7342294ecc603e8d5f85f1c699c3a8",
+   "failed": [
+    "Review8WriterGuardTests.F4_the_library_acts_only_on_packs_its_host_s_trust_verifies"
+   ],
+   "seconds": 11
   },
   {
    "id": "bounded-file-size",
    "rule": "FILE-BOUNDED",
    "door": "definition",
+   "mutant_sha256": "eba962ad6000052b11a323bc1f2274ea62c7acc059f04ba57708b4c0ac7c6f65",
    "killed": true,
-   "seconds": 9
+   "file_sha256": "0bd099f61accaac25ed5785d7ff4ec9048ac50531e122012237994cdeb45f4ce",
+   "failed": [
+    "Review8GuardTests.A_file_one_byte_over_its_bound_is_refused_and_one_at_it_is_read"
+   ],
+   "seconds": 14
   },
   {
    "id": "raw-read-in-lint",
    "rule": "FILE-BOUNDED",
    "door": "lint",
+   "mutant_sha256": "7876e1af5bfa0ba93c49261106e3c58290a9f48be9e7cbfc3395107dc4495d5a",
    "killed": true,
-   "seconds": 11
+   "file_sha256": "a1f5f0f6918206c0a059d8f1cbf75c53ccbdb0b61d276e159076b0cd997aef5a",
+   "failed": [
+    "ChokePointRatchetTests.Pack_code_reads_parses_and_prints_only_through_its_choke_points_or_a_listed_site"
+   ],
+   "seconds": 19
   },
   {
    "id": "raw-parse-split-in-diff",
    "rule": "UNVERIFIED-BOUNDED",
    "door": "diff",
+   "mutant_sha256": "765f699c6a37f53dc9df9fbfe153841820f6581734f583bb93f7e60412cc8a15",
    "killed": true,
-   "seconds": 11
+   "file_sha256": "3da964c4e76a4953857dcb161e592062b4784addd5182e5a669cefe0ffeb2507",
+   "failed": [
+    "ChokePointRatchetTests.Pack_code_reads_parses_and_prints_only_through_its_choke_points_or_a_listed_site"
+   ],
+   "seconds": 17
   },
   {
    "id": "authenticate-at-peek",
    "rule": "AUTHENTICATE-FIRST",
    "door": "definition",
+   "mutant_sha256": "62da0dce4d3b8f0bb10a803b6d81001943b538935038bcfc051c57902014ec8e",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "dd7b2c4230d14e31e4c800ceed40944277eb5abdfe5e288447725e2e23935807",
+   "failed": [
+    "AuthenticateFirstTests.Review8_A12_a_pack_whose_signature_does_not_hold_is_refused_for_that_alone_at_every_load_path"
+   ],
+   "seconds": 13
   },
   {
    "id": "authenticate-at-load",
    "rule": "AUTHENTICATE-FIRST",
    "door": "load",
+   "mutant_sha256": "0052d373f27d6a4575085b66ff5f99873bad2975c4998040e969348b83f3e920",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "1821f28e3e136baa5c82c9af3aea90747b7e8df556358ef87af359ace22b01ea",
+   "failed": [
+    "AuthenticateFirstTests.H1_a_signed_pack_still_loads_through_every_path",
+    "AuthenticateFirstTests.H1_every_load_path_refuses_an_unsigned_pack_before_it_reads_pack_json",
+    "AuthenticateFirstTests.Review8_A12_a_pack_whose_signature_does_not_hold_is_refused_for_that_alone_at_every_load_path"
+   ],
+   "seconds": 12
   },
   {
    "id": "unverified-at-diff",
    "rule": "UNVERIFIED-BOUNDED",
    "door": "diff",
+   "mutant_sha256": "43d040ee69e8221ef1ccf2b3129855b308aaa5a03db583a8f2a5595220e33734",
    "killed": true,
-   "seconds": 7
+   "file_sha256": "3da964c4e76a4953857dcb161e592062b4784addd5182e5a669cefe0ffeb2507",
+   "failed": [
+    "Review7GuardTests.H7_content_read_without_verifying_it_is_bounded_before_it_is_parsed"
+   ],
+   "seconds": 11
   },
   {
    "id": "unverified-at-scan",
    "rule": "UNVERIFIED-BOUNDED",
    "door": "scan",
+   "mutant_sha256": "786bb6f7c408577818ae95b481788cd0fbcb00e9db1459a68974027f05632e4f",
    "killed": true,
-   "seconds": 7
+   "file_sha256": "4109926980420ac7f7b898bf5a0c77feb3fb4f97dd20b7de68cc50b069fa3abb",
+   "failed": [
+    "Review7GuardTests.H7_content_read_without_verifying_it_is_bounded_before_it_is_parsed"
+   ],
+   "seconds": 11
   },
   {
    "id": "unverified-at-lint",
    "rule": "UNVERIFIED-BOUNDED",
    "door": "lint",
+   "mutant_sha256": "e1978b932dcf474248eb09c703756e14491cee37b74f6b88bb717e57ea0079fa",
    "killed": true,
-   "seconds": 31
+   "file_sha256": "a1f5f0f6918206c0a059d8f1cbf75c53ccbdb0b61d276e159076b0cd997aef5a",
+   "failed": [
+    "PackDoorMatrixTests.Review8_lint_bounds_what_nobody_verified_before_it_parses_any_of_it"
+   ],
+   "seconds": 35
   },
   {
    "id": "writer-minor-at-sign",
    "rule": "ONE-WRITER-SIGN",
    "door": "definition",
+   "mutant_sha256": "d1da4705b6794c97960016d6ebcde403f91c9c9af98e52b987370af901e376ba",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "c8369e2fcff223eb8246b18b97346e06169aa9c62f355b819c794eed15dedb70",
+   "failed": [
+    "Review7GuardTests.M6_every_signature_holds_the_writer_s_rules_not_build_alone"
+   ],
+   "seconds": 12
   },
   {
    "id": "writer-read-back",
    "rule": "ONE-WRITER-ARCHIVE",
    "door": "definition",
+   "mutant_sha256": "764ca82861892d6d2a7abc0fc779ce4a7dd2d2a6131f25e2fbe44e100970eacc",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "c8369e2fcff223eb8246b18b97346e06169aa9c62f355b819c794eed15dedb70",
+   "failed": [
+    "Review7GuardTests.M7_the_one_writer_never_writes_an_archive_a_reader_refuses"
+   ],
+   "seconds": 13
   },
   {
    "id": "output-escaped",
    "rule": "OUTPUT-ESCAPED",
    "door": "definition",
+   "mutant_sha256": "1d7a336bf64bdaa14c83688403c3864333505ac350dffb4801f90184e542e3eb",
    "killed": true,
-   "seconds": 26
+   "file_sha256": "a1f5f0f6918206c0a059d8f1cbf75c53ccbdb0b61d276e159076b0cd997aef5a",
+   "failed": [
+    "ShownWriterTests.The_tool_installs_it_on_both_streams"
+   ],
+   "seconds": 33
   },
   {
    "id": "inspect-ignored-raw",
    "rule": "OUTPUT-ESCAPED",
    "door": "inspect",
+   "mutant_sha256": "1e55703f45bbbfbf71b1b93abc9bd51688d5e72545c7c1954570e849f60ac4a4",
    "killed": true,
-   "seconds": 27
+   "file_sha256": "a1f5f0f6918206c0a059d8f1cbf75c53ccbdb0b61d276e159076b0cd997aef5a",
+   "failed": [
+    "PackDoorMatrixTests.Every_command_meets_every_hostile_pack_with_a_refusal_or_an_answer_that_is_bounded_and_escaped"
+   ],
+   "seconds": 32
   },
   {
    "id": "bare-cr-passes",
    "rule": "OUTPUT-ESCAPED",
    "door": "definition",
+   "mutant_sha256": "dba27e32b4c9b842519c75e7e26eccd83a09e4c5057586290a8a7ac53a73a918",
    "killed": true,
-   "seconds": 26
-  },
-  {
-   "id": "certificate-any-copy",
-   "rule": "CERTIFICATE-COPIES",
-   "door": "definition",
-   "killed": true,
-   "seconds": 11
+   "file_sha256": "c18f978f263d07d58bed051acbbd4e7361dcaeda72675cb2f838b69d6ce5e950",
+   "failed": [
+    "ShownWriterTests.Controls_bidi_and_a_bare_carriage_return_leave_as_escapes_and_line_ends_pass"
+   ],
+   "seconds": 31
   },
   {
    "id": "intake-at-decide",
    "rule": "EVIDENCE-INTAKE",
    "door": "definition",
+   "mutant_sha256": "8a95da1e51d1a3ec69aabbf55f1fd82d01f049e56df610b45818e0b5c83e996b",
    "killed": true,
-   "seconds": 9
+   "file_sha256": "783edc9fbfc60e3ac1bef1345b74a5b72904b9b523daf942703b002c51c66159",
+   "failed": [
+    "Review7GuardTests.L11_every_arm_of_a_trial_was_drawn_at_one_spacing_within_the_history_window"
+   ],
+   "seconds": 12
   },
   {
    "id": "intake-at-recheck",
    "rule": "EVIDENCE-INTAKE",
    "door": "recheck",
+   "mutant_sha256": "e47e1ae3856c0f2d1f5a684d1fddb6d243cd8c22c96ef25fdd7899e51226671a",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "783edc9fbfc60e3ac1bef1345b74a5b72904b9b523daf942703b002c51c66159",
+   "failed": [
+    "Review7GuardTests.L16_a_recheck_runs_the_intake_the_decision_ran"
+   ],
+   "seconds": 12
   },
   {
    "id": "caps-at-decide",
    "rule": "CAPS-DECLARED",
    "door": "definition",
+   "mutant_sha256": "eb00d9ecd05a029151f3f3874ddf4d258c1248004c38c252aacbb6b72a65eea4",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "783edc9fbfc60e3ac1bef1345b74a5b72904b9b523daf942703b002c51c66159",
+   "failed": [
+    "Review7GuardTests.M11_the_caps_every_bound_rests_on_are_the_declarations"
+   ],
+   "seconds": 12
   },
   {
    "id": "caps-at-admit",
    "rule": "CAPS-DECLARED",
    "door": "admit",
+   "mutant_sha256": "7f1e49f61c0a3c9a78906b0f72a346fee0eac87aafb259de47683810a2e8179f",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "4e36d25ac20c053102a95f62d23bd06e1db8af26a0ca6a57b3fff87a2a609391",
+   "failed": [
+    "PackCertificateTests.Review8_A2_an_admission_holds_a_certificate_s_arms_to_the_caps_the_pack_declares"
+   ],
+   "seconds": 12
   },
   {
    "id": "floor-at-apply",
    "rule": "FLOOR-ON-EVIDENCE",
    "door": "gate",
+   "mutant_sha256": "737cc70c70f4285ffd36a9a4c890bb84d85feb8ebe8df09e5b86a6e768ac475a",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "783edc9fbfc60e3ac1bef1345b74a5b72904b9b523daf942703b002c51c66159",
+   "failed": [
+    "Review8GuardTests.A3_the_module_set_judges_a_host_floor_on_the_tasks_a_decision_ran"
+   ],
+   "seconds": 12
   },
   {
    "id": "floor-at-settle",
    "rule": "FLOOR-ON-EVIDENCE",
    "door": "upgrade chain",
+   "mutant_sha256": "de1023193baabf1a7c3d9090e53b6f30cd5f32cdd626a53909b0231cd0ba741f",
    "killed": true,
-   "seconds": 10
+   "file_sha256": "783edc9fbfc60e3ac1bef1345b74a5b72904b9b523daf942703b002c51c66159",
+   "failed": [
+    "Review8GuardTests.A7_the_upgrade_chain_passes_over_a_version_below_the_host_floor"
+   ],
+   "seconds": 20
   },
   {
    "id": "chain-counts-certificates",
    "rule": "DECISION-COUNTS",
    "door": "upgrade chain",
+   "mutant_sha256": "558ce13a468cc4c085fd6c0b8192a89f07ac548a5d6e8935af6d5630a06a3a43",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "783edc9fbfc60e3ac1bef1345b74a5b72904b9b523daf942703b002c51c66159",
+   "failed": [
+    "Review8GuardTests.G2_only_this_host_s_own_trials_stand_as_the_version_an_upgrade_replaces"
+   ],
+   "seconds": 13
   },
   {
    "id": "gate-keeps-stale-certificate",
    "rule": "DECISION-COUNTS",
    "door": "gate",
+   "mutant_sha256": "32d342c164eafd99c7f491927c4b6237b9d35ed0838be6c492ed6b3136ff1ed3",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "783edc9fbfc60e3ac1bef1345b74a5b72904b9b523daf942703b002c51c66159",
+   "failed": [
+    "PackCertificateTests.An_admission_counts_only_while_its_certificate_is_the_latest_trusted_one_the_pack_carries"
+   ],
+   "seconds": 14
   },
   {
    "id": "floor-at-tool-gate",
    "rule": "FLOOR-ON-EVIDENCE",
    "door": "gate",
+   "mutant_sha256": "c22072b6ac334623be479366bbcc5627de303b9998fcc86d136ce23d6acedefd",
    "killed": true,
-   "seconds": 14
+   "file_sha256": "af0abd551f2d47a11b53d1c5e7100c4e1a4f5bf634112943b92853cb551f455d",
+   "failed": [
+    "AmpackCommandLineTests.A_card_travels_in_the_pack_and_an_evaluator_s_certificate_beside_it_until_a_host_that_trusts_it_admits_the_pack"
+   ],
+   "seconds": 20
+  },
+  {
+   "id": "policy-check-at-gate",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "mutant_sha256": "4ef01176367e34182a1da4c31a648edebf989db39f7d1d4be7dca8e2d9ff07c4",
+   "killed": true,
+   "file_sha256": "9e1242dd4a5c3ea1ed0957474e4fb8524fa8c28337b8c1ee4d82f0eb3bfc0ebd",
+   "failed": [
+    "AmpackCommandLineTests.A_card_travels_in_the_pack_and_an_evaluator_s_certificate_beside_it_until_a_host_that_trusts_it_admits_the_pack"
+   ],
+   "seconds": 20
   },
   {
    "id": "hedge-weight",
    "rule": "BOUNDS-COVER",
    "door": "definition",
+   "mutant_sha256": "ec1bce255a1221bca6a5b4488c8e7017abbb36616ec3b47f7cdcefd043d22779",
    "killed": true,
-   "seconds": 9
+   "file_sha256": "783edc9fbfc60e3ac1bef1345b74a5b72904b9b523daf942703b002c51c66159",
+   "failed": [
+    "TrialStatisticsTests.Lint_says_what_a_declared_trial_can_never_show",
+    "TrialStatisticsTests.Review6_a_paired_hit_difference_at_its_target_passes_at_most_the_nominal_rate_exactly",
+    "TrialStatisticsTests.The_bounds_agree_with_the_reference"
+   ],
+   "seconds": 13
   },
   {
    "id": "previous-cap",
    "rule": "PREVIOUS-CAP",
    "door": "definition",
+   "mutant_sha256": "9e27f5bed339d3f5637d24c718a462a7643da175a14ab8bc5239e1fdb0cbd91e",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "783edc9fbfc60e3ac1bef1345b74a5b72904b9b523daf942703b002c51c66159",
+   "failed": [
+    "PackUpgradeTests.Review7_an_upgrade_holds_the_version_it_replaces_at_the_cap_this_host_judged_it_at"
+   ],
+   "seconds": 12
   },
   {
    "id": "walk-work-cap",
    "rule": "WALK-BOUNDED",
    "door": "definition",
+   "mutant_sha256": "a99f5b81f6d6a3e2a7dbf16ba79dd21244830aba21a940f49264b28e71057e1f",
    "killed": true,
-   "seconds": 44
+   "file_sha256": "71de654deb838f0ae24fa1fd8bd9b57f394bff7d5f2b814efd96234c1bed7aab",
+   "failed": [
+    "AnchorMatcherWorkTests.Review8_W1_a_value_at_the_format_s_longest_line_is_bounded_in_memory_and_time_whatever_it_holds"
+   ],
+   "seconds": 76
   },
   {
    "id": "walk-charged-by-length",
    "rule": "WALK-BOUNDED",
    "door": "definition",
+   "mutant_sha256": "4fe941832dfcf678ee449280dc97a8a28c56d5a63f9c3c16794945e542c38610",
    "killed": true,
-   "seconds": 7
+   "file_sha256": "71de654deb838f0ae24fa1fd8bd9b57f394bff7d5f2b814efd96234c1bed7aab",
+   "failed": [
+    "AnchorMatcherWorkTests.Review8_W1_ordinary_names_are_charged_what_they_compare_so_a_late_anchor_still_seeds"
+   ],
+   "seconds": 11
   },
   {
    "id": "expand-rows-whole",
    "rule": "WALK-BOUNDED",
    "door": "neo4j expand",
+   "mutant_sha256": "06bc9feb7edb87af68275e85d1dd8020c77336669897bb0e36dfaaaafe871363",
    "killed": true,
-   "seconds": 7
+   "file_sha256": "1a8a7d6bd1297516dc65cb246de77d7c8ad533d450618e314d265db14d032d66",
+   "failed": [
+    "Review8GuardTests.W2_neo4j_expansion_returns_narrow_rows_and_reads_whole_only_the_records_it_keeps"
+   ],
+   "seconds": 12
   },
   {
    "id": "walk-isolates-a-read",
    "rule": "WALK-BOUNDED",
    "door": "walk",
+   "mutant_sha256": "92932e25f6fdb7b35a18ff635723806be4061ae24b2681a8e7afddd032b65146",
    "killed": true,
-   "seconds": 9
+   "file_sha256": "41d08ee8c8ffae96cd3645ea3e84543ecd62ddfe2fa97dbaeee5094f70901ec0",
+   "failed": [
+    "TraversalBudgetTests.Review7_W2_one_module_s_failing_read_leaves_that_module_out_and_the_walk_goes_on"
+   ],
+   "seconds": 12
   },
   {
    "id": "walk-server-deadline",
    "rule": "WALK-BOUNDED",
    "door": "neo4j read",
+   "mutant_sha256": "7a2628d4943931e63b77627466fd258382040a3ff2587aa217850715d863ca53",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "36c0b18a71386b390a10613c9ff96d1062570a299f247fc84a1752045a3d8684",
+   "failed": [
+    "TraversalDeadlineTests.A_read_with_a_budget_runs_under_that_server_deadline_and_one_without_runs_as_before"
+   ],
+   "seconds": 11
   },
   {
    "id": "path-one-pass",
    "rule": "PATH-AND-GLOB",
    "door": "definition",
+   "mutant_sha256": "d416299a2818fd5805aa502c2ed6c449b469580c7609623fa5faa863bc82fce5",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "71de654deb838f0ae24fa1fd8bd9b57f394bff7d5f2b814efd96234c1bed7aab",
+   "failed": [
+    "AnchorMatcherWorkTests.The_path_in_one_pass_equals_the_loop_the_format_defines_on_every_generated_value"
+   ],
+   "seconds": 11
   },
   {
    "id": "glob-run",
    "rule": "PATH-AND-GLOB",
    "door": "definition",
+   "mutant_sha256": "2720d5106d1410bb636ea7e8d998967c195118d35b1f3867ea681162e812127f",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "71de654deb838f0ae24fa1fd8bd9b57f394bff7d5f2b814efd96234c1bed7aab",
+   "failed": [
+    "AnchorMatcherWorkTests.The_glob_matcher_equals_the_regex_it_replaced_on_every_generated_pair"
+   ],
+   "seconds": 11
   },
   {
    "id": "walk-fan-out-cut",
    "rule": "STORES-AGREE",
    "door": "walk",
+   "mutant_sha256": "308d4f4971295a7909df861bd04f291f365e10749cc8108d284971eaf5d976fa",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "41d08ee8c8ffae96cd3645ea3e84543ecd62ddfe2fa97dbaeee5094f70901ec0",
+   "failed": [
+    "WalkWorkBoundsTests.Review7_W7_the_walk_makes_the_fan_out_cut_whatever_a_store_returns_and_in_whatever_order"
+   ],
+   "seconds": 11
   },
   {
    "id": "mount-plan-at-mount",
    "rule": "ONE-MOUNT-PLAN",
    "door": "serve",
+   "mutant_sha256": "7a5552478359f9f7bb4796f86448a1f755e19a7774e88f6e05ad1f87ee4ad16d",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "248bf58bbf822ad82d7f2f846de974dbcbc9997134d5273d7f6df1661a6e62c9",
+   "failed": [
+    "AmpackLoaderTests.Review7_W4_packs_are_held_together_as_a_host_holds_them_one_version_of_each"
+   ],
+   "seconds": 10
   },
   {
    "id": "mount-plan-at-gate",
    "rule": "ONE-MOUNT-PLAN",
    "door": "gate",
+   "mutant_sha256": "3c4315268f2afe2e616e5c4160bac1107eac2ac1ff80bd6ce5a467ac7222f71b",
    "killed": true,
-   "seconds": 7
+   "file_sha256": "9e1242dd4a5c3ea1ed0957474e4fb8524fa8c28337b8c1ee4d82f0eb3bfc0ebd",
+   "failed": [
+    "Review8GuardTests.A5_the_gate_holds_packs_together_by_the_mount_plan"
+   ],
+   "seconds": 10
   },
   {
    "id": "mount-plan-snapshots",
    "rule": "ONE-MOUNT-PLAN",
    "door": "definition",
+   "mutant_sha256": "588e26e5fb15f3b11fc33fc6a8c1968ec9035c92e3eb9bdc3941556a833500fc",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "b40d822906a308c008653222c559f6437bf432babef76271caa2590e74aa2763",
+   "failed": [
+    "Review8GuardTests.A5_two_snapshots_of_one_module_are_refused_whoever_holds_them"
+   ],
+   "seconds": 13
   },
   {
    "id": "mount-plan-first-copy",
    "rule": "ONE-MOUNT-PLAN",
    "door": "definition",
+   "mutant_sha256": "c9abd2e29e8f61f3e448b2875f74f00a305e564d6b9f85d82a0396afd5d9550e",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "b40d822906a308c008653222c559f6437bf432babef76271caa2590e74aa2763",
+   "failed": [
+    "AmpackLoaderTests.Review8_W3_copies_of_one_pack_merge_by_one_rule_whatever_their_order"
+   ],
+   "seconds": 11
+  },
+  {
+   "id": "mount-plan-first-certificates",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "mutant_sha256": "cb81a538679da5908d881c0a81954433ed227f93961bb9a2ec8a0efce4c6ab47",
+   "killed": true,
+   "file_sha256": "b40d822906a308c008653222c559f6437bf432babef76271caa2590e74aa2763",
+   "failed": [
+    "Review9GuardTests.C_H1_copies_of_one_pack_pool_what_travels_outside_the_digest_whatever_their_order"
+   ],
+   "seconds": 13
+  },
+  {
+   "id": "pooled-first-copy",
+   "rule": "CERTIFICATE-COPIES",
+   "door": "definition",
+   "mutant_sha256": "10122313afb3e290e83df1169ffa357463321c4d3a0aa876ae410e4c4843eca3",
+   "killed": true,
+   "file_sha256": "4e36d25ac20c053102a95f62d23bd06e1db8af26a0ca6a57b3fff87a2a609391",
+   "failed": [
+    "PackCertificateTests.Review7_H5_a_broken_copy_of_a_trusted_certificate_never_hides_it_whatever_its_name",
+    "Review9GuardTests.C_H1_copies_of_one_pack_pool_what_travels_outside_the_digest_whatever_their_order"
+   ],
+   "seconds": 13
   },
   {
    "id": "links-before-dependency",
    "rule": "ONE-MOUNT-PLAN",
    "door": "memory",
+   "mutant_sha256": "07cd9aff4f9dbcbb9da90b2bc1163c932649f1ab7a089fe4202933b88ede4463",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "248bf58bbf822ad82d7f2f846de974dbcbc9997134d5273d7f6df1661a6e62c9",
+   "failed": [
+    "PackConsentTests.Review7_W9_a_snapshot_whose_links_reach_a_dependency_that_holds_nothing_is_refused_as_the_store_refuses_it"
+   ],
+   "seconds": 10
   },
   {
    "id": "live-in-the-walk",
    "rule": "LIVE-PER-RECORD",
    "door": "definition",
+   "mutant_sha256": "13014790f90d49e8a2247fb4e42e6b585d09a6468b4fbb8608449a88cb6517ec",
    "killed": true,
-   "seconds": 10
+   "file_sha256": "41d08ee8c8ffae96cd3645ea3e84543ecd62ddfe2fa97dbaeee5094f70901ec0",
+   "failed": [
+    "WalkWorkBoundsTests.Review7_W8_a_record_that_may_not_take_part_neither_seeds_nor_steers"
+   ],
+   "seconds": 16
   },
   {
    "id": "live-in-pack-memory",
    "rule": "LIVE-PER-RECORD",
    "door": "pack memory",
+   "mutant_sha256": "3dfa47b6c585c0033755167ec87cd566da2e37d6b99afb0c8ab2b5630e606675",
    "killed": true,
-   "seconds": 9
+   "file_sha256": "248bf58bbf822ad82d7f2f846de974dbcbc9997134d5273d7f6df1661a6e62c9",
+   "failed": [
+    "Review8GuardTests.A4_a_pack_memory_walk_leaves_out_the_records_an_expired_carrier_brought"
+   ],
+   "seconds": 12
   },
   {
    "id": "signed-before-countersign",
    "rule": "SIGNED-BEFORE-ACT",
    "door": "countersign",
+   "mutant_sha256": "7ffc3519a21120abb827946ab40b76ccb601c1dce565e1da0e86eb10238da543",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "a1f5f0f6918206c0a059d8f1cbf75c53ccbdb0b61d276e159076b0cd997aef5a",
+   "failed": [
+    "PackDoorMatrixTests.Review7_L7_countersign_lock_and_set_act_only_on_a_pack_whose_signatures_hold"
+   ],
+   "seconds": 11
   },
   {
    "id": "signed-before-lock",
    "rule": "SIGNED-BEFORE-ACT",
    "door": "lock",
+   "mutant_sha256": "79bd25f6ec5ab2cc106b5fcbda99d0121455dfd087ed54c89b779eb412eb9210",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "a1f5f0f6918206c0a059d8f1cbf75c53ccbdb0b61d276e159076b0cd997aef5a",
+   "failed": [
+    "PackDoorMatrixTests.Review7_L7_countersign_lock_and_set_act_only_on_a_pack_whose_signatures_hold"
+   ],
+   "seconds": 11
   },
   {
    "id": "signed-before-set",
    "rule": "SIGNED-BEFORE-ACT",
    "door": "set",
+   "mutant_sha256": "d3df1794ad84478e1d98190452bd84c8c9f469a61f2a6f6d3edd8c10d263e94e",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "a1f5f0f6918206c0a059d8f1cbf75c53ccbdb0b61d276e159076b0cd997aef5a",
+   "failed": [
+    "PackDoorMatrixTests.Review7_L7_countersign_lock_and_set_act_only_on_a_pack_whose_signatures_hold"
+   ],
+   "seconds": 11
   },
   {
    "id": "envelopes-without-trust",
    "rule": "ONE-WRITER-ARCHIVE",
    "door": "definition",
+   "mutant_sha256": "80c843ddfe255f8d111803be1a46b6f5a8635ae0c6d9d06abdbd36ba6ec1e015",
    "killed": true,
-   "seconds": 9
+   "file_sha256": "dd7b2c4230d14e31e4c800ceed40944277eb5abdfe5e288447725e2e23935807",
+   "failed": [
+    "Review8WriterGuardTests.F1_an_envelope_every_reader_refuses_is_refused_by_the_writer_and_by_lint"
+   ],
+   "seconds": 15
   },
   {
    "id": "set-structure-without-trust",
    "rule": "ONE-WRITER-ARCHIVE",
    "door": "definition",
+   "mutant_sha256": "bd3a07c7b5545f1a8404c63bcc23df1bcb1923d01659e2a04c1a4e34072ba0c9",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "dd7b2c4230d14e31e4c800ceed40944277eb5abdfe5e288447725e2e23935807",
+   "failed": [
+    "Review8WriterGuardTests.F2_a_set_every_reader_refuses_is_refused_by_the_writer_and_by_lint"
+   ],
+   "seconds": 12
+  },
+  {
+   "id": "federation-without-trust",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "mutant_sha256": "f148e36eae90176b38a13bbad4a5a3b114e28a9ee158c10e18da031cad7beaf9",
+   "killed": true,
+   "file_sha256": "dd7b2c4230d14e31e4c800ceed40944277eb5abdfe5e288447725e2e23935807",
+   "failed": [
+    "FederationTests.Review9_A1_a_federated_sets_member_rules_need_no_key_so_the_writer_and_lint_hold_them_too"
+   ],
+   "seconds": 4
   },
   {
    "id": "whole-before-act",
    "rule": "SIGNED-BEFORE-ACT",
    "door": "countersign",
+   "mutant_sha256": "246ead98b0249bf6fdff7c5a2e61c3b19d13351e706d28d6845542baee6c86d7",
    "killed": true,
-   "seconds": 9
+   "file_sha256": "a1f5f0f6918206c0a059d8f1cbf75c53ccbdb0b61d276e159076b0cd997aef5a",
+   "failed": [
+    "PackDoorMatrixTests.Review7_L7_countersign_lock_and_set_act_only_on_a_pack_whose_signatures_hold"
+   ],
+   "seconds": 12
   },
   {
    "id": "library-countersign-unverified",
    "rule": "SIGNED-BEFORE-ACT",
    "door": "PackAuthoring.Countersign",
+   "mutant_sha256": "bacc4ef24e5bb02b575fa5db2c951a281641312bd92a8b4e419c8d84a13860ad",
    "killed": true,
-   "seconds": 7
+   "file_sha256": "e7a38d8e8a15cf85127ce32a7f66344faa7342294ecc603e8d5f85f1c699c3a8",
+   "failed": [
+    "Review8WriterGuardTests.F4_the_library_acts_only_on_packs_its_host_s_trust_verifies"
+   ],
+   "seconds": 11
   },
   {
    "id": "library-member-unverified",
    "rule": "SIGNED-BEFORE-ACT",
    "door": "PackAuthoring.BuildSet",
+   "mutant_sha256": "4265b2a1a6a1a4f8142867e4a5dff425e643e969cbf16b52af7b48603a95c180",
    "killed": true,
-   "seconds": 7
+   "file_sha256": "e7a38d8e8a15cf85127ce32a7f66344faa7342294ecc603e8d5f85f1c699c3a8",
+   "failed": [
+    "Review8WriterGuardTests.F4_the_library_acts_only_on_packs_its_host_s_trust_verifies"
+   ],
+   "seconds": 11
   },
   {
    "id": "before-drops-every-role",
    "rule": "SIGNED-BEFORE-ACT",
    "door": "definition",
+   "mutant_sha256": "464abc8228c56527b0c823431433a5d4d3c43260283333003eeeaad2387f60a7",
    "killed": true,
-   "seconds": 8
+   "file_sha256": "dd7b2c4230d14e31e4c800ceed40944277eb5abdfe5e288447725e2e23935807",
+   "failed": [
+    "Review8WriterGuardTests.F4_the_library_acts_only_on_packs_its_host_s_trust_verifies"
+   ],
+   "seconds": 12
+  },
+  {
+   "id": "certificate-verify-each-copy",
+   "rule": "CERTIFICATE-COPIES",
+   "door": "certificate",
+   "mutant_sha256": "c7d428e540db2a01ce664f440288bdddd1bd06b691aa5907716e650c3ca2754e",
+   "killed": true,
+   "file_sha256": "af0abd551f2d47a11b53d1c5e7100c4e1a4f5bf634112943b92853cb551f455d",
+   "failed": [
+    "AmpackCommandLineTests.A_card_travels_in_the_pack_and_an_evaluator_s_certificate_beside_it_until_a_host_that_trusts_it_admits_the_pack"
+   ],
+   "seconds": 17
   },
   {
    "id": "python-case-collision",
    "rule": "VERIFIERS-AGREE",
    "door": "python",
+   "mutant_sha256": "35d98024f382d9d80e48c26719053c25fb591e1af16dbe9fddf45e3d9208180d",
    "killed": true,
-   "seconds": 129
+   "file_sha256": "0b900e88584cb060040df6cdcf37db6b1cdee850699f3eab745e3c60f5c14564",
+   "failed": [
+    "kit"
+   ],
+   "seconds": 135
   }
  ]
 }

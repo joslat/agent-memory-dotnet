@@ -467,6 +467,24 @@ public sealed class FederationTests
     }
 
     [Fact]
+    public void Review9_A1_a_federated_sets_member_rules_need_no_key_so_the_writer_and_lint_hold_them_too()
+    {
+        // build and sign wrote, and lint passed, a federated set whose member was not federated or was for a wider audience;
+        // every reader refused it without a key. The trust-free check holds the member rules now.
+        var sample = new SamplePack();
+        foreach (var (files, why) in new[]
+                 {
+                     (FederatedSet(sample, $"[\"{Buyer}\"]", memberFederated: false), "not federated itself"),
+                     (FederatedSet(sample, $"[\"{Buyer}\",\"{Stranger}\"]"), "wider audience than its set"),
+                 })
+        {
+            PackVerifier.CheckIntegrity(new PackContent(files, "lint")).Problems.Should().ContainSingle(x => x.Contains(why));
+            FluentActions.Invoking(() => PackBuilder.Pack(files)).Should().Throw<InvalidDataException>().WithMessage($"*{why}*");
+        }
+        PackVerifier.CheckIntegrity(new PackContent(FederatedSet(sample, $"[\"{Buyer}\"]"), "lint")).Problems.Should().BeEmpty();
+    }
+
+    [Fact]
     public void A_set_is_verified_with_every_member_so_a_receipt_never_vouches_for_an_untrusted_member()
     {
         var sample = new SamplePack();

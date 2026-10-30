@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using AgentMemory.Extensibility.Ampack;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Packs.Coding;
+using AgentMemory.Packs.Format;
 using FluentAssertions;
 using Xunit;
 
@@ -405,6 +406,17 @@ public sealed class AmpackCommandLineTests : IDisposable
             .And.Contain("tool    agentmemory-pack-gate " + typeof(PackTrialGate).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0],
                 "the certificate names the version of the library that holds the gate");
         Done("verify", "certified.ampack", "--policy", "trust.json").Should().Contain($"digest  {digest}").And.Contain("certificate passed, by Example Lab");
+        // A broken copy of the trusted certificate added beside it, outside the signed list, takes nothing away (review 9, D3).
+        var withCopy = new Dictionary<string, byte[]>(StrictZip.Read(File.ReadAllBytes(At("certified.ampack")), PackLimits.Default), StringComparer.Ordinal);
+        var (original, envelope) = withCopy.First(f => f.Key.StartsWith("META/attestations/", StringComparison.Ordinal) && f.Key.EndsWith(".certificate.dsse.json", StringComparison.Ordinal));
+        var broken = System.Text.Json.Nodes.JsonNode.Parse(envelope)!.AsObject();
+        var signature = broken["signatures"]![0]!.AsObject();
+        var sig = Convert.FromBase64String(signature["sig"]!.GetValue<string>());
+        sig[^1] ^= 0x01;
+        signature["sig"] = Convert.ToBase64String(sig);
+        withCopy[original.Replace(".certificate.dsse.json", "-copy.certificate.dsse.json", StringComparison.Ordinal)] = Encoding.UTF8.GetBytes(broken.ToJsonString());
+        File.WriteAllBytes(At("certified-copy.ampack"), StrictZip.Write(withCopy));
+        Done("certificate", "verify", "certified-copy.ampack", "--policy", "trust.json").Should().Contain("by      Example Lab");
         Done("inspect", "certified.ampack").Should().Contain("certificate  META/attestations/");
         Refused("certificate", "verify", "certified.ampack", "--policy", "publisher-only.json").Should().Contain("not in the trust policy");
         Done("verify", "certified.ampack", "--policy", "publisher-only.json").Should().Contain("not trusted here", "an untrusted certificate never refuses the pack");
@@ -425,7 +437,12 @@ public sealed class AmpackCommandLineTests : IDisposable
         Done([.. gate, "--trust-certificates-for", "io.example"]).Should().Contain("on   io.example.notes 0.1.0  on Example Lab's certificate");
         Ampack([.. gate, "--trust-certificates-for", "io..example"]).Exit.Should().Be(2);
         // A host floor holds at the tool's doors too (review 8, G3): a trial that declared no confidence is below one of 0.95.
-        Done([.. gate, "--trust-certificates-for", "io.example", "--floor-confidence", "0.95"]).Should().Contain("off  io.example.notes 0.1.0  its trial claims less than this host requires");
+        Done([.. gate, "--trust-certificates-for", "io.example", "--require-trials-for", "io.example", "--floor-confidence", "0.95"])
+            .Should().Contain("off  io.example.notes 0.1.0  its trial claims less than this host requires");
+        // The policy's own check, as a host's module set runs it (review 9, B-M1): a floor needs mandatory trials, and serve's gate
+        // options need the host's decisions.
+        Ampack([.. gate, "--floor-tasks", "100"]).Exit.Should().Be(2);
+        Ampack("serve", "certified.ampack", "--policy", "trust.json", "--floor-tasks", "100").Exit.Should().Be(2);
         Ampack([.. gate, "--floor-confidence", "0.8"]).Exit.Should().Be(2);
         Ampack([.. gate, "--floor-targets", "hitRate"]).Exit.Should().Be(2);
 

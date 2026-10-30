@@ -214,6 +214,8 @@ internal static class PackVerifier
                 var member = CheckIntegrity(new PackContent(files, content.Source + "#" + folder), records: records);
                 rest.AddRange(member.Problems.Select(p => $"packs/{folder}/: {p}"));
                 if (member.Manifest is { } carried && MemberProblem(folder, member.List!.Id, carried.Kind) is { } wrong) rest.Add(wrong);
+                if (member.Manifest is { } inner && manifest.Federation is { } federation && MemberFederationProblem(federation, member.List!.Id, inner) is { } outside)
+                    rest.Add(outside);
             }
             if (rest.Count > 0) return (rest, null, null, null);
         }
@@ -406,13 +408,15 @@ internal static class PackVerifier
     /// A federated set's members (federated packs §3): each is federated itself, by the same publisher, for an audience within
     /// the set's. Otherwise a member taken out of the set would load on a host the set was never published for (FED-review M5).
     /// </summary>
-    internal static string? MemberFederationProblem(PackFederation set, VerifiedPack member)
+    /// <remarks>It needs no key, so the trust-free check holds it too (review 9, A1: only the verifier did, so the writers wrote,
+    /// and lint passed, federated sets every reader refuses).</remarks>
+    internal static string? MemberFederationProblem(PackFederation set, string memberId, PackManifest member)
     {
-        if (member.Manifest.Federation is not { } own)
-            return $"The member {member.Id} of a federated set is not federated itself: out of the set it would reach any host.";
-        if (own.Publisher != set.Publisher) return $"The member {member.Id} names publisher {own.Publisher}, not the set's {set.Publisher}.";
+        if (member.Federation is not { } own)
+            return $"The member {memberId} of a federated set is not federated itself: out of the set it would reach any host.";
+        if (own.Publisher != set.Publisher) return $"The member {memberId} names publisher {own.Publisher}, not the set's {set.Publisher}.";
         if (!set.IsPublic && (own.Audience is null || own.Audience.Any(a => !set.Audience!.Contains(a))))
-            return $"The member {member.Id} is published for a wider audience than its set.";
+            return $"The member {memberId} is published for a wider audience than its set.";
         return null;
     }
 
@@ -461,7 +465,7 @@ internal static class PackVerifier
             var member = VerifyOne(new PackContent(files, content.Source + "#" + id), policy, now, ledger, allowDowngrade);
             members[id] = member.Pack is { } carried && MemberProblem(id, carried.Id, carried.Manifest.Kind) is { } wrong
                 ? new PackVerification(null, [wrong])
-                : member.Pack is { } inner && outer.Manifest.Federation is { } federation && MemberFederationProblem(federation, inner) is { } problem
+                : member.Pack is { } inner && outer.Manifest.Federation is { } federation && MemberFederationProblem(federation, inner.Id, inner.Manifest) is { } problem
                     ? new PackVerification(null, [problem]) : member;
         }
         return (set, members);

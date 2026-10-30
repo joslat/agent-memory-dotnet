@@ -140,4 +140,24 @@ public sealed class StrictZipTests
         var found = haystack.AsSpan(start).IndexOf(needle);
         return found < 0 ? -1 : found + start;
     }
+
+    [Fact]
+    public void Review9_D1_every_size_limit_refuses_the_archive_that_passes_it()
+    {
+        // Only the ratio had a guard; deleting the per-file or total cap let every read door inflate far past it unseen.
+        var zip = StrictZip.Write(new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["a"] = new byte[2000], ["b"] = new byte[2000] });
+        FluentActions.Invoking(() => StrictZip.Read(zip, PackLimits.Default with { MaxFileBytes = 1999 })).Should().Throw<InvalidDataException>().WithMessage("*larger than 1999 bytes*");
+        FluentActions.Invoking(() => StrictZip.Read(zip, PackLimits.Default with { MaxTotalBytes = 3999 })).Should().Throw<InvalidDataException>().WithMessage("*unpacks to more than 3999 bytes*");
+        FluentActions.Invoking(() => StrictZip.Read(zip, PackLimits.Default with { MaxArchiveBytes = zip.Length - 1 })).Should().Throw<InvalidDataException>().WithMessage("*is larger than*");
+        FluentActions.Invoking(() => StrictZip.Read(zip, PackLimits.Default with { MaxFiles = 1 })).Should().Throw<InvalidDataException>().WithMessage("*holds more than 1 files*");
+        StrictZip.Read(zip, PackLimits.Default with { MaxFileBytes = 2000, MaxTotalBytes = 4000, MaxArchiveBytes = zip.Length, MaxFiles = 2 }).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Review9_D2_a_json_file_over_one_mebibyte_is_refused_before_it_is_parsed_verified_or_not()
+    {
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["ontology.json"] = new byte[(1 << 20) + 1] };
+        PackContentBounds.Problems(files, verified: false).Should().ContainSingle().Which.Should().Contain("'ontology.json' is larger than 1 MiB");
+        PackContentBounds.Problems(files, verified: true).Should().ContainSingle().Which.Should().Contain("'ontology.json' is larger than 1 MiB");
+    }
 }

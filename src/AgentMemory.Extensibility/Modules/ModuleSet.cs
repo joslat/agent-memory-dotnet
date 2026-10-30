@@ -59,16 +59,9 @@ public sealed class ModuleSet
 
     internal static ModuleSet Activate(ModuleSetBuilder builder, IServiceProvider services)
     {
-        if (builder.MandatoryTrials.Count != 0 && builder.Activations is null)
-            throw new ModuleActivationException(["RequireTrialsFor makes trials mandatory, so it needs the host's decisions: call RequireTrials too."]);
-        if (builder.CertificateTrust.Count != 0 && builder.Activations is null)
-            throw new ModuleActivationException(["TrustCertificatesFor accepts decisions made from certificates, so it needs the host's decisions: call RequireTrials too."]);
-        if (builder.TrialFloor is not null && builder.Activations is null)
-            throw new ModuleActivationException(["RequireTrialFloor sets what a trial must claim, so it needs the host's decisions: call RequireTrials too."]);
-        // A floor a pack could skip by declaring no trial holds nothing (review 7, D7).
-        if (builder.TrialFloor is not null && builder.MandatoryTrials.Count == 0)
-            throw new ModuleActivationException(["RequireTrialFloor needs RequireTrialsFor: otherwise a pack that declares no trial composes past the floor."]);
-        var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations, PackTrialPolicy.Of(builder));
+        var policy = PackTrialPolicy.Of(builder);
+        if (policy.Problems(decisions: builder.Activations is not null) is { Count: > 0 } invalid) throw new ModuleActivationException(invalid);
+        var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations, policy);
         var store = builder.Store;
         var provider = store?.Provider ?? "none";
         var profile = builder.Profile?.Without(switchedOff.Select(o => o.ModuleId).ToHashSet(StringComparer.Ordinal)) ?? ImplicitProfile(registrations, provider);

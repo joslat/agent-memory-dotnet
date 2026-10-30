@@ -53,6 +53,13 @@ public sealed class Review8WriterGuardTests
             .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("No valid publisher signature"));
         FluentActions.Invoking(() => PackAuthoring.BuildSet("io.example.foreign-set", "1.0.0", [foreign], _key.PrivateKeyPem, Trust()))
             .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("No valid publisher signature"));
+        // Review 9, D11: the composite's own call site, not only the helper it shares.
+        var composite = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["manifest.json"] = Encoding.UTF8.GetBytes("{\"format\":\"agentmemory.composite/v1alpha1\",\"id\":\"io.example.family\",\"version\":\"1.0.0\",\"members\":[{\"id\":\"io.agentmemory.packs.martialarts\",\"version\":\"[1,2)\"}]}"),
+        }), StringComparer.Ordinal);
+        FluentActions.Invoking(() => PackAuthoring.BuildComposite(composite, [foreign], _key.PrivateKeyPem, Trust()))
+            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("No valid publisher signature"));
 
         // A host that requires a curator: the pack holds under its policy apart from the curator this signature adds.
         var curator = PackAuthoring.CreateKey();

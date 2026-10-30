@@ -13,7 +13,158 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.PackFormat",
-   "filter": "FullyQualifiedName~StrictZipTests"
+   "filter": "FullyQualifiedName~StrictZipTests",
+   "sha256": "0cee0c23327eaf114a6324aab28497f84bdb0b889278691f859582e911af0b69"
+  },
+  {
+   "id": "archive-file-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "if (size > limits.MaxFileBytes) throw Bad",
+     "new": "if (size > limits.MaxFileBytes && size < 0) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D1",
+   "sha256": "4b1565bc3586f30ad428cf2e29cee90f84053e0bf0c38fe46ef5d33ebd0fa6ff"
+  },
+  {
+   "id": "archive-total-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "if (totalSize > limits.MaxTotalBytes) throw Bad",
+     "new": "if (totalSize > limits.MaxTotalBytes && totalSize < 0) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D1",
+   "sha256": "e61b92e4c137abddb940bcb7030fe93afe2064a66eae369088842a0976360f04"
+  },
+  {
+   "id": "archive-size-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "if (zip.Length > limits.MaxArchiveBytes) throw Bad",
+     "new": "if (zip.Length > limits.MaxArchiveBytes && zip.Length < 0) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D1",
+   "sha256": "6b99d81fe79cab71d59a98ec568f8b49861b58941c98472861f4839a38317c83"
+  },
+  {
+   "id": "archive-files-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "if (count > limits.MaxFiles) throw Bad",
+     "new": "if (count > limits.MaxFiles && count < 0) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D1",
+   "sha256": "134b3e19a1a0fae3ec988e32bccd2b7e65b8ab5434ef326786faab5c990b2bc8"
+  },
+  {
+   "id": "json-file-cap",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackContentBounds.cs",
+   "edits": [
+    {
+     "old": "                if (bytes.Length > PackVerifier.MaximumJsonBytes)\n                    problems.Add",
+     "new": "                if (bytes.Length < 0)\n                    problems.Add"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D2",
+   "sha256": "ab98321cde8dccd07403297136a9d7b4c570605ac83fa11b1b7416129b08c92c"
+  },
+  {
+   "id": "door-zips-itself",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "countersign",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "        File.WriteAllBytes(o.Required(\"out\"), PackBuilder.Pack(files));",
+     "new": "        File.WriteAllBytes(o.Required(\"out\"), StrictZip.Write(files));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ChokePointRatchetTests",
+   "sha256": "44dba73044b5b67721de1731a6ca91e53eb15ad497a5db500e805684a0fc9a2c"
+  },
+  {
+   "id": "parse-before-signatures",
+   "rule": "AUTHENTICATE-FIRST",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "        var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);\n        if (refusal is not null) return (null, refusal);",
+     "new": "        _ = PackManifest.Parse(content.Files.GetValueOrDefault(PackManifest.FileName) ?? []);\n        var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);\n        if (refusal is not null) return (null, refusal);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AuthenticateFirstTests.Review8_A12",
+   "sha256": "fab89c2b5cd494bb95b7ca6abafae2d55e5288bb90e45f1383834a411de68657"
+  },
+  {
+   "id": "expand-returns-node",
+   "rule": "WALK-BOUNDED",
+   "door": "neo4j expand",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Queries/ModuleTraversalQueries.cs",
+   "edits": [
+    {
+     "old": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits\";",
+     "new": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.node AS node, r.degree AS degree, r.hits AS hits\";"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.W2",
+   "sha256": "f8153e5f9ad844e3acc69cfae700ec7ff6af35574b155c89a423cf929e189b6a"
+  },
+  {
+   "id": "golden-drift",
+   "rule": "BOUNDS-COVER",
+   "door": "definition",
+   "file": "eng/trial-statistics/golden.py",
+   "edits": [
+    {
+     "old": "random.seed(29)",
+     "new": "random.seed(30)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~StatisticsCoverageTests.Golden_json",
+   "sha256": "13d7bccaadab8d7bc9d6872fdfd81bfe4dbeb7219b23cbc173d60216ec74c8d7"
+  },
+  {
+   "id": "library-composite-unverified",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "PackAuthoring.BuildComposite",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackAuthoring.cs",
+   "edits": [
+    {
+     "old": "            var (files, _) = Verified(member, trust);",
+     "new": "            var (files, _) = (StrictZip.Read(member, PackLimits.Default), \"\");"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4",
+   "sha256": "55bc5a27655417fe998d84758d01a87c4f3f0cd773eef7917582c66a9f2a9ba5"
   },
   {
    "id": "bounded-file-size",
@@ -35,7 +186,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AuthenticateFirstTests|FullyQualifiedName~Review8GuardTests.A_file_one_byte_over"
+   "filter": "FullyQualifiedName~AuthenticateFirstTests|FullyQualifiedName~Review8GuardTests.A_file_one_byte_over",
+   "sha256": "eba962ad6000052b11a323bc1f2274ea62c7acc059f04ba57708b4c0ac7c6f65"
   },
   {
    "id": "raw-read-in-lint",
@@ -49,7 +201,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~ChokePointRatchetTests"
+   "filter": "FullyQualifiedName~ChokePointRatchetTests",
+   "sha256": "7876e1af5bfa0ba93c49261106e3c58290a9f48be9e7cbfc3395107dc4495d5a"
   },
   {
    "id": "raw-parse-split-in-diff",
@@ -63,7 +216,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~ChokePointRatchetTests"
+   "filter": "FullyQualifiedName~ChokePointRatchetTests",
+   "sha256": "765f699c6a37f53dc9df9fbfe153841820f6581734f583bb93f7e60412cc8a15"
   },
   {
    "id": "authenticate-at-peek",
@@ -77,7 +231,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AuthenticateFirstTests.Review8_A12"
+   "filter": "FullyQualifiedName~AuthenticateFirstTests.Review8_A12",
+   "sha256": "62da0dce4d3b8f0bb10a803b6d81001943b538935038bcfc051c57902014ec8e"
   },
   {
    "id": "authenticate-at-load",
@@ -91,7 +246,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AuthenticateFirstTests"
+   "filter": "FullyQualifiedName~AuthenticateFirstTests",
+   "sha256": "0052d373f27d6a4575085b66ff5f99873bad2975c4998040e969348b83f3e920"
   },
   {
    "id": "unverified-at-diff",
@@ -109,7 +265,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review7GuardTests.H7"
+   "filter": "FullyQualifiedName~Review7GuardTests.H7",
+   "sha256": "43d040ee69e8221ef1ccf2b3129855b308aaa5a03db583a8f2a5595220e33734"
   },
   {
    "id": "unverified-at-scan",
@@ -123,7 +280,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review7GuardTests.H7"
+   "filter": "FullyQualifiedName~Review7GuardTests.H7",
+   "sha256": "786bb6f7c408577818ae95b481788cd0fbcb00e9db1459a68974027f05632e4f"
   },
   {
    "id": "unverified-at-lint",
@@ -137,7 +295,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~PackDoorMatrixTests.Review8_lint_bounds"
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~PackDoorMatrixTests.Review8_lint_bounds",
+   "sha256": "e1978b932dcf474248eb09c703756e14491cee37b74f6b88bb717e57ea0079fa"
   },
   {
    "id": "writer-minor-at-sign",
@@ -151,7 +310,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review7GuardTests.M6"
+   "filter": "FullyQualifiedName~Review7GuardTests.M6",
+   "sha256": "d1da4705b6794c97960016d6ebcde403f91c9c9af98e52b987370af901e376ba"
   },
   {
    "id": "writer-read-back",
@@ -165,7 +325,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review7GuardTests.M7"
+   "filter": "FullyQualifiedName~Review7GuardTests.M7",
+   "sha256": "764ca82861892d6d2a7abc0fc779ce4a7dd2d2a6131f25e2fbe44e100970eacc"
   },
   {
    "id": "output-escaped",
@@ -183,7 +344,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~ShownWriterTests"
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~ShownWriterTests",
+   "sha256": "1d7a336bf64bdaa14c83688403c3864333505ac350dffb4801f90184e542e3eb"
   },
   {
    "id": "inspect-ignored-raw",
@@ -197,7 +359,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command"
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command",
+   "sha256": "1e55703f45bbbfbf71b1b93abc9bd51688d5e72545c7c1954570e849f60ac4a4"
   },
   {
    "id": "bare-cr-passes",
@@ -211,21 +374,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~ShownWriterTests"
-  },
-  {
-   "id": "certificate-any-copy",
-   "rule": "CERTIFICATE-COPIES",
-   "door": "definition",
-   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
-   "edits": [
-    {
-     "old": "if (evaluation.Trusted) { first = evaluation; break; }",
-     "new": ""
-    }
-   ],
-   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackCertificateTests.Review7_H5"
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~ShownWriterTests",
+   "sha256": "dba27e32b4c9b842519c75e7e26eccd83a09e4c5057586290a8a7ac53a73a918"
   },
   {
    "id": "intake-at-decide",
@@ -239,7 +389,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review7GuardTests.L11"
+   "filter": "FullyQualifiedName~Review7GuardTests.L11",
+   "sha256": "8a95da1e51d1a3ec69aabbf55f1fd82d01f049e56df610b45818e0b5c83e996b"
   },
   {
    "id": "intake-at-recheck",
@@ -253,7 +404,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review7GuardTests.L16"
+   "filter": "FullyQualifiedName~Review7GuardTests.L16",
+   "sha256": "e47e1ae3856c0f2d1f5a684d1fddb6d243cd8c22c96ef25fdd7899e51226671a"
   },
   {
    "id": "caps-at-decide",
@@ -267,7 +419,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review7GuardTests.M11"
+   "filter": "FullyQualifiedName~Review7GuardTests.M11",
+   "sha256": "eb00d9ecd05a029151f3f3874ddf4d258c1248004c38c252aacbb6b72a65eea4"
   },
   {
    "id": "caps-at-admit",
@@ -281,7 +434,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackCertificateTests.Review8_A2"
+   "filter": "FullyQualifiedName~PackCertificateTests.Review8_A2",
+   "sha256": "7f1e49f61c0a3c9a78906b0f72a346fee0eac87aafb259de47683810a2e8179f"
   },
   {
    "id": "floor-at-apply",
@@ -295,7 +449,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8GuardTests.A3"
+   "filter": "FullyQualifiedName~Review8GuardTests.A3",
+   "sha256": "737cc70c70f4285ffd36a9a4c890bb84d85feb8ebe8df09e5b86a6e768ac475a"
   },
   {
    "id": "floor-at-settle",
@@ -309,7 +464,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8GuardTests.A7|FullyQualifiedName~PackUpgradeTests"
+   "filter": "FullyQualifiedName~Review8GuardTests.A7|FullyQualifiedName~PackUpgradeTests",
+   "sha256": "de1023193baabf1a7c3d9090e53b6f30cd5f32cdd626a53909b0231cd0ba741f"
   },
   {
    "id": "chain-counts-certificates",
@@ -323,7 +479,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8GuardTests.G2"
+   "filter": "FullyQualifiedName~Review8GuardTests.G2",
+   "sha256": "558ce13a468cc4c085fd6c0b8192a89f07ac548a5d6e8935af6d5630a06a3a43"
   },
   {
    "id": "gate-keeps-stale-certificate",
@@ -337,7 +494,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackCertificateTests.An_admission_counts_only_while"
+   "filter": "FullyQualifiedName~PackCertificateTests.An_admission_counts_only_while",
+   "sha256": "32d342c164eafd99c7f491927c4b6237b9d35ed0838be6c492ed6b3136ff1ed3"
   },
   {
    "id": "floor-at-tool-gate",
@@ -351,7 +509,23 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AmpackCommandLineTests.A_card_travels_in_the_pack"
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.A_card_travels_in_the_pack",
+   "sha256": "c22072b6ac334623be479366bbcc5627de303b9998fcc86d136ce23d6acedefd"
+  },
+  {
+   "id": "policy-check-at-gate",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackGateCheck.cs",
+   "edits": [
+    {
+     "old": ".Problems(decisions: true) is { Count: > 0 } invalid)",
+     "new": ".Problems(decisions: true) is { Count: > 99 } invalid)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.A_card_travels_in_the_pack",
+   "sha256": "4ef01176367e34182a1da4c31a648edebf989db39f7d1d4be7dca8e2d9ff07c4"
   },
   {
    "id": "hedge-weight",
@@ -365,7 +539,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~TrialStatisticsTests"
+   "filter": "FullyQualifiedName~TrialStatisticsTests",
+   "sha256": "ec1bce255a1221bca6a5b4488c8e7017abbb36616ec3b47f7cdcefd043d22779"
   },
   {
    "id": "previous-cap",
@@ -379,7 +554,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackUpgradeTests.Review7_an_upgrade_holds"
+   "filter": "FullyQualifiedName~PackUpgradeTests.Review7_an_upgrade_holds",
+   "sha256": "9e27f5bed339d3f5637d24c718a462a7643da175a14ab8bc5239e1fdb0cbd91e"
   },
   {
    "id": "walk-work-cap",
@@ -393,7 +569,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_a_value"
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_a_value",
+   "sha256": "a99f5b81f6d6a3e2a7dbf16ba79dd21244830aba21a940f49264b28e71057e1f"
   },
   {
    "id": "walk-charged-by-length",
@@ -407,7 +584,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_ordinary"
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_ordinary",
+   "sha256": "4fe941832dfcf678ee449280dc97a8a28c56d5a63f9c3c16794945e542c38610"
   },
   {
    "id": "expand-rows-whole",
@@ -421,7 +599,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8GuardTests.W2"
+   "filter": "FullyQualifiedName~Review8GuardTests.W2",
+   "sha256": "06bc9feb7edb87af68275e85d1dd8020c77336669897bb0e36dfaaaafe871363"
   },
   {
    "id": "walk-isolates-a-read",
@@ -435,7 +614,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~TraversalBudgetTests.Review7_W2"
+   "filter": "FullyQualifiedName~TraversalBudgetTests.Review7_W2",
+   "sha256": "92932e25f6fdb7b35a18ff635723806be4061ae24b2681a8e7afddd032b65146"
   },
   {
    "id": "walk-server-deadline",
@@ -449,7 +629,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~TraversalDeadlineTests"
+   "filter": "FullyQualifiedName~TraversalDeadlineTests",
+   "sha256": "7a2628d4943931e63b77627466fd258382040a3ff2587aa217850715d863ca53"
   },
   {
    "id": "path-one-pass",
@@ -463,7 +644,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.The_path"
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.The_path",
+   "sha256": "d416299a2818fd5805aa502c2ed6c449b469580c7609623fa5faa863bc82fce5"
   },
   {
    "id": "glob-run",
@@ -477,7 +659,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.The_glob"
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.The_glob",
+   "sha256": "2720d5106d1410bb636ea7e8d998967c195118d35b1f3867ea681162e812127f"
   },
   {
    "id": "walk-fan-out-cut",
@@ -491,7 +674,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~WalkWorkBoundsTests.Review7_W7"
+   "filter": "FullyQualifiedName~WalkWorkBoundsTests.Review7_W7",
+   "sha256": "308d4f4971295a7909df861bd04f291f365e10749cc8108d284971eaf5d976fa"
   },
   {
    "id": "mount-plan-at-mount",
@@ -505,7 +689,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AmpackLoaderTests.Review7_W4"
+   "filter": "FullyQualifiedName~AmpackLoaderTests.Review7_W4",
+   "sha256": "7a5552478359f9f7bb4796f86448a1f755e19a7774e88f6e05ad1f87ee4ad16d"
   },
   {
    "id": "mount-plan-at-gate",
@@ -519,7 +704,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8GuardTests.A5_the_gate"
+   "filter": "FullyQualifiedName~Review8GuardTests.A5_the_gate",
+   "sha256": "3c4315268f2afe2e616e5c4160bac1107eac2ac1ff80bd6ce5a467ac7222f71b"
   },
   {
    "id": "mount-plan-snapshots",
@@ -533,7 +719,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8GuardTests.A5_two_snapshots"
+   "filter": "FullyQualifiedName~Review8GuardTests.A5_two_snapshots",
+   "sha256": "588e26e5fb15f3b11fc33fc6a8c1968ec9035c92e3eb9bdc3941556a833500fc"
   },
   {
    "id": "mount-plan-first-copy",
@@ -547,7 +734,38 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AmpackLoaderTests.Review8_W3"
+   "filter": "FullyQualifiedName~AmpackLoaderTests.Review8_W3",
+   "sha256": "c9abd2e29e8f61f3e448b2875f74f00a305e564d6b9f85d82a0396afd5d9550e"
+  },
+  {
+   "id": "mount-plan-first-certificates",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMountPlan.cs",
+   "edits": [
+    {
+     "old": "            Certificates = PackCertificates.Pooled(all.SelectMany(c => c.Certificates)),",
+     "new": "            Certificates = all[0].Certificates,"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review9GuardTests.C_H1",
+   "sha256": "cb81a538679da5908d881c0a81954433ed227f93961bb9a2ec8a0efce4c6ab47"
+  },
+  {
+   "id": "pooled-first-copy",
+   "rule": "CERTIFICATE-COPIES",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": ".Select(g => g.OrderByDescending(e => e.Trusted).ThenBy(e => e.File, StringComparer.Ordinal).First())];",
+     "new": ".Select(g => g.First())];"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review9GuardTests.C_H1|FullyQualifiedName~PackCertificateTests.Review7_H5",
+   "sha256": "10122313afb3e290e83df1169ffa357463321c4d3a0aa876ae410e4c4843eca3"
   },
   {
    "id": "links-before-dependency",
@@ -561,7 +779,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackConsentTests.Review7_W9"
+   "filter": "FullyQualifiedName~PackConsentTests.Review7_W9",
+   "sha256": "07cd9aff4f9dbcbb9da90b2bc1163c932649f1ab7a089fe4202933b88ede4463"
   },
   {
    "id": "live-in-the-walk",
@@ -575,7 +794,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~WalkWorkBoundsTests.Review7_W8"
+   "filter": "FullyQualifiedName~WalkWorkBoundsTests.Review7_W8",
+   "sha256": "13014790f90d49e8a2247fb4e42e6b585d09a6468b4fbb8608449a88cb6517ec"
   },
   {
    "id": "live-in-pack-memory",
@@ -589,7 +809,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8GuardTests.A4"
+   "filter": "FullyQualifiedName~Review8GuardTests.A4",
+   "sha256": "3dfa47b6c585c0033755167ec87cd566da2e37d6b99afb0c8ab2b5630e606675"
   },
   {
    "id": "signed-before-countersign",
@@ -603,7 +824,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7"
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7",
+   "sha256": "7ffc3519a21120abb827946ab40b76ccb601c1dce565e1da0e86eb10238da543"
   },
   {
    "id": "signed-before-lock",
@@ -617,7 +839,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7"
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7",
+   "sha256": "79bd25f6ec5ab2cc106b5fcbda99d0121455dfd087ed54c89b779eb412eb9210"
   },
   {
    "id": "signed-before-set",
@@ -631,7 +854,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7"
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7",
+   "sha256": "d3df1794ad84478e1d98190452bd84c8c9f469a61f2a6f6d3edd8c10d263e94e"
   },
   {
    "id": "envelopes-without-trust",
@@ -645,7 +869,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8WriterGuardTests.F1"
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F1",
+   "sha256": "80c843ddfe255f8d111803be1a46b6f5a8635ae0c6d9d06abdbd36ba6ec1e015"
   },
   {
    "id": "set-structure-without-trust",
@@ -659,7 +884,23 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8WriterGuardTests.F2"
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F2",
+   "sha256": "bd3a07c7b5545f1a8404c63bcc23df1bcb1923d01659e2a04c1a4e34072ba0c9"
+  },
+  {
+   "id": "federation-without-trust",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "if (member.Manifest is { } inner && manifest.Federation is { } federation && MemberFederationProblem(",
+     "new": "if (member.Manifest is { } inner && manifest.Federation is { } federation && Environment.ProcessorCount < 0 && MemberFederationProblem("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~FederationTests.Review9_A1",
+   "sha256": "f148e36eae90176b38a13bbad4a5a3b114e28a9ee158c10e18da031cad7beaf9"
   },
   {
    "id": "whole-before-act",
@@ -673,7 +914,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7"
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7",
+   "sha256": "246ead98b0249bf6fdff7c5a2e61c3b19d13351e706d28d6845542baee6c86d7"
   },
   {
    "id": "library-countersign-unverified",
@@ -687,7 +929,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4"
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4",
+   "sha256": "bacc4ef24e5bb02b575fa5db2c951a281641312bd92a8b4e419c8d84a13860ad"
   },
   {
    "id": "library-member-unverified",
@@ -701,7 +944,8 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4"
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4",
+   "sha256": "4265b2a1a6a1a4f8142867e4a5dff425e643e969cbf16b52af7b48603a95c180"
   },
   {
    "id": "before-drops-every-role",
@@ -715,7 +959,23 @@
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4"
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4",
+   "sha256": "464abc8228c56527b0c823431433a5d4d3c43260283333003eeeaad2387f60a7"
+  },
+  {
+   "id": "certificate-verify-each-copy",
+   "rule": "CERTIFICATE-COPIES",
+   "door": "certificate",
+   "file": "tools/Ampack/Program.Certificates.cs",
+   "edits": [
+    {
+     "old": "            if (!verified) problems.AddRange(refusals);",
+     "new": "            if (!verified || refusals.Count >= 0) problems.AddRange(refusals);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.A_card_travels_in_the_pack",
+   "sha256": "c7d428e540db2a01ce664f440288bdddd1bd06b691aa5907716e650c3ca2754e"
   },
   {
    "id": "python-case-collision",
@@ -729,7 +989,8 @@
     }
    ],
    "project": "kit",
-   "filter": ""
+   "filter": "",
+   "sha256": "35d98024f382d9d80e48c26719053c25fb591e1af16dbe9fddf45e3d9208180d"
   }
  ]
 }

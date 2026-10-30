@@ -150,6 +150,18 @@ def pass_rate(kind, n, spacing, offset, icc, p, conf, sims):
             H1 = (RNG.random((s, n)) < first[:, idx]).astype(int)
             H2 = (RNG.random((s, n)) < second[:, idx]).astype(int)
             passes += int((hit_diff(H1, H2, spacing, conf) >= 0 - 1e-12).sum())
+        elif kind == "precision difference":
+            # Two arms of equal precision at the truth, three items a task each, a burst's items all right or all wrong, the arms
+            # agreeing burst by burst except where one alone gets it (review 9, B-M2: the bound behind precision lift and the
+            # upgrade chain's no-regression on precision was never checked here).
+            Q = burst_probabilities(s, bursts, p, icc)
+            first, second = Q.copy(), Q.copy()
+            only = RNG.random((s, bursts))
+            first[only < 0.1], second[(only >= 0.1) & (only < 0.2)] = 1.0, 1.0
+            r1 = (RNG.random((s, n)) < first[:, idx]).astype(int)
+            r2 = (RNG.random((s, n)) < second[:, idx]).astype(int)
+            O = np.full((s, n), 3)
+            passes += int((precision_diff(O, 3 * r1, O, 3 * r2, 3, 3, spacing, conf) >= 0 - 1e-12).sum())
         else:
             # One-arm precision: three items a task, a burst's items all right or all wrong.
             Q = burst_probabilities(s, bursts, p, icc)
@@ -160,16 +172,21 @@ def pass_rate(kind, n, spacing, offset, icc, p, conf, sims):
     return passes / sims
 
 
+# Every clustered bound the gate uses, each at its truths: the count the test expects comes from this list (review 9, B-M2).
+KINDS = (("hit rate", (0.2, 0.35, 0.5, 0.8)), ("hit difference", (0.35, 0.6)), ("one-arm precision", (0.3, 0.5)),
+         ("precision difference", (0.35, 0.6)))
+
+
 def main():
     check_port()
     print("the numpy port agrees with reference.py on sampled inputs", flush=True)
     failed = 0
     ns = (40, 200) if QUICK else (40, 100, 200)
-    for kind, truths in (("hit rate", (0.2, 0.35, 0.5, 0.8)), ("hit difference", (0.35, 0.6)), ("one-arm precision", (0.3, 0.5))):
+    for kind, truths in KINDS:
         for conf in (0.95, 0.99):
             scan = []
             for n in ns:
-                for spacing in (1, 2, 3, 4, 6, 7):
+                for spacing in (1, 2, 3, 4, 5, 6, 7):
                     for offset in range(ref.BURST):
                         for icc in (1.0, 0.6):
                             for p in truths:
@@ -182,7 +199,8 @@ def main():
             failed += not ok
             print(f"{'ok  ' if ok else 'OVER'} {kind} at {conf}: worst {worst[0]:.4f} (n {worst[1]}, spacing {worst[2]}, offset {worst[3]}, icc {worst[4]}, "
                   f"truth {worst[5]}), ceiling {ceiling:.4f}", flush=True)
-    print(f"{6 - failed}/6 clustered bounds hold their nominal rate at the burst regime's worst case")
+    total = 2 * len(KINDS)
+    print(f"{total - failed}/{total} clustered bounds hold their nominal rate at the burst regime's worst case")
     return 1 if failed else 0
 
 

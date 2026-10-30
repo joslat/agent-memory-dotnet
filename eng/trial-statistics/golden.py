@@ -2,8 +2,11 @@
 TrialStatisticsTests holds the library's port to. usage: python golden.py"""
 import json
 import random
+import sys
 from pathlib import Path
-import reference as r
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import reference as r  # noqa: E402
 
 
 def tasks(n, cap, p):
@@ -49,5 +52,13 @@ for spacing in (4, 5, 7, 9, 12):
 for cap, spacing in ((1, 2), (16, 3), (2, 8), (2, 4)):
     cases.append(case(0.95, cap, 3, tasks(40, cap, .5), tasks(40, 3, .3), spacing))
 cases.append(case(0.95, 0, 3, [(0, 0)] * 40, tasks(40, 3, .3)))
-Path(__file__).with_name("golden.json").write_text(json.dumps(cases, indent=0), encoding="utf-8")
+text = json.dumps(cases, indent=0)
+target = Path(__file__).with_name("golden.json")
+# --check: golden.json is this reference's output, the link between the bounds coverage checks and the C# the tests pin
+# (review 9, D9: nothing held it, so a fix to reference.py alone left the C# matching the old cases).
+if "--check" in sys.argv:
+    same = target.read_text(encoding="utf-8") == text
+    print(f"golden.json {'is' if same else 'is NOT'} reference.py's output ({len(cases)} cases)")
+    sys.exit(0 if same else 1)
+target.write_text(text, encoding="utf-8")
 print(len(cases), "cases")

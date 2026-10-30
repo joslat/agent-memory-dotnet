@@ -303,7 +303,6 @@ public static class PackCertificates
             .Select(c => (c.Stem, c.Envelope, Identity: PackCertificate.IdentityOf(c.Envelope) ?? "sha256:" + FilesList.Hex(c.Envelope)));
         foreach (var statement in copies.GroupBy(c => c.Identity, StringComparer.Ordinal))
         {
-            PackEvaluation? first = null;
             foreach (var (stem, envelope, identity) in statement)
             {
                 var (certificate, signedBy, problems) = PackCertificate.Verify(envelope, pack, policy, now, run: null, stem);
@@ -323,13 +322,23 @@ public static class PackCertificates
                     Checks = [.. claimed.Checks.Select(c => new PackTrialCheck(c.Target, c.RequiredMilli / 1000.0, c.ObservedMilli / 1000.0, c.Met, c.EstimateMilli / 1000.0))],
                     With = Measurement(claimed.With), Without = claimed.Without is { } w ? Measurement(w) : null, AefRunId = claimed.AefRunId, AefRunHash = claimed.AefRunHash,
                 };
-                first ??= evaluation;
-                if (evaluation.Trusted) { first = evaluation; break; }
+                evaluations.Add(evaluation);
+                // One trusted copy decides its statement (below); the others need not be verified.
+                if (evaluation.Trusted) break;
             }
-            evaluations.Add(first!);
         }
-        return evaluations;
+        return Pooled(evaluations);
     }
+
+    /// <summary>
+    /// The copies rule, the one place it lives (review 9, C-H1: copies of one pack reached twice kept the first copy's
+    /// certificates, so the gate's verdict depended on the order of the arguments, and a pass could hide a trusted failure): one
+    /// evaluation per statement, however many copies of it travel, in one pack or in several copies of one pack; trusted when
+    /// any copy is; the chosen copy and the order are independent of the order given (by statement, then by file name).
+    /// </summary>
+    internal static IReadOnlyList<PackEvaluation> Pooled(IEnumerable<PackEvaluation> evaluations) =>
+        [.. evaluations.GroupBy(e => e.Digest, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => g.OrderByDescending(e => e.Trusted).ThenBy(e => e.File, StringComparer.Ordinal).First())];
 
     // What an untrusted certificate claims, read in the JSON profile and strictly; null for anything else. Never throws: an
     // attestation is unsigned bytes anyone can add beside a pack, and it must not stop the pack from loading (review 1, H1).

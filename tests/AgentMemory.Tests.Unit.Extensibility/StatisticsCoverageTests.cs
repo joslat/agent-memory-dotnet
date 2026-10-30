@@ -23,7 +23,12 @@ public sealed class StatisticsCoverageTests
     // offset, intraclass correlation 0.6 and 1, spacings 1 to 7); the averaged sweep it replaces passed a bound at 9.4%.
     [Fact]
     public void Every_clustered_bound_holds_its_nominal_rate_at_the_burst_regime_s_worst_case() =>
-        Run("bursts.py", @"6/6 clustered bounds hold their nominal rate at the burst regime's worst case", "--quick");
+        Run("bursts.py", @"(\d+)/\1 clustered bounds hold their nominal rate at the burst regime's worst case", "--quick");
+
+    // Review 9, D9: the C# is pinned to golden.json and coverage is computed on reference.py; this holds the link between them.
+    [Fact]
+    public void Golden_json_is_the_reference_s_own_output() =>
+        Run("golden.py", @"golden\.json is reference\.py's output", "--check");
 
     private static void Run(string script, string expected, params string[] extra)
     {

@@ -90,6 +90,27 @@ internal sealed record PackTrialPolicy(IReadOnlyList<string> Mandatory, IReadOnl
 
     /// <summary>The policy a builder holds.</summary>
     internal static PackTrialPolicy Of(ModuleSetBuilder builder) => new(builder.MandatoryTrials, builder.CertificateTrust, builder.TrialFloor);
+
+    /// <summary>
+    /// Why this policy cannot hold, in order; empty when it can. The one check every door that applies the policy runs before
+    /// anything else (review 9, B-M1: only the module set ran it, so ampack gate and serve showed and served packs under a policy a
+    /// host refuses to start with, a floor that a pack declaring no trial walks past).
+    /// </summary>
+    /// <param name="decisions">Whether the host's signed decisions are given.</param>
+    internal IReadOnlyList<string> Problems(bool decisions)
+    {
+        var problems = new List<string>();
+        if (!decisions && Mandatory.Count != 0)
+            problems.Add("RequireTrialsFor (--require-trials-for) makes trials mandatory, so it needs the host's decisions: call RequireTrials too (--activations).");
+        if (!decisions && CertificateTrust.Count != 0)
+            problems.Add("TrustCertificatesFor (--trust-certificates-for) accepts decisions made from certificates, so it needs the host's decisions: call RequireTrials too (--activations).");
+        if (!decisions && Floor is not null)
+            problems.Add("RequireTrialFloor (--floor-*) sets what a trial must claim, so it needs the host's decisions: call RequireTrials too (--activations).");
+        // A floor a pack could skip by declaring no trial holds nothing (review 7, D7).
+        if (Floor is not null && Mandatory.Count == 0)
+            problems.Add("RequireTrialFloor (--floor-*) needs RequireTrialsFor (--require-trials-for): otherwise a pack that declares no trial composes past the floor.");
+        return problems;
+    }
 }
 
 /// <summary>A trial's targets. Each is optional; at least one must be given.</summary>

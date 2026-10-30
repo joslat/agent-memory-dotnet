@@ -77,14 +77,25 @@ internal static partial class Program
         }
         if (certificates.Count == 0) return Report([$"{pack.Id} {pack.Version} carries no evaluation certificate."], "");
         var problems = new List<string>();
-        foreach (var (name, envelope, run, stem) in certificates)
+        // One verdict per statement, however many copies of it travel: it holds when any copy verifies (the copies rule,
+        // PackCertificates.Pooled; review 9, D3: each copy was judged alone, so a broken copy added beside a trusted certificate,
+        // outside the signed list, turned this command's answer into a refusal).
+        foreach (var statement in certificates.GroupBy(c => PackCertificate.IdentityOf(c.Envelope) ?? c.Name, StringComparer.Ordinal))
         {
+            var refusals = new List<string>();
+            var verified = false;
+            foreach (var (name, envelope, run, stem) in statement.OrderBy(c => c.Name, StringComparer.Ordinal))
+            {
             var (certificate, signedBy, refused) = PackCertificate.Verify(envelope, pack, policy, DateTimeOffset.UtcNow, run, stem);
-            if (certificate is null) { problems.AddRange(refused.Select(p => $"{name}: {p}")); continue; }
+            if (certificate is null) { refusals.AddRange(refused.Select(p => $"{name}: {p}")); continue; }
+            verified = true;
             Console.WriteLine($"Verified the certificate {name}\n  pack    {pack.Id} {pack.Version} {pack.Digest}\n  by      {Shown(certificate.Evaluator, 200)} (key {Dsse.Short(signedBy!)}), {certificate.EvaluatedAt:u}"
                 + $"\n  tool    {Shown(certificate.Tool)} {Shown(certificate.ToolVersion)}\n  trial   {certificate.Measure} against {certificate.Baseline}{(certificate.ConfidenceMilli is { } c ? $", confidence {c / 1000.0:0.###}" : "")}, {certificate.With.Tasks} tasks from {Shown(certificate.TaskSource, 500)}"
                 + $"\n  result  {(certificate.Passed ? "passed" : "did not pass")}: " + string.Join(", ", certificate.Checks.Select(k => $"{k.Target} {k.ObservedMilli / 1000.0:0.###} ({(k.Met ? "met" : "MISSED")} {k.RequiredMilli / 1000.0:0.###})"))
                 + (certificate.AefRunId is { } runId ? $"\n  aef     {runId} {certificate.AefRunHash![..16]}… {(run is null ? "(the run travels elsewhere)" : "(the run travels beside it and matches)")}" : ""));
+            break;
+            }
+            if (!verified) problems.AddRange(refusals);
         }
         return Report(problems, "");
     }

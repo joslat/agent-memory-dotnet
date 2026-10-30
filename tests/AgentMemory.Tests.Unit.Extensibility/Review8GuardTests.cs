@@ -191,6 +191,9 @@ public sealed class Review8GuardTests : IDisposable
                      AgentMemory.Extensibility.Neo4j.Queries.ModuleTraversalQueries.In("S", "LINKS", "T") })
         {
             statement.Should().NotContain("properties(", "an expansion row is narrow");
+            // Every node it returns is returned by id and key only (review 9, D8: `r.node AS node` passed a text check).
+            System.Text.RegularExpressions.Regex.Matches(statement, @"RETURN\b[^}]*?(?=\s*(UNION|\}|$))").Select(m => m.Value)
+                .Should().OnlyContain(r => !System.Text.RegularExpressions.Regex.IsMatch(r, @"\b[a-z]\.node\b(?!\.(id|key)\b)|\b(node|row|whole)\b\s*(,|$)|AS\s+(node|row|whole)\b"));
             statement.Should().Contain("AS id").And.Contain("AS rkey");
         }
     }
