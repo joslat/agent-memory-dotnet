@@ -888,6 +888,21 @@
    "sha256": "6f92931623997942dee41be457a06fca99fefe0fe1f0f1a4944d3b03f177bbbd"
   },
   {
+   "id": "install-without-imports",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "        Build([.. held], [.. modules.SelectMany(m => modules.Where(i => i != m).Select(i => new ModuleConsentGrant(m, i)))]);\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackConsentTests.Review14",
+   "sha256": "f1a700f453eba57cab9448c0a86c2c56c731475c8e38817eef80ec4651c15f76"
+  },
+  {
    "id": "links-before-dependency",
    "rule": "ONE-MOUNT-PLAN",
    "door": "memory",

@@ -141,6 +141,32 @@ public sealed class PackConsentTests
     }
 
     [Fact]
+    public void Review14_install_runs_the_snapshot_imports_serve_runs()
+    {
+        // R14-1: a work snapshot linking into code records, with no code records held: install accepted it and serve --store then
+        // refused the whole store ("holds no records here yet"). Install now runs the same import step; consent is left to serve.
+        var key = PackAuthoring.CreateKey();
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(key.PublicKeyPem, "com.example", "io.example")));
+        byte[] Definition(string manifest) =>
+            PackAuthoring.Build(PackAuthoring.FromModuleBundle(new Dictionary<string, byte[]> { ["manifest.json"] = Encoding.UTF8.GetBytes(manifest) }), key.PrivateKeyPem);
+        var store = PackStore.Open(Directory.CreateTempSubdirectory("pack-store-r14-").FullName);
+        // Authored as Review6_M1 authors it: the snapshot is checked as it is written, so it carries the grant its links need.
+        var grant = new ModuleConsentGrant("com.example.work", "com.example.code");
+        var ledger = PackAuthoring.Build(PackAuthoring.FromSnapshot(Ledger(consents: false) with { ConsentGrants = [grant] }, "io.example.work-ledger", "1.0.0"), key.PrivateKeyPem);
+        store.Install(Definition(Code.Replace("CONSENT", "", StringComparison.Ordinal)), trust);
+        store.Install(Definition(Work), trust);
+
+        FluentActions.Invoking(() => store.Install(ledger, trust))
+            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("holds no records here yet"), "no grant would help: there is nothing to link to");
+        store.Installed.Should().HaveCount(2);
+
+        // A link a host may grant is not refused at install: serve decides it with the host's grants.
+        store.Install(PackAuthoring.Build(PackAuthoring.FromSnapshot(Codebase(consents: false), "io.example.code-map", "1.0.0"), key.PrivateKeyPem), trust);
+        store.Install(ledger, trust);
+        PackMemory.Mount(store.Archives(), trust, [grant]).Packs.Should().HaveCount(4);
+    }
+
+    [Fact]
     public async Task Review6_M1_mount_takes_the_hosts_grants_for_a_snapshot_pack_as_the_walk_does()
     {
         // The consent rule was checked twice with different grants: Mount made the pack a snapshot with none of the host's

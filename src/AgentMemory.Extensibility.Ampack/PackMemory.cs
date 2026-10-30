@@ -171,6 +171,14 @@ public sealed partial class PackMemory : IModuleTraversalReader
         var loaded = PackFamilies.HostComposes(sets, direct).ToList();
         if (off?.Invoke(loaded, familyMembers) is { Count: > 0 } kept)
             loaded.RemoveAll(p => kept.Contains(p.Id) || (p.Kind == "snapshot" && p.Manifest.Modules.Keys.Any(kept.Contains)));
+        return Build(loaded, grants);
+    }
+
+    // The held packs made into memory: each snapshot imported against its definition (its range, its content), the modules
+    // resolved, the links into dependencies checked. The one step serve, test and install share (round 14, R14-1: install ran the
+    // host's composition but not this, so a store it accepted was refused whole by serve).
+    private static PackMount Build(List<LoadedPack> loaded, IEnumerable<ModuleConsentGrant>? grants)
+    {
         var definitions = loaded.Where(p => p.Kind == "definition").ToDictionary(p => p.Id, p => p.Manifest, StringComparer.Ordinal);
         var snapshots = new List<ModuleSnapshot>();
         foreach (var shot in loaded.Where(p => p.Kind == "snapshot"))
@@ -191,7 +199,12 @@ public sealed partial class PackMemory : IModuleTraversalReader
     internal static IReadOnlyList<LoadedPack> Held(IEnumerable<byte[]> archives, PackTrust trust)
     {
         var (sets, direct, _) = Read(archives, trust);
-        return PackFamilies.HostComposes(sets, direct);
+        var held = PackFamilies.HostComposes(sets, direct);
+        // Everything serve then checks, consent alone left to serve: it is the host's to grant (serve --grant), so a store is not
+        // refused here for a link a host may grant (round 14, R14-1).
+        var modules = held.SelectMany(p => p.Manifest.Modules.Keys).Distinct(StringComparer.Ordinal).ToList();
+        Build([.. held], [.. modules.SelectMany(m => modules.Where(i => i != m).Select(i => new ModuleConsentGrant(m, i)))]);
+        return held;
     }
 
     // Each archive verified and loaded: sets, the packs given on their own, and the ids reached only as family members.
