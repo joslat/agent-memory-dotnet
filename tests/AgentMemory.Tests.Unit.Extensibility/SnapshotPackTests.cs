@@ -130,7 +130,7 @@ public sealed class SnapshotPackTests
         {
             var compositePath = Path.Combine(root, "family.ampack");
             var memberPath = Path.Combine(root, "map.ampack");
-            File.WriteAllBytes(compositePath, PackAuthoring.BuildComposite(composite, [snapshot], _key.PrivateKeyPem));
+            File.WriteAllBytes(compositePath, PackAuthoring.BuildComposite(composite, [snapshot], _key.PrivateKeyPem, Trust()));
             File.WriteAllBytes(memberPath, snapshot);
 
             FluentActions.Invoking(() => PackFamilies.LoadComposite(compositePath, [memberPath], Trust())).Should().Throw<PackLoadException>()

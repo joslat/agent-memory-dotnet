@@ -1,0 +1,335 @@
+{
+ "format": "agentmemory.guards.mutants-results/1",
+ "commit": "17499d21",
+ "results": [
+  {
+   "id": "archive-ratio",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "killed": true,
+   "seconds": 3
+  },
+  {
+   "id": "bounded-file-size",
+   "rule": "FILE-BOUNDED",
+   "door": "definition",
+   "killed": true,
+   "seconds": 9
+  },
+  {
+   "id": "authenticate-at-load",
+   "rule": "AUTHENTICATE-FIRST",
+   "door": "load",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "unverified-at-diff",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "diff",
+   "killed": true,
+   "seconds": 7
+  },
+  {
+   "id": "unverified-at-scan",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "scan",
+   "killed": true,
+   "seconds": 7
+  },
+  {
+   "id": "unverified-at-lint",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "lint",
+   "killed": true,
+   "seconds": 31
+  },
+  {
+   "id": "writer-minor-at-sign",
+   "rule": "ONE-WRITER-SIGN",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "writer-read-back",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "output-escaped",
+   "rule": "OUTPUT-ESCAPED",
+   "door": "definition",
+   "killed": true,
+   "seconds": 26
+  },
+  {
+   "id": "inspect-ignored-raw",
+   "rule": "OUTPUT-ESCAPED",
+   "door": "inspect",
+   "killed": true,
+   "seconds": 27
+  },
+  {
+   "id": "bare-cr-passes",
+   "rule": "OUTPUT-ESCAPED",
+   "door": "definition",
+   "killed": true,
+   "seconds": 26
+  },
+  {
+   "id": "certificate-any-copy",
+   "rule": "CERTIFICATE-COPIES",
+   "door": "definition",
+   "killed": true,
+   "seconds": 11
+  },
+  {
+   "id": "intake-at-decide",
+   "rule": "EVIDENCE-INTAKE",
+   "door": "definition",
+   "killed": true,
+   "seconds": 9
+  },
+  {
+   "id": "intake-at-recheck",
+   "rule": "EVIDENCE-INTAKE",
+   "door": "recheck",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "caps-at-decide",
+   "rule": "CAPS-DECLARED",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "caps-at-admit",
+   "rule": "CAPS-DECLARED",
+   "door": "admit",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "floor-at-apply",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "floor-at-settle",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "upgrade chain",
+   "killed": true,
+   "seconds": 10
+  },
+  {
+   "id": "chain-counts-certificates",
+   "rule": "DECISION-COUNTS",
+   "door": "upgrade chain",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "gate-keeps-stale-certificate",
+   "rule": "DECISION-COUNTS",
+   "door": "gate",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "floor-at-tool-gate",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "killed": true,
+   "seconds": 14
+  },
+  {
+   "id": "hedge-weight",
+   "rule": "BOUNDS-COVER",
+   "door": "definition",
+   "killed": true,
+   "seconds": 9
+  },
+  {
+   "id": "previous-cap",
+   "rule": "PREVIOUS-CAP",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "walk-work-cap",
+   "rule": "WALK-BOUNDED",
+   "door": "definition",
+   "killed": true,
+   "seconds": 44
+  },
+  {
+   "id": "walk-charged-by-length",
+   "rule": "WALK-BOUNDED",
+   "door": "definition",
+   "killed": true,
+   "seconds": 7
+  },
+  {
+   "id": "walk-isolates-a-read",
+   "rule": "WALK-BOUNDED",
+   "door": "walk",
+   "killed": true,
+   "seconds": 9
+  },
+  {
+   "id": "walk-server-deadline",
+   "rule": "WALK-BOUNDED",
+   "door": "neo4j read",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "path-one-pass",
+   "rule": "PATH-AND-GLOB",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "glob-run",
+   "rule": "PATH-AND-GLOB",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "walk-fan-out-cut",
+   "rule": "STORES-AGREE",
+   "door": "walk",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "mount-plan-at-mount",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "serve",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "mount-plan-at-gate",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "gate",
+   "killed": true,
+   "seconds": 7
+  },
+  {
+   "id": "mount-plan-snapshots",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "mount-plan-first-copy",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "links-before-dependency",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "memory",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "live-in-the-walk",
+   "rule": "LIVE-PER-RECORD",
+   "door": "definition",
+   "killed": true,
+   "seconds": 10
+  },
+  {
+   "id": "live-in-pack-memory",
+   "rule": "LIVE-PER-RECORD",
+   "door": "pack memory",
+   "killed": true,
+   "seconds": 9
+  },
+  {
+   "id": "signed-before-countersign",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "countersign",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "signed-before-lock",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "lock",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "signed-before-set",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "set",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "envelopes-without-trust",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "killed": true,
+   "seconds": 9
+  },
+  {
+   "id": "set-structure-without-trust",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "whole-before-act",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "countersign",
+   "killed": true,
+   "seconds": 9
+  },
+  {
+   "id": "library-countersign-unverified",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "PackAuthoring.Countersign",
+   "killed": true,
+   "seconds": 7
+  },
+  {
+   "id": "library-member-unverified",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "PackAuthoring.BuildSet",
+   "killed": true,
+   "seconds": 7
+  },
+  {
+   "id": "before-drops-every-role",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "definition",
+   "killed": true,
+   "seconds": 8
+  },
+  {
+   "id": "python-case-collision",
+   "rule": "VERIFIERS-AGREE",
+   "door": "python",
+   "killed": true,
+   "seconds": 129
+  }
+ ]
+}

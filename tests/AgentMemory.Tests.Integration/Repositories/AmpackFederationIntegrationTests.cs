@@ -153,7 +153,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
 
             // 5. The same bytes on a stranger's host: the audience refuses them before any store sees them.
             var strangerPolicy = TrustPolicy.Parse(TrustJson(asserted, supplier.WebId!, stranger.WebId!));
-            PackVerifier.Verify(PackReader.ReadArchive(archive, "copy"), strangerPolicy, DateTimeOffset.UtcNow).Problems
+            PackVerifier.VerifyOne(PackReader.ReadArchive(archive, "copy"), strangerPolicy, DateTimeOffset.UtcNow).Problems
                 .Should().ContainSingle(p => p.Contains("this host is " + stranger.WebId, StringComparison.Ordinal));
 
             // None of the refusals wrote anything: the store holds exactly the one import.

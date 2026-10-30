@@ -161,6 +161,9 @@ public sealed partial class PackMemory : IModuleTraversalReader
         ArgumentNullException.ThrowIfNull(trust);
         var loaded = new List<LoadedPack>();
         var familyMembers = new HashSet<string>(StringComparer.Ordinal);
+        // Packs also reached on their own, in a set or given directly: a pack is a family member only where every route to it is
+        // a family's (review 8, W3: one family route made a standalone pack a family member, whose certificates the gate set aside).
+        var standalone = new HashSet<string>(StringComparer.Ordinal);
         foreach (var archive in archives)
         {
             var (manifest, content) = PackLoader.Open(archive, trust);
@@ -182,14 +185,18 @@ public sealed partial class PackMemory : IModuleTraversalReader
                     foreach (var family in set.Families) Compose(family, on: true);
                     loaded.AddRange(set.AllPacks.Where(p => composed.Contains(p.Id) || set.Packs.Any(standalone => standalone.Id == p.Id)));
                     familyMembers.UnionWith(set.Families.SelectMany(f => f.AllMembers).Select(p => p.Id));
+                    standalone.UnionWith(set.Packs.Select(p => p.Id));
                     break;
                 case "composite":
                     throw new PackLoadException(["A composite pins its members but does not carry them: mount the pack set that carries both."]);
                 default:
-                    loaded.Add(PackLoader.Load(content, trust, null, allowDowngrade: false));
+                    var pack = PackLoader.Load(content, trust, null, allowDowngrade: false);
+                    loaded.Add(pack);
+                    standalone.Add(pack.Id);
                     break;
             }
         }
+        familyMembers.ExceptWith(standalone);
         // Held as a host holds them, before the gate or anything else reads them (review 7, W4).
         loaded = PackMountPlan.Of(loaded);
         if (off?.Invoke(loaded, familyMembers) is { Count: > 0 } kept)

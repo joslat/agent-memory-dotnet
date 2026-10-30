@@ -111,7 +111,7 @@ public sealed class FederationTests
         var sample = new SamplePack();
         var steps = new List<PackStep>();
 
-        var result = PackVerifier.Verify(new PackContent(Federated(sample), "test"), Policy(sample), SamplePack.Now, explain: steps.Add);
+        var result = PackVerifier.VerifyOne(new PackContent(Federated(sample), "test"), Policy(sample), SamplePack.Now, explain: steps.Add);
 
         result.Problems.Should().BeEmpty();
         result.Pack!.Manifest.Federation!.Publisher.Should().Be(Publisher);
@@ -473,7 +473,7 @@ public sealed class FederationTests
         var files = FederatedSet(sample, $"[\"{Buyer}\"]", memberKey: PackKey.Create());
         var policy = Policy(sample);
 
-        PackVerifier.Verify(new PackContent(files, "set"), policy, SamplePack.Now).IsVerified.Should().BeTrue("the outer signature alone holds");
+        PackVerifier.VerifyOne(new PackContent(files, "set"), policy, SamplePack.Now).IsVerified.Should().BeTrue("the outer signature alone holds");
         PackVerifier.VerifyWhole(new PackContent(files, "set"), policy, SamplePack.Now).Problems
             .Should().ContainSingle(x => x.StartsWith("packs/io.example.member/", StringComparison.Ordinal) && x.Contains("No valid publisher signature"));
     }

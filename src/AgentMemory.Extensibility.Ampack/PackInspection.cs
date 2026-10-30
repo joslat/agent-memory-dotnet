@@ -59,7 +59,7 @@ public sealed record PackInspection
         try { content = PackReader.ReadArchive(archive, "archive"); }
         catch (InvalidDataException e) { return new PackInspection { Checks = [new("archive", false, [e.Message])], Problems = [e.Message] }; }
         var checks = new List<PackCheck> { new("archive", true, [$"strict ZIP profile; {content.Files.Count} entries"]) };
-        var verification = PackVerifier.Verify(content, trust.Policy, DateTimeOffset.UtcNow, explain: step => checks.Add(new(step.Name, step.Passed, step.Lines)));
+        var verification = PackVerifier.VerifyOne(content, trust.Policy, DateTimeOffset.UtcNow, explain: step => checks.Add(new(step.Name, step.Passed, step.Lines)));
         if (verification.Pack is { Manifest.Kind: "set" } && PackVerifier.VerifyWhole(content, trust.Policy, DateTimeOffset.UtcNow) is { IsVerified: false } whole)
         {
             checks.Add(new("set members", false, whole.Problems));

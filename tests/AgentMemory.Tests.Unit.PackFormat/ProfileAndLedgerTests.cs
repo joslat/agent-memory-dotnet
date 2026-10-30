@@ -33,7 +33,7 @@ public sealed class ProfileAndLedgerTests
         PackVerifier.Authenticated(content, sample.Policy(), SamplePack.Now).Manifest.Should().NotBeNull();
         var (manifest, problems) = PackVerifier.Authenticated(content, sample.Policy(), SamplePack.Now, ledger);
         manifest.Should().BeNull();
-        problems.Should().NotBeEmpty().And.BeEquivalentTo(PackVerifier.Verify(content, sample.Policy(), SamplePack.Now, ledger).Problems,
+        problems.Should().NotBeEmpty().And.BeEquivalentTo(PackVerifier.VerifyOne(content, sample.Policy(), SamplePack.Now, ledger).Problems,
             "the step that picks a loader refuses for the reason the full verification gives");
     }
     [Fact]

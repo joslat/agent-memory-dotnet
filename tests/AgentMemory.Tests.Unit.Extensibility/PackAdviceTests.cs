@@ -56,14 +56,14 @@ public sealed class PackAdviceTests
         var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(policy.ToJsonString()));
 
         FluentActions.Invoking(() => PackLoader.Load(built, trust)).Should().Throw<PackLoadException>("a curator is required and none signed yet");
-        var countersigned = PackAuthoring.Countersign(built, curator.PrivateKeyPem, "curator");
+        var countersigned = PackAuthoring.Countersign(built, curator.PrivateKeyPem, "curator", trust);
         var loaded = PackLoader.Load(countersigned, trust);
 
         loaded.Digest.Should().Be(PackLoader.Load(built, PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(Key.PublicKeyPem, "io.agentmemory")))).Digest);
         loaded.Signers.Should().HaveCount(2);
         var tampered = (byte[])built.Clone();
         tampered[tampered.Length / 2] ^= 0x01;
-        FluentActions.Invoking(() => PackAuthoring.Countersign(tampered, curator.PrivateKeyPem, "curator")).Should().Throw<PackLoadException>();
+        FluentActions.Invoking(() => PackAuthoring.Countersign(tampered, curator.PrivateKeyPem, "curator", trust)).Should().Throw<PackLoadException>();
     }
 
     [Fact]

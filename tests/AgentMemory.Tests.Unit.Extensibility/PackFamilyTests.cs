@@ -160,8 +160,11 @@ public sealed class PackFamilyTests : IDisposable
         var path = $"packs/{CodeMapPack.Id}/traversal.json";
         source[path] = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(source[path]).Replace("\"maxItems\": 3", "\"maxItems\": 16", StringComparison.Ordinal));
 
-        // The set's own signature is fresh; the member's list and signature still name the old bytes.
-        var act = () => PackFamilies.LoadSet(PackBuilder.Pack(Built(source)), Trust());
+        // The set's own signature is fresh; the member's list and signature still name the old bytes. The writer refuses to write
+        // it (review 8, F2: each member's own checks need no trust), and a reader given those bytes anyway refuses them.
+        var built = Built(source);
+        FluentActions.Invoking(() => PackBuilder.Pack(built)).Should().Throw<InvalidDataException>().WithMessage($"*packs/{CodeMapPack.Id}/*");
+        var act = () => PackFamilies.LoadSet(StrictZip.Write(built), Trust());
 
         act.Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.StartsWith($"packs/{CodeMapPack.Id}/", StringComparison.Ordinal));
     }

@@ -47,8 +47,13 @@ internal static class PackVerifier
     /// times the bytes, in either verifier).</summary>
     internal const int MaximumJsonBytes = 1 << 20;
 
+    /// <summary>
+    /// One pack's own list, signatures and content: a set's outer signature only, never its members (review 8, F3: a door that
+    /// acts only on a verified pack took this for "verified", and countersigned and pinned sets whose members its host refuses).
+    /// A door that acts on a pack takes <see cref="VerifyWhole"/>; this is for the steps that report a set member by member.
+    /// </summary>
     // explain: when given, told the outcome of every step in order (ampack verify --explain); the verdict is the same.
-    internal static PackVerification Verify(PackContent content, TrustPolicy policy, DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false,
+    internal static PackVerification VerifyOne(PackContent content, TrustPolicy policy, DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false,
         Action<PackStep>? explain = null)
     {
         var (integrity, list, listBytes) = CheckSigned(content, explain);
@@ -64,7 +69,7 @@ internal static class PackVerifier
     /// What a caller needs to choose how to load a pack, authenticated first (review 6, H1: the load paths parsed an unsigned
     /// pack.json of any size to pick the loader): the paths, the signed list, exactly the content it lists, and the signatures
     /// the policy requires; only then pack.json, bounded. The chosen loader verifies everything. The host's kept revocations
-    /// hold here too, as in <see cref="Verify"/> (review 7, D10: a key the ledger revoked passed this step, so its pack.json was
+    /// hold here too, as in <see cref="VerifyOne"/> (review 7, D10: a key the ledger revoked passed this step, so its pack.json was
     /// parsed and shown as authenticated before the loader refused it).
     /// </summary>
     internal static (PackManifest? Manifest, IReadOnlyList<string> Problems) Authenticated(PackContent content, TrustPolicy policy, DateTimeOffset now,
@@ -181,15 +186,58 @@ internal static class PackVerifier
         return problems;
     }
 
-    /// <summary>Every check that needs no trust, in order. <c>ampack lint</c> and <c>build</c> use it alone, on their own input.</summary>
+    /// <summary>
+    /// Every check that needs no trust, in order. <c>ampack lint</c>, the writers' read-back and every door that reads a pack before
+    /// it is trusted use it alone, on their own input. It holds what a reader refuses without a key (review 8, F1 and F2: the
+    /// envelope shapes and a set's structure lived only where a key was at hand, so the writers wrote, and lint passed, packs
+    /// every reader refuses): each envelope signs this list for this pack, and a set carries exactly the members it names, none
+    /// with its own id, each the pack its folder names, none a set, and each passing these checks itself.
+    /// </summary>
     internal static (List<string> Problems, FilesList? List, byte[]? ListBytes, PackManifest? Manifest) CheckIntegrity(PackContent content,
         Action<PackStep>? explain = null, bool records = true)
     {
         var (problems, list, listBytes) = CheckSigned(content, explain);
         if (problems.Count > 0) return (problems, null, null, null);
+        var listHex = FilesList.Hex(listBytes!);
+        var envelopes = content.Files.Keys.Where(PackPaths.IsEnvelope).Order(StringComparer.Ordinal).Take(Dsse.MaximumEnvelopes)
+            .Select(file => Dsse.ShapeProblem(file, content.Files[file], listHex, list!)).OfType<string>().ToList();
+        explain?.Invoke(new("envelopes", envelopes.Count == 0, envelopes.Count > 0 ? envelopes
+            : ["every envelope a DSSE envelope of a pack role's statement signing this list (whose keys count is judged once trust is applied)"]));
+        if (envelopes.Count > 0) return (envelopes, null, null, null);
         var (rest, manifest) = CheckContent(content, list!, explain, records);
+        if (manifest is { Kind: "set" })
+        {
+            var (structure, members) = SetStructure(list!.Id, manifest, content);
+            rest.AddRange(structure);
+            foreach (var (folder, files) in (members ?? []).OrderBy(m => m.Key, StringComparer.Ordinal))
+            {
+                var member = CheckIntegrity(new PackContent(files, content.Source + "#" + folder), records: records);
+                rest.AddRange(member.Problems.Select(p => $"packs/{folder}/: {p}"));
+                if (member.Manifest is { } carried && MemberProblem(folder, member.List!.Id, carried.Kind) is { } wrong) rest.Add(wrong);
+            }
+            if (rest.Count > 0) return (rest, null, null, null);
+        }
         return manifest is null ? (rest, null, null, null) : (rest, list, listBytes, manifest);
     }
+
+    // A set's structure, which needs no trust: every file under packs/ in a member folder, exactly the members pack.json names,
+    // none with the set's id (review 1, L5: the two would collide in a host's ledger).
+    private static (List<string> Problems, Dictionary<string, Dictionary<string, byte[]>>? Members) SetStructure(string setId, PackManifest manifest,
+        PackContent content)
+    {
+        Dictionary<string, Dictionary<string, byte[]>> split;
+        try { split = PackSets.Members(content.Files); }
+        catch (InvalidDataException e) { return ([e.Message], null); }
+        if (!split.Keys.Order(StringComparer.Ordinal).SequenceEqual(manifest.Contains.Order(StringComparer.Ordinal)))
+            return (["The set's pack.json names other members than it carries."], null);
+        if (split.ContainsKey(setId)) return ([$"The set {setId} carries a member with its own id."], null);
+        return ([], split);
+    }
+
+    // What a member is, signed or not: the pack its folder names, and a pack, not a set (review 1, L5: a set inside a set would
+    // leave its own members unchecked).
+    private static string? MemberProblem(string folder, string id, string kind) =>
+        id != folder ? $"The member in packs/{folder}/ is {id}." : kind == "set" ? $"packs/{folder}/ is a pack set: a set carries packs, not sets." : null;
 
     // Before any signature holds: the paths, the signed list (bounded), the pack holding exactly what it lists, and shaped,
     // bounded attestations beside it. Nothing else is parsed.
@@ -369,12 +417,21 @@ internal static class PackVerifier
     }
 
     /// <summary>
-    /// A pack verified in full: a single pack as <see cref="Verify"/> does, a set together with every member it carries. What
+    /// The policy a pack is verified under before a signature in <paramref name="role"/> is added to it (review 8, F4): the host's
+    /// own, apart from requiring that role, which the signature being added supplies. When that role is the only one required,
+    /// the policy stays as it is, so a pack is never countersigned on no signature at all.
+    /// </summary>
+    internal static TrustPolicy Before(TrustPolicy policy, string role) =>
+        policy.RequiredRoles.Where(r => r != role).ToList() is { Count: > 0 } others && others.Count < policy.RequiredRoles.Count
+            ? policy with { RequiredRoles = others } : policy;
+
+    /// <summary>
+    /// A pack verified in full: a single pack as <see cref="VerifyOne"/> does, a set together with every member it carries. What
     /// fetches and receipts rely on, so a set is never taken on its outer signature alone (FED-review H2).
     /// </summary>
     internal static PackVerification VerifyWhole(PackContent content, TrustPolicy policy, DateTimeOffset now, HostLedger? ledger = null, bool allowDowngrade = false)
     {
-        var first = Verify(content, policy, now, ledger, allowDowngrade);
+        var first = VerifyOne(content, policy, now, ledger, allowDowngrade);
         if (first.Pack is not { Manifest.Kind: "set" }) return first;
         var (set, members) = VerifySet(content, policy, now, ledger, allowDowngrade, first);
         var refused = members.Where(m => !m.Value.IsVerified).OrderBy(m => m.Key, StringComparer.Ordinal)
@@ -392,25 +449,18 @@ internal static class PackVerifier
         // The ledger's kept revocations once for the whole set, not again for each member (sixth review).
         if (ledger is not null) policy = ledger.Apply(policy);
         // The set as a whole, verified once: a caller that already did passes its result (review 1, I2).
-        var set = verified ?? Verify(content, policy, now, ledger, allowDowngrade);
+        var set = verified ?? VerifyOne(content, policy, now, ledger, allowDowngrade);
         var members = new Dictionary<string, PackVerification>(StringComparer.Ordinal);
         if (set.Pack is not { } outer) return (set, members);
         if (outer.Manifest.Kind != "set") return (new PackVerification(null, [$"{outer.Id} is a {outer.Manifest.Kind} pack, not a set."]), members);
-        Dictionary<string, Dictionary<string, byte[]>> split;
-        try { split = PackSets.Members(content.Files); }
-        catch (InvalidDataException e) { return (new PackVerification(null, [e.Message]), members); }
-        if (!split.Keys.Order(StringComparer.Ordinal).SequenceEqual(outer.Manifest.Contains.Order(StringComparer.Ordinal)))
-            return (new PackVerification(null, ["The set's pack.json names other members than it carries."]), members);
-        // Review 1, L5: a set carries packs, not sets (a set inside a set would leave its own members unchecked here), and no
-        // member shares the set's id (the two would collide in a host's ledger).
-        if (split.ContainsKey(outer.Id)) return (new PackVerification(null, [$"The set {outer.Id} carries a member with its own id."]), members);
+        // The same set rules CheckIntegrity holds without trust (review 8, F2), here once the set's own signatures hold.
+        var (structure, split) = SetStructure(outer.Id, outer.Manifest, content);
+        if (split is null) return (new PackVerification(null, structure), members);
         foreach (var (id, files) in split)
         {
-            var member = Verify(new PackContent(files, content.Source + "#" + id), policy, now, ledger, allowDowngrade);
-            members[id] = member.Pack is { } carried && carried.Id != id
-                ? new PackVerification(null, [$"The member in packs/{id}/ is {carried.Id}."])
-                : member.Pack is { Manifest.Kind: "set" }
-                    ? new PackVerification(null, [$"packs/{id}/ is a pack set: a set carries packs, not sets."])
+            var member = VerifyOne(new PackContent(files, content.Source + "#" + id), policy, now, ledger, allowDowngrade);
+            members[id] = member.Pack is { } carried && MemberProblem(id, carried.Id, carried.Manifest.Kind) is { } wrong
+                ? new PackVerification(null, [wrong])
                 : member.Pack is { } inner && outer.Manifest.Federation is { } federation && MemberFederationProblem(federation, inner) is { } problem
                     ? new PackVerification(null, [problem]) : member;
         }

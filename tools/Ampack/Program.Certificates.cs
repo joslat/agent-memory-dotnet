@@ -126,10 +126,7 @@ internal static partial class Program
         }
         if (packs.Count == 0) throw new UsageException("gate needs at least one pack.");
         var activations = new PackActivationFolder(o.Required("activations"), Text(o.Required("host-key"), "The host key"));
-        static string[] Prefixes(string? value) => value is null ? [] : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        PackGateCheck check;
-        try { check = PackGateCheck.Of(packs, activations, Prefixes(o.Value("require-trials-for")), Prefixes(o.Value("trust-certificates-for"))); }
-        catch (ArgumentException e) { throw new UsageException(e.Message); }
+        var check = GateCheck(o, packs, activations);
         foreach (var id in check.On)
         {
             var pack = packs.First(p => p.Id == id);
@@ -154,5 +151,56 @@ internal static partial class Program
                 ? $"  certificate {(certificate.Passed ? "passed" : "did not pass")}, by {Shown(certificate.Evaluator, 200)} (key {Dsse.Short(signedBy!)}) on {certificate.EvaluatedAt:yyyy-MM-dd}, {certificate.With.Tasks} tasks, trusted here"
                 : $"  certificate {stem}: not trusted here: {Shown(problems[0], 300)}");
         }
+    }
+
+    // The options of the host's trial gate, the same at every tool door that applies it (review 8, G3).
+    private static readonly string[] GateOptions =
+        ["activations", "host-key", "require-trials-for", "trust-certificates-for", "floor-confidence", "floor-tasks", "floor-targets"];
+
+    // The host's trial gate as every tool door applies it (review 8, G3: gate and serve each read their own options, and neither
+    // read a floor, so both showed and served packs a host with a floor keeps off): where trials are required, where
+    // certificates count, and the least a trial must show (ModuleSetBuilder.RequireTrialFloor). An empty pack list checks the
+    // options alone.
+    private static PackGateCheck GateCheck(Options o, IReadOnlyList<LoadedPack> packs, IPackActivations activations, IReadOnlySet<string>? familyMembers = null)
+    {
+        static string[] Prefixes(string? value) => value is null ? [] : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        try { return PackGateCheck.Of(packs, activations, Prefixes(o.Value("require-trials-for")), Prefixes(o.Value("trust-certificates-for")), familyMembers, Floor(o)); }
+        catch (ArgumentException e) { throw new UsageException(e.Message); }
+    }
+
+    // --floor-confidence, --floor-tasks and --floor-targets (name=value, comma-separated): the host's floor, or null without one.
+    private static PackTrialFloor? Floor(Options o)
+    {
+        var (confidence, tasks, targets) = (o.Value("floor-confidence"), o.Value("floor-tasks"), o.Value("floor-targets"));
+        if (confidence is null && tasks is null && targets is null) return null;
+        double? least = null;
+        if (confidence is not null)
+            least = double.TryParse(confidence, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var c) && c is 0.9 or 0.95 or 0.975 or 0.99
+                ? c : throw new UsageException("--floor-confidence is 0.9, 0.95, 0.975 or 0.99.");
+        var fewest = ModuleTrial.MinimumTasks;
+        if (tasks is not null)
+            fewest = int.TryParse(tasks, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) && n >= ModuleTrial.MinimumTasks && n <= 100_000
+                ? n : throw new UsageException($"--floor-tasks is a whole number from {ModuleTrial.MinimumTasks} to 100000.");
+        ModuleTrialTargets? goals = null;
+        if (targets is not null)
+        {
+            goals = new ModuleTrialTargets();
+            foreach (var pair in targets.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var parts = pair.Split('=', 2, StringSplitOptions.TrimEntries);
+                if (parts.Length != 2 || !double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
+                    throw new UsageException($"--floor-targets takes name=value pairs; '{Shown(pair, 80)}' is not one.");
+                goals = parts[0] switch
+                {
+                    "hitRate" => goals with { HitRate = value },
+                    "precision" => goals with { Precision = value },
+                    "lift" => goals with { Lift = value },
+                    "precisionLift" => goals with { PrecisionLift = value },
+                    "addedP95Ms" => goals with { AddedP95Ms = value },
+                    _ => throw new UsageException($"--floor-targets names hitRate, precision, lift, precisionLift or addedP95Ms, not '{Shown(parts[0], 80)}'."),
+                };
+            }
+        }
+        return new PackTrialFloor { Confidence = least, Tasks = fewest, Targets = goals };
     }
 }

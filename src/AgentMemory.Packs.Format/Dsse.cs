@@ -93,47 +93,63 @@ internal static class Dsse
     {
         var valid = new List<PackSignature>();
         var problems = new List<string>();
+        var (claim, payload, entries, shape) = Read(file, envelopeBytes, filesListHex, list);
+        if (shape is not null) { problems.Add(shape); return (valid, problems, true); }
+
+        // The pre-authentication encoding is hashed once, and each of at most MaximumSignatures entries is checked against it.
+        var hash = SHA256.HashData(Pae(PayloadType, payload!));
+        var signed = claim!;
+        foreach (var (keyId, sig) in entries!)
+        {
+            if (policy.Find(keyId) is not { } key) { problems.Add($"{file}: key {Short(keyId)} is not in the trust policy."); continue; }
+            if (!IsStrictDer(sig)) { problems.Add($"{file}: the signature by {Short(keyId)} is not strict DER."); continue; }
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportFromPem(key.PublicKeyPem);
+            if (!ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence))
+            { problems.Add($"{file}: the signature by {Short(keyId)} does not verify."); continue; }
+            if (policy.Refusal(key, signed.Role, signed.Id, signed.SignedAt, now) is { } refusal)
+            { problems.Add($"{file}: {refusal}"); continue; }
+            valid.Add(signed with { KeyId = keyId, File = file });
+        }
+        return (valid, problems, false);
+    }
+
+    /// <summary>
+    /// An envelope's half that needs no trust (review 8, F1: it lived only inside <see cref="Verify"/>, so the writers' read-back
+    /// and lint passed an envelope every reader refuses): why the file refuses the pack, or null when it is a DSSE envelope of
+    /// a pack role's statement signing this list for this pack.
+    /// </summary>
+    internal static string? ShapeProblem(string file, ReadOnlySpan<byte> envelopeBytes, string filesListHex, FilesList list) =>
+        Read(file, envelopeBytes, filesListHex, list).Problem;
+
+    private static (PackSignature? Claim, byte[]? Payload, List<(string KeyId, byte[] Sig)>? Entries, string? Problem) Read(string file,
+        ReadOnlySpan<byte> envelopeBytes, string filesListHex, FilesList list)
+    {
+        static (PackSignature?, byte[]?, List<(string, byte[])>?, string?) Refuses(string problem) => (null, null, null, problem);
         // Bounded before anything is parsed: every check below costs at most the envelope's size (fifth review).
-        if (envelopeBytes.Length > MaximumEnvelopeBytes) { problems.Add($"{file} is larger than {MaximumEnvelopeBytes / 1024} KiB: a signature envelope is small."); return (valid, problems, true); }
-        if (PackJson.Check(envelopeBytes) is { } malformed) { problems.Add($"{file} {malformed}."); return (valid, problems, true); }
+        if (envelopeBytes.Length > MaximumEnvelopeBytes) return Refuses($"{file} is larger than {MaximumEnvelopeBytes / 1024} KiB: a signature envelope is small.");
+        if (PackJson.Check(envelopeBytes) is { } malformed) return Refuses($"{file} {malformed}.");
         using var document = JsonDocument.Parse(envelopeBytes.ToArray());
         var envelope = document.RootElement;
         if (envelope.ValueKind != JsonValueKind.Object
             || !envelope.TryGetProperty("payloadType", out var type) || type.ValueKind != JsonValueKind.String || type.GetString() != PayloadType
             || !envelope.TryGetProperty("payload", out var payloadText) || payloadText.ValueKind != JsonValueKind.String
             || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array)
-        { problems.Add($"{file} is not a DSSE envelope of an in-toto statement."); return (valid, problems, true); }
+            return Refuses($"{file} is not a DSSE envelope of an in-toto statement.");
 
-        if (signatures.GetArrayLength() > MaximumSignatures) { problems.Add($"{file} holds more than {MaximumSignatures} signatures."); return (valid, problems, true); }
+        if (signatures.GetArrayLength() > MaximumSignatures) return Refuses($"{file} holds more than {MaximumSignatures} signatures.");
         // Review 2, L7: closed shapes, so nothing unsigned rides in an envelope. The envelope holds its three fields; every entry
         // a key id (64 lowercase hex) and a signature (strict base64, at most 72 bytes: a P-256 DER signature), and nothing else.
         if (envelope.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures")))
-        { problems.Add($"{file} holds a field a DSSE envelope does not have."); return (valid, problems, true); }
-        if (signatures.EnumerateArray().Any(e => !IsEntry(e))) { problems.Add($"{file} has a signature entry that is not a key id and a signature."); return (valid, problems, true); }
+            return Refuses($"{file} holds a field a DSSE envelope does not have.");
+        if (signatures.EnumerateArray().Any(e => !IsEntry(e))) return Refuses($"{file} has a signature entry that is not a key id and a signature.");
         // Review 1, L7: an envelope signs this pack or it does not belong here. One with no signature entries, or whose statement
         // is not a pack role's statement for this list, is unlisted content riding beside the pack: it refuses the pack.
-        if (signatures.GetArrayLength() == 0) { problems.Add($"{file} holds no signature."); return (valid, problems, true); }
-        if (FromBase64(payloadText.GetString()) is not { } payload) { problems.Add($"{file} has a payload that is not base64."); return (valid, problems, true); }
+        if (signatures.GetArrayLength() == 0) return Refuses($"{file} holds no signature.");
+        if (FromBase64(payloadText.GetString()) is not { } payload) return Refuses($"{file} has a payload that is not base64.");
         var (claim, claimProblem) = ReadStatement(payload, filesListHex, list);
-        if (claim is null) { problems.Add($"{file} {claimProblem}"); return (valid, problems, true); }
-
-        // The pre-authentication encoding is hashed once, and each of at most MaximumSignatures entries is checked against it.
-        var hash = SHA256.HashData(Pae(PayloadType, payload));
-        foreach (var entry in signatures.EnumerateArray())
-        {
-            var keyId = entry.GetProperty("keyid").GetString()!;
-            if (policy.Find(keyId) is not { } key) { problems.Add($"{file}: key {Short(keyId)} is not in the trust policy."); continue; }
-            var sig = FromBase64(entry.GetProperty("sig").GetString())!;
-            if (!IsStrictDer(sig)) { problems.Add($"{file}: the signature by {Short(keyId)} is not strict DER."); continue; }
-            using var ecdsa = ECDsa.Create();
-            ecdsa.ImportFromPem(key.PublicKeyPem);
-            if (!ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence))
-            { problems.Add($"{file}: the signature by {Short(keyId)} does not verify."); continue; }
-            if (policy.Refusal(key, claim.Role, claim.Id, claim.SignedAt, now) is { } refusal)
-            { problems.Add($"{file}: {refusal}"); continue; }
-            valid.Add(claim with { KeyId = keyId, File = file });
-        }
-        return (valid, problems, false);
+        if (claim is null) return Refuses($"{file} {claimProblem}");
+        return (claim, payload, [.. signatures.EnumerateArray().Select(e => (e.GetProperty("keyid").GetString()!, FromBase64(e.GetProperty("sig").GetString())!))], null);
     }
 
     // A signature entry's shape (review 2, L7): exactly a key id and a signature, each of the form the format writes.

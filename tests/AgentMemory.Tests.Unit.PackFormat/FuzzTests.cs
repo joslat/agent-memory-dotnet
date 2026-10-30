@@ -51,7 +51,7 @@ public sealed class FuzzTests
             Dictionary<string, byte[]> files;
             try { files = StrictZip.Read(mutated, PackLimits.Default); }
             catch (InvalidDataException) { continue; }
-            var result = PackVerifier.Verify(new PackContent(files, "fuzz"), Sample.Policy(), SamplePack.Now);
+            var result = PackVerifier.VerifyOne(new PackContent(files, "fuzz"), Sample.Policy(), SamplePack.Now);
             if (!result.IsVerified) continue;
             verified++;
             // A mutation the profile tolerates must not change what the pack holds.

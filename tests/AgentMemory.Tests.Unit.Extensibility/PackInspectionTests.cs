@@ -56,7 +56,7 @@ public sealed class PackInspectionTests
     [Fact]
     public void A_pack_set_shows_its_members_and_mounts_them()
     {
-        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Archive()], _key.PrivateKeyPem);
+        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Archive()], _key.PrivateKeyPem, Trust());
 
         var inspection = PackInspection.Inspect(set, Trust());
 

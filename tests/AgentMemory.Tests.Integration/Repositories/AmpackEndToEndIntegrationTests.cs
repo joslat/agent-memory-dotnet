@@ -122,7 +122,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         var snapshot = PackAuthoring.Build(PackAuthoring.FromSnapshot(built, "io.example.acme-map", "1.0.0",
             repository: "https://example.com/acme/map", commit: "0a1b2c3d4e5f"), AmpackKey.PrivateKeyPem);
 
-        var set = PackFamilies.LoadSet(PackAuthoring.BuildSet("io.example.acme-code", "1.0.0", [definition, snapshot], AmpackKey.PrivateKeyPem), AmpackTrust());
+        var set = PackFamilies.LoadSet(PackAuthoring.BuildSet("io.example.acme-code", "1.0.0", [definition, snapshot], AmpackKey.PrivateKeyPem, AmpackTrust()), AmpackTrust());
         set.Families.Should().BeEmpty();
         var map = set.Packs.Should().ContainSingle(p => p.Kind == "definition").Subject;
         var shared = set.Packs.Should().ContainSingle(p => p.Kind == "snapshot").Subject;
@@ -157,8 +157,8 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     public async Task TheRealCodingFamilyAsACompositeInAPackSetComposesInAHostAndMigratesToExactlyTheSchemaOfTheCompiledFamily()
     {
         var members = new[] { "Decisions", "Repository", "CodeMap", "Work" }.Select(f => PackAuthoring.Build(RealSource(f), AmpackKey.PrivateKeyPem)).ToList();
-        var composite = PackAuthoring.BuildComposite(RealSource("Coding", "composite.json"), members, AmpackKey.PrivateKeyPem);
-        var set = PackFamilies.LoadSet(PackAuthoring.BuildSet("io.example.coding-family", "1.0.0", [composite, .. members], AmpackKey.PrivateKeyPem), AmpackTrust());
+        var composite = PackAuthoring.BuildComposite(RealSource("Coding", "composite.json"), members, AmpackKey.PrivateKeyPem, AmpackTrust());
+        var set = PackFamilies.LoadSet(PackAuthoring.BuildSet("io.example.coding-family", "1.0.0", [composite, .. members], AmpackKey.PrivateKeyPem, AmpackTrust()), AmpackTrust());
 
         var family = set.Families.Should().ContainSingle().Subject;
         family.Id.Should().Be(CodingPack.Id);

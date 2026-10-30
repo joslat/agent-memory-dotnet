@@ -251,7 +251,7 @@ public static class PackFamilies
     private static Opened OpenComposite(PackContent content, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade = false)
     {
         ArgumentNullException.ThrowIfNull(trust);
-        var verification = PackVerifier.Verify(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger, allowDowngrade);
+        var verification = PackVerifier.VerifyOne(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger, allowDowngrade);
         if (verification.Pack is not { } pack) throw new PackLoadException(verification.Problems);
         if (pack.Manifest.Kind != "composite") throw new PackLoadException([$"{pack.Id} is a {pack.Manifest.Kind} pack, not a composite."]);
         CompositeManifest manifest;

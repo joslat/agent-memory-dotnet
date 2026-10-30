@@ -95,7 +95,7 @@ public sealed class PackDoorMatrixTests : IDisposable
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
             ["pack.json"] = """{"format":"agentmemory.pack/1.2","id":"io.example.unsigned","version":"1.0.0","kind":"knowledge","sdk":"[0.1,0.2)"}"""u8.ToArray(),
-            ["records/notes.jsonl"] = """{"type":"Note","key":"n1","text":"plain"}"""u8.ToArray(),
+            ["records/notes.jsonl"] = [.. """{"type":"Note","key":"n1","text":"plain"}"""u8, .. "\n"u8],
         };
         files[PackPaths.FilesList] = FilesList.Build("io.example.unsigned", "1.0.0", files);
         var pack = Write("unsigned/pack.ampack", StrictZip.Write(files));
@@ -109,7 +109,44 @@ public sealed class PackDoorMatrixTests : IDisposable
             var withoutPolicy = Run([command, .. args.TakeWhile(a => a != "--policy")]);
             withoutPolicy.Exit.Should().Be(2, $"{command} needs the policy it verifies under: {withoutPolicy.Output}");
         }
+
+        // Review 8, F3: a set whose outer signature holds and whose member a stranger signed. The host refuses it whole, so the doors
+        // that act only on a verified pack refuse it too, and scan and diff, given the policy, report it refused.
+        using var stranger = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var strangerSigner = PackSigner.FromPem(stranger.ExportPkcs8PrivateKeyPem());
+        files[Dsse.PathFor("publisher", strangerSigner.KeyId)] = Dsse.Sign(files[PackPaths.FilesList], "io.example.unsigned", "1.0.0", "publisher",
+            DateTimeOffset.UtcNow.AddMinutes(-5), strangerSigner);
+        var (set, _) = PackBuilder.Build(PackSets.Source("io.example.strangers", "1.0.0",
+            new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal) { ["io.example.unsigned"] = files }));
+        var setPack = Write("unsigned/set.ampack", StrictZip.Write(Signed("io.example.strangers", set)));
+        foreach (var (command, args) in Doors(setPack, setPack, folder).Where(d => d.Key is "countersign" or "lock" or "set"))
+        {
+            var run = Run([command, .. args]);
+            run.Exit.Should().Be(1, $"{command} refuses a set whose member its host refuses: {run.Output}");
+            run.Output.Should().Contain("packs/io.example.unsigned/: No valid publisher signature", command);
+        }
+        foreach (var command in new[] { "scan", "diff" })
+        {
+            var run = Run([command, .. Doors(setPack, setPack, folder)[command], "--policy", _policy]);
+            run.Exit.Should().Be(1, $"{command} with a policy refuses the set: {run.Output}");
+        }
     }
+    [Fact]
+    public void Review8_lint_bounds_what_nobody_verified_before_it_parses_any_of_it()
+    {
+        // UNVERIFIED-BOUNDED at lint (the mutant suite: the matrix's 40 MiB line was refused by later checks too, so removing the
+        // bound changed no verdict). Seventy JSONL files of about 1 MiB, each valid: only the bound on unverified content in all
+        // refuses them, and it must before any is parsed.
+        var folder = Path.Combine(_root, "many", "folder");
+        Write("many/folder/pack.json", """{"format":"agentmemory.pack/1.2","id":"io.example.many","version":"1.0.0","kind":"knowledge","sdk":"[0.1,0.2)"}""");
+        var line = Encoding.UTF8.GetBytes("{\"type\":\"Note\",\"key\":\"n\",\"text\":\"" + new string('x', 1_000_000) + "\"}\n");
+        for (var i = 0; i < 70; i++) Write($"many/folder/records/part{i:00}.jsonl", line);
+
+        var run = Run(["lint", folder]);
+        run.Exit.Should().Be(1, run.Output);
+        run.Output.Should().Contain("a pack read without verifying it is at most 64 MiB");
+    }
+
     // Each door with the arguments that reach its pack input: the pack, a second pack, or an authoring folder.
     private Dictionary<string, string[]> Doors(string pack, string other, string folder)
     {
@@ -164,6 +201,17 @@ public sealed class PackDoorMatrixTests : IDisposable
         };
         yield return ("escapes", Signed(Id, shown));
 
+        // Review 8, F5: a signed pack of a later minor whose ignored field's name and record text forge whole lines with CR and LF
+        // (inspect printed the ignored names raw, so a CR overwrote its line and three forged lines followed).
+        const string Forged = "\rFORGED Verified io.example.bank 9.9.9\nFORGED   digest  sha256:0000\r\nFORGED   signed  publisher by trusted";
+        var forged = System.Text.Json.JsonSerializer.Serialize(Forged);
+        var forgedMinor = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["pack.json"] = Utf8($$$"""{"format":"agentmemory.pack/1.3","id":"{{{Id}}}","version":"1.0.0","kind":"knowledge","sdk":"[0.1,0.2)",{{{forged}}}:1}"""),
+            ["records/notes.jsonl"] = Utf8($$"""{"type":"Note","key":"n1","text":{{forged}}}""" + "\n"),
+        };
+        yield return ("forged", Signed(Id, forgedMinor));
+
         // A signed later minor whose unknown field names carry them (review 7 D3: inspect printed ignored names raw).
         var later = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
@@ -185,9 +233,12 @@ public sealed class PackDoorMatrixTests : IDisposable
     private static string PackAuthoringPolicy(ECDsa key) =>
         AgentMemory.Extensibility.Ampack.PackAuthoring.TrustPolicy(key.ExportSubjectPublicKeyInfoPem(), "io.example");
 
-    // The first raw control, C1 or bidi character in the output, named, or null.
+    // The first raw control, C1 or bidi character in the output, named, or a line a pack forged; null when there is none. A CR is
+    // raw unless it ends a line (review 8, F5).
     private static string? Raw(string output)
     {
+        if (output.Split('\n').FirstOrDefault(line => line.TrimEnd('\r').Contains('\r') || line.StartsWith("FORGED", StringComparison.Ordinal)) is { } bad)
+            return bad.StartsWith("FORGED", StringComparison.Ordinal) ? "a forged line" : "U+000D";
         foreach (var c in output)
             if (c is < ' ' and not '\n' and not '\r' and not '\t' || c is >= '\u007f' and <= '\u009f'
                 || c is >= '‪' and <= '‮' || c is >= '⁦' and <= '⁩' || c is '‎' or '‏' or '؜')

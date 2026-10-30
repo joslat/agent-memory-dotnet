@@ -121,6 +121,43 @@ public sealed class AnchorMatcherWorkTests
         matcher(value).Should().Be(matcher(value), "a cut by work is the same cut every time, in every store");
     }
 
+    [Theory]
+    [InlineData(ModuleAnchorMatch.Glob)]
+    [InlineData(ModuleAnchorMatch.Prefix)]
+    [InlineData(ModuleAnchorMatch.Name)]
+    [InlineData(ModuleAnchorMatch.Exact)]
+    public void Review8_W1_a_value_at_the_format_s_longest_line_is_bounded_in_memory_and_time_whatever_it_holds(ModuleAnchorMatch match)
+    {
+        // The format's longest JSONL line, all pieces (about 349,000): every piece was split, folded and compiled before the cap
+        // was looked at, about 140 MB a record for globs. A piece is now prepared when the first anchor reaches it, charged first.
+        var value = string.Concat(Enumerable.Repeat("a*,", (1 << 20) / 3));
+        string[] anchors = [.. Enumerable.Range(0, 32).Select(i => "src/" + new string((char)('a' + i % 26), 508))];
+        var matcher = new ModuleAnchorQuery { ModuleId = "m", Type = "T", Property = "p", Match = match, Values = anchors }.Matcher();
+        matcher(value);
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var clock = Stopwatch.StartNew();
+        for (var record = 0; record < 20; record++) matcher(value);
+        clock.Stop();
+        allocated = (GC.GetAllocatedBytesForCurrentThread() - allocated) / 20;
+
+        allocated.Should().BeLessThan(16L << 20, "a record's preparation is charged before it is done");
+        clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "a sanity bound under any load; the allocation above is the deterministic one");
+    }
+
+    [Fact]
+    public void Review8_W1_ordinary_names_are_charged_what_they_compare_so_a_late_anchor_still_seeds()
+    {
+        // A decision mentioning 400 SCIP names, against 32 symbol anchors: charged each pair's two lengths (about 90), the cap
+        // fell near the 23rd anchor, so a decision naming the 32nd anchor's symbol did not seed from it. Charged what they compare
+        // (names of other lengths compare no character), all 12,800 pairs fit.
+        static string Name(string kind, string member, int i) => $"scip-dotnet nuget AgentMemory 1.0 {kind}/Type{i:0000}#{member}{i:0000}().";
+        var mentions = string.Join(",", Enumerable.Range(0, 400).Select(i => Name("Mentioned", "Mention", i)));
+        string[] anchors = [.. Enumerable.Range(0, 31).Select(i => Name("Anchor", "Run", i)), Name("Mentioned", "Mention", 399)];
+
+        AnchorMatcher.Best(ModuleAnchorMatch.Name, mentions, anchors).Should().Be((AnchorMatcher.Exact, anchors[31], Name("Mentioned", "Mention", 399)));
+    }
+
     [Fact]
     public void The_prepared_matcher_ranks_as_the_one_measure_does()
     {

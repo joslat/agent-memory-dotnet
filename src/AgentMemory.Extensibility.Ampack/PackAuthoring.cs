@@ -74,16 +74,25 @@ public static class PackAuthoring
     /// or an assurer's countersignature beside the publisher's. The digest stays the same; a host counts the new signature
     /// only if its policy trusts the key for that role and namespace.
     /// </summary>
-    /// <exception cref="PackLoadException">The archive is not a pack under the strict profile, or its content does not match its list.</exception>
-    public static byte[] Countersign(byte[] archive, string privateKeyPem, string role)
+    /// <param name="archive">The built pack.</param>
+    /// <param name="privateKeyPem">The key that countersigns.</param>
+    /// <param name="role">The role it countersigns in.</param>
+    /// <param name="trust">
+    /// The host's trust: the pack is verified under it first, whole (a set with every member), apart from requiring the role this
+    /// signature adds (review 8, F4: this signed packs nobody verified, as <c>ampack countersign</c> did before review 7, L7).
+    /// </param>
+    /// <exception cref="PackLoadException">The archive is not a pack under the strict profile, or does not verify under the trust.</exception>
+    public static byte[] Countersign(byte[] archive, string privateKeyPem, string role, PackTrust trust)
     {
         ArgumentNullException.ThrowIfNull(archive);
         ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
         ArgumentException.ThrowIfNullOrWhiteSpace(role);
+        ArgumentNullException.ThrowIfNull(trust);
         PackContent content;
         try { content = PackReader.ReadArchive(archive, "archive"); }
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
-        if (PackVerifier.CheckIntegrity(content).Problems is { Count: > 0 } problems) throw new PackLoadException(problems);
+        if (PackVerifier.VerifyWhole(content, PackVerifier.Before(trust.Policy, role), DateTimeOffset.UtcNow) is { IsVerified: false } refused)
+            throw new PackLoadException(refused.Problems);
         var files = content.Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
         try { PackBuilder.Sign(files, privateKeyPem, role, DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds())); }
         catch (Exception e) when (e is InvalidDataException or ArgumentException or System.Security.Cryptography.CryptographicException) { throw new PackLoadException([e.Message]); }
@@ -176,16 +185,19 @@ public static class PackAuthoring
     /// <param name="source">The composite's source files, such as <see cref="FromModuleBundle"/> made from a composite manifest.</param>
     /// <param name="members">The member <c>.ampack</c> files, built and signed.</param>
     /// <param name="privateKeyPem">The key that signs the composite.</param>
+    /// <param name="trust">The host's trust, under which each member is verified whole before it is pinned (review 8, F4).</param>
     /// <param name="role">The role it signs in.</param>
-    /// <exception cref="PackLoadException">A member is not an intact pack, or two share an id.</exception>
-    public static byte[] BuildComposite(IReadOnlyDictionary<string, byte[]> source, IEnumerable<byte[]> members, string privateKeyPem, string role = "publisher")
+    /// <exception cref="PackLoadException">A member does not verify under the trust, or two share an id.</exception>
+    public static byte[] BuildComposite(IReadOnlyDictionary<string, byte[]> source, IEnumerable<byte[]> members, string privateKeyPem, PackTrust trust,
+        string role = "publisher")
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(members);
+        ArgumentNullException.ThrowIfNull(trust);
         var entries = new List<LockEntry>();
         foreach (var member in members)
         {
-            var (files, _) = Intact(member);
+            var (files, _) = Verified(member, trust);
             var list = FilesList.Parse(files[PackPaths.FilesList]).List!;
             entries.Add(new LockEntry(list.Id, list.Version, FilesList.DigestOf(files[PackPaths.FilesList])));
         }
@@ -199,17 +211,23 @@ public static class PackAuthoring
     /// Builds a pack set (v1.2 §5): the given signed packs side by side under <c>packs/&lt;id&gt;/</c>, each keeping its own
     /// files list and signatures, and the set's own <c>pack.json</c> and signature over everything.
     /// </summary>
-    /// <exception cref="PackLoadException">A member is not an intact signed pack, two share an id, or there is none.</exception>
-    public static byte[] BuildSet(string id, string version, IEnumerable<byte[]> members, string privateKeyPem, string role = "publisher")
+    /// <param name="id">The set's own id.</param>
+    /// <param name="version">The set's version.</param>
+    /// <param name="members">The member <c>.ampack</c> files, built and signed.</param>
+    /// <param name="privateKeyPem">The key that signs the set.</param>
+    /// <param name="trust">The host's trust, under which each member is verified whole before it is carried (review 8, F4).</param>
+    /// <param name="role">The role it signs in.</param>
+    /// <exception cref="PackLoadException">A member does not verify under the trust, two share an id, or there is none.</exception>
+    public static byte[] BuildSet(string id, string version, IEnumerable<byte[]> members, string privateKeyPem, PackTrust trust, string role = "publisher")
     {
         ArgumentNullException.ThrowIfNull(members);
         ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+        ArgumentNullException.ThrowIfNull(trust);
         if (!PackManifest.IsValidId(id ?? "")) throw new PackLoadException([$"'{id}' is not a reverse-DNS id."]);
         var contents = new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal);
         foreach (var member in members)
         {
-            var (files, memberId) = Intact(member);
-            if (!files.Keys.Any(PackPaths.IsEnvelope)) throw new PackLoadException([$"{memberId}: a set carries signed members only."]);
+            var (files, memberId) = Verified(member, trust);
             if (!contents.TryAdd(memberId, files)) throw new PackLoadException([$"{memberId} is given twice."]);
         }
         if (contents.Count == 0) throw new PackLoadException(["A set carries at least one member."]);
@@ -224,16 +242,16 @@ public static class PackAuthoring
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
     }
 
-    // A member archive that reads under the strict profile and whose files match its own list.
-    private static (IReadOnlyDictionary<string, byte[]> Files, string Id) Intact(byte[] archive)
+    // A member archive that reads under the strict profile and verifies whole under the host's trust (review 8, F4: it was checked
+    // for integrity only, so a composite pinned and a set carried packs no key the host trusts had signed).
+    private static (IReadOnlyDictionary<string, byte[]> Files, string Id) Verified(byte[] archive, PackTrust trust)
     {
         ArgumentNullException.ThrowIfNull(archive);
         PackContent content;
         try { content = PackReader.ReadArchive(archive, "member"); }
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
-        var (problems, list, _, _) = PackVerifier.CheckIntegrity(content);
-        if (problems.Count > 0) throw new PackLoadException(problems);
-        return (content.Files, list!.Id);
+        var verification = PackVerifier.VerifyWhole(content, trust.Policy, DateTimeOffset.UtcNow);
+        return verification.Pack is { } pack ? (content.Files, pack.Id) : throw new PackLoadException(verification.Problems);
     }
 
     /// <summary>A trust policy (<c>agentmemory.pack.trust/1.1</c>) that trusts one key for the given namespaces as publisher.</summary>

@@ -17,10 +17,13 @@ internal static class AnchorMatcher
     internal const double PrefixBase = 0.5;
 
     /// <summary>
-    /// The most work one stored value's match may take, in characters compared (review 7, W1: one value of many pieces, or a long
-    /// run of "./", cost seconds a record, and the scans looked at the budget only every 1,024 records). Past it the value keeps
-    /// the best match found so far, in the one order every store uses (anchors as given, then pieces in order), so the stores
-    /// still agree, and a record costs at most about a millisecond whatever it holds.
+    /// The most work one stored value's match may take, in the units of the one cost model the spec states (§6.1; review 8, W1
+    /// and W4: the cap counted a value's length and each pair's lengths, while every piece was split, folded and compiled before
+    /// it was looked at, so a 1 MiB value of glob pieces cost about 140 MB a record). Reading the value costs 1 a character read;
+    /// preparing a piece, 32 and 4 a character (its copies), 6 for a glob; comparing a piece with an anchor, 1 plus the characters an equality
+    /// compares (none when the lengths differ) or a prefix test reads, and for a glob the positions it steps. Each is charged as
+    /// it is done and nothing is begun past the cap: the value keeps the best match found so far, in the one order every store
+    /// uses (anchors as given, then pieces in order), so the stores still agree (review 7, W1).
     /// </summary>
     internal const long MaximumWork = 1L << 20;
 
@@ -71,46 +74,100 @@ internal static class AnchorMatcher
     internal static (double Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, Anchors anchors)
     {
         if (IsBlank(value)) return (0, null, null);
-        // Paths split on whitespace too; names do not, because a SCIP identity holds spaces.
-        var patterns = match switch
+        // Paths split on whitespace too; names do not, because a SCIP identity holds spaces; an exact value is one piece.
+        var separators = match switch
         {
-            ModuleAnchorMatch.Glob or ModuleAnchorMatch.Prefix => Pieces(value!, Separators),
-            ModuleAnchorMatch.Name => Pieces(value!, NameSeparators),
-            _ => [Trimmed(value!)],
+            ModuleAnchorMatch.Glob or ModuleAnchorMatch.Prefix => Separators,
+            ModuleAnchorMatch.Name => NameSeparators,
+            _ => null,
         };
-        long work = value!.Length;
-        // Each piece worked out once: its path, folded, and for a glob its tokens (review 6, M4, and review 7, W2: a regex per
-        // piece hit the engine's size limit and threw; the tokens are matched in time linear in both lengths, with no limit).
-        var paths = match == ModuleAnchorMatch.Name ? null : patterns.Select(p => Path(p)).ToArray();
-        var folded = paths?.Select(Folded).ToArray();
-        var globs = match == ModuleAnchorMatch.Glob ? folded!.Select(p => p.Length > 0 && p.IndexOfAny(['*', '?']) >= 0 ? GlobPattern.Of(p) : null).ToArray() : null;
+        // Pieces are read and prepared as the first anchor reaches them, each charged as it is (review 8, W1), and kept for the
+        // anchors after it: its path, folded, and for a glob its tokens (review 6, M4, and review 7, W2: a regex per piece hit
+        // the engine's size limit and threw; the tokens are matched in time linear in both lengths, with no limit).
+        var pieces = new List<Piece>();
+        var read = 0;
+        long work = 0;
         (double Quality, string? Anchor, string? Pattern) best = (0, null, null);
         foreach (var anchor in anchors.Items)
-            for (var i = 0; i < patterns.Length; i++)
+            for (var i = 0; ; i++)
             {
-                var quality = match switch
+                if (i == pieces.Count && !NextPiece(match, value!, separators, ref read, ref work, pieces))
                 {
-                    ModuleAnchorMatch.Exact => paths![i].Length > 0 && Equal(folded![i], anchor.FoldedPath) ? Exact : 0,
-                    ModuleAnchorMatch.Prefix => PrefixQuality(folded![i].TrimEnd('/'), anchor),
-                    ModuleAnchorMatch.Glob => globs![i] is { } glob ? (anchor.Path.Length > 0 && glob.Matches(anchor.FoldedPath, ref work) ? Globbed : 0)
-                        : folded![i].Length == 0 || anchor.Path.Length == 0 ? 0
-                        : folded[i].EndsWith('/') ? PrefixQuality(folded[i].TrimEnd('/'), anchor)
-                        : Equal(folded[i], anchor.FoldedPath) ? Exact : 0,
-                    ModuleAnchorMatch.Name => NameQuality(patterns[i], anchor),
-                    _ => 0,
-                };
-                if (quality > best.Quality) best = (quality, anchor.Raw, patterns[i]);
-                work += patterns[i].Length + anchor.Raw.Length;
+                    if (work > MaximumWork) return best;
+                    break;
+                }
+                var quality = Compare(match, pieces[i], anchor, ref work);
+                if (quality > best.Quality) best = (quality, anchor.Raw, pieces[i].Raw);
                 if (work > MaximumWork) return best;
             }
         return best;
     }
 
-    private static bool Equal(string a, string b) => string.Equals(a, b, StringComparison.Ordinal);
+    // One piece of a value, prepared once: trimmed, as a path, folded, as a folder (folded, without trailing '/'), and for a glob
+    // its pattern, for a name its simple name.
+    private sealed record Piece(string Raw, string Path, string Folded, string Folder, GlobPattern? Glob, string? Simple);
 
-    // The pieces of a value between separators, each trimmed of ASCII white space, empty ones dropped.
-    private static string[] Pieces(string value, char[] separators) =>
-        [.. value.Split(separators).Select(Trimmed).Where(piece => piece.Length > 0)];
+    // What preparing a piece costs beside its copies: the objects it allocates, whatever its length.
+    private const long PieceOverhead = 32;
+
+    // The value's next piece, read from where reading stopped (1 a character read) and prepared (32, and 4 a character for its
+    // copies, 6 for a glob's tokens too, charged before it is): false at the end of the value, or when the cap leaves no room for it (the work is then past it).
+    private static bool NextPiece(ModuleAnchorMatch match, string value, char[]? separators, ref int read, ref long work, List<Piece> pieces)
+    {
+        string raw;
+        while (true)
+        {
+            if (read >= value.Length) return false;
+            var end = separators is null ? value.Length : value.IndexOfAny(separators, read);
+            if (end < 0) end = value.Length;
+            work += end - read + 1;
+            var span = value.AsSpan(read, end - read).Trim(AsciiSpace);
+            read = end + 1;
+            if (work > MaximumWork) return false;
+            if (span.Length == 0) continue;
+            raw = span.ToString();
+            break;
+        }
+        work += PieceOverhead + (match == ModuleAnchorMatch.Glob ? 6L : 4L) * raw.Length;
+        if (work > MaximumWork) return false;
+        if (match == ModuleAnchorMatch.Name) { pieces.Add(new(raw, raw, raw, raw, null, SimpleName(raw))); return true; }
+        var path = Path(raw);
+        var folded = Folded(path);
+        var glob = match == ModuleAnchorMatch.Glob && folded.Length > 0 && folded.IndexOfAny(['*', '?']) >= 0 ? GlobPattern.Of(folded) : null;
+        pieces.Add(new(raw, path, folded, folded.TrimEnd('/'), glob, null));
+        return true;
+    }
+
+    // One piece against one anchor, charged what it compares.
+    private static double Compare(ModuleAnchorMatch match, Piece piece, Anchor anchor, ref long work)
+    {
+        switch (match)
+        {
+            case ModuleAnchorMatch.Exact:
+                return piece.Path.Length > 0 && Same(piece.Folded, anchor.FoldedPath, ref work) ? Exact : 0;
+            case ModuleAnchorMatch.Prefix:
+                return PrefixQuality(piece.Folder, anchor, ref work);
+            case ModuleAnchorMatch.Glob:
+                work++;
+                if (piece.Glob is { } glob) return anchor.Path.Length > 0 && glob.Matches(anchor.FoldedPath, ref work) ? Globbed : 0;
+                if (piece.Folded.Length == 0 || anchor.Path.Length == 0) return 0;
+                return piece.Folded.EndsWith('/') ? PrefixQuality(piece.Folder, anchor, ref work) : Same(piece.Folded, anchor.FoldedPath, ref work) ? Exact : 0;
+            case ModuleAnchorMatch.Name:
+                if (Same(piece.Raw, anchor.Trimmed, ref work)) return Exact;
+                return piece.Simple!.Length > 0 && Same(piece.Simple, anchor.Simple, ref work) ? Named : 0;
+            default:
+                return 0;
+        }
+    }
+
+    // An ordinal equality, charged 1 and, when the lengths agree, the characters it compares.
+    private static bool Same(string a, string b, ref long work)
+    {
+        work++;
+        if (a.Length != b.Length) return false;
+        work += a.Length;
+        return string.Equals(a, b, StringComparison.Ordinal);
+    }
 
     internal static double Quality(ModuleAnchorMatch match, string pattern, string anchor) => Best(match, pattern, [anchor]).Quality;
 
@@ -142,25 +199,19 @@ internal static class AnchorMatcher
         return value[start..end].Replace('\\', '/');
     }
 
-    private static double PrefixQuality(string foldedPrefix, Anchor anchor)
+    private static double PrefixQuality(string foldedPrefix, Anchor anchor, ref long work)
     {
+        work++;
         if (foldedPrefix.Length == 0 || anchor.Path.Length == 0) return 0;
-        if (Equal(foldedPrefix, anchor.FoldedPath)) return Exact;
-        if (anchor.FoldedPath.Length <= foldedPrefix.Length || anchor.FoldedPath[foldedPrefix.Length] != '/'
-            || !anchor.FoldedPath.StartsWith(foldedPrefix, StringComparison.Ordinal)) return 0;
+        if (Same(foldedPrefix, anchor.FoldedPath, ref work)) return Exact;
+        if (anchor.FoldedPath.Length <= foldedPrefix.Length || anchor.FoldedPath[foldedPrefix.Length] != '/') return 0;
+        // The prefix read, then its folders counted.
+        work += 2L * foldedPrefix.Length;
+        if (!anchor.FoldedPath.StartsWith(foldedPrefix, StringComparison.Ordinal)) return 0;
         // A deeper folder says more about the file: src/a/b/ beats src/ for src/a/b/c.cs.
         var depth = (double)foldedPrefix.Count(c => c == '/') + 1;
         var total = (double)anchor.Slashes + 1;
         return PrefixBase + 0.3 * Math.Min(1, depth / total);
-    }
-
-    private static double NameQuality(string value, Anchor anchor)
-    {
-        value = Trimmed(value);
-        if (value.Length == 0) return 0;
-        if (Equal(value, anchor.Trimmed)) return Exact;
-        var simpleValue = SimpleName(value);
-        return simpleValue.Length > 0 && Equal(simpleValue, anchor.Simple) ? Named : 0;
     }
 
     /// <summary>
@@ -245,6 +296,8 @@ internal static class AnchorMatcher
             Close(at);
             foreach (var c in text)
             {
+                // Nothing is stepped past the cap (review 8, W1): the match ends there, unmatched.
+                if (work > MaximumWork) return Keep(at, next, inside, insideNext, false);
                 work += n + 1;
                 Array.Clear(next);
                 Array.Clear(insideNext);

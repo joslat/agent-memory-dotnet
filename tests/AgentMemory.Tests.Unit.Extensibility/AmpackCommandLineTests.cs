@@ -424,6 +424,10 @@ public sealed class AmpackCommandLineTests : IDisposable
         Done(gate).Should().Contain("off  io.example.notes 0.1.0  it was admitted on Example Lab's certificate").And.Contain("needs its own trial");
         Done([.. gate, "--trust-certificates-for", "io.example"]).Should().Contain("on   io.example.notes 0.1.0  on Example Lab's certificate");
         Ampack([.. gate, "--trust-certificates-for", "io..example"]).Exit.Should().Be(2);
+        // A host floor holds at the tool's doors too (review 8, G3): a trial that declared no confidence is below one of 0.95.
+        Done([.. gate, "--trust-certificates-for", "io.example", "--floor-confidence", "0.95"]).Should().Contain("off  io.example.notes 0.1.0  its trial claims less than this host requires");
+        Ampack([.. gate, "--floor-confidence", "0.8"]).Exit.Should().Be(2);
+        Ampack([.. gate, "--floor-targets", "hitRate"]).Exit.Should().Be(2);
 
         // Lint tells the publisher what a host can do with it.
         Done("lint", "certified.ampack", "--policy", "trust.json").Should().Contain("certificate.admits");

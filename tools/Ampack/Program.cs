@@ -250,7 +250,7 @@ internal static partial class Program
         ["evidence"] = ["activations", "host-key", "pack", "version", "out"],
         ["scan"] = ["aef", .. TrustOptions],
         ["countersign"] = ["out", "role", .. SignerOptions, .. TrustOptions],
-        ["serve"] = ["store", "http", "allow-remote", "activations", "host-key", "require-trials-for", "trust-certificates-for", "grant", .. TrustOptions],
+        ["serve"] = ["store", "http", "allow-remote", "grant", .. GateOptions, .. TrustOptions],
         ["install"] = ["store", "allow-downgrade", .. TrustOptions],
         ["uninstall"] = ["store"],
         ["list"] = ["store"],
@@ -258,7 +258,7 @@ internal static partial class Program
         ["certify"] = ["activations", "host-key", "evaluator", "task-source", "aef", "tool", "tool-version", "out", .. SignerOptions, .. TrustOptions],
         ["certificate"] = ["certificate", .. TrustOptions],
         ["admit"] = ["host-signing-key", "activations", .. TrustOptions],
-        ["gate"] = ["activations", "host-key", "require-trials-for", "trust-certificates-for", .. TrustOptions],
+        ["gate"] = [.. GateOptions, .. TrustOptions],
         ["solid"] = ["allow-loopback-http", "webid", "audience", "probe-as", "probe-stranger", "from", "id", "no-recheck", "store", "allow-downgrade", .. SignerOptions, .. TrustOptions],
         ["trust"] = ["allow-loopback-http", "key", "prefix", "role", "host-webid", "policy", "public", "webid"],
     }.ToDictionary(c => c.Key, c => new HashSet<string>(c.Value, StringComparer.Ordinal), StringComparer.Ordinal);
@@ -499,7 +499,7 @@ internal static partial class Program
     {
         var target = o.Positional(0, "folder or file");
         var content = PackReader.Read(target);
-        if (o.Value("policy") is not null && PackVerifier.Verify(content, Policy(o), DateTimeOffset.UtcNow) is { IsVerified: false } refused)
+        if (o.Value("policy") is not null && PackVerifier.VerifyWhole(content, Policy(o), DateTimeOffset.UtcNow) is { IsVerified: false } refused)
             return Report(refused.Problems, "");
         // The bytes read once, verified when a policy is given, are the bytes scanned (review 7, D2).
         AgentMemory.Extensibility.Ampack.PackScanReport report;
@@ -525,7 +525,7 @@ internal static partial class Program
         using var signer = Signer(o);
         var role = o.Required("role");
         var content = PackReader.ReadArchive(PackReader.ReadArchiveFile(target), target);
-        if (Unverified(content, Policy(o), target) is { Count: > 0 } problems) return Report(problems, "");
+        if (Unverified(content, PackVerifier.Before(Policy(o), role), target) is { Count: > 0 } problems) return Report(problems, "");
         var files = content.Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
         PackBuilder.Sign(files, signer, role, SigningTime());
         File.WriteAllBytes(o.Required("out"), PackBuilder.Pack(files));
@@ -537,7 +537,7 @@ internal static partial class Program
     // does (review 7, L7: countersign, lock and set acted on a pack whose signatures nobody checked, so an assurer could vouch for,
     // a lock pin and a set carry what no host would load).
     private static IReadOnlyList<string> Unverified(PackContent content, TrustPolicy policy, string path) =>
-        [.. PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow).Problems.Select(p => $"{path}: {p}")];
+        [.. PackVerifier.VerifyWhole(content, policy, DateTimeOffset.UtcNow).Problems.Select(p => $"{path}: {p}")];
 
     private static int Sign(Options o)
     {
@@ -547,6 +547,8 @@ internal static partial class Program
         if (integrity.Problems.Count > 0) return Report(integrity.Problems, "");
         using var signer = Signer(o);
         var path = PackBuilder.Sign(files, signer, o.Value("role") ?? "publisher", SigningTime());
+        // The writer's read-back on the folder too (review 8, F9): what is written is what every reader accepts.
+        if (PackVerifier.CheckIntegrity(new PackContent(files, folder)).Problems is { Count: > 0 } refused) return Report(refused, "");
         WriteMeta(folder, files);
         Console.WriteLine($"Signed {integrity.List!.Id} {integrity.List.Version}: {path}");
         return 0;
@@ -561,7 +563,7 @@ internal static partial class Program
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
         var content = PackReader.Read(target);
         Action<PackStep>? explain = o.Flag("explain") ? Explain : null;
-        var result = PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"), explain);
+        var result = PackVerifier.VerifyOne(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"), explain);
         if (!result.IsVerified) return Report(result.Problems, "");
         var pack = result.Pack!;
         if (pack.Manifest.Kind == "set")
@@ -613,7 +615,7 @@ internal static partial class Program
             var manifest = content.Files.TryGetValue(PackManifest.FileName, out var manifestBytes) ? PackManifest.Parse(manifestBytes).Manifest : null;
             if (manifest is { FormatMinor: > PackManifest.Minor })
                 Console.WriteLine($"Format  agentmemory.pack/1.{manifest.FormatMinor}, newer than this tool's {PackManifest.Format}: read as far as it knows it" +
-                    (manifest.IgnoredFields.Count > 0 ? $"; ignored {string.Join(", ", manifest.IgnoredFields)}" : ""));
+                    (manifest.IgnoredFields.Count > 0 ? $"; ignored {string.Join(", ", manifest.IgnoredFields.Select(f => Shown(f, 80)))}" : ""));
             if (manifest?.Federation is { } federation)
                 Console.WriteLine($"Federated: publisher {federation.Publisher}, for {PackFederation.Describe(federation.Audience)}  (not verified)");
             if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Card is { } card)
@@ -622,7 +624,7 @@ internal static partial class Program
         }
         else Console.WriteLine("Not built: no valid META/files.json.");
         foreach (var path in content.Files.Keys.Where(PackPaths.IsSignature).Order(StringComparer.Ordinal))
-            Console.WriteLine($"  {(PackPaths.IsTimestamp(path) ? "timestamp" : "envelope")}  {path}");
+            Console.WriteLine($"  {(PackPaths.IsTimestamp(path) ? "timestamp" : "envelope")}  {Shown(path, 300)}");
         foreach (var (stem, _) in PackAttestations.Certificates(content.Files))
             Console.WriteLine($"  certificate  {PackAttestations.CertificatePath(stem)}{(PackAttestations.Run(content.Files, stem) is { } run ? $" (with an AEF run of {run.Count} files)" : "")}");
         return 0;
@@ -835,7 +837,7 @@ internal static partial class Program
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
         var documents = o.Values("revocations").Select(r => PackReader.ReadArchiveFile(r, Revocations.DocumentLimits)).ToList();
         policy = Revocations.ApplyAll(policy, documents, DateTimeOffset.UtcNow, ledger, out var notApplied);
-        foreach (var note in notApplied) Console.Error.WriteLine("Note: " + note);
+        foreach (var note in notApplied) Console.Error.WriteLine("Note: " + Shown(note, 2000));
         if (ledger is not null && documents.Count > 0) ledger.Save(ledgerPath!);
         return policy;
     }
@@ -848,7 +850,7 @@ internal static partial class Program
         var ledger = LedgerPath(o) is { } path ? AgentMemory.Extensibility.Ampack.PackInstallLedger.Open(path) : null;
         var documents = o.Values("revocations").Select(r => PackReader.ReadArchiveFile(r, Revocations.DocumentLimits)).ToList();
         trust = trust.WithRevocations(documents, ledger, out var notApplied);
-        foreach (var note in notApplied) Console.Error.WriteLine("Note: " + note);
+        foreach (var note in notApplied) Console.Error.WriteLine("Note: " + Shown(note, 2000));
         return trust;
     }
 
@@ -955,12 +957,11 @@ internal static partial class Program
         if (o.Value("activations") is not { } folder)
             return o.Value("host-key") is null ? null : throw new UsageException("--host-key goes with --activations.");
         var activations = new AgentMemory.Extensibility.Modules.PackActivationFolder(folder, Text(o.Required("host-key"), "The host key"));
-        static string[] Prefixes(string? value) => value is null ? [] : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        GateCheck(o, [], activations);
         return (packs, familyMembers) =>
         {
-            var check = AgentMemory.Extensibility.Ampack.PackGateCheck.Of([.. packs.Where(p => p.Kind != "snapshot")], activations,
-                Prefixes(o.Value("require-trials-for")), Prefixes(o.Value("trust-certificates-for")), familyMembers);
-            foreach (var off in check.Off) Console.Error.WriteLine($"ampack serve: {off.ModuleId} {off.Version} stays off: {off.Reason}");
+            var check = GateCheck(o, [.. packs.Where(p => p.Kind != "snapshot")], activations, familyMembers);
+            foreach (var off in check.Off) Console.Error.WriteLine($"ampack serve: {off.ModuleId} {off.Version} stays off: {Shown(off.Reason, 300)}");
             return [.. check.Off.Select(off => off.ModuleId)];
         };
     }
@@ -1004,8 +1005,8 @@ internal static partial class Program
     {
         var signatures = Path.Combine(folder, "META", "signatures");
         if (Directory.Exists(signatures))
-            foreach (var stale in Directory.EnumerateFiles(signatures))
-                if (!files.ContainsKey("META/signatures/" + Path.GetFileName(stale))) File.Delete(stale);
+            foreach (var stale in Directory.EnumerateFiles(signatures, "*", SearchOption.AllDirectories))
+                if (!files.ContainsKey("META/signatures/" + Path.GetRelativePath(signatures, stale).Replace(Path.DirectorySeparatorChar, '/'))) File.Delete(stale);
         // Certificates and their runs too, as the archive drops them (review 2: the folder kept them for the old digest).
         var attestations = Path.Combine(folder, "META", "attestations");
         if (Directory.Exists(attestations))
@@ -1086,7 +1087,7 @@ internal static partial class Program
         {
             var policy = Policy(o);
             foreach (var (path, content) in new[] { (first, a), (second, b) })
-                if (PackVerifier.Verify(content, policy, DateTimeOffset.UtcNow) is { IsVerified: false } refused)
+                if (PackVerifier.VerifyWhole(content, policy, DateTimeOffset.UtcNow) is { IsVerified: false } refused)
                     return Report(refused.Problems.Select(p => $"{path}: {p}"), "");
         }
         AgentMemory.Extensibility.Ampack.PackDiff diff;

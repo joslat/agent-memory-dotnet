@@ -258,7 +258,7 @@ public static class PackLoader
     internal static LoadedPack Load(PackContent content, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade)
     {
         ArgumentNullException.ThrowIfNull(trust);
-        var verification = PackVerifier.Verify(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger, allowDowngrade);
+        var verification = PackVerifier.VerifyOne(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger, allowDowngrade);
         if (verification.Pack is not { } pack) throw new PackLoadException(verification.Problems);
         if (Unenforceable(pack) is { Count: > 0 } unenforceable) throw new PackLoadException(unenforceable);
 

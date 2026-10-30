@@ -106,6 +106,27 @@ public sealed class AmpackLoaderTests
     }
 
     [Fact]
+    public void Review8_W3_copies_of_one_pack_merge_by_one_rule_whatever_their_order()
+    {
+        // A pack on its own, without an end, and in a set that ends in 30 days: the plan kept the first copy given, so whether the
+        // pack expired with the set depended on the order of the arguments. It is available as long as any route makes it so.
+        var first = Signed(PackLayout.FromModule(Bundle(MartialArts)));
+        var source = PackSets.Source("io.agentmemory.packs.dojo-set", "1.0.0", new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal)
+        {
+            ["io.agentmemory.packs.martialarts"] = StrictZip.Read(first, PackLimits.Default),
+        });
+        var manifest = System.Text.Json.Nodes.JsonNode.Parse(source["pack.json"])!.AsObject();
+        manifest["validUntil"] = DateTimeOffset.UtcNow.AddDays(30).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        source["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
+        var set = Signed(source);
+        LoadedPack Kept(params byte[][] archives) => PackMemory.Mount(archives, Trust()).Packs.Single(p => p.Id == "io.agentmemory.packs.martialarts");
+
+        Kept(set).ValidUntil.Should().NotBeNull("the set alone narrows it to its own end");
+        Kept(first, set).ValidUntil.Should().BeNull();
+        Kept(set, first).ValidUntil.Should().BeNull("the same pack, whatever the order");
+    }
+
+    [Fact]
     public void A_pack_from_an_untrusted_namespace_is_refused()
     {
         var act = () => PackLoader.Load(Signed(PackLayout.FromModule(Bundle(MartialArts))), Trust(prefix: "io.example"));

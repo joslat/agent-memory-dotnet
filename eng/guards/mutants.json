@@ -1,0 +1,679 @@
+{
+ "format": "agentmemory.guards.mutants/1",
+ "mutants": [
+  {
+   "id": "archive-ratio",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "size / compressed > limits.MaxRatio)) throw Bad",
+     "new": "size / compressed > limits.MaxRatio * 1000)) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests"
+  },
+  {
+   "id": "bounded-file-size",
+   "rule": "FILE-BOUNDED",
+   "door": "definition",
+   "file": "shared/BoundedFile.cs",
+   "edits": [
+    {
+     "old": "if (file.Length > maximum) throw new InvalidDataException",
+     "new": "if (false) throw new InvalidDataException"
+    },
+    {
+     "old": "if (buffer.Length > maximum) throw new InvalidDataException",
+     "new": "if (false) throw new InvalidDataException"
+    },
+    {
+     "old": "if (buffer.Length + read > maximum) throw new InvalidDataException",
+     "new": "if (false) throw new InvalidDataException"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AuthenticateFirstTests|FullyQualifiedName~Review8GuardTests.A_file_one_byte_over"
+  },
+  {
+   "id": "authenticate-at-load",
+   "rule": "AUTHENTICATE-FIRST",
+   "door": "load",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "var (manifest, problems) = PackVerifier.Authenticated(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger);",
+     "new": "var (manifest, problems) = (PackManifest.Parse(content.Files.GetValueOrDefault(PackManifest.FileName) ?? []).Manifest, (IReadOnlyList<string>)[\"unauthenticated\"]);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AuthenticateFirstTests"
+  },
+  {
+   "id": "unverified-at-diff",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "diff",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackDiff.cs",
+   "edits": [
+    {
+     "old": "if (PackContentBounds.Problems(a, verified) is { Count: > 0 } first) throw new PackLoadException(first);",
+     "new": ""
+    },
+    {
+     "old": "if (PackContentBounds.Problems(b, verified) is { Count: > 0 } second) throw new PackLoadException(second);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.H7"
+  },
+  {
+   "id": "unverified-at-scan",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "scan",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackScan.cs",
+   "edits": [
+    {
+     "old": "if (PackContentBounds.Problems(files, verified) is { Count: > 0 } problems) throw new PackLoadException(problems);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.H7"
+  },
+  {
+   "id": "unverified-at-lint",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "lint",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (PackContentBounds.Problems(content.Files, verified: false) is { Count: > 0 } bounds) return Report(bounds, \"\");",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~PackDoorMatrixTests.Review8_lint_bounds"
+  },
+  {
+   "id": "writer-minor-at-sign",
+   "rule": "ONE-WRITER-SIGN",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackBuilder.cs",
+   "edits": [
+    {
+     "old": "if (manifest is null) throw new InvalidDataException(manifestProblem);\n            if (WriterProblem(manifest) is { } refused) throw new InvalidDataException(refused);",
+     "new": "if (manifest is null) throw new InvalidDataException(manifestProblem);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.M6"
+  },
+  {
+   "id": "writer-read-back",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackBuilder.cs",
+   "edits": [
+    {
+     "old": "throw new InvalidDataException(\"No reader would accept this pack, so it was not written: \" + string.Join(\" \", problems));",
+     "new": "{ }"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.M7"
+  },
+  {
+   "id": "output-escaped",
+   "rule": "OUTPUT-ESCAPED",
+   "door": "definition",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (Console.Out is not ShownWriter) Console.SetOut(new ShownWriter(Console.Out));",
+     "new": ""
+    },
+    {
+     "old": "if (Console.Error is not ShownWriter) Console.SetError(new ShownWriter(Console.Error));",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~ShownWriterTests"
+  },
+  {
+   "id": "inspect-ignored-raw",
+   "rule": "OUTPUT-ESCAPED",
+   "door": "inspect",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "string.Join(\", \", manifest.IgnoredFields.Select(f => Shown(f, 80)))",
+     "new": "string.Join(\", \", manifest.IgnoredFields)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command"
+  },
+  {
+   "id": "bare-cr-passes",
+   "rule": "OUTPUT-ESCAPED",
+   "door": "definition",
+   "file": "tools/Ampack/ShownWriter.cs",
+   "edits": [
+    {
+     "old": "(char.IsControl(c) && c is not ('\\n' or '\\t'))",
+     "new": "(char.IsControl(c) && c is not ('\\n' or '\\r' or '\\t'))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~ShownWriterTests"
+  },
+  {
+   "id": "certificate-any-copy",
+   "rule": "CERTIFICATE-COPIES",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": "if (evaluation.Trusted) { first = evaluation; break; }",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.Review7_H5"
+  },
+  {
+   "id": "intake-at-decide",
+   "rule": "EVIDENCE-INTAKE",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (Intake(with, without, previous?.With) is { } refused) throw new ArgumentException(refused.Problem, refused.Arm);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.L11"
+  },
+  {
+   "id": "intake-at-recheck",
+   "rule": "EVIDENCE-INTAKE",
+   "door": "recheck",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (Intake(with, decision.Without, decision.Previous?.With) is { } refused) throw new ArgumentException(refused.Problem, nameof(decision));",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.L16"
+  },
+  {
+   "id": "caps-at-decide",
+   "rule": "CAPS-DECLARED",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (CapProblem(manifest, with, without) is { } capProblem) throw new ArgumentException(capProblem.Problem, capProblem.Arm);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.M11"
+  },
+  {
+   "id": "caps-at-admit",
+   "rule": "CAPS-DECLARED",
+   "door": "admit",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": "if (PackTrialGate.CapProblem(pack.Manifest, certificate.With!, certificate.Without) is { } cap)",
+     "new": "if (false && PackTrialGate.CapProblem(pack.Manifest, certificate.With!, certificate.Without) is { } cap)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.Review8_A2"
+  },
+  {
+   "id": "floor-at-apply",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": ": floor is not null && Below(decision, floor) is { } short_ ?",
+     "new": ": false && Below(decision, floor!) is { } short_ ?"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A3"
+  },
+  {
+   "id": "floor-at-settle",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "upgrade chain",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "(floor is null || Below(a.Decision, floor) is null)",
+     "new": "(true || Below(a.Decision, floor!) is null)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A7|FullyQualifiedName~PackUpgradeTests"
+  },
+  {
+   "id": "chain-counts-certificates",
+   "rule": "DECISION-COUNTS",
+   "door": "upgrade chain",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": ".Select(g => Counting(g, certificatesCount: false))",
+     "new": ".Select(g => Counting(g, certificatesCount: true))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.G2"
+  },
+  {
+   "id": "gate-keeps-stale-certificate",
+   "rule": "DECISION-COUNTS",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (decision?.Basis is { } basis && registration.TrustedCertificates?.Contains(basis.Certificate, StringComparer.Ordinal) is not true)",
+     "new": "if (decision?.Basis is { } basis && registration.TrustedCertificates is null)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.An_admission_counts_only_while"
+  },
+  {
+   "id": "floor-at-tool-gate",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "file": "tools/Ampack/Program.Certificates.cs",
+   "edits": [
+    {
+     "old": "familyMembers, Floor(o)); }",
+     "new": "familyMembers, null); }"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.A_card_travels_in_the_pack"
+  },
+  {
+   "id": "hedge-weight",
+   "rule": "BOUNDS-COVER",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "0.9 => 1.25, 0.95 => 1.5, 0.975 => 1.75, 0.99 => 2.0,",
+     "new": "0.9 => 1.25, 0.95 => 1.0, 0.975 => 1.75, 0.99 => 2.0,"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialStatisticsTests"
+  },
+  {
+   "id": "previous-cap",
+   "rule": "PREVIOUS-CAP",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if ((previous.With.MaximumOffered ?? ModuleTraversal.MaximumOffered) != judged)",
+     "new": "if (Environment.ProcessorCount < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackUpgradeTests.Review7_an_upgrade_holds"
+  },
+  {
+   "id": "walk-work-cap",
+   "rule": "WALK-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "internal const long MaximumWork = 1L << 20;",
+     "new": "internal const long MaximumWork = long.MaxValue;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_a_value"
+  },
+  {
+   "id": "walk-charged-by-length",
+   "rule": "WALK-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "        work++;\n        if (a.Length != b.Length) return false;\n        work += a.Length;",
+     "new": "        work += 1 + a.Length + b.Length;\n        if (a.Length != b.Length) return false;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_ordinary"
+  },
+  {
+   "id": "walk-isolates-a-read",
+   "rule": "WALK-BOUNDED",
+   "door": "walk",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "catch (Exception e) when (e is not OperationCanceledException)",
+     "new": "catch (Exception e) when (e is OutOfMemoryException)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TraversalBudgetTests.Review7_W2"
+  },
+  {
+   "id": "walk-server-deadline",
+   "rule": "WALK-BOUNDED",
+   "door": "neo4j read",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/Neo4jModuleTraversalReader.cs",
+   "edits": [
+    {
+     "old": "? await _runner.ReadAsync(work, left, cancellationToken).ConfigureAwait(false)",
+     "new": "? await _runner.ReadAsync(work, cancellationToken).ConfigureAwait(false)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TraversalDeadlineTests"
+  },
+  {
+   "id": "path-one-pass",
+   "rule": "PATH-AND-GLOB",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "if (IsAsciiSpace(c) || c is '/' or '\\\\') start++;",
+     "new": "if (IsAsciiSpace(c) || c is '/') start++;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.The_path"
+  },
+  {
+   "id": "glob-run",
+   "rule": "PATH-AND-GLOB",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "case Kind.Run: if (c != '/')",
+     "new": "case Kind.Run: if (true)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.The_glob"
+  },
+  {
+   "id": "walk-fan-out-cut",
+   "rule": "STORES-AGREE",
+   "door": "walk",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "var fanOut = Math.Clamp(declared.FanOut, 1, ModuleTraversalRelation.MaximumFanOut);",
+     "new": "var fanOut = int.MaxValue;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~WalkWorkBoundsTests.Review7_W7"
+  },
+  {
+   "id": "mount-plan-at-mount",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "loaded = PackMountPlan.Of(loaded);",
+     "new": "loaded = [.. loaded];"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackLoaderTests.Review7_W4"
+  },
+  {
+   "id": "mount-plan-at-gate",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackGateCheck.cs",
+   "edits": [
+    {
+     "old": "foreach (var pack in PackMountPlan.Of(packs))",
+     "new": "foreach (var pack in packs)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A5_the_gate"
+  },
+  {
+   "id": "mount-plan-snapshots",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMountPlan.cs",
+   "edits": [
+    {
+     "old": "if (of.Select(p => p.Id).Distinct(StringComparer.Ordinal).Count() > 1)",
+     "new": "if (Environment.ProcessorCount < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A5_two_snapshots"
+  },
+  {
+   "id": "mount-plan-first-copy",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMountPlan.cs",
+   "edits": [
+    {
+     "old": "        if (all.Count == 1) return all[0];",
+     "new": "        if (all.Count >= 1) return all[0];"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackLoaderTests.Review8_W3"
+  },
+  {
+   "id": "links-before-dependency",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "memory",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "&& Target(shot.Module.Id, relation) is { } into && !memory._byId.Values.Any(",
+     "new": "&& Target(shot.Module.Id, relation) is { } into && false && !memory._byId.Values.Any("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackConsentTests.Review7_W9"
+  },
+  {
+   "id": "live-in-the-walk",
+   "rule": "LIVE-PER-RECORD",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "if (liveRecord is not null && !liveRecord(item.Record)) return false;",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~WalkWorkBoundsTests.Review7_W8"
+  },
+  {
+   "id": "live-in-pack-memory",
+   "rule": "LIVE-PER-RECORD",
+   "door": "pack memory",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "liveRecord: liveCarrier is null ? null :",
+     "new": "liveRecord: true ? null :"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A4"
+  },
+  {
+   "id": "signed-before-countersign",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "countersign",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (Unverified(content, PackVerifier.Before(Policy(o), role), target) is { Count: > 0 } problems) return Report(problems, \"\");",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7"
+  },
+  {
+   "id": "signed-before-lock",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "lock",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (Unverified(content, policy, memberPath) is { Count: > 0 } refused) return Report(refused, \"\");",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7"
+  },
+  {
+   "id": "signed-before-set",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "set",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (Unverified(content, policy, path) is { Count: > 0 } refused) return Report(refused, \"\");",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7"
+  },
+  {
+   "id": "envelopes-without-trust",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": ".Select(file => Dsse.ShapeProblem(file, content.Files[file], listHex, list!)).OfType<string>().ToList();",
+     "new": ".Select(file => (string?)null).OfType<string>().ToList();"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F1"
+  },
+  {
+   "id": "set-structure-without-trust",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "        if (manifest is { Kind: \"set\" })\n        {\n            var (structure, members) = SetStructure(",
+     "new": "        if (manifest is { Kind: \"set\" } && Environment.ProcessorCount < 0)\n        {\n            var (structure, members) = SetStructure("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F2"
+  },
+  {
+   "id": "whole-before-act",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "countersign",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "[.. PackVerifier.VerifyWhole(content, policy, DateTimeOffset.UtcNow).Problems.Select(p => $\"{path}: {p}\")];",
+     "new": "[.. PackVerifier.VerifyOne(content, policy, DateTimeOffset.UtcNow).Problems.Select(p => $\"{path}: {p}\")];"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7"
+  },
+  {
+   "id": "library-countersign-unverified",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "PackAuthoring.Countersign",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackAuthoring.cs",
+   "edits": [
+    {
+     "old": "if (PackVerifier.VerifyWhole(content, PackVerifier.Before(trust.Policy, role), DateTimeOffset.UtcNow) is { IsVerified: false } refused)",
+     "new": "if (PackVerifier.VerifyWhole(content, PackVerifier.Before(trust.Policy, role), DateTimeOffset.UtcNow) is { IsVerified: false } refused && Environment.ProcessorCount < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4"
+  },
+  {
+   "id": "library-member-unverified",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "PackAuthoring.BuildSet",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackAuthoring.cs",
+   "edits": [
+    {
+     "old": "return verification.Pack is { } pack ? (content.Files, pack.Id) : throw new PackLoadException(verification.Problems);",
+     "new": "return (content.Files, FilesList.Parse(content.Files[PackPaths.FilesList]).List!.Id);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4"
+  },
+  {
+   "id": "before-drops-every-role",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "            ? policy with { RequiredRoles = others } : policy;",
+     "new": "            ? policy with { RequiredRoles = others } : policy with { RequiredRoles = [] };"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4"
+  },
+  {
+   "id": "python-case-collision",
+   "rule": "VERIFIERS-AGREE",
+   "door": "python",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if name.lower() in folded:\n            raise Refused(f\"entry '{name}' differs from another only by case\")\n",
+     "new": ""
+    }
+   ],
+   "project": "kit",
+   "filter": ""
+  }
+ ]
+}

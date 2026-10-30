@@ -67,7 +67,7 @@ public sealed class PackStoreTests : IDisposable
     public void Review1_M8_a_pack_a_set_carries_is_not_installed_beside_it_and_the_index_places_files_only_where_the_store_keeps_them()
     {
         var store = PackStore.Open(_root);
-        var set = store.Install(PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [MartialArtsPack("1.0.0")], _key.PrivateKeyPem), Trust());
+        var set = store.Install(PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [MartialArtsPack("1.0.0")], _key.PrivateKeyPem, Trust()), Trust());
         set.Members.Should().Equal("io.agentmemory.packs.martialarts");
 
         FluentActions.Invoking(() => store.Install(MartialArtsPack("1.1.0"), Trust())).Should().Throw<PackLoadException>()
@@ -83,7 +83,7 @@ public sealed class PackStoreTests : IDisposable
     public void A_pack_set_installs_as_one_and_mounts_from_the_store()
     {
         var knowledge = MartialArtsPack("1.0.0");
-        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [knowledge], _key.PrivateKeyPem);
+        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [knowledge], _key.PrivateKeyPem, Trust());
         var store = PackStore.Open(_root);
 
         store.Install(set, Trust()).Kind.Should().Be("set");
@@ -99,7 +99,7 @@ public sealed class PackStoreTests : IDisposable
         var composite = PackAuthoring.BuildComposite(new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
             ["manifest.json"] = Encoding.UTF8.GetBytes("""{"format":"agentmemory.composite/v1alpha1","id":"io.example.family","version":"1.0.0","members":[{"id":"io.agentmemory.packs.martialarts","version":"[1,2)"}]}"""),
-        }), StringComparer.Ordinal), [MartialArtsPack("1.0.0")], _key.PrivateKeyPem);
+        }), StringComparer.Ordinal), [MartialArtsPack("1.0.0")], _key.PrivateKeyPem, Trust());
 
         FluentActions.Invoking(() => PackStore.Open(_root).Install(composite, Trust())).Should().Throw<PackLoadException>()
             .Which.Problems.Should().ContainSingle().Which.Should().Contain("pack set");

@@ -40,7 +40,7 @@ internal sealed class SamplePack
     };
 
     internal PackVerification Verify(IReadOnlyDictionary<string, byte[]> files, TrustPolicy? policy = null, HostLedger? ledger = null) =>
-        PackVerifier.Verify(new PackContent(files, "test"), policy ?? Policy(), Now, ledger);
+        PackVerifier.VerifyOne(new PackContent(files, "test"), policy ?? Policy(), Now, ledger);
 
     internal static byte[] Utf8(string text) => Encoding.UTF8.GetBytes(text);
 

@@ -15,7 +15,7 @@ public sealed class ExplainTests
     private (PackVerification Result, List<PackStep> Steps) Explained(Dictionary<string, byte[]> files)
     {
         var steps = new List<PackStep>();
-        var result = PackVerifier.Verify(new PackContent(files, "test"), _sample.Policy(), SamplePack.Now, explain: steps.Add);
+        var result = PackVerifier.VerifyOne(new PackContent(files, "test"), _sample.Policy(), SamplePack.Now, explain: steps.Add);
         return (result, steps);
     }
 
@@ -69,7 +69,7 @@ public sealed class ExplainTests
             Dictionary<string, byte[]> files;
             try { files = StrictZip.Read(bytes, PackLimits.Default); }
             catch (InvalidDataException) { continue; }
-            var plain = PackVerifier.Verify(new PackContent(files, "test"), _sample.Policy(), SamplePack.Now);
+            var plain = PackVerifier.VerifyOne(new PackContent(files, "test"), _sample.Policy(), SamplePack.Now);
             var (explained, steps) = Explained(files);
             explained.IsVerified.Should().Be(plain.IsVerified);
             explained.Problems.Should().Equal(plain.Problems);

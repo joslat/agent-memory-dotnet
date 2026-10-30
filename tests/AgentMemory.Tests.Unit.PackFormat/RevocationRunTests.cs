@@ -35,7 +35,7 @@ public sealed class RevocationRunTests : IDisposable
         Revocations.Sign(digests ?? [], keys ?? [], issued, expires, by.PrivateKeyPem);
 
     private PackVerification VerifyAt(DateTimeOffset at, TrustPolicy policy, HostLedger? ledger) =>
-        PackVerifier.Verify(new PackContent(_sample.Signed(), "test"), policy, at, ledger);
+        PackVerifier.VerifyOne(new PackContent(_sample.Signed(), "test"), policy, at, ledger);
 
     private static bool Stale(PackVerification verification) => verification.Problems.Any(p => p.Contains("revocation list expired", StringComparison.Ordinal));
 

@@ -884,7 +884,7 @@ public static class PackTrialGate
                 : decision is not null ? (!decision.Active ? "its trial failed: " + decision.Reason
                     : Unmet(decision) is { } unmet ? $"its trial's evidence does not meet its targets under {Statistic}: {unmet}; trial it again"
                     : floor is not null && Below(decision, floor) is { } short_ ? $"its trial showed less than this host requires: {short_}"
-                    : Upgrade(activations, manifest, decision, certificatesCount, floor))
+                    : Upgrade(activations, manifest, decision, floor))
                 : setAside is not null ? setAside
                 : activations.Find(manifest.Id, manifest.Version) is not null ? "its trial ran on other content; trial it again"
                 : "no trial on this host yet";
@@ -1002,10 +1002,12 @@ public static class PackTrialGate
         return all.Where(a => a.Basis is null).MaxBy(a => a.DecidedAt) ?? (certificatesCount ? all.Where(a => a.Basis is not null).MaxBy(a => a.DecidedAt) : null);
     }
 
-    // Outside certificate trust, a decision made from a certificate never counts as a version that passed here (review 1, M2).
-    private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision, bool certificatesCount, PackTrialFloor? floor) =>
+    // A decision made from a certificate never counts as a version that passed here (review 1, M2, outside certificate trust;
+    // review 8, G2, inside it too: the gate counts one only while its certificate is the latest trusted one the pack carries,
+    // which only the composing registration can tell, so the chain, which loads no predecessor, counted ones the gate set aside).
+    private static string? Upgrade(IPackActivations activations, ModuleManifest manifest, PackActivation decision, PackTrialFloor? floor) =>
         Settle(activations, decision, Rule(decision.Upgrade ?? manifest.Trial?.Upgrade, decision.Confidence),
-            new Dictionary<PackActivation, (string?, HeldRule)>(ReferenceEqualityComparer.Instance), certificatesCount, floor).Refusal;
+            new Dictionary<PackActivation, (string?, HeldRule)>(ReferenceEqualityComparer.Instance), floor).Refusal;
 
     // One no-regression rule a version declared: its tolerance, and the confidence its bound is taken at (none: the estimate).
     private sealed record NoRegressionRule(double Tolerance, double? Confidence);
@@ -1020,12 +1022,12 @@ public static class PackTrialGate
 
     // Why a passing decision may not go on as an upgrade (or null), and the rule it is held to: the stricter of its own and
     // the one its predecessor was held to, so a rule carries down the whole chain, not one version (third review). The version
-    // it replaces is the one that passed here before it: of every content's current decision (a later failing one supersedes
-    // a pass), a passing one that still holds under this library's statistic and that the gate itself allows, at an earlier
+    // it replaces is the one that passed here before it: of every content's latest decision from this host's own trial (a later
+    // failing one supersedes a pass; a certificate's never stands here, review 8, G2), a passing one that still holds under this library's statistic and that the gate itself allows, at an earlier
     // version, or at this version with other content decided earlier (on the same instant, the lower digest first); the
     // highest, the latest.
     private static (string? Refusal, HeldRule Rule) Settle(IPackActivations activations, PackActivation decision, HeldRule rule,
-        Dictionary<PackActivation, (string?, HeldRule)> known, bool certificatesCount, PackTrialFloor? floor)
+        Dictionary<PackActivation, (string?, HeldRule)> known, PackTrialFloor? floor)
     {
         if (known.TryGetValue(decision, out var settled)) return settled;
         known[decision] = ("it is its own predecessor", rule); // never reached: predecessors come strictly before
@@ -1036,14 +1038,14 @@ public static class PackTrialGate
         var active = activations.History(decision.ModuleId)
             .Where(a => (a.PackDigest is null) == (decision.PackDigest is null))
             .GroupBy(a => (a.Version, a.ManifestDigest, a.PackDigest))
-            .Select(g => Counting(g, certificatesCount))
+            .Select(g => Counting(g, certificatesCount: false))
             .OfType<PackActivation>()
             .Select(a => (Decision: a, Version: ModuleVersion.TryParse(a.Version, out var v) ? v : null))
             .Where(a => a.Decision.Active && Unmet(a.Decision) is null && (floor is null || Below(a.Decision, floor) is null) && a.Version is not null && Content(a.Decision) != content
                 && (a.Version.CompareTo(version) < 0 || a.Version.CompareTo(version) == 0
                     && (a.Decision.DecidedAt < decision.DecidedAt || a.Decision.DecidedAt == decision.DecidedAt && string.CompareOrdinal(Content(a.Decision), content) < 0)))
             .OrderByDescending(a => a.Version).ThenByDescending(a => a.Decision.DecidedAt).ThenByDescending(a => Content(a.Decision), StringComparer.Ordinal)
-            .Select(a => (a.Decision, Settled: Settle(activations, a.Decision, Rule(a.Decision.Upgrade, a.Decision.Confidence), known, certificatesCount, floor)))
+            .Select(a => (a.Decision, Settled: Settle(activations, a.Decision, Rule(a.Decision.Upgrade, a.Decision.Confidence), known, floor)))
             .FirstOrDefault(a => a.Settled.Refusal is null);
         var held = active.Decision is null ? rule : Stricter(rule, active.Settled.Rule);
         var result = (active.Decision is null ? null : Against(decision, held, active.Decision), held);

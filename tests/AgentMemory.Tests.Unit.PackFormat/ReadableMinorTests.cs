@@ -91,7 +91,7 @@ public sealed class ReadableMinorTests
         SamplePack.SignRaw(files, sample.Key.PrivateKeyPem, "publisher", SamplePack.SignedAt);
         var steps = new List<PackStep>();
 
-        var verified = PackVerifier.Verify(new PackContent(files, "test"), sample.Policy(), SamplePack.Now, explain: steps.Add);
+        var verified = PackVerifier.VerifyOne(new PackContent(files, "test"), sample.Policy(), SamplePack.Now, explain: steps.Add);
 
         verified.Problems.Should().BeEmpty();
         steps.Single(s => s.Name == "pack.json and kind").Lines.Should().Contain(d => d.Contains("format 1.3") && d.Contains("ignored timestamps"));

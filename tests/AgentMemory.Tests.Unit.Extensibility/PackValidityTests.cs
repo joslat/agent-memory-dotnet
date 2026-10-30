@@ -71,7 +71,7 @@ public sealed class PackValidityTests : IDisposable
     public void A_sets_validity_caps_every_pack_in_it()
     {
         var soon = Second(DateTimeOffset.UtcNow.AddDays(2));
-        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Archive()], _key.PrivateKeyPem);
+        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Archive()], _key.PrivateKeyPem, Trust());
 
         // The set's own validity: its revocation list here.
         var loaded = PackFamilies.LoadSet(set, Trust(revocationsExpire: soon));
@@ -161,8 +161,8 @@ public sealed class PackValidityTests : IDisposable
     {
         // Sixth review: a set installed with --allow-downgrade skipped the ledger, so a member version could change content.
         var store = PackStore.Open(Path.Combine(_root, "store"));
-        store.Install(PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Archive()], _key.PrivateKeyPem), Trust());
-        var changed = PackAuthoring.BuildSet("io.example.dojo-set", "0.9.0", [Archive(validUntil: Second(DateTimeOffset.UtcNow.AddDays(90)))], _key.PrivateKeyPem);
+        store.Install(PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Archive()], _key.PrivateKeyPem, Trust()), Trust());
+        var changed = PackAuthoring.BuildSet("io.example.dojo-set", "0.9.0", [Archive(validUntil: Second(DateTimeOffset.UtcNow.AddDays(90)))], _key.PrivateKeyPem, Trust());
 
         FluentActions.Invoking(() => store.Install(changed, Trust(), allowDowngrade: true))
             .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("other content"));
@@ -174,7 +174,7 @@ public sealed class PackValidityTests : IDisposable
         // Seventh review: the set path passed the flag to the set but not to its members.
         var store = PackStore.Open(Path.Combine(_root, "store"));
         store.Install(Versioned("2.0.0"), Trust());
-        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Versioned("1.0.0")], _key.PrivateKeyPem);
+        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Versioned("1.0.0")], _key.PrivateKeyPem, Trust());
         // A pack is installed alone or in a set, never both (review 1, M8); the ledger still remembers 2.0.0 once it is removed.
         FluentActions.Invoking(() => store.Install(set, Trust(), allowDowngrade: true)).Should().Throw<PackLoadException>()
             .Which.Problems.Should().Contain(p => p.Contains("already installed here"));

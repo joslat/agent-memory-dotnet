@@ -58,7 +58,7 @@ public sealed class PackCertificateTests : IDisposable
 
         // A countersignature after certification keeps both: the content, and so the certificate's subject, is unchanged.
         var curator = PackAuthoring.CreateKey();
-        PackLoader.Load(PackAuthoring.Countersign(certified, curator.PrivateKeyPem, "curator"), Trust()).Certificates.Should().ContainSingle().Which.Trusted.Should().BeTrue();
+        PackLoader.Load(PackAuthoring.Countersign(certified, curator.PrivateKeyPem, "curator", Trust()), Trust()).Certificates.Should().ContainSingle().Which.Trusted.Should().BeTrue();
     }
 
     [Fact]

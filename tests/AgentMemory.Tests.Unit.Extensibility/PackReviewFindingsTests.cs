@@ -75,11 +75,11 @@ public sealed class PackReviewFindingsTests : IDisposable
     {
         var pack = PackAuthoring.Build(Source(), _key.PrivateKeyPem);
         var ledger = PackInstallLedger.Open(Path.Combine(_root, "ledger.json"));
-        var newer = PackFamilies.LoadSet(PackAuthoring.BuildSet("io.example.dojo-set", "1.1.0", [pack], _key.PrivateKeyPem), Trust(), ledger);
+        var newer = PackFamilies.LoadSet(PackAuthoring.BuildSet("io.example.dojo-set", "1.1.0", [pack], _key.PrivateKeyPem, Trust()), Trust(), ledger);
         ledger.Record(newer);
         newer.Version.Should().Be("1.1.0");
 
-        var older = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [pack], _key.PrivateKeyPem);
+        var older = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [pack], _key.PrivateKeyPem, Trust());
         FluentActions.Invoking(() => PackFamilies.LoadSet(older, Trust(), PackInstallLedger.Open(Path.Combine(_root, "ledger.json"))))
             .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("older than 1.1.0", StringComparison.Ordinal));
     }

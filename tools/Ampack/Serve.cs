@@ -99,7 +99,7 @@ internal sealed class PackTools
         var (hits, problems) = await mount.Memory.WalkAsync(anchors, question, live: id => !expired.Contains(id), cancellationToken,
             liveCarrier: id => !expired.Contains(id)).ConfigureAwait(false);
         // What the walk could not do, on standard error, which MCP and REST clients leave free (review 3).
-        foreach (var problem in problems) Console.Error.WriteLine("ampack serve: " + problem);
+        foreach (var problem in problems) Console.Error.WriteLine("ampack serve: " + Program.Shown(problem, 2000));
         return Hits(hits);
     }
 

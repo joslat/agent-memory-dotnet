@@ -21,11 +21,11 @@ public sealed class HardenTrustTests
         var policy = new TrustPolicy { Keys = [key with { NotAfter = expiredSince }] };
 
         // At SignedAt + 1 h the key has expired, though the signature claims a time inside its window.
-        var result = PackVerifier.Verify(new PackContent(files, "test"), policy, SamplePack.Now);
+        var result = PackVerifier.VerifyOne(new PackContent(files, "test"), policy, SamplePack.Now);
 
         result.IsVerified.Should().BeFalse();
         result.Problems.Should().Contain(p => p.Contains("expired at", StringComparison.Ordinal) && p.Contains("timestamp token", StringComparison.Ordinal));
-        PackVerifier.Verify(new PackContent(files, "test"), policy, SamplePack.SignedAt.AddMinutes(10)).IsVerified.Should().BeTrue("within the window it counts");
+        PackVerifier.VerifyOne(new PackContent(files, "test"), policy, SamplePack.SignedAt.AddMinutes(10)).IsVerified.Should().BeTrue("within the window it counts");
     }
 
     [Theory]

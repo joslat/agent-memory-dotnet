@@ -24,6 +24,8 @@ public sealed class ChokePointRatchetTests
         ("file read", new(@"\bFile\.(ReadAll(Bytes|Text|Lines)(Async)?|Open|OpenRead|OpenText)\s*\(|\bnew\s+FileStream\s*\(")),
         ("json parse", new(@"\bJsonDocument\.Parse(Async)?\s*\(|\bJsonNode\.Parse\s*\(|\bJsonSerializer\.Deserialize(Async)?\b")),
         ("raw console", new(@"\bConsole\.(OpenStandard\w*|SetOut|SetError)\s*\(")),
+        // Review 8, F3: one pack's own signatures, not a set's members. A door that acts on a pack takes VerifyWhole.
+        ("one-pack verify", new(@"\bPackVerifier\.VerifyOne\s*\(")),
     ];
 
     private const string Parser = "a parser of the format, which bounds its input or is reached only with bytes the format bounds";
@@ -83,6 +85,11 @@ public sealed class ChokePointRatchetTests
         ("tools/Ampack/Program.cs", "json parse", 2, "a pack.json the tool just wrote, and the trust policy, read bounded"),
         ("tools/Ampack/Program.Solid.cs", "json parse", 1, "the trust policy, read bounded"),
         ("tools/Ampack/Rest.cs", "json parse", 1, "a request body, read bounded by the server"),
+
+        ("src/AgentMemory.Extensibility.Ampack/PackFamilies.cs", "one-pack verify", 1, "a composite opened as one pack; a set is refused there and each pin verified"),
+        ("src/AgentMemory.Extensibility.Ampack/PackInspection.cs", "one-pack verify", 1, "reports each step; a set is then verified whole before it shows as loaded"),
+        ("src/AgentMemory.Extensibility.Ampack/PackLoader.cs", "one-pack verify", 1, "the one-module loader, which refuses a set (open its members)"),
+        ("tools/Ampack/Program.cs", "one-pack verify", 1, "ampack verify, which reports a set member by member through VerifySet"),
 
         ("tools/Ampack/Program.cs", "raw console", 3, "Main installs the escaping writer; sign-bytes reads standard input, bounded"),
     ];

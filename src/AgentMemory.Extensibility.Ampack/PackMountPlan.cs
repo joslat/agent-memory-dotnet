@@ -12,13 +12,26 @@ namespace AgentMemory.Extensibility.Ampack;
 [Experimental("AMEXT001")]
 internal static class PackMountPlan
 {
-    /// <summary>The packs as a host holds them: each distinct pack once, in the order given.</summary>
+    /// <summary>
+    /// The packs as a host holds them: each distinct pack once, in the order first given. Copies of one pack (one digest) reached
+    /// by several routes merge by one rule, whatever their order (review 8, W3: the first copy given was kept, so a pack that a set
+    /// narrows expired or not by the order of the arguments): it is available for as long as any route makes it available.
+    /// </summary>
     /// <exception cref="PackLoadException">Two versions or contents of one pack, or two snapshots of one module.</exception>
     internal static List<LoadedPack> Of(IEnumerable<LoadedPack> packs)
     {
-        var distinct = packs.DistinctBy(p => p.Digest, StringComparer.Ordinal).ToList();
+        var distinct = packs.GroupBy(p => p.Digest, StringComparer.Ordinal).Select(Merged).ToList();
         if (Problems(distinct) is { Count: > 0 } problems) throw new PackLoadException(problems);
         return distinct;
+    }
+
+    // One pack from its copies: valid until the latest of their ends, and without an end if any copy has none.
+    private static LoadedPack Merged(IEnumerable<LoadedPack> copies)
+    {
+        var all = copies.ToList();
+        if (all.Count == 1) return all[0];
+        var until = all.Any(c => c.ValidUntil is null) ? null : all.Max(c => c.ValidUntil);
+        return all[0] with { ValidUntil = until, Knowledge = all[0].Knowledge?.WithValidUntil(until) };
     }
 
     /// <summary>Why the packs cannot be held together as a host holds them, in id order; empty when they can.</summary>
