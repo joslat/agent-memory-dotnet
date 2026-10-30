@@ -52,20 +52,6 @@ internal static class ModuleTraversalQueries
     internal static string ByIds(string label) =>
         "UNWIND $ids AS rid MATCH (n:`" + label + "` {id:rid}) WHERE n.invalidated_at IS NULL RETURN properties(n) AS row";
 
-    /// <summary>
-    /// Out: the starting records with more than <c>$maxLinks</c> live targets in scope through the relation (review 2, 3), with
-    /// that count, as the in-memory store counts them. The store's degree is read first; only a record whose degree is past the
-    /// limit has its live targets counted, at most <c>$over</c> of them.
-    /// </summary>
-    internal static string OutHubs(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE " + In("s") + " " + OutLinks(relation, target)
-        + " WITH fid, s, links WHERE links > $maxLinks RETURN fid, s.key AS key, links";
-
-    /// <summary>In: the starting records with more than <c>$maxLinks</c> live sources in scope linking to any version (see <see cref="OutHubs"/>).</summary>
-    internal static string InHubs(string source, string relation, string target) =>
-        "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE " + In("x") + " " + InLinks(source, relation, target)
-        + " WITH fid, x, links WHERE links > $maxLinks RETURN fid, x.key AS key, links";
-
     // The link count the limit is checked against, as the in-memory store counts it (review 2, 3): the store's degree first,
     // read without the links; only past the limit the distinct live records in scope at the other end, at most $over of them.
     // Under the limit, the degree itself (an upper bound of the live count, so the record is within the limit either way).

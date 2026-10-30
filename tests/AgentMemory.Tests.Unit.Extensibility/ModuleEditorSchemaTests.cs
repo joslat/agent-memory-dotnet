@@ -156,7 +156,9 @@ public sealed class ModuleEditorSchemaTests
         if (edge == "containable-by-not-an-id") root["containableBy"] = new JsonArray("Not An Id");
         var json = root.ToJsonString();
         if (edge == "hops-written-2.0") json.Should().Contain("\"hops\":2.0");
-        EditorAccepts("module", json).Should().Be(accepted, "the editor schema");
+        // The one edge the editor cannot state portably (review 7, G10): "at most three decimals" as multipleOf 0.001 is computed
+        // in binary floating point by most validators, which then refuse 0.35. The schema says it in words; the runtime holds it.
+        EditorAccepts("module", json).Should().Be(accepted || edge == "target-four-decimals", "the editor schema");
         RuntimeAccepts("module", json).Should().Be(accepted, "the runtime");
     }
 

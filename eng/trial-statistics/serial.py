@@ -47,7 +47,8 @@ def pass_rate(n, count, burst, icc, p, conf, spaced, sims=6000, clustered=False,
 if __name__ == "__main__":
     for conf in (0.95, 0.99):
         for burst, icc in ((5, 0.3), (8, 0.3)):
-            for n in (40, 80, 200, 400):
+            # Spacings 7, 8 and 9 too (review 7, M9: the grid jumped from 5 to 10, past the burst length the guarantee turns on).
+            for n in (40, 80, 200, 280, 320, 360, 400):
                 row = [pass_rate(n, 40, burst, icc, 0.5, conf, spaced) for spaced in (False, True)]
                 gate = pass_rate(n, 40, burst, icc, 0.5, conf, True, sims=3000, clustered=True)
                 power = pass_rate(n, 40, 1, 0.0, 0.5, conf, True, sims=3000, clustered=True, gap=0.15)

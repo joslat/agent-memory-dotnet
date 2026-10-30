@@ -65,7 +65,7 @@ public sealed class PackStore
         // What another process installed meanwhile is read under the lock, and the ledger is checked under it too.
         _installed = Read(_root);
         var ledger = PackInstallLedger.Open(Path.Combine(_root, LedgerFile));
-        var (manifest, content) = PackLoader.Open(archive, trust);
+        var (manifest, content) = PackLoader.Open(archive, trust, ledger);
         var (id, version, kind) = (manifest.Id, manifest.Version, manifest.Kind);
         string digest;
         IReadOnlyList<string> members = [];

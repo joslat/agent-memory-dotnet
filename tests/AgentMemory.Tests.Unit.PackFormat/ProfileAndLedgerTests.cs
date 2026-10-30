@@ -21,6 +21,22 @@ public sealed class ProfileAndLedgerTests
     }
 
     [Fact]
+    public void Review7_the_authentication_every_load_path_runs_holds_the_host_s_kept_revocations()
+    {
+        // D10: a key this host's ledger revoked passed the step that picks a loader, so its pack.json was parsed and shown as
+        // authenticated before the loader refused it.
+        var sample = new SamplePack();
+        var content = new PackContent(sample.Signed(), "test");
+        var ledger = new HostLedger();
+        ledger.Record([], [new RevokedKey(sample.Key.KeyId, null)]);
+
+        PackVerifier.Authenticated(content, sample.Policy(), SamplePack.Now).Manifest.Should().NotBeNull();
+        var (manifest, problems) = PackVerifier.Authenticated(content, sample.Policy(), SamplePack.Now, ledger);
+        manifest.Should().BeNull();
+        problems.Should().NotBeEmpty().And.BeEquivalentTo(PackVerifier.Verify(content, sample.Policy(), SamplePack.Now, ledger).Problems,
+            "the step that picks a loader refuses for the reason the full verification gives");
+    }
+    [Fact]
     public void A_record_with_a_repeated_key_fails_the_pack()
     {
         var sample = new SamplePack();

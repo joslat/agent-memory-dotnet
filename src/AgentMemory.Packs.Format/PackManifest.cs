@@ -53,6 +53,8 @@ internal sealed partial record PackManifest
     internal IReadOnlyList<string> Contains { get; init; } = [];
     /// <summary>Id prefixes of the packs allowed to contain this one and walk into it. Empty: none may.</summary>
     internal IReadOnlyList<string> ContainableBy { get; init; } = [];
+    /// <summary>The top-level fields pack.json holds, by name: what a kind's own rules read (review 7, F11).</summary>
+    internal IReadOnlySet<string> Present { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     /// <summary>After this instant a host switches the pack off (v1.2 §11).</summary>
     internal DateTimeOffset? ValidUntil { get; init; }
     /// <summary>The protection profile (v1.2 §8).</summary>
@@ -176,6 +178,7 @@ internal sealed partial record PackManifest
             Id = id, Version = version, Kind = kind, Tier = tier, Licence = Text("licence"), Contains = contains, ContainableBy = containable,
             ValidUntil = validUntil, Protection = protection, Code = code, Source = origin, Federation = federation,
             FormatMinor = minor.Value, IgnoredFields = unknown,
+            Present = root.EnumerateObject().Select(p => p.Name).ToHashSet(StringComparer.Ordinal),
         }, null);
     }
 

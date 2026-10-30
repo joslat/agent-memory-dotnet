@@ -149,6 +149,7 @@ public sealed class Neo4jModuleStore : IModuleStore
             var (live, state) = await _runner.ReadAsync(async transaction =>
             {
                 await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
+                await DependenciesHeldAsync(transaction, module, records, cancellationToken).ConfigureAwait(false);
                 return (await PackLiveAsync(transaction, module, cancellationToken).ConfigureAwait(false),
                     await SnapshotStateAsync(transaction, module, cancellationToken).ConfigureAwait(false));
             }, cancellationToken).ConfigureAwait(false);
@@ -283,6 +284,24 @@ public sealed class Neo4jModuleStore : IModuleStore
             }, cancellationToken).ConfigureAwait(false);
         }
         catch (ModuleRecordRefusal refusal) { throw new KnowledgePackException([refusal.Message]); }
+    }
+
+    // A snapshot whose links reach into a dependency type that holds no records here yet is refused, in every store alike (review
+    // 7, W9: Neo4j resolves a link as it writes, memory once every pack is mounted, so a work snapshot imported before the code
+    // map lost its links here and kept them there). A dependency that holds records but not a link's target leaves that link out,
+    // counted, as memory does.
+    private async Task DependenciesHeldAsync(IAsyncQueryRunner runner, ModuleManifest module, IReadOnlyList<ModuleProposal> records, CancellationToken cancellationToken)
+    {
+        var relations = module.Ontology!.Relations.Where(r => r.To.Contains(':', StringComparison.Ordinal) && !r.To.StartsWith("core:", StringComparison.Ordinal))
+            .Where(r => records.Any(p => p.Type == r.From && p.Links.Any(l => l.Relation == r.Name))).ToList();
+        foreach (var relation in relations)
+        {
+            var label = _links.TargetLabel(module, relation);
+            var held = await RowsAsync(runner, "MATCH (x:`" + label + "`) WHERE x.invalidated_at IS NULL RETURN 1 AS one LIMIT 1", new { }, cancellationToken)
+                .ConfigureAwait(false);
+            if (held.Count == 0)
+                throw new ModuleRecordRefusal($"{module.Id} links into {relation.To}, which holds no records here yet: import {relation.To.Split(':')[0]} first.");
+        }
     }
 
     /// <summary>The live records of a pack, by type and key, with the version that wrote each.</summary>

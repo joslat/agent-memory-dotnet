@@ -40,6 +40,21 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     private static ModuleSnapshot NoWork(string source) => new() { Module = WorkPack.Manifest, Dependencies = [CodeMapPack.Manifest], Source = source, Records = [] };
 
     [Fact]
+    public async Task Review7_W9_AWorkSnapshotImportedBeforeTheCodeMapIsRefusedNotLeftWithoutItsLinks()
+    {
+        // Memory links a work snapshot to the code map once both are mounted; the store resolved the links as it wrote, so in
+        // the other order it kept none. Both stores refuse the import before its dependency holds records.
+        var store = new Neo4jModuleSnapshotStore(fixture.TransactionRunner);
+        var at = DateTimeOffset.UtcNow.AddMinutes(6);
+        await store.ImportAsync(NoCodeMap("git:clear"), at.AddSeconds(-2));
+        await store.ImportAsync(NoWork("git:clear"), at.AddSeconds(-1));
+        const string ledger = """{"tasks":[{"id":"W-1","task":"Make the map store keep history","status":"Done","notes":"Asked for in review."}]}""";
+        var work = WorkLedgerReader.Read(ledger, "tasks.json", [new WorkCommit("c1", "W-1: keep history", ["src/Map/MapStore.cs"])], "git:one");
+
+        var refused = await FluentActions.Awaiting(() => store.ImportAsync(work, at)).Should().ThrowAsync<KnowledgePackException>();
+        refused.Which.Problems.Should().ContainSingle().Which.Should().Contain("first");
+    }
+    [Fact]
     public async Task AWorkItemLinksToTheCodeMapFilesItsCommitsChangedAndAWalkClimbsFromTheFileToIt()
     {
         var store = new Neo4jModuleSnapshotStore(fixture.TransactionRunner);

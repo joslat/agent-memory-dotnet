@@ -91,10 +91,11 @@ public sealed class PackRuleRegistryTests
             ["WalkWorkBoundsTests.Review7_W7_the_walk_makes_the_fan_out_cut_whatever_a_store_returns_and_in_whatever_order",
              "WalkWorkBoundsTests.Review7_W10_what_the_walk_could_not_do_is_listed_in_one_order_whatever_the_store_s"],
             OpenFor: "the store differential runs on Neo4j only and never at a cap: no guard compares the stores where the caps bind"),
-        new("ONE-MOUNT-PLAN", "serve, test and gate hold packs together by the host's rules: one version per id, one live snapshot per module.",
+        new("ONE-MOUNT-PLAN", "serve, test and gate hold packs together by the host's rules: one version per id, one live snapshot per module, a snapshot refused before the dependency its links reach.",
             ["AgentMemory.Extensibility.Ampack.PackMountPlan.Of"], ["serve", "test", "gate"],
-            ["AmpackLoaderTests.Review7_W4_packs_are_held_together_as_a_host_holds_them_one_version_of_each"],
-            OpenFor: "R7-M5: links resolved by key whatever the import order"),
+            ["AmpackLoaderTests.Review7_W4_packs_are_held_together_as_a_host_holds_them_one_version_of_each",
+             "PackConsentTests.Review7_W9_a_snapshot_whose_links_reach_a_dependency_that_holds_nothing_is_refused_as_the_store_refuses_it",
+             "Integration:ModuleRecordWriteIntegrationTests.Review7_W9_AWorkSnapshotImportedBeforeTheCodeMapIsRefusedNotLeftWithoutItsLinks"]),
         new("LIVE-PER-RECORD", "A record takes part in a walk only while its module and the pack that carried it do: it neither seeds, steers nor offers.",
             ["AgentMemory.Extensibility.Context.Traversal.TraversalWalk.RunAsync"], ["serve"],
             ["WalkWorkBoundsTests.Review7_W8_a_record_that_may_not_take_part_neither_seeds_nor_steers"]),
@@ -129,7 +130,7 @@ public sealed class PackRuleRegistryTests
 
         problems.Should().BeEmpty();
         Rules.Where(r => r.OpenFor is not null).Select(r => r.Id).Should().Equal(
-            ["WALK-BOUNDED", "STORES-AGREE", "ONE-MOUNT-PLAN"],
+            ["WALK-BOUNDED", "STORES-AGREE"],
             "the open rules are the ones the report says are open; closing one moves it here and there together");
     }
 
@@ -150,6 +151,13 @@ public sealed class PackRuleRegistryTests
     {
         if (guard.StartsWith("kit:", StringComparison.Ordinal))
             return File.ReadAllText(Path.Combine(root, "conformance", "pack-v1.1", "run_vectors.py")).Contains($"\"{guard[4..]}\"", StringComparison.Ordinal);
+        // An integration guard runs on Neo4j, in the integration suite: named by its class and method, found in its source.
+        if (guard.StartsWith("Integration:", StringComparison.Ordinal))
+        {
+            var (type, method) = Split(guard["Integration:".Length..]);
+            return Directory.EnumerateFiles(Path.Combine(root, "tests", "AgentMemory.Tests.Integration"), "*.cs", SearchOption.AllDirectories)
+                .Any(f => File.ReadAllText(f).Contains($"class {type}", StringComparison.Ordinal) && File.ReadAllText(f).Contains($"public async Task {method}(", StringComparison.Ordinal));
+        }
         if (guard.StartsWith("PackFormat:", StringComparison.Ordinal))
         {
             var (type, method) = Split(guard["PackFormat:".Length..]);

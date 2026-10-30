@@ -63,11 +63,18 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             var firstSix = await ScalarsAsync($"MATCH (t:`{CodeMapPack.TestType}`) WHERE t.invalidated_at IS NULL RETURN t.key AS key ORDER BY key LIMIT 6");
             step.Edges.Select(e => e.To.Key).Should().Equal(firstSix);
 
-            // Past the limit a record is not expanded; finding that reads the hub's degree, not its 3,000 links.
-            var parameters = new Dictionary<string, object?> { ["ids"] = new[] { hub.Id }, ["maxLinks"] = 100, ["over"] = 101, ["owner"] = null, ["shared"] = true };
-            var hubs = ModuleTraversalQueries.InHubs(CodeMapPack.TestType, "CODEMAP_TESTS", CodeMapPack.SymbolType);
-            (await RowCountAsync(hubs, parameters)).Should().Be(1, "3,000 links are past a limit of 100");
-            (await MostRowsAsync(hubs, parameters)).Should().BeLessThan(tests, "the check counts the degree without reading every link");
+            // Past the limit a record is not expanded; the live expansion finds that from the hub's degree, not its 3,000 links
+            // (review 7, W12: this checked a copy of the hub statement no store ran).
+            var text = KnowledgePack.ResolutionOf(CodeMapPack.Manifest).Modules.Single().Ontology!.Types.Single(t => t.Name == CodeMapPack.TestType).TextProperties().ToArray();
+            var parameters = new Dictionary<string, object?>
+            {
+                ["ids"] = new[] { hub.Id }, ["maxLinks"] = 100, ["over"] = 101, ["owner"] = null, ["shared"] = true, ["fanOut"] = 6,
+                ["words"] = Array.Empty<string>(), ["text"] = text, ["scan"] = ModuleExpandQuery.MaximumScan, ["wide"] = ModuleTraversalQueries.WideKey,
+                ["fold"] = Enumerable.Range('A', 26).Select(c => new[] { ((char)c).ToString(), ((char)(c + 32)).ToString() }).ToArray(),
+            };
+            var expand = ModuleTraversalQueries.In(CodeMapPack.TestType, "CODEMAP_TESTS", CodeMapPack.SymbolType);
+            (await LinksAsync(expand, parameters)).Should().Equal([101L], "3,000 links are past a limit of 100, counted no further than one past it");
+            (await MostRowsAsync(expand, parameters)).Should().BeLessThan(tests, "the check counts the degree without reading every link");
         }
         finally { await store.ImportAsync(NoCodeMap("git:clear"), at.AddSeconds(1)); }
     }
@@ -79,11 +86,12 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         return [.. (await cursor.ToListAsync()).Select(r => global::Neo4j.Driver.ValueExtensions.As<string>(r["key"]))];
     }
 
-    private async Task<int> RowCountAsync(string query, Dictionary<string, object?> parameters)
+    // The link counts of the rows past the limit.
+    private async Task<IReadOnlyList<long>> LinksAsync(string query, Dictionary<string, object?> parameters)
     {
         await using var session = fixture.Driver.AsyncSession();
         var cursor = await session.RunAsync(query, parameters);
-        return (await cursor.ToListAsync()).Count;
+        return [.. (await cursor.ToListAsync()).Select(r => global::Neo4j.Driver.ValueExtensions.As<long>(r["links"])).Where(links => links > 100)];
     }
 
     // The most rows any step of the store's plan produced, from PROFILE.

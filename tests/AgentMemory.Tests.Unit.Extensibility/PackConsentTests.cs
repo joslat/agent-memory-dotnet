@@ -57,6 +57,16 @@ public sealed class PackConsentTests
     };
 
     [Fact]
+    public void Review7_W9_a_snapshot_whose_links_reach_a_dependency_that_holds_nothing_is_refused_as_the_store_refuses_it()
+    {
+        // The store resolved links as it wrote and memory once every pack was in, so a work snapshot imported before the code map
+        // lost its links in the store and kept them in memory. Both refuse it now, and with the code map's records both link.
+        FluentActions.Invoking(() => PackMemory.From([], [Ledger(consents: true)])).Should().Throw<KnowledgePackException>()
+            .Which.Problems.Should().ContainSingle().Which.Should().Contain("import com.example.code first");
+        var both = PackMemory.From([], [Codebase(consents: true), Ledger(consents: true)]);
+        both.Records.Single(r => r.Type == "WorkItem").Links.Should().ContainSingle();
+    }
+    [Fact]
     public void A_snapshot_that_links_into_a_pack_without_its_consent_is_refused_before_anything_is_written()
     {
         Ledger(consents: true).Problems().Should().BeEmpty();

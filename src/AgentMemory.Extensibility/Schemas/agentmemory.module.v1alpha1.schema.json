@@ -135,7 +135,7 @@
           "required": ["noRegression"],
           "properties": {
             "noRegression": { "type": "boolean" },
-            "tolerance": { "type": "number", "minimum": 0, "maximum": 0.5, "multipleOf": 0.001, "description": "At most three decimals. With a confidence and noRegression, above 0: no bound shows a drop of exactly 0." }
+            "tolerance": { "type": "number", "minimum": 0, "maximum": 0.5, "description": "At most three decimals (the runtime checks it: multipleOf is computed in binary floating point by most validators, which refuse 0.35). With a confidence and noRegression, above 0: no bound shows a drop of exactly 0." }
           }
         },
         "targets": {
@@ -143,11 +143,11 @@
           "additionalProperties": false,
           "minProperties": 1,
           "properties": {
-            "hitRate": { "type": "number", "minimum": 0, "maximum": 1, "multipleOf": 0.001 },
-            "precision": { "type": "number", "minimum": 0, "maximum": 1, "multipleOf": 0.001 },
-            "lift": { "type": "number", "minimum": -1, "maximum": 1, "multipleOf": 0.001 },
-            "precisionLift": { "type": "number", "minimum": -1, "maximum": 1, "multipleOf": 0.001 },
-            "addedP95Ms": { "type": "number", "exclusiveMinimum": 0, "maximum": 60000, "multipleOf": 0.001 }
+            "hitRate": { "type": "number", "minimum": 0, "maximum": 1, "description": "At most three decimals, checked at runtime." },
+            "precision": { "type": "number", "minimum": 0, "maximum": 1, "description": "At most three decimals, checked at runtime." },
+            "lift": { "type": "number", "minimum": -1, "maximum": 1, "description": "At most three decimals, checked at runtime." },
+            "precisionLift": { "type": "number", "minimum": -1, "maximum": 1, "description": "At most three decimals, checked at runtime." },
+            "addedP95Ms": { "type": "number", "exclusiveMinimum": 0, "maximum": 60000, "description": "At most three decimals, checked at runtime." }
           }
         }
       }

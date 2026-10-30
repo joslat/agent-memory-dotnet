@@ -63,12 +63,16 @@ internal static class PackVerifier
     /// <summary>
     /// What a caller needs to choose how to load a pack, authenticated first (review 6, H1: the load paths parsed an unsigned
     /// pack.json of any size to pick the loader): the paths, the signed list, exactly the content it lists, and the signatures
-    /// the policy requires; only then pack.json, bounded. The chosen loader verifies everything, the ledger included.
+    /// the policy requires; only then pack.json, bounded. The chosen loader verifies everything. The host's kept revocations
+    /// hold here too, as in <see cref="Verify"/> (review 7, D10: a key the ledger revoked passed this step, so its pack.json was
+    /// parsed and shown as authenticated before the loader refused it).
     /// </summary>
-    internal static (PackManifest? Manifest, IReadOnlyList<string> Problems) Authenticated(PackContent content, TrustPolicy policy, DateTimeOffset now)
+    internal static (PackManifest? Manifest, IReadOnlyList<string> Problems) Authenticated(PackContent content, TrustPolicy policy, DateTimeOffset now,
+        HostLedger? ledger = null)
     {
         var (integrity, list, listBytes) = CheckSigned(content, null);
         if (integrity.Count > 0) return (null, integrity);
+        if (ledger is not null) policy = ledger.Apply(policy);
         var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);
         if (refusal is not null) return (null, refusal);
         if (!content.Files.TryGetValue(PackManifest.FileName, out var bytes)) return (null, [$"There is no {PackManifest.FileName}."]);
@@ -290,6 +294,11 @@ internal static class PackVerifier
                 yield return "A pack set carries its members under packs/.";
                 break;
         }
+        // A composite or a set loads its members, not declarations of its own: a restriction it declares would load as if it
+        // were absent, so it is refused (review 7, F11: sdk, requires and containableBy were verified, then dropped).
+        if (manifest.Kind is "composite" or "set")
+            foreach (var field in (string[])["sdk", "requires", "containableBy"])
+                if (manifest.Present.Contains(field)) yield return $"A {manifest.Kind} pack declares no {field}: its members carry their own.";
         // Review 1, L6: a composite pins packs and holds no records of its own (spec §3).
         if (manifest.Kind == "composite" && records > 0) yield return $"A composite pack holds no records of its own under {PackLayout.Records}.";
         if (manifest.Kind == "composite" && all.Contains(PackPaths.LockFile))

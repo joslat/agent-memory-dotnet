@@ -246,8 +246,12 @@ def read_zip(data):
             raise Refused(f"entry '{name}' is not in the profile")
         if xlen or clen or dsk or iattr or eattr or name.endswith("/") or not safe_path(name):
             raise Refused(f"entry '{name}' is not in the profile")
-        if (previous is not None and previous >= name) or name.lower() in folded or off != cursor:
+        if (previous is not None and previous >= name) or off != cursor:
             raise Refused(f"entry '{name}' is out of order, repeated or not contiguous")
+        # Its own rule, named as .NET names it (review 7, L8: a case collision was reported as an ordering error, so the vector
+        # for it could not tell the rule from another).
+        if name.lower() in folded:
+            raise Refused(f"entry '{name}' differs from another only by case")
         local = data[cursor:cursor + 30]
         if local[:4] != b"PK\x03\x04" or local[4:30] != struct.pack("<HHHHHIIIHH", need, flags, method, time, date, crc, csize, size, nlen, 0) \
                 or data[cursor + 30:cursor + 30 + nlen] != name_bytes:
@@ -541,6 +545,11 @@ def manifest_checks(manifest, content, now):
         raise Refused(f"a {kind} pack holds records")
     if kind == "definition" and records:
         raise Refused("a definition pack holds no records")
+    # A composite or a set declares no restriction of its own (review 7, F11, as .NET): it would load as if absent.
+    if kind in ("composite", "set"):
+        for field in ("sdk", "requires", "containableBy"):
+            if field in manifest:
+                raise Refused(f"a {kind} pack declares no {field}: its members carry their own")
     if kind == "composite":
         if LOCK not in content or not manifest.get("contains"):
             raise Refused("a composite names what it contains and pins it in META/lock.json")

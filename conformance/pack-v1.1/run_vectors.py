@@ -123,6 +123,13 @@ REASONS = {
     "archive-deflate-empty-declares-content": ("compression ratio above 250", "breaks a size rule"),
     "archive-4097-files": ("more than 4096 files", "more than 4096 files"),
     "deflate-damaged": ("is not a valid deflate stream", "is not a valid deflate stream"),
+    "composite-declares-sdk": ("composite pack declares no sdk", "composite pack declares no sdk"),
+    "composite-declares-containable-by": ("composite pack declares no containableBy", "composite pack declares no containableBy"),
+    "set-declares-requires": ("set pack declares no requires", "set pack declares no requires"),
+    "case-collision": ("differs from another only by case", "differs from another only by case"),
+    "run-live-list-revoking-the-pack-beside-others": ("is revoked", "the pack is revoked"),
+    "revocations-by-a-revoked-revoker-revoking-the-pack": ("is revoked", "the pack is revoked"),
+    "certificate-arms-differ": ("ran different numbers of tasks", "different numbers of tasks"),
     "certificate-under-another-stem": ("not as its evaluator's key and evaluation time", "not as its evaluator's key and evaluation time"),
     # Readable minors (review 1, M18): each refused for the versioning rule, beside controls that verify.
     "minor-later-unknown-field-critical": ("does not understand it", "does not understand it"),
@@ -151,6 +158,12 @@ REASONS = {
     **{f"certificate-shape-{how}": ("not a DSSE envelope", "not a DSSE envelope") for how in SHAPES},
 }
 
+
+# Every other refused vector, held to the stable words each verifier says for it (review 7, L8: 32 of 291 were held to their
+# reason). pin_reasons.py writes reasons.json from a run, to be read before it is committed; REASONS above wins where both name one.
+_PINNED = json.loads((HERE / "reasons.json").read_text(encoding="utf-8"))["reasons"] if (HERE / "reasons.json").exists() else {}
+for _name, (_dn, _py) in _PINNED.items():
+    REASONS.setdefault(_name, (re.escape(_dn), re.escape(_py)))
 
 def refused_for(name, dotnet_text, python_text):
     """Whether a vector named in REASONS was refused for its own rule by both verifiers (true for every other vector)."""
@@ -904,6 +917,15 @@ def main():
     vectors["set-member-with-the-set-id"] = (set_of("io.example.bundle", {"io.example.bundle": signed(same_id_content, pid_="io.example.bundle")}),
                                              "trust.json", "refused")
     vectors["composite-with-records"] = (family_with(**{"records/x.jsonl": b'{"key":"x"}\n'}), "trust.json", "refused")
+    # Review 7, L10: a composite or a set declares no restriction of its own; one it declared was verified, then dropped.
+    family_manifest = json.loads(composite_content["pack.json"])
+    vectors["composite-declares-sdk"] = (family_with(**{"pack.json": (json.dumps({**family_manifest, "sdk": "[0.1,0.2)"}, indent=2) + chr(10)).encode()}),
+                                         "trust.json", "refused")
+    vectors["composite-declares-containable-by"] = (family_with(**{"pack.json": (json.dumps({**family_manifest, "containableBy": ["io.example.host"]}, indent=2)
+                                                                                  + chr(10)).encode()}), "trust.json", "refused")
+    restricted = dict(set_manifest, requires={"host": ["Inference"]})
+    vectors["set-declares-requires"] = (signed({**{k: v for k, v in bundle_content.items()}, "pack.json": (json.dumps(restricted, indent=2) + chr(10)).encode()},
+                                               pid_=set_manifest["id"]), "trust.json", "refused")
     vectors["composite-member-extra-field"] = (family_with(**{"members.json": (json.dumps({"members": [{"id": pid, "version": "[1,2)", "note": "x"}]}) + chr(10)).encode()}),
                                                "trust.json", "refused")
     for name, member in {"member-without-version": {"id": pid}, "member-priority-text": {"id": pid, "version": "[1,2)", "priority": "1"},
@@ -1242,7 +1264,9 @@ def main():
                                                    certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-passed-on-nine-tasks": (carrying(certificate(certified, with_arm=arm_(9, 9, 9, 9, 1))),
                                              certificate_path, None, "trust-evaluator.json", "refused"),
-        "certificate-arms-differ": (carrying(certificate(certified, without=arm_(39, 1, 1, 1, 1))),
+        # Review 7, L8: a baseline of none that offers nothing, so the vector is refused for its own rule, the arms' task counts,
+        # and no longer for offering items, which the verifiers check in different orders.
+        "certificate-arms-differ": (carrying(certificate(certified, without=arm_(39, 0, 0, 0, 1, cap=0))),
                                     certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-host-baseline-without-arm": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"})),
                                                   certificate_path, None, "trust-evaluator.json", "refused"),

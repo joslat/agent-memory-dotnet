@@ -223,14 +223,14 @@ public static class PackLoader
     }
 
     // The archive read once and authenticated: its manifest, to pick the loader, and its content, for the loader to verify.
-    internal static (PackManifest Manifest, PackContent Content) Open(byte[] archive, PackTrust trust)
+    internal static (PackManifest Manifest, PackContent Content) Open(byte[] archive, PackTrust trust, PackInstallLedger? ledger = null)
     {
         ArgumentNullException.ThrowIfNull(archive);
         ArgumentNullException.ThrowIfNull(trust);
         PackContent content;
         try { content = PackReader.ReadArchive(archive, "archive"); }
         catch (InvalidDataException e) { throw new PackLoadException([e.Message]); }
-        var (manifest, problems) = PackVerifier.Authenticated(content, trust.Policy, DateTimeOffset.UtcNow);
+        var (manifest, problems) = PackVerifier.Authenticated(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger);
         return manifest is null ? throw new PackLoadException(problems) : (manifest, content);
     }
 

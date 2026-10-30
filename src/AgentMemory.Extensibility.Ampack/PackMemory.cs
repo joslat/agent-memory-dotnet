@@ -100,6 +100,13 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 };
                 memory._byId[stored.Id] = stored;
             }
+        // A snapshot whose links reach into a dependency type that holds no records is refused, as the store refuses it at import
+        // (review 7, W9: the store resolved links as it wrote, memory once all was mounted, so import order changed the walk).
+        foreach (var shot in shots)
+            foreach (var relation in shot.Module.Ontology!.Relations.Where(r => r.To.Contains(':', StringComparison.Ordinal) && !r.To.StartsWith("core:", StringComparison.Ordinal)))
+                if (shot.Records.Any(r => r.Type == relation.From && r.Links.Any(l => l.Relation == relation.Name))
+                    && Target(shot.Module.Id, relation) is { } into && !memory._byId.Values.Any(r => r.ModuleId == into.Module && r.Type == into.Type))
+                    throw new KnowledgePackException([$"{shot.Module.Id} links into {relation.To}, which holds no records here yet: import {into.Module} first."]);
         // Links once every record is in: a link resolves to the record its target key names, in this module or a dependency.
         foreach (var (manifest, records) in sources)
             foreach (var record in records)

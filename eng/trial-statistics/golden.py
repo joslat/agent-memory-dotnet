@@ -41,5 +41,13 @@ for spacing in (1, 2, 3):
     for conf in (0.95, 0.99):
         cases.append(case(conf, 3, 3, tasks(40, 3, .45), tasks(40, 3, .3), spacing))
         cases.append(case(conf, 3, 0, tasks(41, 3, .6), [(0, 0)] * 41, spacing))
+# Review 7, G11: the branches the cases above left out, where the port and the reference could drift unseen: spacings 4 to 12
+# (clusters of two, the usual case for 40 tasks over 160 to 319 eligible commits, and none past 8), clustering at cap 1 (Clopper-
+# Pearson) and cap 16, cap 2, and a first arm that offers nothing by design (the difference's upper-bound branch).
+for spacing in (4, 5, 7, 9, 12):
+    cases.append(case(0.95, 3, 3, tasks(40, 3, .45), tasks(40, 3, .3), spacing))
+for cap, spacing in ((1, 2), (16, 3), (2, 8), (2, 4)):
+    cases.append(case(0.95, cap, 3, tasks(40, cap, .5), tasks(40, 3, .3), spacing))
+cases.append(case(0.95, 0, 3, [(0, 0)] * 40, tasks(40, 3, .3)))
 Path(__file__).with_name("golden.json").write_text(json.dumps(cases, indent=0), encoding="utf-8")
 print(len(cases), "cases")
