@@ -1584,13 +1584,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
    "edits": [
     {
-     "old": "                if (erased.Any(e => e.PackId == manifest.Id && e.Erases(record.Type, record.Key))) continue;\n",
+     "old": "                if (erased.Any(e => e.Names(record.Source, record.Type, record.Key))) continue;\n",
      "new": ""
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ErasureTests",
-   "sha256": "09e6c38c08eeb7e9aa6e921147f500d7c656105e9502de44aaabaac1e2b2db9a"
+   "sha256": "e21c5d5056e1e5a54b7933bb9a5cada34e6fe3dde0517ebce21fd96e0a4830a8"
   },
   {
    "id": "erasure-by-anyone",
@@ -1636,6 +1636,81 @@
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ErasureTests",
    "sha256": "4485af6a35f62f75fe606d031ac4a86546259b49d32a46b0569ac3b363b7a166"
+  },
+  {
+   "id": "set-erases-nothing",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "        erasures.Count != 0 && erasures.Any(",
+     "new": "        false && erasures.Any("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "291b8631edaf31900fb819a4b93eaa9d4c1a9ff2a0ae65764e9bb7ad73c87741"
+  },
+  {
+   "id": "erasure-by-module",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Packs/ModuleErasure.cs",
+   "edits": [
+    {
+     "old": "        (source?.Pack?.Carrier?.Id ?? source?.Pack?.Id) == PackId && Erases(type, key);",
+     "new": "        Erases(type, key);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "9ac06c4e7d43c3ce098eae906b9873c60cf428e1ea24482158c93c1f4fc3f4f2"
+  },
+  {
+   "id": "import-ignores-erasures",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImport.cs",
+   "edits": [
+    {
+     "old": "importer.ImportAsync(knowledge, pack.Erasures, allowDowngrade,",
+     "new": "importer.ImportAsync(knowledge, [], allowDowngrade,"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "5395b52ea4d07d234077c1dfaa383e501f63edd6df843b35e7a6b44b411e1a4c"
+  },
+  {
+   "id": "loader-drops-erasures",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "            Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "eea3129f690f1eb9d81636560aa8f7157654be100444206258b8f5585cc18640"
+  },
+  {
+   "id": "python-issued-any-digit",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    if not isinstance(issued, str) or not SIGNED_AT.fullmatch(issued):",
+     "new": "    if not isinstance(issued, str):"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "41ca82777e9db6d4cac36a0647b58be6beefdc738f6079585827dfadd3395d34"
   },
   {
    "id": "hash-unsalted",

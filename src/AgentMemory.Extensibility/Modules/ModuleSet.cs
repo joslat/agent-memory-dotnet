@@ -242,8 +242,11 @@ public sealed class ModuleSet
     internal IReadOnlyList<Packs.ModuleErasure> Erasures { get; init; } = [];
 
     // Whether an erasure this host holds names the record (feature 08, R-CORE-134), whatever the store still holds.
-    internal bool Erased(ModuleRecord record) =>
-        Erasures.Count != 0 && Erasures.Any(e => (e.PackId == record.ModuleId || e.PackId == record.Source.Pack?.Id) && e.Erases(record.Type, record.Key));
+    internal bool Erased(ModuleRecord record) => ErasedBy(Erasures, record);
+
+    // The one rule (ModuleErasure.Names): by the pack that carried the record, never by its module.
+    internal static bool ErasedBy(IReadOnlyList<Packs.ModuleErasure> erasures, ModuleRecord record) =>
+        erasures.Count != 0 && erasures.Any(e => e.Names(record.Source, record.Type, record.Key));
 
     internal sealed class LiveReader(IModuleReader inner, Func<string, bool>? live, TimeProvider clock, Func<ModuleRecord, bool>? erased = null) : IModuleReader
     {

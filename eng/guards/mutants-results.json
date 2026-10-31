@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "bf1014e7",
+ "commit": "5e8fb803",
  "results": [
   {
    "id": "archive-ratio",
@@ -80,11 +80,11 @@
    "door": "countersign",
    "mutant_sha256": "44dba73044b5b67721de1731a6ca91e53eb15ad497a5db500e805684a0fc9a2c",
    "killed": true,
-   "file_sha256": "75c7d8e9dc577948aaa3d3ed0aaa6fd234e5777ea4bcea0c91b9547273f28be9",
+   "file_sha256": "7f8f6f6d080a68582b49cb0573a6fd37de77808219582ff29411afda076a04e6",
    "failed": [
     "ChokePointRatchetTests.Pack_code_reads_parses_and_prints_only_through_its_choke_points_or_a_listed_site"
    ],
-   "seconds": 12
+   "seconds": 10
   },
   {
    "id": "parse-before-signatures",
@@ -152,11 +152,11 @@
    "door": "lint",
    "mutant_sha256": "7876e1af5bfa0ba93c49261106e3c58290a9f48be9e7cbfc3395107dc4495d5a",
    "killed": true,
-   "file_sha256": "75c7d8e9dc577948aaa3d3ed0aaa6fd234e5777ea4bcea0c91b9547273f28be9",
+   "file_sha256": "7f8f6f6d080a68582b49cb0573a6fd37de77808219582ff29411afda076a04e6",
    "failed": [
     "ChokePointRatchetTests.Pack_code_reads_parses_and_prints_only_through_its_choke_points_or_a_listed_site"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "raw-parse-split-in-diff",
@@ -226,7 +226,7 @@
    "door": "lint",
    "mutant_sha256": "e1978b932dcf474248eb09c703756e14491cee37b74f6b88bb717e57ea0079fa",
    "killed": true,
-   "file_sha256": "75c7d8e9dc577948aaa3d3ed0aaa6fd234e5777ea4bcea0c91b9547273f28be9",
+   "file_sha256": "7f8f6f6d080a68582b49cb0573a6fd37de77808219582ff29411afda076a04e6",
    "failed": [
     "PackDoorMatrixTests.Review8_lint_bounds_what_nobody_verified_before_it_parses_any_of_it"
    ],
@@ -274,7 +274,7 @@
    "door": "definition",
    "mutant_sha256": "1d7a336bf64bdaa14c83688403c3864333505ac350dffb4801f90184e542e3eb",
    "killed": true,
-   "file_sha256": "75c7d8e9dc577948aaa3d3ed0aaa6fd234e5777ea4bcea0c91b9547273f28be9",
+   "file_sha256": "7f8f6f6d080a68582b49cb0573a6fd37de77808219582ff29411afda076a04e6",
    "failed": [
     "ShownWriterTests.The_tool_installs_it_on_both_streams"
    ],
@@ -286,7 +286,7 @@
    "door": "inspect",
    "mutant_sha256": "1e55703f45bbbfbf71b1b93abc9bd51688d5e72545c7c1954570e849f60ac4a4",
    "killed": true,
-   "file_sha256": "75c7d8e9dc577948aaa3d3ed0aaa6fd234e5777ea4bcea0c91b9547273f28be9",
+   "file_sha256": "7f8f6f6d080a68582b49cb0573a6fd37de77808219582ff29411afda076a04e6",
    "failed": [
     "PackDoorMatrixTests.Every_command_meets_every_hostile_pack_with_a_refusal_or_an_answer_that_is_bounded_and_escaped"
    ],
@@ -637,11 +637,11 @@
    "door": "certificate",
    "mutant_sha256": "7fbbd683b661342f8b85d8f7c3313892a91b984b82c23f6237fa7f44bf30f9c7",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 169
+   "seconds": 165
   },
   {
    "id": "pooled-first-copy",
@@ -673,7 +673,7 @@
    "door": "serve",
    "mutant_sha256": "5c0b3d1f26ad0dd394db3d8309197cb2ae3ae5b41a80b20742a279eb2385785c",
    "killed": true,
-   "file_sha256": "b780c29a14d2f834bd1a2ab377576b5f5c2de9fdff05f35746439879fd065012",
+   "file_sha256": "499c3daf06e811136245d19772f54a8c85bdc8fdffec609c4127c842b5d3c9bb",
    "failed": [
     "AmpackLoaderTests.Review11_serve_holds_what_the_host_composes_whatever_the_packaging",
     "PackFamilyTests.Review11_serve_refuses_a_family_the_host_refuses"
@@ -723,7 +723,7 @@
    "door": "install",
    "mutant_sha256": "f1a700f453eba57cab9448c0a86c2c56c731475c8e38817eef80ec4651c15f76",
    "killed": true,
-   "file_sha256": "b780c29a14d2f834bd1a2ab377576b5f5c2de9fdff05f35746439879fd065012",
+   "file_sha256": "499c3daf06e811136245d19772f54a8c85bdc8fdffec609c4127c842b5d3c9bb",
    "failed": [
     "PackConsentTests.Review14_install_runs_the_snapshot_imports_serve_runs"
    ],
@@ -761,11 +761,11 @@
    "door": "verify",
    "mutant_sha256": "09c65367272920ce39b8f849db42c9273fc4a752a171d57fcaf4960ba0a090e6",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 183
+   "seconds": 166
   },
   {
    "id": "decimal-read-as-integer",
@@ -870,11 +870,11 @@
    "door": "verify",
    "mutant_sha256": "bc1efb1c089b02698600e1bb1620d7384653ee77418607dd39dff96afa935d13",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 172
+   "seconds": 164
   },
   {
    "id": "display-unsafe-shown",
@@ -894,11 +894,11 @@
    "door": "verify",
    "mutant_sha256": "9047ad98c9c7ef61a5e8413e3758a90a34e4085e22849576875765f215379cd9",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 166
+   "seconds": 168
   },
   {
    "id": "frame-skipped",
@@ -991,11 +991,11 @@
    "door": "verify",
    "mutant_sha256": "92a520bf3147a9eb69bc691bcf3a7e4ddef2d73cd41b12eec94d24c587fbd951",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 169
+   "seconds": 174
   },
   {
    "id": "safety-always-met",
@@ -1112,7 +1112,7 @@
    "door": "certificate",
    "mutant_sha256": "b4923969347e1cb3edc91d268900bdfb4575863443d4a56d968d2f688b2118d3",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
@@ -1136,11 +1136,11 @@
    "door": "certificate",
    "mutant_sha256": "40371bde7c89a9d9dd0ea8ed9b8eada24fa3d9107bb21b0be4deb65da7599493",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 166
+   "seconds": 168
   },
   {
    "id": "certificate-bytes-dropped",
@@ -1185,11 +1185,11 @@
    "door": "verify",
    "mutant_sha256": "24b91fb39228e7f676261ede78300a02a2ced1f18695d10669859973ae77bf97",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 163
+   "seconds": 167
   },
   {
    "id": "reader-ignores-life",
@@ -1197,7 +1197,7 @@
    "door": "serve",
    "mutant_sha256": "fa3f623bf3d296eb4921e3288c4685d579c98ceaaa0fbdb6d50c36274b3ebf0f",
    "killed": true,
-   "file_sha256": "c8b0677b90ddfd719972da6d46d2dfdb12c46636b7f93e643d6b1c13c1aa2880",
+   "file_sha256": "b208aa6c0d9ecba302e999bdb44cc887b582a7f9273ba10dd8c431d0fd6d312a",
    "failed": [
     "RecordLifeTests.The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_at_it"
    ],
@@ -1209,7 +1209,7 @@
    "door": "serve",
    "mutant_sha256": "4964182a26840a4119d9cea00045f233bc392fb3f6f196bf779e336e6b0281d9",
    "killed": true,
-   "file_sha256": "b780c29a14d2f834bd1a2ab377576b5f5c2de9fdff05f35746439879fd065012",
+   "file_sha256": "499c3daf06e811136245d19772f54a8c85bdc8fdffec609c4127c842b5d3c9bb",
    "failed": [
     "RecordLifeTests.A_record_past_its_life_never_takes_a_live_neighbour_s_place_in_the_fan_out"
    ],
@@ -1268,13 +1268,13 @@
    "id": "memory-keeps-erased",
    "rule": "ERASED-STAYS-GONE",
    "door": "serve",
-   "mutant_sha256": "09e6c38c08eeb7e9aa6e921147f500d7c656105e9502de44aaabaac1e2b2db9a",
+   "mutant_sha256": "e21c5d5056e1e5a54b7933bb9a5cada34e6fe3dde0517ebce21fd96e0a4830a8",
    "killed": true,
-   "file_sha256": "b780c29a14d2f834bd1a2ab377576b5f5c2de9fdff05f35746439879fd065012",
+   "file_sha256": "499c3daf06e811136245d19772f54a8c85bdc8fdffec609c4127c842b5d3c9bb",
    "failed": [
     "ErasureTests.Memory_never_holds_an_erased_record_and_links_into_it_are_left_out"
    ],
-   "seconds": 9
+   "seconds": 8
   },
   {
    "id": "erasure-by-anyone",
@@ -1282,11 +1282,11 @@
    "door": "verify",
    "mutant_sha256": "805688cfedf590ccf694ceaa07f0afccc64d44cc5b9c53c5d0c0cdadbf4fe335",
    "killed": true,
-   "file_sha256": "40225d7926092bec1a5d32ab0f788bdc8bda1a61a91fe2dc73055b799657b272",
+   "file_sha256": "0ad1620935692a80763069a24b24f3f3d6ac33b35031be0c49bff5f8a95d34cf",
    "failed": [
     "kit"
    ],
-   "seconds": 168
+   "seconds": 169
   },
   {
    "id": "python-erasure-by-anyone",
@@ -1294,11 +1294,11 @@
    "door": "verify",
    "mutant_sha256": "d469ef496e0f0f6a060aaf3f8248eb58d51af1f5d90a4891c9d5eea68d5e3ce1",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 165
+   "seconds": 168
   },
   {
    "id": "offered-while-pending",
@@ -1306,11 +1306,71 @@
    "door": "serve",
    "mutant_sha256": "4485af6a35f62f75fe606d031ac4a86546259b49d32a46b0569ac3b363b7a166",
    "killed": true,
-   "file_sha256": "c8b0677b90ddfd719972da6d46d2dfdb12c46636b7f93e643d6b1c13c1aa2880",
+   "file_sha256": "b208aa6c0d9ecba302e999bdb44cc887b582a7f9273ba10dd8c431d0fd6d312a",
    "failed": [
     "ErasureTests.A_module_set_never_offers_a_record_an_erasure_it_holds_names_whatever_the_store_holds"
    ],
-   "seconds": 7
+   "seconds": 8
+  },
+  {
+   "id": "set-erases-nothing",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "serve",
+   "mutant_sha256": "291b8631edaf31900fb819a4b93eaa9d4c1a9ff2a0ae65764e9bb7ad73c87741",
+   "killed": true,
+   "file_sha256": "b208aa6c0d9ecba302e999bdb44cc887b582a7f9273ba10dd8c431d0fd6d312a",
+   "failed": [
+    "ErasureTests.A_module_set_never_offers_a_record_an_erasure_it_holds_names_whatever_the_store_holds"
+   ],
+   "seconds": 9
+  },
+  {
+   "id": "erasure-by-module",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "definition",
+   "mutant_sha256": "9ac06c4e7d43c3ce098eae906b9873c60cf428e1ea24482158c93c1f4fc3f4f2",
+   "killed": true,
+   "file_sha256": "75d5b0988ff0550962a8eb67916bfb8b4a828c24728cc52187f56dbb6c3a0e1b",
+   "failed": [
+    "ErasureTests.A_module_set_never_offers_a_record_an_erasure_it_holds_names_whatever_the_store_holds"
+   ],
+   "seconds": 9
+  },
+  {
+   "id": "import-ignores-erasures",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "install",
+   "mutant_sha256": "5395b52ea4d07d234077c1dfaa383e501f63edd6df843b35e7a6b44b411e1a4c",
+   "killed": true,
+   "file_sha256": "4c8f998aa38101e0890113cedb6e7da878bff669ec5c4937a7b219b774c06618",
+   "failed": [
+    "ErasureTests.A_loaded_packs_import_applies_the_erasures_it_carries_first"
+   ],
+   "seconds": 8
+  },
+  {
+   "id": "loader-drops-erasures",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "install",
+   "mutant_sha256": "eea3129f690f1eb9d81636560aa8f7157654be100444206258b8f5585cc18640",
+   "killed": true,
+   "file_sha256": "0b975cfd4d086795fc5faf4e5250f8c16115f22b51e1c10f6d35a6f4228f64a3",
+   "failed": [
+    "ErasureTests.A_loaded_pack_keeps_the_erasures_it_carries_that_verify_and_no_other"
+   ],
+   "seconds": 8
+  },
+  {
+   "id": "python-issued-any-digit",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "verify",
+   "mutant_sha256": "41ca82777e9db6d4cac36a0647b58be6beefdc738f6079585827dfadd3395d34",
+   "killed": true,
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
+   "failed": [
+    "kit"
+   ],
+   "seconds": 165
   },
   {
    "id": "hash-unsalted",
@@ -1354,11 +1414,11 @@
    "door": "verify",
    "mutant_sha256": "e62a3bbc3fc7b6120fa1345277898ffa9d676c23bc338e3ecf2430bbea97a64b",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 167
+   "seconds": 165
   },
   {
    "id": "links-before-dependency",
@@ -1366,7 +1426,7 @@
    "door": "memory",
    "mutant_sha256": "837745dcc83c15215cdb4251c74ad6c53a9795049caa2896ecbe5a2c98fbded3",
    "killed": true,
-   "file_sha256": "b780c29a14d2f834bd1a2ab377576b5f5c2de9fdff05f35746439879fd065012",
+   "file_sha256": "499c3daf06e811136245d19772f54a8c85bdc8fdffec609c4127c842b5d3c9bb",
    "failed": [
     "PackConsentTests.Review7_W9_a_snapshot_whose_links_reach_a_dependency_that_holds_nothing_is_refused_as_the_store_refuses_it"
    ],
@@ -1390,7 +1450,7 @@
    "door": "pack memory",
    "mutant_sha256": "3dfa47b6c585c0033755167ec87cd566da2e37d6b99afb0c8ab2b5630e606675",
    "killed": true,
-   "file_sha256": "b780c29a14d2f834bd1a2ab377576b5f5c2de9fdff05f35746439879fd065012",
+   "file_sha256": "499c3daf06e811136245d19772f54a8c85bdc8fdffec609c4127c842b5d3c9bb",
    "failed": [
     "Review8GuardTests.A4_a_pack_memory_walk_leaves_out_the_records_an_expired_carrier_brought"
    ],
@@ -1402,7 +1462,7 @@
    "door": "countersign",
    "mutant_sha256": "7ffc3519a21120abb827946ab40b76ccb601c1dce565e1da0e86eb10238da543",
    "killed": true,
-   "file_sha256": "75c7d8e9dc577948aaa3d3ed0aaa6fd234e5777ea4bcea0c91b9547273f28be9",
+   "file_sha256": "7f8f6f6d080a68582b49cb0573a6fd37de77808219582ff29411afda076a04e6",
    "failed": [
     "PackDoorMatrixTests.Review7_L7_countersign_lock_and_set_act_only_on_a_pack_whose_signatures_hold"
    ],
@@ -1414,7 +1474,7 @@
    "door": "lock",
    "mutant_sha256": "79bd25f6ec5ab2cc106b5fcbda99d0121455dfd087ed54c89b779eb412eb9210",
    "killed": true,
-   "file_sha256": "75c7d8e9dc577948aaa3d3ed0aaa6fd234e5777ea4bcea0c91b9547273f28be9",
+   "file_sha256": "7f8f6f6d080a68582b49cb0573a6fd37de77808219582ff29411afda076a04e6",
    "failed": [
     "PackDoorMatrixTests.Review7_L7_countersign_lock_and_set_act_only_on_a_pack_whose_signatures_hold"
    ],
@@ -1426,7 +1486,7 @@
    "door": "set",
    "mutant_sha256": "d3df1794ad84478e1d98190452bd84c8c9f469a61f2a6f6d3edd8c10d263e94e",
    "killed": true,
-   "file_sha256": "75c7d8e9dc577948aaa3d3ed0aaa6fd234e5777ea4bcea0c91b9547273f28be9",
+   "file_sha256": "7f8f6f6d080a68582b49cb0573a6fd37de77808219582ff29411afda076a04e6",
    "failed": [
     "PackDoorMatrixTests.Review7_L7_countersign_lock_and_set_act_only_on_a_pack_whose_signatures_hold"
    ],
@@ -1474,7 +1534,7 @@
    "door": "countersign",
    "mutant_sha256": "246ead98b0249bf6fdff7c5a2e61c3b19d13351e706d28d6845542baee6c86d7",
    "killed": true,
-   "file_sha256": "75c7d8e9dc577948aaa3d3ed0aaa6fd234e5777ea4bcea0c91b9547273f28be9",
+   "file_sha256": "7f8f6f6d080a68582b49cb0573a6fd37de77808219582ff29411afda076a04e6",
    "failed": [
     "PackDoorMatrixTests.Review7_L7_countersign_lock_and_set_act_only_on_a_pack_whose_signatures_hold"
    ],
@@ -1534,11 +1594,11 @@
    "door": "python",
    "mutant_sha256": "35d98024f382d9d80e48c26719053c25fb591e1af16dbe9fddf45e3d9208180d",
    "killed": true,
-   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "file_sha256": "0214a25a7cbb195ee17452d5f6a42eefb908ec53e7dbf1b4b386cab562a617cc",
    "failed": [
     "kit"
    ],
-   "seconds": 164
+   "seconds": 165
   }
  ]
 }

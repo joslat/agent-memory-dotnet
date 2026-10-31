@@ -103,7 +103,7 @@ public sealed class Neo4jModuleStore : IModuleStore
                 await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
                 // A record a tombstone names is never written again (feature 08, R-CORE-134), from any version or copy.
                 var tombstones = await TombstonesAsync(transaction, module.Id, cancellationToken).ConfigureAwait(false);
-                var proposals = pack.Proposals.Where(p => !tombstones.Any(t => t.Type == p.Type && t.KeyHash == ModuleErasure.KeyHash(t.Salt, p.Key))).ToList();
+                var proposals = WithoutErased(module, pack.Proposals, tombstones);
                 var live = await PackLiveAsync(transaction, module, cancellationToken).ConfigureAwait(false);
                 var seeded = proposals.Select(p => (p.Type, p.Key)).ToHashSet();
                 var gone = live.Keys.Where(k => !seeded.Contains(k)).Order().ToArray();
@@ -129,6 +129,19 @@ public sealed class Neo4jModuleStore : IModuleStore
         catch (ModuleRecordRefusal refusal) { throw new KnowledgePackException([refusal.Message]); }
     }
 
+    // The records no tombstone names, each without its links into records one names (review F08, H5: a surviving record's link
+    // into an erased one made an exact import fail for good; the link goes with the record, as memory drops it).
+    private static List<ModuleProposal> WithoutErased(ModuleManifest module, IReadOnlyList<ModuleProposal> records,
+        List<(string Type, string Salt, string KeyHash)> tombstones)
+    {
+        if (tombstones.Count == 0) return [.. records];
+        bool Buried(string type, string key) => tombstones.Any(t => t.Type == type && t.KeyHash == ModuleErasure.KeyHash(t.Salt, key));
+        return [.. records.Where(p => !Buried(p.Type, p.Key)).Select(p => p with
+        {
+            Links = [.. p.Links.Where(l => module.Ontology!.Relations.FirstOrDefault(r => r.Name == l.Relation && r.From == p.Type) is not { } relation || !Buried(relation.To, l.Target))],
+        })];
+    }
+
     // The tombstones of a pack's erased records (feature 08): type, salt and key hash; never a key.
     private static async Task<List<(string Type, string Salt, string KeyHash)>> TombstonesAsync(IAsyncQueryRunner transaction, string packId, CancellationToken cancellationToken)
     {
@@ -142,9 +155,11 @@ public sealed class Neo4jModuleStore : IModuleStore
     /// Applies erasures to a pack's records in one transaction (feature 08, R-CORE-133): every version of each erased record and
     /// its key are removed with their links, and a tombstone of the pack, the type, the salt and the key's hash is kept.
     /// </summary>
-    internal async Task<KnowledgePackEraseResult> ErasePackAsync(string packId, IReadOnlyList<ModuleErasure> erasures, DateTimeOffset atUtc, CancellationToken cancellationToken)
+    internal async Task<KnowledgePackEraseResult> ErasePackAsync(string packId, IReadOnlyList<ModuleErasure> erasures, DateTimeOffset atUtc, CancellationToken cancellationToken,
+        string? moduleId = null)
     {
-        var module = _resolution.Modules.Single(m => m.Id == packId);
+        // A snapshot pack's records live in its definition's module, carried by it (review F08, H3).
+        var module = _resolution.Modules.Single(m => m.Id == (moduleId ?? packId));
         return await _runner.WriteAsync(async transaction =>
         {
             await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
@@ -154,13 +169,13 @@ public sealed class Neo4jModuleStore : IModuleStore
             {
                 var named = erasures.SelectMany(e => e.Records.Where(r => r.Type == type.Name).Select(r => (Erasure: e, Record: r))).ToList();
                 if (named.Count == 0) continue;
-                var cursor = await transaction.RunAsync("MATCH (n:`" + type.Name + "`) WHERE n.source_pack=$pack RETURN DISTINCT n.key AS key",
+                var cursor = await transaction.RunAsync("MATCH (n:`" + type.Name + "`) WHERE coalesce(n.source_carrier, n.source_pack)=$pack RETURN DISTINCT n.key AS key",
                     new Dictionary<string, object?> { ["pack"] = packId }).ConfigureAwait(false);
                 var keys = (await cursor.ToListAsync(cancellationToken).ConfigureAwait(false)).Select(r => r["key"].As<string>()).ToList();
                 var gone = keys.Where(k => named.Any(n => n.Erasure.Erases(type.Name, k))).ToList();
                 if (gone.Count > 0)
                 {
-                    await transaction.RunAsync("MATCH (n:`" + type.Name + "`) WHERE n.source_pack=$pack AND n.key IN $keys "
+                    await transaction.RunAsync("MATCH (n:`" + type.Name + "`) WHERE coalesce(n.source_carrier, n.source_pack)=$pack AND n.key IN $keys "
                         + "OPTIONAL MATCH (k:ModuleKey {id:n.key_id}) DETACH DELETE n, k",
                         new Dictionary<string, object?> { ["pack"] = packId, ["keys"] = gone }).ConfigureAwait(false);
                     erased += gone.Count;
@@ -198,7 +213,12 @@ public sealed class Neo4jModuleStore : IModuleStore
         Interlocked.Exchange(ref _linksLeftOut, 0);
         var module = _resolution.Modules.Single(m => m.Id == snapshot.Module.Id);
         var request = PackRequest(module.Id, atUtc);
-        var records = snapshot.ImportOrder(selfCycles: true);
+        var ordered = snapshot.ImportOrder(selfCycles: true);
+        // What a snapshot pack's erasures buried never comes back with a later snapshot it carries (review F08, H3).
+        var tombstones = snapshot.Carrier is { } carrier
+            ? await _runner.ReadAsync(transaction => TombstonesAsync(transaction, carrier.Id, cancellationToken), cancellationToken).ConfigureAwait(false)
+            : [];
+        IReadOnlyList<ModuleProposal> records = WithoutErased(module, ordered, tombstones);
         var selfRelations = module.Ontology!.Relations.Where(r => r.From == r.To).Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
         try
         {

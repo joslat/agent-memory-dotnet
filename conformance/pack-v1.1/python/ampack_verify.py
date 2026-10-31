@@ -1615,13 +1615,13 @@ def read_erasure(payload):
     if not isinstance(pred.get("id"), str) or not valid_id(pred["id"]):
         raise Refused("the erasure names no valid pack id")
     issued = pred.get("issuedAt")
-    if not isinstance(issued, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", issued):
+    if not isinstance(issued, str) or not SIGNED_AT.fullmatch(issued):
         raise Refused("the erasure's issuedAt is an instant in UTC to the second")
     try:
         issued_at = datetime.strptime(issued, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     except ValueError:
         raise Refused("the erasure's issuedAt is an instant in UTC to the second")
-    if pred.get("reason") not in ERASURE_REASONS or not isinstance(pred.get("reason"), str):
+    if not isinstance(pred.get("reason"), str) or pred["reason"] not in ERASURE_REASONS:
         raise Refused("the erasure's reason is one the registry names")
     salt = pred.get("salt")
     if not isinstance(salt, str) or not re.fullmatch(r"[0-9a-f]{32}", salt):
@@ -1645,7 +1645,7 @@ def read_erasure(payload):
     return pred, issued_at
 
 
-def verify_erasure(envelope_bytes, pid, policy, now):
+def verify_erasure(envelope_bytes, pid, policy, now, publisher_web_id=None):
     """An erasure for the pack pid (feature 08): signed by a key the host trusts as publisher or revoker for its id."""
     if len(envelope_bytes) > MAX_ENVELOPE:
         raise Refused("the erasure is larger than 64 KiB")
@@ -1674,6 +1674,8 @@ def verify_erasure(envelope_bytes, pid, policy, now):
             public.verify(sig, digest_of_pae, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
         except (InvalidSignature, ValueError, binascii.Error):
             continue
+        if publisher_web_id is not None and key.get("webId") != publisher_web_id:
+            continue  # a federated pack's erasure comes from a key bound to its publisher WebID, as .NET's
         if any(key_refusal(key, role, pid, issued_at, now, revoked_keys) is None for role in ERASURE_ROLES):
             return pred
     raise Refused("the erasure carries no signature by a key this host trusts as publisher or revoker for the pack")
@@ -1861,7 +1863,8 @@ def main(argv):
                 envelope = files[erasure_path]
             else:
                 envelope = read_file(erasure_path, "the erasure")
-            pred = verify_erasure(envelope, pid, policy, now)
+            federation = read_federation(json.loads(files["pack.json"]).get("extensions", {}))
+            pred = verify_erasure(envelope, pid, policy, now, federation["publisher"] if federation else None)
             print(f"verified the erasure of {len(pred['records'])} record(s) of {shown(pid)} ({pred['reason']})")
     except Refused as e:
         print(f"refused: {shown(e)}")

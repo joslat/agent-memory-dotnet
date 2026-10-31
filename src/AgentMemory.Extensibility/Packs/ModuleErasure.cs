@@ -33,6 +33,13 @@ public sealed record ModuleErasure
     /// <summary>The salted hash of a key under a salt (R-CORE-131): what a tombstone keeps and an import compares.</summary>
     public static string KeyHash(string salt, string key) => ErasureHash.Of(salt, key);
 
+    /// <summary>
+    /// Whether it names this record (review F08, M2 and H3): one its pack carried (its own record, or a snapshot's it carried),
+    /// of this type and key. Never by module: a definition pack's publisher cannot reach a host's or another publisher's records.
+    /// </summary>
+    public bool Names(Ingestion.ProposalSource? source, string type, string key) =>
+        (source?.Pack?.Carrier?.Id ?? source?.Pack?.Id) == PackId && Erases(type, key);
+
     /// <summary>Whether it erases the record of this type and key.</summary>
     public bool Erases(string type, string key) =>
         Records.Any(r => r.Type == type && (r.Key == key || r.KeyHash is { } hash && hash == HashOf(key)));

@@ -25,4 +25,22 @@ public sealed class Neo4jModuleSnapshotStore(INeo4jTransactionRunner runner, Tim
         if (migration.Problems.Count != 0) throw new KnowledgePackException(migration.Problems);
         return await new Neo4jModuleStore(runner, resolution).ImportSnapshotAsync(snapshot, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Imports a snapshot pack's snapshot after applying the erasures that name the pack that carried it (feature 08, R-CORE-133):
+    /// every version of each erased record it carried is removed, a tombstone is kept, and no later snapshot it carries writes it.
+    /// </summary>
+    public async Task<ModuleSnapshotResult> ImportAsync(ModuleSnapshot snapshot, IReadOnlyList<ModuleErasure> erasures, DateTimeOffset atUtc, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(erasures);
+        if (snapshot.Carrier is { } carrier && erasures.Where(e => e.PackId == carrier.Id).ToList() is { Count: > 0 } mine)
+        {
+            var resolution = snapshot.Resolve();
+            var migration = await new ModuleMigrator(runner, resolution, clock).ApplyAsync("module-snapshot:" + snapshot.Module.Id, cancellationToken).ConfigureAwait(false);
+            if (migration.Problems.Count != 0) throw new KnowledgePackException(migration.Problems);
+            await new Neo4jModuleStore(runner, resolution).ErasePackAsync(carrier.Id, mine, atUtc.ToUniversalTime(), cancellationToken, snapshot.Module.Id).ConfigureAwait(false);
+        }
+        return await ImportAsync(snapshot, atUtc, cancellationToken).ConfigureAwait(false);
+    }
 }

@@ -2084,6 +2084,18 @@
   "erasure-issued-with-an-offset": [
    "R-CORE-131",
    "R-CORE-132"
+  ],
+  "erasure-issued-in-other-digits": [
+   "R-CORE-131"
+  ],
+  "erasure-key-null-beside-a-hash": [
+   "R-CORE-131"
+  ],
+  "erasure-key-a-number": [
+   "R-CORE-131"
+  ],
+  "erasure-reason-a-list": [
+   "R-CORE-131"
   ]
  }
 }

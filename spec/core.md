@@ -846,24 +846,26 @@ untrusted or malformed certificate MUST NOT refuse the pack.
 A publisher who shared a record can withdraw it from every host that imported it (feature 08).
 
 **R-CORE-131.** An erasure MUST be a DSSE envelope of an in-toto statement of predicate type `urn:agentmemory:pack:erasure:v1`
-whose predicate holds exactly `id` (the pack id, all its versions), `issuedAt` (an instant in UTC to the second), `reason`
+whose predicate holds exactly `id` (the pack id, all its versions), `issuedAt` (an instant in UTC to the second, in ASCII digits), `reason`
 (`withdrawn`, `incorrect`, `harmful` or `legal`), `salt` (32 lowercase hexadecimal characters) and `records`, 1 to 256 distinct
-objects of `type` and exactly one of `key` (1 to 1,024 characters) or `keyHash` (64 lowercase hexadecimal characters, the
+objects of `type` and exactly one of `key` (a string of 1 to 1,024 characters) or `keyHash` (64 lowercase hexadecimal characters, the
 SHA-256 of the salt, a colon and the key in UTF-8), so a notice need not reveal what it erases. It travels in a pack's
 attestations as `<stem>.erasure.dsse.json`, the stem its signer's key and issue time, or on its own.
 
 **R-CORE-132.** A verifier MUST hold an erasure only when a signature verifies by a key the trust policy names as `publisher` or
-`revoker` for the pack's id, valid at `issuedAt` and now, and the erasure names that pack.
+`revoker` for the pack's id, valid at `issuedAt` and now, and the erasure names that pack. For a federated pack (§14) the key
+MUST also be bound to the pack's publisher WebID, as its publisher signature is.
 
 **R-CORE-133.** A host MUST apply every erasure it holds for a pack before it writes any of that pack's records, from any
 version: each erased record's every version, and its content, MUST leave the store, and the host MUST keep a tombstone of the
 pack, the type, the salt and the key's hash, never the key.
 
 **R-CORE-134.** A host MUST NOT write, hold or offer a record a tombstone or an erasure it holds names, whichever version or copy
-brings it; a link into an erased record goes with it. A host that holds an erasure it has not yet applied to its store MUST
-still leave the records it names out of every read.
+brings it; a link into an erased record goes with it, and the record that held it is still written. A host that holds an erasure
+it has not yet applied to its store MUST still leave the records it names out of every read. An erasure for a pack names only
+the records that pack carried (its own, or a snapshot's it carried), never another's of the same module, type and key.
 
-**R-CORE-135.** On request, a host MAY sign a receipt that it applied an erasure: a DSSE envelope of an in-toto statement of
+**R-CORE-135.** On request, a host MAY sign a receipt that it applied an erasure it verifies: a DSSE envelope of an in-toto statement of
 predicate type `urn:agentmemory:pack:erasure-receipt:v1` naming only the erasure statement's identity and when it was applied.
 
 > Why: tombstones are known; a signed erasure bound to the pack's identity, held to the trust policy's roles, and read alike

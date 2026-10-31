@@ -105,13 +105,63 @@ public sealed class ErasureTests
     [Fact]
     public async Task A_module_set_never_offers_a_record_an_erasure_it_holds_names_whatever_the_store_holds()
     {
-        // Feature 08 (R-CORE-134): before an import applies it, and if a store still holds the record, a view leaves it out.
-        var erasure = Erasure(new ModuleErasedRecord("T", "gone", null)) with { PackId = "m" };
-        var set = new Inner();
-        bool Erased(ModuleRecord r) => erasure.PackId == r.ModuleId && erasure.Erases(r.Type, r.Key);
-        var reader = new ModuleSet.LiveReader(set, live: null, TimeProvider.System, Erased);
+        // Feature 08 (R-CORE-134): before an import applies it, and if a store still holds the record, a view leaves it out. By the
+        // pack that carried the record (review F08, M2 and H3): a host's record of the same key stays, a snapshot pack's goes.
+        IReadOnlyList<ModuleErasure> erasures = [Erasure(new ModuleErasedRecord("T", "gone", null)) with { PackId = "m" },
+            Erasure(new ModuleErasedRecord("T", "carried", null)) with { PackId = "snap" }];
+        var reader = new ModuleSet.LiveReader(new Inner(), live: null, TimeProvider.System, r => ModuleSet.ErasedBy(erasures, r));
 
-        (await reader.FindAsync(new() { ModuleId = "m", Type = "T", Limit = 5 }, new())).Records.Select(r => r.Key).Should().Equal("kept");
+        (await reader.FindAsync(new() { ModuleId = "m", Type = "T", Limit = 9 }, new())).Records.Select(r => r.Id).Should()
+            .Equal("kept", "gone-by-the-host", "carried-by-another");
+    }
+
+    [Fact]
+    public void A_loaded_pack_keeps_the_erasures_it_carries_that_verify_and_no_other()
+    {
+        // Review F08, M6: nothing checked that the loader reads a carried erasure. One by the publisher is kept; one by a key this
+        // host does not trust (anyone can add a file beside the signed content) is not.
+        var key = PackAuthoring.CreateKey();
+        const string Id = "com.example.lantern-notes";
+        var module = """{"format":"agentmemory.module/v1alpha1","id":"com.example.lantern-notes","version":"1.0.0","sdk":"[0.1,0.2)","seed":["records/notes.jsonl"]}""";
+        var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["manifest.json"] = System.Text.Encoding.UTF8.GetBytes(module),
+            ["records/notes.jsonl"] = System.Text.Encoding.UTF8.GetBytes("""{"type":"LanternNote","key":"n1","properties":{"text":"one"}}""" + "\n"),
+        }), StringComparer.Ordinal)
+        {
+            ["ontology.json"] = System.Text.Encoding.UTF8.GetBytes(
+                """{"labelPrefix":"Lantern","types":[{"name":"LanternNote","scope":"shared","properties":{"text":{"type":"string"}}}]}"""),
+        };
+        var built = PackAuthoring.Build(source, key.PrivateKeyPem);
+        var trust = PackTrust.Parse(System.Text.Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(key.PublicKeyPem, "com.example")));
+        byte[] Carrying(PackSigningKey by)
+        {
+            using var signer = AgentMemory.Packs.Format.PackSigner.FromPem(by.PrivateKeyPem);
+            var issued = DateTimeOffset.UtcNow.AddMinutes(-1);
+            var envelope = AgentMemory.Packs.Format.PackErasure.Create(Id, [("LanternNote", "n1")], "withdrawn", issued, signer);
+            // The one writer, as a certificate is added: the archive stays canonical.
+            var files = AgentMemory.Packs.Format.PackReader.ReadArchive(built, "archive").Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
+            files[AgentMemory.Packs.Format.PackErasure.PathFor(by.KeyId, issued)] = envelope;
+            return AgentMemory.Packs.Format.PackBuilder.Pack(files);
+        }
+
+        PackLoader.Load(Carrying(key), trust).Erasures.Should().ContainSingle().Which.Erases("LanternNote", "n1").Should().BeTrue();
+        PackLoader.Load(Carrying(PackAuthoring.CreateKey()), trust).Erasures.Should().BeEmpty("a stranger's erasure carried in a copy erases nothing");
+    }
+
+    [Fact]
+    public async Task A_loaded_packs_import_applies_the_erasures_it_carries_first()
+    {
+        // Review F08, H4: PackImport.ImportAsync called the importer without the loaded pack's erasures.
+        var store = new Store();
+        var pack = KnowledgePack.Open(KnowledgePackTests.Signed(), KnowledgePackTests.Trust());
+        var loaded = new LoadedPack
+        {
+            Id = pack.Id, Version = pack.Version, Digest = "sha256:0", Kind = "knowledge", Manifest = pack.Manifest, Knowledge = pack,
+            Erasures = [Erasure(new ModuleErasedRecord("T", "k", null)) with { PackId = pack.Id }],
+        };
+        await PackImport.ImportAsync(new KnowledgePackImporter(store), loaded);
+        store.Calls.Should().Equal("erase 1", "import");
     }
 
     private sealed class Inner : IModuleReader
@@ -124,7 +174,25 @@ public sealed class ErasureTests
             {
                 ModuleId = "m", Type = "T", Id = key, Key = key, CreatedAtUtc = DateTimeOffset.UnixEpoch, SourceSessionId = "pack", Source = new ProposalSource { Excerpt = key },
             };
-            return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Succeeded, Records = [Record("gone"), Record("kept")] });
+            ModuleRecord From(string id, string key, string? pack, string? carrier = null) => Record(key) with
+            {
+                Id = id,
+                Source = new ProposalSource
+                {
+                    Excerpt = key,
+                    Pack = pack is null ? null : new PackSource
+                    {
+                        Id = pack, Version = "1.0.0", Digest = "sha256:0", File = "records.jsonl", Line = 1,
+                        Carrier = carrier is null ? null : new PackCarrier { Id = carrier, Version = "1.0.0", Digest = "sha256:0", Signer = "publisher:k" },
+                    },
+                },
+            };
+            return Task.FromResult(new ModuleReadResult
+            {
+                Status = ModuleReadStatus.Succeeded,
+                Records = [From("gone", "gone", "m"), From("kept", "kept", "m"), From("gone-by-the-host", "gone", null),
+                    From("carried", "carried", "m", carrier: "snap"), From("carried-by-another", "carried", "m", carrier: "other")],
+            });
         }
     }
 

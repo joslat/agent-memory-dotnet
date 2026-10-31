@@ -37,6 +37,8 @@ internal static partial class Program
     private static int ErasureReceipt(Options o)
     {
         var erasure = PackReader.ReadFile(o.Positional(1, "erasure file"), Dsse.MaximumEnvelopeBytes, "The erasure");
+        // Only for an erasure this host's trust verifies (review F08, M5: any envelope was receipted as applied).
+        if (PackErasure.Verify(erasure, null, Policy(o), DateTimeOffset.UtcNow) is { Erasure: null, Problems: var refusals }) return Report(refusals, "");
         using var signer = Signer(o);
         var output = o.Value("out") ?? throw new UsageException("Name the receipt file with --out.");
         File.WriteAllBytes(output, PackErasure.Receipt(erasure, DateTimeOffset.UtcNow, signer));

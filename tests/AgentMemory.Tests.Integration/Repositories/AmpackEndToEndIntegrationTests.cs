@@ -249,7 +249,8 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     public async Task AnErasedRecordIsRemovedWithATombstoneThatNoReImportPassesInBothStores()
     {
         // Feature 08 (R-CORE-133, 134): Heian Shodan erased by its salted key hash, the notice naming no key. Neo4j removes every
-        // version and keeps a tombstone; importing the same pack again writes every record but that one; memory agrees.
+        // version and keeps a tombstone; importing the same pack again writes every record but that one; memory agrees. Age uke goes
+        // too, by its key, and kata that survive link to it (review F08, H5: their links into it made the re-import fail; they go).
         var pack = PackLoader.Load(PackAuthoring.Build(PackAuthoring.FromModuleBundle(RealBundle("MartialArts")), AmpackKey.PrivateKeyPem), AmpackTrust());
         var importer = new KnowledgePackImporter(new Neo4jKnowledgePackStore(fixture.TransactionRunner));
         await importer.ImportAsync(pack.Knowledge!);
@@ -257,7 +258,8 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         var erasure = new ModuleErasure
         {
             PackId = pack.Id, Statement = "sha256:" + new string('e', 64), IssuedAt = DateTimeOffset.UtcNow, Reason = "withdrawn", Salt = Salt,
-            Records = [new ModuleErasedRecord("MartialArtsKata", null, ModuleErasure.KeyHash(Salt, "shotokan/heian-shodan"))],
+            Records = [new ModuleErasedRecord("MartialArtsKata", null, ModuleErasure.KeyHash(Salt, "shotokan/heian-shodan")),
+                new ModuleErasedRecord("MartialArtsTechnique", "shotokan/age-uke", null)],
         };
         try
         {
@@ -269,10 +271,12 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             (await Held()).Should().Be(1);
 
             var store = new Neo4jKnowledgePackStore(fixture.TransactionRunner);
-            (await store.EraseAsync(pack.Manifest, [erasure], DateTimeOffset.UtcNow)).Should().Be(new KnowledgePackEraseResult { PackId = pack.Id, Erased = 1, Tombstones = 1 });
+            (await store.EraseAsync(pack.Manifest, [erasure], DateTimeOffset.UtcNow)).Should().Be(new KnowledgePackEraseResult { PackId = pack.Id, Erased = 2, Tombstones = 2 });
             (await Held()).Should().Be(0, "every version is gone");
             await importer.ImportAsync(pack.Knowledge!);
             (await Held()).Should().Be(0, "the tombstone blocks the record from a re-import of the very pack that brought it");
+            (await views.EvaluateWithArgumentsAsync("kata", new() { Search = "Heian Godan" }, lea)).Items.Should()
+                .Contain(i => i.Record.Key == "shotokan/heian-godan", "a kata that linked to an erased technique is still imported, without that link");
 
             var memory = PackMemory.From([pack.Knowledge!], erasures: [erasure]);
             (await new ModuleViews(memory.Resolution, memory.ReaderFor(pack.Id)).EvaluateWithArgumentsAsync("kata", new() { Search = "Heian Shodan" }, lea))

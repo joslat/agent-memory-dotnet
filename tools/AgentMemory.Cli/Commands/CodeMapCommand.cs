@@ -134,7 +134,9 @@ internal sealed class CodeMapCommand(TextWriter output)
             rebuilt = true;
         }
         var read = watch.Elapsed;
-        var result = await new Neo4jModuleSnapshotStore(runner).ImportAsync(snapshot, DateTimeOffset.UtcNow).ConfigureAwait(false);
+        // The snapshot pack's verified erasures first (review F08, H3): what they name never reaches the store. A snapshot rebuilt
+        // from the repository is not the pack's, so they do not apply to it.
+        var result = await new Neo4jModuleSnapshotStore(runner).ImportAsync(snapshot, rebuilt ? [] : pack.Erasures, DateTimeOffset.UtcNow).ConfigureAwait(false);
         output.WriteLine(JsonSerializer.Serialize(new
         {
             pack = pack.Id, packVersion = pack.Version, packDigest = pack.Digest,

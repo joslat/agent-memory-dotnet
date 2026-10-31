@@ -1519,6 +1519,11 @@ def main():
         "erasure-extra-field": (erased_pack, None, erasure(key, extra={"note": "x"}), "trust.json", "refused"),
         "erasure-record-twice": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "key": "note-1"}, {"type": "NotesNote", "key": "note-1"}]), "trust.json", "refused"),
         "erasure-issued-with-an-offset": (erased_pack, None, erasure(key, issued="2026-10-31T12:00:00+01:00"), "trust.json", "refused"),
+        # Review F08: the verifiers disagreed on these (other digits, a key that is not a string beside a hash, a reason not a string).
+        "erasure-issued-in-other-digits": (erased_pack, None, erasure(key, issued="٢٠٢٦-10-31T12:00:00Z"), "trust.json", "refused"),
+        "erasure-key-null-beside-a-hash": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "key": None, "keyHash": hashed}]), "trust.json", "refused"),
+        "erasure-key-a-number": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "key": 5}]), "trust.json", "refused"),
+        "erasure-reason-a-list": (erased_pack, None, erasure(key, reason=["withdrawn"]), "trust.json", "refused"),
     }
     for name, (pack_bytes, inside, external, policy_file, expected) in erasures.items():
         pack_path = VECTORS / f"{name}.ampack"

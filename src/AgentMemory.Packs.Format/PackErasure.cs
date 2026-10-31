@@ -47,7 +47,9 @@ internal sealed partial record PackErasure(string Id, DateTimeOffset IssuedAt, s
     /// Verifies an erasure for the pack <paramref name="packId"/>: a DSSE envelope of the erasure statement, signed by a key the host
     /// trusts as publisher or revoker for the pack's id (R-CORE-132). Returns the erasure and its signer, or the problems.
     /// </summary>
-    internal static (PackErasure? Erasure, string? SignedBy, IReadOnlyList<string> Problems) Verify(ReadOnlySpan<byte> envelopeBytes, string packId, TrustPolicy policy, DateTimeOffset now)
+    // With packId null, for the pack the erasure names (a receipt's check).
+    internal static (PackErasure? Erasure, string? SignedBy, IReadOnlyList<string> Problems) Verify(ReadOnlySpan<byte> envelopeBytes, string? packId, TrustPolicy policy, DateTimeOffset now,
+        string? publisherWebId = null)
     {
         if (envelopeBytes.Length > Dsse.MaximumEnvelopeBytes) return (null, null, [$"The erasure is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB."]);
         if (PackJson.Check(envelopeBytes) is { } malformed) return (null, null, [$"The erasure {malformed}."]);
@@ -61,7 +63,8 @@ internal sealed partial record PackErasure(string Id, DateTimeOffset IssuedAt, s
         if (Dsse.FromBase64(payloadText) is not { } payload) return (null, null, ["The erasure's payload is not base64."]);
         var (erasure, problem) = Read(payload);
         if (erasure is null) return (null, null, [problem!]);
-        if (erasure.Id != packId) return (null, null, [$"The erasure is for {erasure.Id}, not {packId}."]);
+        if (packId is not null && erasure.Id != packId) return (null, null, [$"The erasure is for {erasure.Id}, not {packId}."]);
+        packId = erasure.Id;
         var hash = SHA256.HashData(Dsse.Pae(Dsse.PayloadType, payload));
         var refusals = new List<string>();
         foreach (var entry in signatures.EnumerateArray())
@@ -74,6 +77,11 @@ internal sealed partial record PackErasure(string Id, DateTimeOffset IssuedAt, s
             if (!ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence)) { refusals.Add($"The erasure's signature by {Dsse.Short(keyId)} does not verify."); continue; }
             // A publisher or a revoker for the pack's id may erase (owner question 1: both, in their roles).
             var roleRefusals = Roles.Order(StringComparer.Ordinal).Select(role => policy.Refusal(key, role, packId, erasure.IssuedAt, now)).ToList();
+            if (publisherWebId is not null && key.WebId != publisherWebId)
+            {
+                refusals.Add($"The erasure: key {Dsse.Short(keyId)} is not bound to the pack's publisher {publisherWebId}.");
+                continue;
+            }
             if (roleRefusals.Any(r => r is null)) return (erasure, keyId, []);
             refusals.Add("The erasure: " + roleRefusals.First());
         }
@@ -103,9 +111,12 @@ internal sealed partial record PackErasure(string Id, DateTimeOffset IssuedAt, s
         var records = new List<ErasureRecord>();
         foreach (var r in list.EnumerateArray())
         {
+            // Exactly one of key and keyHash present, and a string (review F08, H2: a null key beside a hash read as absent).
             if (r.ValueKind != JsonValueKind.Object || r.EnumerateObject().Any(f => !PackRegistry.Shape("erasureRecord").Contains(f.Name))
                 || Str(r, "type") is not { Length: > 0 } type || PackText.Length(type) > 256
-                || (Str(r, "key"), Str(r, "keyHash")) is not ((not null, null) or (null, not null)))
+                || r.TryGetProperty("key", out _) == r.TryGetProperty("keyHash", out _)
+                || r.TryGetProperty("key", out var k) && k.ValueKind != JsonValueKind.String
+                || r.TryGetProperty("keyHash", out var kh) && kh.ValueKind != JsonValueKind.String)
                 return (null, "An erased record is its type and exactly one of key and keyHash.");
             if (Str(r, "key") is { } key && PackText.Length(key) is 0 or > 1024) return (null, "An erased record's key is 1 to 1,024 characters.");
             if (Str(r, "keyHash") is { } h && (h.Length != 64 || !h.All(char.IsAsciiHexDigitLower))) return (null, "An erased record's keyHash is 64 lowercase hexadecimal characters.");

@@ -26,7 +26,8 @@ public static class PackImport
         if (pack.ValidUntil is { } until && now > until)
             throw new PackLoadException([$"{pack.Id} {pack.Version} stopped being valid at {until:u}: load a current version."]);
         if (ledger?.Ledger.Refusal(pack.Id, pack.Version, pack.Digest, allowDowngrade) is { } refusal) throw new PackLoadException([refusal]);
-        var result = await importer.ImportAsync(knowledge, allowDowngrade, cancellationToken).ConfigureAwait(false);
+        // Its verified erasures first (review F08, H4: a loaded pack's import never applied them).
+        var result = await importer.ImportAsync(knowledge, pack.Erasures, allowDowngrade, cancellationToken).ConfigureAwait(false);
         ledger?.Record(pack);
         return result;
     }

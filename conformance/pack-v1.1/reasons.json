@@ -968,6 +968,18 @@
   "erasure-issued-with-an-offset": [
    "issuedAt is an instant in UTC to the second",
    "issuedAt is an instant in UTC to the second"
+  ],
+  "erasure-issued-in-other-digits": [
+   "issuedAt is an instant in UTC to the second",
+   "issuedAt is an instant in UTC to the second"
+  ],
+  "erasure-key-null-beside-a-hash": [
+   "An erased record is its type and exactly one of key and keyHash",
+   "an erased record is its type and exactly one of key and keyHash"
+  ],
+  "erasure-reason-a-list": [
+   "reason is harmful, incorrect, legal, withdrawn",
+   "reason is one the registry names"
   ]
  }
 }

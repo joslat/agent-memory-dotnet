@@ -97,7 +97,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
             foreach (var record in records)
             {
                 // An erased record is never held (feature 08, R-CORE-134), whichever version or copy brought it.
-                if (erased.Any(e => e.PackId == manifest.Id && e.Erases(record.Type, record.Key))) continue;
+                if (erased.Any(e => e.Names(record.Source, record.Type, record.Key))) continue;
                 var stored = new ModuleRecord
                 {
                     ModuleId = manifest.Id, Type = record.Type, Id = IdOf(manifest.Id, record.Type, record.Key), Key = record.Key,

@@ -109,7 +109,7 @@ internal static partial class Program
                                  build and sign an erasure (feature 08): each key as its salted hash unless --plain-keys
           erasure verify <pack.ampack> --policy <trust.json> [--erasure META/attestations/<name> | <file>]
                                  check an erasure (feature 08) for the pack: by a key trusted as publisher or revoker for its id
-          erasure receipt <erasure file> --key <host.pem> --out <file>
+          erasure receipt <erasure file> --policy <trust.json> --key <host.pem> --out <file>
                                  sign this host's receipt that it applied the erasure, naming nothing else
           admit <pack.ampack> --policy <trust.json> --host-signing-key <host.key.pem> --activations <folder>
                                  for a host that trusts certificates for this pack's namespace: record a decision from the
@@ -266,7 +266,7 @@ internal static partial class Program
         ["receipt"] = ["location", "audience", "access", "denied", "allowed", "out", .. SignerOptions, .. TrustOptions],
         ["certify"] = ["activations", "host-key", "evaluator", "task-source", "aef", "tool", "tool-version", "out", .. SignerOptions, .. TrustOptions],
         ["certificate"] = ["certificate", .. TrustOptions],
-        ["erasure"] = ["erasure", "out", "key", .. TrustOptions],
+        ["erasure"] = ["erasure", "out", .. SignerOptions, .. TrustOptions],
         ["erase"] = ["erased", "reason", "plain-keys", "out", .. SignerOptions],
         ["admit"] = ["host-signing-key", "activations", .. TrustOptions],
         ["gate"] = [.. GateOptions, .. TrustOptions],
