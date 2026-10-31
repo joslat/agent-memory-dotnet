@@ -26,8 +26,8 @@ internal static class PackText
     }
 
     /// <summary>
-    /// <paramref name="a"/> against <paramref name="b"/> in code-point order. UTF-16 order differs only where a surrogate meets
-    /// U+E000 to U+FFFF, so at the first difference both are moved into code-point order (ICU's fix-up); null sorts first.
+    /// <paramref name="a"/> against <paramref name="b"/> in code-point order: the units up to the first difference, then the code
+    /// points there when a surrogate is involved; null sorts first.
     /// </summary>
     internal static int Compare(string? a, string? b)
     {
@@ -39,7 +39,9 @@ internal static class PackText
         {
             int x = a[i], y = b[i];
             if (x == y) continue;
-            if (x >= 0xD800 && y >= 0xD800) (x, y) = (Fixed(x), Fixed(y));
+            // Where a surrogate differs, the code points there decide (review F02, L1: a lone low surrogate sorted above an
+            // astral character); elsewhere the units are the code points.
+            if (char.IsSurrogate((char)x) || char.IsSurrogate((char)y)) return At(a, i).CompareTo(At(b, i));
             return x - y;
         }
         return a.Length - b.Length;
@@ -62,6 +64,11 @@ internal static class PackText
         }
     }
 
-    // A surrogate above every other BMP unit at or past U+D800, U+E000 to U+FFFF below them.
-    private static int Fixed(int unit) => unit >= 0xE000 ? unit - 0x800 : unit + 0x2000;
+    // The code point a string holds at a unit: a pair read whole from either of its units, a lone surrogate as itself.
+    private static int At(string text, int i)
+    {
+        if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) return char.ConvertToUtf32(text[i], text[i + 1]);
+        if (char.IsLowSurrogate(text[i]) && i > 0 && char.IsHighSurrogate(text[i - 1])) return char.ConvertToUtf32(text[i - 1], text[i]);
+        return text[i];
+    }
 }

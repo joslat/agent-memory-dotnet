@@ -171,6 +171,31 @@ public sealed class TrialGateTests : IDisposable
             Arm(28, 28, 40, 1), Arm(24, 24, 40, 1) with { MaximumOffered = 1 }, Now).Checks.Single(c => c.Target == "lift").Met.Should().BeFalse();
     }
 
+    [Fact]
+    public void A_bound_exactly_at_its_target_is_met_through_the_decision()
+    {
+        // Review F02, M3: one hit in one task at 900 thousandths bounds the hit rate at exactly 0.1; the float bisection lands
+        // just below it (0.09999999999999999), so only an exact verdict meets a target of 100,000 millionths. Through Decide, as
+        // every verdict is made.
+        var manifest = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":10,"confidencePermille":900,"targets":{"hitRateMicro":100000}}""");
+        var one = new PackTrialMeasurement
+        {
+            Tasks = 1, Hits = 1, Offered = 1, Correct = 1, P95Ms = 1, MaximumOffered = ModuleTraversal.MaximumOffered, Spacing = PackTrialGate.BurstLength, PerTask = [new PackTrialTask(1, 1)],
+        };
+        var none = one with { Hits = 0, Offered = 0, Correct = 0, MaximumOffered = 0, PerTask = [new PackTrialTask(0, 0)] };
+
+        PackTrialGate.RateLower(1, 1, 0.9).Should().BeLessThan(0.1, "this is the tie floating point misses");
+        PackTrialGate.Decide(manifest, one, none, Now).Checks.Single(c => c.Target == "hitRate").Met.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_confidence_outside_32_bits_is_refused_not_wrapped()
+    {
+        // Review F02, M2: 950 + 2^32 was narrowed to 950 and judged at 95%.
+        FluentActions.Invoking(() => Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"confidencePermille":4294968246,"targets":{"hitRateMicro":500000}}"""))
+            .Should().Throw<FormatException>().WithMessage("*confidencePermille*");
+    }
+
     private static PackTrialMeasurement Arm(int hits, int correct, int offered, double p95)
     {
         var tasks = Enumerable.Range(0, 40).Select(i => offered < 0 ? 0 : offered / 40 + (i < offered % 40 ? 1 : 0)).ToArray();

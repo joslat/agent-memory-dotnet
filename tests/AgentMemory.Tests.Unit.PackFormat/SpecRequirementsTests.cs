@@ -47,6 +47,24 @@ public sealed partial class SpecRequirementsTests
         inText.Should().BeEquivalentTo(listed);
     }
 
+    [GeneratedRegex(@"\*\*(R-[A-Z]+-\d{3})\.\*\*[ \t]*(.*?)(?=\n[ \t]*\n|\n- \*\*R-|\n\*\*R-|\z)", RegexOptions.Singleline)]
+    private static partial Regex Paragraph();
+
+    [Fact]
+    public void Every_summary_is_its_requirement_s_own_text()
+    {
+        // Review F02, M6: hand-written summaries kept the old rule after the text changed (a twin of the spec). Each is the text
+        // itself, white space collapsed, as spec/... states it.
+        var texts = Directory.EnumerateFiles(Spec, "*.md", SearchOption.AllDirectories)
+            .SelectMany(f => Paragraph().Matches(File.ReadAllText(f).Replace("\r\n", "\n", StringComparison.Ordinal)))
+            .ToDictionary(m => m.Groups[1].Value, m => Regex.Replace(m.Groups[2].Value, @"\s+", " ").Trim(), StringComparer.Ordinal);
+        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(Spec, "requirements.json")));
+        var stale = document.RootElement.GetProperty("requirements").EnumerateArray()
+            .Where(r => texts.GetValueOrDefault(r.GetProperty("id").GetString()!) != r.GetProperty("summary").GetString())
+            .Select(r => r.GetProperty("id").GetString()).ToList();
+        string.Join(", ", stale).Should().BeEmpty("a summary is its requirement's text; run spec/render_tables.py after editing the spec");
+    }
+
     [Fact]
     public void Every_vector_names_requirements_that_exist_and_every_kit_tested_MUST_has_a_vector()
     {

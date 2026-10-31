@@ -69,7 +69,7 @@ public sealed class TrialClusteringTests
         // Review 6, M6: as 120 independent items, 0.333 bounded above 0.25 and passed; without the tasks nothing is bounded now.
         FluentActions.Invoking(() => PackTrialGate.Decide(manifest, with, without, Now)).Should().Throw<ArgumentException>().WithMessage("*PerTask*");
         clustered.Checks.Single().Met.Should().BeFalse("12 tasks wholly right or wrong do not");
-        clustered.Checks.Single().Estimate.Should().Be(0.333);
+        clustered.Checks.Single().Estimate.Should().Be(0.333333, "shown in millionths, as the targets are (review F02, M5)");
         clustered.With!.PerTask.Should().HaveCount(12, "the record keeps what the bound was computed from");
         clustered.Statistic.Should().Be(PackTrialGate.Statistic);
     }

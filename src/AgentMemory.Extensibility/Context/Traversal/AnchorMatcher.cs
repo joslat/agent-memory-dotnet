@@ -67,8 +67,11 @@ internal static class AnchorMatcher
     internal sealed record Anchor(string Raw, string Path, string FoldedPath, string Trimmed, string Simple)
     {
         internal int Slashes { get; } = Path.Count(c => c == '/');
-        /// <summary>The folded path's characters, counted once for every piece it is matched against.</summary>
+        // Each compared form's characters, counted once for every piece it is matched against (review F02, M1: equalities
+        // gated on UTF-16 lengths).
         internal int FoldedCharacters { get; } = PackText.Length(FoldedPath);
+        internal int TrimmedCharacters { get; } = PackText.Length(Trimmed);
+        internal int SimpleCharacters { get; } = PackText.Length(Simple);
     }
 
     /// <summary>The best match of one stored value against the anchors: its quality (0 for none), the anchor and the pattern.</summary>
@@ -110,7 +113,13 @@ internal static class AnchorMatcher
 
     // One piece of a value, prepared once: trimmed, as a path, folded, as a folder (folded, without trailing '/'), and for a glob
     // its pattern, for a name its simple name.
-    private sealed record Piece(string Raw, string Path, string Folded, string Folder, GlobPattern? Glob, string? Simple);
+    private sealed record Piece(string Raw, string Path, string Folded, string Folder, GlobPattern? Glob, string? Simple)
+    {
+        internal int RawCharacters { get; } = PackText.Length(Raw);
+        internal int FoldedCharacters { get; } = PackText.Length(Folded);
+        internal int FolderCharacters { get; } = PackText.Length(Folder);
+        internal int SimpleCharacters { get; } = Simple is null ? 0 : PackText.Length(Simple);
+    }
 
     // What preparing a piece costs beside its copies: the objects it allocates, whatever its length.
     private const long PieceOverhead = 32;
@@ -149,28 +158,30 @@ internal static class AnchorMatcher
         switch (match)
         {
             case ModuleAnchorMatch.Exact:
-                return piece.Path.Length > 0 && Same(piece.Folded, anchor.FoldedPath, ref work) ? Exact : 0;
+                return piece.Path.Length > 0 && Same(piece.Folded, piece.FoldedCharacters, anchor.FoldedPath, anchor.FoldedCharacters, ref work) ? Exact : 0;
             case ModuleAnchorMatch.Prefix:
-                return PrefixQuality(piece.Folder, anchor, ref work);
+                return PrefixQuality(piece.Folder, piece.FolderCharacters, anchor, ref work);
             case ModuleAnchorMatch.Glob:
                 work++;
                 if (piece.Glob is { } glob) return anchor.Path.Length > 0 && glob.Matches(anchor.FoldedPath, anchor.FoldedCharacters, ref work) ? Globbed : 0;
                 if (piece.Folded.Length == 0 || anchor.Path.Length == 0) return 0;
-                return piece.Folded.EndsWith('/') ? PrefixQuality(piece.Folder, anchor, ref work) : Same(piece.Folded, anchor.FoldedPath, ref work) ? Exact : 0;
+                return piece.Folded.EndsWith('/') ? PrefixQuality(piece.Folder, piece.FolderCharacters, anchor, ref work)
+                    : Same(piece.Folded, piece.FoldedCharacters, anchor.FoldedPath, anchor.FoldedCharacters, ref work) ? Exact : 0;
             case ModuleAnchorMatch.Name:
-                if (Same(piece.Raw, anchor.Trimmed, ref work)) return Exact;
-                return piece.Simple!.Length > 0 && Same(piece.Simple, anchor.Simple, ref work) ? Named : 0;
+                if (Same(piece.Raw, piece.RawCharacters, anchor.Trimmed, anchor.TrimmedCharacters, ref work)) return Exact;
+                return piece.Simple!.Length > 0 && Same(piece.Simple, piece.SimpleCharacters, anchor.Simple, anchor.SimpleCharacters, ref work) ? Named : 0;
             default:
                 return 0;
         }
     }
 
     // An ordinal equality, charged 1 and, when the lengths agree, the characters it compares.
-    private static bool Same(string a, string b, ref long work)
+    // R-WALK-049 in characters: the lengths compared and charged are code points, each counted once beforehand.
+    private static bool Same(string a, int aCharacters, string b, int bCharacters, ref long work)
     {
         work++;
-        if (a.Length != b.Length) return false;
-        work += PackText.Length(a);
+        if (aCharacters != bCharacters) return false;
+        work += aCharacters;
         return string.Equals(a, b, StringComparison.Ordinal);
     }
 
@@ -204,14 +215,16 @@ internal static class AnchorMatcher
         return value[start..end].Replace('\\', '/');
     }
 
-    private static long PrefixQuality(string foldedPrefix, Anchor anchor, ref long work)
+    private static long PrefixQuality(string foldedPrefix, int prefixCharacters, Anchor anchor, ref long work)
     {
         work++;
         if (foldedPrefix.Length == 0 || anchor.Path.Length == 0) return 0;
-        if (Same(foldedPrefix, anchor.FoldedPath, ref work)) return Exact;
-        if (anchor.FoldedPath.Length <= foldedPrefix.Length || anchor.FoldedPath[foldedPrefix.Length] != '/') return 0;
+        if (Same(foldedPrefix, prefixCharacters, anchor.FoldedPath, anchor.FoldedCharacters, ref work)) return Exact;
+        // R-WALK-050 in characters: the anchor is longer and has '/' at the character just past the folder (review F02, M1:
+        // a UTF-16 length and index decided whether to charge).
+        if (anchor.FoldedCharacters <= prefixCharacters || CharacterAt(anchor.FoldedPath, prefixCharacters) != '/') return 0;
         // The prefix read, then its folders counted.
-        work += 2L * PackText.Length(foldedPrefix);
+        work += 2L * prefixCharacters;
         if (!anchor.FoldedPath.StartsWith(foldedPrefix, StringComparison.Ordinal)) return 0;
         // A deeper folder says more about the file: src/a/b/ beats src/ for src/a/b/c.cs.
         long depth = foldedPrefix.Count(c => c == '/') + 1;
@@ -234,6 +247,18 @@ internal static class AnchorMatcher
         if (s.EndsWith(')')) s = s[..(s.LastIndexOf('(') is var open and >= 0 ? open : s.Length)];
         var cut = s.LastIndexOfAny(['/', '#', '.', ':']);
         return cut >= 0 ? s[(cut + 1)..] : s;
+    }
+
+    // The code point at a character position, or -1 past the end.
+    private static int CharacterAt(string text, int position)
+    {
+        for (var (i, at) = (0, 0); i < text.Length; i++, at++)
+        {
+            var pair = char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]);
+            if (at == position) return pair ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
+            if (pair) i++;
+        }
+        return -1;
     }
 
     /// <summary>

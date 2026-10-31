@@ -344,7 +344,7 @@ internal sealed class ModuleManifestValidator
     }
     private void Description(string? text, string path)
     {
-        if (text is not null && (string.IsNullOrWhiteSpace(text) || text.Length > 200)) Error(path, "description must have 1-200 characters");
+        if (text is not null && (string.IsNullOrWhiteSpace(text) || PackText.Length(text) > 200)) Error(path, "description must have 1-200 characters");
     }
 
     private void ValidateProperty(ModuleProperty property, string path)

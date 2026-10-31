@@ -14,18 +14,19 @@ of tq.py, read as decimals; the hedge weights are quarters. Floating point may s
 """
 from fractions import Fraction as Q
 
-from tq import TABLE, Z
+from tq import DECIMALS
 
-HEDGE = {0.9: Q(5, 4), 0.95: Q(3, 2), 0.975: Q(7, 4), 0.99: Q(2)}
+# The registry's decimals, read as written (review F02, M7): the hedge weights in quarters, the quantiles exactly.
+HEDGE = {c: Q(v["hedgeQuarters"], 4) for c, v in DECIMALS.items()}
 BURST = 8
 
 
 def q_of(conf, df):
     """Student's t quantile, exactly as the table's decimals or Cornish-Fisher in the normal quantile's decimal."""
-    z = Q(repr(Z[conf]))
+    z = Q(DECIMALS[conf]["z"])
     v = max(1, df)
     if v <= 60:
-        return Q(repr(TABLE[Z[conf]][v - 1]))
+        return Q(DECIMALS[conf]["t"][v - 1])
     return z + (z ** 3 + z) / (4 * v) + (5 * z ** 5 + 16 * z ** 3 + 3 * z) / (96 * v * v) + (3 * z ** 7 + 19 * z ** 5 + 17 * z ** 3 - 15 * z) / (384 * v ** 3)
 
 

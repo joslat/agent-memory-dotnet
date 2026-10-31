@@ -96,6 +96,10 @@ def main():
         return 0
     recover()
     chosen = [m for m in MUTANTS if len(sys.argv) == 1 or m["id"] in sys.argv[1:]]
+    # Every chosen edit must apply before any runs (31 Oct: one stale edit stopped a batch half-way, its message lost in the
+    # output): a breakage that no longer applies is fixed in mutants_list.py first.
+    for mutant in chosen:
+        mutated(mutant)
     results, baselines = [], {}
     for mutant in chosen:
         key = (mutant["project"], mutant["filter"])

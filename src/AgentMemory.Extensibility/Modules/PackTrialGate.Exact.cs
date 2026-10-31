@@ -42,9 +42,6 @@ public static partial class PackTrialGate
             return Of(BigInteger.Parse(text.Remove(dot, 1), CultureInfo.InvariantCulture), BigInteger.Pow(10, digits));
         }
 
-        /// <summary>A double as the shortest decimal that reads back as it: the literal a table was written with.</summary>
-        internal static Q Literal(double value) => Decimal(value.ToString("R", CultureInfo.InvariantCulture));
-
         public static implicit operator Q(long value) => new(value, 1);
         public static Q operator +(Q a, Q b) => Of(a.N * b.D + b.N * a.D, a.D * b.D);
         public static Q operator -(Q a, Q b) => Of(a.N * b.D - b.N * a.D, a.D * b.D);
@@ -67,11 +64,8 @@ public static partial class PackTrialGate
     }
 
     // The hedge weights in quarters, and the confidences' complements, by confidence in thousandths.
-    private static Q ExactHedge(int permille) => permille switch
-    {
-        900 => Q.Of(5, 4), 950 => Q.Of(3, 2), 975 => Q.Of(7, 4), 990 => 2,
-        _ => throw new ArgumentOutOfRangeException(nameof(permille), "A trial's confidence is 900, 950, 975 or 990 thousandths."),
-    };
+    private static Q ExactHedge(int permille) => PackRegistry.Quantiles.TryGetValue(permille, out var q)
+        ? Q.Of(q.HedgeQuarters, 4) : throw new ArgumentOutOfRangeException(nameof(permille), "A trial's confidence is 900, 950, 975 or 990 thousandths.");
 
     private static Q Alpha(int permille) => Q.Of(1000 - permille, 1000);
 
@@ -79,12 +73,11 @@ public static partial class PackTrialGate
     // decimal beyond.
     private static Q ExactQuantile(int permille, int degrees)
     {
-        var z = Confidences[permille / 1000.0];
+        // The registry's decimals, read as written (review F02, M7), never through a double.
+        var quantiles = PackRegistry.Quantiles[permille];
         var v = Math.Max(1, degrees);
-        if (v <= 60)
-            foreach (var (key, row) in StudentQuantiles)
-                if (Math.Abs(key - z) < 1e-6) return Q.Literal(row[v - 1]);
-        var x = Q.Literal(z);
+        if (v <= quantiles.T.Count) return Q.Decimal(quantiles.T[v - 1]);
+        var x = Q.Decimal(quantiles.Z);
         var (x3, x5, x7) = (x * x * x, x * x * x * x * x, x * x * x * x * x * x * x);
         return x + (x3 + x) / (4L * v) + (5L * x5 + 16L * x3 + 3L * x) / (96L * v * v) + (3L * x7 + 19L * x5 + 17L * x3 - 15L * x) / (384L * v * v * v);
     }

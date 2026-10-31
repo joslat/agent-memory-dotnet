@@ -32,6 +32,10 @@ public sealed class PackTextTests
         PackText.Compare("\U00010000", "\uFF61").Should().BePositive();
         PackText.Compare("a", "ab").Should().BeNegative();
         PackText.Compare("\U0001F600", "\U0001F600").Should().Be(0);
+        // Review F02, L1: a lone low surrogate is the code point U+DC00, below every astral character.
+        PackText.Compare("\uDC00", "\U00010000").Should().BeNegative();
+        PackText.Compare("", "\U00010000").Should().BeNegative();
+        PackText.Compare("\U0001F600", "\U0001F601").Should().BeNegative();
     }
 
     [Fact]

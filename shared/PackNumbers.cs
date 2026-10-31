@@ -51,7 +51,8 @@ internal static class PackNumbers
     /// </summary>
     internal static long? ParseMicro(string text) =>
         decimal.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var d)
-        && d * One == decimal.Truncate(d * One) && Math.Abs(d * One) <= MaxSafe ? (long)(d * One) : null;
+        // Bounded before it is scaled (review F02, L8: a value past 7.9e22 overflowed instead of being refused).
+        && Math.Abs(d) <= (decimal)MaxSafe / One && d * One == decimal.Truncate(d * One) ? (long)(d * One) : null;
 
     /// <summary>Millionths shown as the shortest decimal that is exactly them (<c>350000</c> → <c>0.35</c>).</summary>
     internal static string ShowMicro(long micro) => ((decimal)micro / One).ToString("0.######", CultureInfo.InvariantCulture);

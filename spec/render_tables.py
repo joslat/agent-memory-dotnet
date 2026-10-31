@@ -7,7 +7,8 @@ closing marker:
     ...generated table...
     <!-- /registry -->
 
-Run without arguments to rewrite every table under this folder; run with --check to exit 1 if any table differs from
+Run without arguments to rewrite every table under this folder (and every requirement summary in requirements.json, which is
+the requirement's own text); run with --check to exit 1 if any table or summary differs from
 what the registry gives (nothing is written then). Python 3.12, standard library only.
 """
 from __future__ import annotations
@@ -19,6 +20,8 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 REGISTRY = HERE / "registry.json"
+# A requirement's text: from its bold id to the end of its paragraph (a blank line, or the next requirement).
+PARAGRAPH = re.compile(r"\*\*(R-[A-Z]+-\d{3})\.\*\*[ \t]*(.*?)(?=\n[ \t]*\n|\n- \*\*R-|\n\*\*R-|\Z)", re.S)
 BLOCK = re.compile(r"(<!-- registry:([A-Za-z0-9_.]+) -->\n)(.*?)(<!-- /registry -->)", re.S)
 
 # Column headings only; the names themselves always come from the registry.
@@ -108,10 +111,25 @@ def main(argv: list[str]) -> int:
             differs.append(path.relative_to(HERE).as_posix())
             if not check:
                 path.write_bytes(rendered.encode("utf-8"))
+    # Each requirement's summary is its own text (review F02, M6), refreshed with the tables.
+    requirements_path = HERE / "requirements.json"
+    requirements = json.loads(requirements_path.read_text(encoding="utf-8"))
+    texts = {}
+    for path in sorted(HERE.rglob("*.md")):
+        for m in PARAGRAPH.finditer(path.read_text(encoding="utf-8").replace("\r\n", "\n")):
+            texts[m.group(1)] = " ".join(m.group(2).split())
+    stale = [r["id"] for r in requirements["requirements"] if texts.get(r["id"]) != r["summary"]]
     if check:
         for name in differs:
             print(f"{name}: a registry table differs from registry.json; run render_tables.py")
-        return 1 if differs else 0
+        for rid in stale:
+            print(f"{rid}: its summary in requirements.json is not its text; run render_tables.py")
+        return 1 if differs or stale else 0
+    if stale:
+        for r in requirements["requirements"]:
+            r["summary"] = texts.get(r["id"], r["summary"])
+        requirements_path.write_text(json.dumps(requirements, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"refreshed {len(stale)} summaries in requirements.json")
     for name in differs:
         print(f"rendered {name}")
     return 0

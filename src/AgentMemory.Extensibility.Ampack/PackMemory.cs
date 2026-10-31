@@ -134,7 +134,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 };
                 memory._byId[id] = linked;
             }
-        foreach (var record in memory._byId.Values.OrderBy(r => r.Id, StringComparer.Ordinal))
+        foreach (var record in memory._byId.Values.OrderBy(r => r.Id, PackText.Order))
         {
             var type = (record.ModuleId, record.Type);
             if (!memory._byType.TryGetValue(type, out var list)) memory._byType[type] = list = [];
@@ -356,18 +356,19 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 var properties = module.Views.Single(v => v.Id == search.ViewId).Search!.Properties;
                 var corpus = memory.Index(module.Id, type.Name, search.ViewId, properties);
                 var scored = found.Select(r => (Record: r, Score: corpus.Score(r, search.Terms))).Where(p => p.Score > 0);
-                ordered = scored.OrderByDescending(p => p.Score).ThenBy(p => p.Record.Id, StringComparer.Ordinal).Select(p => p.Record);
+                ordered = scored.OrderByDescending(p => p.Score).ThenBy(p => p.Record.Id, PackText.Order).Select(p => p.Record);
             }
             else if (admitted.OrderBy is { } order && admitted.Selection != ModuleRecordSelection.History)
             {
                 var kind = type.Properties[order.Property].Type;
                 var present = found.Where(r => Present(r, order.Property)).ToList();
                 var sorted = order.Descending
-                    ? present.OrderByDescending(r => r.Properties[order.Property], new ValueOrder(kind)).ThenBy(r => r.Id, StringComparer.Ordinal)
-                    : present.OrderBy(r => r.Properties[order.Property], new ValueOrder(kind)).ThenBy(r => r.Id, StringComparer.Ordinal);
-                ordered = sorted.Concat(found.Where(r => !Present(r, order.Property)).OrderBy(r => r.Id, StringComparer.Ordinal));
+                    ? present.OrderByDescending(r => r.Properties[order.Property], new ValueOrder(kind)).ThenBy(r => r.Id, PackText.Order)
+                    : present.OrderBy(r => r.Properties[order.Property], new ValueOrder(kind)).ThenBy(r => r.Id, PackText.Order);
+                ordered = sorted.Concat(found.Where(r => !Present(r, order.Property)).OrderBy(r => r.Id, PackText.Order));
             }
-            else ordered = found.OrderBy(r => r.Id, StringComparer.Ordinal);
+            // Ties by id in code-point order, as Cypher orders the Neo4j store's (review F02, M4).
+            else ordered = found.OrderBy(r => r.Id, PackText.Order);
             return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Succeeded, Records = ordered.Take(admitted.Limit).ToList().AsReadOnly() });
         }
     }

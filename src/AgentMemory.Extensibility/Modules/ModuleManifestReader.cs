@@ -85,7 +85,9 @@ internal static class ModuleManifestReader
         return new ModuleTrial
         {
             Measure = Text(value, "measure", path), Tasks = PositiveInteger(value, "tasks", path) ?? 40,
-            Baseline = OptionalText(value, "baseline", path) ?? "none", ConfidencePermille = confidence is { } p ? (int)p : null, Upgrade = upgrade,
+            Baseline = OptionalText(value, "baseline", path) ?? "none", ConfidencePermille = confidence is { } p
+                ? p is >= int.MinValue and <= int.MaxValue ? (int)p : throw Error(path + ".confidencePermille", PackNumbers.Problem("confidencePermille", p)!)
+                : null, Upgrade = upgrade,
             Targets = new ModuleTrialTargets
             {
                 HitRateMicro = Target("hitRate"), PrecisionMicro = Target("precision"), LiftMicro = Target("lift"),

@@ -92,7 +92,7 @@ internal static class ModuleJson
     internal static string? Description(JsonElement parent, string path)
     {
         var value = OptionalText(parent, "description", path);
-        if (value?.Length > 200) throw Error(path + ".description", "description exceeds 200 characters");
+        if (value is not null && PackText.Length(value) > 200) throw Error(path + ".description", "description exceeds 200 characters");
         return value;
     }
 

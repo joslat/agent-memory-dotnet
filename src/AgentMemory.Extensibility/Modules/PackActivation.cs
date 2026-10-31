@@ -256,11 +256,10 @@ public static partial class PackTrialGate
     /// exact trinomial enumeration (eng/trial-statistics/hitdiff_exact.py: 9.4%, 4.6%, 2.1% and 0.85%); the one-arm and paired
     /// precision bounds hold with it too (the harness).
     /// </summary>
-    internal static double HedgeWeight(double confidence) => confidence switch
-    {
-        0.9 => 1.25, 0.95 => 1.5, 0.975 => 1.75, 0.99 => 2.0,
-        _ => throw new ArgumentOutOfRangeException(nameof(confidence), "A trial's confidence is 0.9, 0.95, 0.975 or 0.99."),
-    };
+    internal static double HedgeWeight(double confidence) =>
+        // The registry's quarters (review F02, M7); a confidence outside the closed set is no confidence of the statistic.
+        Confidences.ContainsKey(confidence) && PackRegistry.Quantiles.TryGetValue((int)Math.Round(confidence * 1000), out var q)
+            ? q.HedgeQuarters / 4.0 : throw new ArgumentOutOfRangeException(nameof(confidence), "A trial's confidence is 0.9, 0.95, 0.975 or 0.99.");
 
     /// <summary>The one-sided normal quantiles the trial's confidence may name.</summary>
     // The integers of a trial (feature 02) as the fractions the floating-point statistic still computes with; step 4 of
@@ -268,10 +267,8 @@ public static partial class PackTrialGate
     private static double? F(long? micro) => micro is { } m ? PackNumbers.Fraction(m) : null;
     private static double? Level(int? permille) => permille is { } p ? p / 1000.0 : null;
 
-    internal static readonly IReadOnlyDictionary<double, double> Confidences = new Dictionary<double, double>
-    {
-        [0.9] = 1.2815516, [0.95] = 1.6448536, [0.975] = 1.9599640, [0.99] = 2.3263479,
-    };
+    internal static readonly IReadOnlyDictionary<double, double> Confidences = PackRegistry.Quantiles.ToDictionary(
+        q => q.Key / 1000.0, q => double.Parse(q.Value.Z, CultureInfo.InvariantCulture));
 
     /// <summary>
     /// The lower confidence bound of a rate of <paramref name="successes"/> out of <paramref name="trials"/>: Clopper-Pearson's,
@@ -595,13 +592,9 @@ public static partial class PackTrialGate
     }
 
     // Student's t quantiles at the four confidences, for 1 to 60 degrees of freedom (computed with mpmath, 30 digits).
-    private static readonly IReadOnlyDictionary<double, double[]> StudentQuantiles = new Dictionary<double, double[]>
-    {
-        [1.2815516] = [3.077684, 1.885618, 1.637744, 1.533206, 1.475884, 1.439756, 1.414924, 1.396815, 1.383029, 1.372184, 1.363430, 1.356217, 1.350171, 1.345030, 1.340606, 1.336757, 1.333379, 1.330391, 1.327728, 1.325341, 1.323188, 1.321237, 1.319460, 1.317836, 1.316345, 1.314972, 1.313703, 1.312527, 1.311434, 1.310415, 1.309464, 1.308573, 1.307737, 1.306952, 1.306212, 1.305514, 1.304854, 1.304230, 1.303639, 1.303077, 1.302543, 1.302035, 1.301552, 1.301090, 1.300649, 1.300228, 1.299825, 1.299439, 1.299069, 1.298714, 1.298373, 1.298045, 1.297730, 1.297426, 1.297134, 1.296853, 1.296581, 1.296319, 1.296066, 1.295821],
-        [1.6448536] = [6.313752, 2.919986, 2.353363, 2.131847, 2.015048, 1.943180, 1.894579, 1.859548, 1.833113, 1.812461, 1.795885, 1.782288, 1.770933, 1.761310, 1.753050, 1.745884, 1.739607, 1.734064, 1.729133, 1.724718, 1.720743, 1.717144, 1.713872, 1.710882, 1.708141, 1.705618, 1.703288, 1.701131, 1.699127, 1.697261, 1.695519, 1.693889, 1.692360, 1.690924, 1.689572, 1.688298, 1.687094, 1.685954, 1.684875, 1.683851, 1.682878, 1.681952, 1.681071, 1.680230, 1.679427, 1.678660, 1.677927, 1.677224, 1.676551, 1.675905, 1.675285, 1.674689, 1.674116, 1.673565, 1.673034, 1.672522, 1.672029, 1.671553, 1.671093, 1.670649],
-        [1.9599640] = [12.706205, 4.302653, 3.182446, 2.776445, 2.570582, 2.446912, 2.364624, 2.306004, 2.262157, 2.228139, 2.200985, 2.178813, 2.160369, 2.144787, 2.131450, 2.119905, 2.109816, 2.100922, 2.093024, 2.085963, 2.079614, 2.073873, 2.068658, 2.063899, 2.059539, 2.055529, 2.051831, 2.048407, 2.045230, 2.042272, 2.039513, 2.036933, 2.034515, 2.032245, 2.030108, 2.028094, 2.026192, 2.024394, 2.022691, 2.021075, 2.019541, 2.018082, 2.016692, 2.015368, 2.014103, 2.012896, 2.011741, 2.010635, 2.009575, 2.008559, 2.007584, 2.006647, 2.005746, 2.004879, 2.004045, 2.003241, 2.002465, 2.001717, 2.000995, 2.000298],
-        [2.3263479] = [31.820516, 6.964557, 4.540703, 3.746947, 3.364930, 3.142668, 2.997952, 2.896459, 2.821438, 2.763769, 2.718079, 2.680998, 2.650309, 2.624494, 2.602480, 2.583487, 2.566934, 2.552380, 2.539483, 2.527977, 2.517648, 2.508325, 2.499867, 2.492159, 2.485107, 2.478630, 2.472660, 2.467140, 2.462021, 2.457262, 2.452824, 2.448678, 2.444794, 2.441150, 2.437723, 2.434494, 2.431447, 2.428568, 2.425841, 2.423257, 2.420803, 2.418470, 2.416250, 2.414134, 2.412116, 2.410188, 2.408345, 2.406581, 2.404892, 2.403272, 2.401718, 2.400225, 2.398790, 2.397410, 2.396081, 2.394801, 2.393568, 2.392377, 2.391229, 2.390119],
-    };
+    // Student's t quantiles at the four confidences, for 1 to 60 degrees of freedom: the registry's decimals (review F02, M7).
+    private static readonly IReadOnlyDictionary<double, double[]> StudentQuantiles = PackRegistry.Quantiles.Values.ToDictionary(
+        q => double.Parse(q.Z, CultureInfo.InvariantCulture), q => q.T.Select(t => double.Parse(t, CultureInfo.InvariantCulture)).ToArray());
 
     /// <summary>The prefix of <see cref="DigestOf"/>: SHA-256 over RFC 8785 canonical JSON, named apart from a pack's <c>sha256:</c>.</summary>
     public const string ManifestDigestPrefix = "jcs-sha256:";
@@ -733,10 +726,12 @@ public static partial class PackTrialGate
             default:
                 throw new ArgumentException($"{target} is not a target this gate checks.");
         }
+        // Shown in millionths, as the targets are (review F02, M5): a bound rounded down, so it shows at or above the target
+        // exactly when it was met (bar a tie the float bound misses, where the exact verdict stands); an estimate to the nearest.
         if (confidence is not { } level || target.StartsWith("noRegression.", StringComparison.Ordinal) && required >= 0)
-            return new(target, required, Math.Round(estimate, 3), exact >= t);
+            return new(target, required, Math.Round(estimate, 6), exact >= t);
         var lower = bound(level);
-        return new(target, required, Math.Round(lower, 3), meets((int)Math.Round(level * 1000), t), Math.Round(estimate, 3));
+        return new(target, required, Math.Floor(lower * PackNumbers.One) / PackNumbers.One, meets((int)Math.Round(level * 1000), t), Math.Round(estimate, 6));
     }
 
     // An arm's hit rate and pooled precision as exact ratios of its counts (0 for none), as the estimates are defined.

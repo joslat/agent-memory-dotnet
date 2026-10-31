@@ -159,6 +159,17 @@ public sealed class AnchorMatcherWorkTests
     }
 
     [Fact]
+    public void An_equality_is_charged_by_characters_so_a_late_anchor_still_seeds_after_emoji()
+    {
+        // Review F02, M1: an emoji is one character and two UTF-16 units, as long in units as "ab" and shorter in characters.
+        // Charged by characters (R-WALK-049: no length is compared when the lengths differ), 25,500 of them cost 40 each and the
+        // late "ab" fits under the cap; charged by units, each cost 42 and the cap fell before it.
+        var value = string.Join(",", Enumerable.Repeat("\U0001F600", 25_500)) + ",ab";
+
+        AnchorMatcher.Best(ModuleAnchorMatch.Name, value, ["ab"]).Quality.Should().Be(AnchorMatcher.Exact);
+    }
+
+    [Fact]
     public void The_prepared_matcher_ranks_as_the_one_measure_does()
     {
         string[] values = ["src/a.cs", " ./SRC/b.cs", "lib/**/*.cs", "Neo4jModuleStore"];

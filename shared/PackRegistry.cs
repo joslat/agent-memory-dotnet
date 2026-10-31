@@ -78,6 +78,12 @@ internal static class PackRegistry
     /// <summary>The relations between built-in types.</summary>
     internal static readonly IReadOnlyList<BuiltInRelation> BuiltInRelations = [.. Path("records", "builtInRelations").EnumerateObject().Select(r => new BuiltInRelation(
         r.Name, r.Value.GetProperty("from").GetString()!, r.Value.GetProperty("to").GetString()!))];
+    /// <summary>A confidence's quantiles as the statistic reads them: decimals as written (review F02, M7).</summary>
+    internal sealed record TrialQuantiles(string Z, int HedgeQuarters, IReadOnlyList<string> T);
+    /// <summary>The statistic's quantiles and hedge weights, by confidence in thousandths: one table for every implementation.</summary>
+    internal static readonly IReadOnlyDictionary<int, TrialQuantiles> Quantiles = Path("trial", "statistic", "quantiles").EnumerateObject().ToDictionary(
+        p => int.Parse(p.Name, System.Globalization.CultureInfo.InvariantCulture),
+        p => new TrialQuantiles(p.Value.GetProperty("z").GetString()!, p.Value.GetProperty("hedgeQuarters").GetInt32(), [.. p.Value.GetProperty("t").EnumerateArray().Select(t => t.GetString()!)]));
     /// <summary>The confidences a trial and a certificate may name, in thousandths.</summary>
     internal static readonly IReadOnlySet<int> Confidences = new HashSet<int>(UnitFields["confidencePermille"].Values!.Select(v => (int)v));
     /// <summary>Reserved device names, compared without case, as the path grammar refuses them.</summary>

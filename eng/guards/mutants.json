@@ -549,13 +549,13 @@
    "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
    "edits": [
     {
-     "old": "0.9 => 1.25, 0.95 => 1.5, 0.975 => 1.75, 0.99 => 2.0,",
-     "new": "0.9 => 1.25, 0.95 => 1.0, 0.975 => 1.75, 0.99 => 2.0,"
+     "old": "? q.HedgeQuarters / 4.0 : throw new ArgumentOutOfRangeException(nameof(confidence)",
+     "new": "? q.HedgeQuarters / 6.0 : throw new ArgumentOutOfRangeException(nameof(confidence)"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~TrialStatisticsTests",
-   "sha256": "ec1bce255a1221bca6a5b4488c8e7017abbb36616ec3b47f7cdcefd043d22779"
+   "sha256": "512c1a2d12e186d7823f4eed6dd579e1665bbd834826049470e2d99bce9010f2"
   },
   {
    "id": "previous-cap",
@@ -594,13 +594,28 @@
    "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
    "edits": [
     {
-     "old": "        work++;\n        if (a.Length != b.Length) return false;\n        work += PackText.Length(a);",
-     "new": "        work += 1 + a.Length + b.Length;\n        if (a.Length != b.Length) return false;"
+     "old": "        work++;\n        if (aCharacters != bCharacters) return false;\n        work += aCharacters;",
+     "new": "        work += 1 + aCharacters + bCharacters;\n        if (aCharacters != bCharacters) return false;"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_ordinary",
-   "sha256": "b8fd5c484619c163a49ac522ccede65fa24cedf9c331c4cb5236a3a15e118a42"
+   "sha256": "407a69095b3ccaa34ad6b9bbb468c0b7877e83ec756a74cdde2122b3405666af"
+  },
+  {
+   "id": "equality-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "        if (aCharacters != bCharacters) return false;\n        work += aCharacters;",
+     "new": "        if (a.Length != b.Length) return false;\n        work += a.Length;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.An_equality_is_charged_by_characters",
+   "sha256": "c97ef5da137d8b3c89e070b08226a0f88d2c6f97869deef1f0d38a45921c24c0"
   },
   {
    "id": "expand-rows-whole",
@@ -984,13 +999,28 @@
    "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
    "edits": [
     {
-     "old": "return new(target, required, Math.Round(estimate, 3), exact >= t);",
-     "new": "return new(target, required, Math.Round(estimate, 3), estimate >= required);"
+     "old": "return new(target, required, Math.Round(estimate, 6), exact >= t);",
+     "new": "return new(target, required, Math.Round(estimate, 6), estimate >= required);"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~TrialGateTests.A_lift_exactly_at_its_target_is_met_exactly",
-   "sha256": "f6f7a5a68f6508ca36d74e51f1baddf85a69c8fcf9252134cfc29a7b942d2e6e"
+   "sha256": "8ad4f30250d4f81e063b4e061805b223099e95722a8a6bebf824660d7a139189"
+  },
+  {
+   "id": "verdict-by-float-bound",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "meets((int)Math.Round(level * 1000), t), Math.Round(estimate, 6));",
+     "new": "lower >= required, Math.Round(estimate, 6));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_bound_exactly_at_its_target_is_met_through_the_decision",
+   "sha256": "4da354973ee4732c5f399e75fefc3331c529bec3c74569d72d12ed4fbe4620a8"
   },
   {
    "id": "tie-refused",
@@ -1014,13 +1044,13 @@
    "file": "eng/trial-statistics/exact.py",
    "edits": [
     {
-     "old": "HEDGE = {0.9: Q(5, 4), 0.95: Q(3, 2),",
-     "new": "HEDGE = {0.9: Q(5, 4), 0.95: Q(5, 4),"
+     "old": "HEDGE = {c: Q(v[\"hedgeQuarters\"], 4) for c, v in DECIMALS.items()}",
+     "new": "HEDGE = {c: Q(v[\"hedgeQuarters\"], 5) for c, v in DECIMALS.items()}"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~StatisticsCoverageTests.Golden_json_is_the_reference_s_own_output",
-   "sha256": "d76481fe8cd3dd238983a177fe64c39cfe8339969f784249b3db102aa57906a4"
+   "sha256": "81eb58baae967c397538fd1a685d42222330a871ab726c6b77b52ba98d9e0e07"
   },
   {
    "id": "length-by-utf16",
@@ -1044,13 +1074,13 @@
    "file": "shared/PackText.cs",
    "edits": [
     {
-     "old": "if (x >= 0xD800 && y >= 0xD800) (x, y) = (Fixed(x), Fixed(y));",
+     "old": "if (char.IsSurrogate((char)x) || char.IsSurrogate((char)y)) return At(a, i).CompareTo(At(b, i));",
      "new": ""
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~WalkCharactersTests",
-   "sha256": "63e09e4ae8716aa79cdc1a5485ea51513f4a732938251257d921c90e2adcb511"
+   "sha256": "cb19e061efec99d0cfbb9807c608960e6a657595559be5f005988dcf904924b9"
   },
   {
    "id": "python-length-by-utf16",
