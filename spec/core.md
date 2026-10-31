@@ -594,6 +594,7 @@ its extensions, or one of its values of a field (a field that is absent takes it
 | `protection` | no |  |  |  | `protection`: `audience`, `licensed`, `attested`, `hosted` | {id} is protected as '{protection}'; this host opens 'open' packs only. |
 | `code` | no | `queries.json`, `queries/`, `components.json`, `components/` |  |  | `code`: `E1`, `E2` | {id} carries code (tier {code}); this host runs declarative (E0) packs only. |
 | `permissions` | no | `policy.json` |  |  |  | {id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack. |
+| `embeddings` | yes | `embeddings/` |  |  |  |  |
 <!-- /registry -->
 
 **R-CORE-095.** A reader MUST derive a pack's profiles from what it holds by the registry's profile map, in

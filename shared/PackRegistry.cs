@@ -84,6 +84,10 @@ internal static class PackRegistry
     internal static readonly IReadOnlyDictionary<int, TrialQuantiles> Quantiles = Path("trial", "statistic", "quantiles").EnumerateObject().ToDictionary(
         p => int.Parse(p.Name, System.Globalization.CultureInfo.InvariantCulture),
         p => new TrialQuantiles(p.Value.GetProperty("z").GetString()!, p.Value.GetProperty("hedgeQuarters").GetInt32(), [.. p.Value.GetProperty("t").EnumerateArray().Select(t => t.GetString()!)]));
+    /// <summary>The number types an embeddings set may hold (feature 03).</summary>
+    internal static readonly IReadOnlySet<string> EmbeddingDataTypes = Set("embeddings", "dataTypes");
+    /// <summary>The distances an embeddings set may be meant for.</summary>
+    internal static readonly IReadOnlySet<string> EmbeddingDistances = Set("embeddings", "distances");
     /// <summary>The confidences a trial and a certificate may name, in thousandths.</summary>
     internal static readonly IReadOnlySet<int> Confidences = new HashSet<int>(UnitFields["confidencePermille"].Values!.Select(v => (int)v));
     /// <summary>Reserved device names, compared without case, as the path grammar refuses them.</summary>

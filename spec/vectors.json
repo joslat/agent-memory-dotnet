@@ -1816,6 +1816,50 @@
   "certificate-confidence-written-with-a-fraction": [
    "R-CORE-119",
    "R-CERTIFY-009"
+  ],
+  "embeddings-valid": [
+   "R-EMB-001",
+   "R-EMB-002",
+   "R-EMB-003",
+   "R-EMB-004",
+   "R-EMB-005",
+   "R-EMB-006",
+   "R-EMB-007",
+   "R-CORE-095"
+  ],
+  "embeddings-f16": [
+   "R-EMB-003",
+   "R-EMB-006"
+  ],
+  "embeddings-header-padded": [
+   "R-EMB-005"
+  ],
+  "embeddings-header-lies": [
+   "R-EMB-005"
+  ],
+  "embeddings-shape-not-the-rows": [
+   "R-EMB-006"
+  ],
+  "embeddings-second-tensor": [
+   "R-EMB-006"
+  ],
+  "embeddings-metadata": [
+   "R-EMB-006"
+  ],
+  "embeddings-row-not-a-record": [
+   "R-EMB-004"
+  ],
+  "embeddings-nan": [
+   "R-EMB-007"
+  ],
+  "embeddings-trailing-bytes": [
+   "R-EMB-005"
+  ],
+  "embeddings-without-its-index": [
+   "R-EMB-001"
+  ],
+  "embeddings-dtype-not-the-index-s": [
+   "R-EMB-006"
   ]
  }
 }

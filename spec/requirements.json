@@ -4345,6 +4345,96 @@
    "verifiedBy": [
     "unit:BuiltInRecordsTests.A_pack_of_notes_needs_no_ontology_and_is_stored_under_its_implied_prefix"
    ]
+  },
+  {
+   "id": "R-EMB-001",
+   "doc": "profiles/embeddings.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "An embeddings set MUST be two files, `embeddings/<name>.st` and `embeddings/<name>.json`, its name 1 to 64 lowercase letters, digits or `-`, beginning with a letter or digit; every file under `embeddings/` MUST belong to a set, and a pack MUST carry at most 8 sets.",
+   "verifiedBy": [
+    "kit"
+   ]
+  },
+  {
+   "id": "R-EMB-002",
+   "doc": "profiles/embeddings.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "`embeddings/<name>.json` MUST be in the JSON profile, hold only these fields, each of them but `modelDigest`, and name `format` `ampack.embeddings/1`:",
+   "verifiedBy": [
+    "kit"
+   ]
+  },
+  {
+   "id": "R-EMB-003",
+   "doc": "profiles/embeddings.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "`model` MUST be one line of 1 to 200 characters, and `modelDigest`, when present, one line of 1 to 200; `dtype` MUST be one of these, `dimension` an integer of 1 to 4,096, `normalized` a boolean, and `distance` one of these:",
+   "verifiedBy": [
+    "kit"
+   ]
+  },
+  {
+   "id": "R-EMB-004",
+   "doc": "profiles/embeddings.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "`rows` MUST list 1 to 5,000 rows, each `[type, key]` (two strings) naming a record the pack holds, by the names its record lines carry, each record at most once.",
+   "verifiedBy": [
+    "kit"
+   ]
+  },
+  {
+   "id": "R-EMB-005",
+   "doc": "profiles/embeddings.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "`embeddings/<name>.st` MUST be in the safetensors layout: an 8-byte little-endian header length of 1 to 65,536, a header of that length in the JSON profile (trailing spaces allowed), then the data, and nothing after it.",
+   "verifiedBy": [
+    "kit"
+   ]
+  },
+  {
+   "id": "R-EMB-006",
+   "doc": "profiles/embeddings.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "The header MUST hold exactly one tensor, `vectors`, and no other member (`__metadata__` included), of exactly `dtype`, `shape` and `data_offsets`; its `dtype` MUST be the index's, its `shape` `[rows, dimension]`, and its `data_offsets` `[0, rows × dimension × 4]` for `F32`, `× 2` for `F16`.",
+   "verifiedBy": [
+    "kit"
+   ]
+  },
+  {
+   "id": "R-EMB-007",
+   "doc": "profiles/embeddings.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "The data MUST be little-endian, and MUST hold no NaN or infinite value.",
+   "verifiedBy": [
+    "kit"
+   ]
+  },
+  {
+   "id": "R-EMB-008",
+   "doc": "profiles/embeddings.md",
+   "section": "3",
+   "level": "MUST",
+   "summary": "A host MUST reuse a set's vectors only when its own embedder's model, model digest (both absent, or equal), dimension, `dtype` and normalization all equal the index's; otherwise it MUST embed the records' text with its own model, and it MUST NOT hold two models' vectors in one index.",
+   "verifiedBy": [
+    "unit:PackEmbeddingsTests"
+   ]
+  },
+  {
+   "id": "R-EMB-009",
+   "doc": "profiles/embeddings.md",
+   "section": "3",
+   "level": "MUST",
+   "summary": "Vectors MUST NOT decide a walk's order or a trial's verdict; a host MAY use them in its own retrieval, which a trial then measures as any other.",
+   "verifiedBy": [
+    "unit:PackEmbeddingsTests"
+   ]
   }
  ]
 }

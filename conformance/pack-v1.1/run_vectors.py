@@ -304,6 +304,46 @@ def main():
     vectors["profile-open-pack-with-seal"] = (signed({**content, "META/seal.json": b'{"format":"agentmemory.pack.seal/1.2"}' + newline}), "trust.json", "verified")
     vectors["profile-walk"] = (signed({**content, "traversal.json": b"{}" + newline}), "trust.json", "verified")
     vectors["profile-code-tier"] = (signed(edited(code="E1")), "trust.json", "verified")
+    # Feature 03: the Embeddings profile. A set is embeddings/<name>.st (one tensor in the safetensors layout) and its index
+    # embeddings/<name>.json; both verifiers read them strictly, against each other and the pack's records.
+    row = ["NotesNote", "note-1"]
+
+    def tensor(rows=1, dim=4, dtype="F32", values=None, header=None, pad=0, trailing=b"", length=None):
+        size = 4 if dtype == "F32" else 2
+        values = values if values is not None else [0.5] * (rows * dim)
+        data = b"".join(struct.pack("<f" if dtype == "F32" else "<e", v) for v in values)
+        head = header if header is not None else {"vectors": {"dtype": dtype, "shape": [rows, dim], "data_offsets": [0, rows * dim * size]}}
+        body = json.dumps(head, separators=(",", ":")).encode() + b" " * pad
+        return struct.pack("<Q", len(body) if length is None else length) + body + data + trailing
+
+    def index(**over):
+        value = {"format": "ampack.embeddings/1", "model": "example-embedder-4", "dtype": "F32", "dimension": 4, "normalized": False,
+                 "distance": "cosine", "rows": [row]}
+        value.update(over)
+        return json.dumps(value).encode()
+
+    def embedded(st=None, ix=None, name="notes"):
+        files = {**content}
+        if st is not False:
+            files[f"embeddings/{name}.st"] = st if st is not None else tensor()
+        if ix is not False:
+            files[f"embeddings/{name}.json"] = ix if ix is not None else index()
+        return signed(files)
+
+    vectors["embeddings-valid"] = (embedded(), "trust.json", "verified")
+    vectors["embeddings-f16"] = (embedded(tensor(dtype="F16"), index(dtype="F16")), "trust.json", "verified")
+    vectors["embeddings-header-padded"] = (embedded(tensor(pad=7)), "trust.json", "verified")
+    vectors["embeddings-header-lies"] = (embedded(tensor(length=4096)), "trust.json", "refused")
+    vectors["embeddings-shape-not-the-rows"] = (embedded(tensor(rows=2)), "trust.json", "refused")
+    vectors["embeddings-second-tensor"] = (embedded(tensor(header={"vectors": {"dtype": "F32", "shape": [1, 4], "data_offsets": [0, 16]},
+                                                                    "other": {"dtype": "F32", "shape": [1, 4], "data_offsets": [16, 32]}})), "trust.json", "refused")
+    vectors["embeddings-metadata"] = (embedded(tensor(header={"__metadata__": {"model": "x"}, "vectors": {"dtype": "F32", "shape": [1, 4], "data_offsets": [0, 16]}})),
+                                      "trust.json", "refused")
+    vectors["embeddings-row-not-a-record"] = (embedded(ix=index(rows=[["NotesNote", "note-2"]])), "trust.json", "refused")
+    vectors["embeddings-nan"] = (embedded(tensor(values=[0.5, float("nan"), 0.5, 0.5])), "trust.json", "refused")
+    vectors["embeddings-trailing-bytes"] = (embedded(tensor(trailing=b"\x00\x00\x00\x00")), "trust.json", "refused")
+    vectors["embeddings-without-its-index"] = (embedded(ix=False), "trust.json", "refused")
+    vectors["embeddings-dtype-not-the-index-s"] = (embedded(ix=index(dtype="F16")), "trust.json", "refused")
     vectors["valid-until-not-rfc3339"] = (signed(edited(validUntil="2099-01-01")), "trust.json", "refused")
     vectors["source-commit-not-hex"] = (signed(edited(source={"commit": "main"})), "trust.json", "refused")
     vectors["source-valid"] = (signed(edited(source={"repository": "https://example.com/notes", "commit": "0a1b2c3",

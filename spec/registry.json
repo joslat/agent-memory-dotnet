@@ -309,6 +309,18 @@
         "keys",
         "expires"
       ]
+    },
+    "embeddingsIndex": {
+      "fields": [
+        "format",
+        "model",
+        "modelDigest",
+        "dtype",
+        "dimension",
+        "normalized",
+        "distance",
+        "rows"
+      ]
     }
   },
   "members": {
@@ -746,6 +758,12 @@
         "policy.json"
       ],
       "refusal": "{id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack."
+    },
+    "embeddings": {
+      "implemented": true,
+      "files": [
+        "embeddings/"
+      ]
     }
   },
   "traversal": {
@@ -877,5 +895,16 @@
         "to": "document"
       }
     }
+  },
+  "embeddings": {
+    "dataTypes": [
+      "F32",
+      "F16"
+    ],
+    "distances": [
+      "cosine",
+      "dot",
+      "l2"
+    ]
   }
 }

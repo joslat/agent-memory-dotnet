@@ -1053,6 +1053,51 @@
    "sha256": "81eb58baae967c397538fd1a685d42222330a871ab726c6b77b52ba98d9e0e07"
   },
   {
+   "id": "reuse-on-dimension",
+   "rule": "EMBEDDINGS-STRICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackEmbeddings.cs",
+   "edits": [
+    {
+     "old": "set.Model == host.Model && set.ModelDigest == host.ModelDigest && set.Dimension == host.Dimension",
+     "new": "set.Dimension == host.Dimension"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackEmbeddingsTests",
+   "sha256": "cfbe7040ec2d454e781aaffeedf42830e876580867eb59e9dd59acf91bd979ee"
+  },
+  {
+   "id": "second-tensor",
+   "rule": "EMBEDDINGS-STRICT",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackEmbeddings.cs",
+   "edits": [
+    {
+     "old": "root.EnumerateObject().Count() != 1 || !root.TryGetProperty(\"vectors\", out var tensor)",
+     "new": "!root.TryGetProperty(\"vectors\", out var tensor)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "026c449fab483c420f726976788ccb7a49783754685863e28384e6d53d4a56ce"
+  },
+  {
+   "id": "python-second-tensor",
+   "rule": "EMBEDDINGS-STRICT",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "if not isinstance(header, dict) or set(header) != {\"vectors\"}:",
+     "new": "if not isinstance(header, dict) or \"vectors\" not in header:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "bc1efb1c089b02698600e1bb1620d7384653ee77418607dd39dff96afa935d13"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",

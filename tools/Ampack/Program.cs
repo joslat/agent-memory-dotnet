@@ -605,6 +605,10 @@ internal static partial class Program
         Console.WriteLine($"Verified {pack.Id} {pack.Version}\n  digest  {pack.Digest}\n  kind    {pack.Manifest.Kind}, tier {pack.Manifest.Tier}");
         // The profiles it uses, by the registry's map (feature 01): a host must implement each to load it.
         Console.WriteLine($"  profiles {Profiles(pack)}");
+        // Each set of vectors, as its index states it (feature 03): what a host's embedder must match to reuse them.
+        foreach (var set in PackEmbeddings.Read(pack.Files).Sets)
+            Console.WriteLine($"  vectors {set.Name}: {set.Rows.Count} rows of {set.Dimension} {set.DataType}, {Shown(set.Model, 200)}"
+                + (set.ModelDigest is { } digest ? $" {Shown(digest, 200)}" : "") + $", {set.Distance}{(set.Normalized ? ", normalized" : "")}");
         foreach (var s in pack.Signatures) Console.WriteLine($"  signed  {s.Role} by {Dsse.Short(s.KeyId)} at {s.SignedAt:u}");
         // What a trial decision (and a certificate issued from one) binds besides the digest: the declarations it ran.
         if (pack.Manifest.Kind is "knowledge" or "definition")

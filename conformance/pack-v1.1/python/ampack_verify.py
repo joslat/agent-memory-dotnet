@@ -942,6 +942,7 @@ def verify(files, policy, now):
     manifest_checks(manifest, content, now)
     if CARD in content:
         read_card(content[CARD])
+    read_embeddings(content)
     digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
     if digest in policy.get("revoked", {}).get("digests", []):
         raise Refused("the pack is revoked")
@@ -1178,6 +1179,111 @@ def is_text(text, maximum):
 
 def is_line(text, maximum):
     return is_text(text, maximum) and "\n" not in text and "\t" not in text
+
+
+# The Embeddings profile (feature 03): embeddings/<name>.st, one tensor in the safetensors layout, and embeddings/<name>.json,
+# its index, each read strictly and checked against the other and the pack's records, as .NET's PackEmbeddings.
+EMBEDDINGS_FOLDER = "embeddings/"
+EMBEDDINGS_FORMAT = "ampack.embeddings/1"
+EMBEDDINGS_SET = re.compile(r"\Aembeddings/([a-z0-9][a-z0-9-]{0,63})\.(?:st|json)\Z")
+EMBEDDINGS_MAX_HEADER = 64 * 1024
+EMBEDDINGS_MAX_DIMENSION = 4096
+EMBEDDINGS_MAX_SETS = 8
+EMBEDDINGS_MAX_ROWS = 5000
+EMBEDDINGS_DTYPES = set(REGISTRY["embeddings"]["dataTypes"])
+EMBEDDINGS_DISTANCES = set(REGISTRY["embeddings"]["distances"])
+
+
+def embedding_records(content):
+    """Every (type, key) the record lines name, read leniently: a malformed line is the record reader's to refuse."""
+    records = set()
+    for path in sorted(p for p in content if p.startswith("records/") and p.endswith(".jsonl")):
+        for line in content[path].decode("utf-8", "replace").split("\n"):
+            if not line:
+                continue
+            try:
+                value = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(value, dict) and isinstance(value.get("type"), str) and isinstance(value.get("key"), str):
+                records.add((value["type"], value["key"]))
+    return records
+
+
+def read_embeddings(content):
+    paths = sorted(p for p in content if p.startswith(EMBEDDINGS_FOLDER))
+    if not paths:
+        return
+    names = set()
+    for path in paths:
+        m = EMBEDDINGS_SET.match(path)
+        if not m:
+            raise Refused(f"'{shown(path)}' is not an embeddings file")
+        names.add(m.group(1))
+    if len(names) > EMBEDDINGS_MAX_SETS:
+        raise Refused(f"a pack carries at most {EMBEDDINGS_MAX_SETS} embedding sets")
+    records = embedding_records(content)
+    for name in sorted(names):
+        st, ix = content.get(f"{EMBEDDINGS_FOLDER}{name}.st"), content.get(f"{EMBEDDINGS_FOLDER}{name}.json")
+        if st is None or ix is None:
+            raise Refused(f"the embedding set '{name}' needs both its .st and its .json")
+        index = profile(ix)
+        if not isinstance(index, dict) or set(index) - SHAPE["embeddingsIndex"]:
+            raise Refused("an embeddings index holds other fields than its own")
+        if index.get("format") != EMBEDDINGS_FORMAT:
+            raise Refused(f"an embeddings index names format '{EMBEDDINGS_FORMAT}'")
+        if not is_line(index.get("model"), 200) or ("modelDigest" in index and not is_line(index["modelDigest"], 200)):
+            raise Refused("an embeddings index names its model, and its digest when it gives one, as one line of 1 to 200 characters")
+        if not isinstance(index.get("dtype"), str) or index["dtype"] not in EMBEDDINGS_DTYPES:
+            raise Refused("an embeddings index names a known dtype")
+        dimension = as_int(index.get("dimension"))
+        if dimension is None or not 1 <= dimension <= EMBEDDINGS_MAX_DIMENSION:
+            raise Refused(f"an embeddings index names a dimension of 1 to {EMBEDDINGS_MAX_DIMENSION}")
+        if not isinstance(index.get("normalized"), bool):
+            raise Refused("an embeddings index says whether its vectors are normalized")
+        if not isinstance(index.get("distance"), str) or index["distance"] not in EMBEDDINGS_DISTANCES:
+            raise Refused("an embeddings index names a known distance")
+        rows = index.get("rows")
+        if not isinstance(rows, list) or not 1 <= len(rows) <= EMBEDDINGS_MAX_ROWS:
+            raise Refused(f"an embeddings index lists 1 to {EMBEDDINGS_MAX_ROWS} rows")
+        seen = set()
+        for row in rows:
+            if not isinstance(row, list) or len(row) != 2 or not all(isinstance(x, str) for x in row):
+                raise Refused("each row of an embeddings index is [type, key], two strings")
+            pair = (row[0], row[1])
+            if pair in seen:
+                raise Refused("an embeddings index lists a row twice")
+            if pair not in records:
+                raise Refused("an embeddings index names a row the pack holds no record of")
+            seen.add(pair)
+        # The safetensors layout, strictly.
+        if len(st) < 8:
+            raise Refused("an embeddings tensor is shorter than its header length")
+        length = int.from_bytes(st[:8], "little")
+        if length == 0 or length > EMBEDDINGS_MAX_HEADER or len(st) < 8 + length:
+            raise Refused("an embeddings tensor states a header past its bound or its end")
+        header = profile(st[8:8 + length].rstrip(b" "))
+        if not isinstance(header, dict) or set(header) != {"vectors"}:
+            raise Refused("an embeddings tensor's header holds exactly one tensor, 'vectors', and no metadata")
+        tensor = header["vectors"]
+        if not isinstance(tensor, dict) or set(tensor) - {"dtype", "shape", "data_offsets"}:
+            raise Refused("an embeddings tensor is exactly dtype, shape and data_offsets")
+        if not isinstance(tensor.get("dtype"), str) or tensor["dtype"] != index["dtype"]:
+            raise Refused("an embeddings tensor is not of its index's dtype")
+        size = 4 if index["dtype"] == "F32" else 2
+        expected = len(rows) * dimension * size
+        shape, offsets = tensor.get("shape"), tensor.get("data_offsets")
+        if not isinstance(shape, list) or [as_int(x) for x in shape] != [len(rows), dimension]:
+            raise Refused("an embeddings tensor's shape is not its rows and dimension")
+        if not isinstance(offsets, list) or [as_int(x) for x in offsets] != [0, expected]:
+            raise Refused("an embeddings tensor's data offsets are not [0, its bytes]")
+        data = st[8 + length:]
+        if len(data) != expected:
+            raise Refused("an embeddings tensor holds other than its tensor's bytes")
+        mask, top = (0x7F800000, "<I") if size == 4 else (0x7C00, "<H")
+        for (value,) in struct.iter_unpack(top, data):
+            if value & mask == mask:
+                raise Refused("an embeddings tensor holds a NaN or infinite value")
 
 
 def read_card(data):

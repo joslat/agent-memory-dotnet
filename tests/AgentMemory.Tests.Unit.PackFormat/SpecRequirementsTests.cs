@@ -15,7 +15,7 @@ public sealed partial class SpecRequirementsTests
     [GeneratedRegex(@"\*\*(R-[A-Z]+-\d{3})\.\*\*")]
     private static partial Regex Defined();
 
-    [GeneratedRegex(@"\AR-(CORE|WALK|TRIAL|COMPOSE|CERTIFY|FED|PROT|CODE|PERM|HOST)-\d{3}\z")]
+    [GeneratedRegex(@"\AR-(CORE|WALK|TRIAL|COMPOSE|CERTIFY|FED|PROT|CODE|PERM|EMB|HOST)-\d{3}\z")]
     private static partial Regex WellFormed();
 
     private static readonly string Spec = Path.Combine(Root(), "spec");

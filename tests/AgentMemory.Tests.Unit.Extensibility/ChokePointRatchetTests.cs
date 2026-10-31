@@ -71,6 +71,7 @@ public sealed class ChokePointRatchetTests
         ("src/AgentMemory.Packs.Format/Jcs.cs", "json parse", 1, Parser),
         ("src/AgentMemory.Packs.Format/PackCard.cs", "json parse", 1, Parser),
         ("src/AgentMemory.Packs.Format/PackCertificate.cs", "json parse", 4, Parser),
+        ("src/AgentMemory.Packs.Format/PackEmbeddings.cs", "json parse", 2, Parser),
         ("src/AgentMemory.Packs.Format/PackFamily.cs", "json parse", 1, Parser),
         ("src/AgentMemory.Packs.Format/PackJson.cs", "json parse", 1, "the choke point: the format's JSON profile check"),
         ("src/AgentMemory.Packs.Format/PackManifest.cs", "json parse", 1, Parser),
