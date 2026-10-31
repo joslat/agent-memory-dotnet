@@ -87,9 +87,9 @@ internal sealed record PackCard(string OwnerName, string? OwnerContact, string I
         return problem is null ? items : [];
     }
 
-    /// <summary>1 to <paramref name="maximum"/> characters (code points), no C0 or C1 control character but a line feed or a tab.</summary>
+    /// <summary>1 to <paramref name="maximum"/> characters (code points), display-safe (feature 04: no control but a line feed or a tab, no format character but ZWNJ and ZWJ, no private use).</summary>
     internal static bool IsText(string text, int maximum) =>
-        PackText.Length(text) is var n && n >= 1 && n <= maximum && !text.Any(c => c is not ('\n' or '\t') && (c < ' ' || c is >= '\u007f' and <= '\u009f'));
+        PackText.Length(text) is var n && n >= 1 && n <= maximum && PackText.IsDisplaySafe(text);
 
     private static string? Str(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

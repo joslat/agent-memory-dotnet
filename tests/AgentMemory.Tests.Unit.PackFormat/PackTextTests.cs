@@ -54,6 +54,16 @@ public sealed class PackTextTests
     }
 
     [Fact]
+    public void Display_safe_text_refuses_what_hides_or_reorders_what_it_shows()
+    {
+        // Feature 04 (R-CORE-126): the registry's ranges, fixed at Unicode 15.0.
+        PackText.IsDisplaySafe("Notes for the team\n\twith a tab").Should().BeTrue("a line feed and a tab are kept");
+        PackText.IsDisplaySafe("\U0001F468‍\U0001F469‍\U0001F467 and क्‌ष").Should().BeTrue("ZWJ and ZWNJ are kept: emoji and scripts need them");
+        foreach (var hidden in new[] { "‮", "⁦", "‎", "​", "­", "⁠", "﻿", "\u0007", "\u009B", "", "\U000F0000", "\U000E0001" })
+            PackText.IsDisplaySafe("a" + hidden + "b").Should().BeFalse($"U+{char.ConvertToUtf32(hidden, 0):X4} hides or reorders text");
+    }
+
+    [Fact]
     public void Code_points_are_read_whole_and_a_lone_surrogate_as_itself() =>
         PackText.CodePoints("a\U0001F600\uD800b").Should().Equal('a', 0x1F600, 0xD800, 'b');
 }

@@ -17,6 +17,7 @@ usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>...
 Needs: Python 3.12 (its Unicode 15.0 data decides NFC exactly as .NET's tables do), the `cryptography` package.
 """
 import base64
+import bisect
 import hashlib
 import binascii
 import errno
@@ -536,6 +537,13 @@ def manifest_checks(manifest, content, now):
             raise Refused(f"pack.json has a '{field}' that is not an object")
     if isinstance(manifest.get("display"), dict) and "icon" in manifest["display"] and not isinstance(manifest["display"]["icon"], str):
         raise Refused("pack.json has a display.icon that is not a string")
+    # What a pack shows a person is display-safe (feature 04), as .NET's PackManifest.
+    if isinstance(manifest.get("display"), dict):
+        for name, maximum, line in (("title", 60, True), ("description", 300, False)):
+            if name in manifest["display"]:
+                text = manifest["display"][name]
+                if not is_text(text, maximum) or (line and ("\n" in text or "\t" in text)):
+                    raise Refused(f"pack.json has a display.{name} that is not display-safe text of 1 to {maximum} characters")
     kind = manifest.get("kind")
     if kind not in KINDS:
         raise Refused("pack.json needs a known kind")
@@ -1173,10 +1181,22 @@ def text_length(text):
     return len(text)
 
 
+# Display-safe text (feature 04): the registry's refused code points, fixed at Unicode 15.0, never this platform's categories.
+DISPLAY_REFUSED = sorted((int(a, 16), int(b, 16)) for a, b in REGISTRY["text"]["displayRefused"])
+DISPLAY_STARTS = [a for a, _ in DISPLAY_REFUSED]
+
+
+def display_safe(text):
+    for c in text:
+        i = bisect.bisect_right(DISPLAY_STARTS, ord(c)) - 1
+        if i >= 0 and ord(c) <= DISPLAY_REFUSED[i][1]:
+            return False
+    return True
+
+
 def is_text(text, maximum):
-    """1 to `maximum` characters (code points), no C0 or C1 control character but a line feed or a tab (as .NET's PackCard.IsText)."""
-    return isinstance(text, str) and 1 <= text_length(text) <= maximum \
-        and not any(c not in "\n\t" and (c < " " or "\x7f" <= c <= "\x9f") for c in text)
+    """1 to `maximum` characters (code points), display-safe (as .NET's PackCard.IsText)."""
+    return isinstance(text, str) and 1 <= text_length(text) <= maximum and display_safe(text)
 
 
 def is_line(text, maximum):

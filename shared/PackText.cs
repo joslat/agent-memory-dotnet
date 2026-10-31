@@ -47,6 +47,28 @@ internal static class PackText
         return a.Length - b.Length;
     }
 
+    /// <summary>
+    /// Whether a text may be shown to a person (feature 04, R-CORE-126): no code point the registry refuses, so no control but a
+    /// line feed or a tab, no format character but ZWNJ and ZWJ (no bidi control, no zero-width space), no private use, no
+    /// surrogate. The ranges are the registry's, fixed at Unicode 15.0, never the platform's own categories.
+    /// </summary>
+    internal static bool IsDisplaySafe(string text)
+    {
+        var refused = PackRegistry.DisplayRefused;
+        foreach (var c in CodePoints(text))
+        {
+            var (lo, hi) = (0, refused.Count - 1);
+            while (lo <= hi)
+            {
+                var mid = (lo + hi) / 2;
+                if (c < refused[mid].First) hi = mid - 1;
+                else if (c > refused[mid].Last) lo = mid + 1;
+                else return false;
+            }
+        }
+        return true;
+    }
+
     /// <summary>The format's order, as a comparer.</summary>
     internal static readonly IComparer<string> Order = Comparer<string>.Create(Compare);
 

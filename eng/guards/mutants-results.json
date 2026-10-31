@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "e5c7a02b",
+ "commit": "c3557dd2",
  "results": [
   {
    "id": "archive-ratio",
@@ -637,11 +637,11 @@
    "door": "certificate",
    "mutant_sha256": "7fbbd683b661342f8b85d8f7c3313892a91b984b82c23f6237fa7f44bf30f9c7",
    "killed": true,
-   "file_sha256": "dc0fc9559fa295e293f84afe935703c224d570c37728e2e2bbb86601cf9efdc8",
+   "file_sha256": "19019b2ddbb1c86a4c6b32c3a4df977432ee0b503380bac66c10eecb45bfa259",
    "failed": [
     "kit"
    ],
-   "seconds": 151
+   "seconds": 157
   },
   {
    "id": "pooled-first-copy",
@@ -761,11 +761,11 @@
    "door": "verify",
    "mutant_sha256": "09c65367272920ce39b8f849db42c9273fc4a752a171d57fcaf4960ba0a090e6",
    "killed": true,
-   "file_sha256": "dc0fc9559fa295e293f84afe935703c224d570c37728e2e2bbb86601cf9efdc8",
+   "file_sha256": "19019b2ddbb1c86a4c6b32c3a4df977432ee0b503380bac66c10eecb45bfa259",
    "failed": [
     "kit"
    ],
-   "seconds": 152
+   "seconds": 155
   },
   {
    "id": "decimal-read-as-integer",
@@ -870,11 +870,35 @@
    "door": "verify",
    "mutant_sha256": "bc1efb1c089b02698600e1bb1620d7384653ee77418607dd39dff96afa935d13",
    "killed": true,
-   "file_sha256": "dc0fc9559fa295e293f84afe935703c224d570c37728e2e2bbb86601cf9efdc8",
+   "file_sha256": "19019b2ddbb1c86a4c6b32c3a4df977432ee0b503380bac66c10eecb45bfa259",
    "failed": [
     "kit"
    ],
-   "seconds": 152
+   "seconds": 156
+  },
+  {
+   "id": "display-unsafe-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "definition",
+   "mutant_sha256": "fde45b7619aef2615472d5f176cf91da37bd2427f01846d4a5a7213d7d47e60c",
+   "killed": true,
+   "file_sha256": "9f5309cb8afb35649b526a0ca30621e61c23e1b2cdc36f41333737eec4df8de9",
+   "failed": [
+    "PackTextTests.Display_safe_text_refuses_what_hides_or_reorders_what_it_shows"
+   ],
+   "seconds": 5
+  },
+  {
+   "id": "python-display-unsafe-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "verify",
+   "mutant_sha256": "9047ad98c9c7ef61a5e8413e3758a90a34e4085e22849576875765f215379cd9",
+   "killed": true,
+   "file_sha256": "19019b2ddbb1c86a4c6b32c3a4df977432ee0b503380bac66c10eecb45bfa259",
+   "failed": [
+    "kit"
+   ],
+   "seconds": 166
   },
   {
    "id": "length-by-utf16",
@@ -882,11 +906,11 @@
    "door": "verify",
    "mutant_sha256": "3fb6de0e0bf61fb0b406eab581c4245a69e57b812c4da6a218081a67edd8eb27",
    "killed": true,
-   "file_sha256": "eba617750fab9e44f988433553aae46edfa0a28c86f6576e46c4671abd68360d",
+   "file_sha256": "9f5309cb8afb35649b526a0ca30621e61c23e1b2cdc36f41333737eec4df8de9",
    "failed": [
     "PackTextTests.A_length_counts_characters_not_UTF16_units"
    ],
-   "seconds": 4
+   "seconds": 6
   },
   {
    "id": "order-by-utf16",
@@ -894,11 +918,11 @@
    "door": "definition",
    "mutant_sha256": "cb19e061efec99d0cfbb9807c608960e6a657595559be5f005988dcf904924b9",
    "killed": true,
-   "file_sha256": "eba617750fab9e44f988433553aae46edfa0a28c86f6576e46c4671abd68360d",
+   "file_sha256": "9f5309cb8afb35649b526a0ca30621e61c23e1b2cdc36f41333737eec4df8de9",
    "failed": [
     "WalkCharactersTests.Tied_records_are_in_the_format_s_order_by_code_point"
    ],
-   "seconds": 12
+   "seconds": 13
   },
   {
    "id": "python-length-by-utf16",
@@ -906,11 +930,11 @@
    "door": "verify",
    "mutant_sha256": "e62a3bbc3fc7b6120fa1345277898ffa9d676c23bc338e3ecf2430bbea97a64b",
    "killed": true,
-   "file_sha256": "dc0fc9559fa295e293f84afe935703c224d570c37728e2e2bbb86601cf9efdc8",
+   "file_sha256": "19019b2ddbb1c86a4c6b32c3a4df977432ee0b503380bac66c10eecb45bfa259",
    "failed": [
     "kit"
    ],
-   "seconds": 152
+   "seconds": 158
   },
   {
    "id": "links-before-dependency",
@@ -1086,11 +1110,11 @@
    "door": "python",
    "mutant_sha256": "35d98024f382d9d80e48c26719053c25fb591e1af16dbe9fddf45e3d9208180d",
    "killed": true,
-   "file_sha256": "dc0fc9559fa295e293f84afe935703c224d570c37728e2e2bbb86601cf9efdc8",
+   "file_sha256": "19019b2ddbb1c86a4c6b32c3a4df977432ee0b503380bac66c10eecb45bfa259",
    "failed": [
     "kit"
    ],
-   "seconds": 151
+   "seconds": 159
   }
  ]
 }

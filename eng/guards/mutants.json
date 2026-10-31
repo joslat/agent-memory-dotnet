@@ -1098,6 +1098,36 @@
    "sha256": "bc1efb1c089b02698600e1bb1620d7384653ee77418607dd39dff96afa935d13"
   },
   {
+   "id": "display-unsafe-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "definition",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "                else return false;",
+     "new": "                else break;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~PackTextTests",
+   "sha256": "fde45b7619aef2615472d5f176cf91da37bd2427f01846d4a5a7213d7d47e60c"
+  },
+  {
+   "id": "python-display-unsafe-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if i >= 0 and ord(c) <= DISPLAY_REFUSED[i][1]:\n            return False",
+     "new": "        if i >= 0 and ord(c) <= DISPLAY_REFUSED[i][1]:\n            break"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "9047ad98c9c7ef61a5e8413e3758a90a34e4085e22849576875765f215379cd9"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",

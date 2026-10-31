@@ -88,6 +88,11 @@ internal static class PackRegistry
     internal static readonly IReadOnlySet<string> EmbeddingDataTypes = Set("embeddings", "dataTypes");
     /// <summary>The distances an embeddings set may be meant for.</summary>
     internal static readonly IReadOnlySet<string> EmbeddingDistances = Set("embeddings", "distances");
+    /// <summary>The code points display-safe text refuses, as sorted inclusive ranges (feature 04, Unicode 15.0).</summary>
+    internal static readonly IReadOnlyList<(int First, int Last)> DisplayRefused = [.. Path("text", "displayRefused").EnumerateArray()
+        .Select(r => (int.Parse(r[0].GetString()!, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture),
+                      int.Parse(r[1].GetString()!, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture)))
+        .OrderBy(r => r.Item1)];
     /// <summary>The confidences a trial and a certificate may name, in thousandths.</summary>
     internal static readonly IReadOnlySet<int> Confidences = new HashSet<int>(UnitFields["confidencePermille"].Values!.Select(v => (int)v));
     /// <summary>Reserved device names, compared without case, as the path grammar refuses them.</summary>

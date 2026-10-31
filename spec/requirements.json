@@ -1197,7 +1197,7 @@
    "doc": "core.md",
    "section": "16",
    "level": "MUST",
-   "summary": "Card lengths MUST be counted in characters, and card text MUST NOT hold a C0 or C1 control character other than a line feed or a tab.",
+   "summary": "Card lengths MUST be counted in characters, and card text MUST be display-safe (R-CORE-126).",
    "verifiedBy": [
     "kit"
    ]
@@ -1340,6 +1340,17 @@
    "summary": "A type MAY declare a `memoryKind`, one of these, for mapping and display only: no rule of this specification depends on it.",
    "verifiedBy": [
     "unit:BuiltInRecordsTests.A_type_s_main_text_is_a_string_property_and_its_kind_one_of_the_registry_s"
+   ]
+  },
+  {
+   "id": "R-CORE-126",
+   "doc": "core.md",
+   "section": "16",
+   "level": "MUST",
+   "summary": "Text a pack shows to a person (its card, `display.title`, which is one line, and `display.description`, and every text a verifier checks as one) MUST be display-safe: it MUST hold no code point in these ranges, fixed at Unicode 15.0 whatever the platform's own tables. They are the C0 and C1 controls but line feed and tab, every format character but ZWNJ and ZWJ (so every bidi control and the zero-width space), private use and surrogates.",
+   "verifiedBy": [
+    "kit",
+    "unit:PackTextTests"
    ]
   },
   {

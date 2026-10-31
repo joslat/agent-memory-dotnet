@@ -537,6 +537,12 @@ def main():
     vectors["code-as-a-list"] = (signed(edited(code=["E2"])), "trust.json", "refused")
     vectors["sdk-as-a-number"] = (signed(edited(sdk=1)), "trust.json", "refused")
     vectors["display-as-a-string"] = (signed(edited(display="notes")), "trust.json", "refused")
+    # Feature 04: what pack.json shows a person is display-safe: a one-line title of at most 60 characters, a description of 300.
+    vectors["display-title-plain"] = (signed(edited(display={"title": "Notes", "description": "What the team knows."})), "trust.json", "verified")
+    vectors["display-title-bidi-override"] = (signed(edited(display={"title": "Notes ‮txt.exe"})), "trust.json", "refused")
+    vectors["display-title-two-lines"] = (signed(edited(display={"title": "Notes" + chr(10) + "More"})), "trust.json", "refused")
+    vectors["display-title-61-characters"] = (signed(edited(display={"title": "x" * 61})), "trust.json", "refused")
+    vectors["display-description-soft-hyphen"] = (signed(edited(display={"title": "Notes", "description": "Hid­den"})), "trust.json", "refused")
     vectors["number-beyond-double"] = (signed({**content, record: b'{"key":"a","n":1e400}\n'}), "trust.json", "refused")
     vectors["integer-int64-min"] = (signed({**content, record: b'{"key":"a","n":-9223372036854775808}\n'}), "trust.json", "refused")
     nested = lambda depth: ("[" * depth + "]" * depth).encode()
@@ -955,6 +961,11 @@ def main():
     # units and within the bound.
     vectors["card-astral-at-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 2000}), "trust.json", "verified")
     vectors["card-astral-over-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 2000 + "a"}), "trust.json", "refused")
+    # Feature 04: display-safe text, by the registry's ranges (Unicode 15.0) in both verifiers.
+    vectors["card-bidi-override"] = (with_card({**full_card, "intendedUse": "Safe to use ‮eman"}), "trust.json", "refused")
+    vectors["card-zero-width-space"] = (with_card({**full_card, "limitations": "No​personal data"}), "trust.json", "refused")
+    vectors["card-private-use"] = (with_card({**full_card, "limitations": "Mark  here"}), "trust.json", "refused")
+    vectors["card-emoji-joined-by-zwj"] = (with_card({**full_card, "intendedUse": "For the family \U0001F468‍\U0001F469‍\U0001F467"}), "trust.json", "verified")
     vectors["card-boundary-repeated"] = (with_card({**full_card, "boundaries": ["Same.", "Same."]}), "trust.json", "refused")
     vectors["card-owner-empty"] = (with_card({**full_card, "owner": {"name": ""}}), "trust.json", "refused")
 

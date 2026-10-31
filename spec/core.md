@@ -725,6 +725,47 @@ specification depends on it.
 
 `card.json` is optional. It is a listed and signed file like any other, which a host's operator reads before installing.
 
+**R-CORE-126.** Text a pack shows to a person (its card, `display.title`, which is one line, and `display.description`,
+and every text a verifier checks as one) MUST be display-safe: it MUST hold no code point in these ranges, fixed at Unicode
+15.0 whatever the platform's own tables. They are the C0 and C1 controls but line feed and tab, every format character but
+ZWNJ and ZWJ (so every bidi control and the zero-width space), private use and surrogates.
+
+<!-- registry:text.displayRefused -->
+| Display refused |
+|---|
+| `0000`, `0008` |
+| `000B`, `001F` |
+| `007F`, `009F` |
+| `00AD`, `00AD` |
+| `0600`, `0605` |
+| `061C`, `061C` |
+| `06DD`, `06DD` |
+| `070F`, `070F` |
+| `0890`, `0891` |
+| `08E2`, `08E2` |
+| `180E`, `180E` |
+| `200B`, `200B` |
+| `200E`, `200F` |
+| `202A`, `202E` |
+| `2060`, `2064` |
+| `2066`, `206F` |
+| `D800`, `F8FF` |
+| `FEFF`, `FEFF` |
+| `FFF9`, `FFFB` |
+| `110BD`, `110BD` |
+| `110CD`, `110CD` |
+| `13430`, `1343F` |
+| `1BCA0`, `1BCA3` |
+| `1D173`, `1D17A` |
+| `E0001`, `E0001` |
+| `E0020`, `E007F` |
+| `F0000`, `FFFFD` |
+| `100000`, `10FFFD` |
+<!-- /registry -->
+
+> Why: signatures prove who wrote a text, not what it shows. A bidi override makes a title read otherwise than it is
+> (Trojan Source), and a zero-width space hides a word; ZWNJ and ZWJ stay, because scripts and emoji need them.
+
 | Field | Meaning |
 |---|---|
 | `format` | `agentmemory.pack.card/1` |
@@ -740,8 +781,7 @@ specification depends on it.
 above only (an unknown field MUST refuse the pack), `owner.name`, `intendedUse` and `limitations` required, each of its
 type and within its length.
 
-**R-CORE-112.** Card lengths MUST be counted in characters, and card text MUST NOT hold a C0 or C1 control
-character other than a line feed or a tab.
+**R-CORE-112.** Card lengths MUST be counted in characters, and card text MUST be display-safe (R-CORE-126).
 
 **R-CORE-113.** A writer SHOULD write a template card when it creates a pack, and SHOULD advise while a card is
 still the template or when a knowledge or definition pack carries no card.

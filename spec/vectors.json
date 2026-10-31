@@ -1900,6 +1900,42 @@
   "embeddings-beside-a-line-nested-too-deep": [
    "R-EMB-004",
    "R-CORE-030"
+  ],
+  "card-bidi-override": [
+   "R-CORE-126",
+   "R-CORE-112"
+  ],
+  "card-zero-width-space": [
+   "R-CORE-126",
+   "R-CORE-112"
+  ],
+  "card-private-use": [
+   "R-CORE-126",
+   "R-CORE-112"
+  ],
+  "card-emoji-joined-by-zwj": [
+   "R-CORE-126",
+   "R-CORE-112"
+  ],
+  "display-title-plain": [
+   "R-CORE-126",
+   "R-CORE-081"
+  ],
+  "display-title-bidi-override": [
+   "R-CORE-126",
+   "R-CORE-081"
+  ],
+  "display-title-two-lines": [
+   "R-CORE-126",
+   "R-CORE-081"
+  ],
+  "display-title-61-characters": [
+   "R-CORE-126",
+   "R-CORE-081"
+  ],
+  "display-description-soft-hyphen": [
+   "R-CORE-126",
+   "R-CORE-081"
   ]
  }
 }

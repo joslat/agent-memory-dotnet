@@ -140,10 +140,10 @@ internal sealed class ModuleManifestValidator
     // Extensibility 0.13 §D: what a person sees of a module or pack; bounded, and an icon only where a signed bundle holds it.
     private void ValidateDisplay(ModuleManifest manifest, ModuleDisplay display)
     {
-        if (display.Title is { } title && (string.IsNullOrWhiteSpace(title) || PackText.Length(title) > 60 || title.Any(char.IsControl)))
+        if (display.Title is { } title && (string.IsNullOrWhiteSpace(title) || PackText.Length(title) > 60 || title.Any(char.IsControl) || !PackText.IsDisplaySafe(title)))
             Error("$.display.title", "a title is 1 to 60 characters without control characters");
-        if (display.Description is { } description && (string.IsNullOrWhiteSpace(description) || PackText.Length(description) > 300))
-            Error("$.display.description", "a description is 1 to 300 characters");
+        if (display.Description is { } description && (string.IsNullOrWhiteSpace(description) || PackText.Length(description) > 300 || !PackText.IsDisplaySafe(description)))
+            Error("$.display.description", "a description is 1 to 300 display-safe characters");
         if (display.Color is { } color && !HexColor.IsMatch(color)) Error("$.display.color", "a colour is #RRGGBB");
         if (display.Icon is { } icon)
         {
