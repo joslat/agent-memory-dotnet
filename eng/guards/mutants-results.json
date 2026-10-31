@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "499eca34",
+ "commit": "44e09f9a",
  "results": [
   {
    "id": "archive-ratio",
@@ -761,12 +761,12 @@
    "door": "definition",
    "mutant_sha256": "3be705ae300a09b663db73d68943cf4109af7d67cf4610ce79b3a6778126811d",
    "killed": true,
-   "file_sha256": "d8ff2b8d6127adf32552d305c74ea4801915d39b7403357ec7fee5d6bf464aec",
+   "file_sha256": "2d5578f2e9f06fa9a2e72352d87e5df6346a6d73b68c54ddfe3b073dd529aaa7",
    "failed": [
     "ModuleEditorSchemaTests.TraversalAndTrialEdgesHaveTheSameEditorAndRuntimeContract",
     "PackUpgradeTests.A_trial_declares_its_upgrade_rule_and_a_tolerance_out_of_range_is_refused"
    ],
-   "seconds": 13
+   "seconds": 12
   },
   {
    "id": "walk-rounds-to-nearest",
@@ -774,11 +774,11 @@
    "door": "definition",
    "mutant_sha256": "32a9425a7e0139e4778e0ed3c3bb151b88896cce196b56006bef0f5368924f79",
    "killed": true,
-   "file_sha256": "d8ff2b8d6127adf32552d305c74ea4801915d39b7403357ec7fee5d6bf464aec",
+   "file_sha256": "2d5578f2e9f06fa9a2e72352d87e5df6346a6d73b68c54ddfe3b073dd529aaa7",
    "failed": [
     "PackNumbersTests.A_product_of_millionths_is_rounded_down"
    ],
-   "seconds": 5
+   "seconds": 4
   },
   {
    "id": "verdict-by-float",

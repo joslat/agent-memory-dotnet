@@ -46,6 +46,7 @@ public sealed class ChokePointRatchetTests
     private static readonly (string File, string Api, int Sites, string Reason)[] Allowed =
     [
         ("shared/BoundedFile.cs", "file read", 1, "the choke point: the one bounded way pack code reads a file"),
+        ("shared/PackBuiltIns.cs", "json parse", 1, "record lines of a verified pack, every line already in the JSON profile, read for their type and key only (feature 03)"),
         ("shared/PackRegistry.cs", "json parse", 1, "the format's own registry, embedded in the assembly at build time: no pack bytes reach it (feature 01)"),
         ("src/AgentMemory.Packs.Format/HostLedger.cs", "file read", 1, "the ledger's own lock file, opened to hold it, never read"),
         ("src/AgentMemory.Extensibility.Ampack/PackStore.cs", "file read", 1, "the store's own lock file, opened to hold it, never read"),

@@ -545,5 +545,66 @@
         ]
       }
     }
+  },
+  "records": {
+    "about": "The neutral record model (Core 15): property types, memory kinds, and the built-in types and relations a pack may use without declaring an ontology.",
+    "propertyTypes": [
+      "string",
+      "int",
+      "float",
+      "bool",
+      "date",
+      "datetime"
+    ],
+    "memoryKinds": [
+      "semantic",
+      "episodic",
+      "procedural",
+      "preference",
+      "identity",
+      "working"
+    ],
+    "builtInTypes": {
+      "note": {
+        "text": "text",
+        "properties": {
+          "text": {
+            "type": "string",
+            "required": true
+          }
+        }
+      },
+      "chunk": {
+        "text": "text",
+        "properties": {
+          "text": {
+            "type": "string",
+            "required": true
+          },
+          "index": {
+            "type": "int",
+            "required": true
+          }
+        }
+      },
+      "document": {
+        "text": "title",
+        "properties": {
+          "title": {
+            "type": "string",
+            "required": true
+          },
+          "uri": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "builtInRelations": {
+      "part_of": {
+        "from": "chunk",
+        "to": "document"
+      }
+    }
   }
 }

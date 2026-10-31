@@ -57,7 +57,10 @@ internal static class PackLayout
         };
         foreach (var name in (string[])["requires", "display", "containableBy"])
             if (pack[name] is { } value && !(value is JsonArray { Count: 0 })) manifest[name] = value.DeepClone();
-        if (Node(files, Ontology) is { } ontology) manifest["ontology"] = ontology;
+        // The AgentMemory binding of the built-in types (feature 03), here and only here, so every path that composes a pack
+        // composes the same declarations and the same declarations digest.
+        if (PackBuiltIns.Bind(Node(files, Ontology) as JsonObject, manifest["id"]!.GetValue<string>(),
+                PackBuiltIns.Used(RecordFiles(files.Keys).Select(f => (ReadOnlyMemory<byte>)files[f]))) is { } ontology) manifest["ontology"] = ontology;
         if (Node(files, Views) is { } views) manifest["views"] = views;
         if (Node(files, Traversal) is { } traversal) manifest["traversal"] = traversal;
         if (Node(files, Trial) is { } trial) manifest["trial"] = trial;
@@ -76,6 +79,9 @@ internal static class PackLayout
         var module = Object(bundle, ModuleManifestFile) ?? throw new InvalidDataException($"There is no {ModuleManifestFile}.");
         if (module["format"]?.GetValue<string>() == CompositeFormat) return FromComposite(module);
         if (module["format"]?.GetValue<string>() != ModuleFormat) throw new InvalidDataException($"{ModuleManifestFile} is not a {ModuleFormat} or {CompositeFormat} manifest.");
+        // The host's binding of built-in types is never written into a pack: a pack names them by their built-in names.
+        if (module["ontology"] is JsonObject declared && PackBuiltIns.Marked(declared))
+            throw new InvalidDataException($"The module's ontology carries '{PackBuiltIns.Marker}', the host's binding of built-in types: write its records with their built-in names and leave them undeclared.");
         var seedFiles = module["seed"] is JsonArray seed ? seed.Select(s => s!.GetValue<string>()).ToList() : null;
         var pack = new JsonObject
         {

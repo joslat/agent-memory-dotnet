@@ -164,7 +164,7 @@ internal static class ModuleManifestReader
 
     private static ModuleType Type(JsonElement value, string path)
     {
-        Object(value, path, "name", "scope", "description", "color", "properties", "render");
+        Object(value, path, "name", "scope", "description", "color", "properties", "render", "text", "memoryKind", PackBuiltIns.Marker);
         var scope = OptionalText(value, "scope", path) ?? "owner";
         if (scope is not ("owner" or "shared")) throw Error(path + ".scope", "expected owner or shared");
         var properties = new Dictionary<string, ModuleProperty>(StringComparer.Ordinal);
@@ -178,6 +178,7 @@ internal static class ModuleManifestReader
         {
             Name = Text(value, "name", path), Scope = scope, Description = OptionalText(value, "description", path),
             Color = OptionalText(value, "color", path), Render = OptionalText(value, "render", path),
+            Text = OptionalText(value, "text", path), MemoryKind = OptionalText(value, "memoryKind", path), BuiltIn = OptionalText(value, PackBuiltIns.Marker, path),
             Properties = properties.AsReadOnly()
         };
     }
@@ -186,8 +187,7 @@ internal static class ModuleManifestReader
     {
         Object(value, path, "type", "required", "indexed", "values", "maxLength", "min", "max", "description");
         var type = Text(value, "type", path);
-        if (type is not ("string" or "int" or "float" or "bool" or "date" or "datetime"))
-            throw Error(path + ".type", "unknown property type");
+        if (!PackRegistry.PropertyTypes.Contains(type)) throw Error(path + ".type", "unknown property type");
         IReadOnlyList<string> values = [];
         if (value.TryGetProperty("values", out var choices))
         {
@@ -205,10 +205,10 @@ internal static class ModuleManifestReader
 
     private static ModuleRelation Relation(JsonElement value, string path)
     {
-        Object(value, path, "name", "from", "to", "required", "max", "description");
+        Object(value, path, "name", "from", "to", "required", "max", "description", PackBuiltIns.Marker);
         return new ModuleRelation
         {
-            Name = Text(value, "name", path), From = Text(value, "from", path), To = Text(value, "to", path),
+            Name = Text(value, "name", path), From = Text(value, "from", path), To = Text(value, "to", path), BuiltIn = OptionalText(value, PackBuiltIns.Marker, path),
             Required = Boolean(value, "required", path), Max = PositiveInteger(value, "max", path),
             Description = Description(value, path)
         };

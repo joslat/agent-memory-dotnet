@@ -453,6 +453,14 @@
         "render": {
           "$ref": "#/$defs/text"
         },
+        "text": {
+          "$ref": "#/$defs/text",
+          "description": "The string property that is the record's main text."
+        },
+        "memoryKind": {
+          "enum": ["semantic", "episodic", "procedural", "preference", "identity", "working"],
+          "description": "For mapping and display only; no rule depends on it."
+        },
         "properties": {
           "type": "object",
           "propertyNames": {

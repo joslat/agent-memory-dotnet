@@ -40,6 +40,17 @@ public sealed record ModuleType
     public string? Color { get; init; }
     /// <summary>Optional rendering template.</summary>
     public string? Render { get; init; }
+    // Feature 03's members are left out of the serialized declarations when absent, so a module that does not use them keeps
+    // the declarations digest its signed decisions name (TrialGateTests pins it).
+    /// <summary>The string property that is the record's main text (Core 15.1), when the type names one.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Text { get; init; }
+    /// <summary>The memory kind (semantic, episodic, procedural, preference, identity or working), for mapping and display only.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? MemoryKind { get; init; }
+    /// <summary>The built-in type this one binds (<c>note</c>, <c>chunk</c>, <c>document</c>), when the host bound it: never a pack author's.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? BuiltIn { get; init; }
     /// <summary>Declared property names and constraints.</summary>
     public IReadOnlyDictionary<string, ModuleProperty> Properties { get; init; } =
         new Dictionary<string, ModuleProperty>().AsReadOnly();
@@ -83,6 +94,9 @@ public sealed record ModuleRelation
     public required string From { get; init; }
     /// <summary>Own type, core:Entity, or a declared dependency's qualified type.</summary>
     public required string To { get; init; }
+    /// <summary>The built-in relation this one binds (<c>part_of</c>), when the host bound it.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? BuiltIn { get; init; }
     /// <summary>Whether a live target is required.</summary>
     public bool Required { get; init; }
     /// <summary>Optional maximum number of outgoing links.</summary>

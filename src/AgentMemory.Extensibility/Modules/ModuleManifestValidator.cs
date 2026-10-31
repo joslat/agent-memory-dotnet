@@ -61,6 +61,19 @@ internal sealed class ModuleManifestValidator
                     else ValidateProperty(pair.Value, at);
                 }
                 if (type.Render is { } render) ValidateRender(render, props, path + ".render");
+                // Feature 03: the main text is one of the type's string properties; a memory kind is the registry's; a bound
+                // built-in is exactly the registry's, under this module's prefix.
+                if (type.Text is { } text && !(props.TryGetValue(text, out var main) && main?.Type == "string"))
+                    Error(path + ".text", "the main text must name one of the type's string properties");
+                if (type.MemoryKind is { } kind && !PackRegistry.MemoryKinds.Contains(kind))
+                    Error(path + ".memoryKind", "expected " + string.Join(", ", PackRegistry.MemoryKinds));
+                if (type.BuiltIn is { } builtIn)
+                {
+                    var known = PackRegistry.BuiltInTypes.FirstOrDefault(b => b.Name == builtIn);
+                    if (known is null || name != PackBuiltIns.StoredType(prefix, builtIn) || type.Scope != "shared"
+                        || props.Count != known.Properties.Count || known.Properties.Any(p => !props.TryGetValue(p.Name, out var q) || q?.Type != p.Type || q.Required != p.Required))
+                        Error(path, $"is not the built-in type '{builtIn}' as this host binds it");
+                }
                 foreach (var shape in ModuleSchemaObjects.ForType(type))
                 {
                     if (!schemaNames.Add(shape.Name)) Error(path, $"generated schema object '{shape.Name}' collides");
@@ -74,6 +87,10 @@ internal sealed class ModuleManifestValidator
                 var path = "$.ontology.relations." + relation.Name;
                 var name = relation.Name ?? "";
                 ValidateOwnedRelationship(name, prefix, path);
+                if (relation.BuiltIn is { } builtIn && (PackRegistry.BuiltInRelations.FirstOrDefault(b => b.Name == builtIn) is not { } known
+                        || name != PackBuiltIns.StoredRelation(prefix, builtIn) || relation.From != PackBuiltIns.StoredType(prefix, known.From)
+                        || relation.To != PackBuiltIns.StoredType(prefix, known.To)))
+                    Error(path, $"is not the built-in relation '{builtIn}' as this host binds it");
                 if (!relations.Add(name)) Error(path, "duplicate relationship name");
                 if (!types.ContainsKey(relation.From ?? "")) Error(path + ".from", "source must be an owned type");
                 ValidateTarget(relation.To, types, modules, path + ".to");
@@ -312,9 +329,7 @@ internal sealed class ModuleManifestValidator
         }
     }
 
-    internal static string SchemaName(string value) => Regex.Replace(Regex.Replace(value,
-        "([A-Z]+)([A-Z][a-z])", "$1_$2", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking),
-        "([a-z0-9])([A-Z])", "$1_$2", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking).ToLowerInvariant();
+    internal static string SchemaName(string value) => PackBuiltIns.SchemaName(value);
     private static Regex Pattern(string pattern) => new(pattern, RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private void Error(string path, string message) => _errors.Add(path + ": " + message + ".");
     private IReadOnlyList<T> List<T>(IReadOnlyList<T>? value, string path)
@@ -334,7 +349,7 @@ internal sealed class ModuleManifestValidator
 
     private void ValidateProperty(ModuleProperty property, string path)
     {
-        if (property.Type is not ("string" or "int" or "float" or "bool" or "date" or "datetime"))
+        if (!PackRegistry.PropertyTypes.Contains(property.Type ?? ""))
             Error(path + ".type", "unknown property type");
         var values = List(property.Values, path + ".values");
         if (values.Count != 0 && property.Type != "string") Error(path + ".values", "enumeration requires string type");

@@ -64,6 +64,20 @@ internal static class PackRegistry
         return new Unit(name, Path("units", "kinds", name, "means").GetString()!,
             p.Value.TryGetProperty("min", out var min) ? min.GetInt64() : values?.Min() ?? 0, p.Value.TryGetProperty("max", out var max) ? max.GetInt64() : values?.Max() ?? 0, values);
     }, StringComparer.Ordinal);
+    /// <summary>The types a record property may have (feature 03, Core 15.1).</summary>
+    internal static readonly IReadOnlySet<string> PropertyTypes = Set("records", "propertyTypes");
+    /// <summary>The memory kinds a type may declare, for mapping and display only.</summary>
+    internal static readonly IReadOnlySet<string> MemoryKinds = Set("records", "memoryKinds");
+    internal sealed record BuiltInProperty(string Name, string Type, bool Required);
+    internal sealed record BuiltInType(string Name, string Text, IReadOnlyList<BuiltInProperty> Properties);
+    internal sealed record BuiltInRelation(string Name, string From, string To);
+    /// <summary>The types a pack may use without declaring them, in the registry's order.</summary>
+    internal static readonly IReadOnlyList<BuiltInType> BuiltInTypes = [.. Path("records", "builtInTypes").EnumerateObject().Select(t => new BuiltInType(
+        t.Name, t.Value.GetProperty("text").GetString()!, [.. t.Value.GetProperty("properties").EnumerateObject().Select(p => new BuiltInProperty(
+            p.Name, p.Value.GetProperty("type").GetString()!, p.Value.TryGetProperty("required", out var r) && r.GetBoolean()))]))];
+    /// <summary>The relations between built-in types.</summary>
+    internal static readonly IReadOnlyList<BuiltInRelation> BuiltInRelations = [.. Path("records", "builtInRelations").EnumerateObject().Select(r => new BuiltInRelation(
+        r.Name, r.Value.GetProperty("from").GetString()!, r.Value.GetProperty("to").GetString()!))];
     /// <summary>The confidences a trial and a certificate may name, in thousandths.</summary>
     internal static readonly IReadOnlySet<int> Confidences = new HashSet<int>(UnitFields["confidencePermille"].Values!.Select(v => (int)v));
     /// <summary>Reserved device names, compared without case, as the path grammar refuses them.</summary>

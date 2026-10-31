@@ -75,6 +75,7 @@
     <Compile Include="../../shared/PackRegistry.cs" Link="Shared/PackRegistry.cs" />
     <Compile Include="../../shared/PackNumbers.cs" Link="Shared/PackNumbers.cs" />
     <Compile Include="../../shared/PackText.cs" Link="Shared/PackText.cs" />
+    <Compile Include="../../shared/PackBuiltIns.cs" Link="Shared/PackBuiltIns.cs" />
     <EmbeddedResource Include="../../spec/registry.json" LogicalName="AgentMemory.Extensibility.registry.json" />
   </ItemGroup>
 </Project>

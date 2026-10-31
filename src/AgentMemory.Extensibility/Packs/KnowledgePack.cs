@@ -164,8 +164,8 @@ public sealed class KnowledgePack
         foreach (var file in seed)
         {
             if (!bundle.Files.TryGetValue(file, out var bytes)) { problems.Add($"The seed file '{file}' is missing."); continue; }
-            foreach (var proposal in Lines(file, bytes,
-                line => new PackSource { Id = manifest.Id, Version = manifest.Version.Value, Digest = bundle.Digest, File = file, Line = line }, problems))
+            foreach (var proposal in Bound(manifest.Ontology, Lines(file, bytes,
+                line => new PackSource { Id = manifest.Id, Version = manifest.Version.Value, Digest = bundle.Digest, File = file, Line = line }, problems)))
             {
                 var at = proposal.Source.Excerpt!;
                 foreach (var error in ModuleProposalAdmission.AdmitSeed(manifest, proposal)) problems.Add(at + ": " + error);
@@ -201,6 +201,22 @@ public sealed class KnowledgePack
     /// The records of one file in the pack line format: one JSON object per line, <c>{"type","key","properties","links"}</c>,
     /// no blank line before the end, each line at most <see cref="MaximumLineBytes"/>. Every malformed line adds a problem.
     /// </summary>
+    /// <summary>
+    /// The records with their built-in names bound (feature 03; R-HOST-051): a record of <c>note</c> is stored as the type the
+    /// host bound it to, and a link of <c>part_of</c> as the bound relation. Any other name is left as it is.
+    /// </summary>
+    internal static List<ModuleProposal> Bound(ModuleOntology? ontology, List<ModuleProposal> records)
+    {
+        if (ontology is null || (!ontology.Types.Any(t => t.BuiltIn is not null) && !ontology.Relations.Any(r => r.BuiltIn is not null))) return records;
+        var types = ontology.Types.Where(t => t.BuiltIn is not null).ToDictionary(t => t.BuiltIn!, t => t.Name, StringComparer.Ordinal);
+        var relations = ontology.Relations.Where(r => r.BuiltIn is not null).ToDictionary(r => r.BuiltIn!, r => r.Name, StringComparer.Ordinal);
+        return [.. records.Select(r => r with
+        {
+            Type = types.GetValueOrDefault(r.Type, r.Type),
+            Links = r.Links.Select(l => relations.TryGetValue(l.Relation, out var bound) ? l with { Relation = bound } : l).ToList().AsReadOnly(),
+        })];
+    }
+
     internal static List<ModuleProposal> Lines(string file, ReadOnlyMemory<byte> bytes, Func<int, PackSource> source, List<string> problems)
     {
         var records = new List<ModuleProposal>();

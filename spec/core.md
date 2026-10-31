@@ -662,6 +662,64 @@ defines how a host enforces labels.
 **R-CORE-110.** A host that writes records it read from elsewhere MUST put their text in NFC as it writes, and
 MUST refuse text that still is not in NFC.
 
+### 15.1 The record model
+
+The model is neutral: typed records with properties and links, which a host binds to its own store (for AgentMemory,
+`host/agentmemory-binding.md`). `ontology.json` declares types and relations; its other members are a host binding's.
+
+**R-CORE-121.** A record's `type` MUST be a type the pack's `ontology.json` declares, or a built-in type; a link's
+`relation` MUST be a relation declared from the record's type, or a built-in relation from a built-in type.
+
+**R-CORE-122.** A property MUST be of one of these types:
+
+<!-- registry:records.propertyTypes -->
+| Property type |
+|---|
+| `string` |
+| `int` |
+| `float` |
+| `bool` |
+| `date` |
+| `datetime` |
+<!-- /registry -->
+
+**R-CORE-123.** A pack MAY use these types and relations without declaring them; a record of a built-in type MUST hold
+only its properties, each required one present:
+
+<!-- registry:records.builtInTypes -->
+| Built in type | text | properties |
+|---|---|---|
+| `note` | text | `text`: `type`: `string`; `required`: yes |
+| `chunk` | text | `text`: `type`: `string`; `required`: yes; `index`: `type`: `int`; `required`: yes |
+| `document` | title | `title`: `type`: `string`; `required`: yes; `uri`: `type`: `string` |
+<!-- /registry -->
+
+<!-- registry:records.builtInRelations -->
+| Built in relation | from | to |
+|---|---|---|
+| `part_of` | chunk | document |
+<!-- /registry -->
+
+**R-CORE-124.** A type MAY name one of its string properties as its `text`, the record's main text (a built-in type names
+its own, above); it MUST be in NFC (R-CORE-027), and its length is bounded, in characters, by the property's `maxLength`.
+
+**R-CORE-125.** A type MAY declare a `memoryKind`, one of these, for mapping and display only: no rule of this
+specification depends on it.
+
+<!-- registry:records.memoryKinds -->
+| Memory kind |
+|---|
+| `semantic` |
+| `episodic` |
+| `procedural` |
+| `preference` |
+| `identity` |
+| `working` |
+<!-- /registry -->
+
+> Why: most memory products are text first, and a neutral model lets them map onto a pack without an ontology of their own.
+> Kinds stay a mapping, never a taxonomy a rule depends on, because taxonomies age.
+
 ## 16. The pack card
 
 `card.json` is optional. It is a listed and signed file like any other, which a host's operator reads before installing.

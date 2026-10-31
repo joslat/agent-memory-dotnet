@@ -1293,6 +1293,56 @@
    ]
   },
   {
+   "id": "R-CORE-121",
+   "doc": "core.md",
+   "section": "15.1",
+   "level": "MUST",
+   "summary": "A record's type MUST be declared by ontology.json or built in, and a link's relation declared from its type or built in.",
+   "verifiedBy": [
+    "unit:BuiltInRecordsTests"
+   ]
+  },
+  {
+   "id": "R-CORE-122",
+   "doc": "core.md",
+   "section": "15.1",
+   "level": "MUST",
+   "summary": "A property MUST be of one of the registry's property types.",
+   "verifiedBy": [
+    "review"
+   ]
+  },
+  {
+   "id": "R-CORE-123",
+   "doc": "core.md",
+   "section": "15.1",
+   "level": "MAY",
+   "summary": "A pack MAY use the built-in types and relations without declaring them; a record of a built-in type MUST hold only its properties, each required one present.",
+   "verifiedBy": [
+    "unit:BuiltInRecordsTests"
+   ]
+  },
+  {
+   "id": "R-CORE-124",
+   "doc": "core.md",
+   "section": "15.1",
+   "level": "MAY",
+   "summary": "A type MAY name one string property as its text, in NFC and bounded in characters by its maxLength.",
+   "verifiedBy": [
+    "unit:BuiltInRecordsTests.A_type_s_main_text_is_a_string_property_and_its_kind_one_of_the_registry_s"
+   ]
+  },
+  {
+   "id": "R-CORE-125",
+   "doc": "core.md",
+   "section": "15.1",
+   "level": "MAY",
+   "summary": "A type MAY declare a memoryKind from the registry's list, for mapping and display only.",
+   "verifiedBy": [
+    "unit:BuiltInRecordsTests.A_type_s_main_text_is_a_string_property_and_its_kind_one_of_the_registry_s"
+   ]
+  },
+  {
    "id": "R-WALK-001",
    "doc": "profiles/walk.md",
    "section": "1.3",
@@ -4264,6 +4314,36 @@
    "summary": "The declarations' digest MUST be stable: the same declarations MUST give the same `manifestDigest` on every host.",
    "verifiedBy": [
     "unit:TrialGateTests.TheDeclarationsDigestIsPinned"
+   ]
+  },
+  {
+   "id": "R-HOST-050",
+   "doc": "host/agentmemory-binding.md",
+   "section": "1",
+   "level": "MUST",
+   "summary": "A type's name MUST begin with the labelPrefix and a relation's with its upper-snake form, except built-ins.",
+   "verifiedBy": [
+    "unit:BuiltInRecordsTests"
+   ]
+  },
+  {
+   "id": "R-HOST-051",
+   "doc": "host/agentmemory-binding.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A built-in type MUST be stored as the prefix and its PascalCase name, a built-in relation in upper-snake form, shared, and mapped as the record is read; a host writing such records into a pack MUST write their built-in names.",
+   "verifiedBy": [
+    "unit:BuiltInRecordsTests"
+   ]
+  },
+  {
+   "id": "R-HOST-052",
+   "doc": "host/agentmemory-binding.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A pack using built-ins without ontology.json MUST take its id's last segment in PascalCase as its prefix, refused as any prefix two modules claim.",
+   "verifiedBy": [
+    "unit:BuiltInRecordsTests.A_pack_of_notes_needs_no_ontology_and_is_stored_under_its_implied_prefix"
    ]
   }
  ]
