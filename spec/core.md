@@ -721,6 +721,25 @@ specification depends on it.
 > Why: most memory products are text first, and a neutral model lets them map onto a pack without an ontology of their own.
 > Kinds stay a mapping, never a taxonomy a rule depends on, because taxonomies age.
 
+### 15.2 A record's life
+
+**R-CORE-128.** A record MAY carry `validFrom` and `validTo` (when it is true in the world, `validTo` exclusive and after
+`validFrom`), `expiresAt` (when a host stops using it, true or not) and `reviewBy` (when a person should check it), each an
+instant in UTC to the second (`yyyy-MM-ddTHH:mm:ssZ`), and `supersedes`, 1 to 8 distinct keys of other records of its type in
+the same pack. A record is **live at T** when its carrier is live (R-CORE-067) and `validFrom <= T < validTo` and
+`T < expiresAt`, each bound absent meaning none.
+
+**R-CORE-129.** A type MAY declare a `lifecycle`: `pinned`, whose records carry no `expiresAt`, or `refreshes`, with
+`ttlDays` (1 to 36,500), whose records state `validFrom` and, without a `validTo`, end `ttlDays` after it.
+
+**R-CORE-130.** A record superseded by another ends where the other begins: its `validTo` is the earlier of its own and the
+other's `validFrom`, and when the other states none, it is never live. A record MUST be superseded at most once, the keys MUST
+name records the pack holds, and supersession MUST NOT form a cycle. A reader resolves each record's effective life this way
+before it stores the record, so a store keeps instants and no rule.
+
+> Why: a fact is true for a while. A host that keeps a superseded price, or offers a decision after it was reversed, costs
+> tokens and misleads; one that deletes it loses the history a two-clock store keeps.
+
 ## 16. The pack card
 
 `card.json` is optional. It is a listed and signed file like any other, which a host's operator reads before installing.

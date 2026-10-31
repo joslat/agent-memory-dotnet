@@ -48,6 +48,11 @@ internal sealed class ModuleManifestValidator
                 if (!types.TryAdd(name, type)) Error(path, "duplicate type name");
                 if (!names.Add(SchemaName(name))) Error(path, "type names collide after schema-name normalization");
                 if (type.Scope is not ("owner" or "shared")) Error(path + ".scope", "expected owner or shared");
+                // How its records age (feature 07): a known lifecycle, ttlDays exactly for refreshes, 1 to 36,500 days.
+                if (type.Lifecycle is { } lifecycle && !PackRegistry.Lifecycles.Contains(lifecycle))
+                    Error(path + ".lifecycle", "expected " + string.Join(" or ", PackRegistry.Lifecycles.Order(StringComparer.Ordinal)));
+                if (type.Lifecycle == "refreshes" && type.TtlDays is not (>= 1 and <= 36_500)) Error(path + ".ttlDays", "a refreshes type names ttlDays, 1 to 36,500");
+                if (type.Lifecycle != "refreshes" && type.TtlDays is not null) Error(path + ".ttlDays", "only a refreshes type names ttlDays");
                 // Shown to a person and to a model (the module proposer's prompt), so display text (feature 04 review, M8).
                 if (type.Description is not null && !PackText.IsDisplayText(type.Description, int.MaxValue, line: false))
                     Error(path + ".description", "a description is display-safe text, not empty");

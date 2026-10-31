@@ -1343,6 +1343,39 @@
    ]
   },
   {
+   "id": "R-CORE-128",
+   "doc": "core.md",
+   "section": "15.2",
+   "level": "MAY",
+   "summary": "A record MAY carry `validFrom` and `validTo` (when it is true in the world, `validTo` exclusive and after `validFrom`), `expiresAt` (when a host stops using it, true or not) and `reviewBy` (when a person should check it), each an instant in UTC to the second (`yyyy-MM-ddTHH:mm:ssZ`), and `supersedes`, 1 to 8 distinct keys of other records of its type in the same pack. A record is **live at T** when its carrier is live (R-CORE-067) and `validFrom <= T < validTo` and `T < expiresAt`, each bound absent meaning none.",
+   "verifiedBy": [
+    "unit:RecordLifeTests.A_record_s_instants_are_read_and_its_liveness_follows_them",
+    "unit:RecordLifeTests.A_malformed_life_is_refused_with_its_line"
+   ]
+  },
+  {
+   "id": "R-CORE-129",
+   "doc": "core.md",
+   "section": "15.2",
+   "level": "MAY",
+   "summary": "A type MAY declare a `lifecycle`: `pinned`, whose records carry no `expiresAt`, or `refreshes`, with `ttlDays` (1 to 36,500), whose records state `validFrom` and, without a `validTo`, end `ttlDays` after it.",
+   "verifiedBy": [
+    "unit:RecordLifeTests.A_refreshing_record_ends_its_type_s_days_after_it_begins",
+    "unit:RecordLifeTests.The_host_validates_a_type_s_lifecycle"
+   ]
+  },
+  {
+   "id": "R-CORE-130",
+   "doc": "core.md",
+   "section": "15.2",
+   "level": "MUST",
+   "summary": "A record superseded by another ends where the other begins: its `validTo` is the earlier of its own and the other's `validFrom`, and when the other states none, it is never live. A record MUST be superseded at most once, the keys MUST name records the pack holds, and supersession MUST NOT form a cycle. A reader resolves each record's effective life this way before it stores the record, so a store keeps instants and no rule.",
+   "verifiedBy": [
+    "unit:RecordLifeTests.A_superseded_record_ends_where_its_successor_begins",
+    "unit:RecordLifeTests.A_cycle_of_supersession_and_a_record_superseded_twice_are_refused"
+   ]
+  },
+  {
    "id": "R-CORE-126",
    "doc": "core.md",
    "section": "16",

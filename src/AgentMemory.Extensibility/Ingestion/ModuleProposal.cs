@@ -47,6 +47,10 @@ public sealed record ModuleProposal
     /// closing invalidates the replaced record non-destructively, in the same transaction as this record.
     /// </summary>
     public IReadOnlyList<string> Replaces { get; init; } = [];
+    /// <summary>A pack record's life (feature 07): when it is true and when a host stops using it; null for a record without one.</summary>
+    public Reading.ModuleRecordLife? Life { get; init; }
+    /// <summary>The keys of records of its type, in the same pack, that this pack record supersedes (feature 07): resolved at read.</summary>
+    public IReadOnlyList<string> Supersedes { get; init; } = [];
 }
 
 /// <summary>Outgoing relationship; its target type is fixed by the declaring module's ontology.</summary>

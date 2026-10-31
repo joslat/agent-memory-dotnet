@@ -483,6 +483,11 @@
           "$ref": "#/$defs/text",
           "description": "The string property that is the record's main text."
         },
+        "lifecycle": {
+          "enum": ["pinned", "refreshes"],
+          "description": "How its records age (feature 07): pinned never (no expiresAt); refreshes ends ttlDays after validFrom unless a record states validTo."
+        },
+        "ttlDays": { "type": "integer", "minimum": 1, "maximum": 36500, "description": "Days a refreshes type's record stays valid after its validFrom." },
         "memoryKind": {
           "enum": ["semantic", "episodic", "procedural", "preference", "identity", "working"],
           "description": "For mapping and display only; no rule depends on it."

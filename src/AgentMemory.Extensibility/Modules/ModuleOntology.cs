@@ -48,6 +48,12 @@ public sealed record ModuleType
     /// <summary>The memory kind (semantic, episodic, procedural, preference, identity or working), for mapping and display only.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? MemoryKind { get; init; }
+    /// <summary>How its records age (feature 07): <c>pinned</c> (never; no expiresAt) or <c>refreshes</c> (ttlDays after validFrom). Optional.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Lifecycle { get; init; }
+    /// <summary>For a <c>refreshes</c> type, the days a record stays valid after its validFrom unless it states a validTo.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int? TtlDays { get; init; }
     /// <summary>The built-in type this one binds (<c>note</c>, <c>chunk</c>, <c>document</c>), when the host bound it: never a pack author's.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? BuiltIn { get; init; }

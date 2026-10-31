@@ -931,7 +931,18 @@
         "from": "chunk",
         "to": "document"
       }
-    }
+    },
+    "lifeFields": [
+      "validFrom",
+      "validTo",
+      "expiresAt",
+      "reviewBy",
+      "supersedes"
+    ],
+    "lifecycles": [
+      "pinned",
+      "refreshes"
+    ]
   },
   "embeddings": {
     "dataTypes": [

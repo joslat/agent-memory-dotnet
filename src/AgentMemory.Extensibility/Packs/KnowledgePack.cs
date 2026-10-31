@@ -174,6 +174,7 @@ public sealed class KnowledgePack
             }
         }
         if (records.Count > MaximumRecords) problems.Add($"A pack holds at most {MaximumRecords} records; this one has {records.Count}.");
+        records = Lives(manifest.Ontology, records, problems);
         foreach (var record in records)
             foreach (var link in record.Links)
             {
@@ -184,6 +185,58 @@ public sealed class KnowledgePack
             }
         if (problems.Count > 0) throw new KnowledgePackException(problems);
         return new KnowledgePack(manifest, bundle, Ordered(manifest, records), icon);
+    }
+
+    /// <summary>
+    /// Each record's effective life (feature 07, R-CORE-129 and 130), resolved within the pack, so a host stores instants and no
+    /// rule: a record of a <c>refreshes</c> type without a validTo ends <c>ttlDays</c> after its validFrom (which it must state);
+    /// a <c>pinned</c> type's records carry no expiresAt; and a record superseded by another of its type ends where the other
+    /// begins (from the start, when the other states no validFrom). A superseded key the pack does not hold, and a cycle, are
+    /// refused.
+    /// </summary>
+    internal static List<ModuleProposal> Lives(ModuleOntology? ontology, List<ModuleProposal> records, List<string> problems)
+    {
+        var types = ontology?.Types.ToDictionary(t => t.Name, StringComparer.Ordinal) ?? [];
+        string At(ModuleProposal r) => r.Source.Excerpt ?? r.Key;
+        var resolved = new List<ModuleProposal>(records.Count);
+        foreach (var record in records)
+        {
+            var life = record.Life;
+            switch (types.GetValueOrDefault(record.Type))
+            {
+                case { Lifecycle: "refreshes", TtlDays: { } days }:
+                    if (life?.ValidFromUtc is not { } from) { problems.Add(At(record) + $": a record of {record.Type}, which refreshes, states its validFrom."); break; }
+                    if (life.ValidToUtc is null) life = life with { ValidToUtc = from.AddDays(days) };
+                    break;
+                case { Lifecycle: "pinned" } when life?.ExpiresAtUtc is not null:
+                    problems.Add(At(record) + $": a record of {record.Type}, which is pinned, never expires.");
+                    break;
+            }
+            resolved.Add(record with { Life = life });
+        }
+        var byKey = resolved.Select((r, i) => (r, i)).GroupBy(p => (p.r.Type, p.r.Key)).ToDictionary(g => g.Key, g => g.First().i);
+        var by = new Dictionary<int, int>();
+        for (var i = 0; i < resolved.Count; i++)
+            foreach (var key in resolved[i].Supersedes)
+            {
+                if (!byKey.TryGetValue((resolved[i].Type, key), out var target)) { problems.Add(At(resolved[i]) + $": supersedes {resolved[i].Type} '{key}', which the pack does not hold."); continue; }
+                if (by.ContainsKey(target)) { problems.Add(At(resolved[i]) + $": {resolved[i].Type} '{key}' is superseded twice."); continue; }
+                by[target] = i;
+            }
+        foreach (var start in by.Keys)
+        {
+            var seen = new HashSet<int> { start };
+            for (var at = start; by.TryGetValue(at, out var next); at = next)
+                if (!seen.Add(next)) { problems.Add(At(resolved[start]) + ": its supersession forms a cycle."); break; }
+        }
+        foreach (var (target, superseder) in by)
+        {
+            // Ends where the superseding record begins; from the start (its own validFrom, or ever) when that one always was.
+            var life = resolved[target].Life ?? new();
+            var end = resolved[superseder].Life?.ValidFromUtc ?? life.ValidFromUtc ?? DateTimeOffset.UnixEpoch;
+            resolved[target] = resolved[target] with { Life = life with { ValidToUtc = life.ValidToUtc is { } to && to < end ? to : end } };
+        }
+        return resolved;
     }
 
     // A PNG by its signature and header, small enough to show anywhere; the bytes are never decoded here.
@@ -243,7 +296,7 @@ public sealed class KnowledgePack
             using var document = JsonDocument.Parse(line, new JsonDocumentOptions { MaxDepth = 8 });
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) { problems.Add(at + ": a seed record is a JSON object."); return null; }
-            var unknown = root.EnumerateObject().Select(p => p.Name).Where(n => n is not ("type" or "key" or "properties" or "links")).ToArray();
+            var unknown = root.EnumerateObject().Select(p => p.Name).Where(n => n is not ("type" or "key" or "properties" or "links") && !PackRegistry.LifeFields.Contains(n)).ToArray();
             if (unknown.Length > 0) { problems.Add(at + ": unknown field " + string.Join(", ", unknown) + "."); return null; }
             if (!root.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String
                 || !root.TryGetProperty("key", out var key) || key.ValueKind != JsonValueKind.String)
@@ -267,10 +320,39 @@ public sealed class KnowledgePack
                     links.Add(new ProposedLink { Relation = relation.GetString()!, Target = target.GetString()! });
                 }
             }
+            // Its life (feature 07, R-CORE-128): instants in UTC at second precision, validFrom before validTo, and the keys it
+            // supersedes, distinct strings, never its own.
+            DateTimeOffset? Instant(string name)
+            {
+                if (!root.TryGetProperty(name, out var value)) return null;
+                if (value.ValueKind == JsonValueKind.String && value.GetString() is { Length: 20 } text && text[^1] == 'Z'
+                    && DateTimeOffset.TryParseExact(text, "yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var instant))
+                    return instant;
+                throw new FormatException($"{name} is an instant in UTC, yyyy-MM-ddTHH:mm:ssZ.");
+            }
+            AgentMemory.Extensibility.Reading.ModuleRecordLife? life;
+            try
+            {
+                var (from, to, expires, review) = (Instant("validFrom"), Instant("validTo"), Instant("expiresAt"), Instant("reviewBy"));
+                if (from is { } f && to is { } t && t <= f) throw new FormatException("validTo is after validFrom.");
+                life = from is null && to is null && expires is null && review is null ? null
+                    : new() { ValidFromUtc = from, ValidToUtc = to, ExpiresAtUtc = expires, ReviewByUtc = review };
+            }
+            catch (FormatException e) { problems.Add(at + ": " + e.Message); return null; }
+            var supersedes = new List<string>();
+            if (root.TryGetProperty("supersedes", out var superseded))
+            {
+                if (superseded.ValueKind != JsonValueKind.Array || superseded.GetArrayLength() is 0 or > ModuleProposalAdmission.MaximumReplaces
+                    || superseded.EnumerateArray().Any(k => k.ValueKind != JsonValueKind.String || k.GetString() == key.GetString()))
+                { problems.Add(at + $": supersedes is a list of 1 to {ModuleProposalAdmission.MaximumReplaces} keys of other records."); return null; }
+                supersedes.AddRange(superseded.EnumerateArray().Select(k => k.GetString()!));
+                if (supersedes.Distinct(StringComparer.Ordinal).Count() != supersedes.Count) { problems.Add(at + ": supersedes names a key twice."); return null; }
+            }
             return new ModuleProposal
             {
                 Type = type.GetString()!, Key = key.GetString()!, Properties = properties.AsReadOnly(), Links = links.AsReadOnly(),
-                Source = new ProposalSource { Excerpt = at, Pack = source },
+                Source = new ProposalSource { Excerpt = at, Pack = source }, Life = life, Supersedes = supersedes.AsReadOnly(),
             };
         }
         catch (JsonException e) { problems.Add(at + ": not valid JSON (" + e.Message + ")."); return null; }

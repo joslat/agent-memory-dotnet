@@ -184,7 +184,7 @@ internal static class ModuleManifestReader
 
     private static ModuleType Type(JsonElement value, string path)
     {
-        Object(value, path, "name", "scope", "description", "color", "properties", "render", "text", "memoryKind", PackBuiltIns.Marker);
+        Object(value, path, "name", "scope", "description", "color", "properties", "render", "text", "memoryKind", "lifecycle", "ttlDays", PackBuiltIns.Marker);
         var scope = OptionalText(value, "scope", path) ?? "owner";
         if (scope is not ("owner" or "shared")) throw Error(path + ".scope", "expected owner or shared");
         var properties = new Dictionary<string, ModuleProperty>(StringComparer.Ordinal);
@@ -196,6 +196,7 @@ internal static class ModuleManifestReader
         }
         return new ModuleType
         {
+            Lifecycle = OptionalText(value, "lifecycle", path), TtlDays = PositiveInteger(value, "ttlDays", path),
             Name = Text(value, "name", path), Scope = scope, Description = OptionalText(value, "description", path),
             Color = OptionalText(value, "color", path), Render = OptionalText(value, "render", path),
             Text = OptionalText(value, "text", path), MemoryKind = OptionalText(value, "memoryKind", path), BuiltIn = OptionalText(value, PackBuiltIns.Marker, path),

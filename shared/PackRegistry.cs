@@ -54,6 +54,10 @@ internal static class PackRegistry
         .ToDictionary(p => p.Name, p => p.Value.GetProperty("field").GetString()!, StringComparer.Ordinal);
     internal static readonly IReadOnlySet<string> UpgradeFields = Set("trial", "upgradeFields");
     internal static readonly IReadOnlySet<string> SafetyFields = Set("trial", "safetyFields");
+    /// <summary>A record line's life members (feature 07), beside type, key, properties and links.</summary>
+    internal static readonly IReadOnlySet<string> LifeFields = Set("records", "lifeFields");
+    /// <summary>The lifecycles a type may declare (feature 07): pinned never ages, refreshes ends ttlDays after validFrom.</summary>
+    internal static readonly IReadOnlySet<string> Lifecycles = Set("records", "lifecycles");
     /// <summary>The targets met at or below their value (feature 04 review, M6); every other target is met at or above it.</summary>
     internal static readonly IReadOnlySet<string> AtMost = Set("trial", "atMost");
     /// <summary>The cost targets (feature 05), by name, each with its field in a trial's <c>cost</c>.</summary>

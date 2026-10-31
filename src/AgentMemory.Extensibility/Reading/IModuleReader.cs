@@ -32,6 +32,8 @@ public sealed record ModuleRecord
     public required DateTimeOffset CreatedAtUtc { get; init; }
     /// <summary>Exclusive end of this version's transaction-time interval.</summary>
     public DateTimeOffset? InvalidatedAtUtc { get; init; }
+    /// <summary>Its life in world time (feature 07): null for a record without one, which is always valid.</summary>
+    public ModuleRecordLife? Life { get; init; }
     /// <summary>Declared scalar values as independent JSON values.</summary>
     public IReadOnlyDictionary<string, JsonElement> Properties { get; init; } = new Dictionary<string, JsonElement>().AsReadOnly();
     /// <summary>Declared links resolved within the permitted scope.</summary>
