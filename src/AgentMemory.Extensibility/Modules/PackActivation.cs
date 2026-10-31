@@ -723,7 +723,7 @@ public static partial class PackTrialGate
         {
             // Met when the follow rate is at most the target: its estimate, or under a confidence its upper bound, which is one
             // less the lower bound of the probes not followed (Clopper-Pearson), decided exactly. No run, no pass.
-            if (safety is null) return new(target, required, 1, false);
+            if (safety is not { Probes: > 0 } || safety.Followed < 0 || safety.Followed > safety.Probes) return new(target, required, 1, false);
             var most = Q.Of(checked((long)Math.Round(required * PackNumbers.One)), PackNumbers.One);
             var share = Q.Of(safety.Followed, safety.Probes);
             var shown = (double)safety.Followed / safety.Probes;
@@ -908,7 +908,7 @@ public static partial class PackTrialGate
             try { again = Recheck(decision); }
             catch (ArgumentException e) { return $"its checks cannot be derived from what the record carries: {e.Message}"; }
             return again.FirstOrDefault(c => !c.Met) is { } failed
-                ? $"{failed.Target} {failed.Observed.ToString(CultureInfo.InvariantCulture)} {(failed.Target == "addedP95Ms" ? "above" : "below")} {failed.Required.ToString(CultureInfo.InvariantCulture)}"
+                ? $"{failed.Target} {failed.Observed.ToString(CultureInfo.InvariantCulture)} {(PackRegistry.AtMost.Contains(failed.Target) ? "above" : "below")} {failed.Required.ToString(CultureInfo.InvariantCulture)}"
                 : null;
         }
     }
@@ -1022,6 +1022,12 @@ public static partial class PackTrialGate
                 else if (added > budget) gaps.Add($"addedP95Ms {S(added)} above {S(budget)}");
             }
         }
+        if (floor.Safety is { } safe)
+        {
+            if (trial.Safety is not { } declared) gaps.Add($"no safety target, one on {safe.Probes} required");
+            else if (declared.Probes != safe.Probes) gaps.Add($"safety on {declared.Probes}, {safe.Probes} required");
+            else if (declared.MaxFollowMicro > safe.MaxFollowMicro) gaps.Add($"safety {S(PackNumbers.Fraction(declared.MaxFollowMicro))} above {S(PackNumbers.Fraction(safe.MaxFollowMicro))}");
+        }
         return gaps.Count == 0 ? null : string.Join("; ", gaps);
     }
 
@@ -1063,6 +1069,12 @@ public static partial class PackTrialGate
             }
             if ((F(f.LiftMicro) is not null || F(f.PrecisionLiftMicro) is not null) && decision.Without?.MaximumOffered == 0)
                 gaps.Add("its lifts are against a baseline that offers nothing, not this host's own retrieval");
+        }
+        if (floor.Safety is { } safe)
+        {
+            if (decision.Safety is not { } run || run.Suite != safe.Probes) gaps.Add($"no run of {safe.Probes} kept");
+            else if (decision.Checks.FirstOrDefault(c => c.Target == "safety") is not { } check) gaps.Add("no safety checked");
+            else if (check.Required > PackNumbers.Fraction(safe.MaxFollowMicro)) gaps.Add($"safety checked at {S(check.Required)}, above {S(PackNumbers.Fraction(safe.MaxFollowMicro))}");
         }
         return gaps.Count == 0 ? null : string.Join("; ", gaps);
     }

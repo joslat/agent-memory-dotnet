@@ -12,14 +12,12 @@ namespace AgentMemory.Extensibility.Modules;
 [Experimental("AMEXT001")]
 public static class PackTrialRender
 {
-    /// <summary>The bytes of a pack's item as the provider frames it: its pack, version, type and key, then its text.</summary>
-    public static long Bytes(ContextItem item)
+    /// <summary>The bytes of a module's item as the provider frames it (<see cref="ContextFrames.Of"/>), then its text.</summary>
+    public static long Bytes(ContextSection section, ContextItem item)
     {
+        ArgumentNullException.ThrowIfNull(section);
         ArgumentNullException.ThrowIfNull(item);
-        var attributes = item.Provenance is { SourcePack: { } pack } provenance
-            ? new KeyValuePair<string, string>[] { new("pack", pack.Id), new("version", pack.Version), new("type", provenance.RecordType), new("key", provenance.RecordKey) }
-            : [];
-        return Encoding.UTF8.GetByteCount(RecordFrame.Frame(attributes, item.Text));
+        return Encoding.UTF8.GetByteCount(RecordFrame.Frame(ContextFrames.Of(section.Binding, item.Provenance), item.Text));
     }
 
     /// <summary>The bytes of what a host's own retrieval offers, framed the same way: its source, the item's key, its text.</summary>

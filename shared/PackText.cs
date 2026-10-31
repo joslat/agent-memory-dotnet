@@ -48,6 +48,27 @@ internal static class PackText
     }
 
     /// <summary>
+    /// Display text (feature 04, R-CORE-126 and its review): 1 to <paramref name="maximum"/> characters, display-safe, not blank
+    /// (some character that is not Unicode White_Space), and for one line no line feed, tab, line separator or paragraph
+    /// separator. White_Space is listed here, as Python lists it, never read from either platform.
+    /// </summary>
+    internal static bool IsDisplayText(string text, int maximum, bool line)
+    {
+        if (Length(text) is var n && (n < 1 || n > maximum) || !IsDisplaySafe(text)) return false;
+        var blank = true;
+        foreach (var c in CodePoints(text))
+        {
+            if (line && c is '\n' or '\t' or 0x2028 or 0x2029) return false;
+            if (!IsWhiteSpace(c)) blank = false;
+        }
+        return !blank;
+    }
+
+    // Unicode's White_Space property (stable since 6.3).
+    private static bool IsWhiteSpace(int c) =>
+        c is >= 0x09 and <= 0x0D or 0x20 or 0x85 or 0xA0 or 0x1680 or >= 0x2000 and <= 0x200A or 0x2028 or 0x2029 or 0x202F or 0x205F or 0x3000;
+
+    /// <summary>
     /// Whether a text may be shown to a person (feature 04, R-CORE-126): no code point the registry refuses, so no control but a
     /// line feed or a tab, no format character but ZWNJ and ZWJ (no bidi control, no zero-width space), no private use, no
     /// surrogate. The ranges are the registry's, fixed at Unicode 15.0, never the platform's own categories.

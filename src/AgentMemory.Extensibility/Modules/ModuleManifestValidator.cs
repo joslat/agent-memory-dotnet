@@ -48,8 +48,9 @@ internal sealed class ModuleManifestValidator
                 if (!types.TryAdd(name, type)) Error(path, "duplicate type name");
                 if (!names.Add(SchemaName(name))) Error(path, "type names collide after schema-name normalization");
                 if (type.Scope is not ("owner" or "shared")) Error(path + ".scope", "expected owner or shared");
-                if (type.Description is not null && string.IsNullOrWhiteSpace(type.Description))
-                    Error(path + ".description", "description cannot be empty");
+                // Shown to a person and to a model (the module proposer's prompt), so display text (feature 04 review, M8).
+                if (type.Description is not null && !PackText.IsDisplayText(type.Description, int.MaxValue, line: false))
+                    Error(path + ".description", "a description is display-safe text, not empty");
                 if (type.Color is not null && string.IsNullOrWhiteSpace(type.Color))
                     Error(path + ".color", "color cannot be empty");
                 var props = Map(type.Properties, path + ".properties");
@@ -140,9 +141,9 @@ internal sealed class ModuleManifestValidator
     // Extensibility 0.13 §D: what a person sees of a module or pack; bounded, and an icon only where a signed bundle holds it.
     private void ValidateDisplay(ModuleManifest manifest, ModuleDisplay display)
     {
-        if (display.Title is { } title && (string.IsNullOrWhiteSpace(title) || PackText.Length(title) > 60 || title.Any(char.IsControl) || !PackText.IsDisplaySafe(title)))
+        if (display.Title is { } title && !PackText.IsDisplayText(title, 60, line: true))
             Error("$.display.title", "a title is 1 to 60 characters without control characters");
-        if (display.Description is { } description && (string.IsNullOrWhiteSpace(description) || PackText.Length(description) > 300 || !PackText.IsDisplaySafe(description)))
+        if (display.Description is { } description && !PackText.IsDisplayText(description, 300, line: false))
             Error("$.display.description", "a description is 1 to 300 display-safe characters");
         if (display.Color is { } color && !HexColor.IsMatch(color)) Error("$.display.color", "a colour is #RRGGBB");
         if (display.Icon is { } icon)
@@ -250,9 +251,12 @@ internal sealed class ModuleManifestValidator
             Error(path + ".upgrade.toleranceMicro", "with a confidence, no regression needs a tolerance above 0 (ampack lint says what the declared tasks can show)");
         if (trial.Safety is { } safety)
         {
-            if (safety.Probes is not { } suite || !PackText.IsDisplaySafe(suite) || PackText.Length(suite) is < 1 or > 100 || suite.Contains('\n') || suite.Contains('\t'))
+            if (safety.Probes is not { } suite || !PackText.IsDisplayText(suite, 100, line: true))
                 Error(path + ".safety.probes", "a probe suite is one line of 1 to 100 display-safe characters");
             if (PackNumbers.Problem("maxFollowMicro", safety.MaxFollowMicro) is { } beyond) Error(path + ".safety.maxFollowMicro", beyond);
+            // Under a confidence the upper bound of a follow rate is above 0 however many probes ran (feature 04 review, M3).
+            else if (safety.MaxFollowMicro == 0 && trial.ConfidencePermille is not null)
+                Error(path + ".safety.maxFollowMicro", "with a confidence, a safety target needs a follow rate above 0: no run of probes bounds it at 0");
         }
         if (trial.Cost is { } cost)
         {
@@ -356,7 +360,7 @@ internal sealed class ModuleManifestValidator
     }
     private void Description(string? text, string path)
     {
-        if (text is not null && (string.IsNullOrWhiteSpace(text) || PackText.Length(text) > 200)) Error(path, "description must have 1-200 characters");
+        if (text is not null && !PackText.IsDisplayText(text, 200, line: false)) Error(path, "a description is 1 to 200 display-safe characters");
     }
 
     private void ValidateProperty(ModuleProperty property, string path)

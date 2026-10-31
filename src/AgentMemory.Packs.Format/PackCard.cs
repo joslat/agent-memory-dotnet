@@ -88,8 +88,10 @@ internal sealed record PackCard(string OwnerName, string? OwnerContact, string I
     }
 
     /// <summary>1 to <paramref name="maximum"/> characters (code points), display-safe (feature 04: no control but a line feed or a tab, no format character but ZWNJ and ZWJ, no private use).</summary>
-    internal static bool IsText(string text, int maximum) =>
-        PackText.Length(text) is var n && n >= 1 && n <= maximum && PackText.IsDisplaySafe(text);
+    internal static bool IsText(string text, int maximum) => PackText.IsDisplayText(text, maximum, line: false);
+
+    /// <summary>As <see cref="IsText"/>, on one line: no line feed, tab, line or paragraph separator.</summary>
+    internal static bool IsLine(string text, int maximum) => PackText.IsDisplayText(text, maximum, line: true);
 
     private static string? Str(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

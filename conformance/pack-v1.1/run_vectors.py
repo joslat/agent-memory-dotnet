@@ -543,6 +543,10 @@ def main():
     vectors["display-title-two-lines"] = (signed(edited(display={"title": "Notes" + chr(10) + "More"})), "trust.json", "refused")
     vectors["display-title-61-characters"] = (signed(edited(display={"title": "x" * 61})), "trust.json", "refused")
     vectors["display-description-soft-hyphen"] = (signed(edited(display={"title": "Notes", "description": "Hid­den"})), "trust.json", "refused")
+    # Feature 04 review: display text is not blank, and one line holds no line or paragraph separator either.
+    vectors["display-title-line-separator"] = (signed(edited(display={"title": "Notes" + chr(0x2028) + "More"})), "trust.json", "refused")
+    vectors["display-title-blank"] = (signed(edited(display={"title": " " + chr(0x3000)})), "trust.json", "refused")
+    vectors["display-description-paragraph-separator"] = (signed(edited(display={"title": "Notes", "description": "One." + chr(0x2029) + "Two."})), "trust.json", "verified")
     vectors["number-beyond-double"] = (signed({**content, record: b'{"key":"a","n":1e400}\n'}), "trust.json", "refused")
     vectors["integer-int64-min"] = (signed({**content, record: b'{"key":"a","n":-9223372036854775808}\n'}), "trust.json", "refused")
     nested = lambda depth: ("[" * depth + "]" * depth).encode()
@@ -837,6 +841,7 @@ def main():
     # are within the bound and 301 are not.
     vectors["federated-purpose-300-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 300))), "trust-federated-buyer.json", "verified")
     vectors["federated-purpose-301-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 301))), "trust-federated-buyer.json", "refused")
+    vectors["federated-purpose-bidi-override"] = (signed(manifest_with(extensions=federation(purpose="Handoff " + chr(0x202E) + "exe"))), "trust-federated-buyer.json", "refused")
 
     # FED-review M5 and H2: a federated set's members are federated, by its publisher, for no wider an audience; and every
     # member verifies.
@@ -968,6 +973,10 @@ def main():
     vectors["card-emoji-joined-by-zwj"] = (with_card({**full_card, "intendedUse": "For the family \U0001F468‍\U0001F469‍\U0001F467"}), "trust.json", "verified")
     vectors["card-boundary-repeated"] = (with_card({**full_card, "boundaries": ["Same.", "Same."]}), "trust.json", "refused")
     vectors["card-owner-empty"] = (with_card({**full_card, "owner": {"name": ""}}), "trust.json", "refused")
+    vectors["card-owner-blank"] = (with_card({**full_card, "owner": {"name": "  "}}), "trust.json", "refused")
+    vectors["card-subdivision-flag"] = (with_card({**full_card, "intendedUse": "For England " + "".join(map(chr, (0x1F3F4, 0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F)))}), "trust.json", "refused")
+    vectors["card-right-to-left-mark"] = (with_card({**full_card, "intendedUse": "Hebrew " + chr(0x05E9) + chr(0x200F) + " text"}), "trust.json", "refused")
+    vectors["card-variation-selector-emoji"] = (with_card({**full_card, "intendedUse": "Heart " + chr(0x2764) + chr(0xFE0F) + " and keycap 1" + chr(0xFE0F) + chr(0x20E3)}), "trust.json", "verified")
 
     # The attestations area (v1.2 §16): outside the files list, shaped and bounded; a certificate's content is not trusted here.
     stem = "0123456789abcdef-20261028t120000z"

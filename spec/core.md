@@ -725,10 +725,12 @@ specification depends on it.
 
 `card.json` is optional. It is a listed and signed file like any other, which a host's operator reads before installing.
 
-**R-CORE-126.** Text a pack shows to a person (its card, `display.title`, which is one line, and `display.description`,
-and every text a verifier checks as one) MUST be display-safe: it MUST hold no code point in these ranges, fixed at Unicode
-15.0 whatever the platform's own tables. They are the C0 and C1 controls but line feed and tab, every format character but
-ZWNJ and ZWJ (so every bidi control and the zero-width space), private use and surrogates.
+**R-CORE-126.** Text a pack shows to a person (its card, `display.title`, which is one line, `display.description`, the
+federation `purpose`, and every text a verifier checks as one) MUST be display text: display-safe, holding no code point in
+these ranges, fixed at Unicode 15.0 whatever the platform's own tables; not blank (some character outside Unicode's
+White_Space); and, when it is one line, holding no line feed, tab, line separator (U+2028) or paragraph separator (U+2029).
+The ranges are the C0 and C1 controls but line feed and tab, every format character but ZWNJ and ZWJ (so every bidi control
+and the zero-width space), private use and surrogates.
 
 <!-- registry:text.displayRefused -->
 | Display refused |
@@ -762,6 +764,12 @@ ZWNJ and ZWJ (so every bidi control and the zero-width space), private use and s
 | `F0000`, `FFFFD` |
 | `100000`, `10FFFD` |
 <!-- /registry -->
+
+> Why: what a person reads must be what a model reads. The format characters it refuses include the right-to-left and
+> left-to-right marks, the soft hyphen and the tag characters, so some right-to-left and hyphenated text and the three
+> subdivision flags (England, Scotland, Wales) are refused: tag characters are how text is smuggled past a reader. ZWNJ and
+> ZWJ stay (Persian, Indic scripts, joined emoji), and so do variation selectors and keycaps, which are marks, not format
+> characters.
 
 > Why: signatures prove who wrote a text, not what it shows. A bidi override makes a title read otherwise than it is
 > (Trojan Source), and a zero-width space hides a word; ZWNJ and ZWJ stay, because scripts and emoji need them.

@@ -202,7 +202,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             return (null, "The certificate's predicate holds other fields than this format defines.");
         if (Str(p, "id") is not { } id || !PackManifest.IsValidId(id) || Str(p, "version") is not { } version || !SemVer.TryParse(version, out _))
             return (null, "The certificate names no valid pack id and version.");
-        if (Str(p, "evaluator") is not { } evaluator || !PackCard.IsText(evaluator, 200) || evaluator.Contains('\n') || evaluator.Contains('\t'))
+        if (Str(p, "evaluator") is not { } evaluator || !PackCard.IsLine(evaluator, 200))
             return (null, "The certificate names its evaluator as one line of 1 to 200 characters.");
         if (!p.TryGetProperty("tool", out var tool) || tool.ValueKind != JsonValueKind.Object || tool.EnumerateObject().Any(f => !PackRegistry.Shape("certificateTool").Contains(f.Name))
             || Str(tool, "name") is not { } toolName || !IsLine(toolName, 100) || Str(tool, "version") is not { } toolVersion || !IsLine(toolVersion, 64))
@@ -319,7 +319,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number) ? number : null;
 
     // One line of text: no control characters at all.
-    private static bool IsLine(string text, int maximum) => PackCard.IsText(text, maximum) && !text.Contains('\n') && !text.Contains('\t');
+    private static bool IsLine(string text, int maximum) => PackCard.IsLine(text, maximum);
 
     private static string? Str(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

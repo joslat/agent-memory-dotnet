@@ -667,7 +667,11 @@
       "savingRatio": {
         "field": "savingRatioMicro"
       }
-    }
+    },
+    "atMost": [
+      "addedP95Ms",
+      "safety"
+    ]
   },
   "certificate": {
     "measures": [

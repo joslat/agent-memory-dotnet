@@ -1347,7 +1347,7 @@
    "doc": "core.md",
    "section": "16",
    "level": "MUST",
-   "summary": "Text a pack shows to a person (its card, `display.title`, which is one line, and `display.description`, and every text a verifier checks as one) MUST be display-safe: it MUST hold no code point in these ranges, fixed at Unicode 15.0 whatever the platform's own tables. They are the C0 and C1 controls but line feed and tab, every format character but ZWNJ and ZWJ (so every bidi control and the zero-width space), private use and surrogates.",
+   "summary": "Text a pack shows to a person (its card, `display.title`, which is one line, `display.description`, the federation `purpose`, and every text a verifier checks as one) MUST be display text: display-safe, holding no code point in these ranges, fixed at Unicode 15.0 whatever the platform's own tables; not blank (some character outside Unicode's White_Space); and, when it is one line, holding no line feed, tab, line separator (U+2028) or paragraph separator (U+2029). The ranges are the C0 and C1 controls but line feed and tab, every format character but ZWNJ and ZWJ (so every bidi control and the zero-width space), private use and surrogates.",
    "verifiedBy": [
     "kit",
     "unit:PackTextTests"
@@ -2723,9 +2723,10 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "`safety`, when present, MUST hold `probes` (one line of 1 to 100 display-safe characters naming a probe suite) and MAY hold `maxFollowMicro` (an integer of 0 to 1,000,000, default 0):",
+   "summary": "`safety`, when present, MUST hold `probes` (one line of 1 to 100 display-safe characters naming a probe suite) and MAY hold `maxFollowMicro` (an integer of 0 to 1,000,000, default 0; above 0 with a `confidencePermille`, since no run bounds a follow rate at 0):",
    "verifiedBy": [
-    "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes"
+    "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes",
+    "unit:TrialGateTests.A_safety_target_is_reachable_its_run_sound_and_a_host_floor_can_require_it"
    ]
   },
   {
@@ -2743,9 +2744,11 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "A decision MUST keep the run (the suite, the probes and those followed), so a recheck reaches the same verdict, and a certificate MUST NOT admit a pack whose trial declares a safety target: only the host's own probes decide it.",
+   "summary": "A decision MUST keep the run (the suite, the probes and those followed), so a recheck reaches the same verdict, and a kept run of no probes, or of counts out of range, MUST NOT meet the target. A certificate MUST NOT be issued for, nor admit, a pack whose trial declares a safety target: only the host's own probes decide it. A host's floor (R-TRIAL-038) MAY require a safety target on a named suite at a follow rate at most its own; a trial without one, on another suite or above it, MUST stay off, and so MUST a decision that kept no run of that suite.",
    "verifiedBy": [
-    "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes"
+    "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes",
+    "unit:TrialGateTests.A_safety_target_is_reachable_its_run_sound_and_a_host_floor_can_require_it",
+    "unit:PackCertificateTests.A_trial_with_a_safety_target_is_never_certified"
    ]
   },
   {
@@ -4412,9 +4415,10 @@
    "doc": "host/rendering.md",
    "section": "1",
    "level": "MUST",
-   "summary": "A host MUST put every record a pack brought into a model's context inside a frame, never as bare text: an element `record` with the attributes `pack` (the pack's id), `version` (the pack's version), `type` and `key`, then the record's text, then the closing tag. The frames of one section MUST stand inside the section's one `recalled_memory` element, which names its category.",
+   "summary": "A host that renders a module's items into a model's context MUST put every one inside a frame, never as bare text, on every path that renders them: an element `record` whose attributes are, for a record a pack brought, `pack` (the pack's id), `version` (the pack's version), `type` and `key`, and, for any other module item, `module`, its version, and its `type` and `key` when it has them; then the item's text, then the closing tag. Whether an item is framed MUST NOT depend on it naming its pack: one that has lost its source is framed with its module. The frames of one section MUST stand inside the section's one `recalled_memory` element, which names its category. A host that returns records as structured data, each with its pack, type and key as separate fields (AgentMemory's coding MCP host, `ampack serve`), meets this by those fields; the client that puts them into a prompt frames them.",
    "verifiedBy": [
-    "unit:ModuleDelimitingTests.A_pack_record_is_framed_with_its_source_and_cannot_forge_another"
+    "unit:ModuleDelimitingTests.A_pack_record_is_framed_with_its_source_and_cannot_forge_another",
+    "unit:NativeModuleSelectionTests.Selection_frames_a_pack_record_as_the_sections_path_does"
    ]
   },
   {
@@ -4442,7 +4446,7 @@
    "doc": "host/rendering.md",
    "section": "2",
    "level": "MUST",
-   "summary": "Every record's text MUST pass the host's admission of untrusted content before it is framed (in AgentMemory, `IMemoryContextAdmissionPolicy`, which refuses or flags instruction-like text under the host's security mode).",
+   "summary": "Every record's text MUST pass the host's admission of untrusted content before it is framed into a model's context (in AgentMemory, `IMemoryContextAdmissionPolicy`, which refuses or flags instruction-like text under the host's security mode).",
    "verifiedBy": [
     "unit:ModuleAdmissionDefaultsTests"
    ]
@@ -4452,7 +4456,7 @@
    "doc": "host/rendering.md",
    "section": "3",
    "level": "MUST",
-   "summary": "A writer's lint MUST report every finding of its content scan (personal data, a secret, an injection payload) as an error when asked to (`--safety`), and always for a pack of the `curated` or `premium` tier.",
+   "summary": "A writer's lint MUST report every high-severity finding of its content scan (a secret, a payment card or account number, an injection payload) as an error when asked to (`--safety`), and always for a pack of the `curated` or `premium` tier.",
    "verifiedBy": [
     "unit:AmpackCommandLineTests.Lint_reports_what_the_scan_finds_as_an_error_when_asked_and_for_a_curated_pack"
    ]

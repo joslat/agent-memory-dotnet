@@ -166,7 +166,8 @@ public static class PackScan
     }
 
     // Unicode that hides text from a reader but not from a model: tag characters (ASCII smuggling), zero-width characters,
-    // bidirectional embeddings and isolates (Trojan Source).
+    // bidirectional embeddings and isolates (Trojan Source). Not ZWNJ and ZWJ, which the display rule keeps: Persian, Indic
+    // scripts and joined emoji need them (feature 04 review, M5).
     private static (string Rule, string Sample)? Hidden(string text)
     {
         for (var i = 0; i < text.Length; i++)
@@ -174,7 +175,7 @@ public static class PackScan
             var c = text[i];
             if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.ConvertToUtf32(c, text[i + 1]) is >= 0xE0000 and <= 0xE007F)
                 return ("injection.unicode-tags", "U+" + char.ConvertToUtf32(c, text[i + 1]).ToString("X5", CultureInfo.InvariantCulture));
-            if (c is '​' or '‌' or '‍' or '⁠' or '﻿')
+            if (c is '​' or '⁠' or '﻿')
                 return ("injection.zero-width", "U+" + ((int)c).ToString("X4", CultureInfo.InvariantCulture));
             if (c is >= '‪' and <= '‮' or >= '⁦' and <= '⁩')
                 return ("injection.bidi-control", "U+" + ((int)c).ToString("X4", CultureInfo.InvariantCulture));

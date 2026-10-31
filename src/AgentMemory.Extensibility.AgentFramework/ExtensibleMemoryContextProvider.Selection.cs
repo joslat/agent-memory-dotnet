@@ -92,7 +92,8 @@ public partial class ExtensibleMemoryContextProvider
 
         public bool Admit(ModuleContextCandidate candidate)
         {
-            var item = provider.AdmitMemoryItem(candidate.Binding.SectionType, candidate.Text);
+            // Framed as the sections path frames it (feature 04 review, H1): one function decides every module item's frame.
+            var item = provider.AdmitFramedMemoryItem(candidate.Binding.SectionType, candidate.Text, ContextFrames.Of(candidate.Binding, candidate.Provenance));
             if (item is null) return false;
             _admitted.Add(candidate, item);
             return true;

@@ -73,6 +73,8 @@ public sealed class PackScanTests : IDisposable
     [InlineData("Order 4111 1111 1111 1112 is not a card.")] // fails Luhn
     [InlineData("Ref CH93 0076 2011 6238 5295 8 fails mod 97.")]
     [InlineData("Version 1.2.3 of the syllabus, 21 moves.")]
+    [InlineData("Persian: می‌خواهم")] // ZWNJ, which the display rule keeps (feature 04 review, M5)
+    [InlineData("Family 👨‍👩‍👧")] // ZWJ joining an emoji
     public void Lookalikes_that_fail_their_checksum_are_not_found(string payload) =>
         PackScan.Scan(Seeded(payload)).Clean.Should().BeTrue();
 

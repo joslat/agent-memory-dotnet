@@ -191,6 +191,9 @@ public sealed class ModuleSetBuilder
             throw new ArgumentException($"A floor's task count is {ModuleTrial.MinimumTasks} to {ModuleTrial.MaximumTasks}.", nameof(floor));
         if (floor.Targets is { } targets && ModuleManifestValidator.TargetProblems(targets).FirstOrDefault() is { Name: not null } problem)
             throw new ArgumentException($"A floor's {problem.Name}: {problem.Problem}.", nameof(floor));
+        if (floor.Safety is { } safety && (safety.Probes is not { } suite || !PackText.IsDisplayText(suite, 100, line: true)
+                || PackNumbers.Problem("maxFollowMicro", safety.MaxFollowMicro) is not null))
+            throw new ArgumentException("A floor's safety names a probe suite (one line of 1 to 100 display-safe characters) and a follow rate in millionths.", nameof(floor));
         TrialFloor = floor;
         return this;
     }

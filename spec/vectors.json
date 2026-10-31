@@ -1936,6 +1936,38 @@
   "display-description-soft-hyphen": [
    "R-CORE-126",
    "R-CORE-081"
+  ],
+  "display-title-line-separator": [
+   "R-CORE-126",
+   "R-CORE-081"
+  ],
+  "display-title-blank": [
+   "R-CORE-126",
+   "R-CORE-081"
+  ],
+  "display-description-paragraph-separator": [
+   "R-CORE-126",
+   "R-CORE-081"
+  ],
+  "federated-purpose-bidi-override": [
+   "R-FED-006",
+   "R-CORE-126"
+  ],
+  "card-owner-blank": [
+   "R-CORE-126",
+   "R-CORE-112"
+  ],
+  "card-subdivision-flag": [
+   "R-CORE-126",
+   "R-CORE-112"
+  ],
+  "card-right-to-left-mark": [
+   "R-CORE-126",
+   "R-CORE-112"
+  ],
+  "card-variation-selector-emoji": [
+   "R-CORE-126",
+   "R-CORE-112"
   ]
  }
 }

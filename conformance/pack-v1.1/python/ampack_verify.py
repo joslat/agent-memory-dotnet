@@ -542,7 +542,7 @@ def manifest_checks(manifest, content, now):
         for name, maximum, line in (("title", 60, True), ("description", 300, False)):
             if name in manifest["display"]:
                 text = manifest["display"][name]
-                if not is_text(text, maximum) or (line and ("\n" in text or "\t" in text)):
+                if not is_display_text(text, maximum, line):
                     raise Refused(f"pack.json has a display.{name} that is not display-safe text of 1 to {maximum} characters")
     kind = manifest.get("kind")
     if kind not in KINDS:
@@ -1045,8 +1045,8 @@ def read_federation(extensions):
     if "audience" not in f:
         raise Refused("the 'federation' extension names no audience")
     audience = read_audience(f["audience"], "the federation audience")
-    if "purpose" in f and (not isinstance(f["purpose"], str) or not 1 <= len(f["purpose"]) <= 300):
-        raise Refused("the federation purpose is text of 1 to 300 characters")
+    if "purpose" in f and not is_text(f["purpose"], 300):
+        raise Refused("the federation purpose is display-safe text of 1 to 300 characters")
     return {"publisher": f["publisher"], "audience": audience}
 
 
@@ -1194,13 +1194,24 @@ def display_safe(text):
     return True
 
 
+# Unicode's White_Space property (stable since 6.3), listed as .NET's PackText lists it.
+WHITE_SPACE = frozenset([*range(0x09, 0x0E), 0x20, 0x85, 0xA0, 0x1680, *range(0x2000, 0x200B), 0x2028, 0x2029, 0x202F, 0x205F, 0x3000])
+LINE_BREAKS = frozenset(["\n", "\t", "\u2028", "\u2029"])
+
+
+def is_display_text(text, maximum, line):
+    """Display text (as .NET's PackText.IsDisplayText): 1 to `maximum` characters, display-safe, not blank, and for one line no
+    line feed, tab, line or paragraph separator."""
+    return isinstance(text, str) and 1 <= text_length(text) <= maximum and display_safe(text) \
+        and any(ord(c) not in WHITE_SPACE for c in text) and not (line and any(c in LINE_BREAKS for c in text))
+
+
 def is_text(text, maximum):
-    """1 to `maximum` characters (code points), display-safe (as .NET's PackCard.IsText)."""
-    return isinstance(text, str) and 1 <= text_length(text) <= maximum and display_safe(text)
+    return is_display_text(text, maximum, False)
 
 
 def is_line(text, maximum):
-    return is_text(text, maximum) and "\n" not in text and "\t" not in text
+    return is_display_text(text, maximum, True)
 
 
 # The Embeddings profile (feature 03): embeddings/<name>.st, one tensor in the safetensors layout, and embeddings/<name>.json,

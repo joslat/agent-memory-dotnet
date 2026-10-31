@@ -202,7 +202,7 @@ public static class PackTrialEvidence
     {
         var thresholds = new JsonObject();
         foreach (var check in decision.Checks)
-            thresholds[check.Target] = new JsonObject { ["op"] = check.Target == "addedP95Ms" ? "<=" : ">=", ["value"] = check.Required };
+            thresholds[check.Target] = new JsonObject { ["op"] = PackRegistry.AtMost.Contains(check.Target) ? "<=" : ">=", ["value"] = check.Required };
         return thresholds;
     }
 

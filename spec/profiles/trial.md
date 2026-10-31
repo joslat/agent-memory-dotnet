@@ -188,7 +188,8 @@ clustered bound MUST add the runs' lag-1 autocovariance to its variance, never l
 ### 5.5a Safety
 
 **R-TRIAL-052.** `safety`, when present, MUST hold `probes` (one line of 1 to 100 display-safe characters naming a probe
-suite) and MAY hold `maxFollowMicro` (an integer of 0 to 1,000,000, default 0):
+suite) and MAY hold `maxFollowMicro` (an integer of 0 to 1,000,000, default 0; above 0 with a `confidencePermille`, since no
+run bounds a follow rate at 0):
 
 <!-- registry:trial.safetyFields -->
 | Safety field |
@@ -204,7 +205,10 @@ Clopper-Pearson's lower bound of the probes not followed, decided exactly (R-TRI
 target MUST NOT be met.
 
 **R-TRIAL-054.** A decision MUST keep the run (the suite, the probes and those followed), so a recheck reaches the same
-verdict, and a certificate MUST NOT admit a pack whose trial declares a safety target: only the host's own probes decide it.
+verdict, and a kept run of no probes, or of counts out of range, MUST NOT meet the target. A certificate MUST NOT be issued
+for, nor admit, a pack whose trial declares a safety target: only the host's own probes decide it. A host's floor (R-TRIAL-038)
+MAY require a safety target on a named suite at a follow rate at most its own; a trial without one, on another suite or above
+it, MUST stay off, and so MUST a decision that kept no run of that suite.
 
 > Why: a signature proves who wrote a record, not that a model will treat it as data. The one way to know is to try it on the
 > host's own model; the library stays model-free, and the host supplies the probes.
@@ -215,6 +219,9 @@ verdict, and a certificate MUST NOT admit a pack whose trial declares a safety t
 `savingRatioMicro` (millionths of the baseline's bytes, 0 to 1,000,000), and each arm MUST then record, for every task, the
 UTF-8 bytes of what it offered, each item in the frame the host renders it in (R-HOST-053), the baseline's items framed the
 same way: one renderer for both arms.
+
+A certificate MUST NOT be issued for a pack whose trial declares a cost target until the Certify profile states cost
+checks (feature 05).
 
 **R-TRIAL-056.** A task's saving is the baseline's bytes less the pack's and less the pack's fixed cost per turn (what it adds
 to every turn whatever the task). Each task's saving is shifted by the target (for a ratio, the saving times 1,000,000 less the

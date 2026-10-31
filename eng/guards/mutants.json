@@ -1134,13 +1134,118 @@
    "file": "src/AgentMemory.AgentFramework/Neo4jMemoryContextProvider.Admission.cs",
    "edits": [
     {
-     "old": "admitted.Add(frame is { } source ? AgentMemory.Core.Security.RecalledMemoryDelimiter.Frame(source, text) : AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text));",
-     "new": "admitted.Add(AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text));"
+     "old": "frame is { } source ? AgentMemory.Core.Security.RecalledMemoryDelimiter.Frame(source, text) : AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text);",
+     "new": "AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleDelimitingTests|FullyQualifiedName~NativeModuleSelectionTests",
+   "sha256": "f51928f53045ba6f01e65780b9f507cd02c9fec0d813c4bb840f38b2605720b1"
+  },
+  {
+   "id": "selection-unframed",
+   "rule": "FRAMED-RECORDS",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.AgentFramework/ExtensibleMemoryContextProvider.Selection.cs",
+   "edits": [
+    {
+     "old": "candidate.Text, ContextFrames.Of(candidate.Binding, candidate.Provenance));",
+     "new": "candidate.Text, null);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~NativeModuleSelectionTests",
+   "sha256": "9c74890c3c63941b0843ecb2a3afef7ef7e1e21580bc833cfb8378b373baa659"
+  },
+  {
+   "id": "frame-fails-open",
+   "rule": "FRAMED-RECORDS",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.AgentFramework/ExtensibleMemoryContextProvider.cs",
+   "edits": [
+    {
+     "old": "(IReadOnlyList<KeyValuePair<string, string>>?)ContextFrames.Of(section.Binding, item.Provenance)",
+     "new": "(item.Provenance?.SourcePack is null ? null : ContextFrames.Of(section.Binding, item.Provenance))"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ModuleDelimitingTests",
-   "sha256": "6cad2228afc5f8188213f5796f483c84341648131115f824ed1a30e3277eb855"
+   "sha256": "c277f60f0f46a9f50c2dc60020be14fccf40fe30f932bee7b756d2165e96e943"
+  },
+  {
+   "id": "safety-certified",
+   "rule": "CERTIFICATE-STATES-ALL",
+   "door": "certify",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": "        if (trial.Safety is not null) problems.Add(",
+     "new": "        if (trial.Safety is null) problems.Add("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.A_trial_with_a_safety_target",
+   "sha256": "d226d0aafa3829a793bcfbb15e6adf6568bac15a9d39df3c1d3cf6a559f6b1bf"
+  },
+  {
+   "id": "floor-ignores-safety",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (decision.Safety is not { } run || run.Suite != safe.Probes) gaps.Add($\"no run of {safe.Probes} kept\");",
+     "new": "if (decision.Safety is not { } run || run.Suite != safe.Probes) { }"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_safety_target_is_reachable",
+   "sha256": "4b9a7fc641143a4459f8fe42b5aebc016575e728fb6dc6b323f9dc1a2ee1e7ca"
+  },
+  {
+   "id": "display-blank-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "definition",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "        return !blank;",
+     "new": "        return !blank || text.Length > 0;"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "9ed85355cfa4e7b2a9e126b65e99b0890004e40b69ef88c27f9380923c40ba01"
+  },
+  {
+   "id": "display-line-separator-kept",
+   "rule": "DISPLAY-SAFE",
+   "door": "verify",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "if (line && c is '\\n' or '\\t' or 0x2028 or 0x2029) return false;",
+     "new": "if (line && c is '\\n' or '\\t') return false;"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "53added9e37d63493799abf9d7af16422f69c6c7f4908a3bc17402725f946f14"
+  },
+  {
+   "id": "python-display-blank-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        and any(ord(c) not in WHITE_SPACE for c in text) and ",
+     "new": "        and "
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "92a520bf3147a9eb69bc691bcf3a7e4ddef2d73cd41b12eec94d24c587fbd951"
   },
   {
    "id": "safety-always-met",

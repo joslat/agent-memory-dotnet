@@ -414,7 +414,7 @@ public sealed class FederationTests
     {
         var purpose = string.Concat(Enumerable.Repeat("\U0001F600", emoji));
 
-        Parse(Extension("\"public\"", extra: ",\"purpose\":\"" + purpose + "\"")).Problem.Should().Be(ok ? null : "The federation purpose is text of 1 to 300 characters.");
+        Parse(Extension("\"public\"", extra: ",\"purpose\":\"" + purpose + "\"")).Problem.Should().Be(ok ? null : "The federation purpose is display-safe text of 1 to 300 characters.");
     }
 
     [Fact]

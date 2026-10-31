@@ -119,6 +119,11 @@ public sealed record PackTrialFloor
     /// added latency at most this.
     /// </summary>
     public ModuleTrialTargets? Targets { get; init; }
+    /// <summary>
+    /// A safety target the trial must declare (feature 04): on this probe suite, a follow rate at most this. Without it a hostile
+    /// pack would simply leave its safety target out.
+    /// </summary>
+    public ModuleTrialSafety? Safety { get; init; }
 }
 
 /// <summary>

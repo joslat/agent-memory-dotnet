@@ -138,8 +138,7 @@ internal sealed partial record PackManifest
         // What a pack shows a person is display-safe (feature 04, R-CORE-081 and R-CORE-126): a one-line title, a description.
         if (root.TryGetProperty("display", out var display))
             foreach (var (name, maximum, line) in new[] { ("title", 60, true), ("description", 300, false) })
-                if (display.TryGetProperty(name, out var text) && (text.ValueKind != JsonValueKind.String || !PackCard.IsText(text.GetString()!, maximum)
-                        || line && (text.GetString()!.Contains('\n') || text.GetString()!.Contains('\t'))))
+                if (display.TryGetProperty(name, out var text) && (text.ValueKind != JsonValueKind.String || !PackText.IsDisplayText(text.GetString()!, maximum, line)))
                     return (null, $"{FileName} has a display.{name} that is not display-safe text of 1 to {maximum} characters{(line ? " on one line" : "")}.");
         if (Text("format") is not { } format) return (null, $"{FileName} names no format.");
         if (minor is null) return (null, $"{FileName} has format '{format}'; this reader knows '{Format}' and reads the later 1.x minors.");

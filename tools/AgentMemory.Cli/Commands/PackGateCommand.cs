@@ -234,7 +234,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         output.WriteLine($"  with     hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered}), p95 {withArm.P95Ms:0.0} ms");
         output.WriteLine($"  without  {(trial.Baseline == "host" ? "grep" : "nothing")}: hit {withoutArm.HitRate:0.000} ({withoutArm.Hits}/{withoutArm.Tasks}), precision {withoutArm.Precision:0.000} ({withoutArm.Correct}/{withoutArm.Offered}), p95 {withoutArm.P95Ms:0.0} ms");
         foreach (var check in decision.Checks)
-            output.WriteLine($"  {(check.Met ? "met " : "MISS")}  {check.Target} {check.Observed}{(check.Estimate is { } e ? $" (lower bound; estimate {e})" : "")} (target {(check.Target == "addedP95Ms" ? "≤" : "≥")} {check.Required})");
+            output.WriteLine($"  {(check.Met ? "met " : "MISS")}  {check.Target} {check.Observed}{(check.Estimate is { } e ? $" (lower bound; estimate {e})" : "")} (target {(PackRegistry.AtMost.Contains(check.Target) ? "≤" : "≥")} {check.Required})");
         output.WriteLine($"  decision {(decision.Active ? "ON" : "OFF")}: {decision.Reason}");
         output.WriteLine($"  signed   {record}");
 
@@ -332,7 +332,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             .Select(i => TestFile().Match(i.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         // Everything the pack put into the context this task, framed as the model reads it (feature 05).
-        var bytes = envelope.Sections.SelectMany(s => s.Items).Where(i => i.Provenance?.RecordModuleId == CodeMapPack.Id).Sum(PackTrialRender.Bytes);
+        var bytes = envelope.Sections.SelectMany(s => s.Items.Select(i => (Section: s, Item: i))).Where(x => x.Item.Provenance?.RecordModuleId == CodeMapPack.Id)
+            .Sum(x => PackTrialRender.Bytes(x.Section, x.Item));
         return new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms, bytes);
     }
 

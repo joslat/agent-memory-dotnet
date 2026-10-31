@@ -10,11 +10,12 @@ public partial class Neo4jMemoryContextProvider
     /// This is a decision for the current request, not a durable trust grant or a sandbox for module code.</remarks>
     protected sealed class AdmittedMemoryItem
     {
-        internal AdmittedMemoryItem(Neo4jMemoryContextProvider provider, string category, string text)
+        internal AdmittedMemoryItem(Neo4jMemoryContextProvider provider, string category, string text, IReadOnlyList<KeyValuePair<string, string>>? frame = null)
         {
             Provider = provider;
             Category = category;
             Text = text;
+            Frame = frame;
         }
 
         internal Neo4jMemoryContextProvider Provider { get; }
@@ -22,17 +23,22 @@ public partial class Neo4jMemoryContextProvider
         public string Category { get; }
         /// <summary>The exact admitted text, before delimiting and escaping.</summary>
         public string Text { get; }
+        /// <summary>The record frame's attributes it is rendered in (feature 04), or null for a host's own memory.</summary>
+        public IReadOnlyList<KeyValuePair<string, string>>? Frame { get; }
     }
 
     /// <summary>Evaluates one untrusted item using this provider's effective policy and security options.</summary>
     /// <returns>An immutable admitted item, or null when refused. Only admitted text may be sent to a judge.</returns>
     /// <remarks>Performs no retrieval or model call. Use only within the current request; retain the returned
     /// item through selection and render it with RenderAdmittedItems without evaluating admission again.</remarks>
-    protected AdmittedMemoryItem? AdmitMemoryItem(string category, string text)
+    protected AdmittedMemoryItem? AdmitMemoryItem(string category, string text) => AdmitFramedMemoryItem(category, text, null);
+
+    /// <summary>As <see cref="AdmitMemoryItem(string, string)"/>, the item to be rendered in a record frame with these attributes.</summary>
+    protected AdmittedMemoryItem? AdmitFramedMemoryItem(string category, string text, IReadOnlyList<KeyValuePair<string, string>>? frame)
     {
         ArgumentNullException.ThrowIfNull(category);
         ArgumentNullException.ThrowIfNull(text);
-        return AdmitUntrustedText(category, text) ? new(this, category, text) : null;
+        return AdmitUntrustedText(category, text) ? new(this, category, text, frame) : null;
     }
 
     /// <summary>Delimits and escapes selected admitted items without invoking the policy again.</summary>
@@ -42,15 +48,15 @@ public partial class Neo4jMemoryContextProvider
     {
         ArgumentNullException.ThrowIfNull(category);
         ArgumentNullException.ThrowIfNull(items);
-        var texts = new List<string>();
+        var rendered = new List<string>();
         foreach (var item in items)
         {
             ArgumentNullException.ThrowIfNull(item);
             if (!ReferenceEquals(item.Provider, this) || !string.Equals(item.Category, category, StringComparison.Ordinal))
                 throw new ArgumentException("Admitted items must belong to this provider and category.", nameof(items));
-            texts.Add(item.Text);
+            rendered.Add(Rendered(item.Text, item.Frame));
         }
-        return WrapAdmittedTexts(category, texts);
+        return WrapRendered(category, rendered);
     }
 
     /// <summary>
@@ -85,11 +91,17 @@ public partial class Neo4jMemoryContextProvider
         foreach (var (text, frame) in items)
         {
             ArgumentNullException.ThrowIfNull(text);
-            if (!AdmitUntrustedText(category, text)) continue;
-            admitted.Add(frame is { } source ? AgentMemory.Core.Security.RecalledMemoryDelimiter.Frame(source, text) : AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text));
+            if (AdmitUntrustedText(category, text)) admitted.Add(Rendered(text, frame));
         }
-        return admitted.Count == 0 ? string.Empty : AgentMemory.Core.Security.RecalledMemoryDelimiter.WrapEscaped(category, string.Join(Environment.NewLine, admitted));
+        return WrapRendered(category, admitted);
     }
+
+    // One admitted item as the model reads it, on every path (feature 04 review, H1): in its frame when it has one, else escaped.
+    private static string Rendered(string text, IReadOnlyList<KeyValuePair<string, string>>? frame) =>
+        frame is { } source ? AgentMemory.Core.Security.RecalledMemoryDelimiter.Frame(source, text) : AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text);
+
+    private static string WrapRendered(string category, IReadOnlyCollection<string> rendered) =>
+        rendered.Count == 0 ? string.Empty : AgentMemory.Core.Security.RecalledMemoryDelimiter.WrapEscaped(category, string.Join(Environment.NewLine, rendered));
 
     private bool AdmitUntrustedText(string category, string text) =>
         MafTypeMapper.AdmitItem(category, text, MemoryTrustLevel.Untrusted, _formatOptions, _admissionPolicy, _logger);

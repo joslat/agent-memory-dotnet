@@ -37,6 +37,74 @@
    "pack.json has an unknown code tier",
    "pack.json has an unknown code"
   ],
+  "embeddings-header-lies": [
+   "bytes, past its bound or its end",
+   "an embeddings tensor states a header past its bound or its end"
+  ],
+  "embeddings-shape-not-the-rows": [
+   "its rows and dimension",
+   "shape is not its rows and dimension"
+  ],
+  "embeddings-second-tensor": [
+   "header holds exactly one tensor",
+   "header holds exactly one tensor"
+  ],
+  "embeddings-metadata": [
+   "header holds exactly one tensor",
+   "header holds exactly one tensor"
+  ],
+  "embeddings-row-not-a-record": [
+   "the pack holds no record of",
+   "an embeddings index names a row the pack holds no record of"
+  ],
+  "embeddings-nan": [
+   "holds a NaN or infinite value at row",
+   "an embeddings tensor holds a NaN or infinite value"
+  ],
+  "embeddings-trailing-bytes": [
+   "data bytes; its tensor is",
+   "an embeddings tensor holds other than its"
+  ],
+  "embeddings-dtype-not-the-index-s": [
+   "as its index says",
+   "an embeddings tensor is not of its"
+  ],
+  "embeddings-f16-nan": [
+   "holds a NaN or infinite value at row",
+   "an embeddings tensor holds a NaN or infinite value"
+  ],
+  "embeddings-header-past-64-kib": [
+   "bytes, past its bound or its end",
+   "an embeddings tensor states a header past its bound or its end"
+  ],
+  "embeddings-header-leading-space": [
+   "header is a JSON object from its first byte, padded with spaces only",
+   "header is a JSON object from its first byte, padded with spaces only"
+  ],
+  "embeddings-header-trailing-line-feed": [
+   "header is a JSON object from its first byte, padded with spaces only",
+   "header is a JSON object from its first byte, padded with spaces only"
+  ],
+  "embeddings-dimension-zero": [
+   "names a dimension, an integer of",
+   "an embeddings index names a dimension of"
+  ],
+  "embeddings-dimension-past-4096": [
+   "names a dimension, an integer of",
+   "an embeddings index names a dimension of"
+  ],
+  "embeddings-nine-sets": [
+   "A pack carries at most",
+   "a pack carries at most"
+  ],
+  "embeddings-row-of-a-line-without-a-key": [
+   "the pack holds no record of",
+   "an embeddings index names a row the pack holds no record of"
+  ],
+  "embeddings-beside-a-line-nested-too-deep": [
+   "has been exceeded. Cannot read next JSON array",
+   "a JSON file nests deeper than"
+  ],
   "valid-until-not-rfc3339": [
    "pack.json has a validUntil that is not an RFC",
    "pack.json has a validUntil that is not a date and time"
@@ -173,6 +241,30 @@
    "that is not an object",
    "that is not an object"
   ],
+  "display-title-bidi-override": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
+  "display-title-two-lines": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
+  "display-title-61-characters": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
+  "display-description-soft-hyphen": [
+   "pack.json has a display.description that is not display-safe text of",
+   "pack.json has a display.description that is not display-safe text of"
+  ],
+  "display-title-line-separator": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
+  "display-title-blank": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
   "number-beyond-double": [
    "has a number out of range at $.n",
    "a JSON number is out of range"
@@ -185,7 +277,7 @@
    "combining marks in a row at $.key",
    "a JSON string has more than"
   ],
-  "source-101-astral-characters": [
+  "source-201-astral-characters": [
    "an object of repository, commit and builtAt, each a string of",
    "pack.json has a malformed"
   ],
@@ -373,9 +465,13 @@
    "extension without marking it critical; a host that cannot enforce an audience must refuse the pack, not ignore it",
    "extension without marking it critical"
   ],
-  "federated-purpose-151-astral": [
-   "The federation purpose is text of",
-   "the federation purpose is text of"
+  "federated-purpose-301-astral": [
+   "The federation purpose is display-safe text of",
+   "the federation purpose is display-safe text of"
+  ],
+  "federated-purpose-bidi-override": [
+   "The federation purpose is display-safe text of",
+   "the federation purpose is display-safe text of"
   ],
   "set-federated-member-not-federated": [
    "The member io.example.notes of a federated set is not federated",
@@ -434,8 +530,8 @@
    "the federation publisher is not a WebID"
   ],
   "federated-purpose-301": [
-   "The federation purpose is text of",
-   "the federation purpose is text of"
+   "The federation purpose is display-safe text of",
+   "the federation purpose is display-safe text of"
   ],
   "policy-federated-host-extra": [
    "is an object holding only",
@@ -466,6 +562,10 @@
    "is a list of at most"
   ],
   "card-owner-empty": [
+   "characters, without control characters but a line feed or a tab",
+   "card.json names its owner as"
+  ],
+  "card-owner-blank": [
    "characters, without control characters but a line feed or a tab",
    "card.json names its owner as"
   ],
@@ -716,6 +816,14 @@
   "certificate-aef-run-not-named": [
    "An AEF run travels with the certificate, but the certificate names none",
    "an AEF run travels with the certificate, but the certificate names none"
+  ],
+  "certificate-aef-run-json-outside-profile": [
+   "The AEF run beside the certificate is the evidence of another",
+   "the AEF run beside the certificate is the evidence of another decision"
+  ],
+  "certificate-aef-run-of-another-pack": [
+   "The AEF run beside the certificate is the evidence of another",
+   "the AEF run beside the certificate is the evidence of another decision"
   ],
   "certificate-aef-run-other-id": [
    "The AEF run beside the certificate is",

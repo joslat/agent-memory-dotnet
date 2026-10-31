@@ -72,6 +72,10 @@ public sealed class AmpackCommandLineTests : IDisposable
         manifest["tier"] = "curated";
         File.WriteAllText(At("notes", "pack.json"), manifest.ToJsonString());
         Ampack("lint", "notes").Exit.Should().NotBe(0, "a curated pack is held to the scan without asking");
+        // Feature 04 review, M5: only high-severity findings stop it; an address, which a pack may mean to carry, stays advice.
+        File.WriteAllText(At("notes", "records", "note.jsonl"),
+            """{"type":"NotesNote","key":"note-1","properties":{"title":"First note","text":"Write to team@example.org with questions."}}""" + "\n");
+        Done("lint", "notes");
     }
 
     private string Done(params string[] args)
@@ -274,9 +278,14 @@ public sealed class AmpackCommandLineTests : IDisposable
 
         // Text a pack carries reaches the terminal without control or direction characters, in what is shown and in what a
         // refusal quotes (FED-review round 2).
-        Done("init", "loud", "--id", "io.supplier-a.loud", "--publisher", publisher, "--audience", buyer, "--purpose", "Supply\u001b[31m‏chain");
+        // A purpose is display text (feature 04 review, M8): one holding an escape and a direction mark is refused, and the
+        // refusal quotes it without them.
+        var (louder, said) = Ampack("init", "louder", "--id", "io.supplier-a.louder", "--publisher", publisher, "--audience", buyer, "--purpose", "Supply\u001b[31m‏chain");
+        louder.Should().NotBe(0);
+        said.Should().Contain("display-safe").And.NotContain("\u001b").And.NotContain("‏");
+        Done("init", "loud", "--id", "io.supplier-a.loud", "--publisher", publisher, "--audience", buyer, "--purpose", "Supply chain");
         Done("build", "loud", "--out", "loud.ampack", "--key", At("keys", "supplier.key.pem"));
-        Done("verify", "loud.ampack", "--policy", "buyer.json").Should().Contain("purpose Supply?[31m?chain").And.NotContain("\u001b").And.NotContain("‏");
+        Done("verify", "loud.ampack", "--policy", "buyer.json").Should().Contain("purpose Supply chain");
         var manifest = JsonNode.Parse(File.ReadAllText(At("loud", "pack.json")))!.AsObject();
         manifest["note\u001b[2J"] = "x";
         File.WriteAllText(At("loud", "pack.json"), manifest.ToJsonString());

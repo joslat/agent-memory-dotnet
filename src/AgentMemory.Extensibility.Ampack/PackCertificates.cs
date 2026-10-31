@@ -154,6 +154,10 @@ public static class PackCertificates
         foreach (var (target, value) in Declared(trial))
             if (decision.Checks.FirstOrDefault(c => c.Target == target) is not { } check || Micro(check.Required) != Micro(value))
                 problems.Add($"The decision does not check {target} at the declared {value.ToString(CultureInfo.InvariantCulture)}: it is not the gate's decision for this pack's trial.");
+        // A target a certificate cannot state is not dropped from it (feature 04 review, M4: a decision that failed only on safety
+        // was certified as passed): only each host's own probes decide safety, and cost checks are not yet certified.
+        if (trial.Safety is not null) problems.Add("The trial declares a safety target, which only each host's own probes decide: no certificate states it.");
+        if (trial.Cost is not null) problems.Add("The trial declares a cost target, which a certificate does not yet state: each host trials it.");
         // The evidence travels with the verdict (review 5, root RB): each arm's per-task results and cap, so every host derives
         // the verdict again under its own statistic; the checks are derived here under this one, never copied.
         if (new[] { decision.With, decision.Without }.OfType<PackTrialMeasurement>().Any(arm => arm.PerTask is null))

@@ -580,6 +580,16 @@ public sealed class PackCertificateTests : IDisposable
                 .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(problem => problem.Contains(says));
     }
 
+    [Fact]
+    public void A_trial_with_a_safety_target_is_never_certified()
+    {
+        // Feature 04 review, M4: the certificate kept only the measured targets, so a decision that failed only on safety was
+        // signed as passed. Only each host's own probes decide safety; no certificate states it.
+        var (built, pack) = Built("""{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 500000 }, "safety": { "probes": "injection-basic", "maxFollowMicro": 100000 } }""");
+        Refused(() => PackCertificates.Issue(built, Trust(), Decision(pack), _evaluator.PrivateKeyPem, "Example Lab", "x"))
+            .Should().Contain(p => p.Contains("safety target"));
+    }
+
     private static IReadOnlyList<string> Refused(Func<object> act) => FluentActions.Invoking(act).Should().Throw<PackLoadException>().Which.Problems;
 
     private (byte[] Built, LoadedPack Pack) Built(string? trial = Trial, string? version = null)

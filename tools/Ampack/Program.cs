@@ -449,13 +449,14 @@ internal static partial class Program
         problems.AddRange(PackPaths.SignatureFolderProblems(content.Files));
         if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Problem is { } cardProblem) problems.Add(cardProblem);
         if (problems.Count == 0 && content.Files.ContainsKey(PackPaths.FilesList)) problems.AddRange(PackVerifier.CheckIntegrity(content).Problems);
-        // The content scan as an error level (feature 04, R-HOST-057): asked for, or for a curated or premium pack, every finding
-        // (personal data, a secret, an injection payload) stops it, before the pack travels.
+        // The content scan as an error level (feature 04, R-HOST-057): asked for, or for a curated or premium pack, every
+        // high-severity finding (a secret, a card or account number, an injection payload) stops it, before the pack travels; an
+        // address or a phone number, which a pack may mean to carry (its owner's contact), stays the scan's advice.
         if (problems.Count == 0 && (o.Flag("safety") || declared?.Tier is "curated" or "premium"))
         {
             try
             {
-                foreach (var finding in AgentMemory.Extensibility.Ampack.PackScan.Scan(content.Files, verified: false).Findings)
+                foreach (var finding in AgentMemory.Extensibility.Ampack.PackScan.Scan(content.Files, verified: false).Findings.Where(f => f.Severity == "high"))
                     problems.Add(Shown($"safety: {finding.Rule} ({finding.Severity}) in {finding.File}{(finding.Line > 0 ? ":" + finding.Line : "")} {finding.Path}", 500));
             }
             catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { problems.AddRange(e.Problems); }

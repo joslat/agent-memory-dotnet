@@ -47,8 +47,8 @@ internal sealed record PackFederation(string Publisher, IReadOnlyList<string>? A
         string? purpose = null;
         if (value.TryGetProperty("purpose", out var purposeValue))
         {
-            if (purposeValue.ValueKind != JsonValueKind.String || PackText.Length(purposeValue.GetString()!) is 0 or > MaximumPurpose)
-                return (null, $"The federation purpose is text of 1 to {MaximumPurpose} characters.");
+            if (purposeValue.ValueKind != JsonValueKind.String || !PackCard.IsText(purposeValue.GetString()!, MaximumPurpose))
+                return (null, $"The federation purpose is display-safe text of 1 to {MaximumPurpose} characters.");
             purpose = purposeValue.GetString();
         }
         return (new PackFederation(publisher, audience, purpose), null);

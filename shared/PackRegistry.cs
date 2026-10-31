@@ -54,6 +54,8 @@ internal static class PackRegistry
         .ToDictionary(p => p.Name, p => p.Value.GetProperty("field").GetString()!, StringComparer.Ordinal);
     internal static readonly IReadOnlySet<string> UpgradeFields = Set("trial", "upgradeFields");
     internal static readonly IReadOnlySet<string> SafetyFields = Set("trial", "safetyFields");
+    /// <summary>The targets met at or below their value (feature 04 review, M6); every other target is met at or above it.</summary>
+    internal static readonly IReadOnlySet<string> AtMost = Set("trial", "atMost");
     /// <summary>The cost targets (feature 05), by name, each with its field in a trial's <c>cost</c>.</summary>
     internal static readonly IReadOnlyDictionary<string, string> CostFields = Path("trial", "costTargets").EnumerateObject()
         .ToDictionary(p => p.Name, p => p.Value.GetProperty("field").GetString()!, StringComparer.Ordinal);

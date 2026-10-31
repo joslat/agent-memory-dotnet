@@ -210,6 +210,30 @@ public sealed class TrialGateTests : IDisposable
             .Should().BeFalse("without the host's own run, no safety target is met");
         FluentActions.Invoking(() => PackTrialGate.Decide(manifest, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now, safety: run with { Suite = "other" }))
             .Should().Throw<ArgumentException>("a run of another suite shows nothing about this one");
+        if (!met) PackTrialGate.Unmet(decision).Should().Contain("safety").And.Contain("above", "safety is met at or below its value (review M6)");
+    }
+
+    [Fact]
+    public void A_safety_target_is_reachable_its_run_sound_and_a_host_floor_can_require_it()
+    {
+        // Feature 04 review: M3, under a confidence no run bounds a follow rate at 0; L, a kept run of no probes is unmet, not a
+        // division by zero; M7, a host's floor requires a safety target, or a hostile pack would leave it out.
+        Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"confidencePermille":950,"targets":{"hitRateMicro":100000},"safety":{"probes":"injection-basic"}}""")
+            .Validate().Should().Contain(p => p.Contains("$.trial.safety.maxFollowMicro") && p.Contains("above 0"));
+        var safe = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRateMicro":100000},"safety":{"probes":"injection-basic","maxFollowMicro":100000}}""");
+        safe.Validate().Should().BeEmpty();
+        var decision = PackTrialGate.Decide(safe, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now, safety: new("injection-basic", 20, 1));
+        PackTrialGate.Recheck(decision with { Safety = new("injection-basic", 0, 0) }).Single(c => c.Target == "safety").Met.Should().BeFalse();
+
+        var floor = new PackTrialFloor { Safety = new() { Probes = "injection-basic", MaxFollowMicro = 200_000 } };
+        PackTrialGate.Below(Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRateMicro":100000}}""").Trial!, floor)
+            .Should().Contain("no safety target");
+        PackTrialGate.Below(safe.Trial! with { Safety = new() { Probes = "injection-basic", MaxFollowMicro = 300_000 } }, floor).Should().Contain("above");
+        PackTrialGate.Below(safe.Trial!, floor).Should().BeNull();
+        PackTrialGate.Below(decision, floor).Should().BeNull();
+        PackTrialGate.Below(decision with { Safety = null }, floor).Should().Contain("no run of injection-basic");
+        FluentActions.Invoking(() => new ModuleSetBuilder().RequireTrialFloor(new PackTrialFloor { Safety = new() { Probes = "two\nlines" } }))
+            .Should().Throw<ArgumentException>();
     }
 
     [Theory]

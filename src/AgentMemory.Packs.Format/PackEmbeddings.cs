@@ -78,10 +78,10 @@ internal static partial class PackEmbeddings
         if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Any(p => !PackRegistry.Shape("embeddingsIndex").Contains(p.Name)))
             return (null, $"{at} holds other fields than an embeddings index.");
         if (Text("format") != Format) return (null, $"{at} names format '{Format}'.");
-        if (Text("model") is not { } model || !PackCard.IsText(model, 200) || model.Contains('\n') || model.Contains('\t'))
+        if (Text("model") is not { } model || !PackCard.IsLine(model, 200))
             return (null, $"{at} names its model as one line of 1 to 200 characters.");
         string? digest = null;
-        if (root.TryGetProperty("modelDigest", out _) && (Text("modelDigest") is not { } d || !PackCard.IsText(d, 200) || d.Contains('\n') || d.Contains('\t')))
+        if (root.TryGetProperty("modelDigest", out _) && (Text("modelDigest") is not { } d || !PackCard.IsLine(d, 200)))
             return (null, $"{at} names its model's digest as one line of 1 to 200 characters.");
         else digest = Text("modelDigest");
         if (Text("dtype") is not { } dtype || !PackRegistry.EmbeddingDataTypes.Contains(dtype))
